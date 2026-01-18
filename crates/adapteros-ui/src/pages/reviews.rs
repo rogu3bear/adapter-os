@@ -4,20 +4,24 @@
 
 use crate::api::ApiClient;
 use crate::components::{
-    Badge, BadgeVariant, Card, EmptyState, EmptyStateVariant, ErrorDisplay, LoadingDisplay,
-    PageHeader, RefreshButton, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    Badge, BadgeVariant, Button, ButtonVariant, Card, Dialog, EmptyState, EmptyStateVariant,
+    ErrorDisplay, LoadingDisplay, PageHeader, RefreshButton, Select, Table, TableBody, TableCell,
+    TableHead, TableHeader, TableRow, Textarea,
 };
 use crate::hooks::{use_api_resource, LoadingState};
-use adapteros_api_types::review::{PauseKind, PausedInferenceInfo};
+use adapteros_api_types::review::{
+    PauseKind, PausedInferenceInfo, Review, ReviewAssessment, SubmitReviewRequest,
+};
 use leptos::prelude::*;
 use std::sync::Arc;
 
 /// Reviews queue page
 #[component]
 pub fn Reviews() -> impl IntoView {
-    let (reviews, refetch) = use_api_resource(|client: Arc<ApiClient>| async move {
-        client.list_paused_reviews().await
-    });
+    let (reviews, refetch) =
+        use_api_resource(
+            |client: Arc<ApiClient>| async move { client.list_paused_reviews().await },
+        );
 
     let refetch_trigger = RwSignal::new(0u32);
 
@@ -34,6 +38,40 @@ pub fn Reviews() -> impl IntoView {
         refetch_trigger.update(|n| *n = n.wrapping_add(1));
     };
 
+    // Selected review for detail view
+    let selected_review: RwSignal<Option<PausedInferenceInfo>> = RwSignal::new(None);
+
+    // Callback when a review row is clicked
+    let on_select = Callback::new(move |info: PausedInferenceInfo| {
+        selected_review.set(Some(info));
+    });
+
+    // Close detail dialog
+    let on_close = Callback::new(move |_: ()| {
+        selected_review.set(None);
+    });
+
+    // After submission, refresh and close
+    let on_submit = Callback::new(move |_: ()| {
+        selected_review.set(None);
+        trigger_refresh();
+    });
+
+    // Dialog open state derived from selected_review
+    let dialog_open = RwSignal::new(false);
+
+    // Sync dialog_open with selected_review
+    Effect::new(move || {
+        dialog_open.set(selected_review.get().is_some());
+    });
+
+    // Handle dialog close by clicking backdrop
+    Effect::new(move || {
+        if !dialog_open.get() && selected_review.get().is_some() {
+            selected_review.set(None);
+        }
+    });
+
     view! {
         <div class="space-y-6">
             <PageHeader
@@ -49,7 +87,13 @@ pub fn Reviews() -> impl IntoView {
                         view! { <LoadingDisplay message="Loading reviews..."/> }.into_any()
                     }
                     LoadingState::Loaded(data) => {
-                        view! { <ReviewsQueue paused=data.paused total=data.total /> }.into_any()
+                        view! {
+                            <ReviewsQueue
+                                paused=data.paused
+                                total=data.total
+                                on_select=on_select
+                            />
+                        }.into_any()
                     }
                     LoadingState::Error(e) => {
                         view! {
@@ -61,13 +105,30 @@ pub fn Reviews() -> impl IntoView {
                     }
                 }
             }}
+
+            // Review detail dialog
+            {move || {
+                selected_review.get().map(|review| {
+                    view! {
+                        <ReviewDetailDialog
+                            review=review
+                            on_close=on_close
+                            on_submit=on_submit
+                        />
+                    }
+                })
+            }}
         </div>
     }
 }
 
 /// Reviews queue component
 #[component]
-fn ReviewsQueue(paused: Vec<PausedInferenceInfo>, total: usize) -> impl IntoView {
+fn ReviewsQueue(
+    paused: Vec<PausedInferenceInfo>,
+    total: usize,
+    on_select: Callback<PausedInferenceInfo>,
+) -> impl IntoView {
     if paused.is_empty() {
         return view! {
             <Card>
@@ -96,13 +157,14 @@ fn ReviewsQueue(paused: Vec<PausedInferenceInfo>, total: usize) -> impl IntoView
                         <TableHead>"Type"</TableHead>
                         <TableHead>"Duration"</TableHead>
                         <TableHead>"Preview"</TableHead>
+                        <TableHead>"Action"</TableHead>
                     </TableRow>
                 </TableHeader>
                 <TableBody>
                     {paused
                         .into_iter()
                         .map(|info| {
-                            view! { <ReviewRow info=info /> }
+                            view! { <ReviewRow info=info on_select=on_select /> }
                         })
                         .collect::<Vec<_>>()}
                 </TableBody>
@@ -114,7 +176,7 @@ fn ReviewsQueue(paused: Vec<PausedInferenceInfo>, total: usize) -> impl IntoView
 
 /// Individual review row component
 #[component]
-fn ReviewRow(info: PausedInferenceInfo) -> impl IntoView {
+fn ReviewRow(info: PausedInferenceInfo, on_select: Callback<PausedInferenceInfo>) -> impl IntoView {
     let pause_id = info.pause_id.clone();
     let pause_id_short = if pause_id.len() > 12 {
         format!("{}...", &pause_id[..12])
@@ -136,6 +198,9 @@ fn ReviewRow(info: PausedInferenceInfo) -> impl IntoView {
         .clone()
         .unwrap_or_else(|| "No preview available".to_string());
     let preview_title = preview.clone();
+
+    // Clone info for the click handler
+    let info_for_click = info.clone();
 
     view! {
         <TableRow>
@@ -161,6 +226,16 @@ fn ReviewRow(info: PausedInferenceInfo) -> impl IntoView {
                 <p class="text-sm text-muted-foreground truncate max-w-xs" title=preview_title>
                     {preview}
                 </p>
+            </TableCell>
+            <TableCell>
+                <Button
+                    variant=ButtonVariant::Outline
+                    on_click=Callback::new(move |_| {
+                        on_select.run(info_for_click.clone());
+                    })
+                >
+                    "Review"
+                </Button>
             </TableCell>
         </TableRow>
     }
@@ -196,5 +271,308 @@ fn format_duration(secs: u64) -> String {
         } else {
             format!("{}h {}m", hours, remaining_mins)
         }
+    }
+}
+
+/// Review detail dialog component
+///
+/// Shows pause context, trigger kind, and submission form for
+/// approving, rejecting, or requesting changes on a paused inference.
+#[component]
+fn ReviewDetailDialog(
+    review: PausedInferenceInfo,
+    on_close: Callback<()>,
+    on_submit: Callback<()>,
+) -> impl IntoView {
+    // Form state
+    let assessment = RwSignal::new("approved".to_string());
+    let comment = RwSignal::new(String::new());
+    let submitting = RwSignal::new(false);
+    let submit_error: RwSignal<Option<String>> = RwSignal::new(None);
+
+    // Dialog open state
+    let dialog_open = RwSignal::new(true);
+
+    // Watch for dialog close via backdrop/escape
+    Effect::new(move || {
+        if !dialog_open.get() {
+            on_close.run(());
+        }
+    });
+
+    // Assessment options for the select
+    let assessment_options = vec![
+        ("approved".to_string(), "Approved".to_string()),
+        (
+            "approved_with_suggestions".to_string(),
+            "Approved with Suggestions".to_string(),
+        ),
+        ("needs_changes".to_string(), "Needs Changes".to_string()),
+        ("rejected".to_string(), "Rejected".to_string()),
+        ("inconclusive".to_string(), "Inconclusive".to_string()),
+    ];
+
+    // Create the submit handler
+    let pause_id = review.pause_id.clone();
+    let handle_submit = move |_| {
+        submitting.set(true);
+        submit_error.set(None);
+
+        let pause_id = pause_id.clone();
+        let assessment_value = assessment.get();
+        let comment_value = comment.get();
+        let on_submit = on_submit.clone();
+
+        // Parse assessment
+        let review_assessment = match assessment_value.as_str() {
+            "approved" => ReviewAssessment::Approved,
+            "approved_with_suggestions" => ReviewAssessment::ApprovedWithSuggestions,
+            "needs_changes" => ReviewAssessment::NeedsChanges,
+            "rejected" => ReviewAssessment::Rejected,
+            "inconclusive" => ReviewAssessment::Inconclusive,
+            _ => ReviewAssessment::Approved,
+        };
+
+        // Build the review request
+        let request = SubmitReviewRequest {
+            pause_id,
+            review: Review {
+                assessment: review_assessment,
+                issues: vec![],
+                suggestions: vec![],
+                comments: if comment_value.is_empty() {
+                    None
+                } else {
+                    Some(comment_value)
+                },
+                confidence: None,
+            },
+            reviewer: "human".to_string(),
+        };
+
+        // Submit via API
+        let client = Arc::new(ApiClient::new());
+        wasm_bindgen_futures::spawn_local(async move {
+            match client.submit_review(&request).await {
+                Ok(response) => {
+                    if response.accepted {
+                        on_submit.run(());
+                    } else {
+                        submit_error.set(Some(
+                            response
+                                .message
+                                .unwrap_or_else(|| "Review was not accepted".to_string()),
+                        ));
+                        submitting.set(false);
+                    }
+                }
+                Err(e) => {
+                    submit_error.set(Some(format!("Failed to submit review: {}", e)));
+                    submitting.set(false);
+                }
+            }
+        });
+    };
+
+    // Quick action buttons
+    let pause_id_approve = review.pause_id.clone();
+    let handle_approve = move |_| {
+        submitting.set(true);
+        submit_error.set(None);
+
+        let pause_id = pause_id_approve.clone();
+        let on_submit = on_submit.clone();
+        let request = SubmitReviewRequest {
+            pause_id,
+            review: Review::approved(None),
+            reviewer: "human".to_string(),
+        };
+
+        let client = Arc::new(ApiClient::new());
+        wasm_bindgen_futures::spawn_local(async move {
+            match client.submit_review(&request).await {
+                Ok(response) => {
+                    if response.accepted {
+                        on_submit.run(());
+                    } else {
+                        submit_error.set(Some(
+                            response
+                                .message
+                                .unwrap_or_else(|| "Review was not accepted".to_string()),
+                        ));
+                        submitting.set(false);
+                    }
+                }
+                Err(e) => {
+                    submit_error.set(Some(format!("Failed to submit review: {}", e)));
+                    submitting.set(false);
+                }
+            }
+        });
+    };
+
+    let pause_id_reject = review.pause_id.clone();
+    let handle_reject = move |_| {
+        submitting.set(true);
+        submit_error.set(None);
+
+        let pause_id = pause_id_reject.clone();
+        let on_submit = on_submit.clone();
+        let request = SubmitReviewRequest {
+            pause_id,
+            review: Review {
+                assessment: ReviewAssessment::Rejected,
+                issues: vec![],
+                suggestions: vec![],
+                comments: None,
+                confidence: None,
+            },
+            reviewer: "human".to_string(),
+        };
+
+        let client = Arc::new(ApiClient::new());
+        wasm_bindgen_futures::spawn_local(async move {
+            match client.submit_review(&request).await {
+                Ok(response) => {
+                    if response.accepted {
+                        on_submit.run(());
+                    } else {
+                        submit_error.set(Some(
+                            response
+                                .message
+                                .unwrap_or_else(|| "Review was not accepted".to_string()),
+                        ));
+                        submitting.set(false);
+                    }
+                }
+                Err(e) => {
+                    submit_error.set(Some(format!("Failed to submit review: {}", e)));
+                    submitting.set(false);
+                }
+            }
+        });
+    };
+
+    // Context info
+    let kind_badge = pause_kind_badge(&review.kind);
+    let duration = format_duration(review.duration_secs);
+    let context_preview = review
+        .context_preview
+        .clone()
+        .unwrap_or_else(|| "No context available".to_string());
+
+    view! {
+        <Dialog
+            open=dialog_open
+            title="Review Paused Inference"
+            description="Review the context and submit your assessment."
+        >
+            <div class="space-y-6">
+                // Context info section
+                <div class="space-y-4">
+                    <h3 class="text-sm font-medium text-foreground">"Pause Context"</h3>
+
+                    // Metadata grid
+                    <div class="grid grid-cols-2 gap-4 text-sm">
+                        <div>
+                            <span class="text-muted-foreground">"Pause ID: "</span>
+                            <span class="font-mono">{review.pause_id.clone()}</span>
+                        </div>
+                        <div>
+                            <span class="text-muted-foreground">"Inference ID: "</span>
+                            <span class="font-mono">{review.inference_id.clone()}</span>
+                        </div>
+                        <div>
+                            <span class="text-muted-foreground">"Trigger: "</span>
+                            <Badge variant=kind_badge.0>
+                                {kind_badge.1}
+                            </Badge>
+                        </div>
+                        <div>
+                            <span class="text-muted-foreground">"Duration: "</span>
+                            <span>{duration}</span>
+                        </div>
+                        <div>
+                            <span class="text-muted-foreground">"Paused At: "</span>
+                            <span>{review.paused_at.clone()}</span>
+                        </div>
+                    </div>
+
+                    // Context preview
+                    <div class="rounded-md bg-muted p-3">
+                        <p class="text-sm font-medium text-muted-foreground mb-1">"Content Preview"</p>
+                        <p class="text-sm whitespace-pre-wrap">{context_preview}</p>
+                    </div>
+                </div>
+
+                // Quick actions
+                <div class="space-y-2">
+                    <h3 class="text-sm font-medium text-foreground">"Quick Actions"</h3>
+                    <div class="flex gap-2">
+                        <Button
+                            variant=ButtonVariant::Primary
+                            on_click=Callback::new(handle_approve)
+                            disabled=submitting
+                            loading=submitting
+                        >
+                            "Approve"
+                        </Button>
+                        <Button
+                            variant=ButtonVariant::Destructive
+                            on_click=Callback::new(handle_reject)
+                            disabled=submitting
+                        >
+                            "Reject"
+                        </Button>
+                    </div>
+                </div>
+
+                // Detailed submission form
+                <div class="space-y-4 pt-4 border-t">
+                    <h3 class="text-sm font-medium text-foreground">"Detailed Review"</h3>
+
+                    <Select
+                        value=assessment
+                        options=assessment_options
+                        label="Assessment".to_string()
+                    />
+
+                    <Textarea
+                        value=comment
+                        label="Comments (optional)".to_string()
+                        placeholder="Add any comments, suggestions, or issues..."
+                        rows=4
+                    />
+
+                    // Error display
+                    {move || submit_error.get().map(|err| {
+                        view! {
+                            <div class="text-sm text-destructive" role="alert">
+                                {err}
+                            </div>
+                        }
+                    })}
+
+                    // Submit button
+                    <div class="flex justify-end gap-2">
+                        <Button
+                            variant=ButtonVariant::Outline
+                            on_click=Callback::new(move |_| on_close.run(()))
+                            disabled=submitting
+                        >
+                            "Cancel"
+                        </Button>
+                        <Button
+                            variant=ButtonVariant::Primary
+                            on_click=Callback::new(handle_submit)
+                            disabled=submitting
+                            loading=submitting
+                        >
+                            "Submit Review"
+                        </Button>
+                    </div>
+                </div>
+            </div>
+        </Dialog>
     }
 }
