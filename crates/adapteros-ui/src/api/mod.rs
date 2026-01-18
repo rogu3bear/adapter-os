@@ -6,6 +6,7 @@
 pub mod client;
 pub mod error;
 pub mod error_reporter;
+pub mod reviews;
 pub mod sse;
 
 pub use client::{
