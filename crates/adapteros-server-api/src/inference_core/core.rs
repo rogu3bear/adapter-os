@@ -2591,14 +2591,16 @@ impl<'a> InferenceCore<'a> {
                         _ => None,
                     };
 
-                    // Store evidence (best effort, don't fail inference)
-                    // NOTE: message_id is None because the message is created after inference completes
+                    // Store evidence (best effort, Phase 1 of two-phase binding).
+                    // NOTE: message_id is None because the message is created after inference.
+                    // PRD-003: After message creation, call db.bind_evidence_to_message()
+                    // with the returned evidence_ids to complete the audit trail.
                     let _evidence_ids = store_rag_evidence(
                         self.state,
                         &rag_result,
                         &request.request_id,
                         request.session_id.as_deref(),
-                        None, // TODO: Pass message_id when available
+                        None, // Phase 2: bind_evidence_to_message(evidence_ids, message_id)
                         model_context.as_ref(),
                     )
                     .await;

@@ -795,14 +795,16 @@ pub async fn streaming_infer(
             .await
             {
                 Ok(rag_result) if !rag_result.context.is_empty() => {
-                    // Store evidence for this retrieval
-                    // NOTE: message_id is None because the message is created after inference completes
-                    store_rag_evidence(
+                    // Store evidence for this retrieval (Phase 1 of two-phase binding).
+                    // NOTE: message_id is None because the message is created after inference.
+                    // PRD-003: After message creation, call db.bind_evidence_to_message()
+                    // with the returned evidence_ids to complete the audit trail.
+                    let _evidence_ids = store_rag_evidence(
                         &state,
                         &rag_result,
                         &request_id,
                         req.session_id.as_deref(),
-                        None, // TODO: Pass message_id when chat flow creates it before inference
+                        None, // Phase 2: bind_evidence_to_message(evidence_ids, message_id)
                         None, // model_context not available in streaming flow
                     )
                     .await;
