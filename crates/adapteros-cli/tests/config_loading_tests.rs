@@ -71,10 +71,16 @@ mod config_loading {
         (root, path)
     }
 
+    fn set_temp_model_path_env() -> (TempDir, EnvGuard) {
+        let temp_dir = new_temp_model_dir();
+        let guard = EnvGuard::set("AOS_MODEL_PATH", temp_dir.path().to_str().unwrap());
+        (temp_dir, guard)
+    }
+
     #[test]
     #[serial]
     fn test_model_config_from_cli_args() {
-        let temp_dir = new_temp_model_dir();
+        let (temp_dir, _model_path_guard) = set_temp_model_path_env();
         let cli = parse_cli(vec![
             "aosctl",
             "--model-path",
@@ -139,7 +145,7 @@ mod config_loading {
     #[test]
     #[serial]
     fn test_default_backend_preference() {
-        let _model_path_guard = EnvGuard::unset("AOS_MODEL_PATH");
+        let (_temp_dir, _model_path_guard) = set_temp_model_path_env();
         let _backend_guard = EnvGuard::unset("AOS_MODEL_BACKEND");
         let cli = parse_cli(vec!["aosctl", "adapter-list"]);
 
@@ -153,7 +159,7 @@ mod config_loading {
     #[test]
     #[serial]
     fn test_backend_preference_parsing() {
-        let _model_path_guard = EnvGuard::unset("AOS_MODEL_PATH");
+        let (_temp_dir, _model_path_guard) = set_temp_model_path_env();
         let _backend_guard = EnvGuard::unset("AOS_MODEL_BACKEND");
         // Test all valid backend preferences
         let backends = vec![
@@ -183,7 +189,7 @@ mod config_loading {
     #[test]
     #[serial]
     fn test_invalid_backend_preference() {
-        let _model_path_guard = EnvGuard::unset("AOS_MODEL_PATH");
+        let (_temp_dir, _model_path_guard) = set_temp_model_path_env();
         let _backend_guard = EnvGuard::unset("AOS_MODEL_BACKEND");
         let cli = parse_cli(vec![
             "aosctl",
@@ -199,7 +205,7 @@ mod config_loading {
     #[test]
     #[serial]
     fn test_model_path_expansion() {
-        let temp_dir = new_temp_model_dir();
+        let (temp_dir, _model_path_guard) = set_temp_model_path_env();
         let cli = parse_cli(vec![
             "aosctl",
             "--model-path",
@@ -219,6 +225,7 @@ mod config_loading {
     #[serial]
     fn test_model_path_with_spaces() {
         let (_temp_dir, path) = new_temp_model_subdir("path with spaces/to model");
+        let _model_path_guard = EnvGuard::set("AOS_MODEL_PATH", path.to_str().unwrap());
         let cli = parse_cli(vec![
             "aosctl",
             "--model-path",
@@ -234,6 +241,7 @@ mod config_loading {
     #[serial]
     fn test_model_path_with_special_chars() {
         let root = new_temp_model_dir();
+        let _model_path_guard = EnvGuard::set("AOS_MODEL_PATH", root.path().to_str().unwrap());
         let paths = vec![
             "with-dashes",
             "with_underscores",
@@ -259,7 +267,7 @@ mod config_loading {
     #[test]
     #[serial]
     fn test_config_independence_between_calls() {
-        let temp_dir1 = new_temp_model_dir();
+        let (temp_dir1, _model_path_guard) = set_temp_model_path_env();
         let temp_dir2 = new_temp_model_dir();
         // First call with one config
         let cli1 = parse_cli(vec![
@@ -293,7 +301,7 @@ mod config_loading {
     #[test]
     #[serial]
     fn test_empty_model_path() {
-        let _model_path_guard = EnvGuard::unset("AOS_MODEL_PATH");
+        let (_temp_dir, _model_path_guard) = set_temp_model_path_env();
         let _backend_guard = EnvGuard::unset("AOS_MODEL_BACKEND");
         // CLI with no model path should use env or defaults
         let cli = parse_cli(vec!["aosctl", "adapter-list"]);
@@ -306,7 +314,7 @@ mod config_loading {
     #[test]
     #[serial]
     fn test_case_sensitivity_backend() {
-        let _model_path_guard = EnvGuard::unset("AOS_MODEL_PATH");
+        let (_temp_dir, _model_path_guard) = set_temp_model_path_env();
         let _backend_guard = EnvGuard::unset("AOS_MODEL_BACKEND");
         // Backend names should be case-insensitive
         let cli = parse_cli(vec![
@@ -323,7 +331,7 @@ mod config_loading {
     #[test]
     #[serial]
     fn test_global_flags_with_model_config() {
-        let temp_dir = new_temp_model_dir();
+        let (temp_dir, _model_path_guard) = set_temp_model_path_env();
         let cli = parse_cli(vec![
             "aosctl",
             "--json",

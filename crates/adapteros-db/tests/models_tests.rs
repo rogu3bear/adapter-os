@@ -248,11 +248,17 @@ async fn list_models_returns_all_ordered_by_created_at_desc() -> Result<()> {
 
     let models = db.list_models(tenant_id).await?;
 
-    assert_eq!(models.len(), 3);
-    // Most recent first
-    assert_eq!(models[0].id, id3);
-    assert_eq!(models[1].id, id2);
-    assert_eq!(models[2].id, id1);
+    assert_eq!(models.len(), 4);
+
+    let tenant_models: Vec<_> = models
+        .iter()
+        .filter(|model| model.tenant_id.as_deref() == Some(tenant_id))
+        .collect();
+    assert_eq!(tenant_models.len(), 3);
+    // Most recent first (tenant-scoped models)
+    assert_eq!(tenant_models[0].id, id3);
+    assert_eq!(tenant_models[1].id, id2);
+    assert_eq!(tenant_models[2].id, id1);
 
     Ok(())
 }
@@ -264,7 +270,12 @@ async fn list_models_empty_when_no_models() -> Result<()> {
     create_tenant(&db, tenant_id).await?;
 
     let models = db.list_models(tenant_id).await?;
-    assert_eq!(models.len(), 0);
+    assert_eq!(models.len(), 1);
+    assert_eq!(
+        models[0].tenant_id.as_deref(),
+        Some("system"),
+        "list_models should include system models"
+    );
 
     Ok(())
 }
@@ -281,9 +292,12 @@ async fn list_models_with_stats() -> Result<()> {
     set_model_tenant(&db, &model_id, Some(tenant_id)).await?;
 
     let stats = db.list_models_with_stats(tenant_id).await?;
-    assert_eq!(stats.len(), 1);
+    assert_eq!(stats.len(), 2);
 
-    let model_stats = &stats[0];
+    let model_stats = stats
+        .iter()
+        .find(|entry| entry.model.tenant_id.as_deref() == Some(tenant_id))
+        .expect("tenant model should be present");
     assert_eq!(model_stats.model.id, model_id);
     assert_eq!(model_stats.adapter_count, 0);
     assert_eq!(model_stats.training_job_count, 0);
