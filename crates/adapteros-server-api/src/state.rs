@@ -912,6 +912,8 @@ pub struct AppState {
     pub pause_tracker: Option<Arc<ServerPauseTracker>>,
     // Inference state tracker for full lifecycle tracking (Running/Paused/Complete/Failed)
     pub inference_state_tracker: Option<Arc<crate::inference_state_tracker::InferenceStateTracker>>,
+    // PRD-004: Tenant resource metrics service for CPU/GPU/storage tracking
+    pub tenant_metrics_service: Arc<adapteros_db::TenantMetricsService>,
 }
 
 impl AppState {
@@ -1105,6 +1107,14 @@ impl AppState {
             pause_tracker: None,
             // Inference state tracker disabled by default, set via with_inference_state_tracker
             inference_state_tracker: None,
+            // PRD-004: Tenant metrics service with default paths (can be overridden via with_tenant_metrics_service)
+            tenant_metrics_service: Arc::new(adapteros_db::TenantMetricsService::new(
+                adapteros_db::TenantStoragePaths::new(
+                    "var/artifacts".to_string(),
+                    "var/adapters".to_string(),
+                    "var/datasets".to_string(),
+                ),
+            )),
         }
     }
 
@@ -1457,6 +1467,15 @@ impl AppState {
         tracker: Arc<crate::inference_state_tracker::InferenceStateTracker>,
     ) -> Self {
         self.inference_state_tracker = Some(tracker);
+        self
+    }
+
+    /// Set tenant metrics service with custom storage paths (PRD-004)
+    pub fn with_tenant_metrics_service(
+        mut self,
+        service: Arc<adapteros_db::TenantMetricsService>,
+    ) -> Self {
+        self.tenant_metrics_service = service;
         self
     }
 
