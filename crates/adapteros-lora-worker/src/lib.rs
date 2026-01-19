@@ -2009,6 +2009,61 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         }
     }
 
+    /// Check cancellation and generate receipt if cancelled (PRD-003).
+    ///
+    /// This combines the cancellation check with receipt generation for audit trail
+    /// completeness. If cancelled, generates a receipt before returning the error.
+    ///
+    /// # Arguments
+    /// * `request` - The inference request
+    /// * `token` - The cancellation token
+    /// * `tokens_generated` - Number of tokens generated so far
+    /// * `generated_tokens` - The tokens generated so far (for receipt)
+    /// * `trace_sink` - Optional trace sink for receipt generation
+    ///
+    /// # Returns
+    /// Ok(()) if not cancelled, or Err with the cancellation error after generating receipt.
+    async fn check_cancelled_with_receipt(
+        &self,
+        request: &InferenceRequest,
+        token: Option<&InferenceCancelToken>,
+        tokens_generated: usize,
+        generated_tokens: &[u32],
+        trace_sink: &mut Option<SqlTraceSink>,
+    ) -> Result<()> {
+        match self.check_inference_cancelled(request, token, tokens_generated) {
+            Ok(()) => Ok(()),
+            Err(state) => {
+                // Log cancellation with audit context (PRD-003)
+                info!(
+                    trace_id = %state.trace_id,
+                    tokens_generated = state.tokens_generated,
+                    source = %state.source,
+                    reason = %state.reason_message,
+                    "Inference cancelled - generating cancellation receipt"
+                );
+
+                // Generate cancellation receipt if trace sink is available
+                if let Some(ref mut sink) = trace_sink {
+                    let _ = self
+                        .generate_cancellation_receipt(
+                            sink,
+                            generated_tokens.to_vec(),
+                            state.source,
+                            state.tokens_generated as u32,
+                            request.cpid.clone(),
+                        )
+                        .await;
+                }
+
+                Err(AosError::Worker(format!(
+                    "Inference cancelled after {} tokens: {}",
+                    state.tokens_generated, state.reason_message
+                )))
+            }
+        }
+    }
+
     /// Internal inference implementation with safety checks
     async fn infer_internal(
         &mut self,
@@ -3658,11 +3713,15 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 kernels.run_step(&router_ring, &mut io_buffers)?;
             }
             let kernel_duration = kernel_start.elapsed();
-            self.check_cancelled_or_error(
+            // PRD-003: Check cancellation with receipt generation for audit trail completeness
+            self.check_cancelled_with_receipt(
                 &request,
                 cancel_token.as_deref(),
                 generated_tokens.len(),
-            )?;
+                &generated_tokens,
+                &mut trace_sink,
+            )
+            .await?;
 
             // Record latency for each active adapter (simplified: divide equally)
             if !decision.indices.is_empty() {
