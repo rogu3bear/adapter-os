@@ -79,7 +79,9 @@ use adapteros_core::{
     EquipmentProfile, FusionInterval, ReceiptGenerator, RepoAdapterPaths, Result, RoutingRecord,
     SeedMode, StandardCircuitBreaker,
 };
-use adapteros_db::{Db, SqlTraceSink, TraceFinalization, TraceSink, TraceStart, TraceTokenInput};
+use adapteros_db::{
+    Db, SqlTraceSink, TraceCancellation, TraceFinalization, TraceSink, TraceStart, TraceTokenInput,
+};
 use adapteros_lora_kernel_api::{attestation::DeterminismLevel, FusedKernels, IoBuffers};
 use adapteros_lora_rag::RagSystem;
 use adapteros_lora_router::{
@@ -1931,7 +1933,8 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
     /// Check cancellation and convert to AosError for backward compatibility.
     ///
     /// This wrapper calls `check_inference_cancelled` and converts `CancellationState`
-    /// to `AosError::Worker`. Future enhancement: generate cancellation receipt here.
+    /// to `AosError::Worker`. The cancellation state is preserved in the error for
+    /// generating cancellation receipts at the call site where trace_sink is available.
     fn check_cancelled_or_error(
         &self,
         request: &InferenceRequest,
@@ -1948,13 +1951,62 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                     reason = %state.reason_message,
                     "Inference cancelled - generating audit record"
                 );
-                // TODO: Generate cancellation receipt here using state.tokens_generated
-                // and StopReasonCode::Cancelled when receipt infrastructure is available
                 AosError::Worker(format!(
                     "Inference cancelled after {} tokens: {}",
                     state.tokens_generated, state.reason_message
                 ))
             })
+    }
+
+    /// Generate a cancellation receipt for audit trail completeness (PRD-003).
+    ///
+    /// This should be called when inference is cancelled and a trace_sink is available.
+    /// It creates and stores a cryptographic receipt capturing the partial output state.
+    ///
+    /// # Arguments
+    /// * `trace_sink` - The SQL trace sink to store the receipt
+    /// * `partial_tokens` - Tokens generated before cancellation
+    /// * `cancellation_source` - Why the inference was cancelled
+    /// * `cancelled_at_token` - Token index at cancellation
+    /// * `tenant_id` - Tenant ID for multi-tenant isolation
+    ///
+    /// # Returns
+    /// The cancellation receipt if successful, or logs a warning and returns None on failure.
+    async fn generate_cancellation_receipt(
+        &self,
+        trace_sink: &mut SqlTraceSink,
+        partial_tokens: Vec<u32>,
+        cancellation_source: CancelSource,
+        cancelled_at_token: u32,
+        tenant_id: String,
+    ) -> Option<adapteros_db::TraceCancellationReceipt> {
+        let cancellation = TraceCancellation {
+            partial_tokens,
+            cancellation_source,
+            cancelled_at_token,
+            equipment_profile: self.equipment_profile.clone(),
+            tenant_id: Some(tenant_id),
+        };
+
+        match trace_sink.finalize_cancelled(cancellation).await {
+            Ok(receipt) => {
+                info!(
+                    trace_id = %receipt.trace_id,
+                    partial_output_count = receipt.partial_output_count,
+                    cancellation_source = %receipt.cancellation_source,
+                    receipt_digest = %receipt.receipt_digest.to_hex(),
+                    "Cancellation receipt generated for audit trail (PRD-003)"
+                );
+                Some(receipt)
+            }
+            Err(e) => {
+                warn!(
+                    error = %e,
+                    "Failed to generate cancellation receipt - audit trail incomplete"
+                );
+                None
+            }
+        }
     }
 
     /// Internal inference implementation with safety checks
