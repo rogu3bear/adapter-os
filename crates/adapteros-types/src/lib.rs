@@ -105,7 +105,9 @@ pub use coreml::{
     CoreMLPlacementSpec, CoreMLProjection, CoreMLTargetRef,
 };
 pub use fusion::FusionInterval;
-pub use inference::{InferRequest, RunReceipt, StopReasonCode, STOP_Q15_DENOM};
+pub use inference::{
+    CancelSource, CancellationState, InferRequest, RunReceipt, StopReasonCode, STOP_Q15_DENOM,
+};
 pub use manifest::Manifest;
 pub use repository::RepoTier;
 pub use routing::{RouterCandidate, RouterDecision, RouterModelType};

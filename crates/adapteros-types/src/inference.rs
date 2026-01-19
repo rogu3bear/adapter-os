@@ -71,6 +71,100 @@ impl std::str::FromStr for StopReasonCode {
     }
 }
 
+/// Source of inference cancellation for audit trail (PRD-003).
+///
+/// Categorizes why an inference was cancelled, enabling:
+/// - Audit trail completeness (cancelled requests generate receipts)
+/// - Operational metrics (track cancellation patterns)
+/// - Debugging (distinguish client vs system cancellations)
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum CancelSource {
+    /// Client explicitly disconnected or cancelled request
+    ClientDisconnect,
+    /// Request exceeded configured timeout
+    RequestTimeout,
+    /// Policy enforcement triggered cancellation
+    PolicyViolation,
+    /// Operator or admin manually cancelled
+    ManualCancel,
+    /// Memory pressure or resource exhaustion
+    ResourceExhaustion,
+}
+
+impl std::fmt::Display for CancelSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ClientDisconnect => write!(f, "CLIENT_DISCONNECT"),
+            Self::RequestTimeout => write!(f, "REQUEST_TIMEOUT"),
+            Self::PolicyViolation => write!(f, "POLICY_VIOLATION"),
+            Self::ManualCancel => write!(f, "MANUAL_CANCEL"),
+            Self::ResourceExhaustion => write!(f, "RESOURCE_EXHAUSTION"),
+        }
+    }
+}
+
+impl std::str::FromStr for CancelSource {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "CLIENT_DISCONNECT" | "client_cancelled" => Ok(Self::ClientDisconnect),
+            "REQUEST_TIMEOUT" | "timeout" => Ok(Self::RequestTimeout),
+            "POLICY_VIOLATION" | "policy" => Ok(Self::PolicyViolation),
+            "MANUAL_CANCEL" | "manual" => Ok(Self::ManualCancel),
+            "RESOURCE_EXHAUSTION" | "resource" => Ok(Self::ResourceExhaustion),
+            _ => Ok(Self::ClientDisconnect), // Default for unknown reasons
+        }
+    }
+}
+
+/// State captured when inference is cancelled (PRD-003).
+///
+/// This struct carries the partial output and cancellation metadata,
+/// allowing the caller to build an error receipt before returning to the client.
+#[derive(Debug, Clone)]
+pub struct CancellationState {
+    /// Trace ID for this inference request
+    pub trace_id: String,
+    /// Number of tokens generated before cancellation
+    pub tokens_generated: usize,
+    /// Token IDs generated before cancellation (if available)
+    pub partial_token_ids: Vec<u32>,
+    /// Source/reason for the cancellation
+    pub source: CancelSource,
+    /// Human-readable reason string from cancel token
+    pub reason_message: String,
+    /// Timestamp when cancellation was detected
+    pub cancelled_at: std::time::Instant,
+}
+
+impl CancellationState {
+    /// Create a new cancellation state.
+    pub fn new(
+        trace_id: String,
+        tokens_generated: usize,
+        source: CancelSource,
+        reason_message: String,
+    ) -> Self {
+        Self {
+            trace_id,
+            tokens_generated,
+            partial_token_ids: Vec::new(),
+            source,
+            reason_message,
+            cancelled_at: std::time::Instant::now(),
+        }
+    }
+
+    /// Add partial token IDs generated before cancellation.
+    pub fn with_partial_tokens(mut self, token_ids: Vec<u32>) -> Self {
+        self.partial_token_ids = token_ids;
+        self
+    }
+}
+
 /// Inference request (API surface)
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
