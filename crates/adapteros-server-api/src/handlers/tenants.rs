@@ -544,6 +544,11 @@ pub async fn archive_tenant(
 }
 
 /// Get tenant usage statistics
+///
+/// PRD-004: Returns real resource metrics including storage, CPU, GPU, and memory usage.
+/// Storage metrics are calculated from database tables and filesystem artifacts.
+/// CPU/GPU metrics are tracked per-tenant with rolling windows.
+/// Memory metrics reflect system-wide values (per-tenant attribution is approximate).
 #[utoipa::path(
     get,
     path = "/v1/tenants/{tenant_id}/usage",
@@ -566,23 +571,107 @@ pub async fn get_tenant_usage(
     // Users can only view usage for their own tenant (or admin with explicit access)
     validate_tenant_isolation(&claims, &tenant_id)?;
 
+    // Get basic usage from database (adapter counts, inference counts)
     let usage = state
         .db
         .get_tenant_usage(&tenant_id)
         .await
         .map_err(|e| db_error_msg("failed to get tenant usage", e))?;
 
+    // PRD-004: Get real resource metrics from TenantMetricsService
+    let resource_metrics = state
+        .tenant_metrics_service
+        .get_metrics(&state.db, &tenant_id)
+        .await
+        .map_err(|e| db_error_msg("failed to get tenant resource metrics", e))?;
+
     Ok(Json(TenantUsageResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         tenant_id: usage.tenant_id,
-        cpu_usage_pct: usage.cpu_usage_pct,
-        gpu_usage_pct: usage.gpu_usage_pct,
-        memory_used_gb: usage.memory_used_gb,
-        memory_total_gb: usage.memory_total_gb,
+        storage_used_gb: resource_metrics.storage_used_gb,
+        cpu_usage_pct: resource_metrics.cpu_usage_pct,
+        gpu_usage_pct: resource_metrics.gpu_usage_pct,
+        memory_used_gb: resource_metrics.memory_used_gb,
+        memory_total_gb: resource_metrics.memory_total_gb,
         inference_count_24h: usage.inference_count_24h,
         active_adapters_count: usage.active_adapters_count,
         avg_latency_ms: None,
         estimated_cost_usd: None,
+    }))
+}
+
+/// Get comprehensive tenant resource metrics (PRD-004)
+///
+/// Returns detailed resource metrics including storage, CPU, GPU, and memory
+/// with breakdown information and Prometheus-compatible structure.
+#[utoipa::path(
+    get,
+    path = "/v1/tenants/{tenant_id}/metrics",
+    params(
+        ("tenant_id" = String, Path, description = "Tenant ID")
+    ),
+    responses(
+        (status = 200, description = "Tenant resource metrics", body = TenantResourceMetricsResponse),
+        (status = 404, description = "Tenant not found", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "tenants"
+)]
+pub async fn get_tenant_metrics(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(tenant_id): Path<String>,
+) -> Result<Json<TenantResourceMetricsResponse>, (StatusCode, Json<ErrorResponse>)> {
+    use adapteros_api_types::tenants::{
+        TenantComputeMetricsData, TenantMemoryMetricsData, TenantResourceMetricsResponse,
+        TenantStorageMetricsData,
+    };
+
+    // Validate tenant isolation
+    validate_tenant_isolation(&claims, &tenant_id)?;
+
+    // Get resource metrics from TenantMetricsService
+    let resource_metrics = state
+        .tenant_metrics_service
+        .get_metrics(&state.db, &tenant_id)
+        .await
+        .map_err(|e| db_error_msg("failed to get tenant resource metrics", e))?;
+
+    // Get tenant quota (if configured)
+    let tenant = state
+        .db
+        .get_tenant(&tenant_id)
+        .await
+        .map_err(db_error_with_details)?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("tenant not found").with_code("NOT_FOUND")),
+            )
+        })?;
+
+    // Get memory metrics for available_gb
+    let memory = adapteros_db::get_system_memory();
+
+    Ok(Json(TenantResourceMetricsResponse {
+        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+        tenant_id: tenant_id.clone(),
+        collected_at: chrono::Utc::now().to_rfc3339(),
+        storage: TenantStorageMetricsData {
+            total_gb: resource_metrics.storage_used_gb,
+            quota_gb: tenant.max_storage_gb,
+            cache_ttl_secs: 300, // 5 minute TTL
+        },
+        compute: TenantComputeMetricsData {
+            cpu_usage_pct: resource_metrics.cpu_usage_pct,
+            gpu_usage_pct: resource_metrics.gpu_usage_pct,
+            window_secs: 300, // 5 minute window
+        },
+        memory: TenantMemoryMetricsData {
+            used_gb: resource_metrics.memory_used_gb,
+            total_gb: resource_metrics.memory_total_gb,
+            available_gb: memory.available_gb,
+        },
     }))
 }
 
