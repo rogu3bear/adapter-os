@@ -7,14 +7,14 @@
 //! - Health status transitions
 //! - Discovery status state machine
 
-use adapteros_core::{time, AosError, Result};
+use adapteros_core::{time, Result};
 use adapteros_crypto::Keypair;
 use adapteros_db::Db;
 use adapteros_federation::{
     attestation::{attest_bundle, verify_hardware_attestation, AttestationInfo},
     peer::{
         AttestationMetadata, DiscoveryAnnouncement, DiscoveryErrorPacket, DiscoveryStatus,
-        PeerHealthStatus, PeerInfo, PeerRegistry,
+        PeerHealthStatus, PeerRegistry,
     },
 };
 use std::collections::HashSet;
@@ -38,6 +38,7 @@ async fn setup_test_db() -> Result<Db> {
         .join(format!("test_{}.db", uuid::Uuid::new_v4()));
     let db = Db::connect(db_path.to_str().unwrap()).await?;
     db.migrate().await?;
+    std::mem::forget(temp_dir);
     Ok(db)
 }
 
@@ -657,18 +658,21 @@ mod health_status_transitions {
                 .await?;
         }
 
+        registry.set_local_host_id("node-0".to_string()).await;
+
         // Simulate partition: only nodes 0-2 reachable (majority)
         let reachable: HashSet<String> = (0..3).map(|i| format!("node-{}", i)).collect();
         let partition = registry.detect_partition(reachable).await?;
 
-        assert!(partition.is_some());
+        // Consensus not yet reached with only local vote
+        assert!(partition.is_none());
 
-        // Check isolated peers
+        // Isolated peers should remain healthy until quorum is reached
         let node3 = registry.get_peer("node-3").await?.unwrap();
-        assert_eq!(node3.health_status, PeerHealthStatus::Isolated);
+        assert_eq!(node3.health_status, PeerHealthStatus::Healthy);
 
         let node4 = registry.get_peer("node-4").await?.unwrap();
-        assert_eq!(node4.health_status, PeerHealthStatus::Isolated);
+        assert_eq!(node4.health_status, PeerHealthStatus::Healthy);
 
         Ok(())
     }
@@ -853,6 +857,16 @@ mod consensus_and_partition {
         let db = setup_test_db().await?;
         let registry = PeerRegistry::new(Arc::new(db));
 
+        let target_keypair = Keypair::generate();
+        registry
+            .register_peer(
+                "target-peer".to_string(),
+                target_keypair.public_key(),
+                None,
+                None,
+            )
+            .await?;
+
         // Register participating peers
         for i in 0..3 {
             let keypair = Keypair::generate();
@@ -880,6 +894,11 @@ mod consensus_and_partition {
     async fn test_consensus_quorum_voting() -> Result<()> {
         let db = setup_test_db().await?;
         let registry = PeerRegistry::new(Arc::new(db));
+
+        let target_keypair = Keypair::generate();
+        registry
+            .register_peer("target".to_string(), target_keypair.public_key(), None, None)
+            .await?;
 
         // Register 3 voters
         for i in 0..3 {
@@ -927,6 +946,8 @@ mod consensus_and_partition {
                 .await?;
         }
 
+        registry.set_local_host_id("node-0".to_string()).await;
+
         // Minority partition (only 2 of 5 reachable)
         let reachable: HashSet<String> = (0..2).map(|i| format!("node-{}", i)).collect();
         let partition = registry.detect_partition(reachable).await?;
@@ -950,22 +971,28 @@ mod consensus_and_partition {
                 .await?;
         }
 
+        registry.set_local_host_id("node-0".to_string()).await;
+
         // Majority partition (3 of 5 reachable)
         let reachable: HashSet<String> = (0..3).map(|i| format!("node-{}", i)).collect();
         let partition = registry.detect_partition(reachable).await?;
 
-        assert!(partition.is_some());
-        let event = partition.unwrap();
-        assert_eq!(event.isolated_peers.len(), 2);
-        assert_eq!(event.reachable_peers.len(), 3);
+        // Consensus not yet reached with only local vote
+        assert!(partition.is_none());
+
+        let node3 = registry.get_peer("node-3").await?.unwrap();
+        assert_eq!(node3.health_status, PeerHealthStatus::Healthy);
+
+        let node4 = registry.get_peer("node-4").await?.unwrap();
+        assert_eq!(node4.health_status, PeerHealthStatus::Healthy);
 
         Ok(())
     }
 
     #[tokio::test]
     async fn test_partition_resolution() -> Result<()> {
-        let db = setup_test_db().await?;
-        let registry = PeerRegistry::new(Arc::new(db));
+        let db = Arc::new(setup_test_db().await?);
+        let registry = PeerRegistry::new(Arc::clone(&db));
 
         // Register 3 peers
         for i in 0..3 {
@@ -986,20 +1013,32 @@ mod consensus_and_partition {
                 .await?;
         }
 
-        // Detect partition
-        let reachable: HashSet<String> = vec!["node-0".to_string(), "node-1".to_string()]
-            .into_iter()
-            .collect();
-        let partition = registry.detect_partition(reachable).await?;
-        assert!(partition.is_some());
+        registry.set_local_host_id("node-0".to_string()).await;
 
-        let partition_id = partition.unwrap().partition_id;
+        let partition_id = uuid::Uuid::new_v4().to_string();
+        let now = chrono::Utc::now().to_rfc3339();
+        let isolated_peers = vec!["node-2".to_string()];
+        let reachable_peers = vec!["node-0".to_string(), "node-1".to_string()];
+
+        sqlx::query(
+            r#"
+            INSERT INTO partition_events (partition_id, detected_at, isolated_peers_json, reachable_peers_json, quorum_leader, resolved)
+            VALUES (?, ?, ?, ?, ?, 0)
+            "#,
+        )
+        .bind(&partition_id)
+        .bind(&now)
+        .bind(serde_json::to_string(&isolated_peers).unwrap_or_default())
+        .bind(serde_json::to_string(&reachable_peers).unwrap_or_default())
+        .bind("node-0")
+        .execute(db.pool())
+        .await?;
 
         // Resolve partition
         registry.resolve_partition(&partition_id).await?;
 
-        // Isolated peer should be recovered (if attestation valid and recent heartbeat)
-        // Note: Recovery depends on state consistency checks
+        let node2 = registry.get_peer("node-2").await?.unwrap();
+        assert_eq!(node2.health_status, PeerHealthStatus::Healthy);
         Ok(())
     }
 
