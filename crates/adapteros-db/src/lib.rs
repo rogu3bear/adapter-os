@@ -1867,21 +1867,39 @@ impl Db {
     /// performance regressions and SLA compliance (10ms threshold).
     pub fn enable_performance_monitoring(&self, slow_query_threshold_ms: u64) {
         let monitor = QueryPerformanceMonitor::new(slow_query_threshold_ms);
-        *self.performance_monitor.write().unwrap() = Some(monitor);
+        match self.performance_monitor.write() {
+            Ok(mut guard) => *guard = Some(monitor),
+            Err(poisoned) => {
+                tracing::error!("Performance monitor lock poisoned, recovering");
+                *poisoned.into_inner() = Some(monitor);
+            }
+        }
     }
 
     /// Get access to the performance monitor (if enabled)
     pub fn performance_monitor(
         &self,
     ) -> Option<std::sync::RwLockReadGuard<'_, Option<QueryPerformanceMonitor>>> {
-        Some(self.performance_monitor.read().unwrap())
+        match self.performance_monitor.read() {
+            Ok(guard) => Some(guard),
+            Err(poisoned) => {
+                tracing::error!("Performance monitor lock poisoned during read");
+                Some(poisoned.into_inner())
+            }
+        }
     }
 
     /// Get mutable access to the performance monitor (if enabled)
     pub fn performance_monitor_mut(
         &self,
     ) -> Option<std::sync::RwLockWriteGuard<'_, Option<QueryPerformanceMonitor>>> {
-        Some(self.performance_monitor.write().unwrap())
+        match self.performance_monitor.write() {
+            Ok(guard) => Some(guard),
+            Err(poisoned) => {
+                tracing::error!("Performance monitor lock poisoned during write");
+                Some(poisoned.into_inner())
+            }
+        }
     }
 
     /// Generate performance report
@@ -2105,7 +2123,13 @@ impl Db {
     /// Check rate limit for tenant
     /// Returns true if allowed, false if limit exceeded.
     pub fn check_rate_limit(&self, tenant_id: &str) -> bool {
-        let limits = self.tenant_rate_limits.read().unwrap();
+        let limits = match self.tenant_rate_limits.read() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                tracing::error!(tenant_id = %tenant_id, "Rate limit lock poisoned during read, allowing request");
+                poisoned.into_inner()
+            }
+        };
         // Simplified: allow 1000 requests (bucket refilling not implemented here)
         let current = limits.get(tenant_id).unwrap_or(&0);
         *current < 1000
@@ -2113,22 +2137,39 @@ impl Db {
 
     /// Increment rate limit counter
     pub fn increment_rate_limit(&self, tenant_id: &str) {
-        let mut limits = self.tenant_rate_limits.write().unwrap();
+        let mut limits = match self.tenant_rate_limits.write() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                tracing::error!(tenant_id = %tenant_id, "Rate limit lock poisoned during write, recovering");
+                poisoned.into_inner()
+            }
+        };
         let counter = limits.entry(tenant_id.to_string()).or_insert(0);
         *counter += 1;
     }
 
     /// Get cached query plan
     pub fn get_cached_plan(&self, query_key: &str) -> Option<String> {
-        self.plan_cache.read().unwrap().get(query_key).cloned()
+        match self.plan_cache.read() {
+            Ok(guard) => guard.get(query_key).cloned(),
+            Err(poisoned) => {
+                tracing::error!(query_key = %query_key, "Plan cache lock poisoned during read");
+                poisoned.into_inner().get(query_key).cloned()
+            }
+        }
     }
 
     /// Cache query plan
     pub fn cache_query_plan(&self, query_key: &str, plan: &str) {
-        self.plan_cache
-            .write()
-            .unwrap()
-            .insert(query_key.to_string(), plan.to_string());
+        match self.plan_cache.write() {
+            Ok(mut guard) => {
+                guard.insert(query_key.to_string(), plan.to_string());
+            }
+            Err(poisoned) => {
+                tracing::error!(query_key = %query_key, "Plan cache lock poisoned during write, recovering");
+                poisoned.into_inner().insert(query_key.to_string(), plan.to_string());
+            }
+        }
     }
 
     /// Prevent entering KV-only mode when unsupported domains remain.

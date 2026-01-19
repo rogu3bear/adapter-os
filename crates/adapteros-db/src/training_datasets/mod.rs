@@ -3273,9 +3273,10 @@ impl Db {
             .get_training_dataset_version(dataset_version_id)
             .await?;
 
-        if version.is_none() {
-            return Ok(None);
-        }
+        let version = match version {
+            Some(v) => v,
+            None => return Ok(None),
+        };
 
         let override_state: Option<(String,)> = sqlx::query_as(
             "SELECT override_state FROM dataset_version_overrides
@@ -3291,7 +3292,7 @@ impl Db {
         let effective = if let Some((ov,)) = override_state {
             ov
         } else {
-            version.unwrap().trust_state
+            version.trust_state
         };
 
         Ok(Some(effective))
@@ -3320,9 +3321,10 @@ impl Db {
         .await
         .map_err(db_err("get training dataset version"))?;
 
-        if version.is_none() {
-            return Ok(None);
-        }
+        let version = match version {
+            Some(v) => v,
+            None => return Ok(None),
+        };
 
         let override_state: Option<(String,)> = sqlx::query_as(
             "SELECT override_state FROM dataset_version_overrides
@@ -3338,7 +3340,7 @@ impl Db {
         let effective = if let Some((ov,)) = override_state {
             ov
         } else {
-            version.unwrap().trust_state
+            version.trust_state
         };
 
         Ok(Some(effective))
