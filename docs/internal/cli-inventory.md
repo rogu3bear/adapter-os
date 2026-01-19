@@ -45,12 +45,14 @@ adapterOS CLI/tooling surface. Each script name here satisfies the
 - deploy-uds-metrics.sh
 - deploy_adapters.sh
 - determinism_mode_e2e.sh
+- dev-up.sh
 - diagnose.sh
 - download-model.sh
 - execute_doc_audit.sh
 - free-ports.sh
 - fresh-build.sh
 - gc_bundles.sh
+- golden_path_adapter_chat.sh
 - generate_test_metrics.sh
 - graceful-shutdown.sh
 - install-launchd.sh
@@ -66,6 +68,7 @@ adapterOS CLI/tooling surface. Each script name here satisfies the
 - optimize_backup_indexes.sh
 - overlap-report.sh
 - perf-smoke.sh
+- plan4_offline_demo.sh
 - port-guard.sh
 - prevent_infrastructure_issues.sh
 - record_env.sh
@@ -87,12 +90,14 @@ adapterOS CLI/tooling surface. Each script name here satisfies the
 - smoke-inference.sh
 - sqlx_prepare.sh
 - start.sh
+- start_minimal_training.sh
 - strip_timestamps.sh
 - switch_env_profile.sh
 - test_api_endpoints.sh
 - test_coreml_conversion.sh
 - test_mlx_bridge.sh
 - train-codebase-adapter.sh
+- upload_minimal_dataset.sh
 - ui_smoke.sh
 - validate-docs.sh
 - validate_env.sh
@@ -104,3 +109,4 @@ adapterOS CLI/tooling surface. Each script name here satisfies the
 - verify_bfloat16_fix.sh
 - verify_determinism.sh
 - watchdog.sh
+- worker-up.sh
