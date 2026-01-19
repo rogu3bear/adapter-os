@@ -16,6 +16,12 @@ async fn main() -> Result<()> {
     // Initialize tracing
     tracing_subscriber::fmt::init();
 
+    if std::env::args().any(|arg| arg == "--help" || arg == "-h") {
+        println!("Usage: cargo run --example create_readme_adapter");
+        println!("Creates a tiny LoRA adapter from README.md content.");
+        return Ok(());
+    }
+
     println!("=== Creating README.md Test Adapter ===\n");
 
     // Read README.md content
@@ -133,7 +139,7 @@ fn create_examples_from_text(text: &str) -> Vec<TrainingExample> {
                     input_tokens,
                     target_tokens,
                     0,
-                    ExampleMetadataV1::new("README.md", idx as u64 + 1, "readme", 0),
+                    ExampleMetadataV1::new("README.md", idx as u64 + 1, "readme", "{}", 0),
                 ));
             }
         }
