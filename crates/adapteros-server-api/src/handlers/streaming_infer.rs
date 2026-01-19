@@ -306,6 +306,11 @@ pub enum InferenceEvent {
         /// BLAKE3 digest of the StopPolicySpec used (hex encoded)
         #[serde(skip_serializing_if = "Option::is_none")]
         stop_policy_digest_b3: Option<String>,
+        /// PRD-003: Pending RAG evidence IDs that need to be bound to a message_id.
+        /// After creating the assistant message, call db.bind_evidence_to_message()
+        /// with these IDs to complete the audit trail.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pending_evidence_ids: Vec<String>,
     },
     /// Error occurred
     Error { message: String, recoverable: bool },
@@ -1561,6 +1566,8 @@ struct StreamState {
     stop_reason_code: Option<adapteros_api_types::inference::StopReasonCode>,
     stop_reason_token_index: Option<u32>,
     stop_policy_digest_b3: Option<String>,
+    // PRD-003: Pending RAG evidence IDs for message binding
+    pending_evidence_ids: Vec<String>,
 }
 
 /// Guard that cancels the stream when dropped (client disconnect detection)
@@ -1608,6 +1615,7 @@ impl StreamState {
         cancellation_token: CancellationToken,
         idle_timeout: Duration,
         heartbeat_interval: Duration,
+        pending_evidence_ids: Vec<String>,
     ) -> Self {
         let canonical_request_id = run_envelope.run_id.clone();
         if request_id != canonical_request_id {
@@ -1639,6 +1647,7 @@ impl StreamState {
             stop_reason_code: None,
             stop_reason_token_index: None,
             stop_policy_digest_b3: None,
+            pending_evidence_ids,
         }
     }
 
