@@ -753,7 +753,8 @@ pub async fn streaming_infer(
 
     // Collection-scoped RAG integration
     // When collection_id is provided, retrieve relevant context and augment the prompt
-    let augmented_prompt = if let Some(collection_id) = &req.collection_id {
+    // PRD-003: Also capture evidence IDs for later message binding
+    let (augmented_prompt, pending_evidence_ids) = if let Some(collection_id) = &req.collection_id {
         // CRITICAL: Validate collection belongs to user's tenant
         match state
             .db
@@ -804,7 +805,7 @@ pub async fn streaming_infer(
                     // NOTE: message_id is None because the message is created after inference.
                     // PRD-003: After message creation, call db.bind_evidence_to_message()
                     // with the returned evidence_ids to complete the audit trail.
-                    let _evidence_ids = store_rag_evidence(
+                    let evidence_ids = store_rag_evidence(
                         &state,
                         &rag_result,
                         &request_id,
@@ -819,15 +820,16 @@ pub async fn streaming_infer(
                         collection_id = %collection_id,
                         context_len = rag_result.context.len(),
                         doc_count = rag_result.doc_ids.len(),
+                        evidence_count = evidence_ids.len(),
                         "Augmented prompt with RAG context"
                     );
                     // RAG context prepended to base_prompt (which may include chat history)
-                    format!(
+                    (format!(
                         "Use the following context to answer the question.\n\n\
                          Context:\n{}\n\n\
                          {}",
                         rag_result.context, base_prompt
-                    )
+                    ), evidence_ids)
                 }
                 Ok(_) => {
                     debug!(
@@ -835,7 +837,7 @@ pub async fn streaming_infer(
                         collection_id = %collection_id,
                         "No relevant context found in collection"
                     );
-                    base_prompt.clone()
+                    (base_prompt.clone(), Vec::new())
                 }
                 Err(e) => {
                     warn!(
@@ -844,7 +846,7 @@ pub async fn streaming_infer(
                         error = %e,
                         "RAG retrieval failed, proceeding without context"
                     );
-                    base_prompt.clone()
+                    (base_prompt.clone(), Vec::new())
                 }
             }
         } else {
@@ -852,11 +854,11 @@ pub async fn streaming_infer(
                 request_id = %request_id,
                 "Embedding model not configured, skipping RAG retrieval"
             );
-            base_prompt.clone()
+            (base_prompt.clone(), Vec::new())
         }
     } else {
         // No collection_id, use base_prompt directly (may include chat history)
-        base_prompt
+        (base_prompt, Vec::new())
     };
 
     // Audit log: inference execution start
@@ -946,6 +948,7 @@ pub async fn streaming_infer(
                 cancellation_token,
                 Duration::from_secs(stream_config.inference_idle_timeout_secs),
                 Duration::from_secs(stream_config.inference_heartbeat_interval_secs),
+                pending_evidence_ids, // PRD-003: Pass evidence IDs for message binding
             ),
             Some(drop_guard), // Keep guard alive while stream is active
         ),
