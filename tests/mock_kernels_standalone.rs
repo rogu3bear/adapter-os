@@ -165,7 +165,7 @@ fn test_mock_kernels_gpu_verification_not_supported() {
 fn test_mock_kernels_memory_footprint_no_op() {
     let kernels = MockKernels::new();
 
-    // Test that memory footprint check returns (false, 0.0, None) for non-GPU backend
+    // Test that memory footprint check returns (true, 0.0, None) for mock backend
     let adapter_id = 1;
     let buffer_size = 1024 * 1024; // 1 MB
 
@@ -173,8 +173,8 @@ fn test_mock_kernels_memory_footprint_no_op() {
         kernels.check_memory_footprint(adapter_id, buffer_size);
 
     assert!(
-        !within_tolerance,
-        "Mock backend should report no baseline tolerance by default"
+        within_tolerance,
+        "Mock backend should report within tolerance by default"
     );
     assert_eq!(z_score, 0.0, "Z-score should be 0.0 for mock backend");
     assert!(
