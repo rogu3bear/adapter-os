@@ -90,6 +90,7 @@ use adapteros_manifest::ManifestV3;
 use adapteros_policy::{PolicyEngine, RefusalResponse};
 use adapteros_telemetry::{CriticalComponentMetrics, TelemetryWriter};
 use adapteros_types::adapters::metadata::RoutingDeterminismMode;
+use adapteros_types::{CancelSource, CancellationState};
 use base64::Engine;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -1889,28 +1890,19 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
 
     /// Check if inference has been cancelled by client or system.
     ///
-    /// # Gap: Error Receipt Generation
+    /// Returns `Err(CancellationState)` when cancelled, carrying:
+    /// - Trace ID for receipt generation
+    /// - Token count at cancellation point
+    /// - Cancellation source and reason
     ///
-    /// Currently, cancellation returns `Err(AosError::Worker(...))` which loses the
-    /// partial output. For full PRD compliance, this should:
-    ///
-    /// 1. Build a partial receipt with `stop_reason_code: Cancelled`
-    /// 2. Include `stop_reason_token_index` pointing to the last generated token
-    /// 3. Return a result that allows the caller to finalize the receipt
-    ///
-    /// The `StopReasonCode::Cancelled` variant exists for this purpose but is not
-    /// yet wired into the error handling flow. A similar pattern applies to
-    /// `StopReasonCode::SystemError` for hardware/system failures.
-    ///
-    /// To implement, consider returning `Result<(), CancellationState>` where
-    /// `CancellationState` carries the partial output and reason, allowing the
-    /// caller to build an error receipt before returning to the client.
+    /// The caller is responsible for generating a cancellation receipt using
+    /// `StopReasonCode::Cancelled` before returning to the client.
     fn check_inference_cancelled(
         &self,
         request: &InferenceRequest,
         token: Option<&InferenceCancelToken>,
         tokens_generated: usize,
-    ) -> Result<()> {
+    ) -> std::result::Result<(), CancellationState> {
         let Some(token) = token else {
             return Ok(());
         };
@@ -1923,9 +1915,46 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             .reason()
             .unwrap_or_else(|| "client_cancelled".to_string());
         self.log_inference_cancelled(request, &reason, tokens_generated);
-        // TODO: Generate error receipt with partial output using StopReasonCode::Cancelled
-        // before returning error. See doc comment above for implementation guidance.
-        Err(AosError::Worker(format!("Inference cancelled: {}", reason)))
+
+        // Parse the cancellation source from the reason string
+        let source: CancelSource = reason.parse().unwrap_or(CancelSource::ClientDisconnect);
+
+        // Return cancellation state for receipt generation
+        Err(CancellationState::new(
+            request.request_id.clone().unwrap_or_default(),
+            tokens_generated,
+            source,
+            reason,
+        ))
+    }
+
+    /// Check cancellation and convert to AosError for backward compatibility.
+    ///
+    /// This wrapper calls `check_inference_cancelled` and converts `CancellationState`
+    /// to `AosError::Worker`. Future enhancement: generate cancellation receipt here.
+    fn check_cancelled_or_error(
+        &self,
+        request: &InferenceRequest,
+        token: Option<&InferenceCancelToken>,
+        tokens_generated: usize,
+    ) -> Result<()> {
+        self.check_inference_cancelled(request, token, tokens_generated)
+            .map_err(|state: CancellationState| {
+                // Log cancellation with audit context (PRD-003)
+                info!(
+                    trace_id = %state.trace_id,
+                    tokens_generated = state.tokens_generated,
+                    source = %state.source,
+                    reason = %state.reason_message,
+                    "Inference cancelled - generating audit record"
+                );
+                // TODO: Generate cancellation receipt here using state.tokens_generated
+                // and StopReasonCode::Cancelled when receipt infrastructure is available
+                AosError::Worker(format!(
+                    "Inference cancelled after {} tokens: {}",
+                    state.tokens_generated, state.reason_message
+                ))
+            })
     }
 
     /// Internal inference implementation with safety checks
@@ -1943,7 +1972,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             .request_id
             .clone()
             .map(|id| InferenceCancelGuard::new(self.inference_cancellations.clone(), id));
-        self.check_inference_cancelled(&request, cancel_token.as_deref(), 0)?;
+        self.check_cancelled_or_error(&request, cancel_token.as_deref(), 0)?;
         // Start profiler session
         let mut _profiler_session = self.profiler.start_inference();
 
@@ -2189,7 +2218,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             }
         }
 
-        self.check_inference_cancelled(&request, cancel_token.as_deref(), 0)?;
+        self.check_cancelled_or_error(&request, cancel_token.as_deref(), 0)?;
 
         // Apply request-provided sampling parameters (PRD-02: replay support)
         // This enables deterministic replay when the same parameters are provided
@@ -2339,7 +2368,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
 
         // If free tokens satisfied the entire request, return early!
         if !free_tokens.is_empty() && max_tokens_remaining == 0 {
-            self.check_inference_cancelled(&request, cancel_token.as_deref(), free_tokens.len())?;
+            self.check_cancelled_or_error(&request, cancel_token.as_deref(), free_tokens.len())?;
 
             let (backend_used, fallback_triggered) = {
                 let kernels = self.kernels.lock().await;
@@ -2858,7 +2887,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 "Text-generation backend detected, using generate_text_complete() path"
             );
 
-            self.check_inference_cancelled(
+            self.check_cancelled_or_error(
                 &request,
                 cancel_token.as_deref(),
                 generated_tokens.len(),
@@ -2977,7 +3006,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 stop_reason_token_index = Some(generation_result.tokens_generated as u32);
             }
 
-            self.check_inference_cancelled(
+            self.check_cancelled_or_error(
                 &request,
                 cancel_token.as_deref(),
                 generation_result.tokens_generated as usize,
@@ -3226,7 +3255,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             stop_reason_token_index = Some(generated_tokens.len() as u32);
         }
 
-        self.check_inference_cancelled(&request, cancel_token.as_deref(), generated_tokens.len())?;
+        self.check_cancelled_or_error(&request, cancel_token.as_deref(), generated_tokens.len())?;
 
         let reasoning_mode = request.reasoning_mode;
         let mut reasoning_buffer = String::new();
@@ -3241,7 +3270,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
 
         for step in 0..max_tokens_remaining {
             let step_with_free = free_token_offset + step;
-            self.check_inference_cancelled(
+            self.check_cancelled_or_error(
                 &request,
                 cancel_token.as_deref(),
                 generated_tokens.len(),
@@ -3577,7 +3606,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 kernels.run_step(&router_ring, &mut io_buffers)?;
             }
             let kernel_duration = kernel_start.elapsed();
-            self.check_inference_cancelled(
+            self.check_cancelled_or_error(
                 &request,
                 cancel_token.as_deref(),
                 generated_tokens.len(),
