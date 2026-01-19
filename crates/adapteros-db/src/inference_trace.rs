@@ -116,7 +116,7 @@ pub struct TraceReceiptVerification {
     pub recomputed: TraceReceipt,
 }
 
-/// Input for cancellation receipt finalization (PRD-003).
+/// Input for cancellation receipt finalization.
 #[derive(Debug, Clone)]
 pub struct TraceCancellation {
     /// Tokens generated before cancellation
@@ -131,7 +131,7 @@ pub struct TraceCancellation {
     pub tenant_id: Option<String>,
 }
 
-/// Result of cancellation receipt finalization (PRD-003).
+/// Result of cancellation receipt finalization.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TraceCancellationReceipt {
     pub trace_id: String,
@@ -149,7 +149,7 @@ pub struct TraceCancellationReceipt {
 pub trait TraceSink: Send {
     async fn record_token(&mut self, token: TraceTokenInput) -> Result<()>;
     async fn finalize(&mut self, finalization: TraceFinalization<'_>) -> Result<TraceReceipt>;
-    /// Finalize a cancelled trace with partial output (PRD-003).
+    /// Finalize a cancelled trace with partial output.
     ///
     /// Generates a cancellation receipt capturing the partial output state
     /// for audit trail completeness. Returns the receipt for storage and response.
@@ -694,7 +694,7 @@ impl TraceSink for SqlTraceSink {
         self.insert_buffer().await
     }
 
-    /// Finalize a cancelled trace with partial output (PRD-003).
+    /// Finalize a cancelled trace with partial output.
     ///
     /// Generates a cancellation receipt and stores it in the cancellation_receipts table.
     /// This ensures audit trail completeness for cancelled inferences.

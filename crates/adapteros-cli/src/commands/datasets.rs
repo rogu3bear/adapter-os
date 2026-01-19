@@ -13,9 +13,7 @@ use adapteros_api_types::training::{
 use adapteros_core::{AosError, Result};
 use adapteros_db::training_datasets::TrainingDatasetVersion;
 use adapteros_db::Db;
-use adapteros_lora_worker::training::{
-    DatasetBuilder, DatasetSource, GitAuth,
-};
+use adapteros_lora_worker::training::{DatasetBuilder, DatasetSource, GitAuth};
 use clap::{Args, Subcommand};
 use comfy_table::{modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL};
 use reqwest::{multipart, Client};

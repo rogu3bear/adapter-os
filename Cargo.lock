@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "adapter-os"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-aos",
  "adapteros-api",
@@ -82,7 +82,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-agent-spawn"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-config",
  "adapteros-core",
@@ -106,7 +106,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-aos"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-config",
  "adapteros-core",
@@ -137,7 +137,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-api"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-api-types",
  "adapteros-core",
@@ -164,7 +164,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-api-types"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "adapteros-core",
  "adapteros-telemetry",
@@ -180,7 +180,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-artifacts"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-core",
  "adapteros-crypto",
@@ -204,7 +204,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-base-llm"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-config",
  "adapteros-core",
@@ -224,7 +224,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-benchmarks"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-core",
  "adapteros-deterministic-exec",
@@ -255,7 +255,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-boot"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-config",
  "adapteros-core",
@@ -277,7 +277,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-chat"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-core",
  "anyhow",
@@ -288,7 +288,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-cli"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-agent-spawn",
  "adapteros-aos",
@@ -377,7 +377,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-client"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-api-types",
  "adapteros-telemetry",
@@ -401,7 +401,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-codegraph"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-core",
  "bincode",
@@ -448,7 +448,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-config-types"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "adapteros-core",
  "serde",
@@ -456,7 +456,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-core"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-error-registry",
  "adapteros-types",
@@ -499,7 +499,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-crypto"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-config",
  "adapteros-core",
@@ -544,7 +544,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-db"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-aos",
  "adapteros-api-types",
@@ -594,7 +594,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-deterministic-exec"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-core",
  "adapteros-db",
@@ -626,7 +626,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-diagnostics"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-core",
  "adapteros-telemetry",
@@ -645,7 +645,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-domain"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-core",
  "adapteros-deterministic-exec",
@@ -686,7 +686,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-error-recovery"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-core",
  "adapteros-platform",
@@ -701,7 +701,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-error-registry"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "lazy_static",
  "serde",
@@ -712,7 +712,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-federation"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-core",
  "adapteros-crypto",
@@ -749,7 +749,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-git"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-core",
  "adapteros-db",
@@ -775,7 +775,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-graph"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-core",
  "anyhow",
@@ -789,7 +789,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-ingest-docs"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-config",
  "adapteros-core",
@@ -815,7 +815,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-lint"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -831,7 +831,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-lora-kernel-api"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-core",
  "serde",
@@ -842,7 +842,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-lora-kernel-coreml"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-aos",
  "adapteros-config",
@@ -874,7 +874,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-lora-kernel-mtl"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-core",
  "adapteros-crypto",
@@ -911,7 +911,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-lora-lifecycle"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-aos",
  "adapteros-config",
@@ -952,7 +952,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-lora-mlx-ffi"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-core",
  "adapteros-deterministic-exec",
@@ -984,7 +984,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-lora-plan"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-chat",
  "adapteros-core",
@@ -1003,7 +1003,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-lora-quant"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-core",
  "safetensors",
@@ -1015,7 +1015,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-lora-rag"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-codegraph",
  "adapteros-core",
@@ -1035,7 +1035,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-lora-router"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-api-types",
  "adapteros-core",
@@ -1064,7 +1064,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-lora-worker"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-aos",
  "adapteros-api-types",
@@ -1152,7 +1152,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-manifest"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-core",
  "adapteros-types",
@@ -1197,7 +1197,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-metrics-exporter"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-core",
  "adapteros-db",
@@ -1212,7 +1212,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-mlx"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-core",
  "adapteros-lora-kernel-coreml",
@@ -1224,7 +1224,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-model-hub"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-core",
  "anyhow",
@@ -1248,7 +1248,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-node"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-artifacts",
  "adapteros-core",
@@ -1283,14 +1283,14 @@ dependencies = [
 
 [[package]]
 name = "adapteros-normalization"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "serde_json",
 ]
 
 [[package]]
 name = "adapteros-numerics"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "criterion",
  "serde",
@@ -1300,7 +1300,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-orchestrator"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-api-types",
  "adapteros-client",
@@ -1352,7 +1352,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-platform"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-core",
  "dirs",
@@ -1364,7 +1364,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-plugin-advanced-metrics"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-core",
  "async-trait",
@@ -1378,7 +1378,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-policy"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-api-types",
  "adapteros-core",
@@ -1408,7 +1408,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-profiler"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-core",
  "adapteros-telemetry",
@@ -1419,7 +1419,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-registry"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-core",
  "adapteros-manifest",
@@ -1437,7 +1437,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-replay"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-core",
  "adapteros-crypto",
@@ -1461,7 +1461,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-sbom"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-core",
  "serde",
@@ -1471,7 +1471,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-scenarios"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-core",
  "serde",
@@ -1482,7 +1482,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-secd"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-boot",
  "adapteros-core",
@@ -1511,7 +1511,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-secure-fs"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-core",
  "adapteros-crypto",
@@ -1527,7 +1527,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-server"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-api-types",
  "adapteros-artifacts",
@@ -1586,7 +1586,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-server-api"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "adapteros-aos",
  "adapteros-api-types",
@@ -1698,7 +1698,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-service-supervisor"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-api-types",
  "adapteros-config",
@@ -1739,7 +1739,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-single-file-adapter"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-aos",
  "adapteros-core",
@@ -1761,7 +1761,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-storage"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-core",
  "adapteros-crypto",
@@ -1786,7 +1786,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-system-metrics"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-core",
  "adapteros-db",
@@ -1818,7 +1818,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-telemetry"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-core",
  "adapteros-crypto",
@@ -1852,7 +1852,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-telemetry-types"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-core",
  "adapteros-types",
@@ -1863,7 +1863,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-telemetry-verifier"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "anyhow",
  "regex",
@@ -1874,7 +1874,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-testing"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-core",
  "async-trait",
@@ -1892,7 +1892,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-trace"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-core",
  "adapteros-crypto",
@@ -1947,7 +1947,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-types"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "chrono",
  "schemars",
@@ -1992,7 +1992,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-verify"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-core",
  "adapteros-crypto",
@@ -2020,7 +2020,7 @@ dependencies = [
 
 [[package]]
 name = "adapteros-web-browse"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-core",
  "adapteros-db",
@@ -10396,7 +10396,7 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
 name = "sign-migrations"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -13171,7 +13171,7 @@ checksum = "66fee0b777b0f5ac1c69bb06d361268faafa61cd4682ae064a171c16c433e9e4"
 
 [[package]]
 name = "xtask"
-version = "0.12.1"
+version = "0.13.1"
 dependencies = [
  "adapteros-config",
  "adapteros-core",

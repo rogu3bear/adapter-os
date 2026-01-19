@@ -39,9 +39,7 @@
 
 use crate::output::OutputWriter;
 use adapteros_core::{AosError, Result};
-use adapteros_db::{
-    backfill_receipt_digests, count_pending_receipt_backfill, BackfillResult, Db,
-};
+use adapteros_db::{backfill_receipt_digests, count_pending_receipt_backfill, BackfillResult, Db};
 use clap::Subcommand;
 use indicatif::{ProgressBar, ProgressStyle};
 use serde::{Deserialize, Serialize};
@@ -51,8 +49,7 @@ use tracing::info;
 #[derive(Debug, Clone, Subcommand)]
 pub enum ReceiptCommand {
     /// Backfill crypto receipt digests for legacy receipts
-    #[command(
-        after_help = r#"Examples:
+    #[command(after_help = r#"Examples:
   # Preview what would be backfilled (dry-run)
   aosctl receipt backfill --dry-run
 
@@ -67,8 +64,7 @@ pub enum ReceiptCommand {
 
   # JSON output for scripting
   aosctl receipt backfill --json
-"#
-    )]
+"#)]
     Backfill {
         /// Preview changes without modifying the database
         #[arg(long)]
@@ -311,7 +307,8 @@ pub async fn run_backfill(
             ));
         }
         output.blank();
-        output.info("Run 'aosctl verify receipt --trace-id <id>' to investigate individual receipts");
+        output
+            .info("Run 'aosctl verify receipt --trace-id <id>' to investigate individual receipts");
     }
 
     if output.is_json() {

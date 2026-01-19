@@ -144,8 +144,9 @@ impl TrainArgs {
                 );
                 info!("Checkpoint loss at resume: {:.4}", checkpoint.loss);
                 let epoch = checkpoint.epoch;
-                let result =
-                    trainer.train_with_resume_state(&examples, |_| {}, Some(checkpoint)).await?;
+                let result = trainer
+                    .train_with_resume_state(&examples, |_| {}, Some(checkpoint))
+                    .await?;
                 (result, Some(epoch))
             } else {
                 info!("No checkpoint found, starting fresh training");
@@ -440,21 +441,15 @@ fn resolve_dataset_paths(data_path: &Path) -> Result<(PathBuf, PathBuf)> {
 fn resolve_framing_policy(examples: &[TrainingExample]) -> Result<String> {
     let mut schema_mode: Option<String> = None;
     for (idx, example) in examples.iter().enumerate() {
-        let provenance: serde_json::Value =
-            serde_json::from_str(&example.metadata.provenance).map_err(|e| {
-                AosError::Validation(format!(
-                    "Invalid provenance JSON at example {}: {}",
-                    idx, e
-                ))
+        let provenance: serde_json::Value = serde_json::from_str(&example.metadata.provenance)
+            .map_err(|e| {
+                AosError::Validation(format!("Invalid provenance JSON at example {}: {}", idx, e))
             })?;
         let schema = provenance
             .get("schema")
             .and_then(|v| v.as_str())
             .ok_or_else(|| {
-                AosError::Validation(format!(
-                    "Missing schema in provenance for example {}",
-                    idx
-                ))
+                AosError::Validation(format!("Missing schema in provenance for example {}", idx))
             })?;
         if schema != SCHEMA_SUPERVISED && schema != SCHEMA_RAW_CONTINUATION {
             return Err(AosError::Validation(format!(

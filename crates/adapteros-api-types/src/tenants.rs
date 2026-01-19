@@ -52,7 +52,7 @@ pub struct UpdateTenantRequest {
     pub rate_limit_rpm: Option<i32>,
 }
 
-/// Tenant usage statistics (PRD-004)
+/// Tenant usage statistics
 ///
 /// Returns real resource metrics calculated from database tables and filesystem.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -81,7 +81,7 @@ pub struct TenantUsageResponse {
     pub estimated_cost_usd: Option<f64>,
 }
 
-/// Comprehensive tenant resource metrics (PRD-004)
+/// Comprehensive tenant resource metrics
 ///
 /// Returns detailed resource metrics with Prometheus-compatible labels.
 /// This is the dedicated metrics endpoint for tenant resource monitoring.

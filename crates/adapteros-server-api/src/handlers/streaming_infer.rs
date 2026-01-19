@@ -306,7 +306,7 @@ pub enum InferenceEvent {
         /// BLAKE3 digest of the StopPolicySpec used (hex encoded)
         #[serde(skip_serializing_if = "Option::is_none")]
         stop_policy_digest_b3: Option<String>,
-        /// PRD-003: Pending RAG evidence IDs that need to be bound to a message_id.
+        /// Pending RAG evidence IDs that need to be bound to a message_id.
         /// After creating the assistant message, call db.bind_evidence_to_message()
         /// with these IDs to complete the audit trail.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -753,7 +753,7 @@ pub async fn streaming_infer(
 
     // Collection-scoped RAG integration
     // When collection_id is provided, retrieve relevant context and augment the prompt
-    // PRD-003: Also capture evidence IDs for later message binding
+    // Also capture evidence IDs for later message binding
     let (augmented_prompt, pending_evidence_ids) = if let Some(collection_id) = &req.collection_id {
         // CRITICAL: Validate collection belongs to user's tenant
         match state
@@ -803,7 +803,7 @@ pub async fn streaming_infer(
                 Ok(rag_result) if !rag_result.context.is_empty() => {
                     // Store evidence for this retrieval (Phase 1 of two-phase binding).
                     // NOTE: message_id is None because the message is created after inference.
-                    // PRD-003: After message creation, call db.bind_evidence_to_message()
+                    // After message creation, call db.bind_evidence_to_message()
                     // with the returned evidence_ids to complete the audit trail.
                     let evidence_ids = store_rag_evidence(
                         &state,
@@ -824,12 +824,15 @@ pub async fn streaming_infer(
                         "Augmented prompt with RAG context"
                     );
                     // RAG context prepended to base_prompt (which may include chat history)
-                    (format!(
-                        "Use the following context to answer the question.\n\n\
+                    (
+                        format!(
+                            "Use the following context to answer the question.\n\n\
                          Context:\n{}\n\n\
                          {}",
-                        rag_result.context, base_prompt
-                    ), evidence_ids)
+                            rag_result.context, base_prompt
+                        ),
+                        evidence_ids,
+                    )
                 }
                 Ok(_) => {
                     debug!(
@@ -948,7 +951,7 @@ pub async fn streaming_infer(
                 cancellation_token,
                 Duration::from_secs(stream_config.inference_idle_timeout_secs),
                 Duration::from_secs(stream_config.inference_heartbeat_interval_secs),
-                pending_evidence_ids, // PRD-003: Pass evidence IDs for message binding
+                pending_evidence_ids, // Pass evidence IDs for message binding
             ),
             Some(drop_guard), // Keep guard alive while stream is active
         ),
@@ -1067,7 +1070,7 @@ struct LoadingStreamState {
     stop_reason_token_index: Option<u32>,
     /// BLAKE3 digest of the StopPolicySpec used (hex encoded)
     stop_policy_digest_b3: Option<String>,
-    /// PRD-003: Pending RAG evidence IDs for message binding
+    /// Pending RAG evidence IDs for message binding
     pending_evidence_ids: Vec<String>,
 }
 
@@ -1109,7 +1112,7 @@ impl LoadingStreamState {
             stop_reason_code: None,
             stop_reason_token_index: None,
             stop_policy_digest_b3: None,
-            pending_evidence_ids: Vec::new(), // PRD-003: Initialized empty, populated during RAG retrieval
+            pending_evidence_ids: Vec::new(), // Initialized empty, populated during RAG retrieval
             token_rx: None,
             done_rx: None,
         }
@@ -1573,7 +1576,7 @@ struct StreamState {
     stop_reason_code: Option<adapteros_api_types::inference::StopReasonCode>,
     stop_reason_token_index: Option<u32>,
     stop_policy_digest_b3: Option<String>,
-    // PRD-003: Pending RAG evidence IDs for message binding
+    // Pending RAG evidence IDs for message binding
     pending_evidence_ids: Vec<String>,
 }
 
@@ -2339,7 +2342,7 @@ mod tests {
             cancellation,
             Duration::from_secs(5),
             Duration::from_millis(10),
-            Vec::new(), // PRD-003: No pending evidence IDs in test
+            Vec::new(), // No pending evidence IDs in test
         );
 
         assert!(matches!(
@@ -2395,7 +2398,7 @@ mod tests {
             cancellation,
             Duration::from_secs(2),
             Duration::from_millis(25),
-            Vec::new(), // PRD-003: No pending evidence IDs in test
+            Vec::new(), // No pending evidence IDs in test
         );
 
         let producer = tokio::spawn(async move {
@@ -2467,7 +2470,7 @@ mod tests {
             cancellation,
             Duration::from_secs(5),
             Duration::from_secs(0),
-            Vec::new(), // PRD-003: No pending evidence IDs in test
+            Vec::new(), // No pending evidence IDs in test
         );
 
         let event = stream.format_event(StreamEvent::Error {
@@ -2522,7 +2525,7 @@ mod tests {
             cancellation,
             Duration::from_secs(5),
             Duration::from_secs(0),
-            Vec::new(), // PRD-003: No pending evidence IDs in test
+            Vec::new(), // No pending evidence IDs in test
         );
 
         assert!(matches!(

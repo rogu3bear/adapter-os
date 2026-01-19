@@ -55,30 +55,30 @@ pub struct MetricsExporter {
     // were removed as they were never populated. Add back when worker-level telemetry is implemented.
 
     // ==========================================================================
-    // PRD-005: Prometheus Metrics Endpoint - Inference/Routing/Receipt metrics
+    // Prometheus Metrics Endpoint - Inference/Routing/Receipt metrics
     // ==========================================================================
 
-    // Inference metrics (PRD-005 Section 3.3)
+    // Inference metrics
     inference_requests_total: CounterVec,
     inference_duration_seconds: HistogramVec,
     inference_tokens_generated_total: CounterVec,
     inference_tokens_per_second: GaugeVec,
     inference_queue_depth: GaugeVec,
 
-    // Routing metrics (PRD-005 Section 3.3)
+    // Routing metrics
     routing_decisions_total: CounterVec,
     routing_entropy: HistogramVec,
     routing_k_value: HistogramVec,
     routing_gate_max: HistogramVec,
 
-    // Resource metrics (PRD-005 Section 3.3)
+    // Resource metrics
     memory_bytes: GaugeVec,
     gpu_utilization_ratio: Gauge,
     adapter_cache_entries: Gauge,
     adapter_cache_bytes: Gauge,
     kv_cache_entries: GaugeVec,
 
-    // Receipt metrics (PRD-005 Section 3.3)
+    // Receipt metrics
     receipts_generated_total: CounterVec,
     receipt_verification_total: CounterVec,
     receipt_signature_seconds: Histogram,
@@ -204,7 +204,7 @@ impl MetricsExporter {
         // were removed as they were never populated. Add back when worker-level telemetry is implemented.
 
         // ==========================================================================
-        // PRD-005: Prometheus Metrics Endpoint - Inference/Routing/Receipt metrics
+        // Prometheus Metrics Endpoint - Inference/Routing/Receipt metrics
         // ==========================================================================
 
         // Inference metrics
@@ -687,7 +687,7 @@ impl MetricsExporter {
             jobs_duration_seconds,
             jobs_active,
             workers_active,
-            // PRD-005 metrics
+            // Inference metrics
             inference_requests_total,
             inference_duration_seconds,
             inference_tokens_generated_total,
@@ -790,7 +790,7 @@ impl MetricsExporter {
     }
 
     // ==========================================================================
-    // PRD-005: Prometheus Metrics Endpoint - Recording methods
+    // Prometheus Metrics Endpoint - Recording methods
     // ==========================================================================
 
     /// Record an inference request
@@ -1328,7 +1328,7 @@ mod tests {
     }
 
     // ==========================================================================
-    // PRD-005: Prometheus Metrics Endpoint - Tests
+    // Prometheus Metrics Endpoint - Tests
     // ==========================================================================
 
     #[test]

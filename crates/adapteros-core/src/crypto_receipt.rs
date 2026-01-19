@@ -1036,10 +1036,10 @@ pub fn equipment_profile_from_fingerprint(
 }
 
 // ============================================================================
-// Cancellation Receipt (PRD-003: Audit Trail Completeness)
+// Cancellation Receipt (Audit Trail Completeness)
 // ============================================================================
 
-/// Source of inference cancellation for audit trail (PRD-003).
+/// Source of inference cancellation for audit trail.
 ///
 /// Categorizes why an inference was cancelled, enabling:
 /// - Audit trail completeness (cancelled requests generate receipts)
@@ -1049,7 +1049,7 @@ pub fn equipment_profile_from_fingerprint(
 /// Re-exported from adapteros-types for convenience.
 pub use adapteros_types::CancelSource;
 
-/// Cryptographic receipt for cancelled inference runs (PRD-003).
+/// Cryptographic receipt for cancelled inference runs.
 ///
 /// When inference is cancelled (client disconnect, timeout, explicit cancel),
 /// this receipt ensures audit trail completeness by capturing:
@@ -1991,7 +1991,7 @@ mod tests {
     }
 
     // ========================================================================
-    // Cancellation Receipt Tests (PRD-003)
+    // Cancellation Receipt Tests
     // ========================================================================
 
     #[test]

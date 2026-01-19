@@ -340,7 +340,7 @@ pub struct InvariantsConfig {
     #[serde(default)]
     pub disable_lif_004_pool_drain: bool,
     // =========================================================================
-    // PRD-003 New Invariants (28 total)
+    // Additional Boot Invariants (28 total)
     // =========================================================================
     /// Disable AUTH-001: JWT signing key configured check
     #[serde(default)]

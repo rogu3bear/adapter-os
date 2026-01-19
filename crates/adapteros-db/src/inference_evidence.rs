@@ -259,7 +259,7 @@ impl Db {
         Ok(records.into_iter().map(Into::into).collect())
     }
 
-    /// Bind evidence records to a message ID (PRD-003: Audit Trail Completeness).
+    /// Bind evidence records to a message ID (Audit Trail Completeness).
     ///
     /// Updates existing evidence records that were created without a `message_id`
     /// (because the message hadn't been generated yet during RAG retrieval).
@@ -340,7 +340,7 @@ impl Db {
         Ok(rows_affected)
     }
 
-    /// Get unbound evidence older than a threshold (PRD-003 monitoring query).
+    /// Get unbound evidence older than a threshold (monitoring query).
     ///
     /// Returns evidence records that:
     /// - Have no `message_id` bound

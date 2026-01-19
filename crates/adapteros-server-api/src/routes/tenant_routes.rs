@@ -40,7 +40,7 @@ pub fn tenant_routes() -> Router<AppState> {
             "/v1/tenants/{tenant_id}/usage",
             get(handlers::get_tenant_usage),
         )
-        // PRD-004: Dedicated tenant resource metrics endpoint
+        // Dedicated tenant resource metrics endpoint
         .route(
             "/v1/tenants/{tenant_id}/metrics",
             get(handlers::tenants::get_tenant_metrics),

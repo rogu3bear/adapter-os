@@ -3,8 +3,9 @@
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_db::Db;
 use adapteros_policy::{
-    explain_policy, list_policies, PolicyId, PolicyPackManager,
-    policy_packs::{PolicyRequest, PolicyContext, RequestType, Priority},
+    explain_policy, list_policies,
+    policy_packs::{PolicyContext, PolicyRequest, Priority, RequestType},
+    PolicyId, PolicyPackManager,
 };
 use clap::Subcommand;
 use comfy_table::{presets::UTF8_FULL, Cell, Color, Table};
@@ -291,8 +292,14 @@ fn enforce_policies(pack: Option<&str>, all: bool, dry_run: bool) -> Result<()> 
         }
 
         // Check if this policy had any violations in the validation result
-        let policy_violations: Vec<_> = validation_result.violations.iter()
-            .filter(|v| v.policy_pack.to_lowercase().contains(&spec.name.to_lowercase()))
+        let policy_violations: Vec<_> = validation_result
+            .violations
+            .iter()
+            .filter(|v| {
+                v.policy_pack
+                    .to_lowercase()
+                    .contains(&spec.name.to_lowercase())
+            })
             .collect();
 
         if policy_violations.is_empty() {
@@ -300,7 +307,11 @@ fn enforce_policies(pack: Option<&str>, all: bool, dry_run: bool) -> Result<()> 
             passed += 1;
         } else {
             failed += 1;
-            println!("✗ {} - FAILED ({} violations)", spec.name, policy_violations.len());
+            println!(
+                "✗ {} - FAILED ({} violations)",
+                spec.name,
+                policy_violations.len()
+            );
             for violation in &policy_violations {
                 println!("    - {}", violation.message);
                 violation_details.push(format!("{}: {}", spec.name, violation.message));
@@ -332,7 +343,10 @@ fn enforce_policies(pack: Option<&str>, all: bool, dry_run: bool) -> Result<()> 
     }
 
     if failed > 0 && dry_run {
-        println!("\n⚠️  {} violations detected (dry run - not failing)", failed);
+        println!(
+            "\n⚠️  {} violations detected (dry run - not failing)",
+            failed
+        );
     }
 
     Ok(())

@@ -1241,7 +1241,12 @@ pub async fn check_dataset_version_safety(
     // Escalate to review if dataset version is not safe
     if !result.is_safe {
         if let Some(ref pause_tracker) = state.pause_tracker {
-            let pause_id = format!("dataset-safety-{}-{}-{}", dataset_id, version_id, uuid::Uuid::new_v4());
+            let pause_id = format!(
+                "dataset-safety-{}-{}-{}",
+                dataset_id,
+                version_id,
+                uuid::Uuid::new_v4()
+            );
             let context = format!(
                 "Dataset '{}' version '{}' failed safety check. Trust state: {}. Blocking reasons: {}",
                 dataset_id,

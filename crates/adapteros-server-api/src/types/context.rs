@@ -391,7 +391,7 @@ pub struct InferenceResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub abstention: Option<AbstentionInfo>,
 
-    // PRD-003: RAG Evidence Message ID Binding
+    // RAG Evidence Message ID Binding
     /// Pending evidence IDs from RAG retrieval that need to be bound to a message_id.
     ///
     /// During RAG-augmented inference, evidence is stored without a message_id because
