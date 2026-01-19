@@ -1409,7 +1409,19 @@ pub async fn get_preprocess_status(
         validate_tenant_isolation(&claims, &owner)?;
         (version.dataset_id, Some(version_id))
     } else {
-        let dataset_id = req.dataset_id.clone().unwrap();
+        let dataset_id = req.dataset_id.clone().ok_or_else(|| {
+            warn!(
+                tenant_id = %claims.tenant_id,
+                "Preprocessing status request missing dataset_id"
+            );
+            (
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("dataset_id is required for preprocessing status")
+                        .with_code("VALIDATION_ERROR"),
+                ),
+            )
+        })?;
         let dataset = state
             .db
             .get_training_dataset(&dataset_id)
