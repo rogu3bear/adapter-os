@@ -699,7 +699,12 @@ pub fn decode_allowed_mask(bytes: &[u8]) -> Result<Vec<bool>, &'static str> {
     if bytes.len() < 4 {
         return Err("allowed_mask blob missing length");
     }
-    let count = u32::from_le_bytes(bytes[..4].try_into().unwrap()) as usize;
+    // Safe: we just verified bytes.len() >= 4, so [..4] is exactly 4 bytes
+    let count = u32::from_le_bytes(
+        bytes[..4]
+            .try_into()
+            .map_err(|_| "allowed_mask header not 4 bytes")?,
+    ) as usize;
     let mut cursor = 4;
     let mut mask = Vec::with_capacity(count);
     for _ in 0..count {

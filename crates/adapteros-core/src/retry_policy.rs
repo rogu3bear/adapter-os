@@ -428,7 +428,9 @@ impl RetryManager {
             let label = format!("retry_jitter:{}:{}", policy.service_type, attempt);
             let hk = Hkdf::<Sha256>::new(Some(label.as_bytes()), b"adapteros-retry");
             let mut seed_bytes = [0u8; 8];
-            hk.expand(&[], &mut seed_bytes).unwrap();
+            // HKDF-SHA256 can expand to 8160 bytes (255 * 32); 8 bytes is safe
+            hk.expand(&[], &mut seed_bytes)
+                .expect("HKDF expand for 8 bytes always succeeds");
             u64::from_le_bytes(seed_bytes) % jitter_range
         } else {
             fastrand::Rng::new().u64(0..jitter_range)

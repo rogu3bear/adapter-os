@@ -71,7 +71,12 @@ impl DeterminismContext {
         routing_mode: RoutingDeterminismMode,
         source: DeterminismSource,
     ) -> Self {
-        let request_seed_low64 = u64::from_le_bytes(request_seed[..8].try_into().unwrap());
+        // Safe: request_seed is [u8; 32], so [..8] is exactly 8 bytes
+        let request_seed_low64 = u64::from_le_bytes(
+            request_seed[..8]
+                .try_into()
+                .expect("request_seed[..8] is always 8 bytes"),
+        );
         Self {
             request_seed,
             request_seed_low64,
