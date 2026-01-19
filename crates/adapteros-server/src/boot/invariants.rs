@@ -1079,7 +1079,7 @@ pub fn validate_boot_invariants(
     if invariants_config.disable_crypto_003_algo_match {
         report.record_skip("CRYPTO-003");
     } else {
-        let dev_algo = cfg.auth.dev_algo.to_lowercase();
+        let _dev_algo = cfg.auth.dev_algo.to_lowercase();
         let prod_algo = cfg.auth.prod_algo.to_lowercase();
         let jwt_mode = cfg.security.jwt_mode.as_deref().unwrap_or("hs256").to_lowercase();
 
