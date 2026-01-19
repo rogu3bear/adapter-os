@@ -1989,4 +1989,194 @@ mod tests {
         );
         assert_eq!(digest.decision_count, 2);
     }
+
+    // ========================================================================
+    // Cancellation Receipt Tests (PRD-003)
+    // ========================================================================
+
+    #[test]
+    fn test_cancellation_receipt_builder_basic() {
+        let builder = CancellationReceiptBuilder::new(
+            "trace-123".to_string(),
+            CancelSource::ClientDisconnect,
+            42,
+        )
+        .with_partial_tokens(vec![100, 101, 102, 103]);
+
+        let receipt = builder.finalize();
+
+        assert_eq!(receipt.trace_id, "trace-123");
+        assert_eq!(receipt.partial_output_count, 4);
+        assert_eq!(receipt.cancelled_at_token, 42);
+        assert_eq!(receipt.cancellation_source, CancelSource::ClientDisconnect);
+        assert_eq!(receipt.stop_reason, "CANCELLED");
+        assert_eq!(receipt.schema_version, CANCELLATION_RECEIPT_SCHEMA_VERSION);
+        assert!(receipt.cancelled_at.is_some());
+    }
+
+    #[test]
+    fn test_cancellation_receipt_verify() {
+        let receipt = CancellationReceiptBuilder::new(
+            "trace-456".to_string(),
+            CancelSource::RequestTimeout,
+            100,
+        )
+        .with_partial_tokens(vec![1, 2, 3, 4, 5])
+        .finalize();
+
+        // Receipt should verify against itself
+        assert!(receipt.verify(), "Cancellation receipt should verify");
+    }
+
+    #[test]
+    fn test_cancellation_receipt_deterministic() {
+        let tokens = vec![100, 200, 300, 400];
+
+        let receipt1 = CancellationReceiptBuilder::new(
+            "trace-det".to_string(),
+            CancelSource::PolicyViolation,
+            50,
+        )
+        .with_partial_tokens(tokens.clone())
+        .finalize();
+
+        let receipt2 = CancellationReceiptBuilder::new(
+            "trace-det".to_string(),
+            CancelSource::PolicyViolation,
+            50,
+        )
+        .with_partial_tokens(tokens)
+        .finalize();
+
+        // Receipt digests should be identical
+        assert_eq!(receipt1.receipt_digest, receipt2.receipt_digest);
+        assert_eq!(receipt1.partial_output_digest, receipt2.partial_output_digest);
+    }
+
+    #[test]
+    fn test_cancellation_receipt_differs_with_different_source() {
+        let tokens = vec![100, 200, 300];
+
+        let receipt1 = CancellationReceiptBuilder::new(
+            "trace-src".to_string(),
+            CancelSource::ClientDisconnect,
+            50,
+        )
+        .with_partial_tokens(tokens.clone())
+        .finalize();
+
+        let receipt2 = CancellationReceiptBuilder::new(
+            "trace-src".to_string(),
+            CancelSource::RequestTimeout,
+            50,
+        )
+        .with_partial_tokens(tokens)
+        .finalize();
+
+        // Different cancellation sources should produce different digests
+        assert_ne!(receipt1.receipt_digest, receipt2.receipt_digest);
+    }
+
+    #[test]
+    fn test_cancellation_receipt_differs_with_different_tokens() {
+        let receipt1 = CancellationReceiptBuilder::new(
+            "trace-tok".to_string(),
+            CancelSource::ManualCancel,
+            3,
+        )
+        .with_partial_tokens(vec![1, 2, 3])
+        .finalize();
+
+        let receipt2 = CancellationReceiptBuilder::new(
+            "trace-tok".to_string(),
+            CancelSource::ManualCancel,
+            4,
+        )
+        .with_partial_tokens(vec![1, 2, 3, 4])
+        .finalize();
+
+        // Different partial tokens should produce different digests
+        assert_ne!(receipt1.receipt_digest, receipt2.receipt_digest);
+        assert_ne!(receipt1.partial_output_digest, receipt2.partial_output_digest);
+    }
+
+    #[test]
+    fn test_cancellation_receipt_with_equipment_profile() {
+        let profile = EquipmentProfile::compute("Apple M4 Max", "mlx-0.21.0", None);
+
+        let receipt = CancellationReceiptBuilder::new(
+            "trace-ep".to_string(),
+            CancelSource::ResourceExhaustion,
+            25,
+        )
+        .with_partial_tokens(vec![10, 20, 30])
+        .with_equipment_profile(profile.clone())
+        .finalize();
+
+        assert!(receipt.equipment_profile.is_some());
+        assert_eq!(receipt.equipment_profile.as_ref().unwrap().digest, profile.digest);
+    }
+
+    #[test]
+    fn test_cancellation_receipt_with_context_digest() {
+        let context = B3Hash::hash(b"model+adapter-config");
+
+        let receipt = CancellationReceiptBuilder::new(
+            "trace-ctx".to_string(),
+            CancelSource::ClientDisconnect,
+            10,
+        )
+        .with_partial_tokens(vec![5, 10, 15])
+        .with_context_digest(context)
+        .finalize();
+
+        assert!(receipt.context_digest.is_some());
+        assert_eq!(receipt.context_digest.unwrap(), context);
+    }
+
+    #[test]
+    fn test_cancellation_receipt_with_tenant_id() {
+        let receipt = CancellationReceiptBuilder::new(
+            "trace-tenant".to_string(),
+            CancelSource::RequestTimeout,
+            5,
+        )
+        .with_partial_tokens(vec![1, 2])
+        .with_tenant_id("tenant-xyz".to_string())
+        .finalize();
+
+        assert_eq!(receipt.tenant_id, Some("tenant-xyz".to_string()));
+    }
+
+    #[test]
+    fn test_cancellation_receipt_canonical_bytes() {
+        let receipt = CancellationReceiptBuilder::new(
+            "trace-bytes".to_string(),
+            CancelSource::ManualCancel,
+            15,
+        )
+        .with_partial_tokens(vec![100, 200])
+        .finalize();
+
+        let bytes1 = receipt.to_canonical_bytes();
+        let bytes2 = receipt.to_canonical_bytes();
+
+        // Canonical bytes should be deterministic
+        assert_eq!(bytes1, bytes2);
+        assert!(!bytes1.is_empty());
+    }
+
+    #[test]
+    fn test_cancellation_receipt_empty_tokens() {
+        let receipt = CancellationReceiptBuilder::new(
+            "trace-empty".to_string(),
+            CancelSource::ClientDisconnect,
+            0,
+        )
+        .with_partial_tokens(vec![])
+        .finalize();
+
+        assert_eq!(receipt.partial_output_count, 0);
+        assert!(receipt.verify());
+    }
 }
