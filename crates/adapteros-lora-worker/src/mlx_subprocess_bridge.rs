@@ -928,17 +928,53 @@ impl MLXSubprocessBridge {
                 );
 
                 // Update bridge capabilities
-                *self.streaming_supported.lock().unwrap() = streaming_supported;
-                *self.bridge_protocol_version.lock().unwrap() = protocol_version;
+                match self.streaming_supported.lock() {
+                    Ok(mut guard) => *guard = streaming_supported,
+                    Err(e) => {
+                        error!("Mutex poisoned updating streaming_supported: {}", e);
+                        return Err(AosError::Kernel("Bridge state mutex poisoned".to_string()));
+                    }
+                }
+                match self.bridge_protocol_version.lock() {
+                    Ok(mut guard) => *guard = protocol_version,
+                    Err(e) => {
+                        error!("Mutex poisoned updating bridge_protocol_version: {}", e);
+                        return Err(AosError::Kernel("Bridge state mutex poisoned".to_string()));
+                    }
+                }
 
                 // Update MoE info
-                *self.is_moe.lock().unwrap() = is_moe;
-                *self.num_experts.lock().unwrap() = num_experts;
-                *self.experts_per_token.lock().unwrap() = experts_per_token;
+                match self.is_moe.lock() {
+                    Ok(mut guard) => *guard = is_moe,
+                    Err(e) => {
+                        error!("Mutex poisoned updating is_moe: {}", e);
+                        return Err(AosError::Kernel("Bridge state mutex poisoned".to_string()));
+                    }
+                }
+                match self.num_experts.lock() {
+                    Ok(mut guard) => *guard = num_experts,
+                    Err(e) => {
+                        error!("Mutex poisoned updating num_experts: {}", e);
+                        return Err(AosError::Kernel("Bridge state mutex poisoned".to_string()));
+                    }
+                }
+                match self.experts_per_token.lock() {
+                    Ok(mut guard) => *guard = experts_per_token,
+                    Err(e) => {
+                        error!("Mutex poisoned updating experts_per_token: {}", e);
+                        return Err(AosError::Kernel("Bridge state mutex poisoned".to_string()));
+                    }
+                }
 
                 // Enable routing collection for MoE models
                 if is_moe && protocol_version >= 3 {
-                    *self.collect_routing.lock().unwrap() = true;
+                    match self.collect_routing.lock() {
+                        Ok(mut guard) => *guard = true,
+                        Err(e) => {
+                            error!("Mutex poisoned updating collect_routing: {}", e);
+                            return Err(AosError::Kernel("Bridge state mutex poisoned".to_string()));
+                        }
+                    }
                     info!("Expert routing collection enabled for MoE model");
                 }
             }
@@ -961,7 +997,10 @@ impl MLXSubprocessBridge {
 
     /// Ensure process is running, restart if needed
     fn ensure_running(&self) -> Result<()> {
-        let mut process_guard = self.process.lock().unwrap();
+        let mut process_guard = self.process.lock().map_err(|e| {
+            error!("Process mutex poisoned in ensure_running: {}", e);
+            AosError::Kernel("Bridge process mutex poisoned".to_string())
+        })?;
 
         // Check if process exists and is alive
         let needs_start = match process_guard.as_mut() {
@@ -984,7 +1023,10 @@ impl MLXSubprocessBridge {
 
         if needs_start {
             // Check restart limit
-            let current_count = *self.restart_count.lock().unwrap();
+            let current_count = *self.restart_count.lock().map_err(|e| {
+                error!("Restart count mutex poisoned: {}", e);
+                AosError::Kernel("Bridge restart count mutex poisoned".to_string())
+            })?;
             if current_count >= self.config.max_restarts {
                 error!(
                     restart_count = current_count,
@@ -1006,10 +1048,17 @@ impl MLXSubprocessBridge {
             let new_process = self.start_process()?;
             *process_guard = Some(new_process);
 
-            let mut count = self.restart_count.lock().unwrap();
-            *count += 1;
-            if *count > 1 {
-                warn!(restart_count = *count, "Bridge process restarted");
+            match self.restart_count.lock() {
+                Ok(mut count) => {
+                    *count += 1;
+                    if *count > 1 {
+                        warn!(restart_count = *count, "Bridge process restarted");
+                    }
+                }
+                Err(e) => {
+                    error!("Restart count mutex poisoned while incrementing: {}", e);
+                    return Err(AosError::Kernel("Bridge restart count mutex poisoned".to_string()));
+                }
             }
         }
 
@@ -1018,19 +1067,29 @@ impl MLXSubprocessBridge {
 
     /// Reset the restart counter (call after successful operations)
     fn reset_restart_count(&self) {
-        let mut count = self.restart_count.lock().unwrap();
-        if *count > 0 {
-            debug!(
-                previous_count = *count,
-                "Resetting restart counter after success"
-            );
-            *count = 0;
+        match self.restart_count.lock() {
+            Ok(mut count) => {
+                if *count > 0 {
+                    debug!(
+                        previous_count = *count,
+                        "Resetting restart counter after success"
+                    );
+                    *count = 0;
+                }
+            }
+            Err(e) => {
+                // Log but don't propagate - this is a best-effort cleanup
+                error!("Restart count mutex poisoned in reset: {}", e);
+            }
         }
     }
 
     /// Send a request to the bridge
     fn send_request(&self, request: &BridgeRequest) -> Result<()> {
-        let mut process_guard = self.process.lock().unwrap();
+        let mut process_guard = self.process.lock().map_err(|e| {
+            error!("Process mutex poisoned in send_request: {}", e);
+            AosError::Kernel("Bridge process mutex poisoned".to_string())
+        })?;
         let process = process_guard
             .as_mut()
             .ok_or_else(|| AosError::Kernel("Bridge process not started".to_string()))?;
@@ -1076,7 +1135,10 @@ impl MLXSubprocessBridge {
 
         self.send_request(&BridgeRequest::HealthCheck)?;
 
-        let mut process_guard = self.process.lock().unwrap();
+        let mut process_guard = self.process.lock().map_err(|e| {
+            error!("Process mutex poisoned in check_bridge_health: {}", e);
+            AosError::Kernel("Bridge process mutex poisoned".to_string())
+        })?;
         let process = process_guard
             .as_mut()
             .ok_or_else(|| AosError::Kernel("Bridge process not started".to_string()))?;
@@ -1089,7 +1151,13 @@ impl MLXSubprocessBridge {
                 model_loaded,
             } => {
                 let healthy = status == "healthy" && model_loaded;
-                *self.last_health_check.lock().unwrap() = Some(Instant::now());
+                match self.last_health_check.lock() {
+                    Ok(mut guard) => *guard = Some(Instant::now()),
+                    Err(e) => {
+                        // Log but continue - health check still succeeded
+                        error!("Health check timestamp mutex poisoned: {}", e);
+                    }
+                }
                 Ok(healthy)
             }
             BridgeResponse::Error { error, error_type } => Err(AosError::Kernel(format!(
@@ -1113,7 +1181,10 @@ impl MLXSubprocessBridge {
 
         self.send_request(&BridgeRequest::Prewarm { experts })?;
 
-        let mut process_guard = self.process.lock().unwrap();
+        let mut process_guard = self.process.lock().map_err(|e| {
+            error!("Process mutex poisoned in prewarm_experts: {}", e);
+            AosError::Kernel("Bridge process mutex poisoned".to_string())
+        })?;
         let process = process_guard
             .as_mut()
             .ok_or_else(|| AosError::Kernel("Bridge process not started".to_string()))?;
@@ -1178,7 +1249,10 @@ impl MLXSubprocessBridge {
 
         self.send_request(&request)?;
 
-        let mut process_guard = self.process.lock().unwrap();
+        let mut process_guard = self.process.lock().map_err(|e| {
+            error!("Process mutex poisoned in generate_text: {}", e);
+            AosError::Kernel("Bridge process mutex poisoned".to_string())
+        })?;
         let process = process_guard
             .as_mut()
             .ok_or_else(|| AosError::Kernel("Bridge process not started".to_string()))?;
@@ -1261,7 +1335,10 @@ impl MLXSubprocessBridge {
 
         self.send_request(&request)?;
 
-        let mut process_guard = self.process.lock().unwrap();
+        let mut process_guard = self.process.lock().map_err(|e| {
+            error!("Process mutex poisoned in generate_stream: {}", e);
+            AosError::Kernel("Bridge process mutex poisoned".to_string())
+        })?;
         let process = process_guard
             .as_mut()
             .ok_or_else(|| AosError::Kernel("Bridge process not started".to_string()))?;
@@ -1272,7 +1349,10 @@ impl MLXSubprocessBridge {
 
         // Initialize routing hash chain for MoE models
         // Use num_experts as a proxy for layer count (typical MoE has routing per layer)
-        let num_layers = *self.num_experts.lock().unwrap();
+        let num_layers = self.num_experts.lock().map(|g| *g).unwrap_or_else(|e| {
+            error!("num_experts mutex poisoned in generate_stream: {}", e);
+            0 // Safe default - disable routing chain
+        });
         let mut routing_chain = if collect_routing && num_layers > 0 {
             Some(RoutingHashChain::new(num_layers))
         } else {
@@ -1468,7 +1548,10 @@ impl MLXSubprocessBridge {
 
     /// Shutdown the bridge process
     pub fn shutdown(&self) -> Result<()> {
-        let mut process_guard = self.process.lock().unwrap();
+        let mut process_guard = self.process.lock().map_err(|e| {
+            error!("Process mutex poisoned in shutdown: {}", e);
+            AosError::Kernel("Bridge process mutex poisoned".to_string())
+        })?;
         if let Some(mut process) = process_guard.take() {
             info!("Shutting down bridge process");
 
@@ -1523,7 +1606,13 @@ impl FusedKernels for MLXSubprocessBridge {
         self.ensure_running()?;
 
         // Clear context buffer for fresh start
-        self.context_buffer.lock().unwrap().clear();
+        match self.context_buffer.lock() {
+            Ok(mut guard) => guard.clear(),
+            Err(e) => {
+                error!("Context buffer mutex poisoned in load: {}", e);
+                return Err(AosError::Kernel("Bridge context buffer mutex poisoned".to_string()));
+            }
+        }
 
         info!("MLX subprocess bridge ready");
         Ok(())
