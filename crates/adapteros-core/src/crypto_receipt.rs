@@ -1036,6 +1036,343 @@ pub fn equipment_profile_from_fingerprint(
 }
 
 // ============================================================================
+// Cancellation Receipt (PRD-003: Audit Trail Completeness)
+// ============================================================================
+
+/// Source of inference cancellation for audit trail (PRD-003).
+///
+/// Categorizes why an inference was cancelled, enabling:
+/// - Audit trail completeness (cancelled requests generate receipts)
+/// - Operational metrics (track cancellation patterns)
+/// - Debugging (distinguish client vs system cancellations)
+///
+/// Re-exported from adapteros-types for convenience.
+pub use adapteros_types::CancelSource;
+
+/// Cryptographic receipt for cancelled inference runs (PRD-003).
+///
+/// When inference is cancelled (client disconnect, timeout, explicit cancel),
+/// this receipt ensures audit trail completeness by capturing:
+/// - Partial output state (tokens generated before cancellation)
+/// - Cancellation metadata (source, reason, timing)
+/// - Cryptographic binding (signed receipt digest)
+///
+/// This enables verification that partial outputs were produced under
+/// specific conditions, even when generation did not complete normally.
+///
+/// # Receipt Digest Computation
+///
+/// ```text
+/// receipt_digest = BLAKE3(
+///     schema_version ||
+///     trace_id ||
+///     partial_output_digest ||
+///     partial_output_count (u32 LE) ||
+///     stop_reason ||
+///     cancellation_source ||
+///     cancelled_at_token (u32 LE) ||
+///     equipment_profile_digest ||
+///     context_digest
+/// )
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CancellationReceipt {
+    /// Schema version for forward compatibility
+    pub schema_version: u8,
+
+    /// Unique trace identifier for correlation
+    pub trace_id: String,
+
+    /// BLAKE3 hash of tokens generated before cancellation
+    pub partial_output_digest: B3Hash,
+
+    /// Number of tokens generated before cancellation
+    pub partial_output_count: u32,
+
+    /// Stop reason code (always Cancelled for this receipt type)
+    pub stop_reason: String,
+
+    /// Source/reason for cancellation
+    pub cancellation_source: CancelSource,
+
+    /// Token index at which cancellation was detected
+    pub cancelled_at_token: u32,
+
+    /// Final receipt digest binding all fields
+    pub receipt_digest: B3Hash,
+
+    /// Ed25519 signature over receipt_digest (64 bytes)
+    /// None in development mode, required in production
+    pub signature: Option<Vec<u8>>,
+
+    /// Equipment profile (processor + engine version)
+    pub equipment_profile: Option<EquipmentProfile>,
+
+    /// Context digest (model + adapter config hash)
+    pub context_digest: Option<B3Hash>,
+
+    /// Tenant ID for multi-tenant isolation
+    pub tenant_id: Option<String>,
+
+    /// Timestamp when cancellation occurred (RFC3339)
+    pub cancelled_at: Option<String>,
+}
+
+/// Current schema version for cancellation receipts
+pub const CANCELLATION_RECEIPT_SCHEMA_VERSION: u8 = 1;
+
+impl CancellationReceipt {
+    /// Compute the receipt digest from all bound fields.
+    fn compute_receipt_digest(
+        trace_id: &str,
+        partial_output_digest: &B3Hash,
+        partial_output_count: u32,
+        stop_reason: &str,
+        cancellation_source: CancelSource,
+        cancelled_at_token: u32,
+        equipment_profile: Option<&EquipmentProfile>,
+        context_digest: Option<&B3Hash>,
+    ) -> B3Hash {
+        let mut hasher = blake3::Hasher::new();
+
+        // Schema version
+        hasher.update(&[CANCELLATION_RECEIPT_SCHEMA_VERSION]);
+
+        // Trace ID (length-prefixed)
+        let trace_bytes = trace_id.as_bytes();
+        hasher.update(&(trace_bytes.len() as u32).to_le_bytes());
+        hasher.update(trace_bytes);
+
+        // Partial output digest
+        hasher.update(partial_output_digest.as_bytes());
+
+        // Partial output count
+        hasher.update(&partial_output_count.to_le_bytes());
+
+        // Stop reason (length-prefixed)
+        let reason_bytes = stop_reason.as_bytes();
+        hasher.update(&(reason_bytes.len() as u32).to_le_bytes());
+        hasher.update(reason_bytes);
+
+        // Cancellation source (as string, length-prefixed)
+        let source_str = cancellation_source.to_string();
+        let source_bytes = source_str.as_bytes();
+        hasher.update(&(source_bytes.len() as u32).to_le_bytes());
+        hasher.update(source_bytes);
+
+        // Cancelled at token index
+        hasher.update(&cancelled_at_token.to_le_bytes());
+
+        // Equipment profile digest (with presence marker)
+        match equipment_profile {
+            Some(ep) => {
+                hasher.update(&[1u8]);
+                hasher.update(ep.digest.as_bytes());
+            }
+            None => {
+                hasher.update(&[0u8]);
+            }
+        }
+
+        // Context digest (with presence marker)
+        match context_digest {
+            Some(ctx) => {
+                hasher.update(&[1u8]);
+                hasher.update(ctx.as_bytes());
+            }
+            None => {
+                hasher.update(&[0u8]);
+            }
+        }
+
+        B3Hash::from_bytes(hasher.finalize().into())
+    }
+
+    /// Verify the receipt digest matches the bound fields.
+    pub fn verify(&self) -> bool {
+        let expected = Self::compute_receipt_digest(
+            &self.trace_id,
+            &self.partial_output_digest,
+            self.partial_output_count,
+            &self.stop_reason,
+            self.cancellation_source,
+            self.cancelled_at_token,
+            self.equipment_profile.as_ref(),
+            self.context_digest.as_ref(),
+        );
+        self.receipt_digest == expected
+    }
+
+    /// Check if this receipt is signed
+    pub fn is_signed(&self) -> bool {
+        self.signature.is_some()
+    }
+
+    /// Get the receipt digest for external verification
+    pub fn digest(&self) -> &B3Hash {
+        &self.receipt_digest
+    }
+
+    /// Export receipt as canonical bytes for signing or storage.
+    pub fn to_canonical_bytes(&self) -> Vec<u8> {
+        let mut buf = Vec::with_capacity(256);
+
+        // Schema version
+        buf.push(self.schema_version);
+
+        // Trace ID
+        encode_str(&mut buf, &self.trace_id);
+
+        // Partial output digest
+        buf.extend_from_slice(self.partial_output_digest.as_bytes());
+
+        // Partial output count
+        buf.extend_from_slice(&self.partial_output_count.to_le_bytes());
+
+        // Stop reason
+        encode_str(&mut buf, &self.stop_reason);
+
+        // Cancellation source
+        encode_str(&mut buf, &self.cancellation_source.to_string());
+
+        // Cancelled at token
+        buf.extend_from_slice(&self.cancelled_at_token.to_le_bytes());
+
+        // Receipt digest
+        buf.extend_from_slice(self.receipt_digest.as_bytes());
+
+        // Signature (with presence marker)
+        match &self.signature {
+            Some(sig) => {
+                buf.push(1u8);
+                buf.extend_from_slice(&(sig.len() as u32).to_le_bytes());
+                buf.extend_from_slice(sig);
+            }
+            None => buf.push(0u8),
+        }
+
+        buf
+    }
+}
+
+/// Builder for generating cancellation receipts.
+///
+/// Collects partial output state and cancellation metadata,
+/// then finalizes into a signed CancellationReceipt.
+#[derive(Debug)]
+pub struct CancellationReceiptBuilder {
+    trace_id: String,
+    partial_tokens: Vec<u32>,
+    cancellation_source: CancelSource,
+    cancelled_at_token: u32,
+    equipment_profile: Option<EquipmentProfile>,
+    context_digest: Option<B3Hash>,
+    tenant_id: Option<String>,
+}
+
+impl CancellationReceiptBuilder {
+    /// Create a new cancellation receipt builder.
+    ///
+    /// # Arguments
+    /// * `trace_id` - Unique trace identifier
+    /// * `cancellation_source` - Why the inference was cancelled
+    /// * `cancelled_at_token` - Token index at cancellation
+    pub fn new(trace_id: String, cancellation_source: CancelSource, cancelled_at_token: u32) -> Self {
+        Self {
+            trace_id,
+            partial_tokens: Vec::new(),
+            cancellation_source,
+            cancelled_at_token,
+            equipment_profile: None,
+            context_digest: None,
+            tenant_id: None,
+        }
+    }
+
+    /// Set the partial tokens generated before cancellation.
+    pub fn with_partial_tokens(mut self, tokens: Vec<u32>) -> Self {
+        self.partial_tokens = tokens;
+        self
+    }
+
+    /// Set the equipment profile.
+    pub fn with_equipment_profile(mut self, profile: EquipmentProfile) -> Self {
+        self.equipment_profile = Some(profile);
+        self
+    }
+
+    /// Set the context digest (model + adapter config).
+    pub fn with_context_digest(mut self, digest: B3Hash) -> Self {
+        self.context_digest = Some(digest);
+        self
+    }
+
+    /// Set the tenant ID for multi-tenant isolation.
+    pub fn with_tenant_id(mut self, tenant_id: String) -> Self {
+        self.tenant_id = Some(tenant_id);
+        self
+    }
+
+    /// Finalize the cancellation receipt (unsigned).
+    ///
+    /// Returns the receipt without signature. For production use,
+    /// call `finalize_signed` with a signing keypair instead.
+    pub fn finalize(self) -> CancellationReceipt {
+        let partial_output_digest = compute_output_digest(&self.partial_tokens);
+        let partial_output_count = self.partial_tokens.len() as u32;
+        let stop_reason = "CANCELLED".to_string();
+
+        let receipt_digest = CancellationReceipt::compute_receipt_digest(
+            &self.trace_id,
+            &partial_output_digest,
+            partial_output_count,
+            &stop_reason,
+            self.cancellation_source,
+            self.cancelled_at_token,
+            self.equipment_profile.as_ref(),
+            self.context_digest.as_ref(),
+        );
+
+        CancellationReceipt {
+            schema_version: CANCELLATION_RECEIPT_SCHEMA_VERSION,
+            trace_id: self.trace_id,
+            partial_output_digest,
+            partial_output_count,
+            stop_reason,
+            cancellation_source: self.cancellation_source,
+            cancelled_at_token: self.cancelled_at_token,
+            receipt_digest,
+            signature: None,
+            equipment_profile: self.equipment_profile,
+            context_digest: self.context_digest,
+            tenant_id: self.tenant_id,
+            cancelled_at: Some(chrono::Utc::now().to_rfc3339()),
+        }
+    }
+
+    /// Finalize the cancellation receipt with signature.
+    ///
+    /// Signs the receipt digest using the provided signing function.
+    /// The signing function receives the receipt digest bytes and returns
+    /// a 64-byte Ed25519 signature.
+    ///
+    /// # Arguments
+    /// * `sign_fn` - Function that signs 32-byte digest, returns 64-byte signature
+    pub fn finalize_signed<F>(self, sign_fn: F) -> Result<CancellationReceipt>
+    where
+        F: FnOnce(&[u8; 32]) -> Result<Vec<u8>>,
+    {
+        let mut receipt = self.finalize();
+
+        // Sign the receipt digest
+        let signature = sign_fn(receipt.receipt_digest.as_bytes())?;
+        receipt.signature = Some(signature);
+
+        Ok(receipt)
+    }
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 

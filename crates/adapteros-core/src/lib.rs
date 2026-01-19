@@ -124,7 +124,8 @@ pub use context_manifest::{
     ContextAdapterEntry, ContextAdapterEntryV1, ContextManifest, ContextManifestV1,
 };
 pub use crypto_receipt::{
-    compute_adapter_config_hash, EquipmentProfile, ReceiptGenerator, RoutingRecord,
+    compute_adapter_config_hash, CancellationReceipt, CancellationReceiptBuilder, CancelSource,
+    EquipmentProfile, ReceiptGenerator, RoutingRecord, CANCELLATION_RECEIPT_SCHEMA_VERSION,
     CRYPTO_RECEIPT_SCHEMA_VERSION,
 };
 pub use deployment_verification::{

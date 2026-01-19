@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use sqlx::Row;
 use std::sync::Arc;
+use uuid::Uuid;
 
 #[derive(Debug, Clone)]
 pub struct TraceStart {
@@ -115,10 +116,44 @@ pub struct TraceReceiptVerification {
     pub recomputed: TraceReceipt,
 }
 
+/// Input for cancellation receipt finalization (PRD-003).
+#[derive(Debug, Clone)]
+pub struct TraceCancellation {
+    /// Tokens generated before cancellation
+    pub partial_tokens: Vec<u32>,
+    /// Source of the cancellation
+    pub cancellation_source: adapteros_types::CancelSource,
+    /// Token index at which cancellation was detected
+    pub cancelled_at_token: u32,
+    /// Equipment profile for receipt binding
+    pub equipment_profile: Option<EquipmentProfile>,
+    /// Tenant ID for multi-tenant isolation
+    pub tenant_id: Option<String>,
+}
+
+/// Result of cancellation receipt finalization (PRD-003).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TraceCancellationReceipt {
+    pub trace_id: String,
+    pub partial_output_digest: B3Hash,
+    pub partial_output_count: u32,
+    pub cancellation_source: String,
+    pub cancelled_at_token: u32,
+    pub receipt_digest: B3Hash,
+    pub signature: Option<Vec<u8>>,
+    pub tenant_id: Option<String>,
+    pub cancelled_at: String,
+}
+
 #[async_trait]
 pub trait TraceSink: Send {
     async fn record_token(&mut self, token: TraceTokenInput) -> Result<()>;
     async fn finalize(&mut self, finalization: TraceFinalization<'_>) -> Result<TraceReceipt>;
+    /// Finalize a cancelled trace with partial output (PRD-003).
+    ///
+    /// Generates a cancellation receipt capturing the partial output state
+    /// for audit trail completeness. Returns the receipt for storage and response.
+    async fn finalize_cancelled(&mut self, cancellation: TraceCancellation) -> Result<TraceCancellationReceipt>;
     async fn flush(&mut self) -> Result<()>;
 }
 
@@ -657,6 +692,101 @@ impl TraceSink for SqlTraceSink {
 
     async fn flush(&mut self) -> Result<()> {
         self.insert_buffer().await
+    }
+
+    /// Finalize a cancelled trace with partial output (PRD-003).
+    ///
+    /// Generates a cancellation receipt and stores it in the cancellation_receipts table.
+    /// This ensures audit trail completeness for cancelled inferences.
+    async fn finalize_cancelled(&mut self, cancellation: TraceCancellation) -> Result<TraceCancellationReceipt> {
+        // Flush any pending token records
+        self.insert_buffer().await?;
+
+        // Build the cancellation receipt using the builder
+        use adapteros_core::{CancellationReceiptBuilder, CancelSource};
+
+        let mut builder = CancellationReceiptBuilder::new(
+            self.start.trace_id.clone(),
+            cancellation.cancellation_source,
+            cancellation.cancelled_at_token,
+        )
+        .with_partial_tokens(cancellation.partial_tokens);
+
+        // Add context digest from trace start
+        builder = builder.with_context_digest(B3Hash::from_bytes(self.start.context_digest));
+
+        // Add equipment profile if available
+        if let Some(ref profile) = cancellation.equipment_profile {
+            builder = builder.with_equipment_profile(profile.clone());
+        }
+
+        // Add tenant ID
+        if let Some(ref tenant_id) = cancellation.tenant_id {
+            builder = builder.with_tenant_id(tenant_id.clone());
+        }
+
+        // Finalize the receipt (unsigned for now - signing handled by caller if needed)
+        let receipt = builder.finalize();
+
+        // Generate a unique ID for the cancellation receipt
+        let receipt_id = uuid::Uuid::new_v4().to_string();
+
+        // Store in database
+        sqlx::query(
+            r#"
+            INSERT INTO cancellation_receipts (
+                id,
+                trace_id,
+                partial_output_digest,
+                partial_output_count,
+                stop_reason,
+                cancellation_source,
+                cancelled_at_token,
+                receipt_digest,
+                signature,
+                equipment_profile_digest,
+                context_digest,
+                tenant_id,
+                cancelled_at,
+                created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
+            "#,
+        )
+        .bind(&receipt_id)
+        .bind(&receipt.trace_id)
+        .bind(receipt.partial_output_digest.as_bytes().as_slice())
+        .bind(receipt.partial_output_count as i64)
+        .bind(&receipt.stop_reason)
+        .bind(&receipt.cancellation_source.to_string())
+        .bind(receipt.cancelled_at_token as i64)
+        .bind(receipt.receipt_digest.as_bytes().as_slice())
+        .bind(receipt.signature.as_ref().map(|s| s.as_slice()))
+        .bind(receipt.equipment_profile.as_ref().map(|ep| ep.digest.as_bytes().as_slice()))
+        .bind(receipt.context_digest.as_ref().map(|d| d.as_bytes().as_slice()))
+        .bind(&receipt.tenant_id)
+        .bind(&receipt.cancelled_at)
+        .execute(self.db.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to insert cancellation receipt: {e}")))?;
+
+        tracing::info!(
+            trace_id = %receipt.trace_id,
+            partial_output_count = receipt.partial_output_count,
+            cancellation_source = %receipt.cancellation_source,
+            "Cancellation receipt stored for audit trail"
+        );
+
+        Ok(TraceCancellationReceipt {
+            trace_id: receipt.trace_id,
+            partial_output_digest: receipt.partial_output_digest,
+            partial_output_count: receipt.partial_output_count,
+            cancellation_source: receipt.cancellation_source.to_string(),
+            cancelled_at_token: receipt.cancelled_at_token,
+            receipt_digest: receipt.receipt_digest,
+            signature: receipt.signature,
+            tenant_id: receipt.tenant_id,
+            cancelled_at: receipt.cancelled_at.unwrap_or_default(),
+        })
     }
 }
 
