@@ -643,15 +643,19 @@ pub async fn assign_tenant_adapters(
 }
 
 /// Get tenant resource usage metrics
+///
+/// NOTE: This is a legacy stub. The real implementation is in `handlers::tenants::get_tenant_usage`.
+/// This stub remains for backwards compatibility but should be removed in favor of the real implementation.
 pub async fn get_tenant_usage(
     State(_state): State<AppState>,
     Extension(_claims): Extension<Claims>,
     Path(tenant_id): Path<String>,
 ) -> Result<Json<TenantUsageResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // Stub - would aggregate usage metrics from workers/sessions
+    // Stub - returns mock data; see handlers::tenants::get_tenant_usage for real implementation
     Ok(Json(TenantUsageResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         tenant_id,
+        storage_used_gb: 0.0,
         cpu_usage_pct: 45.2,
         gpu_usage_pct: 85.0,
         memory_used_gb: 8.5,
