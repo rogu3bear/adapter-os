@@ -7,7 +7,7 @@ description = "Numerical stability tracking and quantization noise measurement f
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
-thiserror = "1.0"
+thiserror = "2.0"
 tracing = { workspace = true }
 
 [dev-dependencies]
