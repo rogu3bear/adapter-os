@@ -11,7 +11,7 @@ use std::process::Command;
 use tempfile::TempDir;
 
 /// Helper to create a test Git repository with commits
-async fn create_test_repo() -> Result<(TempDir, String)> {
+async fn create_test_repo() -> Result<(TempDir, String, String)> {
     let root = PathBuf::from("var").join("tmp");
     std::fs::create_dir_all(&root)
         .map_err(|e| adapteros_core::AosError::Io(format!("Failed to create temp root: {}", e)))?;
@@ -80,11 +80,19 @@ async fn create_test_repo() -> Result<(TempDir, String)> {
 
     let commit_sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
 
-    Ok((temp_dir, commit_sha))
+    let output = Command::new("git")
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .current_dir(repo_path)
+        .output()
+        .map_err(|e| adapteros_core::AosError::Git(format!("Failed to get branch: {}", e)))?;
+
+    let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    Ok((temp_dir, commit_sha, branch))
 }
 
 /// Helper to create a database with a registered repository
-async fn setup_db_with_repo(repo_path: &str) -> Result<Db> {
+async fn setup_db_with_repo(repo_path: &str, branch: &str) -> Result<Db> {
     let db = Db::new_in_memory().await?;
 
     // Run migrations
@@ -95,7 +103,7 @@ async fn setup_db_with_repo(repo_path: &str) -> Result<Db> {
         "test-repo-id",
         "test-repo",
         repo_path,
-        "main",
+        branch,
         "{}",
         "test-user",
     )
@@ -106,9 +114,9 @@ async fn setup_db_with_repo(repo_path: &str) -> Result<Db> {
 
 #[tokio::test]
 async fn test_list_commits() -> Result<()> {
-    let (temp_dir, _commit_sha) = create_test_repo().await?;
+    let (temp_dir, _commit_sha, branch) = create_test_repo().await?;
     let repo_path = temp_dir.path().to_str().unwrap();
-    let db = setup_db_with_repo(repo_path).await?;
+    let db = setup_db_with_repo(repo_path, &branch).await?;
 
     let config = GitConfig { enabled: true };
     let subsystem = GitSubsystem::new(config, db).await?;
@@ -134,9 +142,9 @@ async fn test_list_commits() -> Result<()> {
 
 #[tokio::test]
 async fn test_get_commit() -> Result<()> {
-    let (temp_dir, commit_sha) = create_test_repo().await?;
+    let (temp_dir, commit_sha, branch) = create_test_repo().await?;
     let repo_path = temp_dir.path().to_str().unwrap();
-    let db = setup_db_with_repo(repo_path).await?;
+    let db = setup_db_with_repo(repo_path, &branch).await?;
 
     let config = GitConfig { enabled: true };
     let subsystem = GitSubsystem::new(config, db).await?;
@@ -157,9 +165,9 @@ async fn test_get_commit() -> Result<()> {
 
 #[tokio::test]
 async fn test_get_commit_not_found() -> Result<()> {
-    let (temp_dir, _commit_sha) = create_test_repo().await?;
+    let (temp_dir, _commit_sha, branch) = create_test_repo().await?;
     let repo_path = temp_dir.path().to_str().unwrap();
-    let db = setup_db_with_repo(repo_path).await?;
+    let db = setup_db_with_repo(repo_path, &branch).await?;
 
     let config = GitConfig { enabled: true };
     let subsystem = GitSubsystem::new(config, db).await?;
@@ -184,9 +192,9 @@ async fn test_get_commit_not_found() -> Result<()> {
 
 #[tokio::test]
 async fn test_get_commit_diff() -> Result<()> {
-    let (temp_dir, commit_sha) = create_test_repo().await?;
+    let (temp_dir, commit_sha, branch) = create_test_repo().await?;
     let repo_path = temp_dir.path().to_str().unwrap();
-    let db = setup_db_with_repo(repo_path).await?;
+    let db = setup_db_with_repo(repo_path, &branch).await?;
 
     let config = GitConfig { enabled: true };
     let subsystem = GitSubsystem::new(config, db).await?;
@@ -211,9 +219,9 @@ async fn test_get_commit_diff() -> Result<()> {
 
 #[tokio::test]
 async fn test_get_status() -> Result<()> {
-    let (temp_dir, _commit_sha) = create_test_repo().await?;
+    let (temp_dir, _commit_sha, branch) = create_test_repo().await?;
     let repo_path = temp_dir.path().to_str().unwrap();
-    let db = setup_db_with_repo(repo_path).await?;
+    let db = setup_db_with_repo(repo_path, &branch).await?;
 
     let config = GitConfig { enabled: true };
     let subsystem = GitSubsystem::new(config, db).await?;
@@ -231,9 +239,9 @@ async fn test_get_status() -> Result<()> {
 
 #[tokio::test]
 async fn test_list_commits_with_limit() -> Result<()> {
-    let (temp_dir, _commit_sha) = create_test_repo().await?;
+    let (temp_dir, _commit_sha, branch) = create_test_repo().await?;
     let repo_path = temp_dir.path().to_str().unwrap();
-    let db = setup_db_with_repo(repo_path).await?;
+    let db = setup_db_with_repo(repo_path, &branch).await?;
 
     let config = GitConfig { enabled: true };
     let subsystem = GitSubsystem::new(config, db).await?;
@@ -250,9 +258,9 @@ async fn test_list_commits_with_limit() -> Result<()> {
 
 #[tokio::test]
 async fn test_list_commits_default_repo() -> Result<()> {
-    let (temp_dir, _commit_sha) = create_test_repo().await?;
+    let (temp_dir, _commit_sha, branch) = create_test_repo().await?;
     let repo_path = temp_dir.path().to_str().unwrap();
-    let db = setup_db_with_repo(repo_path).await?;
+    let db = setup_db_with_repo(repo_path, &branch).await?;
 
     let config = GitConfig { enabled: true };
     let subsystem = GitSubsystem::new(config, db).await?;
