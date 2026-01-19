@@ -125,12 +125,30 @@ impl Default for BackendHealth {
 }
 
 /// Macro to reduce boilerplate for monitor access patterns
+///
+/// In FFI contexts, panics are especially dangerous, so we handle poisoned locks
+/// by logging and returning the default value instead of panicking.
 macro_rules! with_monitor {
     ($self:expr, |$m:ident| $body:expr, $default:expr) => {
         if let Some(monitor) = &$self.monitor {
-            #[allow(unused_mut)]
-            let mut $m = monitor.lock().unwrap();
-            $body
+            match monitor.lock() {
+                Ok(guard) => {
+                    #[allow(unused_mut)]
+                    let mut $m = guard;
+                    $body
+                }
+                Err(poisoned) => {
+                    // In FFI code, panicking is dangerous. Log and recover.
+                    tracing::error!(
+                        "Monitor lock poisoned, recovering with default. \
+                         Previous panic in critical section detected."
+                    );
+                    // Still try to use the poisoned guard's data
+                    #[allow(unused_mut)]
+                    let mut $m = poisoned.into_inner();
+                    $body
+                }
+            }
         } else {
             $default
         }
