@@ -142,6 +142,7 @@ pub mod tenant_execution_policies;
 pub mod tenant_policies;
 pub mod tenant_policy_bindings_kv;
 pub mod tenant_settings;
+pub mod tenant_metrics;  // PRD-004: Tenant resource metrics
 pub mod topology;
 pub mod traits;
 
@@ -195,6 +196,12 @@ pub use metrics_db::{MetricsViolation, SystemMetrics, SystemMetricsDbOps};
 
 // Re-export dual-write ack types
 pub use write_ack::{WriteAck, WriteAckStore, WriteStatus};
+
+// Re-export tenant metrics types (PRD-004)
+pub use tenant_metrics::{
+    TenantCpuTracker, TenantGpuTracker, TenantMetricsService, TenantResourceMetrics,
+    TenantStorageMetrics, TenantStoragePaths, get_system_memory, MemoryMetrics,
+};
 
 const MIN_FREE_SPACE_BYTES: u64 = 100 * 1024 * 1024;
 
