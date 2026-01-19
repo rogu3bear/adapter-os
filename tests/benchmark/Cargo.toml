@@ -44,7 +44,7 @@ objc = "0.2"
 
 # Utilities
 anyhow = "1.0"
-thiserror = "1.0"
+thiserror = "2.0"
 uuid = { version = "1.6", features = ["v7", "serde"] }
 smallvec = "1.11"
 bytemuck = { version = "1.14", features = ["derive"] }

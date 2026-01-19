@@ -78,7 +78,7 @@ js-sys = "0.3"
 send_wrapper = "0.6"
 chrono = { version = "0.4", features = ["serde", "wasmbind"] }
 uuid = { version = "1.0", features = ["v4", "serde", "js"] }
-thiserror = "1.0"
+thiserror = "2.0"
 regex-lite = "0.1"
 csv = { version = "1.4", default-features = false }
 
