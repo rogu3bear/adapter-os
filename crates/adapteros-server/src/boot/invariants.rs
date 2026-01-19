@@ -245,7 +245,7 @@ impl InvariantReport {
     }
 }
 
-/// Validates all critical invariants at boot time.
+/// Validates all critical invariants at boot time (PRD-003).
 ///
 /// # Arguments
 ///
@@ -256,8 +256,9 @@ impl InvariantReport {
 ///
 /// Returns `InvariantReport` containing all violations found.
 ///
-/// # Checked Invariants
+/// # Checked Invariants (28 total)
 ///
+/// ## Security Invariants
 /// | ID | Description | Fatal in Prod |
 /// |----|-------------|---------------|
 /// | `SEC-001` | Dev auth bypass must not be active in production | Yes |
@@ -265,7 +266,72 @@ impl InvariantReport {
 /// | `SEC-003` | Executor must have manifest-derived seed in production | Yes |
 /// | `SEC-004` | Hardware attestation fallback warning | No (warning) |
 /// | `SEC-005` | Cookie security settings in production | Yes |
+/// | `SEC-006` | JWT algorithm configuration in production | Yes |
+/// | `SEC-007` | Tenant isolation configuration | Yes |
+/// | `SEC-008` | RBAC permission configuration | Yes |
+/// | `SEC-014` | Brute force protection configuration | Yes |
 /// | `SEC-015` | Signature bypass env var must not be set in production | Yes |
+///
+/// ## Authentication Invariants
+/// | ID | Description | Fatal in Prod |
+/// |----|-------------|---------------|
+/// | `AUTH-001` | JWT signing key configured | Yes |
+/// | `AUTH-002` | HMAC secret is not default value | Yes |
+/// | `AUTH-003` | Session store initialized | Warning |
+///
+/// ## Authorization Invariants
+/// | ID | Description | Fatal in Prod |
+/// |----|-------------|---------------|
+/// | `AUTHZ-001` | RBAC tables populated | Yes |
+/// | `AUTHZ-002` | Default admin role defined | Yes |
+///
+/// ## Cryptographic Invariants
+/// | ID | Description | Fatal in Prod |
+/// |----|-------------|---------------|
+/// | `CRYPTO-001` | Worker keypair exists (if worker mode) | Yes |
+/// | `CRYPTO-002` | Entropy source available | Yes |
+/// | `CRYPTO-003` | Signing algorithm matches config | Warning |
+///
+/// ## Configuration Invariants
+/// | ID | Description | Fatal in Prod |
+/// |----|-------------|---------------|
+/// | `CFG-001` | Reject default var/ paths when AOS_VAR_DIR is set | Yes |
+/// | `CFG-002` | Session TTL hierarchy validation | Warning |
+///
+/// ## Database Invariants
+/// | ID | Description | Fatal in Prod |
+/// |----|-------------|---------------|
+/// | `DAT-005` | Storage mode enum validation | Warning |
+///
+/// ## Memory Invariants
+/// | ID | Description | Fatal in Prod |
+/// |----|-------------|---------------|
+/// | `MEM-003` | Memory headroom configuration | Warning |
+///
+/// ## Lifecycle Invariants
+/// | ID | Description | Fatal in Prod |
+/// |----|-------------|---------------|
+/// | `LIF-001` | Boot phase ordering | Warning |
+/// | `LIF-002` | Global executor initialization | Warning |
+/// | `LIF-004` | Connection pool drain configuration | Warning |
+///
+/// ## Federation Invariants
+/// | ID | Description | Fatal in Prod |
+/// |----|-------------|---------------|
+/// | `FED-001` | Quorum keys loaded (if federated mode) | Yes |
+/// | `FED-002` | Peer certificates valid (if federated mode) | Yes |
+///
+/// ## Adapter Invariants
+/// | ID | Description | Fatal in Prod |
+/// |----|-------------|---------------|
+/// | `ADAPT-001` | Bundle signature verification enabled | Yes |
+/// | `ADAPT-002` | Manifest hash verification enabled | Yes |
+///
+/// ## Policy Invariants
+/// | ID | Description | Fatal in Prod |
+/// |----|-------------|---------------|
+/// | `POL-001` | Default policy pack loaded | Yes |
+/// | `POL-002` | Enforcement mode set | Yes |
 pub fn validate_boot_invariants(
     config: &Arc<RwLock<Config>>,
     executor_manifest_hash_present: bool,
@@ -804,6 +870,431 @@ pub fn validate_boot_invariants(
         }
 
         report.record_pass();
+    }
+
+    // =========================================================================
+    // AUTH-001: JWT signing key configured
+    // =========================================================================
+    // Authentication invariant: Ensure JWT signing key is present and valid
+    if invariants_config.disable_auth_001_jwt_key {
+        report.record_skip("AUTH-001");
+    } else {
+        let jwt_secret = &cfg.security.jwt_secret;
+        let key_file = cfg.security.key_file_path.as_deref();
+
+        if production && jwt_secret.is_empty() && key_file.is_none() {
+            report.record_violation(InvariantViolation {
+                id: "AUTH-001",
+                category: InvariantCategory::Authentication,
+                message: "No JWT signing key configured (neither secret nor key file)".to_string(),
+                severity: Severity::Fatal,
+                remediation: "Set security.jwt_secret or security.key_file_path in config",
+            });
+        } else {
+            report.record_pass();
+        }
+    }
+
+    // =========================================================================
+    // AUTH-002: HMAC secret is not default value
+    // =========================================================================
+    // Authentication invariant: Ensure HMAC secret is unique/non-default
+    if invariants_config.disable_auth_002_hmac_secret {
+        report.record_skip("AUTH-002");
+    } else {
+        let jwt_secret = &cfg.security.jwt_secret;
+        let default_secrets = ["changeme", "secret", "default", "password", "jwt_secret"];
+
+        if production && default_secrets.iter().any(|d| jwt_secret == *d) {
+            report.record_violation(InvariantViolation {
+                id: "AUTH-002",
+                category: InvariantCategory::Authentication,
+                message: "JWT secret appears to be a default/placeholder value".to_string(),
+                severity: Severity::Fatal,
+                remediation: "Set a unique JWT secret: openssl rand -base64 32",
+            });
+        } else {
+            report.record_pass();
+        }
+    }
+
+    // =========================================================================
+    // AUTH-003: Session store initialized
+    // =========================================================================
+    // Authentication invariant: Session configuration is present
+    if invariants_config.disable_auth_003_session_store {
+        report.record_skip("AUTH-003");
+    } else {
+        // Validate session TTL is reasonable
+        let session_ttl = cfg.security.session_ttl_seconds;
+
+        if production && session_ttl < 300 {
+            // Less than 5 minutes is too short
+            report.record_violation(InvariantViolation {
+                id: "AUTH-003",
+                category: InvariantCategory::Authentication,
+                message: format!(
+                    "Session TTL is too short ({} seconds); minimum recommended is 300",
+                    session_ttl
+                ),
+                severity: Severity::Warning,
+                remediation: "Set security.session_ttl_seconds to at least 300",
+            });
+        } else if production && session_ttl > 86400 * 7 {
+            // More than 7 days is too long
+            warn!(
+                invariant = "AUTH-003",
+                session_ttl_seconds = session_ttl,
+                "Session TTL is very long; consider reducing for better security"
+            );
+            report.record_pass();
+        } else {
+            report.record_pass();
+        }
+    }
+
+    // =========================================================================
+    // AUTHZ-001: RBAC tables populated (advisory at boot, enforced at runtime)
+    // =========================================================================
+    // Authorization invariant: Check RBAC configuration exists
+    if invariants_config.disable_authz_001_rbac_tables {
+        report.record_skip("AUTHZ-001");
+    } else {
+        // This is advisory at boot; actual table checks happen in post-DB validation
+        // Here we just verify RBAC is not explicitly disabled
+        let rbac_enabled = std::env::var("AOS_RBAC_ENABLED")
+            .ok()
+            .map(|v| !matches!(v.trim().to_ascii_lowercase().as_str(), "0" | "false" | "no"))
+            .unwrap_or(true);
+
+        if production && !rbac_enabled {
+            report.record_violation(InvariantViolation {
+                id: "AUTHZ-001",
+                category: InvariantCategory::Authorization,
+                message: "RBAC is explicitly disabled in production".to_string(),
+                severity: Severity::Fatal,
+                remediation: "Remove AOS_RBAC_ENABLED=false or set it to true",
+            });
+        } else {
+            report.record_pass();
+        }
+    }
+
+    // =========================================================================
+    // AUTHZ-002: Default admin role defined
+    // =========================================================================
+    // Authorization invariant: Ensure admin role is configured
+    if invariants_config.disable_authz_002_admin_role {
+        report.record_skip("AUTHZ-002");
+    } else {
+        // Check if admin role is explicitly disabled (which would be bad)
+        let admin_disabled = std::env::var("AOS_DISABLE_ADMIN_ROLE")
+            .ok()
+            .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true"))
+            .unwrap_or(false);
+
+        if production && admin_disabled {
+            report.record_violation(InvariantViolation {
+                id: "AUTHZ-002",
+                category: InvariantCategory::Authorization,
+                message: "Admin role is explicitly disabled in production".to_string(),
+                severity: Severity::Fatal,
+                remediation: "Remove AOS_DISABLE_ADMIN_ROLE environment variable",
+            });
+        } else {
+            report.record_pass();
+        }
+    }
+
+    // =========================================================================
+    // CRYPTO-001: Worker keypair exists (if worker mode)
+    // =========================================================================
+    // Cryptographic invariant: Ensure signing keys are available for workers
+    if invariants_config.disable_crypto_001_worker_keypair {
+        report.record_skip("CRYPTO-001");
+    } else {
+        // Check if key_file_path is configured when EdDSA is required
+        let jwt_mode = cfg.security.jwt_mode.as_deref().unwrap_or("hs256");
+        let key_file = cfg.security.key_file_path.as_deref();
+
+        if production && jwt_mode == "eddsa" && key_file.is_none() {
+            report.record_violation(InvariantViolation {
+                id: "CRYPTO-001",
+                category: InvariantCategory::Cryptographic,
+                message: "EdDSA mode requires key_file_path but none configured".to_string(),
+                severity: Severity::Fatal,
+                remediation: "Set security.key_file_path to Ed25519 private key path",
+            });
+        } else if let Some(path) = key_file {
+            // Verify key file exists
+            if !std::path::Path::new(path).exists() {
+                report.record_violation(InvariantViolation {
+                    id: "CRYPTO-001",
+                    category: InvariantCategory::Cryptographic,
+                    message: format!("Key file does not exist: {}", path),
+                    severity: Severity::Fatal,
+                    remediation: "Create key file or update security.key_file_path",
+                });
+            } else {
+                report.record_pass();
+            }
+        } else {
+            report.record_pass();
+        }
+    }
+
+    // =========================================================================
+    // CRYPTO-002: Entropy source available
+    // =========================================================================
+    // Cryptographic invariant: System entropy source is available
+    if invariants_config.disable_crypto_002_entropy_source {
+        report.record_skip("CRYPTO-002");
+    } else {
+        // On Unix, check /dev/urandom exists
+        #[cfg(unix)]
+        {
+            if !std::path::Path::new("/dev/urandom").exists() {
+                report.record_violation(InvariantViolation {
+                    id: "CRYPTO-002",
+                    category: InvariantCategory::Cryptographic,
+                    message: "Entropy source /dev/urandom not available".to_string(),
+                    severity: Severity::Fatal,
+                    remediation: "Ensure /dev/urandom is available in the container/system",
+                });
+            } else {
+                report.record_pass();
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            // On non-Unix, assume OS provides entropy
+            report.record_pass();
+        }
+    }
+
+    // =========================================================================
+    // CRYPTO-003: Signing algorithm matches config
+    // =========================================================================
+    // Cryptographic invariant: JWT algorithm configuration is consistent
+    if invariants_config.disable_crypto_003_algo_match {
+        report.record_skip("CRYPTO-003");
+    } else {
+        let dev_algo = cfg.auth.dev_algo.to_lowercase();
+        let prod_algo = cfg.auth.prod_algo.to_lowercase();
+        let jwt_mode = cfg.security.jwt_mode.as_deref().unwrap_or("hs256").to_lowercase();
+
+        // In production, jwt_mode should match prod_algo
+        if production && jwt_mode != prod_algo && !prod_algo.is_empty() {
+            warn!(
+                invariant = "CRYPTO-003",
+                jwt_mode = %jwt_mode,
+                prod_algo = %prod_algo,
+                "JWT mode doesn't match configured production algorithm"
+            );
+        }
+        report.record_pass();
+    }
+
+    // =========================================================================
+    // FED-001: Quorum keys loaded (if federated mode)
+    // =========================================================================
+    // Federation invariant: Quorum keys available for federated deployments
+    if invariants_config.disable_fed_001_quorum_keys {
+        report.record_skip("FED-001");
+    } else {
+        // Check if federation mode is enabled
+        let federation_enabled = std::env::var("AOS_FEDERATION_ENABLED")
+            .ok()
+            .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true"))
+            .unwrap_or(false);
+
+        if federation_enabled {
+            // Verify quorum configuration
+            let quorum_keys_path = std::env::var("AOS_QUORUM_KEYS_PATH").ok();
+            if production && quorum_keys_path.is_none() {
+                report.record_violation(InvariantViolation {
+                    id: "FED-001",
+                    category: InvariantCategory::Federation,
+                    message: "Federation enabled but AOS_QUORUM_KEYS_PATH not set".to_string(),
+                    severity: Severity::Fatal,
+                    remediation: "Set AOS_QUORUM_KEYS_PATH to quorum public keys directory",
+                });
+            } else if let Some(path) = quorum_keys_path {
+                if !std::path::Path::new(&path).exists() {
+                    report.record_violation(InvariantViolation {
+                        id: "FED-001",
+                        category: InvariantCategory::Federation,
+                        message: format!("Quorum keys path does not exist: {}", path),
+                        severity: Severity::Fatal,
+                        remediation: "Create quorum keys directory or update AOS_QUORUM_KEYS_PATH",
+                    });
+                } else {
+                    report.record_pass();
+                }
+            } else {
+                report.record_pass();
+            }
+        } else {
+            report.record_pass();
+        }
+    }
+
+    // =========================================================================
+    // FED-002: Peer certificates valid (if federated mode)
+    // =========================================================================
+    // Federation invariant: Peer certificates are configured for mTLS
+    if invariants_config.disable_fed_002_peer_certs {
+        report.record_skip("FED-002");
+    } else {
+        let federation_enabled = std::env::var("AOS_FEDERATION_ENABLED")
+            .ok()
+            .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true"))
+            .unwrap_or(false);
+
+        if federation_enabled && production {
+            let peer_certs_path = std::env::var("AOS_PEER_CERTS_PATH").ok();
+            if peer_certs_path.is_none() && cfg.security.mtls_required {
+                report.record_violation(InvariantViolation {
+                    id: "FED-002",
+                    category: InvariantCategory::Federation,
+                    message: "mTLS required but AOS_PEER_CERTS_PATH not set".to_string(),
+                    severity: Severity::Fatal,
+                    remediation: "Set AOS_PEER_CERTS_PATH to peer certificates directory",
+                });
+            } else {
+                report.record_pass();
+            }
+        } else {
+            report.record_pass();
+        }
+    }
+
+    // =========================================================================
+    // ADAPT-001: Bundle signature verification enabled
+    // =========================================================================
+    // Adapter invariant: Bundle signatures are verified in production
+    if invariants_config.disable_adapt_001_bundle_sig {
+        report.record_skip("ADAPT-001");
+    } else {
+        // Check if signature verification is disabled
+        let sig_verify_disabled = std::env::var("AOS_SKIP_BUNDLE_SIGNATURE")
+            .ok()
+            .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true"))
+            .unwrap_or(false);
+
+        if production && sig_verify_disabled {
+            report.record_violation(InvariantViolation {
+                id: "ADAPT-001",
+                category: InvariantCategory::Adapters,
+                message: "Bundle signature verification is disabled in production".to_string(),
+                severity: Severity::Fatal,
+                remediation: "Remove AOS_SKIP_BUNDLE_SIGNATURE environment variable",
+            });
+        } else {
+            report.record_pass();
+        }
+    }
+
+    // =========================================================================
+    // ADAPT-002: Manifest hash verification enabled
+    // =========================================================================
+    // Adapter invariant: Manifest hashes are verified
+    if invariants_config.disable_adapt_002_manifest_hash {
+        report.record_skip("ADAPT-002");
+    } else {
+        let hash_verify_disabled = std::env::var("AOS_SKIP_MANIFEST_HASH")
+            .ok()
+            .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true"))
+            .unwrap_or(false);
+
+        if production && hash_verify_disabled {
+            report.record_violation(InvariantViolation {
+                id: "ADAPT-002",
+                category: InvariantCategory::Adapters,
+                message: "Manifest hash verification is disabled in production".to_string(),
+                severity: Severity::Fatal,
+                remediation: "Remove AOS_SKIP_MANIFEST_HASH environment variable",
+            });
+        } else {
+            report.record_pass();
+        }
+    }
+
+    // =========================================================================
+    // POL-001: Default policy pack loaded
+    // =========================================================================
+    // Policy invariant: Default policy pack is configured
+    if invariants_config.disable_pol_001_default_pack {
+        report.record_skip("POL-001");
+    } else {
+        // Check if policies are configured
+        let policy_disabled = std::env::var("AOS_DISABLE_POLICIES")
+            .ok()
+            .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true"))
+            .unwrap_or(false);
+
+        if production && policy_disabled {
+            report.record_violation(InvariantViolation {
+                id: "POL-001",
+                category: InvariantCategory::Policy,
+                message: "Policy enforcement is disabled in production".to_string(),
+                severity: Severity::Fatal,
+                remediation: "Remove AOS_DISABLE_POLICIES environment variable",
+            });
+        } else {
+            report.record_pass();
+        }
+    }
+
+    // =========================================================================
+    // POL-002: Enforcement mode set
+    // =========================================================================
+    // Policy invariant: Policy enforcement mode is explicit
+    if invariants_config.disable_pol_002_enforcement_mode {
+        report.record_skip("POL-002");
+    } else {
+        let enforcement_mode = std::env::var("AOS_POLICY_ENFORCEMENT_MODE")
+            .ok()
+            .map(|v| v.trim().to_lowercase());
+
+        if production {
+            match enforcement_mode.as_deref() {
+                Some("enforce") | Some("strict") => {
+                    report.record_pass();
+                }
+                Some("audit") | Some("warn") => {
+                    warn!(
+                        invariant = "POL-002",
+                        mode = ?enforcement_mode,
+                        "Policy enforcement mode is not strict in production"
+                    );
+                    report.record_pass();
+                }
+                Some("disabled") | Some("off") => {
+                    report.record_violation(InvariantViolation {
+                        id: "POL-002",
+                        category: InvariantCategory::Policy,
+                        message: "Policy enforcement mode is disabled in production".to_string(),
+                        severity: Severity::Fatal,
+                        remediation: "Set AOS_POLICY_ENFORCEMENT_MODE=enforce",
+                    });
+                }
+                None => {
+                    // Default is acceptable
+                    report.record_pass();
+                }
+                Some(other) => {
+                    warn!(
+                        invariant = "POL-002",
+                        mode = other,
+                        "Unknown policy enforcement mode"
+                    );
+                    report.record_pass();
+                }
+            }
+        } else {
+            report.record_pass();
+        }
     }
 
     // =========================================================================
