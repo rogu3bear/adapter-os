@@ -3,8 +3,8 @@
 use adapteros_db::Db;
 use anyhow::Result;
 use prometheus::{
-    Counter, CounterVec, Encoder, Gauge, GaugeVec, HistogramOpts, HistogramVec, Opts, Registry,
-    TextEncoder,
+    Counter, CounterVec, Encoder, Gauge, GaugeVec, Histogram, HistogramOpts, HistogramVec, Opts,
+    Registry, TextEncoder,
 };
 use serde::{Deserialize, Serialize};
 use std::{
