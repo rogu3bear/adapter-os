@@ -7,11 +7,11 @@
 //! - Chain continuity verification (prev_hash linking)
 //! - Invalid signature detection
 
-use adapteros_core::{AosError, B3Hash, Result};
-use adapteros_crypto::{Keypair, PublicKey, Signature};
+use adapteros_core::{B3Hash, Result};
+use adapteros_crypto::Keypair;
 use adapteros_db::Db;
 use adapteros_federation::{
-    signature::{BundleSignatureExchange, QuorumManager, QuorumStatus, VerificationResult},
+    signature::{BundleSignatureExchange, QuorumManager},
     FederationManager, FederationSignature,
 };
 use adapteros_telemetry::StoredBundleMetadata;
@@ -36,6 +36,7 @@ async fn setup_test_db() -> Result<Db> {
         .join(format!("test_{}.db", uuid::Uuid::new_v4()));
     let db = Db::connect(db_path.to_str().unwrap()).await?;
     db.migrate().await?;
+    std::mem::forget(temp_dir);
     Ok(db)
 }
 
@@ -604,9 +605,6 @@ mod invalid_signature_detection {
 
         let metadata = create_test_metadata("merkle_root_1", None);
 
-        // Create an invalid signature (random bytes)
-        let invalid_signature = "deadbeef".repeat(16); // 64 hex chars = 32 bytes, but we need 128 for 64 bytes
-
         let fed_sig = FederationSignature::new(
             "test-host".to_string(),
             metadata.merkle_root.to_string(),
@@ -1047,7 +1045,7 @@ mod bundle_signing {
         )?;
 
         let metadata = create_test_metadata("merkle_root_1", None);
-        let sig = manager.sign_bundle(&metadata).await?;
+        let _sig = manager.sign_bundle(&metadata).await?;
 
         // Initially not verified
         let signatures = manager.get_signatures_for_bundle(&metadata.merkle_root.to_string()).await?;

@@ -54,7 +54,7 @@ impl FederationSignature {
         prev_host_hash: Option<String>,
     ) -> Self {
         Self {
-            id: None,
+            id: Some(uuid::Uuid::new_v4().to_string()),
             host_id,
             bundle_hash,
             signature,

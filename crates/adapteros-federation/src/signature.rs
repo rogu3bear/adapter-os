@@ -124,13 +124,16 @@ impl QuorumManager {
         let bundle_hash_hex = bundle_hash.to_hex();
         let signature_hex = hex::encode(signature.to_bytes());
 
+        let signature_id = uuid::Uuid::new_v4().to_string();
+
         // Insert signature into federation_bundle_signatures table
         sqlx::query(
             r#"
-            INSERT INTO federation_bundle_signatures (host_id, bundle_hash, signature, prev_host_hash, created_at, verified)
-            VALUES (?, ?, ?, NULL, datetime('now'), 0)
+            INSERT INTO federation_bundle_signatures (id, host_id, bundle_hash, signature, prev_host_hash, created_at, verified)
+            VALUES (?, ?, ?, ?, NULL, datetime('now'), 0)
             "#
         )
+        .bind(&signature_id)
         .bind(host_id)
         .bind(&bundle_hash_hex)
         .bind(&signature_hex)

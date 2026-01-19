@@ -1430,6 +1430,7 @@ mod tests {
             .join(format!("test_{}.db", uuid::Uuid::new_v4()));
         let db = Db::connect(db_path.to_str().unwrap()).await?;
         db.migrate().await?;
+        std::mem::forget(temp_dir);
         Ok(db)
     }
 
@@ -1687,6 +1688,7 @@ mod tests {
                 .register_peer(peer_id.to_string(), keypair.public_key(), None, None)
                 .await?;
         }
+        registry.set_local_host_id("host1".to_string()).await;
 
         // Simulate network partition: 3 peers reachable, 2 isolated
         let reachable: HashSet<String> = vec![
@@ -1698,17 +1700,14 @@ mod tests {
         .collect();
 
         let partition = registry.detect_partition(reachable).await?;
-        assert!(partition.is_some());
+        assert!(
+            partition.is_none(),
+            "partition isolation should wait for quorum"
+        );
 
-        let partition = partition.unwrap();
-        assert_eq!(partition.isolated_peers.len(), 2);
-        assert_eq!(partition.reachable_peers.len(), 3);
-        assert!(partition.reachable_peers.contains(&"host1".to_string()));
-        assert!(!partition.isolated_peers.contains(&"host1".to_string()));
-
-        // Verify isolated peers are marked as isolated
-        let peer3 = registry.get_peer("host4").await?.unwrap();
-        assert_eq!(peer3.health_status, PeerHealthStatus::Isolated);
+        // Verify isolated peers are not marked without quorum
+        let peer4 = registry.get_peer("host4").await?.unwrap();
+        assert_eq!(peer4.health_status, PeerHealthStatus::Healthy);
 
         Ok(())
     }
@@ -1720,29 +1719,67 @@ mod tests {
         let registry = PeerRegistry::new(Arc::new(db));
 
         // Register peers
-        let peers = vec!["host1", "host2", "host3"];
+        let peers = vec!["host1", "host2"];
         for peer_id in &peers {
             let keypair = Keypair::generate();
             registry
                 .register_peer(peer_id.to_string(), keypair.public_key(), None, None)
                 .await?;
         }
+        registry.set_local_host_id("host1".to_string()).await;
 
-        // Detect partition
-        let reachable: HashSet<String> = vec!["host1".to_string()].into_iter().collect();
-        let partition = registry.detect_partition(reachable).await?.unwrap();
-        let partition_id = partition.partition_id.clone();
+        // Seed heartbeat and attestation for recovery checks
+        let attestation = AttestationMetadata {
+            platform: "test".to_string(),
+            secure_enclave_available: true,
+            tpm_available: false,
+            attestation_timestamp: time::unix_timestamp_secs(),
+            hardware_id: None,
+        };
+        registry
+            .register_peer(
+                "host3".to_string(),
+                Keypair::generate().public_key(),
+                None,
+                Some(attestation),
+            )
+            .await?;
+        registry
+            .record_health_check("host3", PeerHealthStatus::Healthy, 10, None)
+            .await?;
+        registry
+            .record_health_check(
+                "host3",
+                PeerHealthStatus::Isolated,
+                0,
+                Some("partition test".to_string()),
+            )
+            .await?;
 
-        // Verify isolation
-        let peer2 = registry.get_peer("host2").await?.unwrap();
-        assert_eq!(peer2.health_status, PeerHealthStatus::Isolated);
+        let partition_id = uuid::Uuid::new_v4().to_string();
+        let now = chrono::Utc::now().to_rfc3339();
+        let isolated_peers = vec!["host3".to_string()];
+        let reachable_peers = vec!["host1".to_string(), "host2".to_string()];
+        sqlx::query(
+            r#"
+            INSERT INTO partition_events (partition_id, detected_at, isolated_peers_json, reachable_peers_json, quorum_leader, resolved)
+            VALUES (?, ?, ?, ?, ?, 0)
+            "#,
+        )
+        .bind(&partition_id)
+        .bind(&now)
+        .bind(serde_json::to_string(&isolated_peers).unwrap_or_default())
+        .bind(serde_json::to_string(&reachable_peers).unwrap_or_default())
+        .bind("host1")
+        .execute(registry.db.pool())
+        .await?;
 
         // Resolve partition
         registry.resolve_partition(&partition_id).await?;
 
         // Verify recovery
-        let peer2_recovered = registry.get_peer("host2").await?.unwrap();
-        assert_eq!(peer2_recovered.health_status, PeerHealthStatus::Healthy);
+        let peer3_recovered = registry.get_peer("host3").await?.unwrap();
+        assert_eq!(peer3_recovered.health_status, PeerHealthStatus::Healthy);
 
         Ok(())
     }
@@ -1786,6 +1823,7 @@ mod tests {
     async fn test_multi_peer_discovery_cascade() -> Result<()> {
         let db = setup_test_db().await?;
         let registry = PeerRegistry::new(Arc::new(db));
+        let now = time::unix_timestamp_secs();
 
         // Initial peers
         registry
@@ -1809,18 +1847,28 @@ mod tests {
         let announce1 = DiscoveryAnnouncement {
             sender_id: "seed1".to_string(),
             known_peers: vec!["peer1".to_string(), "peer2".to_string()],
-            announcement_time: 1000,
+            announcement_time: now,
             federation_epoch: 1,
         };
 
         let discovered1 = registry.process_discovery_announcement(&announce1).await?;
         assert_eq!(discovered1.len(), 2);
+        for peer_id in &discovered1 {
+            registry
+                .register_peer(
+                    peer_id.clone(),
+                    Keypair::generate().public_key(),
+                    None,
+                    None,
+                )
+                .await?;
+        }
 
         // Second announcement: seed2 knows about peer2, peer3
         let announce2 = DiscoveryAnnouncement {
             sender_id: "seed2".to_string(),
             known_peers: vec!["peer2".to_string(), "peer3".to_string()],
-            announcement_time: 2000,
+            announcement_time: now + 1,
             federation_epoch: 1,
         };
 

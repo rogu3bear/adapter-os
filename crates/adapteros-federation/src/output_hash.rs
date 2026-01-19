@@ -326,6 +326,8 @@ impl OutputHashManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::peer::PeerRegistry;
+    use adapteros_crypto::Keypair;
     use std::path::PathBuf;
     use tempfile::TempDir;
 
@@ -340,13 +342,28 @@ mod tests {
         let db_path = temp_dir.path().join("test.db");
         let db = Db::connect(db_path.to_str().unwrap()).await?;
         db.migrate().await?;
+        std::mem::forget(temp_dir);
         Ok(db)
+    }
+
+    async fn register_peer(db: &Arc<Db>, host_id: &str) -> Result<()> {
+        let registry = PeerRegistry::new(db.clone());
+        registry
+            .register_peer(
+                host_id.to_string(),
+                Keypair::generate().public_key(),
+                None,
+                None,
+            )
+            .await?;
+        Ok(())
     }
 
     #[tokio::test]
     async fn test_record_and_get_output_hash() -> Result<()> {
-        let db = setup_test_db().await?;
-        let manager = OutputHashManager::new(Arc::new(db));
+        let db = Arc::new(setup_test_db().await?);
+        register_peer(&db, "test-host").await?;
+        let manager = OutputHashManager::new(db);
 
         let session_id = "test-session".to_string();
         let host_id = "test-host".to_string();
@@ -373,8 +390,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_compare_consistent_outputs() -> Result<()> {
-        let db = setup_test_db().await?;
-        let manager = OutputHashManager::new(Arc::new(db));
+        let db = Arc::new(setup_test_db().await?);
+        register_peer(&db, "host1").await?;
+        register_peer(&db, "host2").await?;
+        let manager = OutputHashManager::new(db);
 
         let session_id = "test-session".to_string();
         let output_hash = B3Hash::hash(b"test output");
@@ -410,8 +429,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_compare_divergent_outputs() -> Result<()> {
-        let db = setup_test_db().await?;
-        let manager = OutputHashManager::new(Arc::new(db));
+        let db = Arc::new(setup_test_db().await?);
+        register_peer(&db, "host1").await?;
+        register_peer(&db, "host2").await?;
+        let manager = OutputHashManager::new(db);
 
         let session_id = "test-session".to_string();
         let input_hash = B3Hash::hash(b"test input");
