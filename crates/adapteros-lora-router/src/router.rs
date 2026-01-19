@@ -1693,9 +1693,8 @@ impl Router {
 
         // Compute decision hash if enabled
         let decision_hash = if self.determinism_config.enable_decision_hashing {
-            let feature_vec: Vec<f32> = features.to_vec();
             Some(self.compute_decision_hash(
-                &feature_vec,
+                features,
                 priors_for_routing,
                 &indices,
                 &gates_q15,

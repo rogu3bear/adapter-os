@@ -194,19 +194,19 @@ pub fn filter_decision_by_policy(
     let allowed_set = policy
         .allowed_adapter_ids
         .as_ref()
-        .map(|ids| ids.iter().cloned().collect::<HashSet<String>>());
+        .map(|ids| ids.iter().collect::<HashSet<&String>>());
     let denied_set = policy
         .denied_adapter_ids
         .as_ref()
-        .map(|ids| ids.iter().cloned().collect::<HashSet<String>>());
+        .map(|ids| ids.iter().collect::<HashSet<&String>>());
     let allowed_clusters = policy
         .allowed_clusters
         .as_ref()
-        .map(|ids| ids.iter().cloned().collect::<HashSet<String>>());
+        .map(|ids| ids.iter().collect::<HashSet<&String>>());
     let denied_clusters = policy
         .denied_clusters
         .as_ref()
-        .map(|ids| ids.iter().cloned().collect::<HashSet<String>>());
+        .map(|ids| ids.iter().collect::<HashSet<&String>>());
 
     let mut filtered_indices = SmallVec::<[u16; 8]>::new();
     let mut filtered_gates = SmallVec::<[i16; 8]>::new();
