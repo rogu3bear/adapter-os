@@ -629,11 +629,12 @@ impl<'a> InferenceCore<'a> {
         // │ - Evidence stored for replay via rag_snapshot_hash              │
         // │ - RAG provides transient context; adapters provide persistent   │
         // │   behavior. Both can run together in a single inference.        │
+        // │ - PRD-003: Evidence IDs returned for message binding            │
         // └─────────────────────────────────────────────────────────────────┘
-        let (augmented_prompt, rag_evidence) = if request.rag_enabled {
+        let (augmented_prompt, rag_evidence, pending_evidence_ids) = if request.rag_enabled {
             self.retrieve_and_augment_rag(&request).await?
         } else {
-            (request.prompt.clone(), None)
+            (request.prompt.clone(), None, Vec::new())
         };
 
         // Stage 7: Policy Hooks (OnBeforeInference)
@@ -1578,6 +1579,8 @@ impl<'a> InferenceCore<'a> {
             stop_policy_digest_b3: worker_response.stop_policy_digest_b3.clone(),
             // AARA Lifecycle: Abstention
             abstention: abstention_info,
+            // PRD-003: RAG evidence IDs for message binding
+            pending_evidence_ids,
         })
         }
         .await;
@@ -2530,10 +2533,14 @@ impl<'a> InferenceCore<'a> {
     /// Retrieve RAG context and augment the prompt
     ///
     /// Uses the shared rag_common module for deterministic retrieval.
+    ///
+    /// Returns: (augmented_prompt, rag_evidence, pending_evidence_ids)
+    /// The pending_evidence_ids are evidence records stored without a message_id.
+    /// After message creation, call `db.bind_evidence_to_message()` with these IDs.
     async fn retrieve_and_augment_rag(
         &self,
         request: &InferenceRequestInternal,
-    ) -> Result<(String, Option<RagEvidence>), InferenceError> {
+    ) -> Result<(String, Option<RagEvidence>, Vec<String>), InferenceError> {
         let collection_id = match &request.rag_collection_id {
             Some(id) => id,
             None => {
@@ -2542,7 +2549,7 @@ impl<'a> InferenceCore<'a> {
                     request_id = %request.request_id,
                     "RAG enabled but no collection_id provided, skipping RAG retrieval"
                 );
-                return Ok((request.prompt.clone(), None));
+                return Ok((request.prompt.clone(), None, Vec::new()));
             }
         };
 
@@ -2554,7 +2561,7 @@ impl<'a> InferenceCore<'a> {
                     request_id = %request.request_id,
                     "RAG requested but no embedding model configured"
                 );
-                return Ok((request.prompt.clone(), None));
+                return Ok((request.prompt.clone(), None, Vec::new()));
             }
         };
 
@@ -2571,7 +2578,7 @@ impl<'a> InferenceCore<'a> {
         {
             Ok(rag_result) => {
                 if rag_result.context.is_empty() {
-                    Ok((request.prompt.clone(), None))
+                    Ok((request.prompt.clone(), None, Vec::new()))
                 } else {
                     // Capture model context at inference time for evidence audit trail
                     // This ensures evidence remains accurate even if workspace state changes later
@@ -2595,7 +2602,7 @@ impl<'a> InferenceCore<'a> {
                     // NOTE: message_id is None because the message is created after inference.
                     // PRD-003: After message creation, call db.bind_evidence_to_message()
                     // with the returned evidence_ids to complete the audit trail.
-                    let _evidence_ids = store_rag_evidence(
+                    let evidence_ids = store_rag_evidence(
                         self.state,
                         &rag_result,
                         &request.request_id,
@@ -2616,7 +2623,7 @@ impl<'a> InferenceCore<'a> {
                     // Convert RagContextResult to RagEvidence
                     let evidence = self.convert_rag_result_to_evidence(&rag_result);
 
-                    Ok((augmented, Some(evidence)))
+                    Ok((augmented, Some(evidence), evidence_ids))
                 }
             }
             Err(e) => {
@@ -2626,7 +2633,7 @@ impl<'a> InferenceCore<'a> {
                     "RAG context retrieval failed, proceeding without RAG"
                 );
                 // Don't fail the whole request, just proceed without RAG
-                Ok((request.prompt.clone(), None))
+                Ok((request.prompt.clone(), None, Vec::new()))
             }
         }
     }

@@ -390,6 +390,16 @@ pub struct InferenceResult {
     /// Abstention information when confidence was too low (AARA lifecycle)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub abstention: Option<AbstentionInfo>,
+
+    // PRD-003: RAG Evidence Message ID Binding
+    /// Pending evidence IDs from RAG retrieval that need to be bound to a message_id.
+    ///
+    /// During RAG-augmented inference, evidence is stored without a message_id because
+    /// the message hasn't been created yet. After message creation, call
+    /// `db.bind_evidence_to_message(tenant_id, pending_evidence_ids, message_id)`
+    /// to complete the audit trail binding.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pending_evidence_ids: Vec<String>,
 }
 
 /// Information about an abstention decision (AARA lifecycle ACT phase)
