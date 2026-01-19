@@ -18,11 +18,11 @@ fn main() {
 
     println!(
         "   Entropy threshold: {:?}",
-        router.abstain_entropy_threshold
+        router.abstain_entropy_threshold()
     );
     println!(
         "   Confidence threshold: {:?}\n",
-        router.abstain_confidence_threshold
+        router.abstain_confidence_threshold()
     );
 
     // Example 2: Setting thresholds programmatically
@@ -31,11 +31,11 @@ fn main() {
     router2.set_abstain_thresholds(Some(0.85), Some(0.25));
     println!(
         "   Entropy threshold: {:?}",
-        router2.abstain_entropy_threshold
+        router2.abstain_entropy_threshold()
     );
     println!(
         "   Confidence threshold: {:?}\n",
-        router2.abstain_confidence_threshold
+        router2.abstain_confidence_threshold()
     );
 
     // Example 3: How abstain detection works during routing
