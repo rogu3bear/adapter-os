@@ -2,7 +2,7 @@
 
 **Purpose**: Comprehensive guide to understanding and using the adapterOS CLI (`aosctl`)
 **Last Updated**: January 2026
-**Version**: 0.12.0
+**Version**: 0.13.1
 
 ---
 
@@ -2267,6 +2267,42 @@ aosctl federation-verify --bundle-dir <DIRECTORY> [OPTIONS]
 **Parameters**:
 - `--bundle-dir` (required): Telemetry bundle directory
 - `--database` (optional): Database path (default: ./var/cp.db)
+
+### `verify-cancellation-receipt`
+
+Verify cancellation receipts for audit trail completeness. Cancellation receipts provide cryptographic proof that a training job or inference request was properly cancelled and recorded.
+
+**Usage**:
+```bash
+aosctl verify-cancellation-receipt <TRACE_ID> [OPTIONS]
+aosctl verify-cancellation-receipt --file <PATH> [OPTIONS]
+```
+
+**Parameters**:
+- `TRACE_ID` (positional): Trace ID to look up receipt in database
+- `--file` (optional): Path to receipt JSON file (alternative to database lookup)
+- `--expected-pubkey` (optional): Expected Ed25519 public key in hex for signature verification
+- `--json` (global): Output results in JSON format
+
+**Examples**:
+```bash
+# Verify receipt from database by trace ID
+aosctl verify-cancellation-receipt trace-abc123
+
+# Verify receipt from a JSON file
+aosctl verify-cancellation-receipt --file receipt.json
+
+# Verify with signature validation against expected public key
+aosctl verify-cancellation-receipt trace-abc123 --expected-pubkey <HEX>
+
+# Output verification results as JSON
+aosctl --json verify-cancellation-receipt trace-abc123
+```
+
+**Output**:
+- Receipt metadata (trace ID, timestamp, reason)
+- Signature verification status
+- Chain integrity check results
 
 ### `drift-check`
 

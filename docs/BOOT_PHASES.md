@@ -169,7 +169,7 @@ The boot report is emitted at the end of a successful boot sequence:
   "build": {
     "git_sha": "abc123def",
     "build_time": "2026-01-14T10:00:00Z",
-    "version": "0.12.1"
+    "version": "0.13.1"
   },
   "generated_at": "2026-01-14T10:00:18Z"
 }

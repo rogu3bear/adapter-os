@@ -453,7 +453,7 @@ The following items are acknowledged gaps, not yet implemented:
 **Completed in v0.12.2**:
 - Compile cache key enforcement (backend_compile_flags_hash in manifests/metadata)
 
-**Completed in v0.12.1**:
+**Completed in v0.13.1**:
 - Key revocation mechanism (RevokedKey rejection in SealedAdapterLoader)
 - Cross-backend stop tests (simulated backend parity tests)
 

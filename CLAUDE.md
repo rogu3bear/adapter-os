@@ -115,6 +115,9 @@ cargo test -p adapteros-e2e --features prod-gate
 # Serve with additional options
 ./aosctl serve --capture-events ./events/              # Capture telemetry events to directory
 ./aosctl serve --insecure-skip-egress-check            # Skip PF egress preflight (dev only)
+
+# Cancellation receipt verification
+./aosctl verify-cancellation-receipt <receipt-file>    # Verify a cancellation receipt signature
 ```
 
 ### Stubbed/Partial CLI Commands
@@ -154,7 +157,7 @@ cargo test -p adapteros-ui --lib
 - `src/pages/` - Route pages (Dashboard, Adapters, Chat, etc.)
 - `src/hooks/` - Custom hooks (use_api_resource, use_polling, etc.)
 - `src/contexts/` - Context providers (AuthProvider)
-- `src/validation.rs` - Form validation rules (PRD-UI-150)
+- `src/validation.rs` - Form validation rules
 
 ### Shared API Types
 
@@ -173,28 +176,6 @@ The `Trunk.toml` configures the WASM build:
 - Output directory: `../adapteros-server/static/`
 - Pure CSS (migrated from Tailwind, no Node.js required)
 - wasm-opt with `--enable-bulk-memory` for size optimization
-
-### PRD Acceptance Criteria
-
-**PRD-UI-150: Forms & Validation**
-- [x] 11+ validation rule types in `validation.rs`
-- [x] Field-level error mapping via `FormErrors` signal
-- [x] Typed confirmation for destructive actions (`ConfirmationDialog`)
-- [x] DangerZone component for high-risk operations
-- Acceptance: No form submits invalid required fields
-
-**PRD-UI-160: Accessibility**
-- [x] WCAG AA compliance target (4.5:1 text, 3:1 UI)
-- [x] `prefers-reduced-motion` disables all animations
-- [x] ARIA attributes on dialogs, forms, toggles
-- [x] Keyboard navigation (Escape, Enter, Ctrl+K)
-- Acceptance: Full app usable via keyboard only
-
-**PRD-UI-170: Performance**
-- Baseline: 3.8MB WASM (unoptimized)
-- Target: <2.5MB WASM with wasm-opt enabled
-- Target: <1MB gzipped over wire
-- Acceptance: Dashboard interactive in <2s on M1
 
 ### Liquid Glass Design System
 

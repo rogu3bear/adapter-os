@@ -1,8 +1,15 @@
 # adapterOS Rectification Patch Plan
 
+> **DEPRECATED**: PRD tracking was retired in v0.13.1. The rectification work specified
+> in this document has been completed. This file is archived for historical reference only.
+>
+> Archived: 2026-01-19
+
+---
+
 **Date:** 2025-12-20
 **Scope:** PRD-RECT-001 through PRD-RECT-005
-**Status:** Ready for implementation
+**Status:** Completed
 
 ---
 
