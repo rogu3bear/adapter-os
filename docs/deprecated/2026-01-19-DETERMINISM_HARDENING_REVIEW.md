@@ -1,9 +1,17 @@
 # Determinism Hardening Review
 
-> **Status**: Implementation Review
+> **DEPRECATED**: PRD tracking was retired in v0.13.1. The determinism hardening work
+> described in this document has been implemented. For current determinism documentation,
+> see the CLAUDE.md Determinism Rules section. This file is archived for historical reference.
+>
+> Archived: 2026-01-19
+
+---
+
+> **Status**: Completed
 > **Author**: Engineering Review
 > **Date**: 2025-01-06
-> **Related**: PRD-DET-001, PRD-DET-002
+> **Related**: PRD-DET-001, PRD-DET-002 (archived)
 
 ---
 

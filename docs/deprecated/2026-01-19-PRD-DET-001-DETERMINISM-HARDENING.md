@@ -1,5 +1,12 @@
 # PRD-DET-001: Determinism Hardening
 
+> **DEPRECATED**: PRD tracking was retired in v0.13.1. The changes specified in this
+> document have been implemented. This file is archived for historical reference only.
+>
+> Archived: 2026-01-19
+
+---
+
 ## Overview
 
 This document specifies three PRs to address gaps in adapterOS's determinism enforcement identified during the determinism hardening review.

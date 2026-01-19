@@ -1,5 +1,13 @@
 # PRD Implementation Status
 
+> **DEPRECATED**: PRD tracking was retired in v0.13.1. All Phase 1-4 PRDs were completed
+> and the PRD process has been replaced with feature-based development. This file is
+> archived for historical reference only.
+>
+> Archived: 2026-01-19
+
+---
+
 > Tracking document for Product Requirement Documents. Updated Dec 2025.
 
 ## Completed PRDs
@@ -30,6 +38,6 @@
 
 ## Notes
 
-- All Phase 1-4 PRDs completed as of 0.12.1
+- All Phase 1-4 PRDs completed as of 0.13.1
 - See CHANGELOG.md for release history
 - Future features require separate PRD approval process
