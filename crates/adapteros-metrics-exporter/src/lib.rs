@@ -687,6 +687,24 @@ impl MetricsExporter {
             jobs_duration_seconds,
             jobs_active,
             workers_active,
+            // PRD-005 metrics
+            inference_requests_total,
+            inference_duration_seconds,
+            inference_tokens_generated_total,
+            inference_tokens_per_second,
+            inference_queue_depth,
+            routing_decisions_total,
+            routing_entropy,
+            routing_k_value,
+            routing_gate_max,
+            memory_bytes,
+            gpu_utilization_ratio,
+            adapter_cache_entries,
+            adapter_cache_bytes,
+            kv_cache_entries,
+            receipts_generated_total,
+            receipt_verification_total,
+            receipt_signature_seconds,
             model_load_success_total,
             model_load_failure_total,
             model_unload_success_total,
@@ -769,6 +787,112 @@ impl MetricsExporter {
     /// Record a policy violation
     pub fn record_policy_violation(&self) {
         self.policy_violations_total.inc();
+    }
+
+    // ==========================================================================
+    // PRD-005: Prometheus Metrics Endpoint - Recording methods
+    // ==========================================================================
+
+    /// Record an inference request
+    pub fn record_inference_request(
+        &self,
+        tenant: &str,
+        model: &str,
+        status: &str,
+        duration_secs: f64,
+        tokens: u64,
+    ) {
+        self.inference_requests_total
+            .with_label_values(&[tenant, status, model])
+            .inc();
+        self.inference_duration_seconds
+            .with_label_values(&[tenant, model])
+            .observe(duration_secs);
+        self.inference_tokens_generated_total
+            .with_label_values(&[tenant, model])
+            .inc_by(tokens as f64);
+    }
+
+    /// Update inference throughput gauge
+    pub fn set_inference_throughput(&self, tenant: &str, model: &str, tokens_per_sec: f64) {
+        self.inference_tokens_per_second
+            .with_label_values(&[tenant, model])
+            .set(tokens_per_sec);
+    }
+
+    /// Update inference queue depth
+    pub fn set_inference_queue_depth(&self, tenant: &str, depth: f64) {
+        self.inference_queue_depth
+            .with_label_values(&[tenant])
+            .set(depth);
+    }
+
+    /// Record a routing decision
+    pub fn record_routing_decision(
+        &self,
+        tenant: &str,
+        adapter_count: usize,
+        entropy: f64,
+        k_value: usize,
+        gate_max: f64,
+    ) {
+        self.routing_decisions_total
+            .with_label_values(&[tenant, &adapter_count.to_string()])
+            .inc();
+        self.routing_entropy
+            .with_label_values(&[tenant])
+            .observe(entropy);
+        self.routing_k_value
+            .with_label_values(&[tenant])
+            .observe(k_value as f64);
+        self.routing_gate_max
+            .with_label_values(&[tenant])
+            .observe(gate_max);
+    }
+
+    /// Update resource metrics
+    pub fn set_memory_bytes(&self, memory_type: &str, bytes: f64) {
+        self.memory_bytes
+            .with_label_values(&[memory_type])
+            .set(bytes);
+    }
+
+    /// Update GPU utilization
+    pub fn set_gpu_utilization(&self, ratio: f64) {
+        self.gpu_utilization_ratio.set(ratio);
+    }
+
+    /// Update adapter cache metrics
+    pub fn set_adapter_cache_metrics(&self, entries: f64, bytes: f64) {
+        self.adapter_cache_entries.set(entries);
+        self.adapter_cache_bytes.set(bytes);
+    }
+
+    /// Update KV cache entries
+    pub fn set_kv_cache_entries(&self, tenant: &str, entries: f64) {
+        self.kv_cache_entries
+            .with_label_values(&[tenant])
+            .set(entries);
+    }
+
+    /// Record receipt generation
+    pub fn record_receipt_generated(&self, tenant: &str, receipt_type: &str) {
+        self.receipts_generated_total
+            .with_label_values(&[tenant, receipt_type])
+            .inc();
+    }
+
+    /// Record receipt verification
+    pub fn record_receipt_verification(&self, success: bool) {
+        let result = if success { "success" } else { "failure" };
+        self.receipt_verification_total
+            .with_label_values(&[result])
+            .inc();
+    }
+
+    /// Record receipt signature duration
+    pub fn record_receipt_signature_duration(&self, duration_secs: f64) {
+        self.receipt_signature_seconds.observe(duration_secs);
     }
 
     /// Record model load attempt outcome
