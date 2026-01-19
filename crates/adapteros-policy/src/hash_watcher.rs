@@ -96,7 +96,10 @@ impl PolicyHashWatcher {
 
         // Update cache
         {
-            let mut cache = self.cache.write().unwrap();
+            let mut cache = self.cache.write().map_err(|e| {
+                error!(error = %e, "Cache lock poisoned during baseline registration");
+                AosError::Internal(format!("Cache lock poisoned: {}", e))
+            })?;
             cache.insert(policy_pack_id.to_string(), *baseline_hash);
         }
 
@@ -116,7 +119,10 @@ impl PolicyHashWatcher {
     ) -> Result<ValidationResult> {
         // Try cache first (O(1) lookup)
         let baseline_hash = {
-            let cache = self.cache.read().unwrap();
+            let cache = self.cache.read().map_err(|e| {
+                error!(error = %e, "Cache lock poisoned during validation");
+                AosError::Internal(format!("Cache lock poisoned: {}", e))
+            })?;
             cache.get(policy_pack_id).copied()
         };
 
@@ -131,8 +137,14 @@ impl PolicyHashWatcher {
             {
                 Ok(Some(record)) => {
                     // Populate cache
-                    let mut cache = self.cache.write().unwrap();
-                    cache.insert(policy_pack_id.to_string(), record.baseline_hash);
+                    match self.cache.write() {
+                        Ok(mut cache) => {
+                            cache.insert(policy_pack_id.to_string(), record.baseline_hash);
+                        }
+                        Err(e) => {
+                            warn!(error = %e, "Cache lock poisoned, skipping cache update");
+                        }
+                    }
                     Some(record.baseline_hash)
                 }
                 Ok(None) => None,
@@ -150,26 +162,20 @@ impl PolicyHashWatcher {
             }
         };
 
-        // Validate hash
-        let (valid, status) = if let Some(baseline) = baseline_hash {
-            if baseline == *current_hash {
-                (true, ValidationStatus::Valid)
-            } else {
-                (false, ValidationStatus::Mismatch)
-            }
-        } else {
-            (false, ValidationStatus::Missing)
-        };
-
-        // Log telemetry event (100% sampling)
-        let event = match status {
-            ValidationStatus::Valid => PolicyHashValidationEvent::valid(
-                policy_pack_id.to_string(),
-                current_hash.to_hex(),
-                self.cpid.clone(),
+        // Validate hash and generate telemetry event
+        // This combined match avoids unwrap by binding baseline in the pattern
+        let (valid, status, event) = match baseline_hash {
+            Some(baseline) if baseline == *current_hash => (
+                true,
+                ValidationStatus::Valid,
+                PolicyHashValidationEvent::valid(
+                    policy_pack_id.to_string(),
+                    current_hash.to_hex(),
+                    self.cpid.clone(),
+                ),
             ),
-            ValidationStatus::Mismatch => {
-                let prev_hash = baseline_hash.unwrap().to_hex();
+            Some(baseline) => {
+                let prev_hash = baseline.to_hex();
                 warn!(
                     policy_pack_id = %policy_pack_id,
                     expected = %prev_hash,
@@ -178,25 +184,33 @@ impl PolicyHashWatcher {
                 );
 
                 // Record violation
-                self.record_violation(policy_pack_id, baseline_hash.unwrap(), *current_hash);
+                self.record_violation(policy_pack_id, baseline, *current_hash);
 
-                PolicyHashValidationEvent::mismatch(
-                    policy_pack_id.to_string(),
-                    prev_hash,
-                    current_hash.to_hex(),
-                    self.cpid.clone(),
+                (
+                    false,
+                    ValidationStatus::Mismatch,
+                    PolicyHashValidationEvent::mismatch(
+                        policy_pack_id.to_string(),
+                        prev_hash,
+                        current_hash.to_hex(),
+                        self.cpid.clone(),
+                    ),
                 )
             }
-            ValidationStatus::Missing => {
+            None => {
                 debug!(
                     policy_pack_id = %policy_pack_id,
                     "No baseline hash found for policy pack"
                 );
 
-                PolicyHashValidationEvent::missing(
-                    policy_pack_id.to_string(),
-                    current_hash.to_hex(),
-                    self.cpid.clone(),
+                (
+                    false,
+                    ValidationStatus::Missing,
+                    PolicyHashValidationEvent::missing(
+                        policy_pack_id.to_string(),
+                        current_hash.to_hex(),
+                        self.cpid.clone(),
+                    ),
                 )
             }
         };
@@ -215,25 +229,43 @@ impl PolicyHashWatcher {
 
     /// Record a hash violation
     fn record_violation(&self, policy_pack_id: &str, expected: B3Hash, actual: B3Hash) {
+        let detected_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_else(|e| {
+                warn!(error = %e, "System time before UNIX epoch, using 0");
+                std::time::Duration::ZERO
+            })
+            .as_secs();
+
         let violation = HashViolation {
             policy_pack_id: policy_pack_id.to_string(),
             expected_hash: expected,
             actual_hash: actual,
-            detected_at: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
+            detected_at,
             cpid: self.cpid.clone(),
         };
 
-        let mut violations = self.violations.write().unwrap();
-        violations.push(violation);
+        match self.violations.write() {
+            Ok(mut violations) => violations.push(violation),
+            Err(e) => {
+                error!(
+                    error = %e,
+                    policy_pack_id = %policy_pack_id,
+                    "Violations lock poisoned, unable to record violation"
+                );
+            }
+        }
     }
 
     /// Get all detected violations
     pub fn get_violations(&self) -> Vec<HashViolation> {
-        let violations = self.violations.read().unwrap();
-        violations.clone()
+        match self.violations.read() {
+            Ok(violations) => violations.clone(),
+            Err(e) => {
+                error!(error = %e, "Violations lock poisoned, returning empty list");
+                Vec::new()
+            }
+        }
     }
 
     /// Clear violations for a specific policy pack
@@ -243,7 +275,10 @@ impl PolicyHashWatcher {
             "Clearing policy hash violations"
         );
 
-        let mut violations = self.violations.write().unwrap();
+        let mut violations = self.violations.write().map_err(|e| {
+            error!(error = %e, "Violations lock poisoned during clear");
+            AosError::Internal(format!("Violations lock poisoned: {}", e))
+        })?;
         violations.retain(|v| v.policy_pack_id != policy_pack_id);
 
         Ok(())
@@ -253,7 +288,10 @@ impl PolicyHashWatcher {
     pub fn clear_all_violations(&self) -> Result<()> {
         info!("Clearing all policy hash violations");
 
-        let mut violations = self.violations.write().unwrap();
+        let mut violations = self.violations.write().map_err(|e| {
+            error!(error = %e, "Violations lock poisoned during clear");
+            AosError::Internal(format!("Violations lock poisoned: {}", e))
+        })?;
         violations.clear();
 
         Ok(())
@@ -261,14 +299,25 @@ impl PolicyHashWatcher {
 
     /// Check if system is quarantined (any violations present)
     pub fn is_quarantined(&self) -> bool {
-        let violations = self.violations.read().unwrap();
-        !violations.is_empty()
+        match self.violations.read() {
+            Ok(violations) => !violations.is_empty(),
+            Err(e) => {
+                // Conservative: treat poisoned lock as quarantined for safety
+                error!(error = %e, "Violations lock poisoned, treating as quarantined");
+                true
+            }
+        }
     }
 
     /// Get count of violations
     pub fn violation_count(&self) -> usize {
-        let violations = self.violations.read().unwrap();
-        violations.len()
+        match self.violations.read() {
+            Ok(violations) => violations.len(),
+            Err(e) => {
+                error!(error = %e, "Violations lock poisoned, returning 0");
+                0
+            }
+        }
     }
 
     /// Validate all registered policy packs
@@ -319,7 +368,10 @@ impl PolicyHashWatcher {
             .await
             .map_err(|e| AosError::Database(format!("Failed to list policy hashes: {}", e)))?;
 
-        let mut cache = self.cache.write().unwrap();
+        let mut cache = self.cache.write().map_err(|e| {
+            error!(error = %e, "Cache lock poisoned during load");
+            AosError::Internal(format!("Cache lock poisoned: {}", e))
+        })?;
         for record in records {
             cache.insert(record.policy_pack_id.clone(), record.baseline_hash);
         }
@@ -404,9 +456,12 @@ impl PolicyHashWatcher {
 
                 debug!("Background policy hash validation sweep");
 
-                let hashes = {
-                    let lock = policy_hashes.read().unwrap();
-                    lock.clone()
+                let hashes = match policy_hashes.read() {
+                    Ok(lock) => lock.clone(),
+                    Err(e) => {
+                        error!(error = %e, "Policy hashes lock poisoned, skipping validation sweep");
+                        continue;
+                    }
                 };
 
                 if let Err(e) = self.validate_all_policies(&hashes).await {

@@ -114,12 +114,13 @@ pub fn validate_customization(
 
     let mut result = ValidationResult::success();
 
-    if !customizations.is_object() {
-        result.add_error("Customizations must be a JSON object".to_string());
-        return Ok(result);
-    }
-
-    let obj = customizations.as_object().unwrap();
+    let obj = match customizations.as_object() {
+        Some(obj) => obj,
+        None => {
+            result.add_error("Customizations must be a JSON object".to_string());
+            return Ok(result);
+        }
+    };
 
     // Validate each field
     for (field_name, value) in obj {
