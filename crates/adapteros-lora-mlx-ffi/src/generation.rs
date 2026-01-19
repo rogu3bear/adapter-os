@@ -928,7 +928,12 @@ impl MLXGenerator {
 
         // Initialize from prefix tensors if available
         let start_position = if let Some(tensors) = prefix_tensors {
-            let cache = self.cache.as_ref().unwrap();
+            let cache = self.cache.as_ref().ok_or_else(|| {
+                tracing::error!("KV cache not initialized when prefix tensors provided");
+                AosError::Internal(
+                    "KV cache not initialized when prefix tensors provided".to_string(),
+                )
+            })?;
             cache.init_from_prefix_tensors(tensors)?;
             prefix_token_count as usize
         } else {
