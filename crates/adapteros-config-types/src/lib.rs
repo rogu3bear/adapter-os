@@ -339,4 +339,49 @@ pub struct InvariantsConfig {
     /// Disable LIF-004: Connection pool drain configuration check
     #[serde(default)]
     pub disable_lif_004_pool_drain: bool,
+    // =========================================================================
+    // PRD-003 New Invariants (28 total)
+    // =========================================================================
+    /// Disable AUTH-001: JWT signing key configured check
+    #[serde(default)]
+    pub disable_auth_001_jwt_key: bool,
+    /// Disable AUTH-002: HMAC secret non-default check
+    #[serde(default)]
+    pub disable_auth_002_hmac_secret: bool,
+    /// Disable AUTH-003: Session store initialized check
+    #[serde(default)]
+    pub disable_auth_003_session_store: bool,
+    /// Disable AUTHZ-001: RBAC tables populated check
+    #[serde(default)]
+    pub disable_authz_001_rbac_tables: bool,
+    /// Disable AUTHZ-002: Default admin role defined check
+    #[serde(default)]
+    pub disable_authz_002_admin_role: bool,
+    /// Disable CRYPTO-001: Worker keypair exists check
+    #[serde(default)]
+    pub disable_crypto_001_worker_keypair: bool,
+    /// Disable CRYPTO-002: Entropy source available check
+    #[serde(default)]
+    pub disable_crypto_002_entropy_source: bool,
+    /// Disable CRYPTO-003: Signing algorithm matches config check
+    #[serde(default)]
+    pub disable_crypto_003_algo_match: bool,
+    /// Disable FED-001: Quorum keys loaded check (if federated mode)
+    #[serde(default)]
+    pub disable_fed_001_quorum_keys: bool,
+    /// Disable FED-002: Peer certificates valid check (if federated mode)
+    #[serde(default)]
+    pub disable_fed_002_peer_certs: bool,
+    /// Disable ADAPT-001: Bundle signature verification check
+    #[serde(default)]
+    pub disable_adapt_001_bundle_sig: bool,
+    /// Disable ADAPT-002: Manifest hash verification check
+    #[serde(default)]
+    pub disable_adapt_002_manifest_hash: bool,
+    /// Disable POL-001: Default policy pack loaded check
+    #[serde(default)]
+    pub disable_pol_001_default_pack: bool,
+    /// Disable POL-002: Enforcement mode set check
+    #[serde(default)]
+    pub disable_pol_002_enforcement_mode: bool,
 }
