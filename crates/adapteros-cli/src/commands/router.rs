@@ -255,8 +255,8 @@ fn safe_mode(args: SafeModeArgs) -> Result<()> {
 
     cfg.safe_mode = args.enable;
 
-    let content = serde_json::to_string_pretty(&cfg)
-        .context("Failed to serialize router config")?;
+    let content =
+        serde_json::to_string_pretty(&cfg).context("Failed to serialize router config")?;
     std::fs::write(config_path, content)
         .with_context(|| format!("Failed to write config file: {:?}", config_path))?;
 

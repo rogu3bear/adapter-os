@@ -278,9 +278,21 @@ pub async fn list_telemetry_events(
 
             output.print_line(format!(
                 "{:<36} {:<25} {:<20} {}",
-                if event.id.len() > 36 { &event.id[..36] } else { &event.id },
-                if event.event_type.len() > 25 { &event.event_type[..25] } else { &event.event_type },
-                if event.timestamp.len() > 20 { &event.timestamp[..20] } else { &event.timestamp },
+                if event.id.len() > 36 {
+                    &event.id[..36]
+                } else {
+                    &event.id
+                },
+                if event.event_type.len() > 25 {
+                    &event.event_type[..25]
+                } else {
+                    &event.event_type
+                },
+                if event.timestamp.len() > 20 {
+                    &event.timestamp[..20]
+                } else {
+                    &event.timestamp
+                },
                 message_truncated,
             ))?;
         }
@@ -288,7 +300,9 @@ pub async fn list_telemetry_events(
         output.print_line("")?;
         output.print_line(format!(
             "Showing {} events (scanned {} bundles, {} total events)",
-            filtered_events.len(), bundles_scanned, events_scanned
+            filtered_events.len(),
+            bundles_scanned,
+            events_scanned
         ))?;
     }
 

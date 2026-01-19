@@ -71,7 +71,7 @@ impl std::str::FromStr for StopReasonCode {
     }
 }
 
-/// Source of inference cancellation for audit trail (PRD-003).
+/// Source of inference cancellation for audit trail.
 ///
 /// Categorizes why an inference was cancelled, enabling:
 /// - Audit trail completeness (cancelled requests generate receipts)
@@ -120,7 +120,7 @@ impl std::str::FromStr for CancelSource {
     }
 }
 
-/// State captured when inference is cancelled (PRD-003).
+/// State captured when inference is cancelled.
 ///
 /// This struct carries the partial output and cancellation metadata,
 /// allowing the caller to build an error receipt before returning to the client.

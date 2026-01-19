@@ -1,4 +1,4 @@
--- PRD-003: Cancellation Receipt Generation for Audit Trail Completeness
+-- Cancellation Receipt Generation for Audit Trail Completeness
 --
 -- When inference is cancelled (client disconnect, timeout, policy violation),
 -- the worker generates a cryptographic receipt capturing:

@@ -818,9 +818,19 @@ mod tests {
         let sink = Arc::new(StdMutex::new(Vec::new()));
         let output = OutputWriter::with_sink(OutputMode::Json, false, sink.clone());
 
-        run_single_prompt("hello cli", None, 64, 0.5, &base_url, false, false, None, &output)
-            .await
-            .expect("prompt flow");
+        run_single_prompt(
+            "hello cli",
+            None,
+            64,
+            0.5,
+            &base_url,
+            false,
+            false,
+            None,
+            &output,
+        )
+        .await
+        .expect("prompt flow");
 
         // Session creation recorded with cli_prompt
         let sessions = state.sessions.lock().await;

@@ -1,4 +1,4 @@
-//! Tenant Resource Metrics Implementation (PRD-004)
+//! Tenant Resource Metrics Implementation
 //!
 //! Provides real resource usage metrics for tenants including:
 //! - Storage: database blobs + filesystem artifacts

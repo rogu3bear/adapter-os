@@ -212,7 +212,10 @@ impl LiveMetricsCollector {
 }
 
 /// Check policy violations against live metrics
-fn check_policy_violations(metrics: &LiveMetrics, thresholds: &ThresholdsConfig) -> Vec<PolicyViolation> {
+fn check_policy_violations(
+    metrics: &LiveMetrics,
+    thresholds: &ThresholdsConfig,
+) -> Vec<PolicyViolation> {
     let mut violations = Vec::new();
 
     // CPU usage violations
@@ -324,7 +327,10 @@ fn check_policy_violations(metrics: &LiveMetrics, thresholds: &ThresholdsConfig)
 fn get_health_status(violations: &[PolicyViolation]) -> SystemHealthStatus {
     if violations.is_empty() {
         SystemHealthStatus::Healthy
-    } else if violations.iter().any(|v| v.severity == ViolationSeverity::Critical) {
+    } else if violations
+        .iter()
+        .any(|v| v.severity == ViolationSeverity::Critical)
+    {
         SystemHealthStatus::Critical
     } else {
         SystemHealthStatus::Warning
@@ -587,7 +593,13 @@ async fn show_metrics_history(
 
         let mut table = Table::new();
         table.set_header(vec![
-            "Timestamp", "CPU %", "Mem %", "Disk %", "Net Mbps", "GPU %", "Processes"
+            "Timestamp",
+            "CPU %",
+            "Mem %",
+            "Disk %",
+            "Net Mbps",
+            "GPU %",
+            "Processes",
         ]);
 
         for record in records.iter().take(limit) {
@@ -600,15 +612,27 @@ async fn show_metrics_history(
                 Cell::new(format!("{:.1}", record.cpu_usage)),
                 Cell::new(format!("{:.1}", record.memory_usage)),
                 Cell::new(format!("{:.1}", record.disk_usage_percent.unwrap_or(0.0))),
-                Cell::new(format!("{:.2}", record.network_bandwidth_mbps.unwrap_or(0.0))),
-                Cell::new(record.gpu_utilization.map(|v| format!("{:.1}", v)).unwrap_or_else(|| "N/A".to_string())),
+                Cell::new(format!(
+                    "{:.2}",
+                    record.network_bandwidth_mbps.unwrap_or(0.0)
+                )),
+                Cell::new(
+                    record
+                        .gpu_utilization
+                        .map(|v| format!("{:.1}", v))
+                        .unwrap_or_else(|| "N/A".to_string()),
+                ),
                 Cell::new(format!("{}", record.process_count)),
             ]);
         }
 
         println!("{}", table);
-        println!("\nShowing {} of {} records from the past {} hours",
-            records.len().min(limit), records.len(), hours);
+        println!(
+            "\nShowing {} of {} records from the past {} hours",
+            records.len().min(limit),
+            records.len(),
+            hours
+        );
     }
 
     Ok(())
@@ -709,7 +733,10 @@ async fn export_metrics(
                     record.memory_usage,
                     record.disk_usage_percent.unwrap_or(0.0),
                     record.network_bandwidth_mbps.unwrap_or(0.0),
-                    record.gpu_utilization.map(|v| format!("{:.2}", v)).unwrap_or_else(|| "".to_string()),
+                    record
+                        .gpu_utilization
+                        .map(|v| format!("{:.2}", v))
+                        .unwrap_or_else(|| "".to_string()),
                     record.uptime_seconds,
                     record.process_count,
                     record.load_1min,
@@ -721,13 +748,18 @@ async fn export_metrics(
             (csv_output, size)
         }
         _ => {
-            anyhow::bail!("Unsupported export format: {}. Use 'json' or 'csv'.", format);
+            anyhow::bail!(
+                "Unsupported export format: {}. Use 'json' or 'csv'.",
+                format
+            );
         }
     };
 
     // Write to file
-    let mut file = std::fs::File::create(output)
-        .context(format!("Failed to create output file: {}", output.display()))?;
+    let mut file = std::fs::File::create(output).context(format!(
+        "Failed to create output file: {}",
+        output.display()
+    ))?;
     file.write_all(data.as_bytes())
         .context("Failed to write metrics data")?;
 
@@ -742,7 +774,11 @@ async fn export_metrics(
         });
         println!("{}", serde_json::to_string_pretty(&response)?);
     } else {
-        println!("Exported {} metrics records to {}", records.len(), output.display());
+        println!(
+            "Exported {} metrics records to {}",
+            records.len(),
+            output.display()
+        );
         println!("Format: {}", format);
         println!("Time range: past {} hours", hours);
         println!("File size: {} bytes", file_size);
@@ -831,18 +867,27 @@ async fn show_violations(mode: &crate::output::OutputMode, unresolved: bool) -> 
         println!("{}", serde_json::to_string_pretty(&response)?);
     } else {
         if violations.is_empty() {
-            println!("No {} violations found",
-                if unresolved { "unresolved" } else { "" });
+            println!(
+                "No {} violations found",
+                if unresolved { "unresolved" } else { "" }
+            );
             return Ok(());
         }
 
-        println!("Threshold Violations{}:",
-            if unresolved { " (Unresolved)" } else { "" });
+        println!(
+            "Threshold Violations{}:",
+            if unresolved { " (Unresolved)" } else { "" }
+        );
         println!();
 
         let mut table = Table::new();
         table.set_header(vec![
-            "ID", "Metric", "Value", "Threshold", "Severity", "Time"
+            "ID",
+            "Metric",
+            "Value",
+            "Threshold",
+            "Severity",
+            "Time",
         ]);
 
         for violation in &violations {

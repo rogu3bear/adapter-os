@@ -138,10 +138,7 @@ pub async fn get_resource_usage(
 
     let total_workers = workers.len();
     // Workers in 'healthy' status are actively serving inference requests
-    let active_workers = workers
-        .iter()
-        .filter(|w| w.status == "healthy")
-        .count();
+    let active_workers = workers.iter().filter(|w| w.status == "healthy").count();
 
     // Get loaded adapters count
     let loaded_adapters = match state

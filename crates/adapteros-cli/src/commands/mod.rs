@@ -45,18 +45,18 @@ pub mod federation;
 pub mod golden;
 pub mod import;
 pub mod import_model;
+pub mod infer;
 pub mod ingest_docs;
 pub mod init;
 pub mod init_tenant;
 pub mod list_adapters;
 pub mod maintenance;
 pub mod manual;
+pub mod metrics; // Now uses adapteros_db::SystemMetricsDbOps
 pub mod models;
+pub mod node;
 pub mod stack;
 pub mod status;
-pub mod metrics;  // Now uses adapteros_db::SystemMetricsDbOps
-pub mod infer;
-pub mod node;
 // Legacy node commands - still used by app.rs standalone commands
 // TODO: Migrate app.rs Commands::NodeList/NodeVerify/NodeSync to use node.rs subcommands
 pub mod baseline;
@@ -117,11 +117,11 @@ pub mod tutorial;
 pub mod verify;
 pub mod verify_adapter;
 pub mod verify_adapters;
+pub mod verify_cancellation_receipt;
 pub mod verify_determinism_loop;
 pub mod verify_gpu;
+pub mod verify_receipt;
 
-pub const NOT_IMPLEMENTED_ISSUE_URL: &str =
-    "https://github.com/rogu3bear/adapter-os/issues/194";
+pub const NOT_IMPLEMENTED_ISSUE_URL: &str = "https://github.com/rogu3bear/adapter-os/issues/194";
 pub const NOT_IMPLEMENTED_MESSAGE: &str =
     "This command is not yet implemented. Track progress at: https://github.com/rogu3bear/adapter-os/issues/194";
-pub mod verify_receipt;

@@ -245,7 +245,7 @@ impl InvariantReport {
     }
 }
 
-/// Validates all critical invariants at boot time (PRD-003).
+/// Validates all critical invariants at boot time.
 ///
 /// # Arguments
 ///

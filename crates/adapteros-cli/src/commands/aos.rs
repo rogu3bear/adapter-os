@@ -308,7 +308,10 @@ pub async fn create_aos(args: CreateArgs, output: &OutputWriter) -> Result<()> {
                         key
                     ))
                 })?;
-            adapter.manifest.metadata.insert(key.to_string(), value.to_string());
+            adapter
+                .manifest
+                .metadata
+                .insert(key.to_string(), value.to_string());
         }
     }
 

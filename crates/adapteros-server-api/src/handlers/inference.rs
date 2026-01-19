@@ -302,54 +302,54 @@ pub async fn infer(
                         | InferenceError::WorkerError(_)
                 )
             {
-                    info!(
-                        request_id = %request_id_str,
-                        tenant_id = %claims.tenant_id,
-                        error = %e,
-                        "Dev echo mode: returning mock response (no worker available)"
-                    );
-                    let echo_text = format!(
-                        "[DEV ECHO] No inference worker available. Your message was: {}",
-                        req.prompt.chars().take(500).collect::<String>()
-                    );
-                    return Ok(Json(InferResponse {
-                        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-                        id: request_id_str.clone(),
-                        text: echo_text,
-                        tokens: vec![],
-                        tokens_generated: 0,
-                        finish_reason: "dev_echo".to_string(),
-                        latency_ms: 0,
+                info!(
+                    request_id = %request_id_str,
+                    tenant_id = %claims.tenant_id,
+                    error = %e,
+                    "Dev echo mode: returning mock response (no worker available)"
+                );
+                let echo_text = format!(
+                    "[DEV ECHO] No inference worker available. Your message was: {}",
+                    req.prompt.chars().take(500).collect::<String>()
+                );
+                return Ok(Json(InferResponse {
+                    schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+                    id: request_id_str.clone(),
+                    text: echo_text,
+                    tokens: vec![],
+                    tokens_generated: 0,
+                    finish_reason: "dev_echo".to_string(),
+                    latency_ms: 0,
+                    adapters_used: vec![],
+                    run_receipt: None,
+                    deterministic_receipt: None,
+                    run_envelope: None,
+                    citations: vec![],
+                    trace: InferenceTrace {
                         adapters_used: vec![],
-                        run_receipt: None,
-                        deterministic_receipt: None,
-                        run_envelope: None,
-                        citations: vec![],
-                        trace: InferenceTrace {
-                            adapters_used: vec![],
-                            router_decisions: vec![],
-                            router_decision_chain: None,
-                            fusion_intervals: None,
-                            latency_ms: 0,
-                            model_type: None,
-                        },
-                        model: None,
-                        prompt_tokens: None,
-                        error: None,
-                        unavailable_pinned_adapters: None,
-                        pinned_routing_fallback: None,
-                        backend_used: Some("dev_echo".to_string()),
-                        coreml_compute_preference: None,
-                        coreml_compute_units: None,
-                        coreml_gpu_used: None,
-                        fallback_backend: None,
-                        fallback_triggered: false,
-                        determinism_mode_applied: None,
-                        replay_guarantee: None,
-                        stop_reason_code: None,
-                        stop_reason_token_index: None,
-                        stop_policy_digest_b3: None,
-                    }));
+                        router_decisions: vec![],
+                        router_decision_chain: None,
+                        fusion_intervals: None,
+                        latency_ms: 0,
+                        model_type: None,
+                    },
+                    model: None,
+                    prompt_tokens: None,
+                    error: None,
+                    unavailable_pinned_adapters: None,
+                    pinned_routing_fallback: None,
+                    backend_used: Some("dev_echo".to_string()),
+                    coreml_compute_preference: None,
+                    coreml_compute_units: None,
+                    coreml_gpu_used: None,
+                    fallback_backend: None,
+                    fallback_triggered: false,
+                    determinism_mode_applied: None,
+                    replay_guarantee: None,
+                    stop_reason_code: None,
+                    stop_reason_token_index: None,
+                    stop_policy_digest_b3: None,
+                }));
             }
 
             let failure_code = e.failure_code().map(|c| c.as_str().to_string());

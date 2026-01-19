@@ -941,9 +941,7 @@ impl FileValidator {
         let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("");
 
         if format != "jsonl" {
-            return Err(anyhow!(
-                "Only jsonl datasets are supported by PLAN_4"
-            ));
+            return Err(anyhow!("Only jsonl datasets are supported by PLAN_4"));
         }
         if !matches!(extension, "jsonl" | "ndjson") {
             return Err(anyhow!("JSONL file must have .jsonl or .ndjson extension"));
@@ -993,9 +991,7 @@ impl FileValidator {
         }
 
         if format != "jsonl" {
-            return Err(anyhow!(
-                "Only jsonl datasets are supported by PLAN_4"
-            ));
+            return Err(anyhow!("Only jsonl datasets are supported by PLAN_4"));
         }
         for (line_num, line) in content.lines().enumerate() {
             if !line.trim().is_empty() {

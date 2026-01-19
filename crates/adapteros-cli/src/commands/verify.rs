@@ -151,6 +151,34 @@ pub enum VerifyCommand {
         #[arg(long, default_value = "false")]
         fail_on_divergence: bool,
     },
+
+    /// Verify a cancellation receipt (audit trail for cancelled inference)
+    #[command(after_help = r#"Examples:
+  # Verify cancellation receipt from database by trace ID
+  aosctl verify receipt trace-abc123
+
+  # Verify cancellation receipt from file
+  aosctl verify receipt --file receipt.json
+
+  # Verify with expected public key
+  aosctl verify receipt trace-abc123 --expected-pubkey <HEX>
+
+  # JSON output
+  aosctl --json verify receipt trace-abc123
+"#)]
+    Receipt {
+        /// Trace ID to look up in database
+        #[arg(value_name = "TRACE_ID")]
+        trace_id: Option<String>,
+
+        /// Path to receipt JSON file
+        #[arg(long, short = 'f')]
+        file: Option<PathBuf>,
+
+        /// Expected public key (hex) for signature verification
+        #[arg(long)]
+        expected_pubkey: Option<String>,
+    },
 }
 
 /// Run bundle verification (public entry point for Commands::Verify)
@@ -208,6 +236,20 @@ pub async fn handle_verify_command(cmd: VerifyCommand, output: &OutputWriter) ->
                 evidence_only,
                 tenant_id,
                 fail_on_divergence,
+                output,
+            )
+            .await
+        }
+        VerifyCommand::Receipt {
+            trace_id,
+            file,
+            expected_pubkey,
+        } => {
+            use crate::commands::verify_cancellation_receipt;
+            verify_cancellation_receipt::run(
+                trace_id.as_deref(),
+                file.as_deref(),
+                expected_pubkey.as_deref(),
                 output,
             )
             .await

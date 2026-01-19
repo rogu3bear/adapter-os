@@ -1848,7 +1848,15 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
                 diag::DiagProfile::Full
             };
 
-            diag::run(diag_profile, tenant.clone(), *json, bundle.clone(), None, false).await?;
+            diag::run(
+                diag_profile,
+                tenant.clone(),
+                *json,
+                bundle.clone(),
+                None,
+                false,
+            )
+            .await?;
         }
 
         Commands::Explain { code } => {

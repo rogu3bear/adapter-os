@@ -1350,7 +1350,16 @@ pub async fn handle_adapter_command(cmd: AdapterCommand, output: &OutputWriter) 
             trusted_key,
             trusted_key_hex,
             json,
-        } => load_sealed_adapter_cmd(&path, trusted_key.as_ref(), trusted_key_hex.as_deref(), json, output).await,
+        } => {
+            load_sealed_adapter_cmd(
+                &path,
+                trusted_key.as_ref(),
+                trusted_key_hex.as_deref(),
+                json,
+                output,
+            )
+            .await
+        }
     }
 }
 
@@ -1461,9 +1470,8 @@ async fn load_sealed_adapter_cmd(
     let trusted_pubkey = match (trusted_key_path, trusted_key_hex) {
         (Some(key_path), None) => {
             // Read from file - try hex first, then raw bytes
-            let contents = fs::read(key_path).map_err(|e| {
-                AosError::Io(format!("Failed to read trusted key file: {}", e))
-            })?;
+            let contents = fs::read(key_path)
+                .map_err(|e| AosError::Io(format!("Failed to read trusted key file: {}", e)))?;
 
             // Try to parse as hex string (64 chars = 32 bytes)
             let key_bytes: [u8; 32] = if contents.len() == 64 || contents.len() == 65 {
@@ -1493,7 +1501,9 @@ async fn load_sealed_adapter_cmd(
             let key_bytes: [u8; 32] = hex::decode(hex_str)
                 .map_err(|e| AosError::Crypto(format!("Invalid hex string: {}", e)))?
                 .try_into()
-                .map_err(|_| AosError::Crypto("Hex string must be 64 characters (32 bytes)".to_string()))?;
+                .map_err(|_| {
+                    AosError::Crypto("Hex string must be 64 characters (32 bytes)".to_string())
+                })?;
 
             VerifyingKey::from_bytes(&key_bytes)
                 .map_err(|e| AosError::Crypto(format!("Invalid Ed25519 public key: {}", e)))?
@@ -1576,7 +1586,10 @@ async fn load_sealed_adapter_cmd(
                 });
                 output.result(serde_json::to_string_pretty(&json_output).unwrap());
             } else {
-                output.error(format!("Sealed adapter verification failed: {}", reason.as_str()));
+                output.error(format!(
+                    "Sealed adapter verification failed: {}",
+                    reason.as_str()
+                ));
                 output.kv("Reason", reason.as_str());
                 output.kv("Details", &message);
                 if let Some(exp) = expected {

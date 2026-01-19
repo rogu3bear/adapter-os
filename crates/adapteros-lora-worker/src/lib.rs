@@ -1943,7 +1943,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
     ) -> Result<()> {
         self.check_inference_cancelled(request, token, tokens_generated)
             .map_err(|state: CancellationState| {
-                // Log cancellation with audit context (PRD-003)
+                // Log cancellation with audit context
                 info!(
                     trace_id = %state.trace_id,
                     tokens_generated = state.tokens_generated,
@@ -1958,7 +1958,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             })
     }
 
-    /// Generate a cancellation receipt for audit trail completeness (PRD-003).
+    /// Generate a cancellation receipt for audit trail completeness.
     ///
     /// This should be called when inference is cancelled and a trace_sink is available.
     /// It creates and stores a cryptographic receipt capturing the partial output state.
@@ -1995,7 +1995,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                     partial_output_count = receipt.partial_output_count,
                     cancellation_source = %receipt.cancellation_source,
                     receipt_digest = %receipt.receipt_digest.to_hex(),
-                    "Cancellation receipt generated for audit trail (PRD-003)"
+                    "Cancellation receipt generated for audit trail"
                 );
                 Some(receipt)
             }
@@ -2009,7 +2009,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         }
     }
 
-    /// Check cancellation and generate receipt if cancelled (PRD-003).
+    /// Check cancellation and generate receipt if cancelled.
     ///
     /// This combines the cancellation check with receipt generation for audit trail
     /// completeness. If cancelled, generates a receipt before returning the error.
@@ -2034,7 +2034,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         match self.check_inference_cancelled(request, token, tokens_generated) {
             Ok(()) => Ok(()),
             Err(state) => {
-                // Log cancellation with audit context (PRD-003)
+                // Log cancellation with audit context
                 info!(
                     trace_id = %state.trace_id,
                     tokens_generated = state.tokens_generated,
@@ -3713,7 +3713,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 kernels.run_step(&router_ring, &mut io_buffers)?;
             }
             let kernel_duration = kernel_start.elapsed();
-            // PRD-003: Check cancellation with receipt generation for audit trail completeness
+            // Check cancellation with receipt generation for audit trail completeness
             self.check_cancelled_with_receipt(
                 &request,
                 cancel_token.as_deref(),

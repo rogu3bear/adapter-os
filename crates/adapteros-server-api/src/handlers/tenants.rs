@@ -545,7 +545,7 @@ pub async fn archive_tenant(
 
 /// Get tenant usage statistics
 ///
-/// PRD-004: Returns real resource metrics including storage, CPU, GPU, and memory usage.
+/// Returns real resource metrics including storage, CPU, GPU, and memory usage.
 /// Storage metrics are calculated from database tables and filesystem artifacts.
 /// CPU/GPU metrics are tracked per-tenant with rolling windows.
 /// Memory metrics reflect system-wide values (per-tenant attribution is approximate).
@@ -578,7 +578,7 @@ pub async fn get_tenant_usage(
         .await
         .map_err(|e| db_error_msg("failed to get tenant usage", e))?;
 
-    // PRD-004: Get real resource metrics from TenantMetricsService
+    // Get real resource metrics from TenantMetricsService
     let resource_metrics = state
         .tenant_metrics_service
         .get_metrics(&state.db, &tenant_id)
@@ -600,7 +600,7 @@ pub async fn get_tenant_usage(
     }))
 }
 
-/// Get comprehensive tenant resource metrics (PRD-004)
+/// Get comprehensive tenant resource metrics
 ///
 /// Returns detailed resource metrics including storage, CPU, GPU, and memory
 /// with breakdown information and Prometheus-compatible structure.

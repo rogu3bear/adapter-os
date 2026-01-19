@@ -313,9 +313,9 @@ pub async fn list_workers(
             .as_ref()
             .and_then(|rt| rt.capabilities_detail.clone())
             .or_else(|| {
-                w.capabilities_json.as_ref().and_then(|json| {
-                    serde_json::from_str(json).ok()
-                })
+                w.capabilities_json
+                    .as_ref()
+                    .and_then(|json| serde_json::from_str(json).ok())
             });
 
         response.push(WorkerResponse {

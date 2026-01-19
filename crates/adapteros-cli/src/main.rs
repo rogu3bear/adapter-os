@@ -580,6 +580,38 @@ Examples:
         server_url: String,
     },
 
+    /// Verify a cancellation receipt (audit trail for cancelled inference)
+    #[command(
+        name = "verify-cancellation-receipt",
+        after_help = "\
+Examples:
+  # Verify cancellation receipt from database by trace ID
+  aosctl verify-cancellation-receipt trace-abc123
+
+  # Verify cancellation receipt from file
+  aosctl verify-cancellation-receipt --file receipt.json
+
+  # Verify with expected public key
+  aosctl verify-cancellation-receipt trace-abc123 --expected-pubkey <HEX>
+
+  # JSON output
+  aosctl --json verify-cancellation-receipt trace-abc123
+"
+    )]
+    VerifyCancellationReceipt {
+        /// Trace ID to look up in database
+        #[arg(value_name = "TRACE_ID")]
+        trace_id: Option<String>,
+
+        /// Path to receipt JSON file
+        #[arg(long, short = 'f')]
+        file: Option<PathBuf>,
+
+        /// Expected public key (hex) for signature verification
+        #[arg(long)]
+        expected_pubkey: Option<String>,
+    },
+
     /// Verify adapter deliverables (A–F)
     #[command(after_help = "\
 Examples:
@@ -935,7 +967,6 @@ Examples:
     // LogTriage(commands::log_triage::LogTriageCommand),
     // /// Build an LLM prompt from triage output
     // LogPrompt(commands::log_prompt::LogPromptCommand),
-
     /// Targeted diagnostics for drift, health, and storage reconciler
     #[command(after_help = "\
 Examples:
@@ -1693,6 +1724,19 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             )
             .await?;
         }
+        Commands::VerifyCancellationReceipt {
+            trace_id,
+            file,
+            expected_pubkey,
+        } => {
+            commands::verify_cancellation_receipt::run(
+                trace_id.as_deref(),
+                file.as_deref(),
+                expected_pubkey.as_deref(),
+                &output,
+            )
+            .await?;
+        }
         Commands::VerifyDeterminismLoop => {
             let exit_code = verify_determinism_loop::run(&output).await?;
             std::process::exit(exit_code);
@@ -1836,7 +1880,6 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         // Commands::LogDigest(cmd) => { ... }
         // Commands::LogTriage(cmd) => { ... }
         // Commands::LogPrompt(cmd) => { ... }
-
         Commands::Health(cmd) => {
             commands::diag_health::run(cmd.clone(), &output).await?;
         }
@@ -2224,6 +2267,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Import { .. } => "import",
         Commands::Verify { .. } => "verify",
         Commands::VerifyReceipt { .. } => "verify-receipt",
+        Commands::VerifyCancellationReceipt { .. } => "verify-cancellation-receipt",
         Commands::VerifyAdapters { .. } => "verify-adapters",
         Commands::Policy(_) => "policy",
         Commands::Serve { .. } => "serve",

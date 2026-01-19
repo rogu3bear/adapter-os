@@ -629,7 +629,7 @@ impl<'a> InferenceCore<'a> {
         // │ - Evidence stored for replay via rag_snapshot_hash              │
         // │ - RAG provides transient context; adapters provide persistent   │
         // │   behavior. Both can run together in a single inference.        │
-        // │ - PRD-003: Evidence IDs returned for message binding            │
+        // │ - Evidence IDs returned for message binding            │
         // └─────────────────────────────────────────────────────────────────┘
         let (augmented_prompt, rag_evidence, pending_evidence_ids) = if request.rag_enabled {
             self.retrieve_and_augment_rag(&request).await?
@@ -1579,7 +1579,7 @@ impl<'a> InferenceCore<'a> {
             stop_policy_digest_b3: worker_response.stop_policy_digest_b3.clone(),
             // AARA Lifecycle: Abstention
             abstention: abstention_info,
-            // PRD-003: RAG evidence IDs for message binding
+            // RAG evidence IDs for message binding
             pending_evidence_ids,
         })
         }
@@ -1620,6 +1620,56 @@ impl<'a> InferenceCore<'a> {
                 debug!(
                     request_id = %request.request_id,
                     "Skipping replay metadata capture on error (skip_metadata_capture=true)"
+                );
+            }
+        }
+
+        // Record Prometheus metrics for inference requests
+        let duration_secs = start_time.elapsed().as_secs_f64();
+        let tenant_id = &request.cpid;
+        let model_id = request.model.as_deref().unwrap_or("unknown");
+
+        match &result {
+            Ok(res) => {
+                self.state.metrics_exporter.record_inference_request(
+                    tenant_id,
+                    model_id,
+                    "success",
+                    duration_secs,
+                    res.tokens_generated as u64,
+                );
+
+                // Record routing decision metrics from first decision
+                if let Some(decision) = res.router_decisions.first() {
+                    let gate_max = decision
+                        .candidates
+                        .iter()
+                        .map(|c| c.raw_score)
+                        .fold(0.0_f32, f32::max) as f64;
+
+                    self.state.metrics_exporter.record_routing_decision(
+                        tenant_id,
+                        decision.candidates.len(),
+                        decision.entropy,
+                        decision.selected_adapters.len(),
+                        gate_max,
+                    );
+                }
+
+                // Record receipt generation
+                if res.run_receipt.is_some() {
+                    self.state
+                        .metrics_exporter
+                        .record_receipt_generated(tenant_id, "inference");
+                }
+            }
+            Err(_) => {
+                self.state.metrics_exporter.record_inference_request(
+                    tenant_id,
+                    model_id,
+                    "error",
+                    duration_secs,
+                    0,
                 );
             }
         }
@@ -2600,7 +2650,7 @@ impl<'a> InferenceCore<'a> {
 
                     // Store evidence (best effort, Phase 1 of two-phase binding).
                     // NOTE: message_id is None because the message is created after inference.
-                    // PRD-003: After message creation, call db.bind_evidence_to_message()
+                    // After message creation, call db.bind_evidence_to_message()
                     // with the returned evidence_ids to complete the audit trail.
                     let evidence_ids = store_rag_evidence(
                         self.state,
