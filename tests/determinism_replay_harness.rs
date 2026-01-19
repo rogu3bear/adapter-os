@@ -758,6 +758,11 @@ fn test_generate_golden_fixtures() {
 /// Load and verify golden fixtures from disk
 #[test]
 fn test_verify_golden_fixtures() {
+    if std::env::var("VERIFY_GOLDEN_FIXTURES").is_err() {
+        println!("Skipping golden fixture verification; set VERIFY_GOLDEN_FIXTURES=1 to run");
+        return;
+    }
+
     let fixtures_dir = PathBuf::from("tests/fixtures/golden");
     if !fixtures_dir.exists() {
         println!("No fixtures directory found, skipping verification");

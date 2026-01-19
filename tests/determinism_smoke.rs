@@ -180,6 +180,7 @@ async fn init_in_memory_db() -> Result<Arc<Db>> {
             trace_id TEXT PRIMARY KEY,
             run_head_hash BLOB NOT NULL,
             output_digest BLOB NOT NULL,
+            input_digest_b3 BLOB,
             receipt_digest BLOB NOT NULL,
             logical_prompt_tokens INTEGER NOT NULL,
             prefix_cached_token_count INTEGER NOT NULL,
@@ -195,6 +196,13 @@ async fn init_in_memory_db() -> Result<Arc<Db>> {
             prefix_kv_key_b3 TEXT,
             prefix_cache_hit INTEGER NOT NULL DEFAULT 0,
             prefix_kv_bytes INTEGER NOT NULL DEFAULT 0,
+            equipment_profile_digest_b3 BLOB,
+            processor_id TEXT,
+            mlx_version TEXT,
+            ane_version TEXT,
+            crypto_receipt_digest_b3 BLOB,
+            receipt_parity_verified INTEGER,
+            tenant_id TEXT,
             created_at TEXT
         );
         "#,
