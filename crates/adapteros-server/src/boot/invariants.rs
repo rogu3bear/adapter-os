@@ -73,17 +73,85 @@ fn record_skipped() {
     BOOT_INVARIANTS_SKIPPED.fetch_add(1, Ordering::Relaxed);
 }
 
+/// Category of an invariant for grouping and reporting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InvariantCategory {
+    /// Authentication invariants (JWT, HMAC, session)
+    Authentication,
+    /// Authorization invariants (RBAC, roles)
+    Authorization,
+    /// Cryptographic invariants (keys, entropy)
+    Cryptographic,
+    /// Database invariants (migrations, triggers, indexes)
+    Database,
+    /// Federation invariants (quorum keys, peer certs)
+    Federation,
+    /// Adapter invariants (bundle signatures, manifest hashes)
+    Adapters,
+    /// Policy invariants (enforcement mode, default packs)
+    Policy,
+    /// Security invariants (dev bypass, cookie settings)
+    Security,
+    /// Configuration invariants (path validation, TTL hierarchy)
+    Configuration,
+    /// Memory invariants (headroom, allocation)
+    Memory,
+    /// Lifecycle invariants (boot ordering, executor init)
+    Lifecycle,
+    /// System invariants (lock poisoning, critical errors)
+    System,
+}
+
+impl InvariantCategory {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Authentication => "Authentication",
+            Self::Authorization => "Authorization",
+            Self::Cryptographic => "Cryptographic",
+            Self::Database => "Database",
+            Self::Federation => "Federation",
+            Self::Adapters => "Adapters",
+            Self::Policy => "Policy",
+            Self::Security => "Security",
+            Self::Configuration => "Configuration",
+            Self::Memory => "Memory",
+            Self::Lifecycle => "Lifecycle",
+            Self::System => "System",
+        }
+    }
+}
+
+/// Severity level of an invariant violation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Severity {
+    /// Abort boot immediately - system cannot run safely
+    Fatal,
+    /// Log error and continue with degraded mode
+    Error,
+    /// Log warning only - advisory
+    Warning,
+}
+
 /// Result of an invariant check.
 #[derive(Debug, Clone)]
 pub struct InvariantViolation {
-    /// Unique identifier for this invariant
+    /// Unique identifier for this invariant (e.g., "AUTH-001")
     pub id: &'static str,
+    /// Category for grouping and reporting
+    pub category: InvariantCategory,
     /// Human-readable description of what was violated
     pub message: String,
-    /// Whether this violation should block startup in production
-    pub is_fatal: bool,
+    /// Severity level determining boot behavior
+    pub severity: Severity,
     /// Suggested remediation
     pub remediation: &'static str,
+}
+
+impl InvariantViolation {
+    /// Returns true if this violation should block startup in production
+    pub fn is_fatal(&self) -> bool {
+        matches!(self.severity, Severity::Fatal)
+    }
 }
 
 /// Aggregated result of all invariant checks.
@@ -108,7 +176,7 @@ impl InvariantReport {
 
     pub fn record_violation(&mut self, violation: InvariantViolation) {
         record_check();
-        record_violation(violation.is_fatal);
+        record_violation(violation.is_fatal());
         self.checks_failed += 1;
         self.violations.push(violation);
     }
@@ -126,15 +194,54 @@ impl InvariantReport {
     }
 
     pub fn has_fatal_violations(&self) -> bool {
-        self.violations.iter().any(|v| v.is_fatal)
+        self.violations.iter().any(|v| v.is_fatal())
     }
 
     pub fn fatal_count(&self) -> usize {
-        self.violations.iter().filter(|v| v.is_fatal).count()
+        self.violations.iter().filter(|v| v.is_fatal()).count()
     }
 
     pub fn warning_count(&self) -> usize {
-        self.violations.iter().filter(|v| !v.is_fatal).count()
+        self.violations.iter().filter(|v| !v.is_fatal()).count()
+    }
+
+    /// Get violations by category
+    pub fn violations_by_category(&self, category: InvariantCategory) -> Vec<&InvariantViolation> {
+        self.violations
+            .iter()
+            .filter(|v| v.category == category)
+            .collect()
+    }
+
+    /// Get a summary of violations by category
+    pub fn category_summary(&self) -> Vec<(InvariantCategory, usize, usize)> {
+        use InvariantCategory::*;
+        let categories = [
+            Authentication,
+            Authorization,
+            Cryptographic,
+            Database,
+            Federation,
+            Adapters,
+            Policy,
+            Security,
+            Configuration,
+            Memory,
+            Lifecycle,
+            System,
+        ];
+        categories
+            .iter()
+            .filter_map(|&cat| {
+                let violations: Vec<_> = self.violations_by_category(cat);
+                if violations.is_empty() {
+                    None
+                } else {
+                    let fatal = violations.iter().filter(|v| v.is_fatal()).count();
+                    Some((cat, violations.len(), fatal))
+                }
+            })
+            .collect()
     }
 }
 
@@ -170,8 +277,9 @@ pub fn validate_boot_invariants(
         Err(e) => {
             report.record_violation(InvariantViolation {
                 id: "SYS-001",
+                category: InvariantCategory::System,
                 message: format!("Config lock poisoned: {}", e),
-                is_fatal: true,
+                severity: Severity::Fatal,
                 remediation: "Restart the server; config lock should not be poisoned at boot",
             });
             return report;
@@ -203,8 +311,9 @@ pub fn validate_boot_invariants(
         if production && dev_no_auth_requested {
             report.record_violation(InvariantViolation {
                 id: "SEC-001",
+                category: InvariantCategory::Security,
                 message: "AOS_DEV_NO_AUTH is set but production mode is enabled".to_string(),
-                is_fatal: true,
+                severity: Severity::Fatal,
                 remediation:
                     "Remove AOS_DEV_NO_AUTH environment variable or disable production_mode",
             });
@@ -227,8 +336,9 @@ pub fn validate_boot_invariants(
         if production && !dual_write_config.is_strict() {
             report.record_violation(InvariantViolation {
                 id: "SEC-002",
+                category: InvariantCategory::Database,
                 message: "Atomic dual-write strict mode is DISABLED in production".to_string(),
-                is_fatal: true,
+                severity: Severity::Fatal,
                 remediation: "Set AOS_ATOMIC_DUAL_WRITE_STRICT=1 or remove the variable",
             });
         } else {
@@ -247,9 +357,10 @@ pub fn validate_boot_invariants(
     } else if production && !executor_manifest_hash_present {
         report.record_violation(InvariantViolation {
             id: "SEC-003",
+            category: InvariantCategory::Cryptographic,
             message: "Deterministic executor initialized with default seed (no valid manifest)"
                 .to_string(),
-            is_fatal: true,
+            severity: Severity::Fatal,
             remediation: "Provide valid manifest via --manifest-path or AOS_MANIFEST_PATH",
         });
     } else {
@@ -293,8 +404,9 @@ pub fn validate_boot_invariants(
         if production && cookie_same_site == "none" && !cookie_secure {
             report.record_violation(InvariantViolation {
                 id: "SEC-005",
+                category: InvariantCategory::Security,
                 message: "SameSite=None requires Secure flag in production".to_string(),
-                is_fatal: true,
+                severity: Severity::Fatal,
                 remediation: "Set cookie_secure=true or change cookie_same_site to Strict/Lax",
             });
         } else if production && cookie_same_site == "lax" {
@@ -369,11 +481,12 @@ pub fn validate_boot_invariants(
             } else {
                 report.record_violation(InvariantViolation {
                     id: "CFG-001",
+                    category: InvariantCategory::Configuration,
                     message: format!(
                         "Default var/ paths still configured while AOS_VAR_DIR is set: {}",
                         offenders.join(", ")
                     ),
-                    is_fatal: true,
+                    severity: Severity::Fatal,
                     remediation: "Rebase paths under AOS_VAR_DIR or remove default var/ references",
                 });
             }
@@ -405,9 +518,10 @@ pub fn validate_boot_invariants(
         if production && sig_bypass_requested {
             report.record_violation(InvariantViolation {
                 id: "SEC-015",
+                category: InvariantCategory::Cryptographic,
                 message: "AOS_DEV_SIGNATURE_BYPASS is set but production mode is enabled"
                     .to_string(),
-                is_fatal: true,
+                severity: Severity::Fatal,
                 remediation:
                     "Remove AOS_DEV_SIGNATURE_BYPASS environment variable or disable production_mode",
             });
@@ -431,15 +545,17 @@ pub fn validate_boot_invariants(
             // Production config specifies EdDSA but runtime is using HS256
             report.record_violation(InvariantViolation {
                 id: "SEC-006",
+                category: InvariantCategory::Authentication,
                 message: "JWT mode is HS256 but auth.prod_algo specifies EdDSA".to_string(),
-                is_fatal: true,
+                severity: Severity::Fatal,
                 remediation: "Set security.jwt_mode = 'eddsa' or configure key_file_path",
             });
         } else if production && cfg.security.jwt_secret.len() < 32 {
             report.record_violation(InvariantViolation {
                 id: "SEC-006",
+                category: InvariantCategory::Authentication,
                 message: "JWT secret too short (minimum 32 bytes required)".to_string(),
-                is_fatal: true,
+                severity: Severity::Fatal,
                 remediation: "Generate a secure JWT secret: openssl rand -base64 32",
             });
         } else {
@@ -464,8 +580,9 @@ pub fn validate_boot_invariants(
         if production && dev_bypass_active {
             report.record_violation(InvariantViolation {
                 id: "SEC-007",
+                category: InvariantCategory::Authorization,
                 message: "Tenant isolation check disabled in production".to_string(),
-                is_fatal: true,
+                severity: Severity::Fatal,
                 remediation: "Remove AOS_DEV_DISABLE_TENANT_CHECK environment variable",
             });
         } else {
@@ -490,8 +607,9 @@ pub fn validate_boot_invariants(
         if production && rbac_bypass {
             report.record_violation(InvariantViolation {
                 id: "SEC-008",
+                category: InvariantCategory::Authorization,
                 message: "RBAC bypass is enabled in production".to_string(),
-                is_fatal: true,
+                severity: Severity::Fatal,
                 remediation: "Remove AOS_DEV_RBAC_BYPASS environment variable",
             });
         } else {
@@ -513,8 +631,9 @@ pub fn validate_boot_invariants(
         if production && lockout_threshold == 0 {
             report.record_violation(InvariantViolation {
                 id: "SEC-014",
+                category: InvariantCategory::Security,
                 message: "Brute force protection disabled (lockout_threshold = 0)".to_string(),
-                is_fatal: true,
+                severity: Severity::Fatal,
                 remediation: "Set auth.lockout_threshold to a positive value (recommended: 5)",
             });
         } else if production && lockout_threshold > 20 {
@@ -551,11 +670,12 @@ pub fn validate_boot_invariants(
         if access_ttl >= session_ttl {
             report.record_violation(InvariantViolation {
                 id: "CFG-002",
+                category: InvariantCategory::Configuration,
                 message: format!(
                     "Access token TTL ({} s) should be shorter than session TTL ({} s)",
                     access_ttl, session_ttl
                 ),
-                is_fatal: false, // Warning only - doesn't break functionality
+                severity: Severity::Warning, // Warning only - doesn't break functionality
                 remediation: "Set access_token_ttl_seconds < session_ttl_seconds",
             });
         } else {
@@ -743,7 +863,7 @@ fn uses_default_var_path(raw: &str) -> bool {
 pub fn enforce_invariants(report: &InvariantReport, production: bool) -> Result<(), AosError> {
     // Log all violations
     for violation in &report.violations {
-        if violation.is_fatal {
+        if violation.is_fatal() {
             error!(
                 invariant = violation.id,
                 fatal = true,
@@ -789,7 +909,7 @@ pub fn enforce_invariants(report: &InvariantReport, production: bool) -> Result<
         let fatal_ids: Vec<&str> = report
             .violations
             .iter()
-            .filter(|v| v.is_fatal)
+            .filter(|v| v.is_fatal())
             .map(|v| v.id)
             .collect();
 
@@ -825,8 +945,9 @@ pub async fn validate_post_db_invariants(
         Err(e) => {
             report.record_violation(InvariantViolation {
                 id: "SYS-002",
+                category: InvariantCategory::System,
                 message: format!("Config lock poisoned during post-DB validation: {}", e),
-                is_fatal: true,
+                severity: Severity::Fatal,
                 remediation: "Restart the server; config lock should not be poisoned",
             });
             return report;
@@ -847,8 +968,9 @@ pub async fn validate_post_db_invariants(
                 if fk_enabled != 1 {
                     report.record_violation(InvariantViolation {
                         id: "DAT-002",
+                        category: InvariantCategory::Database,
                         message: "Foreign key constraints are DISABLED".to_string(),
-                        is_fatal: production,
+                        severity: if production { Severity::Fatal } else { Severity::Warning },
                         remediation: "Ensure PRAGMA foreign_keys = ON is set at connection time",
                     });
                 } else {
@@ -882,8 +1004,9 @@ pub async fn validate_post_db_invariants(
                 if table_exists == 0 {
                     report.record_violation(InvariantViolation {
                         id: "DAT-006",
+                        category: InvariantCategory::Database,
                         message: "Migration table _sqlx_migrations does not exist".to_string(),
-                        is_fatal: production,
+                        severity: if production { Severity::Fatal } else { Severity::Warning },
                         remediation: "Run database migrations: ./aosctl db migrate",
                     });
                 } else {
@@ -898,8 +1021,9 @@ pub async fn validate_post_db_invariants(
                             if count == 0 {
                                 report.record_violation(InvariantViolation {
                                     id: "DAT-006",
+                                    category: InvariantCategory::Database,
                                     message: "No successful migrations recorded".to_string(),
-                                    is_fatal: production,
+                                    severity: if production { Severity::Fatal } else { Severity::Warning },
                                     remediation: "Run database migrations: ./aosctl db migrate",
                                 });
                             } else {
@@ -925,8 +1049,9 @@ pub async fn validate_post_db_invariants(
             Err(e) => {
                 report.record_violation(InvariantViolation {
                     id: "DAT-006",
+                    category: InvariantCategory::Database,
                     message: format!("Failed to check migration table: {}", e),
-                    is_fatal: production,
+                    severity: if production { Severity::Fatal } else { Severity::Warning },
                     remediation: "Ensure database is accessible and migrations have run",
                 });
             }
@@ -1033,8 +1158,9 @@ mod tests {
         report.record_pass();
         report.record_violation(InvariantViolation {
             id: "TEST-001",
+            category: InvariantCategory::System,
             message: "Test violation".to_string(),
-            is_fatal: true,
+            severity: Severity::Fatal,
             remediation: "Fix it",
         });
 
@@ -1049,12 +1175,77 @@ mod tests {
         let mut report = InvariantReport::new();
         report.record_violation(InvariantViolation {
             id: "TEST-002",
+            category: InvariantCategory::Security,
             message: "Warning only".to_string(),
-            is_fatal: false,
+            severity: Severity::Warning,
             remediation: "Consider fixing",
         });
 
         assert!(!report.has_fatal_violations());
         assert_eq!(report.warning_count(), 1);
+    }
+
+    #[test]
+    fn test_category_summary() {
+        let mut report = InvariantReport::new();
+        report.record_violation(InvariantViolation {
+            id: "AUTH-001",
+            category: InvariantCategory::Authentication,
+            message: "Auth error".to_string(),
+            severity: Severity::Fatal,
+            remediation: "Fix auth",
+        });
+        report.record_violation(InvariantViolation {
+            id: "AUTH-002",
+            category: InvariantCategory::Authentication,
+            message: "Another auth error".to_string(),
+            severity: Severity::Warning,
+            remediation: "Fix auth 2",
+        });
+        report.record_violation(InvariantViolation {
+            id: "DB-001",
+            category: InvariantCategory::Database,
+            message: "DB error".to_string(),
+            severity: Severity::Fatal,
+            remediation: "Fix DB",
+        });
+
+        let summary = report.category_summary();
+        assert_eq!(summary.len(), 2);
+        // Find auth category
+        let auth_summary = summary.iter().find(|(cat, _, _)| *cat == InvariantCategory::Authentication);
+        assert!(auth_summary.is_some());
+        let (_, count, fatal) = auth_summary.unwrap();
+        assert_eq!(*count, 2);
+        assert_eq!(*fatal, 1);
+    }
+
+    #[test]
+    fn test_severity_levels() {
+        let fatal = InvariantViolation {
+            id: "TEST-FATAL",
+            category: InvariantCategory::System,
+            message: "Fatal".to_string(),
+            severity: Severity::Fatal,
+            remediation: "",
+        };
+        let error = InvariantViolation {
+            id: "TEST-ERROR",
+            category: InvariantCategory::System,
+            message: "Error".to_string(),
+            severity: Severity::Error,
+            remediation: "",
+        };
+        let warning = InvariantViolation {
+            id: "TEST-WARNING",
+            category: InvariantCategory::System,
+            message: "Warning".to_string(),
+            severity: Severity::Warning,
+            remediation: "",
+        };
+
+        assert!(fatal.is_fatal());
+        assert!(!error.is_fatal());
+        assert!(!warning.is_fatal());
     }
 }
