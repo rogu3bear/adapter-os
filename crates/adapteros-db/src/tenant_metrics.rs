@@ -316,8 +316,6 @@ pub struct TenantGpuTracker {
     current_tenant: std::sync::RwLock<Option<String>>,
     /// GPU time in microseconds per tenant
     usage: DashMap<String, AtomicU64>,
-    /// Window start time
-    window_start: Instant,
     /// Window duration
     window_duration: Duration,
 }
@@ -334,7 +332,6 @@ impl TenantGpuTracker {
         Self {
             current_tenant: std::sync::RwLock::new(None),
             usage: DashMap::new(),
-            window_start: Instant::now(),
             window_duration,
         }
     }
