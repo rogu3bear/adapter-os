@@ -53,6 +53,36 @@ pub struct MetricsExporter {
     workers_active: Gauge,
     // Note: Per-worker metrics (_workers_memory_headroom_pct, _workers_adapters_loaded)
     // were removed as they were never populated. Add back when worker-level telemetry is implemented.
+
+    // ==========================================================================
+    // PRD-005: Prometheus Metrics Endpoint - Inference/Routing/Receipt metrics
+    // ==========================================================================
+
+    // Inference metrics (PRD-005 Section 3.3)
+    inference_requests_total: CounterVec,
+    inference_duration_seconds: HistogramVec,
+    inference_tokens_generated_total: CounterVec,
+    inference_tokens_per_second: GaugeVec,
+    inference_queue_depth: GaugeVec,
+
+    // Routing metrics (PRD-005 Section 3.3)
+    routing_decisions_total: CounterVec,
+    routing_entropy: HistogramVec,
+    routing_k_value: HistogramVec,
+    routing_gate_max: HistogramVec,
+
+    // Resource metrics (PRD-005 Section 3.3)
+    memory_bytes: GaugeVec,
+    gpu_utilization_ratio: Gauge,
+    adapter_cache_entries: Gauge,
+    adapter_cache_bytes: Gauge,
+    kv_cache_entries: GaugeVec,
+
+    // Receipt metrics (PRD-005 Section 3.3)
+    receipts_generated_total: CounterVec,
+    receipt_verification_total: CounterVec,
+    receipt_signature_seconds: Histogram,
+
     // Model load/unload metrics
     model_load_success_total: CounterVec,
     model_load_failure_total: CounterVec,
@@ -172,6 +202,126 @@ impl MetricsExporter {
 
         // Note: Per-worker metrics (workers_memory_headroom_pct, workers_adapters_loaded)
         // were removed as they were never populated. Add back when worker-level telemetry is implemented.
+
+        // ==========================================================================
+        // PRD-005: Prometheus Metrics Endpoint - Inference/Routing/Receipt metrics
+        // ==========================================================================
+
+        // Inference metrics
+        let inference_requests_total = CounterVec::new(
+            Opts::new("aos_inference_requests_total", "Total inference requests"),
+            &["tenant", "status", "model"],
+        )?;
+        registry.register(Box::new(inference_requests_total.clone()))?;
+
+        let inference_duration_seconds = HistogramVec::new(
+            HistogramOpts::new(
+                "aos_inference_duration_seconds",
+                "Inference request duration in seconds",
+            )
+            .buckets(vec![0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]),
+            &["tenant", "model"],
+        )?;
+        registry.register(Box::new(inference_duration_seconds.clone()))?;
+
+        let inference_tokens_generated_total = CounterVec::new(
+            Opts::new(
+                "aos_inference_tokens_generated_total",
+                "Total tokens generated",
+            ),
+            &["tenant", "model"],
+        )?;
+        registry.register(Box::new(inference_tokens_generated_total.clone()))?;
+
+        let inference_tokens_per_second = GaugeVec::new(
+            Opts::new("aos_inference_tokens_per_second", "Current throughput"),
+            &["tenant", "model"],
+        )?;
+        registry.register(Box::new(inference_tokens_per_second.clone()))?;
+
+        let inference_queue_depth = GaugeVec::new(
+            Opts::new("aos_inference_queue_depth", "Pending requests"),
+            &["tenant"],
+        )?;
+        registry.register(Box::new(inference_queue_depth.clone()))?;
+
+        // Routing metrics
+        let routing_decisions_total = CounterVec::new(
+            Opts::new("aos_routing_decisions_total", "Routing decisions made"),
+            &["tenant", "adapter_count"],
+        )?;
+        registry.register(Box::new(routing_decisions_total.clone()))?;
+
+        let routing_entropy = HistogramVec::new(
+            HistogramOpts::new("aos_routing_entropy", "Routing decision entropy")
+                .buckets(vec![0.0, 0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0]),
+            &["tenant"],
+        )?;
+        registry.register(Box::new(routing_entropy.clone()))?;
+
+        let routing_k_value = HistogramVec::new(
+            HistogramOpts::new("aos_routing_k_value", "K-sparse value used")
+                .buckets(vec![1.0, 2.0, 3.0, 4.0, 5.0, 8.0, 10.0, 16.0]),
+            &["tenant"],
+        )?;
+        registry.register(Box::new(routing_k_value.clone()))?;
+
+        let routing_gate_max = HistogramVec::new(
+            HistogramOpts::new("aos_routing_gate_max", "Maximum gate value")
+                .buckets(vec![0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99, 1.0]),
+            &["tenant"],
+        )?;
+        registry.register(Box::new(routing_gate_max.clone()))?;
+
+        // Resource metrics
+        let memory_bytes = GaugeVec::new(
+            Opts::new("aos_memory_bytes", "Memory usage"),
+            &["type"],
+        )?;
+        registry.register(Box::new(memory_bytes.clone()))?;
+
+        let gpu_utilization_ratio = Gauge::new(
+            "aos_gpu_utilization_ratio",
+            "GPU utilization 0-1",
+        )?;
+        registry.register(Box::new(gpu_utilization_ratio.clone()))?;
+
+        let adapter_cache_entries = Gauge::new(
+            "aos_adapter_cache_entries",
+            "Cached adapter count",
+        )?;
+        registry.register(Box::new(adapter_cache_entries.clone()))?;
+
+        let adapter_cache_bytes = Gauge::new(
+            "aos_adapter_cache_bytes",
+            "Cache memory usage",
+        )?;
+        registry.register(Box::new(adapter_cache_bytes.clone()))?;
+
+        let kv_cache_entries = GaugeVec::new(
+            Opts::new("aos_kv_cache_entries", "KV cache entries"),
+            &["tenant"],
+        )?;
+        registry.register(Box::new(kv_cache_entries.clone()))?;
+
+        // Receipt metrics
+        let receipts_generated_total = CounterVec::new(
+            Opts::new("aos_receipts_generated_total", "Receipts created"),
+            &["tenant", "type"],
+        )?;
+        registry.register(Box::new(receipts_generated_total.clone()))?;
+
+        let receipt_verification_total = CounterVec::new(
+            Opts::new("aos_receipt_verification_total", "Verification outcomes"),
+            &["result"],
+        )?;
+        registry.register(Box::new(receipt_verification_total.clone()))?;
+
+        let receipt_signature_seconds = Histogram::with_opts(
+            HistogramOpts::new("aos_receipt_signature_seconds", "Signing duration")
+                .buckets(vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1]),
+        )?;
+        registry.register(Box::new(receipt_signature_seconds.clone()))?;
 
         // Base model load/unload metrics
         let model_load_success_total = CounterVec::new(
