@@ -1067,6 +1067,8 @@ struct LoadingStreamState {
     stop_reason_token_index: Option<u32>,
     /// BLAKE3 digest of the StopPolicySpec used (hex encoded)
     stop_policy_digest_b3: Option<String>,
+    /// PRD-003: Pending RAG evidence IDs for message binding
+    pending_evidence_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1107,6 +1109,7 @@ impl LoadingStreamState {
             stop_reason_code: None,
             stop_reason_token_index: None,
             stop_policy_digest_b3: None,
+            pending_evidence_ids: Vec::new(), // PRD-003: Initialized empty, populated during RAG retrieval
             token_rx: None,
             done_rx: None,
         }
@@ -1299,6 +1302,7 @@ impl LoadingStreamState {
                             stop_reason_code: self.stop_reason_code,
                             stop_reason_token_index: self.stop_reason_token_index,
                             stop_policy_digest_b3: self.stop_policy_digest_b3.clone(),
+                            pending_evidence_ids: self.pending_evidence_ids.clone(),
                         })
                     }
                     Some(Err(err)) => Some(InferenceEvent::Error {
@@ -2283,6 +2287,7 @@ mod tests {
             stop_reason_code: None,
             stop_reason_token_index: None,
             stop_policy_digest_b3: None,
+            pending_evidence_ids: Vec::new(),
         };
 
         let json = serde_json::to_string(&event).unwrap();
@@ -2302,6 +2307,7 @@ mod tests {
             stop_reason_code: None,
             stop_reason_token_index: None,
             stop_policy_digest_b3: None,
+            pending_evidence_ids: Vec::new(),
         };
 
         let json = serde_json::to_string(&event).unwrap();
