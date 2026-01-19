@@ -1326,4 +1326,89 @@ mod tests {
         assert!(output_str.contains("adapteros_db_index_maintenance_total"));
         assert!(output_str.contains("adapteros_db_index_health_status"));
     }
+
+    // ==========================================================================
+    // PRD-005: Prometheus Metrics Endpoint - Tests
+    // ==========================================================================
+
+    #[test]
+    fn test_prd005_inference_metrics() {
+        let exporter = MetricsExporter::new(vec![0.001, 0.01, 0.1, 1.0])
+            .expect("Test metrics exporter creation should succeed");
+
+        exporter.record_inference_request("tenant-1", "qwen-7b", "success", 0.5, 100);
+        exporter.set_inference_throughput("tenant-1", "qwen-7b", 200.0);
+        exporter.set_inference_queue_depth("tenant-1", 5.0);
+
+        let output = exporter
+            .render()
+            .expect("Test metrics render should succeed");
+        let output_str = String::from_utf8(output).expect("Test UTF-8 conversion should succeed");
+
+        assert!(output_str.contains("aos_inference_requests_total"));
+        assert!(output_str.contains("aos_inference_duration_seconds"));
+        assert!(output_str.contains("aos_inference_tokens_generated_total"));
+        assert!(output_str.contains("aos_inference_tokens_per_second"));
+        assert!(output_str.contains("aos_inference_queue_depth"));
+    }
+
+    #[test]
+    fn test_prd005_routing_metrics() {
+        let exporter = MetricsExporter::new(vec![0.001, 0.01, 0.1, 1.0])
+            .expect("Test metrics exporter creation should succeed");
+
+        exporter.record_routing_decision("tenant-1", 3, 0.8, 2, 0.95);
+
+        let output = exporter
+            .render()
+            .expect("Test metrics render should succeed");
+        let output_str = String::from_utf8(output).expect("Test UTF-8 conversion should succeed");
+
+        assert!(output_str.contains("aos_routing_decisions_total"));
+        assert!(output_str.contains("aos_routing_entropy"));
+        assert!(output_str.contains("aos_routing_k_value"));
+        assert!(output_str.contains("aos_routing_gate_max"));
+    }
+
+    #[test]
+    fn test_prd005_resource_metrics() {
+        let exporter = MetricsExporter::new(vec![0.001, 0.01, 0.1, 1.0])
+            .expect("Test metrics exporter creation should succeed");
+
+        exporter.set_memory_bytes("heap", 1024.0 * 1024.0 * 512.0);
+        exporter.set_gpu_utilization(0.75);
+        exporter.set_adapter_cache_metrics(10.0, 1024.0 * 1024.0 * 100.0);
+        exporter.set_kv_cache_entries("tenant-1", 1000.0);
+
+        let output = exporter
+            .render()
+            .expect("Test metrics render should succeed");
+        let output_str = String::from_utf8(output).expect("Test UTF-8 conversion should succeed");
+
+        assert!(output_str.contains("aos_memory_bytes"));
+        assert!(output_str.contains("aos_gpu_utilization_ratio"));
+        assert!(output_str.contains("aos_adapter_cache_entries"));
+        assert!(output_str.contains("aos_adapter_cache_bytes"));
+        assert!(output_str.contains("aos_kv_cache_entries"));
+    }
+
+    #[test]
+    fn test_prd005_receipt_metrics() {
+        let exporter = MetricsExporter::new(vec![0.001, 0.01, 0.1, 1.0])
+            .expect("Test metrics exporter creation should succeed");
+
+        exporter.record_receipt_generated("tenant-1", "inference");
+        exporter.record_receipt_verification(true);
+        exporter.record_receipt_verification(false);
+        exporter.record_receipt_signature_duration(0.015);
+
+        let output = exporter
+            .render()
+            .expect("Test metrics render should succeed");
+        let output_str = String::from_utf8(output).expect("Test UTF-8 conversion should succeed");
+
+        assert!(output_str.contains("aos_receipts_generated_total"));
+        assert!(output_str.contains("aos_receipt_verification_total"));
+        assert!(output_str.contains("aos_receipt_signature_seconds"));
+    }
 }
