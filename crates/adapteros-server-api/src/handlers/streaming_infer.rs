@@ -2333,6 +2333,7 @@ mod tests {
             cancellation,
             Duration::from_secs(5),
             Duration::from_millis(10),
+            Vec::new(), // PRD-003: No pending evidence IDs in test
         );
 
         assert!(matches!(
@@ -2388,6 +2389,7 @@ mod tests {
             cancellation,
             Duration::from_secs(2),
             Duration::from_millis(25),
+            Vec::new(), // PRD-003: No pending evidence IDs in test
         );
 
         let producer = tokio::spawn(async move {
@@ -2459,6 +2461,7 @@ mod tests {
             cancellation,
             Duration::from_secs(5),
             Duration::from_secs(0),
+            Vec::new(), // PRD-003: No pending evidence IDs in test
         );
 
         let event = stream.format_event(StreamEvent::Error {
@@ -2513,6 +2516,7 @@ mod tests {
             cancellation,
             Duration::from_secs(5),
             Duration::from_secs(0),
+            Vec::new(), // PRD-003: No pending evidence IDs in test
         );
 
         assert!(matches!(
