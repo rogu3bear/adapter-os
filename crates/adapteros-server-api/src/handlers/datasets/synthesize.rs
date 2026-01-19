@@ -403,7 +403,10 @@ async fn resolve_synthesis_model_path(
     }
 
     // Check config paths
-    let config = state.config.read().unwrap();
+    let config = state.config.read().map_err(|e| {
+        tracing::error!(error = %e, "Failed to read synthesis config");
+        internal_error("Failed to load synthesis config")
+    })?;
 
     // Use configured synthesis_model_path if set
     if let Some(ref config_path) = config.paths.synthesis_model_path {
@@ -458,7 +461,10 @@ async fn persist_synthesis_results(
     let dataset_id = uuid::Uuid::new_v4().to_string();
 
     // Resolve storage path
-    let config = state.config.read().unwrap();
+    let config = state.config.read().map_err(|e| {
+        tracing::error!(error = %e, "Failed to read dataset config");
+        AosError::Internal(format!("Failed to read dataset config: {e}"))
+    })?;
     let datasets_root = PathBuf::from(&config.paths.datasets_root);
     drop(config); // Release lock before async operations
     let dataset_dir = datasets_root.join(tenant_id).join(&dataset_id);

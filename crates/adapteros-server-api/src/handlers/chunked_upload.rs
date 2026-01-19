@@ -277,7 +277,13 @@ impl UploadSessionManager {
             );
             "default"
         } else {
-            workspace_id.as_deref().unwrap()
+            workspace_id.as_deref().ok_or_else(|| {
+                warn!(
+                    session_id = %session_id,
+                    "Chunked upload missing workspace_id despite non-default scope"
+                );
+                anyhow!("workspace_id is required for chunked uploads")
+            })?
         };
 
         let temp_dir = temp_base_dir.join(workspace_scope).join(&session_id);
