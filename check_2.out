@@ -1,0 +1,113 @@
+warning: adapteros-lora-kernel-mtl@0.13.1: Kernel hash: 165822cedec712da19cfcddeb028f7e49d15c5c4f7587e550c180ee704f92ffa
+warning: adapteros-lora-kernel-mtl@0.13.1: Kernel aos_kernels.metal not found, skipping
+    Checking adapteros-boot v0.13.1 (/Users/star/Dev/adapter-os/crates/adapteros-boot)
+warning: adapteros-lora-mlx-ffi@0.13.1: Found MLX at: /opt/homebrew (0.30.3)
+warning: adapteros-lora-mlx-ffi@0.13.1: =========================================================
+warning: adapteros-lora-mlx-ffi@0.13.1: MLX BACKEND: Real C++ FFI (feature 'mlx' enabled)
+warning: adapteros-lora-mlx-ffi@0.13.1: MLX version: 0.30.3
+warning: adapteros-lora-mlx-ffi@0.13.1: Include path: /opt/homebrew/include
+warning: adapteros-lora-mlx-ffi@0.13.1: Library path: /opt/homebrew/lib
+warning: adapteros-lora-mlx-ffi@0.13.1: Compatibility probe: PASSED
+warning: adapteros-lora-mlx-ffi@0.13.1: =========================================================
+    Checking adapteros-lora-mlx-ffi v0.13.1 (/Users/star/Dev/adapter-os/crates/adapteros-lora-mlx-ffi)
+warning: adapteros-lora-kernel-coreml@0.13.1: CoreML bridge compiled successfully
+warning: adapteros-lora-kernel-coreml@0.13.1: Swift CoreML bridge compiled successfully
+    Checking adapteros-tui v0.2.0 (/Users/star/Dev/adapter-os/crates/adapteros-tui)
+    Checking adapteros-benchmarks v0.13.1 (/Users/star/Dev/adapter-os/tests/benchmark)
+warning: unused import: `KmsProvider`
+  --> crates/adapteros-crypto/tests/kms_security.rs:12:84
+   |
+12 | use adapteros_crypto::providers::kms::{KmsProviderType, KmsConfig, KmsCredentials, KmsProvider, KmsManager};
+   |                                                                                    ^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `adapteros-crypto` (test "kms_security") generated 1 warning
+warning: variant `Network` is never constructed
+   --> crates/adapteros-core/src/error_macros.rs:389:9
+    |
+387 |     enum LocalError {
+    |          ---------- variant in this enum
+388 |         Parse(String),
+389 |         Network(String),
+    |         ^^^^^^^
+    |
+    = note: `LocalError` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `adapteros-core` (lib test) generated 1 warning
+    Checking adapteros-secd v0.13.1 (/Users/star/Dev/adapter-os/crates/adapteros-secd)
+    Checking adapteros-federation v0.13.1 (/Users/star/Dev/adapter-os/crates/adapteros-federation)
+    Checking adapteros-lora-worker v0.13.1 (/Users/star/Dev/adapter-os/crates/adapteros-lora-worker)
+    Checking adapteros-verify v0.13.1 (/Users/star/Dev/adapter-os/crates/adapteros-verify)
+    Checking adapteros-replay v0.13.1 (/Users/star/Dev/adapter-os/crates/adapteros-replay)
+    Checking adapteros-orchestrator v0.13.1 (/Users/star/Dev/adapter-os/crates/adapteros-orchestrator)
+    Checking adapteros-api v0.13.1 (/Users/star/Dev/adapter-os/crates/adapteros-api)
+    Checking adapteros-node v0.13.1 (/Users/star/Dev/adapter-os/crates/adapteros-node)
+    Checking xtask v0.13.1 (/Users/star/Dev/adapter-os/xtask)
+    Checking adapteros-server-api v0.4.0 (/Users/star/Dev/adapter-os/crates/adapteros-server-api)
+    Checking adapteros-cli v0.13.1 (/Users/star/Dev/adapter-os/crates/adapteros-cli)
+error[E0308]: mismatched types
+   --> crates/adapteros-server-api/src/api_error.rs:552:22
+    |
+552 |             details: details.and_then(|v| v.as_str().map(|s| s.to_string())),
+    |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `Option<Value>`, found `Option<String>`
+    |
+    = note: expected enum `std::option::Option<JsonValue>`
+               found enum `std::option::Option<std::string::String>`
+
+error[E0277]: the trait bound `std::string::String: From<JsonValue>` is not satisfied
+   --> crates/adapteros-server-api/src/api_error.rs:567:53
+    |
+567 |             response = response.with_string_details(details);
+    |                                 ------------------- ^^^^^^^ the trait `From<JsonValue>` is not implemented for `std::string::String`
+    |                                 |
+    |                                 required by a bound introduced by this call
+    |
+    = help: the following other types implement trait `From<T>`:
+              `std::string::String` implements `From<&cookie_store::cookie_domain::CookieDomain>`
+              `std::string::String` implements `From<&cookie_store::cookie_path::CookiePath>`
+              `std::string::String` implements `From<&mut str>`
+              `std::string::String` implements `From<&std::string::String>`
+              `std::string::String` implements `From<&str>`
+              `std::string::String` implements `From<Box<str>>`
+              `std::string::String` implements `From<Cow<'_, str>>`
+              `std::string::String` implements `From<PgCiText>`
+            and 19 others
+    = note: required for `JsonValue` to implement `Into<std::string::String>`
+note: required by a bound in `adapteros_api_types::ErrorResponse::with_string_details`
+   --> /Users/star/Dev/adapter-os/crates/adapteros-api-types/src/lib.rs:154:56
+    |
+154 |     pub fn with_string_details(mut self, details: impl Into<String>) -> Self {
+    |                                                        ^^^^^^^^^^^^ required by this bound in `ErrorResponse::with_string_details`
+
+error[E0277]: the trait bound `std::string::String: From<JsonValue>` is not satisfied
+   --> crates/adapteros-server-api/src/api_error.rs:567:53
+    |
+567 |             response = response.with_string_details(details);
+    |                                 ------------------- ^^^^^^^ the trait `From<JsonValue>` is not implemented for `std::string::String`
+    |                                 |
+    |                                 required by a bound introduced by this call
+    |
+    = help: the following other types implement trait `From<T>`:
+              `std::string::String` implements `From<&cookie_store::cookie_domain::CookieDomain>`
+              `std::string::String` implements `From<&cookie_store::cookie_path::CookiePath>`
+              `std::string::String` implements `From<&mut str>`
+              `std::string::String` implements `From<&std::string::String>`
+              `std::string::String` implements `From<&str>`
+              `std::string::String` implements `From<Box<str>>`
+              `std::string::String` implements `From<PgCiText>`
+              `std::string::String` implements `From<StringValue>`
+            and 19 others
+    = note: required for `JsonValue` to implement `Into<std::string::String>`
+note: required by a bound in `adapteros_api_types::ErrorResponse::with_string_details`
+   --> /Users/star/Dev/adapter-os/crates/adapteros-api-types/src/lib.rs:154:56
+    |
+154 |     pub fn with_string_details(mut self, details: impl Into<String>) -> Self {
+    |                                                        ^^^^^^^^^^^^ required by this bound in `ErrorResponse::with_string_details`
+
+Some errors have detailed explanations: E0277, E0308.
+For more information about an error, try `rustc --explain E0277`.
+error: could not compile `adapteros-server-api` (lib) due to 2 previous errors
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `adapteros-server-api` (lib test) due to 2 previous errors

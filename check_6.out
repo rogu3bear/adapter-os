@@ -1,0 +1,123 @@
+warning: adapteros-lora-kernel-mtl@0.13.1: Kernel hash: 165822cedec712da19cfcddeb028f7e49d15c5c4f7587e550c180ee704f92ffa
+warning: adapteros-lora-kernel-mtl@0.13.1: Kernel aos_kernels.metal not found, skipping
+    Checking adapteros-boot v0.13.1 (/Users/star/Dev/adapter-os/crates/adapteros-boot)
+warning: adapteros-lora-mlx-ffi@0.13.1: Found MLX at: /opt/homebrew (0.30.3)
+warning: adapteros-lora-mlx-ffi@0.13.1: =========================================================
+warning: adapteros-lora-mlx-ffi@0.13.1: MLX BACKEND: Real C++ FFI (feature 'mlx' enabled)
+warning: adapteros-lora-mlx-ffi@0.13.1: MLX version: 0.30.3
+warning: adapteros-lora-mlx-ffi@0.13.1: Include path: /opt/homebrew/include
+warning: adapteros-lora-mlx-ffi@0.13.1: Library path: /opt/homebrew/lib
+warning: adapteros-lora-mlx-ffi@0.13.1: Compatibility probe: PASSED
+warning: adapteros-lora-mlx-ffi@0.13.1: =========================================================
+warning: adapteros-lora-kernel-coreml@0.13.1: CoreML bridge compiled successfully
+warning: adapteros-lora-kernel-coreml@0.13.1: Swift CoreML bridge compiled successfully
+    Checking adapteros-tui v0.2.0 (/Users/star/Dev/adapter-os/crates/adapteros-tui)
+    Checking adapteros-benchmarks v0.13.1 (/Users/star/Dev/adapter-os/tests/benchmark)
+warning: variant `Network` is never constructed
+   --> crates/adapteros-core/src/error_macros.rs:389:9
+    |
+387 |     enum LocalError {
+    |          ---------- variant in this enum
+388 |         Parse(String),
+389 |         Network(String),
+    |         ^^^^^^^
+    |
+    = note: `LocalError` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `adapteros-core` (lib test) generated 1 warning
+warning: unused import: `KmsProvider`
+  --> crates/adapteros-crypto/tests/kms_security.rs:12:84
+   |
+12 | use adapteros_crypto::providers::kms::{KmsProviderType, KmsConfig, KmsCredentials, KmsProvider, KmsManager};
+   |                                                                                    ^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `adapteros-crypto` (test "kms_security") generated 1 warning
+    Checking adapteros-lora-worker v0.13.1 (/Users/star/Dev/adapter-os/crates/adapteros-lora-worker)
+    Checking adapteros-secd v0.13.1 (/Users/star/Dev/adapter-os/crates/adapteros-secd)
+    Checking adapteros-federation v0.13.1 (/Users/star/Dev/adapter-os/crates/adapteros-federation)
+    Checking adapteros-verify v0.13.1 (/Users/star/Dev/adapter-os/crates/adapteros-verify)
+    Checking adapteros-replay v0.13.1 (/Users/star/Dev/adapter-os/crates/adapteros-replay)
+    Checking adapteros-orchestrator v0.13.1 (/Users/star/Dev/adapter-os/crates/adapteros-orchestrator)
+    Checking adapteros-api v0.13.1 (/Users/star/Dev/adapter-os/crates/adapteros-api)
+    Checking adapteros-node v0.13.1 (/Users/star/Dev/adapter-os/crates/adapteros-node)
+    Checking xtask v0.13.1 (/Users/star/Dev/adapter-os/xtask)
+    Checking adapteros-server-api v0.4.0 (/Users/star/Dev/adapter-os/crates/adapteros-server-api)
+    Checking adapteros-cli v0.13.1 (/Users/star/Dev/adapter-os/crates/adapteros-cli)
+    Checking adapteros-server v0.13.1 (/Users/star/Dev/adapter-os/crates/adapteros-server)
+    Checking adapteros-e2e v0.2.0 (/Users/star/Dev/adapter-os/crates/adapteros-e2e)
+warning: unused import: `adapteros_server_api::types::ErrorResponse`
+ --> crates/adapteros-server-api/tests/chat_session_validation_tests.rs:7:5
+  |
+7 | use adapteros_server_api::types::ErrorResponse;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `-W unused-imports` implied by `-W unused`
+  = help: to override `-W unused` add `#[allow(unused_imports)]`
+
+warning: `adapteros-server-api` (test "chat_session_validation_tests") generated 1 warning (run `cargo fix --test "chat_session_validation_tests" -p adapteros-server-api` to apply 1 suggestion)
+    Checking adapter-os v0.13.1 (/Users/star/Dev/adapter-os)
+error[E0609]: no field `error` on type `adapteros_api_types::ErrorResponse`
+  --> tests/error_handling_integration_tests.rs:36:30
+   |
+36 |         assert!(api_response.error.contains("connection failed"));
+   |                              ^^^^^ unknown field
+   |
+   = note: available fields are: `schema_version`, `message`, `code`, `failure_code`, `hint` ... and 2 others
+
+error[E0609]: no field `error` on type `adapteros_api_types::ErrorResponse`
+   --> tests/error_handling_integration_tests.rs:282:27
+    |
+282 |         assert_eq!(parsed.error, original.error);
+    |                           ^^^^^ unknown field
+    |
+    = note: available fields are: `schema_version`, `message`, `code`, `failure_code`, `hint` ... and 2 others
+
+error[E0609]: no field `error` on type `adapteros_api_types::ErrorResponse`
+   --> tests/error_handling_integration_tests.rs:282:43
+    |
+282 |         assert_eq!(parsed.error, original.error);
+    |                                           ^^^^^ unknown field
+    |
+    = note: available fields are: `schema_version`, `message`, `code`, `failure_code`, `hint` ... and 2 others
+
+warning: unused imports: `AdapterBundle` and `VerifiedAdapter`
+  --> tests/sealed_adapter_receipt_binding.rs:15:5
+   |
+15 |     AdapterBundle, AdapterMetadata, LoadResult, RejectionReason, SealedAdapterLoader,
+   |     ^^^^^^^^^^^^^
+16 |     SealedContainerHeader, VerifiedAdapter, SEALED_CONTAINER_VERSION, SEALED_HEADER_SIZE,
+   |                            ^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `adapter-os` (test "sealed_adapter_receipt_binding") generated 1 warning (run `cargo fix --test "sealed_adapter_receipt_binding" -p adapter-os` to apply 1 suggestion)
+error[E0609]: no field `error` on type `adapteros_api_types::ErrorResponse`
+   --> tests/error_handling_integration_tests.rs:652:26
+    |
+652 |         assert!(response.error.contains("test database error"));
+    |                          ^^^^^ unknown field
+    |
+    = note: available fields are: `schema_version`, `message`, `code`, `failure_code`, `hint` ... and 2 others
+
+error[E0609]: no field `error` on type `adapteros_api_types::ErrorResponse`
+   --> tests/error_handling_integration_tests.rs:666:26
+    |
+666 |         assert!(response.error.contains("30000ms"));
+    |                          ^^^^^ unknown field
+    |
+    = note: available fields are: `schema_version`, `message`, `code`, `failure_code`, `hint` ... and 2 others
+
+error[E0609]: no field `error` on type `adapteros_api_types::ErrorResponse`
+   --> tests/error_handling_integration_tests.rs:667:26
+    |
+667 |         assert!(response.error.contains("large_table"));
+    |                          ^^^^^ unknown field
+    |
+    = note: available fields are: `schema_version`, `message`, `code`, `failure_code`, `hint` ... and 2 others
+
+For more information about this error, try `rustc --explain E0609`.
+error: could not compile `adapter-os` (test "error_handling_integration_tests") due to 6 previous errors
+warning: build failed, waiting for other jobs to finish...

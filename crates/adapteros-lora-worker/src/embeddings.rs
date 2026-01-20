@@ -313,6 +313,11 @@ impl EmbeddingModel {
     pub fn encode_tokens(&self, token_ids: &[u32]) -> Result<Vec<f32>> {
         match &self.model_type {
             EmbeddingType::TokenAverage { embedding_matrix } => {
+                // Guard: empty tokens would cause division by zero
+                if token_ids.is_empty() {
+                    return Ok(vec![0.0f32; self.dimension]);
+                }
+
                 // Average token embeddings
                 let mut result = vec![0.0f32; self.dimension];
 

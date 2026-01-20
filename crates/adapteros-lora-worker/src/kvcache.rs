@@ -375,17 +375,23 @@ impl KvCache {
     ///
     /// Note: Consider using `allocate_with_guard()` for automatic coherence tracking.
     pub fn allocate(&mut self, seq_len: usize) -> Result<SequenceId> {
+        // Cap sequence length to prevent overflow (max 1M tokens)
+        let seq_len = seq_len.min(1 << 20);
+
         // Round sequence length to slab sizes to improve reuse
-        let rounded_len = if seq_len <= 128 {
+        let rounded_len: u64 = if seq_len <= 128 {
             128
         } else if seq_len <= 256 {
             256
         } else if seq_len <= 512 {
             512
         } else {
-            seq_len
-        } as u64;
-        let required_bytes = rounded_len * self.bytes_per_token;
+            seq_len as u64
+        };
+
+        let required_bytes = rounded_len
+            .checked_mul(self.bytes_per_token)
+            .ok_or_else(|| AosError::Validation("Sequence length overflow".into()))?;
 
         // Reserve quota if quota manager is present
         let reservation = if let Some(ref quota_manager) = self.quota_manager {

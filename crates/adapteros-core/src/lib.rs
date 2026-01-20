@@ -42,9 +42,9 @@ pub mod defaults;
 pub mod deployment_verification;
 pub mod determinism;
 pub mod determinism_mode;
-pub mod error_macros;
 pub mod error;
 pub mod error_helpers;
+pub mod error_macros;
 pub mod errors;
 pub mod evidence_envelope;
 pub mod evidence_verifier;
@@ -88,6 +88,7 @@ pub mod timeout;
 pub mod tokenizer_config;
 pub mod training;
 pub mod validation;
+pub mod vector_math;
 pub mod version;
 pub mod worker_status;
 
@@ -124,7 +125,7 @@ pub use context_manifest::{
     ContextAdapterEntry, ContextAdapterEntryV1, ContextManifest, ContextManifestV1,
 };
 pub use crypto_receipt::{
-    compute_adapter_config_hash, CancellationReceipt, CancellationReceiptBuilder, CancelSource,
+    compute_adapter_config_hash, CancelSource, CancellationReceipt, CancellationReceiptBuilder,
     EquipmentProfile, ReceiptGenerator, RoutingRecord, CANCELLATION_RECEIPT_SCHEMA_VERSION,
     CRYPTO_RECEIPT_SCHEMA_VERSION,
 };
@@ -139,6 +140,7 @@ pub use determinism::{
 pub use determinism_mode::DeterminismMode;
 pub use error::{AosError, Result, ResultExt};
 // Re-export categorical error types for structured error handling
+pub use crypto_receipt::compute_input_digest as compute_input_digest_v2;
 pub use errors::{
     AosAdapterError, AosAuthError, AosCryptoError, AosInternalError, AosModelError,
     AosNetworkError, AosOperationsError, AosPolicyError, AosResourceError, AosStorageError,
@@ -191,7 +193,6 @@ pub use preflight::{
     PreflightErrorCode, PreflightResult, SimpleAdapterData,
 };
 pub use receipt_digest::{compute_output_digest, hash_token_decision, update_run_head};
-pub use crypto_receipt::compute_input_digest as compute_input_digest_v2;
 pub use seed::{
     clear_seed_registry, derive_adapter_seed, derive_request_seed, derive_seed, derive_seed_full,
     derive_seed_indexed, derive_seed_typed, derive_typed_seed, derive_typed_seed_full,
@@ -218,6 +219,7 @@ pub use tenant_isolation::{
 pub use timeout::TimeoutExt;
 pub use tokenizer_config::SpecialTokenMap;
 pub use training::{TrainingConfig, TrainingJob, TrainingJobStatus, TrainingTemplate};
+pub use vector_math::{cosine_similarity, dot_product, l2_norm, normalize, EPS as VECTOR_EPS};
 pub use version::{
     AlgorithmVersionBundle, IncompatibilitySeverity, VersionIncompatibility, VersionInfo,
     HASH_ALGORITHM_VERSION, HKDF_ALGORITHM_VERSION, PARSER_ALGORITHM_VERSION,
@@ -238,10 +240,10 @@ pub const RNG_MODULE_VERSION: &str = "1.0.0-chacha20";
 /// Re-export commonly used types
 pub mod prelude {
     pub use crate::{
-        bytes_to_gb, bytes_to_mb, gb_to_bytes, kb_to_bytes, mb_to_bytes, AdapterEvent, AdapterName,
-        adapterOSStatus, AdapterType, AosError, AuditEvent, B3Hash, BackendKind, CircuitBreaker,
-        CircuitBreakerConfig, CircuitBreakerMetrics, CircuitState, DriftPolicy, EventHookType,
-        ExecutionProfile, ForkType, HealthCheckResult, HealthStatus, InferenceEvent,
+        adapterOSStatus, bytes_to_gb, bytes_to_mb, gb_to_bytes, kb_to_bytes, mb_to_bytes,
+        AdapterEvent, AdapterName, AdapterType, AosError, AuditEvent, B3Hash, BackendKind,
+        CircuitBreaker, CircuitBreakerConfig, CircuitBreakerMetrics, CircuitState, DriftPolicy,
+        EventHookType, ExecutionProfile, ForkType, HealthCheckResult, HealthStatus, InferenceEvent,
         LifecycleState, LifecycleTransition, MetricsTickEvent, ObservabilityEvent,
         ObservabilityEventKind, ObservabilitySeverity, Plugin, PluginConfig, PluginEvent,
         PluginHealth, PluginStatus, PolicyViolationEvent, Result, ResultExt, SeedMode,
