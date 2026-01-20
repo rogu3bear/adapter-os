@@ -29,6 +29,7 @@ using namespace metal;
 #include "attention.metal"
 #include "flash_attention.metal"
 #include "mplora.metal"
+#include "rms_norm.metal"
 
 // Configuration for vocabulary projection kernel
 struct VocabProjectionConfig {

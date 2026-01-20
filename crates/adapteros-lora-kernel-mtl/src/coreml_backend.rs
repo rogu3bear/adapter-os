@@ -824,12 +824,12 @@ fn compute_lora_delta(
     // Result: [out_dim, in_dim]
     let mut delta = Vec::with_capacity(out_dim * in_dim);
 
-    for i in 0..out_dim {
+    for (i, row_b) in lora_b.iter().enumerate().take(out_dim) {
         for j in 0..in_dim {
             let mut sum = 0.0f32;
             for r in 0..actual_rank {
                 // B[i, r] * A[r, j]
-                sum += lora_b[i][r] * lora_a[r][j];
+                sum += row_b[r] * lora_a[r][j];
             }
             delta.push(scale * sum);
         }
@@ -993,7 +993,7 @@ fn extract_module_name(tensor_name: &str, lora_suffix: &str) -> String {
                 && !s.chars().all(|c| c.is_ascii_digit())
                 && !["model", "base_model", "layers", "self_attn", "mlp"].contains(s)
         })
-        .last()
+        .next_back()
         .unwrap_or(&name)
         .to_string()
 }

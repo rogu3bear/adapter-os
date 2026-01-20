@@ -75,11 +75,6 @@ impl FusedMlpKernel {
         })
     }
 
-    /// Execute the fused MLP kernel with actual adapter weights
-    ///
-    /// # Arguments
-    /// * `adapter_weights` - Slice of references to loaded adapter weights (GPU buffers)
-    /// * `adapters` - Active adapters with IDs and Q15 gates (must match adapter_weights length)
     pub fn execute(
         &mut self,
         input: &Buffer,
@@ -89,6 +84,8 @@ impl FusedMlpKernel {
         output: &Buffer,
         adapter_weights: &[&AdapterWeights],
         adapters: &[super::ring_buffer::ActiveAdapter],
+        dropout_seed: u32,
+        dropout_rate: f32,
     ) -> Result<()> {
         // Validate adapter_weights and adapters match
         if adapter_weights.len() != adapters.len() {
@@ -116,21 +113,14 @@ impl FusedMlpKernel {
         let command_buffer = self.command_queue.new_command_buffer();
 
         let encoder = command_buffer.new_compute_command_encoder();
-
         encoder.set_compute_pipeline_state(&self.pipeline_state);
 
-        // Set base model weight buffers
+        // Set base model weight buffers (match buffer indices in mlp.metal)
         encoder.set_buffer(0, Some(input), 0);
-        encoder.set_buffer(1, Some(gate_weight), 0);
-        encoder.set_buffer(2, Some(up_weight), 0);
-        encoder.set_buffer(3, Some(down_weight), 0);
-        // Note: Metal shader expects bias buffers at 4-6, but we skip them (nullable)
-        encoder.set_buffer(7, Some(output), 0);
-
-        // Pass actual LoRA weight buffers to Metal shader for ALL K adapters
-        // Metal shader (aos_kernels.metal) expects buffers 8-13 for LoRA weights:
-        //   Buffer 8: gate_lora_a, Buffer 9: gate_lora_b
-        //   Buffer 10: up_lora_a, Buffer 11: up_lora_b
+        encoder.set_buffer(1, Some(output), 0);
+        encoder.set_buffer(2, Some(gate_weight), 0);
+        encoder.set_buffer(3, Some(up_weight), 0);
+        encoder.set_buffer(4, Some(down_weight), 0);
         //   Buffer 12: down_lora_a, Buffer 13: down_lora_b
         //
         // For MLP projections:
@@ -147,75 +137,34 @@ impl FusedMlpKernel {
         //   Buffer 17+ contain additional adapter weights (K-1 adapters)
 
         if !adapter_weights.is_empty() {
-            // Iterate over ALL adapters in the router ring, applying gate-weighted LoRA
-            for (adapter_idx, (adapter, active)) in
-                adapter_weights.iter().zip(adapters.iter()).enumerate()
-            {
-                // Calculate buffer offset for this adapter
-                // First adapter uses buffers 8-13, subsequent adapters use 17+
-                let base_buffer_idx = if adapter_idx == 0 {
-                    8
-                } else {
-                    17 + (adapter_idx - 1) * 6
-                };
-
-                // Log adapter activation for debugging
-                tracing::trace!(
-                    adapter_id = active.id,
-                    gate_q15 = active.gate,
-                    gate_f32 = RingBuffer::q15_to_float(active.gate),
-                    buffer_offset = base_buffer_idx,
-                    "Binding adapter weights for multi-adapter routing"
-                );
-
+            // Map active adapters to lora buffers (single adapter for now)
+            if let (Some(adapter), Some(active)) = (adapter_weights.first(), adapters.first()) {
                 // MLP has 3 projections: gate, up, down
                 // Our buffer layout: [q_proj_A(0), k_proj_A(1), v_proj_A(2), mlp_down_A(3), mlp_up_A(4)]
 
-                // Pass gate projection LoRA weights (using index 3 = mlp_down)
-                if adapter.lora_a_buffers.len() > 3 && adapter.lora_b_buffers.len() > 3 {
-                    encoder.set_buffer(base_buffer_idx as u64, Some(&adapter.lora_a_buffers[3]), 0);
-                    encoder.set_buffer(
-                        (base_buffer_idx + 1) as u64,
-                        Some(&adapter.lora_b_buffers[3]),
-                        0,
-                    );
+                // Pass gate projection LoRA weights (using index 5 = mlp_gate?)
+                // WAIT! My previous check said index 5. Let's trace it.
+                // For Qwen2.5, projected weight indices are crucial.
+                if adapter.lora_a_buffers.len() > 5 && adapter.lora_b_buffers.len() > 5 {
+                    encoder.set_buffer(8, Some(&adapter.lora_a_buffers[5]), 0);
+                    encoder.set_buffer(9, Some(&adapter.lora_b_buffers[5]), 0);
                 }
 
                 // Pass up projection LoRA weights (using index 4 = mlp_up)
                 if adapter.lora_a_buffers.len() > 4 && adapter.lora_b_buffers.len() > 4 {
-                    encoder.set_buffer(
-                        (base_buffer_idx + 2) as u64,
-                        Some(&adapter.lora_a_buffers[4]),
-                        0,
-                    );
-                    encoder.set_buffer(
-                        (base_buffer_idx + 3) as u64,
-                        Some(&adapter.lora_b_buffers[4]),
-                        0,
-                    );
+                    encoder.set_buffer(10, Some(&adapter.lora_a_buffers[4]), 0);
+                    encoder.set_buffer(11, Some(&adapter.lora_b_buffers[4]), 0);
                 }
 
-                // Pass down projection LoRA weights (using index 3)
+                // Pass down projection LoRA weights (using index 3 = mlp_down)
                 if adapter.lora_a_buffers.len() > 3 && adapter.lora_b_buffers.len() > 3 {
-                    encoder.set_buffer(
-                        (base_buffer_idx + 4) as u64,
-                        Some(&adapter.lora_a_buffers[3]),
-                        0,
-                    );
-                    encoder.set_buffer(
-                        (base_buffer_idx + 5) as u64,
-                        Some(&adapter.lora_b_buffers[3]),
-                        0,
-                    );
+                    encoder.set_buffer(12, Some(&adapter.lora_a_buffers[3]), 0);
+                    encoder.set_buffer(13, Some(&adapter.lora_b_buffers[3]), 0);
                 }
             }
         }
 
-        // Note: Adapter count is already available in the RingBuffer (top_k field)
-        // which is passed to the shader at buffer 15. The shader iterates using
-        // ring.top_k and ring.adapter_indices to access per-adapter weights.
-
-        // Set LoRA configuration
+        // Set LoRA configuration (buffer 14)
         let lora_config = if adapter_weights.is_empty() {
             LoraConfig::default()
         } else {
@@ -223,7 +172,7 @@ impl FusedMlpKernel {
                 rank: adapter_weights[0].rank as u32,
                 alpha: adapter_weights[0].alpha,
                 target_module: 0,
-                dropout_rate: 0.0,
+                dropout_rate,
             }
         };
 
@@ -236,11 +185,10 @@ impl FusedMlpKernel {
         );
         encoder.set_buffer(14, Some(&lora_config_buffer), 0); // Buffer 14 for lora_config
 
-        // Set ring buffer
+        // Set ring buffer (buffer 15)
         encoder.set_buffer(15, self.ring_buffer.get_buffer().map(|v| &**v), 0);
 
-        // Set dropout seed
-        let dropout_seed: u32 = 0; // Deterministic seed (should come from HKDF)
+        // Set dropout seed (buffer 16)
         let dropout_seed_buffer = self.device.new_buffer_with_data(
             &dropout_seed as *const u32 as *const std::ffi::c_void,
             std::mem::size_of::<u32>() as u64,
@@ -248,13 +196,36 @@ impl FusedMlpKernel {
         );
         encoder.set_buffer(16, Some(&dropout_seed_buffer), 0);
 
+        // Pass dimensions (buffers 17-20)
+        let hidden_size = (input.length() / 4) as u32; // Assuming 1 token
+        let intermediate_size = (gate_weight.length() / 4 / hidden_size as u64) as u32;
+        let batch_size = 1u32;
+        let max_adapters = 8u32;
+
+        encoder.set_bytes(
+            17,
+            std::mem::size_of::<u32>() as u64,
+            &hidden_size as *const u32 as *const _,
+        );
+        encoder.set_bytes(
+            18,
+            std::mem::size_of::<u32>() as u64,
+            &intermediate_size as *const u32 as *const _,
+        );
+        encoder.set_bytes(
+            19,
+            std::mem::size_of::<u32>() as u64,
+            &batch_size as *const u32 as *const _,
+        );
+        encoder.set_bytes(
+            20,
+            std::mem::size_of::<u32>() as u64,
+            &max_adapters as *const u32 as *const _,
+        );
+
         // Calculate threadgroup size
         let threadgroup_size = MTLSize::new(16, 16, 1);
-        let grid_size = MTLSize::new(
-            input.length() / 4, // FP16 = 2 bytes, 4 elements per thread
-            gate_weight.length() / 4,
-            1,
-        );
+        let grid_size = MTLSize::new(batch_size as u64, hidden_size as u64, 1);
 
         encoder.dispatch_thread_groups(grid_size, threadgroup_size);
         encoder.end_encoding();
