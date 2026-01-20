@@ -7,6 +7,24 @@ pub struct AneCheckResult {
     pub generation: u8,
 }
 
+/// ANE memory information - FFI-safe struct
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct AneMemoryInfo {
+    /// Whether ANE is available on this system
+    pub available: bool,
+    /// Total ANE-allocated memory in bytes
+    pub allocated_bytes: u64,
+    /// Currently used ANE memory in bytes
+    pub used_bytes: u64,
+    /// Cached models/weights in bytes
+    pub cached_bytes: u64,
+    /// Peak memory usage in bytes (since boot or last reset)
+    pub peak_bytes: u64,
+    /// Whether ANE is currently thermally throttled
+    pub throttled: bool,
+}
+
 /// MLTensor handle for modern tensor operations (macOS 15+)
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
@@ -51,6 +69,14 @@ extern "C" {
 
     /// Check Neural Engine availability
     pub fn coreml_check_ane() -> AneCheckResult;
+
+    /// Query ANE memory statistics (macOS 15+)
+    /// Returns struct with all zeros if unavailable or on error
+    pub fn coreml_query_ane_memory() -> AneMemoryInfo;
+
+    /// Reset ANE memory peak tracking (requires entitlement, may fail)
+    /// Returns true on success, false on failure or if unsupported
+    pub fn coreml_reset_ane_peak() -> bool;
 
     /// Load a CoreML model
     pub fn coreml_load_model(
@@ -560,4 +586,130 @@ extern "C" {
         weight_len: usize,
         eps: f32,
     ) -> *mut std::ffi::c_void;
+
+    // ========== ANE Memory Tracking ==========
+
+    /// Get Neural Engine memory information via out-parameters
+    ///
+    /// Queries macOS for ANE-related memory stats including:
+    /// - Total allocated memory for ML workloads
+    /// - Currently used memory
+    /// - Cached model weights
+    /// - Peak usage
+    /// - Thermal throttling status
+    ///
+    /// # Arguments
+    /// * `out_available` - Pointer to write availability flag
+    /// * `out_allocated_bytes` - Pointer to write total allocated bytes
+    /// * `out_used_bytes` - Pointer to write used bytes
+    /// * `out_cached_bytes` - Pointer to write cached bytes
+    /// * `out_peak_bytes` - Pointer to write peak bytes
+    /// * `out_throttled` - Pointer to write throttling flag
+    ///
+    /// # Returns
+    /// 1 if ANE is available and stats were written, 0 otherwise
+    ///
+    /// # Implementation Notes
+    /// This uses a combination of:
+    /// - Metal device memory tracking for unified memory
+    /// - System memory pressure detection
+    /// - Thermal state monitoring
+    pub fn swift_coreml_get_ane_memory_info(
+        out_available: *mut bool,
+        out_allocated_bytes: *mut u64,
+        out_used_bytes: *mut u64,
+        out_cached_bytes: *mut u64,
+        out_peak_bytes: *mut u64,
+        out_throttled: *mut bool,
+    ) -> i32;
+
+    /// Debug helper: Dump all ANE registry properties to stdout
+    /// Use this to reverse-engineer actual property names on new hardware
+    pub fn coreml_debug_dump_ane_registry();
+
+    // ========== ANE Memory Tracker FFI ==========
+
+    /// Record a model load for memory tracking
+    ///
+    /// Call this when loading a CoreML/ANE model to track its memory footprint.
+    /// The tracker uses these calls to provide accurate allocation data.
+    ///
+    /// # Arguments
+    /// * `model_id` - Null-terminated C string with model identifier (e.g., adapter hash)
+    /// * `bytes` - Memory footprint in bytes
+    pub fn swift_coreml_record_model_load(model_id: *const std::ffi::c_char, bytes: u64);
+
+    /// Record a model unload for memory tracking
+    ///
+    /// Call this when unloading/releasing a CoreML/ANE model.
+    ///
+    /// # Arguments
+    /// * `model_id` - Null-terminated C string with model identifier
+    pub fn swift_coreml_record_model_unload(model_id: *const std::ffi::c_char);
+
+    /// Get count of currently loaded models
+    ///
+    /// # Returns
+    /// Number of models registered with the tracker
+    pub fn swift_coreml_loaded_model_count() -> i32;
+
+    /// Reset the memory tracker (for testing)
+    pub fn swift_coreml_reset_memory_tracker();
+}
+
+/// Helper to call the ANE memory FFI and return an AneMemoryInfo struct
+#[cfg(target_os = "macos")]
+pub fn get_ane_memory_info() -> AneMemoryInfo {
+    let mut info = AneMemoryInfo::default();
+    unsafe {
+        let result = swift_coreml_get_ane_memory_info(
+            &mut info.available,
+            &mut info.allocated_bytes,
+            &mut info.used_bytes,
+            &mut info.cached_bytes,
+            &mut info.peak_bytes,
+            &mut info.throttled,
+        );
+        if result == 0 {
+            info.available = false;
+        }
+    }
+    info
+}
+
+/// Record a model load for ANE memory tracking
+///
+/// # Arguments
+/// * `model_id` - Model identifier (e.g., adapter hash)
+/// * `bytes` - Memory footprint in bytes
+#[cfg(target_os = "macos")]
+pub fn record_model_load(model_id: &str, bytes: u64) {
+    let c_str = std::ffi::CString::new(model_id).unwrap_or_default();
+    unsafe {
+        swift_coreml_record_model_load(c_str.as_ptr(), bytes);
+    }
+}
+
+/// Record a model unload for ANE memory tracking
+///
+/// # Arguments
+/// * `model_id` - Model identifier to remove from tracking
+#[cfg(target_os = "macos")]
+pub fn record_model_unload(model_id: &str) {
+    let c_str = std::ffi::CString::new(model_id).unwrap_or_default();
+    unsafe {
+        swift_coreml_record_model_unload(c_str.as_ptr());
+    }
+}
+
+/// Get count of currently loaded models
+#[cfg(target_os = "macos")]
+pub fn loaded_model_count() -> i32 {
+    unsafe { swift_coreml_loaded_model_count() }
+}
+
+/// Reset the memory tracker (for testing)
+#[cfg(target_os = "macos")]
+pub fn reset_memory_tracker() {
+    unsafe { swift_coreml_reset_memory_tracker() }
 }

@@ -9,6 +9,7 @@
 
 use crate::matmul::{axpy, matvec_accelerate};
 use crate::ComputeUnits;
+use adapteros_core::io_utils::get_directory_size;
 use adapteros_core::{AosError, Result, Q15_GATE_DENOMINATOR};
 use adapteros_lora_kernel_api::{
     attestation::{
@@ -76,6 +77,9 @@ pub struct HybridCoreMLBackend {
 
     /// Device name for reporting
     device_name: String,
+
+    /// Model ID for memory tracking
+    model_id: Option<String>,
 }
 
 // Safety: CoreML model handles are thread-safe
@@ -96,6 +100,7 @@ impl HybridCoreMLBackend {
             model_path: None,
             seq_len: 512,
             device_name: "HybridCoreML".to_string(),
+            model_id: None,
         }
     }
 
@@ -173,6 +178,17 @@ impl HybridCoreMLBackend {
             }
 
             self.model_handle = handle;
+
+            // Track model memory for ANE metrics
+            let model_id = format!("hybrid:{}", model_path_str);
+
+            // Use exact on-disk size for memory tracking
+            // Note: Actual ANE memory usage is often compressed/optimized, but
+            // on-disk size is a reliable, conservative proxy for resource budgeting.
+            let model_size = get_directory_size(model_path).unwrap_or(350 * 1024 * 1024);
+
+            crate::ffi::record_model_load(&model_id, model_size);
+            self.model_id = Some(model_id);
         }
 
         self.model_path = Some(model_path.to_path_buf());
@@ -485,6 +501,22 @@ impl HybridCoreMLBackend {
     /// Get number of loaded adapters
     pub fn adapter_count(&self) -> usize {
         self.adapters.len()
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for HybridCoreMLBackend {
+    fn drop(&mut self) {
+        if !self.model_handle.is_null() {
+            // Untrack model memory if we had a model_id
+            if let Some(ref model_id) = self.model_id {
+                crate::ffi::record_model_unload(model_id);
+            }
+
+            unsafe {
+                crate::ffi::coreml_unload_model(self.model_handle);
+            }
+        }
     }
 }
 
