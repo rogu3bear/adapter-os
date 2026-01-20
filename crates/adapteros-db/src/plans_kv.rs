@@ -115,7 +115,10 @@ impl PlanKvRepository {
 
         // Set reverse lookup index for cross-tenant queries
         self.backend
-            .set(&Self::lookup_key(&plan.id), plan.tenant_id.as_bytes().to_vec())
+            .set(
+                &Self::lookup_key(&plan.id),
+                plan.tenant_id.as_bytes().to_vec(),
+            )
             .await
             .map_err(|e| AosError::Database(format!("Failed to store plan lookup: {}", e)))?;
 

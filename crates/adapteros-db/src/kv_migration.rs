@@ -362,7 +362,12 @@ impl Db {
 
                     for link in doc_links {
                         if let Err(e) = repo
-                            .add_document_to_collection(&tenant_id, &id, &link.document_id, link.added_at)
+                            .add_document_to_collection(
+                                &tenant_id,
+                                &id,
+                                &link.document_id,
+                                link.added_at,
+                            )
                             .await
                         {
                             debug!(

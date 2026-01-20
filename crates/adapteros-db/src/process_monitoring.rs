@@ -635,6 +635,20 @@ impl ProcessHealthMetric {
             sample_count,
         })
     }
+
+    /// Delete health metrics older than the specified timestamp
+    pub async fn delete_older_than(
+        pool: &SqlitePool,
+        timestamp: chrono::DateTime<chrono::Utc>,
+    ) -> Result<u64> {
+        let result = sqlx::query("DELETE FROM process_health_metrics WHERE collected_at < ?")
+            .bind(timestamp.to_rfc3339())
+            .execute(pool)
+            .await
+            .map_err(db_err("delete old health metrics"))?;
+
+        Ok(result.rows_affected())
+    }
 }
 
 impl ProcessAlert {

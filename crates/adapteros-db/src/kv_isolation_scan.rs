@@ -250,17 +250,29 @@ async fn sql_tenants(pool: &sqlx::SqlitePool) -> Result<HashMap<String, TenantSq
         .map_err(|e| AosError::Database(format!("Failed to load tenants: {}", e)))?;
 
     for row in rows {
-        let id: String = row.try_get("id").unwrap_or_default();
+        let id: String = row
+            .try_get("id")
+            .map_err(|e| AosError::Database(format!("tenants.id: {}", e)))?;
+        let name: String = row
+            .try_get("name")
+            .map_err(|e| AosError::Database(format!("tenants.name for id {}: {}", id, e)))?;
+        let status: String = row
+            .try_get("status")
+            .map_err(|e| AosError::Database(format!("tenants.status for id {}: {}", id, e)))?;
+        let itar_flag: i64 = row
+            .try_get("itar_flag")
+            .map_err(|e| AosError::Database(format!("tenants.itar_flag for id {}: {}", id, e)))?;
+        let default_stack_id: Option<String> = row.try_get("default_stack_id").map_err(|e| {
+            AosError::Database(format!("tenants.default_stack_id for id {}: {}", id, e))
+        })?;
         tenants.insert(
             id.clone(),
             TenantSqlRow {
                 id,
-                name: row.try_get("name").unwrap_or_default(),
-                status: row.try_get::<String, _>("status").unwrap_or_default(),
-                itar_flag: row.try_get::<i64, _>("itar_flag").unwrap_or(0) != 0,
-                default_stack_id: row
-                    .try_get::<Option<String>, _>("default_stack_id")
-                    .unwrap_or(None),
+                name,
+                status,
+                itar_flag: itar_flag != 0,
+                default_stack_id,
             },
         );
     }
@@ -277,17 +289,29 @@ async fn sql_messages(pool: &sqlx::SqlitePool) -> Result<HashMap<String, Message
     .map_err(|e| AosError::Database(format!("Failed to load messages: {}", e)))?;
 
     for row in rows {
-        let id: String = row.try_get("id").unwrap_or_default();
+        let id: String = row
+            .try_get("id")
+            .map_err(|e| AosError::Database(format!("messages.id: {}", e)))?;
+        let workspace_id: String = row.try_get("workspace_id").map_err(|e| {
+            AosError::Database(format!("messages.workspace_id for id {}: {}", id, e))
+        })?;
+        let from_user_id: String = row.try_get("from_user_id").map_err(|e| {
+            AosError::Database(format!("messages.from_user_id for id {}: {}", id, e))
+        })?;
+        let from_tenant_id: String = row.try_get("from_tenant_id").map_err(|e| {
+            AosError::Database(format!("messages.from_tenant_id for id {}: {}", id, e))
+        })?;
+        let thread_id: Option<String> = row
+            .try_get("thread_id")
+            .map_err(|e| AosError::Database(format!("messages.thread_id for id {}: {}", id, e)))?;
         messages.insert(
             id.clone(),
             MessageSqlRow {
                 id,
-                workspace_id: row.try_get("workspace_id").unwrap_or_default(),
-                from_user_id: row.try_get("from_user_id").unwrap_or_default(),
-                from_tenant_id: row.try_get("from_tenant_id").unwrap_or_default(),
-                thread_id: row
-                    .try_get::<Option<String>, _>("thread_id")
-                    .unwrap_or(None),
+                workspace_id,
+                from_user_id,
+                from_tenant_id,
+                thread_id,
             },
         );
     }
@@ -302,13 +326,27 @@ async fn sql_policy_audit(pool: &sqlx::SqlitePool) -> Result<HashMap<String, Pol
         .map_err(|e| AosError::Database(format!("Failed to load policy audit: {}", e)))?;
 
     for row in rows {
-        let id: String = row.try_get("id").unwrap_or_default();
+        let id: String = row
+            .try_get("id")
+            .map_err(|e| AosError::Database(format!("policy_audit_decisions.id: {}", e)))?;
+        let tenant_id: String = row.try_get("tenant_id").map_err(|e| {
+            AosError::Database(format!(
+                "policy_audit_decisions.tenant_id for id {}: {}",
+                id, e
+            ))
+        })?;
+        let chain_sequence: i64 = row.try_get("chain_sequence").map_err(|e| {
+            AosError::Database(format!(
+                "policy_audit_decisions.chain_sequence for id {}: {}",
+                id, e
+            ))
+        })?;
         entries.insert(
             id.clone(),
             PolicyAuditSqlRow {
                 id,
-                tenant_id: row.try_get("tenant_id").unwrap_or_default(),
-                chain_sequence: row.try_get::<i64, _>("chain_sequence").unwrap_or(0),
+                tenant_id,
+                chain_sequence,
             },
         );
     }
