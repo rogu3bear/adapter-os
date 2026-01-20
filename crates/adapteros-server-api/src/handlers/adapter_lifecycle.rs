@@ -2,6 +2,8 @@
 //!
 //! Handlers for loading, unloading, and promoting adapters.
 
+use crate::adapter_helpers::fetch_adapter_for_tenant;
+use crate::api_error::{ApiError, ApiResult};
 use crate::auth::Claims;
 use crate::middleware::require_any_role;
 use crate::state::AppState;
@@ -576,30 +578,11 @@ pub async fn promote_adapter_state(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
-) -> Result<Json<AdapterStateResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<AdapterStateResponse> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
     // Get current adapter state with tenant-scoped query
-    let adapter = state
-        .db
-        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
-            )
-        })?;
+    let adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;
 
     // Determine next tier based on current tier
     // Tiers: "persistent" → "warm" → "ephemeral"
@@ -607,22 +590,14 @@ pub async fn promote_adapter_state(
         "persistent" => "warm".to_string(),
         "warm" => "ephemeral".to_string(),
         "ephemeral" => {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(
-                    ErrorResponse::new("adapter already at maximum tier (ephemeral)")
-                        .with_code("ALREADY_AT_MAX_TIER"),
-                ),
-            ));
+            return Err(
+                ApiError::bad_request("adapter already at maximum tier (ephemeral)")
+                    .with_details("ALREADY_AT_MAX_TIER"),
+            );
         }
         other => {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(
-                    ErrorResponse::new(format!("unknown tier: {}", other))
-                        .with_code("UNKNOWN_TIER"),
-                ),
-            ));
+            return Err(ApiError::bad_request(format!("unknown tier: {}", other))
+                .with_details("UNKNOWN_TIER"));
         }
     };
 
@@ -634,14 +609,7 @@ pub async fn promote_adapter_state(
         .update_adapter_tier_for_tenant(&claims.tenant_id, &adapter_id, &new_tier)
         .await
         .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to update adapter tier")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
+            ApiError::internal("failed to update adapter tier").with_details(e.to_string())
         })?;
 
     Ok(Json(AdapterStateResponse {
@@ -658,27 +626,8 @@ pub async fn download_adapter_manifest(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
-) -> Result<Json<AdapterManifest>, (StatusCode, Json<ErrorResponse>)> {
-    let adapter = state
-        .db
-        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
-            )
-        })?;
+) -> ApiResult<AdapterManifest> {
+    let adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;
 
     let manifest = AdapterManifest {
         adapter_id: adapter

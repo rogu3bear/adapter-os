@@ -2,8 +2,10 @@
 //!
 //! Headless-style components with Tailwind CSS styling.
 
+pub mod adapter_bar;
 pub mod async_state;
 pub mod auth;
+pub mod boot_sequence;
 pub mod button;
 pub mod card;
 pub mod charts;
@@ -37,11 +39,13 @@ pub mod version_skew_banner;
 pub mod virtual_list;
 pub mod workspace;
 
+pub use adapter_bar::{AdapterBar, AdapterHeat, AdapterMagnet};
 pub use async_state::{
-    Breadcrumb, DetailRow, EmptyState, EmptyStateVariant, ErrorDisplay, LoadingDisplay, PageHeader,
-    RefreshButton,
+    AsyncBoundary, AsyncBoundaryWithEmpty, Breadcrumb, DetailRow, EmptyState, EmptyStateVariant,
+    ErrorDisplay, LoadingDisplay, PageHeader, RefreshButton,
 };
 pub use auth::{AuthProvider, ProtectedRoute};
+pub use boot_sequence::BootSequence;
 pub use button::{Button, ButtonSize, ButtonVariant};
 pub use card::Card;
 pub use chat_dock::{ChatDock, ChatDockPanel, MobileChatOverlay, NarrowChatDock};

@@ -2,9 +2,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use thiserror::Error;
 
-/// Represents a tensor for numerical computation
-/// This is a simplified tensor representation for error measurement
-#[derive(Debug, Clone)]
+/// Represents a tensor for numerical computation.
+///
+/// This is a simplified tensor representation for error measurement.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tensor {
     pub data: Vec<f32>,
     pub shape: Vec<usize>,

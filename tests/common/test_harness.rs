@@ -96,6 +96,7 @@ impl ApiTestHarness {
             backend_profile: BackendKind::Auto,
             worker_id: 0,
             self_hosting: Default::default(),
+            rate_limit: None,
         }));
 
         let metrics_exporter = Arc::new(adapteros_metrics_exporter::MetricsExporter::new(vec![

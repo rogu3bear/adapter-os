@@ -963,10 +963,10 @@ async fn test_training_job_adapter_infer_wiring() {
     )
     .await;
     match cross_result {
-        Err((status, Json(body))) => {
-            assert_eq!(status, StatusCode::FORBIDDEN);
-            assert_eq!(body.code, "ADAPTER_TENANT_MISMATCH");
-            let details = body.details.expect("details");
+        Err(err) => {
+            assert_eq!(err.status, StatusCode::FORBIDDEN);
+            assert_eq!(err.code, "ADAPTER_TENANT_MISMATCH");
+            let details = err.details.expect("details");
             assert_eq!(
                 details.get("adapter_id").and_then(|v| v.as_str()),
                 Some("tenant-2-wiring-adapter")
@@ -1041,17 +1041,17 @@ async fn test_e2e_inference_fails_when_model_not_ready() {
 
     // Should fail with MODEL_NOT_READY error
     match result {
-        Err((status, Json(body))) => {
+        Err(err) => {
             assert_eq!(
-                status,
+                err.status,
                 StatusCode::SERVICE_UNAVAILABLE,
                 "Should return 503 for model not ready"
             );
             assert_eq!(
-                body.code, "MODEL_NOT_READY",
+                err.code, "MODEL_NOT_READY",
                 "Error code should be MODEL_NOT_READY"
             );
-            println!("✓ Correctly failed with MODEL_NOT_READY: {}", body.error);
+            println!("✓ Correctly failed with MODEL_NOT_READY: {}", err.message);
         }
         Ok(_) => {
             panic!("Inference should fail when model is not ready");
@@ -1143,11 +1143,14 @@ async fn test_e2e_inference_tenant_isolation() {
     .await;
 
     match result {
-        Err((status, Json(body))) => {
-            println!("✓ Cross-tenant access blocked: {} - {}", status, body.error);
-            assert_eq!(status, StatusCode::FORBIDDEN);
-            assert_eq!(body.code, "ADAPTER_TENANT_MISMATCH");
-            let details = body.details.expect("details");
+        Err(err) => {
+            println!(
+                "✓ Cross-tenant access blocked: {} - {}",
+                err.status, err.message
+            );
+            assert_eq!(err.status, StatusCode::FORBIDDEN);
+            assert_eq!(err.code, "ADAPTER_TENANT_MISMATCH");
+            let details = err.details.expect("details");
             assert_eq!(
                 details.get("adapter_id").and_then(|v| v.as_str()),
                 Some("tenant-2-adapter")
@@ -1242,10 +1245,10 @@ async fn test_e2e_inference_rejects_adapter_base_model_mismatch() {
     .await;
 
     match result {
-        Err((status, Json(body))) => {
-            assert_eq!(status, StatusCode::BAD_REQUEST);
-            assert_eq!(body.code, "ADAPTER_BASE_MODEL_MISMATCH");
-            let details = body.details.expect("details");
+        Err(err) => {
+            assert_eq!(err.status, StatusCode::BAD_REQUEST);
+            assert_eq!(err.code, "ADAPTER_BASE_MODEL_MISMATCH");
+            let details = err.details.expect("details");
             assert_eq!(
                 details.get("adapter_id").and_then(|v| v.as_str()),
                 Some("mismatch-adapter")

@@ -4,7 +4,9 @@
 //! using Server-Sent Events (SSE) for inference responses.
 
 use crate::api::api_base_url;
-use crate::components::{Button, Card, Spinner, Textarea, TraceButton, TracePanel};
+use crate::components::{
+    AdapterBar, AdapterMagnet, Button, Card, Spinner, Textarea, TraceButton, TracePanel,
+};
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
 use send_wrapper::SendWrapper;
@@ -49,9 +51,19 @@ enum InferenceEvent {
     },
     /// Error occurred
     Error { message: String },
+    /// Adapter state update for visualization
+    AdapterStateUpdate { adapters: Vec<AdapterStateInfo> },
     /// Catch-all for other events (Loading, Ready, etc.)
     #[serde(other)]
     Other,
+}
+
+/// Adapter state information from server
+#[derive(Debug, Clone, Deserialize)]
+pub struct AdapterStateInfo {
+    pub adapter_id: String,
+    pub uses_per_minute: u32,
+    pub is_active: bool,
 }
 
 /// OpenAI-compatible streaming chunk (alternative format)
@@ -126,6 +138,7 @@ pub fn ChatSession() -> impl IntoView {
     let streaming = RwSignal::new(false);
     let error = RwSignal::new(Option::<String>::None);
     let active_trace = RwSignal::new(Option::<String>::None);
+    let adapter_magnets: RwSignal<Vec<AdapterMagnet>> = RwSignal::new(vec![]);
     let is_busy = Memo::new(move |_| loading.get() || streaming.get());
     let can_send = Memo::new(move |_| !message.get().trim().is_empty() && !is_busy.get());
 
@@ -221,7 +234,7 @@ pub fn ChatSession() -> impl IntoView {
                     adapters: None,
                 };
 
-                match stream_inference(&request, messages, signal.as_ref()).await {
+                match stream_inference(&request, messages, adapter_magnets, signal.as_ref()).await {
                     Ok(trace_info) => {
                         // Mark the last message as no longer streaming and add trace info
                         messages.update(|msgs| {
@@ -309,6 +322,9 @@ pub fn ChatSession() -> impl IntoView {
                     }}
                 </div>
             </div>
+
+            // Adapter Bar - shows active adapters as colored magnets
+            <AdapterBar adapters=adapter_magnets.read_only()/>
 
             // Messages
             <div class="flex-1 overflow-y-auto rounded-lg border bg-card">
@@ -554,6 +570,7 @@ struct StreamTraceInfo {
 async fn stream_inference(
     request: &StreamingInferRequest,
     messages: RwSignal<Vec<ChatMessage>>,
+    adapter_magnets: RwSignal<Vec<AdapterMagnet>>,
     abort_signal: Option<&AbortSignal>,
 ) -> Result<StreamTraceInfo, String> {
     let url = format!("{}/v1/infer/stream", api_base_url());
@@ -708,6 +725,27 @@ async fn stream_inference(
             if parsed.completion_tokens.is_some() {
                 trace_info.completion_tokens = parsed.completion_tokens;
             }
+            // Update adapter magnets from adapter state info
+            if let Some(adapter_states) = parsed.adapter_states {
+                adapter_magnets.set(
+                    adapter_states
+                        .into_iter()
+                        .map(|info| {
+                            use crate::components::AdapterHeat;
+                            let heat = match info.uses_per_minute {
+                                n if n > 10 => AdapterHeat::Hot,
+                                n if n > 0 => AdapterHeat::Warm,
+                                _ => AdapterHeat::Cold,
+                            };
+                            AdapterMagnet {
+                                adapter_id: info.adapter_id,
+                                heat,
+                                is_active: info.is_active,
+                            }
+                        })
+                        .collect(),
+                );
+            }
         }
     }
 
@@ -723,6 +761,7 @@ struct ParsedSseEvent {
     token_count: Option<u32>,
     prompt_tokens: Option<u32>,
     completion_tokens: Option<u32>,
+    adapter_states: Option<Vec<AdapterStateInfo>>,
 }
 
 /// Parse an SSE event and extract token content plus trace info
@@ -778,6 +817,10 @@ fn parse_sse_event_with_info(event_data: &str) -> ParsedSseEvent {
                     "Stream error: {}",
                     message
                 )));
+            }
+            InferenceEvent::AdapterStateUpdate { adapters } => {
+                // Store adapter state for UI to consume
+                result.adapter_states = Some(adapters);
             }
             InferenceEvent::Other => {
                 // Ignore Loading, Ready, and other unhandled events

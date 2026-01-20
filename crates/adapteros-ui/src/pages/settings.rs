@@ -665,7 +665,7 @@ fn SystemInfoSection() -> impl IntoView {
                     <Button
                         variant=ButtonVariant::Outline
                         size=crate::components::ButtonSize::Sm
-                        on_click=Callback::new(move |_| refetch())
+                        on_click=Callback::new(move |_| refetch.run(()))
                     >
                         "Refresh"
                     </Button>

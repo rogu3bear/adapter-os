@@ -1,4 +1,3 @@
-#![cfg(all(test, feature = "extended-tests"))]
 //! # adapterOS Performance Benchmarking Suite
 //!
 //! This crate provides comprehensive performance benchmarks for adapterOS components,
@@ -14,13 +13,13 @@
 //! - **Multi-tenant Isolation**: Resource isolation, security boundaries, performance isolation
 //! - **Evidence Processing**: Response grounding, evidence validation, latency characteristics
 
+pub mod evidence_benchmarks;
+pub mod isolation_benchmarks;
 pub mod kernel_benchmarks;
 pub mod memory_benchmarks;
-pub mod throughput_benchmarks;
-pub mod system_benchmarks;
-pub mod isolation_benchmarks;
-pub mod evidence_benchmarks;
 pub mod runner;
+pub mod system_benchmarks;
+pub mod throughput_benchmarks;
 pub mod utils;
 
 /// Common benchmark configuration and utilities

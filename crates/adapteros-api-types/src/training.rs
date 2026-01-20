@@ -1393,6 +1393,7 @@ pub struct UploadDatasetResponse {
     #[serde(default)]
     pub reused: bool,
     pub created_at: String,
+    pub dataset_type: Option<String>,
     /// Training job ID if auto_train was enabled
     #[serde(skip_serializing_if = "Option::is_none")]
     pub training_job_id: Option<String>,
@@ -1436,6 +1437,7 @@ pub struct DatasetResponse {
     pub created_by: String,
     pub created_at: String,
     pub updated_at: String,
+    pub dataset_type: Option<String>,
 }
 
 /// Response for listing datasets

@@ -3,13 +3,15 @@
 //! Provides tools for testing concurrent operations, memory pressure scenarios,
 //! and system resilience under load.
 
+use crate::retry::{retry_async, RetryConfig};
+use crate::state::AppState;
+use adapteros_system_metrics::SystemMetricsCollector;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
-use tracing::{info, warn, error};
-use crate::state::AppState;
-use crate::retry::{retry_async, RetryConfig};
+use tracing::{error, info, warn};
 
 /// Configuration for stress testing
 #[derive(Debug, Clone)]
@@ -68,11 +70,22 @@ impl StressTester {
     }
 
     /// Run a comprehensive stress test
-    pub async fn run_comprehensive_test(&self, state: &Arc<AppState>) -> Result<StressTestResults, String> {
-        info!("Starting comprehensive stress test with config: {:?}", self.config);
+    pub async fn run_comprehensive_test(
+        &self,
+        state: &Arc<AppState>,
+    ) -> Result<StressTestResults, String> {
+        info!(
+            "Starting comprehensive stress test with config: {:?}",
+            self.config
+        );
 
         let start_time = Instant::now();
         let semaphore = Arc::new(Semaphore::new(self.config.concurrency));
+
+        // Track peak memory usage
+        let peak_memory = Arc::new(AtomicU64::new(0));
+        let mut collector = SystemMetricsCollector::new();
+        peak_memory.store(collector.used_memory(), Ordering::Relaxed);
 
         let mut join_set = JoinSet::new();
         let mut latencies = Vec::new();
@@ -85,7 +98,10 @@ impl StressTester {
             let config = self.config.clone();
 
             join_set.spawn(async move {
-                let _permit = semaphore.acquire().await.expect("Failed to acquire semaphore permit");
+                let _permit = semaphore
+                    .acquire()
+                    .await
+                    .expect("Failed to acquire semaphore permit");
 
                 let operation_start = Instant::now();
                 let result = Self::execute_test_operation(&state, i, &config).await;
@@ -117,6 +133,13 @@ impl StressTester {
                     failed += 1;
                 }
             }
+
+            // Sample memory periodically (every ~10 results)
+            if (successful + failed) % 10 == 0 {
+                collector.collect_metrics();
+                let current = collector.used_memory();
+                peak_memory.fetch_max(current, Ordering::Relaxed);
+            }
         }
 
         let total_duration = start_time.elapsed();
@@ -140,7 +163,7 @@ impl StressTester {
             p99_latency: p99,
             total_duration,
             operations_per_second: ops_per_sec,
-            memory_peak_usage: None, // TODO: Implement memory monitoring
+            memory_peak_usage: Some(peak_memory.load(Ordering::Relaxed)),
             error_breakdown: error_counts,
         };
 
@@ -184,7 +207,8 @@ impl StressTester {
             // Simulate database write
             tokio::time::sleep(Duration::from_millis(10)).await;
             Ok::<(), String>(())
-        }).await;
+        })
+        .await;
 
         match db_result {
             crate::retry::RetryResult::Success(_) => Ok(()),
@@ -206,7 +230,11 @@ impl StressTester {
             let model_id = format!("model_{}", operation_id % 5);
 
             // This would trigger lazy loading if enabled
-            let _ = model_runtime.lock().await.ensure_model_loaded(&tenant_id, &model_id).await;
+            let _ = model_runtime
+                .lock()
+                .await
+                .ensure_model_loaded(&tenant_id, &model_id)
+                .await;
         }
 
         if config.simulate_failures && rand::random::<f64>() < config.failure_rate {
@@ -299,7 +327,13 @@ mod tests {
             Duration::from_millis(50),
         ];
 
-        assert_eq!(StressTester::calculate_percentile(&latencies, 50.0), Duration::from_millis(30));
-        assert_eq!(StressTester::calculate_percentile(&latencies, 95.0), Duration::from_millis(50));
+        assert_eq!(
+            StressTester::calculate_percentile(&latencies, 50.0),
+            Duration::from_millis(30)
+        );
+        assert_eq!(
+            StressTester::calculate_percentile(&latencies, 95.0),
+            Duration::from_millis(50)
+        );
     }
 }

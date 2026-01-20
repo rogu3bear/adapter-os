@@ -346,10 +346,7 @@ impl TrainingDatasetManager {
     }
 
     /// Load training examples from a dataset
-    pub async fn load_dataset_examples(
-        &self,
-        dataset_id: &str,
-    ) -> Result<LoadedDatasetExamples> {
+    pub async fn load_dataset_examples(&self, dataset_id: &str) -> Result<LoadedDatasetExamples> {
         debug!("Loading training dataset: {}", dataset_id);
 
         // Get dataset record from database
@@ -379,8 +376,9 @@ impl TrainingDatasetManager {
             )));
         }
 
-        let (examples, framing_policy) =
-            self.load_examples_from_jsonl(&storage_path, dataset_id).await?;
+        let (examples, framing_policy) = self
+            .load_examples_from_jsonl(&storage_path, dataset_id)
+            .await?;
 
         info!(
             "Loaded {} training examples from dataset {} (hash verified)",
@@ -408,11 +406,7 @@ impl TrainingDatasetManager {
 
         file.sync_all().await?;
 
-        info!(
-            "Saved {} dataset rows to {}",
-            rows.len(),
-            path.display()
-        );
+        info!("Saved {} dataset rows to {}", rows.len(), path.display());
 
         Ok(())
     }
@@ -553,8 +547,10 @@ impl TrainingDatasetManager {
                         provenance,
                         created_at,
                     );
-                    let attention_mask =
-                        WorkerTrainingExample::attention_mask_from_tokens(&input_tokens, pad_token_id);
+                    let attention_mask = WorkerTrainingExample::attention_mask_from_tokens(
+                        &input_tokens,
+                        pad_token_id,
+                    );
                     examples.push(WorkerTrainingExample::new(
                         input_tokens,
                         target_tokens,
@@ -595,7 +591,8 @@ impl TrainingDatasetManager {
                         }
                         let target_end = input_end + MAX_TARGET_TOKENS;
                         let input_tokens = tokens[start..input_end].to_vec();
-                        let target_tokens = tokens[input_end..tokens.len().min(target_end)].to_vec();
+                        let target_tokens =
+                            tokens[input_end..tokens.len().min(target_end)].to_vec();
                         if input_tokens.is_empty() || target_tokens.is_empty() {
                             break;
                         }
@@ -778,7 +775,7 @@ mod tests {
             Some(tokenizer_path.clone()),
         );
 
-        let rows = vec![
+        let rows = [
             serde_json::json!({"prompt": "Hello", "completion": "World"}).to_string(),
             serde_json::json!({"prompt": "Good", "completion": "Morning"}).to_string(),
         ];
@@ -799,7 +796,10 @@ mod tests {
         assert_eq!(loaded[0].input_tokens, tokenizer.encode("Hello").unwrap());
         assert_eq!(loaded[0].target_tokens, tokenizer.encode("World").unwrap());
         assert_eq!(loaded[1].input_tokens, tokenizer.encode("Good").unwrap());
-        assert_eq!(loaded[1].target_tokens, tokenizer.encode("Morning").unwrap());
+        assert_eq!(
+            loaded[1].target_tokens,
+            tokenizer.encode("Morning").unwrap()
+        );
     }
 
     #[tokio::test]
@@ -842,8 +842,7 @@ mod tests {
         let temp_dir = new_test_tempdir();
         let dataset_path = temp_dir.path().join("dataset.jsonl");
 
-        let example_json =
-            serde_json::json!({"prompt": "Alpha", "completion": "Beta"}).to_string();
+        let example_json = serde_json::json!({"prompt": "Alpha", "completion": "Beta"}).to_string();
         tokio::fs::write(&dataset_path, format!("{}\n", example_json))
             .await
             .unwrap();

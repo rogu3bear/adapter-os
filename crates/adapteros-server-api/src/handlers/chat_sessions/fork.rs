@@ -4,6 +4,7 @@
 //!
 //! 【2025-01-25†prd-ux-01†chat_sessions_fork】
 
+use crate::api_error::ApiError;
 use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
@@ -40,13 +41,9 @@ pub async fn fork_chat_session(
     Extension(claims): Extension<Claims>,
     Path(session_id): Path<String>,
     Json(req): Json<ForkChatSessionRequest>,
-) -> Result<(StatusCode, Json<ForkChatSessionResponse>), (StatusCode, Json<ErrorResponse>)> {
-    require_permission(&claims, Permission::InferenceExecute).map_err(|_| {
-        (
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Permission denied").with_code("PERMISSION_DENIED")),
-        )
-    })?;
+) -> Result<(StatusCode, Json<ForkChatSessionResponse>), ApiError> {
+    require_permission(&claims, Permission::InferenceExecute)
+        .map_err(|_| ApiError::forbidden("Permission denied"))?;
 
     // First get the source session name for the response
     let source_session = state
@@ -55,24 +52,13 @@ pub async fn fork_chat_session(
         .await
         .map_err(|e| {
             tracing::error!(error = %e, session_id = %session_id, "Failed to get source session");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new("Database error").with_code("DATABASE_ERROR")),
-            )
+            ApiError::db_error(&e)
         })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("Session not found").with_code("NOT_FOUND")),
-            )
-        })?;
+        .ok_or_else(|| ApiError::not_found("Session"))?;
 
     // Validate tenant isolation
     if source_session.tenant_id != claims.tenant_id {
-        return Err((
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse::new("Session not found").with_code("NOT_FOUND")),
-        ));
+        return Err(ApiError::not_found("Session"));
     }
 
     let source_name = source_session.name.clone();
@@ -90,19 +76,10 @@ pub async fn fork_chat_session(
         .map_err(|e| {
             let error_str = e.to_string();
             if error_str.contains("not found") || error_str.contains("NotFound") {
-                (
-                    StatusCode::NOT_FOUND,
-                    Json(ErrorResponse::new("Session not found").with_code("NOT_FOUND")),
-                )
+                ApiError::not_found("Session")
             } else {
                 tracing::error!(error = %e, session_id = %session_id, "Failed to fork session");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new(format!("Failed to fork session: {}", e))
-                            .with_code("DATABASE_ERROR"),
-                    ),
-                )
+                ApiError::db_error(&e).with_details(format!("Failed to fork session: {}", e))
             }
         })?;
 

@@ -45,6 +45,7 @@ pub mod prefix_templates;
 pub mod provenance;
 pub mod repositories;
 pub mod review;
+pub mod routing;
 pub mod run_envelope;
 pub mod settings;
 pub mod system_state;
@@ -86,6 +87,7 @@ pub use prefix_templates::*;
 pub use provenance::*;
 pub use repositories::*;
 pub use review::*;
+pub use routing::*;
 pub use run_envelope::*;
 pub use settings::*;
 pub use system_status::*;
@@ -104,24 +106,32 @@ pub use workers::*;
 pub struct ErrorResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,
-    pub error: String,
+    /// Human-readable error message
+    #[serde(alias = "error")]
+    pub message: String,
     #[serde(default)]
     pub code: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub failure_code: Option<FailureCode>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub hint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
 }
 
 impl ErrorResponse {
     /// Create a new error response
-    pub fn new(error: impl Into<String>) -> Self {
+    pub fn new(message: impl Into<String>) -> Self {
         Self {
             schema_version: schema_version(),
-            error: error.into(),
+            message: message.into(),
             code: "INTERNAL_ERROR".to_string(),
             failure_code: None,
+            hint: None,
             details: None,
+            request_id: None,
         }
     }
 
@@ -147,6 +157,18 @@ impl ErrorResponse {
         self
     }
 
+    /// Set an actionable hint
+    pub fn with_hint(mut self, hint: impl Into<String>) -> Self {
+        self.hint = Some(hint.into());
+        self
+    }
+
+    /// Set the request ID
+    pub fn with_request_id(mut self, request_id: impl Into<String>) -> Self {
+        self.request_id = Some(request_id.into());
+        self
+    }
+
     /// Set a structured failure code (smoke-test and UI facing)
     pub fn with_failure_code(mut self, code: FailureCode) -> Self {
         self.failure_code = Some(code);
@@ -162,8 +184,9 @@ impl ErrorResponse {
     /// Create an error response with user-friendly message mapping
     /// Note: This method requires access to UserFriendlyErrorMapper from server-api crate
     /// For unified API types, use ErrorResponse::new() and map messages at the server level
+    /// For unified API types, use ErrorResponse::new() and map messages at the server level
     pub fn with_user_friendly_message(mut self, user_friendly_msg: impl Into<String>) -> Self {
-        self.error = user_friendly_msg.into();
+        self.message = user_friendly_msg.into();
         self
     }
 }

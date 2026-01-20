@@ -251,6 +251,7 @@ fn test_inference_result_with_unavailable_pinned_adapters() {
         stop_reason_token_index: None,
         stop_policy_digest_b3: None,
         abstention: None,
+        pending_evidence_ids: Vec::new(),
     };
 
     assert_eq!(result.unavailable_pinned_adapters, Some(unavailable));
@@ -291,6 +292,7 @@ fn test_inference_result_without_unavailable_pinned_adapters() {
         stop_reason_token_index: None,
         stop_policy_digest_b3: None,
         abstention: None,
+        pending_evidence_ids: Vec::new(),
     };
 
     assert!(result.unavailable_pinned_adapters.is_none());
@@ -338,6 +340,7 @@ fn test_inference_result_all_pins_unavailable_stack_only_fallback() {
         stop_reason_token_index: None,
         stop_policy_digest_b3: None,
         abstention: None,
+        pending_evidence_ids: Vec::new(),
     };
 
     assert_eq!(result.unavailable_pinned_adapters, Some(unavailable));
@@ -384,6 +387,7 @@ fn test_inference_result_partial_pins_unavailable() {
         stop_reason_token_index: None,
         stop_policy_digest_b3: None,
         abstention: None,
+        pending_evidence_ids: Vec::new(),
     };
 
     assert_eq!(result.unavailable_pinned_adapters, Some(unavailable));
@@ -706,6 +710,7 @@ fn test_inference_event_done_serializes_pinned_fields() {
         stop_reason_code: None,
         stop_reason_token_index: None,
         stop_policy_digest_b3: None,
+        pending_evidence_ids: Vec::new(),
     };
 
     let json = serde_json::to_string(&event).expect("Failed to serialize");
@@ -741,6 +746,7 @@ fn test_inference_event_done_skips_none_fields() {
         stop_reason_code: None,
         stop_reason_token_index: None,
         stop_policy_digest_b3: None,
+        pending_evidence_ids: Vec::new(),
     };
 
     let json = serde_json::to_string(&event).expect("Failed to serialize");

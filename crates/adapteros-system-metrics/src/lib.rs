@@ -21,7 +21,6 @@ pub mod anomaly;
 pub mod baselines;
 pub mod collector;
 pub mod dashboard;
-pub mod database;
 pub mod gpu;
 pub mod monitor;
 pub mod monitoring_types;
@@ -37,7 +36,10 @@ pub use anomaly::{AnomalyConfig, AnomalyDetector};
 pub use baselines::{BaselineConfig, BaselineService};
 pub use collector::SystemMetricsCollector;
 pub use dashboard::{DashboardConfig, DashboardService};
-pub use database::SystemMetricsDb;
+
+// Re-export trait from adapteros-db to replace local struct
+pub use adapteros_db::SystemMetricsDbOps;
+
 pub use monitor::{SystemMonitor, SystemMonitoringService};
 pub use notifications::{NotificationConfig, NotificationService};
 pub use persistence::MetricsPersistenceService;

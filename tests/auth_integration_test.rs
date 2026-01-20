@@ -17,12 +17,13 @@
 mod common;
 
 use adapteros_server_api::auth::{
-    refresh_token, token_needs_refresh, validate_token, validate_token_ed25519_der, Claims,
+    refresh_token, token_needs_refresh, validate_token, validate_token_ed25519_der, AuthMode,
+    Claims,
 };
+use adapteros_server_api::config::{AuthConfig, SecurityConfig};
+use adapteros_server_api::rate_limit::RateLimiterConfig;
 use adapteros_server_api::routes;
-use adapteros_server_api::state::RateLimitApiConfig;
 use adapteros_server_api::types::{ErrorResponse, UserInfoResponse};
-use adapteros_server_api::{AuthConfig, AuthMode, SecurityConfig};
 use axum::{
     body::Body,
     http::{Request, StatusCode},
@@ -203,7 +204,7 @@ async fn test_login_flow() {
     assert_eq!(login.user_id.len(), 36, "user ID should be UUID-like");
     assert_eq!(login.role, "admin");
 
-    let claims = validate_token(&login.token, state.jwt_secret.as_slice())
+    let claims = validate_token(&login.token, &state.hmac_keys, state.jwt_secret.as_slice())
         .expect("token should validate with HMAC secret");
     assert_eq!(claims.email, DEFAULT_USER_EMAIL);
     assert_eq!(claims.role, "admin");
@@ -246,7 +247,7 @@ async fn test_token_refresh_flow() {
         .await
         .expect("login should succeed");
 
-    let claims = validate_token(&login.token, state.jwt_secret.as_slice())
+    let claims = validate_token(&login.token, &state.hmac_keys, state.jwt_secret.as_slice())
         .expect("token should validate with HMAC secret");
     assert!(
         !token_needs_refresh(&claims),
@@ -260,7 +261,7 @@ async fn test_token_refresh_flow() {
         "token expiring within an hour should trigger refresh"
     );
 
-    let refreshed_token = refresh_token(&claims, &state.crypto.jwt_keypair)
+    let refreshed_token = refresh_token(&claims, &state.crypto.jwt_keypair, 3600)
         .expect("refresh_token should produce a signed token");
     assert_ne!(
         refreshed_token, login.token,
@@ -340,7 +341,7 @@ async fn test_expired_token() {
         .await
         .expect("login should succeed");
 
-    let mut claims = validate_token(&login.token, state.jwt_secret.as_slice())
+    let mut claims = validate_token(&login.token, &state.hmac_keys, state.jwt_secret.as_slice())
         .expect("token should validate with HMAC secret");
     claims.exp = (Utc::now() - Duration::minutes(5)).timestamp();
 
@@ -374,7 +375,7 @@ async fn test_expired_token() {
         .expect("read response body");
     let error: ErrorResponse =
         serde_json::from_slice(&body).expect("error response should deserialize");
-    assert_eq!(error.error, "unauthorized");
+    assert_eq!(error.message, "unauthorized");
 }
 
 #[tokio::test]
@@ -385,9 +386,10 @@ async fn test_rate_limiting() {
             .config
             .write()
             .expect("config lock should not be poisoned");
-        config.rate_limits = Some(RateLimitApiConfig {
+        config.rate_limit = Some(RateLimiterConfig {
             requests_per_minute: 1,
             burst_size: 0,
+            ..Default::default()
         });
     }
 

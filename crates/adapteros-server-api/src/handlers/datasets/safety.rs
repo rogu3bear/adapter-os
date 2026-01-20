@@ -28,16 +28,14 @@ use super::types::{
     DatasetTrustOverrideRequest, TrustOverrideRequest, TrustOverrideResponse,
     UpdateDatasetSafetyRequest, UpdateDatasetSafetyResponse,
 };
+use crate::api_error::ApiError;
 use crate::audit_helper;
 use crate::auth::Claims;
-use crate::error_helpers::{bad_request, db_error, forbidden, not_found};
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
-use crate::types::ErrorResponse;
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
     response::IntoResponse,
     Extension, Json,
 };
@@ -462,11 +460,11 @@ pub async fn update_dataset_safety(
     Extension(claims): Extension<Claims>,
     Path(dataset_id): Path<String>,
     Json(body): Json<UpdateDatasetSafetyRequest>,
-) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetValidate)?;
 
     let normalized = normalize_safety_statuses(&body).map_err(|errors| {
-        bad_request(format!(
+        ApiError::bad_request(format!(
             "Invalid safety status values: {}",
             errors.join("; ")
         ))
@@ -476,8 +474,8 @@ pub async fn update_dataset_safety(
         .db
         .get_training_dataset(&dataset_id)
         .await
-        .map_err(|e| db_error(format!("Failed to get dataset: {}", e)))?
-        .ok_or_else(|| not_found("Dataset"))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to get dataset: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Dataset"))?;
 
     if let Some(ref dataset_tenant_id) = dataset.tenant_id {
         validate_tenant_isolation(&claims, dataset_tenant_id)?;
@@ -487,7 +485,7 @@ pub async fn update_dataset_safety(
         .db
         .ensure_dataset_version_exists(&dataset_id)
         .await
-        .map_err(|e| db_error(format!("Failed to ensure dataset version: {}", e)))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to ensure dataset version: {}", e)))?;
 
     // Compute overall safety using the centralized function
     let overall_safety = derive_overall_safety(
@@ -507,7 +505,7 @@ pub async fn update_dataset_safety(
             normalized.anomaly_status.as_deref(),
         )
         .await
-        .map_err(|e| db_error(format!("Failed to update safety status: {}", e)))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to update safety status: {}", e)))?;
 
     record_safety_status_updates(&state, &version_id, &claims.sub, &normalized).await;
 
@@ -561,15 +559,15 @@ pub async fn override_dataset_trust(
     Extension(claims): Extension<Claims>,
     Path(dataset_id): Path<String>,
     Json(body): Json<TrustOverrideRequest>,
-) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetValidate)?;
 
     let dataset = state
         .db
         .get_training_dataset(&dataset_id)
         .await
-        .map_err(|e| db_error(format!("Failed to get dataset: {}", e)))?
-        .ok_or_else(|| not_found("Dataset"))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to get dataset: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Dataset"))?;
 
     if let Some(ref dataset_tenant_id) = dataset.tenant_id {
         validate_tenant_isolation(&claims, dataset_tenant_id)?;
@@ -579,10 +577,10 @@ pub async fn override_dataset_trust(
         .db
         .ensure_dataset_version_exists(&dataset_id)
         .await
-        .map_err(|e| db_error(format!("Failed to ensure dataset version: {}", e)))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to ensure dataset version: {}", e)))?;
 
-    let normalized_state =
-        normalize_override_state("trust_state", &body.trust_state).map_err(bad_request)?;
+    let normalized_state = normalize_override_state("trust_state", &body.trust_state)
+        .map_err(ApiError::bad_request)?;
 
     state
         .db
@@ -593,7 +591,7 @@ pub async fn override_dataset_trust(
             &claims.sub,
         )
         .await
-        .map_err(|e| db_error(format!("Failed to create trust override: {}", e)))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to create trust override: {}", e)))?;
 
     // Audit log: trust override
     audit_helper::log_success_or_warn(
@@ -641,7 +639,7 @@ pub async fn preview_dataset(
     Extension(claims): Extension<Claims>,
     Path(dataset_id): Path<String>,
     Query(params): Query<HashMap<String, String>>,
-) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetView)?;
 
     let limit = params
@@ -654,15 +652,15 @@ pub async fn preview_dataset(
         .db
         .get_training_dataset(&dataset_id)
         .await
-        .map_err(|e| db_error(format!("Failed to get dataset: {}", e)))?
-        .ok_or_else(|| not_found("Dataset"))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to get dataset: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Dataset"))?;
 
     // CRITICAL: Validate tenant isolation - non-admin users can only preview their own tenant's datasets
     if let Some(ref dataset_tenant_id) = dataset.tenant_id {
         validate_tenant_isolation(&claims, dataset_tenant_id)?;
     } else if claims.role != "admin" {
         // Datasets without tenant_id can only be previewed by admins
-        return Err(forbidden(
+        return Err(ApiError::forbidden(
             "Access denied: dataset has no tenant association",
         ));
     }
@@ -671,7 +669,7 @@ pub async fn preview_dataset(
         .db
         .get_dataset_files(&dataset_id)
         .await
-        .map_err(|e| db_error(format!("Failed to get dataset files: {}", e)))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to get dataset files: {}", e)))?;
 
     let mut examples = Vec::new();
     let mut count = 0;
@@ -687,10 +685,10 @@ pub async fn preview_dataset(
                 .await
             {
                 Ok(path) => path,
-                Err((_, Json(payload))) => {
+                Err(err) => {
                     warn!(
                         "Failed to validate dataset file path for {}: {}",
-                        file.file_name, payload.error
+                        file.file_name, err
                     );
                     continue;
                 }
@@ -733,15 +731,15 @@ pub async fn apply_dataset_trust_override(
     Extension(claims): Extension<Claims>,
     Path(dataset_id): Path<String>,
     Json(payload): Json<DatasetTrustOverrideRequest>,
-) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetValidate)?;
 
     let dataset = state
         .db
         .get_training_dataset(&dataset_id)
         .await
-        .map_err(|e| db_error(format!("Failed to load dataset: {}", e)))?
-        .ok_or_else(|| not_found("Dataset"))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to load dataset: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Dataset"))?;
 
     // Tenant isolation
     if let Some(ref dataset_tenant_id) = dataset.tenant_id {
@@ -750,13 +748,13 @@ pub async fn apply_dataset_trust_override(
 
     let normalized_state =
         normalize_override_state("override_state", payload.override_state.as_str())
-            .map_err(bad_request)?;
+            .map_err(ApiError::bad_request)?;
 
     let version_id = state
         .db
         .ensure_dataset_version_exists(&dataset_id)
         .await
-        .map_err(|e| db_error(format!("Failed to ensure dataset version: {}", e)))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to ensure dataset version: {}", e)))?;
 
     state
         .db
@@ -767,13 +765,13 @@ pub async fn apply_dataset_trust_override(
             &claims.sub,
         )
         .await
-        .map_err(|e| db_error(format!("Failed to create override: {}", e)))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to create override: {}", e)))?;
 
     let effective = state
         .db
         .get_effective_trust_state(&version_id)
         .await
-        .map_err(|e| db_error(format!("Failed to read effective trust_state: {}", e)))?
+        .map_err(|e| ApiError::db_error(format!("Failed to read effective trust_state: {}", e)))?
         .unwrap_or_else(|| "unknown".to_string());
 
     // Audit log: trust override
@@ -826,7 +824,7 @@ pub async fn apply_dataset_version_trust_override(
     Extension(claims): Extension<Claims>,
     Path((dataset_id, version_id)): Path<(String, String)>,
     Json(payload): Json<DatasetTrustOverrideRequest>,
-) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetValidate)?;
 
     // Validate dataset exists and enforce tenant isolation
@@ -834,8 +832,8 @@ pub async fn apply_dataset_version_trust_override(
         .db
         .get_training_dataset(&dataset_id)
         .await
-        .map_err(|e| db_error(format!("Failed to load dataset: {}", e)))?
-        .ok_or_else(|| not_found("Dataset"))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to load dataset: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Dataset"))?;
 
     if let Some(ref dataset_tenant_id) = dataset.tenant_id {
         validate_tenant_isolation(&claims, dataset_tenant_id)?;
@@ -846,11 +844,11 @@ pub async fn apply_dataset_version_trust_override(
         .db
         .get_training_dataset_version(&version_id)
         .await
-        .map_err(|e| db_error(format!("Failed to load dataset version: {}", e)))?
-        .ok_or_else(|| not_found("Dataset version"))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to load dataset version: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Dataset version"))?;
 
     if version.dataset_id != dataset_id {
-        return Err(bad_request(
+        return Err(ApiError::bad_request(
             "Version does not belong to the specified dataset",
         ));
     }
@@ -863,7 +861,7 @@ pub async fn apply_dataset_version_trust_override(
     // Validate override state
     let normalized_state =
         normalize_override_state("override_state", payload.override_state.as_str())
-            .map_err(bad_request)?;
+            .map_err(ApiError::bad_request)?;
 
     // Create the override (this automatically propagates trust changes via DB triggers)
     state
@@ -875,14 +873,14 @@ pub async fn apply_dataset_version_trust_override(
             &claims.sub,
         )
         .await
-        .map_err(|e| db_error(format!("Failed to create override: {}", e)))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to create override: {}", e)))?;
 
     // Get the effective trust state after override
     let effective = state
         .db
         .get_effective_trust_state(&version_id)
         .await
-        .map_err(|e| db_error(format!("Failed to read effective trust_state: {}", e)))?
+        .map_err(|e| ApiError::db_error(format!("Failed to read effective trust_state: {}", e)))?
         .unwrap_or_else(|| "unknown".to_string());
 
     // Audit log: version-specific trust override
@@ -936,11 +934,11 @@ pub async fn update_dataset_version_safety(
     Extension(claims): Extension<Claims>,
     Path((dataset_id, version_id)): Path<(String, String)>,
     Json(body): Json<UpdateDatasetSafetyRequest>,
-) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetValidate)?;
 
     let normalized = normalize_safety_statuses(&body).map_err(|errors| {
-        bad_request(format!(
+        ApiError::bad_request(format!(
             "Invalid safety status values: {}",
             errors.join("; ")
         ))
@@ -951,8 +949,8 @@ pub async fn update_dataset_version_safety(
         .db
         .get_training_dataset(&dataset_id)
         .await
-        .map_err(|e| db_error(format!("Failed to get dataset: {}", e)))?
-        .ok_or_else(|| not_found("Dataset"))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to get dataset: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Dataset"))?;
 
     if let Some(ref dataset_tenant_id) = dataset.tenant_id {
         validate_tenant_isolation(&claims, dataset_tenant_id)?;
@@ -963,11 +961,11 @@ pub async fn update_dataset_version_safety(
         .db
         .get_training_dataset_version(&version_id)
         .await
-        .map_err(|e| db_error(format!("Failed to load dataset version: {}", e)))?
-        .ok_or_else(|| not_found("Dataset version"))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to load dataset version: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Dataset version"))?;
 
     if version.dataset_id != dataset_id {
-        return Err(bad_request(
+        return Err(ApiError::bad_request(
             "Version does not belong to the specified dataset",
         ));
     }
@@ -996,7 +994,7 @@ pub async fn update_dataset_version_safety(
             normalized.anomaly_status.as_deref(),
         )
         .await
-        .map_err(|e| db_error(format!("Failed to update safety status: {}", e)))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to update safety status: {}", e)))?;
 
     record_safety_status_updates(&state, &version_id, &claims.sub, &normalized).await;
 
@@ -1053,7 +1051,7 @@ pub async fn check_dataset_safety(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(dataset_id): Path<String>,
-) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetView)?;
 
     // Get the dataset
@@ -1061,14 +1059,14 @@ pub async fn check_dataset_safety(
         .db
         .get_training_dataset(&dataset_id)
         .await
-        .map_err(|e| db_error(format!("Failed to get dataset: {}", e)))?
-        .ok_or_else(|| not_found("Dataset"))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to get dataset: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Dataset"))?;
 
     // Tenant isolation check
     if let Some(ref dataset_tenant_id) = dataset.tenant_id {
         validate_tenant_isolation(&claims, dataset_tenant_id)?;
     } else if claims.role != "admin" {
-        return Err(forbidden(
+        return Err(ApiError::forbidden(
             "Access denied: dataset has no tenant association",
         ));
     }
@@ -1078,21 +1076,21 @@ pub async fn check_dataset_safety(
         .db
         .ensure_dataset_version_exists(&dataset_id)
         .await
-        .map_err(|e| db_error(format!("Failed to get dataset version: {}", e)))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to get dataset version: {}", e)))?;
 
     let version = state
         .db
         .get_training_dataset_version(&version_id)
         .await
-        .map_err(|e| db_error(format!("Failed to load dataset version: {}", e)))?
-        .ok_or_else(|| not_found("Dataset version"))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to load dataset version: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Dataset version"))?;
 
     // Get effective trust state (considers overrides)
     let effective_trust_state = state
         .db
         .get_effective_trust_state(&version_id)
         .await
-        .map_err(|e| db_error(format!("Failed to get effective trust state: {}", e)))?
+        .map_err(|e| ApiError::db_error(format!("Failed to get effective trust state: {}", e)))?
         .unwrap_or_else(|| "unknown".to_string());
 
     // Evaluate safety
@@ -1181,7 +1179,7 @@ pub async fn check_dataset_version_safety(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path((dataset_id, version_id)): Path<(String, String)>,
-) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetView)?;
 
     // Get the dataset
@@ -1189,14 +1187,14 @@ pub async fn check_dataset_version_safety(
         .db
         .get_training_dataset(&dataset_id)
         .await
-        .map_err(|e| db_error(format!("Failed to get dataset: {}", e)))?
-        .ok_or_else(|| not_found("Dataset"))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to get dataset: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Dataset"))?;
 
     // Tenant isolation check
     if let Some(ref dataset_tenant_id) = dataset.tenant_id {
         validate_tenant_isolation(&claims, dataset_tenant_id)?;
     } else if claims.role != "admin" {
-        return Err(forbidden(
+        return Err(ApiError::forbidden(
             "Access denied: dataset has no tenant association",
         ));
     }
@@ -1206,12 +1204,12 @@ pub async fn check_dataset_version_safety(
         .db
         .get_training_dataset_version(&version_id)
         .await
-        .map_err(|e| db_error(format!("Failed to load dataset version: {}", e)))?
-        .ok_or_else(|| not_found("Dataset version"))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to load dataset version: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Dataset version"))?;
 
     // Verify version belongs to dataset
     if version.dataset_id != dataset_id {
-        return Err(bad_request(
+        return Err(ApiError::bad_request(
             "Version does not belong to the specified dataset",
         ));
     }
@@ -1226,7 +1224,7 @@ pub async fn check_dataset_version_safety(
         .db
         .get_effective_trust_state(&version_id)
         .await
-        .map_err(|e| db_error(format!("Failed to get effective trust state: {}", e)))?
+        .map_err(|e| ApiError::db_error(format!("Failed to get effective trust state: {}", e)))?
         .unwrap_or_else(|| "unknown".to_string());
 
     // Evaluate safety
@@ -1402,7 +1400,7 @@ pub async fn get_dataset_version_safety_history(
     Extension(claims): Extension<Claims>,
     Path((dataset_id, version_id)): Path<(String, String)>,
     Query(params): Query<SafetyHistoryQuery>,
-) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetView)?;
 
     // Get the dataset
@@ -1410,14 +1408,14 @@ pub async fn get_dataset_version_safety_history(
         .db
         .get_training_dataset(&dataset_id)
         .await
-        .map_err(|e| db_error(format!("Failed to get dataset: {}", e)))?
-        .ok_or_else(|| not_found("Dataset"))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to get dataset: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Dataset"))?;
 
     // Tenant isolation check
     if let Some(ref dataset_tenant_id) = dataset.tenant_id {
         validate_tenant_isolation(&claims, dataset_tenant_id)?;
     } else if claims.role != "admin" {
-        return Err(forbidden(
+        return Err(ApiError::forbidden(
             "Access denied: dataset has no tenant association",
         ));
     }
@@ -1427,12 +1425,12 @@ pub async fn get_dataset_version_safety_history(
         .db
         .get_training_dataset_version(&version_id)
         .await
-        .map_err(|e| db_error(format!("Failed to load dataset version: {}", e)))?
-        .ok_or_else(|| not_found("Dataset version"))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to load dataset version: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Dataset version"))?;
 
     // Verify version belongs to dataset
     if version.dataset_id != dataset_id {
-        return Err(bad_request(
+        return Err(ApiError::bad_request(
             "Version does not belong to the specified dataset",
         ));
     }
@@ -1447,7 +1445,7 @@ pub async fn get_dataset_version_safety_history(
         .db
         .get_effective_trust_state(&version_id)
         .await
-        .map_err(|e| db_error(format!("Failed to get effective trust state: {}", e)))?
+        .map_err(|e| ApiError::db_error(format!("Failed to get effective trust state: {}", e)))?
         .unwrap_or_else(|| "unknown".to_string());
 
     // Get validation runs
@@ -1456,14 +1454,14 @@ pub async fn get_dataset_version_safety_history(
         .db
         .list_dataset_version_validation_runs(&version_id, limit)
         .await
-        .map_err(|e| db_error(format!("Failed to list validation runs: {}", e)))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to list validation runs: {}", e)))?;
 
     // Get trust overrides
     let overrides = state
         .db
         .list_dataset_version_overrides(&version_id, limit)
         .await
-        .map_err(|e| db_error(format!("Failed to list trust overrides: {}", e)))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to list trust overrides: {}", e)))?;
 
     // Map to response types
     let validation_run_records: Vec<ValidationRunRecord> = validation_runs
@@ -1552,7 +1550,7 @@ pub async fn get_dataset_safety_history(
     Extension(claims): Extension<Claims>,
     Path(dataset_id): Path<String>,
     Query(params): Query<SafetyHistoryQuery>,
-) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetView)?;
 
     // Get the dataset
@@ -1560,14 +1558,14 @@ pub async fn get_dataset_safety_history(
         .db
         .get_training_dataset(&dataset_id)
         .await
-        .map_err(|e| db_error(format!("Failed to get dataset: {}", e)))?
-        .ok_or_else(|| not_found("Dataset"))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to get dataset: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Dataset"))?;
 
     // Tenant isolation check
     if let Some(ref dataset_tenant_id) = dataset.tenant_id {
         validate_tenant_isolation(&claims, dataset_tenant_id)?;
     } else if claims.role != "admin" {
-        return Err(forbidden(
+        return Err(ApiError::forbidden(
             "Access denied: dataset has no tenant association",
         ));
     }
@@ -1577,21 +1575,21 @@ pub async fn get_dataset_safety_history(
         .db
         .ensure_dataset_version_exists(&dataset_id)
         .await
-        .map_err(|e| db_error(format!("Failed to get dataset version: {}", e)))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to get dataset version: {}", e)))?;
 
     let version = state
         .db
         .get_training_dataset_version(&version_id)
         .await
-        .map_err(|e| db_error(format!("Failed to load dataset version: {}", e)))?
-        .ok_or_else(|| not_found("Dataset version"))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to load dataset version: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Dataset version"))?;
 
     // Get effective trust state
     let effective_trust_state = state
         .db
         .get_effective_trust_state(&version_id)
         .await
-        .map_err(|e| db_error(format!("Failed to get effective trust state: {}", e)))?
+        .map_err(|e| ApiError::db_error(format!("Failed to get effective trust state: {}", e)))?
         .unwrap_or_else(|| "unknown".to_string());
 
     // Get validation runs
@@ -1600,14 +1598,14 @@ pub async fn get_dataset_safety_history(
         .db
         .list_dataset_version_validation_runs(&version_id, limit)
         .await
-        .map_err(|e| db_error(format!("Failed to list validation runs: {}", e)))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to list validation runs: {}", e)))?;
 
     // Get trust overrides
     let overrides = state
         .db
         .list_dataset_version_overrides(&version_id, limit)
         .await
-        .map_err(|e| db_error(format!("Failed to list trust overrides: {}", e)))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to list trust overrides: {}", e)))?;
 
     // Map to response types
     let validation_run_records: Vec<ValidationRunRecord> = validation_runs

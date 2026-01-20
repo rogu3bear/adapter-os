@@ -12,9 +12,7 @@
 //! - MLX benchmarks: [source: BENCHMARK_RESULTS.md]
 //! - Criterion guide: https://bheisler.github.io/criterion.rs/book/
 
-use criterion::{
-    black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput,
-};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use std::time::Duration;
 
 // ============================================================================
@@ -76,8 +74,8 @@ fn bench_training_time(c: &mut Criterion) {
         b.iter(|| {
             // Simulate forward + backward pass
             let mut activations = vec![0.0f32; 1024];
-            for i in 0..activations.len() {
-                activations[i] = (i as f32).sin();
+            for (i, val) in activations.iter_mut().enumerate() {
+                *val = (i as f32).sin();
             }
             black_box(activations)
         });
@@ -92,8 +90,8 @@ fn bench_training_time(c: &mut Criterion) {
                 let mut batch = Vec::with_capacity(size as usize);
                 for _ in 0..size {
                     let mut activations = vec![0.0f32; 1024];
-                    for i in 0..activations.len() {
-                        activations[i] = (i as f32).sin();
+                    for (i, val) in activations.iter_mut().enumerate() {
+                        *val = (i as f32).sin();
                     }
                     batch.push(activations);
                 }
@@ -327,7 +325,7 @@ fn bench_e2e_workflows(c: &mut Criterion) {
         b.iter(|| {
             // Create dataset
             let mut dataset = Vec::new();
-            for i in 0..100 {
+            for _i in 0..100 {
                 dataset.push(vec![0.0f32; 128]);
             }
 

@@ -351,7 +351,7 @@ impl<'a> AuditContext<'a> {
         error: (StatusCode, Json<ErrorResponse>),
         resource_id: Option<&str>,
     ) -> (StatusCode, Json<ErrorResponse>) {
-        let error_msg = &error.1 .0.error;
+        let error_msg = &error.1 .0.message;
         log_failure_or_warn(
             self.db,
             self.claims,

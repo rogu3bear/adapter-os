@@ -270,6 +270,17 @@ struct StreamErrorPayload {
     correlation_id: String,
 }
 
+/// Adapter state information for visualization
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct AdapterStateInfo {
+    /// Adapter identifier
+    pub adapter_id: String,
+    /// Usage rate (uses per minute)
+    pub uses_per_minute: u32,
+    /// Currently active (in use for this inference)
+    pub is_active: bool,
+}
+
 /// Inference event types for progress streaming
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "event")]
@@ -314,6 +325,8 @@ pub enum InferenceEvent {
     },
     /// Error occurred
     Error { message: String, recoverable: bool },
+    /// Adapter state update for visualization
+    AdapterStateUpdate { adapters: Vec<AdapterStateInfo> },
 }
 
 /// Load phases for progress tracking
@@ -2047,6 +2060,7 @@ mod tests {
             seed_mode: SeedMode::BestEffort,
             backend_profile: BackendKind::Auto,
             worker_id: 0,
+            rate_limit: None,
         }));
         let metrics_exporter =
             Arc::new(MetricsExporter::new(vec![0.1, 1.0]).expect("metrics exporter"));

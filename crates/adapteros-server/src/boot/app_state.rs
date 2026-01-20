@@ -34,7 +34,7 @@ use crate::boot::BackgroundTaskSpawner;
 use crate::shutdown::ShutdownCoordinator;
 
 const DEFAULT_MANIFEST_HASH: &str =
-    "8910e57445575ebf4b0dfb4dc92a26ea174edf13088ae7acacd3262be8bb8a20";
+    "0a2fff3ce35338f46e052d505b5c9ace606f7fd86b1e0c7b9a1a1923d7a1ce4d";
 
 /// Build the AppState with all its dependencies.
 ///

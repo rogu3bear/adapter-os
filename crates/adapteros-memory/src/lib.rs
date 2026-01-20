@@ -33,10 +33,12 @@
 
 pub mod buffer_pool;
 pub mod buffer_relocation;
+pub mod cross_backend;
 pub mod ffi_wrapper;
 pub mod heap_observer;
 pub mod k_reduction_integration;
 pub mod k_reduction_protocol;
+pub mod lockfree_pool;
 pub mod memory_map;
 pub mod model_cache;
 pub mod optimization;
@@ -45,6 +47,7 @@ pub mod pointer_canonicalizer;
 pub mod pressure_manager;
 pub mod replay_integration;
 pub mod telemetry;
+pub mod tiered_manager;
 pub mod unified_interface;
 pub mod unified_memory;
 pub mod unified_tracker;
@@ -52,6 +55,9 @@ pub mod watchdog;
 
 pub use buffer_pool::{BufferPool, BufferPoolConfig, BufferPoolStats, TensorFormat};
 pub use buffer_relocation::BufferRelocationDetector;
+pub use cross_backend::{
+    BackendAccess, BufferView, CrossBackendManager, CrossBackendStats, UnifiedTensorBuffer,
+};
 pub use ffi_wrapper::{
     FragmentationReport, HeapObserverHandle, HeapObserverStats, HeapSnapshot, MigrationEventReport,
 };
@@ -69,6 +75,7 @@ pub use k_reduction_protocol::{
     KReductionDecisionMaker, KReductionRequest, KReductionResponse, KReductionStats,
     KReductionStatus, KReductionTimeoutConfig, LockOrderingContext,
 };
+pub use lockfree_pool::{LockFreeBlock, LockFreePool, LockFreePoolStats, SLAB_SIZES};
 pub use memory_map::MemoryMapHasher;
 pub use model_cache::{ModelCache, ModelCacheConfig, ModelCacheMetrics, ModelEntry};
 pub use optimization::{MemoryOptimizationPlan, MemoryOptimizer, MemoryPressureReport};
@@ -82,14 +89,17 @@ pub use pointer_canonicalizer::PointerCanonicalizer;
 pub use pressure_manager::{EvictedAdapter, MemoryPressureManager, MemoryStats};
 pub use replay_integration::ReplayMemoryLogger;
 pub use telemetry::{MemoryTelemetryWriter, TelemetryEventSink};
+pub use tiered_manager::{
+    MemoryTier, MigrationStats, TieredBlock, TieredConfig, TieredMemoryManager, TieredStats,
+};
 pub use unified_interface::{
     AdapterCategory, AdapterMemoryInfo, AdapterState, CleanupOperation, MemoryCleanupReport,
     MemoryManager, MemoryPressureLevel, MemoryUsageStats,
     UnifiedMemoryManager as UnifiedMemoryManagerInterface,
 };
 pub use unified_memory::{
-    AllocationRequest, MemoryBlock, MemoryStats as UnifiedMemoryStats, MemoryType,
-    UnifiedMemoryManager,
+    AllocationRequest, MemoryBlock, MemoryBudget, MemoryStats as UnifiedMemoryStats, MemoryType,
+    PreAllocationPlan, UnifiedMemoryManager,
 };
 pub use unified_tracker::{
     BackendType, EvictionStrategy, GpuBufferFingerprint, MemoryLimits, MemoryPressure,

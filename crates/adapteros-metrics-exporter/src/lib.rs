@@ -274,28 +274,17 @@ impl MetricsExporter {
         registry.register(Box::new(routing_gate_max.clone()))?;
 
         // Resource metrics
-        let memory_bytes = GaugeVec::new(
-            Opts::new("aos_memory_bytes", "Memory usage"),
-            &["type"],
-        )?;
+        let memory_bytes = GaugeVec::new(Opts::new("aos_memory_bytes", "Memory usage"), &["type"])?;
         registry.register(Box::new(memory_bytes.clone()))?;
 
-        let gpu_utilization_ratio = Gauge::new(
-            "aos_gpu_utilization_ratio",
-            "GPU utilization 0-1",
-        )?;
+        let gpu_utilization_ratio = Gauge::new("aos_gpu_utilization_ratio", "GPU utilization 0-1")?;
         registry.register(Box::new(gpu_utilization_ratio.clone()))?;
 
-        let adapter_cache_entries = Gauge::new(
-            "aos_adapter_cache_entries",
-            "Cached adapter count",
-        )?;
+        let adapter_cache_entries =
+            Gauge::new("aos_adapter_cache_entries", "Cached adapter count")?;
         registry.register(Box::new(adapter_cache_entries.clone()))?;
 
-        let adapter_cache_bytes = Gauge::new(
-            "aos_adapter_cache_bytes",
-            "Cache memory usage",
-        )?;
+        let adapter_cache_bytes = Gauge::new("aos_adapter_cache_bytes", "Cache memory usage")?;
         registry.register(Box::new(adapter_cache_bytes.clone()))?;
 
         let kv_cache_entries = GaugeVec::new(

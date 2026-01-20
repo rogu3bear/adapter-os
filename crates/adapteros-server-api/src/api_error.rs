@@ -61,12 +61,12 @@ pub fn redact_error_details(input: &str) -> Cow<'_, str> {
 /// providing a cleaner API with builder methods and automatic error conversion.
 #[derive(Debug)]
 pub struct ApiError {
-    status: StatusCode,
-    code: Cow<'static, str>,
-    message: String,
-    details: Option<String>,
-    request_id: Option<String>,
-    tenant_id: Option<String>,
+    pub status: StatusCode,
+    pub code: Cow<'static, str>,
+    pub message: String,
+    pub details: Option<serde_json::Value>,
+    pub request_id: Option<String>,
+    pub tenant_id: Option<String>,
 }
 
 impl fmt::Display for ApiError {
@@ -95,9 +95,20 @@ impl ApiError {
         }
     }
 
+    /// Set the error code (can be dynamic)
+    pub fn with_code(mut self, code: impl Into<Cow<'static, str>>) -> Self {
+        self.code = code.into();
+        self
+    }
+
     /// Add details to the error
     pub fn with_details(mut self, details: impl Into<String>) -> Self {
-        self.details = Some(details.into());
+        self.details = Some(serde_json::Value::String(details.into()));
+        self
+    }
+
+    pub fn with_json_details(mut self, details: serde_json::Value) -> Self {
+        self.details = Some(details);
         self
     }
 
@@ -485,8 +496,9 @@ impl IntoResponse for ApiError {
 
         if let Some(details) = self.details {
             // Apply redaction at final serialization point (defense-in-depth)
-            let redacted = redact_error_details(&details);
-            error_response = error_response.with_string_details(redacted);
+            let details_str = details.to_string();
+            let redacted = redact_error_details(&details_str);
+            error_response = error_response.with_string_details(redacted.into_owned());
         }
 
         // Build context suffix with tenant_id and request_id for tracing
@@ -524,7 +536,7 @@ impl From<(StatusCode, Json<ErrorResponse>)> for ApiError {
     fn from((status, Json(response)): (StatusCode, Json<ErrorResponse>)) -> Self {
         let ErrorResponse {
             code,
-            error,
+            message: error,
             details,
             ..
         } = response;
@@ -537,7 +549,7 @@ impl From<(StatusCode, Json<ErrorResponse>)> for ApiError {
                 Cow::Owned(code)
             },
             message: error,
-            details: details.and_then(|v| v.as_str().map(|s| s.to_string())),
+            details,
             request_id: None,
             tenant_id: None,
         }
@@ -552,7 +564,7 @@ impl From<ApiError> for (StatusCode, Json<ErrorResponse>) {
     fn from(err: ApiError) -> Self {
         let mut response = ErrorResponse::new(&err.message).with_code(err.code);
         if let Some(details) = err.details {
-            response = response.with_string_details(details);
+            response = response.with_details(details);
         }
         (err.status, Json(response))
     }
@@ -915,7 +927,10 @@ mod tests {
     #[test]
     fn test_api_error_with_details() {
         let error = ApiError::internal("failed").with_details("step 1 of 3");
-        assert_eq!(error.details, Some("step 1 of 3".to_string()));
+        assert_eq!(
+            error.details,
+            Some(serde_json::Value::String("step 1 of 3".to_string()))
+        );
     }
 
     #[test]
@@ -1102,9 +1117,12 @@ mod tests {
         let error = ApiError::internal("failed")
             .with_redacted_details("Error at /Users/admin/secrets/config.json: connection refused");
         let details = error.details.unwrap();
-        assert!(!details.contains("/Users/"), "Path should be redacted");
         assert!(
-            details.contains("connection refused"),
+            !details.to_string().contains("/Users/"),
+            "Path should be redacted"
+        );
+        assert!(
+            details.to_string().contains("connection refused"),
             "Error message should be preserved"
         );
     }
@@ -1394,7 +1412,10 @@ mod tests {
 
         assert_eq!(error.status, StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(error.message, "failed");
-        assert_eq!(error.details, Some("extra info".to_string()));
+        assert_eq!(
+            error.details,
+            Some(serde_json::Value::String("extra info".to_string()))
+        );
         assert_eq!(error.request_id, Some("req-123".to_string()));
         assert_eq!(error.tenant_id, Some("tenant-456".to_string()));
     }
@@ -1408,8 +1429,8 @@ mod tests {
         let error = ApiError::thundering_herd_rejected(10000);
         assert_eq!(error.status, StatusCode::TOO_MANY_REQUESTS);
         let details = error.details.as_ref().expect("should have details");
-        assert!(details.contains("Retry after"));
-        assert!(details.contains("10 seconds"));
+        assert!(details.to_string().contains("Retry after"));
+        assert!(details.to_string().contains("10 seconds"));
     }
 
     #[test]
@@ -1417,8 +1438,8 @@ mod tests {
         let error = ApiError::stream_disconnected("connection lost", 5000);
         assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
         let details = error.details.as_ref().expect("should have details");
-        assert!(details.contains("Reconnect after"));
-        assert!(details.contains("5000 ms"));
+        assert!(details.to_string().contains("Reconnect after"));
+        assert!(details.to_string().contains("5000 ms"));
     }
 
     #[test]
@@ -1600,7 +1621,12 @@ mod tests {
         };
         let api_err: ApiError = aos_err.into();
         assert_eq!(api_err.status, StatusCode::TOO_MANY_REQUESTS);
-        assert!(api_err.details.as_ref().unwrap().contains("Retry after"));
+        assert!(api_err
+            .details
+            .as_ref()
+            .unwrap()
+            .to_string()
+            .contains("Retry after"));
     }
 
     #[test]
@@ -1661,7 +1687,12 @@ mod tests {
         let error = ApiError::thundering_herd_rejected(5000);
         assert_eq!(error.status, StatusCode::TOO_MANY_REQUESTS);
         assert_eq!(error.code, "THUNDERING_HERD_REJECTED");
-        assert!(error.details.as_ref().unwrap().contains("5 seconds"));
+        assert!(error
+            .details
+            .as_ref()
+            .unwrap()
+            .to_string()
+            .contains("5 seconds"));
     }
 
     #[test]
@@ -1677,7 +1708,12 @@ mod tests {
         let error = ApiError::stream_disconnected("server shutdown", 3000);
         assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(error.code, "STREAM_DISCONNECTED");
-        assert!(error.details.as_ref().unwrap().contains("3000 ms"));
+        assert!(error
+            .details
+            .as_ref()
+            .unwrap()
+            .to_string()
+            .contains("3000 ms"));
     }
 
     #[test]

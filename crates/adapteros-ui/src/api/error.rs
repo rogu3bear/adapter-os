@@ -67,7 +67,7 @@ impl ApiError {
         // Try to parse as ErrorResponse
         if let Ok(err) = serde_json::from_str::<ErrorResponse>(body) {
             return Self::Structured {
-                error: err.error,
+                error: err.message,
                 code: err.code.clone(),
                 failure_code: err
                     .failure_code

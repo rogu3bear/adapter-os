@@ -65,7 +65,7 @@ pub fn Repositories() -> impl IntoView {
                         </button>
                         <button
                             class="inline-flex items-center gap-2 rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                            on:click=move |_| refetch_repos()
+                            on:click=move |_| refetch_repos.run(())
                         >
                             "Refresh"
                         </button>

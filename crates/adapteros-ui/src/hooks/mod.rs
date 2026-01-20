@@ -54,7 +54,7 @@ impl<T> LoadingState<T> {
 /// Create a resource that fetches data from the API
 ///
 /// Automatically reports API errors to the server for persistent logging.
-pub fn use_api_resource<T, F, Fut>(fetch: F) -> (ReadSignal<LoadingState<T>>, impl Fn())
+pub fn use_api_resource<T, F, Fut>(fetch: F) -> (ReadSignal<LoadingState<T>>, Callback<()>)
 where
     T: Clone + Send + Sync + 'static,
     F: Fn(Arc<ApiClient>) -> Fut + Clone + Send + Sync + 'static,
@@ -148,7 +148,7 @@ where
         });
     });
 
-    (state, refetch)
+    (state, Callback::new(move |_| refetch()))
 }
 
 /// Simple polling hook with automatic cleanup

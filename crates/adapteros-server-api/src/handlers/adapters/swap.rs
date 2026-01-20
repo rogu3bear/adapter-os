@@ -11,11 +11,12 @@
 // - No conflicting active adapters for same repo/branch
 // - System is not in maintenance mode
 
+use crate::adapter_helpers::fetch_adapter_for_tenant;
+use crate::api_error::{ApiError, ApiResult};
 use crate::audit_helper::{log_preflight_result, log_success_or_warn, resources};
 use crate::auth::Claims;
 use crate::handlers::adapters::preflight_adapter::run_api_preflight;
 use crate::permissions::{require_permission, Permission};
-use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::{AdapterSwapRequest, AdapterSwapResponse, ErrorResponse};
 use adapteros_core::preflight::PreflightConfig;
@@ -61,84 +62,18 @@ pub async fn swap_adapters(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Json(req): Json<AdapterSwapRequest>,
-) -> Result<Json<AdapterSwapResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<AdapterSwapResponse> {
     // Require both load and unload permissions
     require_permission(&claims, Permission::AdapterLoad)?;
     require_permission(&claims, Permission::AdapterUnload)?;
 
     let start_time = std::time::Instant::now();
 
-    // Verify old adapter exists
-    let old_adapter = state
-        .db
-        .get_adapter_for_tenant(&claims.tenant_id, &req.old_adapter_id)
-        .await
-        .map_err(|e| {
-            error!(
-                tenant_id = %claims.tenant_id,
-                old_adapter_id = %req.old_adapter_id,
-                error = %e,
-                "Failed to fetch old adapter"
-            );
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            warn!(old_adapter_id = %req.old_adapter_id, "Old adapter not found");
-            (
-                StatusCode::NOT_FOUND,
-                Json(
-                    ErrorResponse::new("old adapter not found")
-                        .with_code("NOT_FOUND")
-                        .with_string_details(format!("Adapter ID: {}", req.old_adapter_id)),
-                ),
-            )
-        })?;
+    // Verify old adapter exists and validate tenant isolation
+    let old_adapter = fetch_adapter_for_tenant(&state.db, &claims, &req.old_adapter_id).await?;
 
-    // Validate tenant isolation for old adapter
-    validate_tenant_isolation(&claims, &old_adapter.tenant_id)?;
-
-    // Verify new adapter exists
-    let new_adapter = state
-        .db
-        .get_adapter_for_tenant(&claims.tenant_id, &req.new_adapter_id)
-        .await
-        .map_err(|e| {
-            error!(
-                tenant_id = %claims.tenant_id,
-                new_adapter_id = %req.new_adapter_id,
-                error = %e,
-                "Failed to fetch new adapter"
-            );
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            warn!(new_adapter_id = %req.new_adapter_id, "New adapter not found");
-            (
-                StatusCode::NOT_FOUND,
-                Json(
-                    ErrorResponse::new("new adapter not found")
-                        .with_code("NOT_FOUND")
-                        .with_string_details(format!("Adapter ID: {}", req.new_adapter_id)),
-                ),
-            )
-        })?;
-
-    // Validate tenant isolation for new adapter
-    validate_tenant_isolation(&claims, &new_adapter.tenant_id)?;
+    // Verify new adapter exists and validate tenant isolation
+    let new_adapter = fetch_adapter_for_tenant(&state.db, &claims, &req.new_adapter_id).await?;
 
     // =========================================================================
     // PREFLIGHT GATING: Validate new adapter is ready for swap
@@ -163,14 +98,12 @@ pub async fn swap_adapters(
             checks_failed = preflight_result.failures.len(),
             "Adapter swap blocked by preflight checks"
         );
-        return Err((
+        return Err(ApiError::new(
             StatusCode::PRECONDITION_FAILED,
-            Json(
-                ErrorResponse::new("Adapter swap blocked by preflight checks")
-                    .with_code(primary_code)
-                    .with_string_details(error_details),
-            ),
-        ));
+            "PREFLIGHT_FAILED",
+            "Adapter swap blocked by preflight checks",
+        )
+        .with_details(error_details));
     }
 
     // Calculate VRAM delta
@@ -226,14 +159,8 @@ pub async fn swap_adapters(
                             error = %e,
                             "Failed to update old adapter state"
                         );
-                        (
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            Json(
-                                ErrorResponse::new("failed to update adapter state")
-                                    .with_code("INTERNAL_ERROR")
-                                    .with_string_details(e.to_string()),
-                            ),
-                        )
+                        ApiError::internal("failed to update adapter state")
+                            .with_details(e.to_string())
                     })?;
             }
         } else {
@@ -254,28 +181,16 @@ pub async fn swap_adapters(
                         error = %e,
                         "Failed to update old adapter state"
                     );
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(
-                            ErrorResponse::new("failed to update adapter state")
-                                .with_code("INTERNAL_ERROR")
-                                .with_string_details(e.to_string()),
-                        ),
-                    )
+                    ApiError::internal("failed to update adapter state").with_details(e.to_string())
                 })?;
         }
 
         // Load new adapter via lifecycle manager
         if let Err(e) = manager.get_or_reload(&req.new_adapter_id) {
             tracing::warn!(adapter_id = %req.new_adapter_id, error = %e, "Failed to load new adapter via lifecycle manager");
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to load new adapter")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            ));
+            return Err(
+                ApiError::internal("failed to load new adapter").with_details(e.to_string())
+            );
         }
 
         // Update new adapter state via lifecycle manager
@@ -303,23 +218,13 @@ pub async fn swap_adapters(
                             error = %e,
                             "Failed to update new adapter state"
                         );
-                        (
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            Json(
-                                ErrorResponse::new("failed to update adapter state")
-                                    .with_code("INTERNAL_ERROR")
-                                    .with_string_details(e.to_string()),
-                            ),
-                        )
+                        ApiError::internal("failed to update adapter state")
+                            .with_details(e.to_string())
                     })?;
             }
         } else {
-            return Err((
-                StatusCode::NOT_FOUND,
-                Json(
-                    ErrorResponse::new("new adapter not found in lifecycle manager")
-                        .with_code("NOT_FOUND"),
-                ),
+            return Err(ApiError::not_found(
+                "new adapter not found in lifecycle manager",
             ));
         }
     } else {
@@ -340,14 +245,7 @@ pub async fn swap_adapters(
                     error = %e,
                     "Failed to update old adapter state"
                 );
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("failed to update adapter state")
-                            .with_code("INTERNAL_ERROR")
-                            .with_string_details(e.to_string()),
-                    ),
-                )
+                ApiError::internal("failed to update adapter state").with_details(e.to_string())
             })?;
 
         state
@@ -366,14 +264,7 @@ pub async fn swap_adapters(
                     error = %e,
                     "Failed to update new adapter state"
                 );
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("failed to update adapter state")
-                            .with_code("INTERNAL_ERROR")
-                            .with_string_details(e.to_string()),
-                    ),
-                )
+                ApiError::internal("failed to update adapter state").with_details(e.to_string())
             })?;
     }
 

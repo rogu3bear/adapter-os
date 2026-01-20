@@ -114,4 +114,77 @@ fi
 
 ## freeze-guard.sh
 
-Port conflict detection and resource management. See `freeze-guard.sh` for details.
+**Port conflict detection and resource management.**
+
+Provides preflight checks for port conflicts, stale PID files, Unix sockets, and database locks. By default, prompts for user confirmation before killing adapterOS processes or removing stale resources. External (non-adapterOS) processes are never touched.
+
+### Environment Variables
+
+- **`FG_AUTO_KILL`**: Set to `1` or `true` to enable non-interactive mode
+  - Automatically kills adapterOS processes and cleans up stale resources without prompting
+  - **Use case**: Automated environments, CI/CD, agent-driven shells
+  - **Default**: Interactive prompts (requires user confirmation)
+
+### Usage
+
+```bash
+# Source the library
+source scripts/lib/freeze-guard.sh
+
+# Interactive mode (default) - prompts before acting
+freeze_check_port 8080 "Backend API"
+
+# Non-interactive mode - auto-kill adapterOS processes
+export FG_AUTO_KILL=1
+freeze_preflight  # Checks all resources, auto-cleans if needed
+```
+
+### Functions
+
+#### `freeze_check_port <port> [service_name]`
+
+Checks if a port is free. If occupied by an adapterOS process, offers to kill it (or auto-kills if `FG_AUTO_KILL=1`). Never touches external processes.
+
+#### `freeze_check_pid_file <pid_file> [service_name]`
+
+Checks for stale PID files and offers to clean them (or auto-cleans if `FG_AUTO_KILL=1`).
+
+#### `freeze_check_socket <socket_path> [service_name]`
+
+Checks for stale Unix sockets and offers to clean them (or auto-cleans if `FG_AUTO_KILL=1`).
+
+#### `freeze_check_db_lock <db_path>`
+
+Detects database locks but does not modify anything (informational only).
+
+#### `freeze_preflight [backend_port] [ui_port] [var_dir]`
+
+Runs all preflight checks before starting adapterOS. Returns 0 if all clear, 1 if blocked.
+
+### Examples
+
+**Interactive mode (manual confirmation):**
+
+```bash
+#!/bin/bash
+source scripts/lib/freeze-guard.sh
+
+# User will be prompted if port 8080 is in use
+if freeze_check_port 8080 "Backend"; then
+    echo "Port is free"
+else
+    echo "Port is blocked"
+    exit 1
+fi
+```
+
+**Non-interactive mode (automated/agent environments):**
+
+```bash
+#!/bin/bash
+export FG_AUTO_KILL=1  # Enable auto-kill mode
+source scripts/lib/freeze-guard.sh
+
+# Will automatically kill adapterOS processes without prompting
+freeze_preflight 8080 3200 var
+```

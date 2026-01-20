@@ -3,18 +3,18 @@
 #![allow(clippy::field_reassign_with_default)]
 #![allow(unused_mut)]
 
-use std::fs;
-
-use adapteros_lora_worker::{ComputeUnits, CoreMLExportJob};
 use adapteros_platform::common::PlatformUtils;
 use tempfile::TempDir;
 
 use crate::test_support::TestEnvGuard;
+#[cfg(not(all(target_os = "macos", feature = "coreml-backend")))]
 use crate::training::coreml::perform_coreml_export;
 use crate::training::job::{
     DataLineageMode, TrainingBackendKind, TrainingConfig, TrainingJob, TrainingJobStatus,
 };
 use crate::training::service::TrainingService;
+#[cfg(not(all(target_os = "macos", feature = "coreml-backend")))]
+use adapteros_lora_worker::{ComputeUnits, CoreMLExportJob};
 
 fn new_test_tempdir() -> TempDir {
     let root = PlatformUtils::temp_dir();
@@ -29,8 +29,8 @@ fn stub_coreml_export_path_is_invokable_when_allowed() {
     let tmp = new_test_tempdir();
     let base = tmp.path().join("base.json");
     let adapter = tmp.path().join("adapter.aos");
-    fs::write(&base, b"base-bytes").unwrap();
-    fs::write(&adapter, b"adapter-bytes").unwrap();
+    std::fs::write(&base, b"base-bytes").unwrap();
+    std::fs::write(&adapter, b"adapter-bytes").unwrap();
 
     std::env::set_var("AOS_ALLOW_COREML_EXPORT_STUB", "1");
     let record = perform_coreml_export(CoreMLExportJob {

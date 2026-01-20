@@ -40,7 +40,7 @@ use leptos_router::components::*;
 use leptos_router::path;
 
 use crate::api::ApiClient;
-use components::{AuthProvider, CommandPalette, ProtectedRoute, Shell};
+use components::{AuthProvider, BootSequence, CommandPalette, ProtectedRoute, Shell};
 use signals::{provide_chat_context, provide_notifications_context, provide_search_context};
 use std::sync::Arc;
 
@@ -155,11 +155,17 @@ pub fn App() -> impl IntoView {
         return view! { <BaseUrlError reason=err.to_string()/> }.into_any();
     }
 
+    let (boot_complete, set_boot_complete) = signal(false);
+
     view! {
         <>
             <Title text="adapterOS"/>
             <Meta charset="utf-8"/>
             <Meta name="viewport" content="width=device-width, initial-scale=1"/>
+
+            <Show when=move || !boot_complete.get()>
+                <BootSequence on_complete=move || set_boot_complete.set(true) />
+            </Show>
 
             <AuthProvider>
                 <NotificationsProvider>

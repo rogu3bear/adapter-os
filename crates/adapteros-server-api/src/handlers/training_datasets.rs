@@ -1,7 +1,5 @@
+use crate::api_error::ApiError;
 use crate::auth::Claims;
-#[cfg(feature = "embeddings")]
-use crate::error_helpers::bad_request;
-use crate::error_helpers::{internal_error, not_found, not_implemented};
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::services::{DatasetDomain, DatasetDomainService, SamplingConfig};
@@ -46,7 +44,7 @@ pub async fn create_training_dataset_from_upload(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     mut multipart: Multipart,
-) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetUpload)?;
 
     let mut dataset_name: Option<String> = None;
@@ -55,19 +53,23 @@ pub async fn create_training_dataset_from_upload(
     let mut mime_type: Option<String> = None;
     let mut file_bytes: Option<Bytes> = None;
 
-    while let Some(field) = multipart.next_field().await.map_err(bad_request)? {
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(ApiError::bad_request)?
+    {
         let name = field.name().unwrap_or("").to_string();
         match name.as_str() {
             "name" => {
-                dataset_name = Some(field.text().await.map_err(bad_request)?);
+                dataset_name = Some(field.text().await.map_err(ApiError::bad_request)?);
             }
             "description" => {
-                description = Some(field.text().await.map_err(bad_request)?);
+                description = Some(field.text().await.map_err(ApiError::bad_request)?);
             }
             "file" => {
                 file_name = field.file_name().map(|s| s.to_string());
                 mime_type = field.content_type().map(|ct| ct.to_string());
-                file_bytes = Some(field.bytes().await.map_err(bad_request)?);
+                file_bytes = Some(field.bytes().await.map_err(ApiError::bad_request)?);
             }
             other => {
                 debug!(
@@ -78,7 +80,7 @@ pub async fn create_training_dataset_from_upload(
         }
     }
 
-    let file_bytes = file_bytes.ok_or_else(|| bad_request("No file uploaded"))?;
+    let file_bytes = file_bytes.ok_or_else(|| ApiError::bad_request("No file uploaded"))?;
     let file_name = file_name.unwrap_or_else(|| "document".to_string());
 
     let service = DefaultTrainingDatasetService::new(Arc::new(state.clone()));
@@ -94,7 +96,7 @@ pub async fn create_training_dataset_from_upload(
             },
         )
         .await
-        .map_err(|e| internal_error(e.to_string()))?;
+        .map_err(|e| ApiError::internal(e.to_string()))?;
 
     Ok(Json(dataset))
 }
@@ -105,8 +107,8 @@ pub async fn create_training_dataset_from_upload(
     State(_state): State<AppState>,
     Extension(_claims): Extension<Claims>,
     _multipart: Multipart,
-) -> Result<Json<ErrorResponse>, (StatusCode, Json<ErrorResponse>)> {
-    Err(not_implemented(
+) -> Result<Json<ErrorResponse>, ApiError> {
+    Err(ApiError::not_implemented(
         "Training dataset upload requires the 'embeddings' feature to be enabled",
     ))
 }
@@ -139,15 +141,15 @@ pub async fn get_training_dataset_manifest(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(dataset_version_id): Path<String>,
-) -> Result<Json<DatasetManifest>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<Json<DatasetManifest>, ApiError> {
     require_permission(&claims, Permission::DatasetView)?;
 
     let version = state
         .db
         .get_training_dataset_version(&dataset_version_id)
         .await
-        .map_err(|e| internal_error(e.to_string()))?
-        .ok_or_else(|| not_found("Dataset version not found"))?;
+        .map_err(|e| ApiError::internal(e.to_string()))?
+        .ok_or_else(|| ApiError::not_found("Dataset version not found"))?;
 
     let tenant_id = version
         .tenant_id
@@ -160,8 +162,8 @@ pub async fn get_training_dataset_manifest(
     let manifest = service
         .get_manifest(&dataset_version_id, &tenant_id)
         .await
-        .map_err(|e| internal_error(e.to_string()))?
-        .ok_or_else(|| not_found("Dataset manifest not found"))?;
+        .map_err(|e| ApiError::internal(e.to_string()))?
+        .ok_or_else(|| ApiError::not_found("Dataset manifest not found"))?;
 
     Ok(Json(manifest))
 }
@@ -187,15 +189,15 @@ pub async fn stream_training_dataset_rows(
     Extension(claims): Extension<Claims>,
     Path(dataset_version_id): Path<String>,
     Query(params): Query<StreamRowsQuery>,
-) -> Result<Json<Vec<CanonicalRow>>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<Json<Vec<CanonicalRow>>, ApiError> {
     require_permission(&claims, Permission::DatasetView)?;
 
     let version = state
         .db
         .get_training_dataset_version(&dataset_version_id)
         .await
-        .map_err(|e| internal_error(e.to_string()))?
-        .ok_or_else(|| not_found("Dataset version not found"))?;
+        .map_err(|e| ApiError::internal(e.to_string()))?
+        .ok_or_else(|| ApiError::not_found("Dataset version not found"))?;
 
     let tenant_id = version
         .tenant_id
@@ -213,7 +215,7 @@ pub async fn stream_training_dataset_rows(
     let rows = service
         .stream_rows(&dataset_version_id, &tenant_id, sampling)
         .await
-        .map_err(|e| internal_error(e.to_string()))?;
+        .map_err(|e| ApiError::internal(e.to_string()))?;
 
     Ok(Json(rows))
 }

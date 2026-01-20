@@ -18,17 +18,14 @@ use std::sync::Arc;
 #[component]
 pub fn Datasets() -> impl IntoView {
     let (datasets, refetch) =
-        use_api_resource(|client: Arc<ApiClient>| async move { client.list_datasets().await });
+        use_api_resource(|client: Arc<ApiClient>| async move { client.list_datasets(None).await });
 
     let refetch_trigger = RwSignal::new(0u32);
-
-    // Store refetch in a StoredValue for sharing
-    let refetch_stored = StoredValue::new(refetch);
 
     // Call refetch when trigger changes
     Effect::new(move |_| {
         let _ = refetch_trigger.get();
-        refetch_stored.with_value(|f| f());
+        refetch.run(());
     });
 
     let trigger_refresh = move || {
@@ -138,6 +135,7 @@ fn DatasetsList(datasets: DatasetListResponse, refetch_trigger: RwSignal<u32>) -
                 <TableHeader>
                     <TableRow>
                         <TableHead>"Name"</TableHead>
+                        <TableHead>"Type"</TableHead>
                         <TableHead>"Format"</TableHead>
                         <TableHead>"Status"</TableHead>
                         <TableHead>"Size"</TableHead>
@@ -181,6 +179,12 @@ fn DatasetsList(datasets: DatasetListResponse, refetch_trigger: RwSignal<u32>) -
                                     >
                                         {name}
                                     </button>
+                                </TableCell>
+                                <TableCell>
+                                    {match dataset.dataset_type.as_deref() {
+                                        Some("identity") => view! { <Badge variant=BadgeVariant::Secondary>"Identity"</Badge> }.into_any(),
+                                        _ => view! { <Badge variant=BadgeVariant::Outline>"Standard"</Badge> }.into_any(),
+                                    }}
                                 </TableCell>
                                 <TableCell>
                                     <span class="text-sm text-muted-foreground">{dataset.format.clone()}</span>
@@ -262,8 +266,8 @@ pub fn DatasetDetail() -> impl IntoView {
 
     Effect::new(move |_| {
         let _ = refetch_trigger.get();
-        refetch_stored.with_value(|f| f());
-        stats_refetch_stored.with_value(|f| f());
+        refetch_stored.with_value(|f| f.run(()));
+        stats_refetch_stored.with_value(|f| f.run(()));
     });
 
     let trigger_refresh = move || {
@@ -336,6 +340,15 @@ pub fn DatasetDetail() -> impl IntoView {
                                         <div class="flex justify-between">
                                             <dt class="text-muted-foreground">"ID"</dt>
                                             <dd class="font-mono text-xs">{data.id.clone()}</dd>
+                                        </div>
+                                        <div class="flex justify-between">
+                                            <dt class="text-muted-foreground">"Type"</dt>
+                                            <dd>
+                                                {match data.dataset_type.as_deref() {
+                                                    Some("identity") => view! { <Badge variant=BadgeVariant::Secondary>"Identity Set"</Badge> }.into_any(),
+                                                    _ => view! { <Badge variant=BadgeVariant::Outline>"Standard"</Badge> }.into_any(),
+                                                }}
+                                            </dd>
                                         </div>
                                         <div class="flex justify-between">
                                             <dt class="text-muted-foreground">"Format"</dt>

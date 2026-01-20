@@ -25,7 +25,7 @@ pub fn OfflineBanner() -> impl IntoView {
                 </div>
                 <Button
                     class="offline-banner-action".to_string()
-                    on_click=Callback::new(move |_| retry.with_value(|f| f()))
+                    on_click=Callback::new(move |_| retry.with_value(|f| f.run(())))
                 >
                     "Retry"
                 </Button>

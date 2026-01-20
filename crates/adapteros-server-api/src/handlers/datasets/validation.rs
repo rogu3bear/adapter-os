@@ -24,8 +24,8 @@ use super::helpers::{
     STREAM_BUFFER_SIZE,
 };
 use super::progress::emit_progress;
+use crate::api_error::ApiError;
 use crate::auth::Claims;
-use crate::error_helpers::{bad_request, db_error, forbidden, not_found};
 use crate::handlers::chunked_upload::FileValidator;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
@@ -39,6 +39,7 @@ use axum::{
     response::IntoResponse,
     Extension, Json,
 };
+// StatusCode is still needed for validation_error_response return type
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::Path as StdPath;
@@ -264,11 +265,9 @@ impl ValidationError {
 pub fn validation_error_response(
     message: impl Into<String>,
     errors: &[ValidationError],
-) -> (StatusCode, Json<ErrorResponse>) {
-    let response = ErrorResponse::new(message)
-        .with_code("VALIDATION_ERROR")
-        .with_details(serde_json::json!({ "errors": errors }));
-    (StatusCode::BAD_REQUEST, Json(response))
+) -> ApiError {
+    ApiError::new(StatusCode::BAD_REQUEST, "VALIDATION_ERROR", message)
+        .with_json_details(serde_json::json!({ "errors": errors }))
 }
 
 impl std::fmt::Display for ValidationError {
@@ -1455,22 +1454,22 @@ pub async fn validate_dataset(
     Extension(claims): Extension<Claims>,
     Path(dataset_id): Path<String>,
     Json(request): Json<ValidateDatasetRequest>,
-) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetValidate)?;
 
     let dataset = state
         .db
         .get_training_dataset(&dataset_id)
         .await
-        .map_err(|e| db_error(format!("Failed to get dataset: {}", e)))?
-        .ok_or_else(|| not_found("Dataset"))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to get dataset: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Dataset"))?;
 
     // CRITICAL: Validate tenant isolation - non-admin users can only validate their own tenant's datasets
     if let Some(ref dataset_tenant_id) = dataset.tenant_id {
         validate_tenant_isolation(&claims, dataset_tenant_id)?;
     } else if claims.role != "admin" {
         // Datasets without tenant_id can only be validated by admins
-        return Err(forbidden(
+        return Err(ApiError::forbidden(
             "Access denied: dataset has no tenant association",
         ));
     }
@@ -1480,7 +1479,7 @@ pub async fn validate_dataset(
         .db
         .update_dataset_validation(&dataset_id, "validating", None, None)
         .await
-        .map_err(|e| db_error(format!("Failed to update validation status: {}", e)))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to update validation status: {}", e)))?;
 
     // Send initial validation event
     emit_progress(
@@ -1499,7 +1498,7 @@ pub async fn validate_dataset(
         .db
         .get_dataset_files(&dataset_id)
         .await
-        .map_err(|e| db_error(format!("Failed to get dataset files: {}", e)))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to get dataset files: {}", e)))?;
 
     let mut validation_errors: Vec<ValidationError> = Vec::new();
     let mut is_valid = true;
@@ -2061,12 +2060,10 @@ mod validation_tests {
         .with_line(3)
         .with_field("prompt")];
 
-        let (status, Json(body)) = validation_error_response("Dataset validation failed", &errors);
-        assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert_eq!(body.code, "VALIDATION_ERROR");
-        assert!(body.error.contains("Dataset validation failed"));
-        let details = body.details.expect("details present");
-        let serialized = serde_json::to_string(&details).expect("serialize details");
+        let err = validation_error_response("Dataset validation failed", &errors);
+        assert_eq!(err.code, "VALIDATION_ERROR");
+        let details = err.details.expect("details present");
+        let serialized = details.to_string();
         assert!(serialized.contains("MISSING_FIELD"));
         assert!(serialized.contains("train.jsonl"));
     }

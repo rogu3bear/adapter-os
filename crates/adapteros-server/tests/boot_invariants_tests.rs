@@ -18,8 +18,8 @@
 
 use adapteros_config_types::InvariantsConfig;
 use adapteros_server::boot::{
-    boot_invariant_metrics, enforce_invariants, validate_boot_invariants, InvariantReport,
-    InvariantViolation,
+    boot_invariant_metrics, enforce_invariants, invariants::InvariantCategory,
+    invariants::Severity, validate_boot_invariants, InvariantReport, InvariantViolation,
 };
 use adapteros_server_api::config::Config;
 use std::sync::{Arc, RwLock};
@@ -56,14 +56,16 @@ mod invariant_report_tests {
         report.record_pass();
         report.record_violation(InvariantViolation {
             id: "TEST-001",
+            category: InvariantCategory::Authentication,
             message: "Test fatal violation".to_string(),
-            is_fatal: true,
+            severity: Severity::Fatal,
             remediation: "Fix the test",
         });
         report.record_violation(InvariantViolation {
             id: "TEST-002",
+            category: InvariantCategory::Authentication,
             message: "Test warning".to_string(),
-            is_fatal: false,
+            severity: Severity::Warning,
             remediation: "Consider fixing",
         });
 
@@ -91,8 +93,9 @@ mod invariant_report_tests {
         let mut report = InvariantReport::new();
         report.record_violation(InvariantViolation {
             id: "WARN-001",
+            category: InvariantCategory::Authentication,
             message: "Warning only".to_string(),
-            is_fatal: false,
+            severity: Severity::Warning,
             remediation: "Consider fixing",
         });
 
@@ -118,8 +121,9 @@ mod enforcement_tests {
         let mut report = InvariantReport::new();
         report.record_violation(InvariantViolation {
             id: "WARN-001",
+            category: InvariantCategory::Authentication,
             message: "Non-fatal warning".to_string(),
-            is_fatal: false,
+            severity: Severity::Warning,
             remediation: "Optional fix",
         });
 
@@ -135,8 +139,9 @@ mod enforcement_tests {
         let mut report = InvariantReport::new();
         report.record_violation(InvariantViolation {
             id: "SEC-001",
+            category: InvariantCategory::Authentication,
             message: "Fatal security violation".to_string(),
-            is_fatal: true,
+            severity: Severity::Fatal,
             remediation: "Must fix before boot",
         });
 
@@ -163,8 +168,9 @@ mod enforcement_tests {
         let mut report = InvariantReport::new();
         report.record_violation(InvariantViolation {
             id: "SEC-001",
+            category: InvariantCategory::Authentication,
             message: "Fatal security violation".to_string(),
-            is_fatal: true,
+            severity: Severity::Fatal,
             remediation: "Should fix, but dev mode allows",
         });
 
@@ -180,20 +186,23 @@ mod enforcement_tests {
         let mut report = InvariantReport::new();
         report.record_violation(InvariantViolation {
             id: "SEC-001",
+            category: InvariantCategory::Authentication,
             message: "First fatal".to_string(),
-            is_fatal: true,
+            severity: Severity::Fatal,
             remediation: "Fix 1",
         });
         report.record_violation(InvariantViolation {
             id: "SEC-002",
+            category: InvariantCategory::Authentication,
             message: "Second fatal".to_string(),
-            is_fatal: true,
+            severity: Severity::Fatal,
             remediation: "Fix 2",
         });
         report.record_violation(InvariantViolation {
             id: "WARN-001",
+            category: InvariantCategory::Authentication,
             message: "A warning".to_string(),
-            is_fatal: false,
+            severity: Severity::Warning,
             remediation: "Optional",
         });
 

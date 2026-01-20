@@ -5,11 +5,11 @@
 //!
 //! 【2025-01-25†prd-ux-01†chat_sessions_archive】
 
+use crate::api_error::{ApiError, ApiResult};
 use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
-use crate::types::ErrorResponse;
 use adapteros_db::ChatSessionWithStatus;
 use axum::{
     extract::{Path, Query, State},
@@ -28,35 +28,17 @@ pub async fn archive_session(
     Extension(claims): Extension<Claims>,
     Path(session_id): Path<String>,
     Json(req): Json<ArchiveSessionRequest>,
-) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
-    require_permission(&claims, Permission::InferenceExecute).map_err(|_| {
-        (
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Permission denied").with_code("FORBIDDEN")),
-        )
-    })?;
+) -> Result<StatusCode, ApiError> {
+    require_permission(&claims, Permission::InferenceExecute)
+        .map_err(|_| ApiError::forbidden("Permission denied"))?;
 
     // Verify session belongs to tenant
     let session = state
         .db
         .get_chat_session(&session_id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to get session")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("Session not found").with_code("NOT_FOUND")),
-            )
-        })?;
+        .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?
+        .ok_or_else(|| ApiError::not_found("Session"))?;
 
     // Tenant isolation check
     validate_tenant_isolation(&claims, &session.tenant_id)?;
@@ -65,16 +47,7 @@ pub async fn archive_session(
         .db
         .archive_session(&session_id, &claims.sub, req.reason.as_deref())
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to archive session")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+        .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -86,53 +59,27 @@ pub async fn restore_session(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(session_id): Path<String>,
-) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<StatusCode, ApiError> {
     // Admin-only: requires WorkspaceManage
-    require_permission(&claims, Permission::WorkspaceManage).map_err(|_| {
-        (
-            StatusCode::FORBIDDEN,
-            Json(
-                ErrorResponse::new("Permission denied - restore requires WorkspaceManage")
-                    .with_code("FORBIDDEN"),
-            ),
-        )
-    })?;
+    require_permission(&claims, Permission::WorkspaceManage)
+        .map_err(|_| ApiError::forbidden("Permission denied - restore requires WorkspaceManage"))?;
 
     // Verify session belongs to tenant
     let session = state
         .db
         .get_chat_session(&session_id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to get session")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("Session not found").with_code("NOT_FOUND")),
-            )
-        })?;
+        .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?
+        .ok_or_else(|| ApiError::not_found("Session"))?;
 
     // Tenant isolation check
     validate_tenant_isolation(&claims, &session.tenant_id)?;
 
-    state.db.restore_session(&session_id).await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("Failed to restore session")
-                    .with_code("DATABASE_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    state
+        .db
+        .restore_session(&session_id)
+        .await
+        .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?;
 
     info!(session_id = %session_id, user = %claims.sub, "Session restored");
     Ok(StatusCode::NO_CONTENT)
@@ -145,39 +92,18 @@ pub async fn hard_delete_session(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(session_id): Path<String>,
-) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<StatusCode, ApiError> {
     // Admin-only
-    require_permission(&claims, Permission::WorkspaceManage).map_err(|_| {
-        (
-            StatusCode::FORBIDDEN,
-            Json(
-                ErrorResponse::new("Permission denied - requires WorkspaceManage")
-                    .with_code("FORBIDDEN"),
-            ),
-        )
-    })?;
+    require_permission(&claims, Permission::WorkspaceManage)
+        .map_err(|_| ApiError::forbidden("Permission denied - requires WorkspaceManage"))?;
 
     // Verify session belongs to tenant
     let session = state
         .db
         .get_chat_session(&session_id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to get session")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("Session not found").with_code("NOT_FOUND")),
-            )
-        })?;
+        .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?
+        .ok_or_else(|| ApiError::not_found("Session"))?;
 
     // Tenant isolation check
     validate_tenant_isolation(&claims, &session.tenant_id)?;
@@ -186,16 +112,7 @@ pub async fn hard_delete_session(
         .db
         .hard_delete_session(&session_id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to delete session")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+        .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?;
 
     info!(session_id = %session_id, user = %claims.sub, "Session permanently deleted");
     Ok(StatusCode::NO_CONTENT)
@@ -208,13 +125,9 @@ pub async fn list_archived_sessions(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Query(query): Query<ListArchivedQuery>,
-) -> Result<Json<Vec<ChatSessionWithStatus>>, (StatusCode, Json<ErrorResponse>)> {
-    require_permission(&claims, Permission::InferenceExecute).map_err(|_| {
-        (
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Permission denied").with_code("FORBIDDEN")),
-        )
-    })?;
+) -> ApiResult<Vec<ChatSessionWithStatus>> {
+    require_permission(&claims, Permission::InferenceExecute)
+        .map_err(|_| ApiError::forbidden("Permission denied"))?;
 
     // Tenant isolation check
     validate_tenant_isolation(&claims, &claims.tenant_id)?;
@@ -223,16 +136,7 @@ pub async fn list_archived_sessions(
         .db
         .list_archived_sessions(&claims.tenant_id, Some(&claims.sub), query.limit)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to list archived sessions")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+        .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?;
 
     Ok(Json(sessions))
 }
@@ -244,13 +148,9 @@ pub async fn list_deleted_sessions(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Query(query): Query<ListArchivedQuery>,
-) -> Result<Json<Vec<ChatSessionWithStatus>>, (StatusCode, Json<ErrorResponse>)> {
-    require_permission(&claims, Permission::InferenceExecute).map_err(|_| {
-        (
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Permission denied").with_code("FORBIDDEN")),
-        )
-    })?;
+) -> ApiResult<Vec<ChatSessionWithStatus>> {
+    require_permission(&claims, Permission::InferenceExecute)
+        .map_err(|_| ApiError::forbidden("Permission denied"))?;
 
     // Tenant isolation check
     validate_tenant_isolation(&claims, &claims.tenant_id)?;
@@ -259,16 +159,7 @@ pub async fn list_deleted_sessions(
         .db
         .list_deleted_sessions(&claims.tenant_id, Some(&claims.sub), query.limit)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to list deleted sessions")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+        .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?;
 
     Ok(Json(sessions))
 }

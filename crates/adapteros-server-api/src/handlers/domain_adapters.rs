@@ -1,3 +1,5 @@
+use crate::adapter_helpers::fetch_adapter_for_tenant;
+use crate::api_error::{ApiError, ApiResult};
 use crate::auth::Claims;
 use crate::inference_core::InferenceCore;
 use crate::permissions::{require_permission, Permission};
@@ -116,52 +118,18 @@ pub async fn get_domain_adapter(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
-) -> Result<Json<DomainAdapterResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<DomainAdapterResponse> {
     require_permission(&claims, Permission::AdapterView)?;
 
-    let adapter = state
-        .db
-        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
-        .await
-        .map_err(|e| {
-            error!(error = %e, adapter_id = %adapter_id, "Failed to get domain adapter");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to get domain adapter")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            warn!(adapter_id = %adapter_id, "Domain adapter not found");
-            (
-                StatusCode::NOT_FOUND,
-                Json(
-                    ErrorResponse::new("Domain adapter not found")
-                        .with_code("NOT_FOUND")
-                        .with_string_details(format!("Adapter ID: {}", adapter_id)),
-                ),
-            )
-        })?;
-
-    // CRITICAL: Validate tenant isolation to prevent cross-tenant access
-    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
+    let adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;
 
     // Verify it's a domain adapter
     if adapter.category != "domain" {
-        return Err((
-            StatusCode::NOT_FOUND,
-            Json(
-                ErrorResponse::new("Adapter is not a domain adapter")
-                    .with_code("NOT_FOUND")
-                    .with_string_details(format!(
-                        "Adapter {} has category '{}'",
-                        adapter_id, adapter.category
-                    )),
-            ),
-        ));
+        warn!(adapter_id = %adapter_id, "Adapter is not a domain adapter");
+        return Err(ApiError::not_found("Domain adapter").with_details(format!(
+            "Adapter {} has category '{}'",
+            adapter_id, adapter.category
+        )));
     }
 
     Ok(Json(adapter_to_domain_response(adapter)))
@@ -324,53 +292,20 @@ pub async fn load_domain_adapter(
     Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
     Json(_req): Json<LoadDomainAdapterRequest>,
-) -> Result<Json<DomainAdapterResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<DomainAdapterResponse> {
     require_permission(&claims, Permission::AdapterLoad)?;
 
-    // Get adapter from database
-    let adapter = state
-        .db
-        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
-        .await
-        .map_err(|e| {
-            error!(error = %e, adapter_id = %adapter_id, "Failed to get adapter for loading");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to get adapter")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            warn!(adapter_id = %adapter_id, "Domain adapter not found for loading");
-            (
-                StatusCode::NOT_FOUND,
-                Json(
-                    ErrorResponse::new("Domain adapter not found")
-                        .with_code("NOT_FOUND")
-                        .with_string_details(format!("Adapter ID: {}", adapter_id)),
-                ),
-            )
-        })?;
-
-    // CRITICAL: Validate tenant isolation to prevent cross-tenant access
-    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
+    // Get adapter from database with tenant isolation validation
+    let adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;
 
     // Verify it's a domain adapter
     if adapter.category != "domain" {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new("Adapter is not a domain adapter")
-                    .with_code("BAD_REQUEST")
-                    .with_string_details(format!(
-                        "Adapter {} has category '{}'",
-                        adapter_id, adapter.category
-                    )),
-            ),
-        ));
+        return Err(
+            ApiError::bad_request("Adapter is not a domain adapter").with_details(format!(
+                "Adapter {} has category '{}'",
+                adapter_id, adapter.category
+            )),
+        );
     }
 
     // Use lifecycle manager if available
@@ -380,14 +315,7 @@ pub async fn load_domain_adapter(
         // Load adapter (updates internal state only)
         manager.get_or_reload(&adapter_id).map_err(|e| {
             error!(error = %e, adapter_id = %adapter_id, "Failed to load adapter via lifecycle manager");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to load adapter")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
+            ApiError::internal("Failed to load adapter").with_details(e.to_string())
         })?;
 
         // Update state (handles DB update if db is set)
@@ -405,14 +333,7 @@ pub async fn load_domain_adapter(
                     .await
                     .map_err(|e| {
                         error!(error = %e, adapter_id = %adapter_id, "Failed to update adapter state");
-                        (
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            Json(
-                                ErrorResponse::new("Failed to update adapter state")
-                                    .with_code("INTERNAL_ERROR")
-                                    .with_string_details(e.to_string()),
-                            ),
-                        )
+                        ApiError::internal("Failed to update adapter state").with_details(e.to_string())
                     })?;
             }
         } else {
@@ -428,14 +349,7 @@ pub async fn load_domain_adapter(
                 .await
                 .map_err(|e| {
                     error!(error = %e, adapter_id = %adapter_id, "Failed to update adapter state");
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(
-                            ErrorResponse::new("Failed to update adapter state")
-                                .with_code("INTERNAL_ERROR")
-                                .with_string_details(e.to_string()),
-                        ),
-                    )
+                    ApiError::internal("Failed to update adapter state").with_details(e.to_string())
                 })?;
         }
     } else {
@@ -451,42 +365,12 @@ pub async fn load_domain_adapter(
             .await
             .map_err(|e| {
                 error!(error = %e, adapter_id = %adapter_id, "Failed to update adapter state");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("Failed to update adapter state")
-                            .with_code("INTERNAL_ERROR")
-                            .with_string_details(e.to_string()),
-                    ),
-                )
+                ApiError::internal("Failed to update adapter state").with_details(e.to_string())
             })?;
     }
 
     // Fetch updated adapter
-    let updated_adapter = state
-        .db
-        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
-        .await
-        .map_err(|e| {
-            error!(error = %e, adapter_id = %adapter_id, "Failed to fetch updated adapter");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to fetch adapter")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Adapter disappeared after update")
-                        .with_code("INTERNAL_ERROR"),
-                ),
-            )
-        })?;
+    let updated_adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;
 
     info!(adapter_id = %adapter_id, "Loaded domain adapter");
 
@@ -522,53 +406,20 @@ pub async fn unload_domain_adapter(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
-) -> Result<Json<DomainAdapterResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<DomainAdapterResponse> {
     require_permission(&claims, Permission::AdapterLoad)?;
 
-    // Get adapter from database
-    let adapter = state
-        .db
-        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
-        .await
-        .map_err(|e| {
-            error!(error = %e, adapter_id = %adapter_id, "Failed to get adapter for unloading");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to get adapter")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            warn!(adapter_id = %adapter_id, "Domain adapter not found for unloading");
-            (
-                StatusCode::NOT_FOUND,
-                Json(
-                    ErrorResponse::new("Domain adapter not found")
-                        .with_code("NOT_FOUND")
-                        .with_string_details(format!("Adapter ID: {}", adapter_id)),
-                ),
-            )
-        })?;
-
-    // CRITICAL: Validate tenant isolation to prevent cross-tenant access
-    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
+    // Get adapter from database with tenant isolation validation
+    let adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;
 
     // Verify it's a domain adapter
     if adapter.category != "domain" {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new("Adapter is not a domain adapter")
-                    .with_code("BAD_REQUEST")
-                    .with_string_details(format!(
-                        "Adapter {} has category '{}'",
-                        adapter_id, adapter.category
-                    )),
-            ),
-        ));
+        return Err(
+            ApiError::bad_request("Adapter is not a domain adapter").with_details(format!(
+                "Adapter {} has category '{}'",
+                adapter_id, adapter.category
+            )),
+        );
     }
 
     // Update adapter state to unloaded in database
@@ -583,41 +434,11 @@ pub async fn unload_domain_adapter(
         .await
         .map_err(|e| {
             error!(error = %e, adapter_id = %adapter_id, "Failed to update adapter state");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to update adapter state")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
+            ApiError::internal("Failed to update adapter state").with_details(e.to_string())
         })?;
 
     // Fetch updated adapter
-    let updated_adapter = state
-        .db
-        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
-        .await
-        .map_err(|e| {
-            error!(error = %e, adapter_id = %adapter_id, "Failed to fetch updated adapter");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to fetch adapter")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Adapter disappeared after update")
-                        .with_code("INTERNAL_ERROR"),
-                ),
-            )
-        })?;
+    let updated_adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;
 
     info!(adapter_id = %adapter_id, "Unloaded domain adapter");
 
@@ -655,56 +476,23 @@ pub async fn test_domain_adapter(
     Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
     Json(req): Json<TestDomainAdapterRequest>,
-) -> Result<Json<TestDomainAdapterResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<TestDomainAdapterResponse> {
     require_permission(&claims, Permission::AdapterView)?;
 
     let start_time = Instant::now();
     let iterations = req.iterations.unwrap_or(1);
 
-    // Get adapter from database
-    let adapter = state
-        .db
-        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
-        .await
-        .map_err(|e| {
-            error!(error = %e, adapter_id = %adapter_id, "Failed to get adapter for testing");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to get adapter")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            warn!(adapter_id = %adapter_id, "Domain adapter not found for testing");
-            (
-                StatusCode::NOT_FOUND,
-                Json(
-                    ErrorResponse::new("Domain adapter not found")
-                        .with_code("NOT_FOUND")
-                        .with_string_details(format!("Adapter ID: {}", adapter_id)),
-                ),
-            )
-        })?;
-
-    // CRITICAL: Validate tenant isolation to prevent cross-tenant access
-    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
+    // Get adapter from database with tenant isolation validation
+    let adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;
 
     // Verify it's a domain adapter
     if adapter.category != "domain" {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new("Adapter is not a domain adapter")
-                    .with_code("BAD_REQUEST")
-                    .with_string_details(format!(
-                        "Adapter {} has category '{}'",
-                        adapter_id, adapter.category
-                    )),
-            ),
-        ));
+        return Err(
+            ApiError::bad_request("Adapter is not a domain adapter").with_details(format!(
+                "Adapter {} has category '{}'",
+                adapter_id, adapter.category
+            )),
+        );
     }
 
     // Run inference test using worker if available
@@ -820,53 +608,18 @@ pub async fn get_domain_adapter_manifest(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
-) -> Result<Json<DomainAdapterManifestResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<DomainAdapterManifestResponse> {
     require_permission(&claims, Permission::AdapterView)?;
 
-    // Get adapter from database
-    let adapter = state
-        .db
-        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
-        .await
-        .map_err(|e| {
-            error!(error = %e, adapter_id = %adapter_id, "Failed to get adapter manifest");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to get adapter")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            warn!(adapter_id = %adapter_id, "Domain adapter not found");
-            (
-                StatusCode::NOT_FOUND,
-                Json(
-                    ErrorResponse::new("Domain adapter not found")
-                        .with_code("NOT_FOUND")
-                        .with_string_details(format!("Adapter ID: {}", adapter_id)),
-                ),
-            )
-        })?;
-
-    // CRITICAL: Validate tenant isolation to prevent cross-tenant access
-    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
+    // Get adapter from database with tenant isolation validation
+    let adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;
 
     // Verify it's a domain adapter
     if adapter.category != "domain" {
-        return Err((
-            StatusCode::NOT_FOUND,
-            Json(
-                ErrorResponse::new("Adapter is not a domain adapter")
-                    .with_code("NOT_FOUND")
-                    .with_string_details(format!(
-                        "Adapter {} has category '{}'",
-                        adapter_id, adapter.category
-                    )),
-            ),
-        ));
+        return Err(ApiError::not_found("Domain adapter").with_details(format!(
+            "Adapter {} has category '{}'",
+            adapter_id, adapter.category
+        )));
     }
 
     // Parse config from adapter's acl_json
@@ -919,55 +672,22 @@ pub async fn execute_domain_adapter(
     Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
     Json(input_data): Json<serde_json::Value>,
-) -> Result<Json<DomainAdapterExecutionResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<DomainAdapterExecutionResponse> {
     require_permission(&claims, Permission::InferenceExecute)?;
 
     let start_time = Instant::now();
 
-    // Get adapter from database
-    let adapter = state
-        .db
-        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
-        .await
-        .map_err(|e| {
-            error!(error = %e, adapter_id = %adapter_id, "Failed to get adapter for execution");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to get adapter")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            warn!(adapter_id = %adapter_id, "Domain adapter not found for execution");
-            (
-                StatusCode::NOT_FOUND,
-                Json(
-                    ErrorResponse::new("Domain adapter not found")
-                        .with_code("NOT_FOUND")
-                        .with_string_details(format!("Adapter ID: {}", adapter_id)),
-                ),
-            )
-        })?;
-
-    // CRITICAL: Validate tenant isolation to prevent cross-tenant access
-    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
+    // Get adapter from database with tenant isolation validation
+    let adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;
 
     // Verify it's a domain adapter
     if adapter.category != "domain" {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new("Adapter is not a domain adapter")
-                    .with_code("BAD_REQUEST")
-                    .with_string_details(format!(
-                        "Adapter {} has category '{}'",
-                        adapter_id, adapter.category
-                    )),
-            ),
-        ));
+        return Err(
+            ApiError::bad_request("Adapter is not a domain adapter").with_details(format!(
+                "Adapter {} has category '{}'",
+                adapter_id, adapter.category
+            )),
+        );
     }
 
     // Compute input hash
@@ -1061,53 +781,18 @@ pub async fn delete_domain_adapter(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
-) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<StatusCode, ApiError> {
     require_permission(&claims, Permission::AdapterRegister)?;
 
-    // Get adapter to verify it exists and is a domain adapter
-    let adapter = state
-        .db
-        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
-        .await
-        .map_err(|e| {
-            error!(error = %e, adapter_id = %adapter_id, "Failed to get adapter for deletion");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to get adapter")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            warn!(adapter_id = %adapter_id, "Domain adapter not found for deletion");
-            (
-                StatusCode::NOT_FOUND,
-                Json(
-                    ErrorResponse::new("Domain adapter not found")
-                        .with_code("NOT_FOUND")
-                        .with_string_details(format!("Adapter ID: {}", adapter_id)),
-                ),
-            )
-        })?;
-
-    // CRITICAL: Validate tenant isolation to prevent cross-tenant access
-    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
+    // Get adapter to verify it exists and is a domain adapter (with tenant isolation)
+    let adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;
 
     // Verify it's a domain adapter
     if adapter.category != "domain" {
-        return Err((
-            StatusCode::NOT_FOUND,
-            Json(
-                ErrorResponse::new("Adapter is not a domain adapter")
-                    .with_code("NOT_FOUND")
-                    .with_string_details(format!(
-                        "Adapter {} has category '{}'",
-                        adapter_id, adapter.category
-                    )),
-            ),
-        ));
+        return Err(ApiError::not_found("Domain adapter").with_details(format!(
+            "Adapter {} has category '{}'",
+            adapter_id, adapter.category
+        )));
     }
 
     // Check if adapter is pinned
@@ -1132,17 +817,12 @@ pub async fn delete_domain_adapter(
             tracing::warn!(error = %e, "Audit log failed");
         }
 
-        return Err((
-            StatusCode::CONFLICT,
-            Json(
-                ErrorResponse::new("Cannot delete pinned adapter")
-                    .with_code("ADAPTER_PINNED")
-                    .with_string_details(format!(
-                        "Adapter {} is pinned and cannot be deleted",
-                        adapter_id
-                    )),
-            ),
-        ));
+        return Err(
+            ApiError::conflict("Cannot delete pinned adapter").with_details(format!(
+                "Adapter {} is pinned and cannot be deleted",
+                adapter_id
+            )),
+        );
     }
 
     state
@@ -1151,14 +831,7 @@ pub async fn delete_domain_adapter(
         .await
         .map_err(|e| {
             error!(error = %e, adapter_id = %adapter_id, "Failed to delete adapter");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to delete adapter")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
+            ApiError::internal("Failed to delete adapter").with_details(e.to_string())
         })?;
 
     info!(adapter_id = %adapter_id, "Deleted domain adapter");

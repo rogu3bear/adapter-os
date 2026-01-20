@@ -23,6 +23,10 @@ use argon2::{
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Algorithm as Argon2Algorithm, Argon2, Params, Version,
 };
+use axum::{
+    extract::FromRequestParts,
+    http::{request::Parts, StatusCode},
+};
 use blake3;
 use chrono::{Duration, Utc};
 use jsonwebtoken::{
@@ -127,6 +131,26 @@ impl Principal {
             mfa_level: claims.mfa_level.clone(),
             jti: claims.jti.clone(),
             auth_mode,
+        }
+    }
+}
+
+pub use async_trait::async_trait;
+
+impl<S> FromRequestParts<S> for Principal
+where
+    S: Send + Sync,
+{
+    type Rejection = (StatusCode, String);
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        if let Some(principal) = parts.extensions.get::<Principal>() {
+            Ok(principal.clone())
+        } else {
+            Err((
+                StatusCode::UNAUTHORIZED,
+                "Authentication required".to_string(),
+            ))
         }
     }
 }

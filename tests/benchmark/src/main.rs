@@ -119,19 +119,53 @@ mod benchmark_impl {
                     comparison_threshold: threshold,
                     fail_on_regression: !no_fail_on_regression,
                     generate_html_report: !no_html,
-                    run_kernel_benchmarks: !memory_only && !throughput_only && !system_only && !isolation_only && !evidence_only || kernel_only,
-                    run_memory_benchmarks: !kernel_only && !throughput_only && !system_only && !isolation_only && !evidence_only || memory_only,
-                    run_throughput_benchmarks: !kernel_only && !memory_only && !system_only && !isolation_only && !evidence_only || throughput_only,
-                    run_system_benchmarks: !kernel_only && !memory_only && !throughput_only && !isolation_only && !evidence_only || system_only,
-                    run_isolation_benchmarks: !kernel_only && !memory_only && !throughput_only && !system_only && !evidence_only || isolation_only,
-                    run_evidence_benchmarks: !kernel_only && !memory_only && !throughput_only && !system_only && !isolation_only || evidence_only,
+                    run_kernel_benchmarks: !memory_only
+                        && !throughput_only
+                        && !system_only
+                        && !isolation_only
+                        && !evidence_only
+                        || kernel_only,
+                    run_memory_benchmarks: !kernel_only
+                        && !throughput_only
+                        && !system_only
+                        && !isolation_only
+                        && !evidence_only
+                        || memory_only,
+                    run_throughput_benchmarks: !kernel_only
+                        && !memory_only
+                        && !system_only
+                        && !isolation_only
+                        && !evidence_only
+                        || throughput_only,
+                    run_system_benchmarks: !kernel_only
+                        && !memory_only
+                        && !throughput_only
+                        && !isolation_only
+                        && !evidence_only
+                        || system_only,
+                    run_isolation_benchmarks: !kernel_only
+                        && !memory_only
+                        && !throughput_only
+                        && !system_only
+                        && !evidence_only
+                        || isolation_only,
+                    run_evidence_benchmarks: !kernel_only
+                        && !memory_only
+                        && !throughput_only
+                        && !system_only
+                        && !isolation_only
+                        || evidence_only,
                 };
 
                 let mut runner = BenchmarkRunner::new(config);
                 runner.run_all_benchmarks()?;
             }
 
-            Commands::Compare { current, baseline, format } => {
+            Commands::Compare {
+                current,
+                baseline,
+                format,
+            } => {
                 compare_results(&current, &baseline, &format)?;
             }
 
@@ -147,7 +181,11 @@ mod benchmark_impl {
         Ok(())
     }
 
-    fn compare_results(current_path: &PathBuf, baseline_path: &PathBuf, format: &str) -> Result<(), Box<dyn std::error::Error>> {
+    fn compare_results(
+        current_path: &PathBuf,
+        baseline_path: &PathBuf,
+        format: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         use adapteros_benchmarks::reporting::BenchmarkReport;
         use std::collections::HashMap;
 
@@ -159,7 +197,9 @@ mod benchmark_impl {
         let baseline_report: BenchmarkReport = serde_json::from_str(&baseline_content)?;
 
         // Create lookup map for baseline results
-        let baseline_map: HashMap<_, _> = baseline_report.results.iter()
+        let baseline_map: HashMap<_, _> = baseline_report
+            .results
+            .iter()
             .map(|r| ((r.category.clone(), r.name.clone()), r.mean_time_ns))
             .collect();
 
@@ -174,12 +214,29 @@ mod benchmark_impl {
             if let Some(baseline_time) = baseline_map.get(&key) {
                 let change_ratio = result.mean_time_ns / baseline_time;
 
-                if change_ratio > 1.05 { // 5% regression
-                    regressions.push((result.name.clone(), change_ratio, result.mean_time_ns, *baseline_time));
-                } else if change_ratio < 0.95 { // 5% improvement
-                    improvements.push((result.name.clone(), change_ratio, result.mean_time_ns, *baseline_time));
+                if change_ratio > 1.05 {
+                    // 5% regression
+                    regressions.push((
+                        result.name.clone(),
+                        change_ratio,
+                        result.mean_time_ns,
+                        *baseline_time,
+                    ));
+                } else if change_ratio < 0.95 {
+                    // 5% improvement
+                    improvements.push((
+                        result.name.clone(),
+                        change_ratio,
+                        result.mean_time_ns,
+                        *baseline_time,
+                    ));
                 } else {
-                    unchanged.push((result.name.clone(), change_ratio, result.mean_time_ns, *baseline_time));
+                    unchanged.push((
+                        result.name.clone(),
+                        change_ratio,
+                        result.mean_time_ns,
+                        *baseline_time,
+                    ));
                 }
             }
         }
@@ -198,21 +255,39 @@ mod benchmark_impl {
             }
 
             "html" => {
-                generate_comparison_html(&regressions, &improvements, &unchanged, &current_report, &baseline_report)?;
+                generate_comparison_html(
+                    &regressions,
+                    &improvements,
+                    &unchanged,
+                    &current_report,
+                    &baseline_report,
+                )?;
             }
 
-            _ => { // text format (default)
+            _ => {
+                // text format (default)
                 println!("adapterOS Benchmark Comparison");
                 println!("================================");
-                println!("Current:  {}", current_report.timestamp.format("%Y-%m-%d %H:%M:%S UTC"));
-                println!("Baseline: {}", baseline_report.timestamp.format("%Y-%m-%d %H:%M:%S UTC"));
+                println!(
+                    "Current:  {}",
+                    current_report.timestamp.format("%Y-%m-%d %H:%M:%S UTC")
+                );
+                println!(
+                    "Baseline: {}",
+                    baseline_report.timestamp.format("%Y-%m-%d %H:%M:%S UTC")
+                );
                 println!();
 
                 if !regressions.is_empty() {
                     println!("🚨 Performance Regressions:");
                     for (name, ratio, current, baseline) in &regressions {
-                        println!("  • {}: {:.2}% slower ({:.2}ns → {:.2}ns)",
-                               name, (ratio - 1.0) * 100.0, baseline, current);
+                        println!(
+                            "  • {}: {:.2}% slower ({:.2}ns → {:.2}ns)",
+                            name,
+                            (ratio - 1.0) * 100.0,
+                            baseline,
+                            current
+                        );
                     }
                     println!();
                 }
@@ -220,8 +295,13 @@ mod benchmark_impl {
                 if !improvements.is_empty() {
                     println!("✅ Performance Improvements:");
                     for (name, ratio, current, baseline) in &improvements {
-                        println!("  • {}: {:.2}% faster ({:.2}ns → {:.2}ns)",
-                               name, (1.0 - ratio) * 100.0, baseline, current);
+                        println!(
+                            "  • {}: {:.2}% faster ({:.2}ns → {:.2}ns)",
+                            name,
+                            (1.0 - ratio) * 100.0,
+                            baseline,
+                            current
+                        );
                     }
                     println!();
                 }
@@ -369,16 +449,25 @@ mod benchmark_impl {
         println!("Default Benchmark Configuration");
         println!("===============================");
         println!("Output Directory: {}", config.output_dir);
-        println!("Comparison Threshold: {:.1}%", config.comparison_threshold * 100.0);
+        println!(
+            "Comparison Threshold: {:.1}%",
+            config.comparison_threshold * 100.0
+        );
         println!("Fail on Regression: {}", config.fail_on_regression);
         println!("Generate HTML Report: {}", config.generate_html_report);
         println!();
         println!("Benchmark Categories:");
         println!("  Kernel Benchmarks: {}", config.run_kernel_benchmarks);
         println!("  Memory Benchmarks: {}", config.run_memory_benchmarks);
-        println!("  Throughput Benchmarks: {}", config.run_throughput_benchmarks);
+        println!(
+            "  Throughput Benchmarks: {}",
+            config.run_throughput_benchmarks
+        );
         println!("  System Benchmarks: {}", config.run_system_benchmarks);
-        println!("  Isolation Benchmarks: {}", config.run_isolation_benchmarks);
+        println!(
+            "  Isolation Benchmarks: {}",
+            config.run_isolation_benchmarks
+        );
         println!("  Evidence Benchmarks: {}", config.run_evidence_benchmarks);
     }
 }

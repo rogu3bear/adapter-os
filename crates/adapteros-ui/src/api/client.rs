@@ -6,6 +6,7 @@ use super::{api_base_url, ApiError, ApiResult};
 use gloo_net::http::{Request, RequestBuilder};
 use serde::{de::DeserializeOwned, Serialize};
 use std::sync::{Arc, RwLock};
+use urlencoding::encode;
 
 pub use adapteros_api_types::dataset_domain::CanonicalRow;
 pub use adapteros_api_types::training::{
@@ -21,6 +22,9 @@ pub use adapteros_api_types::model_status::ModelLoadStatus;
 pub use adapteros_api_types::models::{
     AllModelsStatusResponse, AneMemoryStatus, BaseModelStatusResponse, ModelStatusResponse,
     SeedModelRequest, SeedModelResponse,
+};
+pub use adapteros_api_types::routing::{
+    CreateRoutingRuleRequest, RoutingRuleResponse, RoutingRulesResponse,
 };
 pub use adapteros_api_types::workers::WorkerMetricsResponse;
 
@@ -385,7 +389,7 @@ impl ApiClient {
             Some(p) => {
                 let mut query_parts = Vec::new();
                 if let Some(ref status) = p.status {
-                    query_parts.push(format!("status={}", status));
+                    query_parts.push(format!("status={}", encode(status)));
                 }
                 if let Some(page) = p.page {
                     query_parts.push(format!("page={}", page));
@@ -394,13 +398,13 @@ impl ApiClient {
                     query_parts.push(format!("page_size={}", page_size));
                 }
                 if let Some(ref adapter_name) = p.adapter_name {
-                    query_parts.push(format!("adapter_name={}", adapter_name));
+                    query_parts.push(format!("adapter_name={}", encode(adapter_name)));
                 }
                 if let Some(ref template_id) = p.template_id {
-                    query_parts.push(format!("template_id={}", template_id));
+                    query_parts.push(format!("template_id={}", encode(template_id)));
                 }
                 if let Some(ref dataset_id) = p.dataset_id {
-                    query_parts.push(format!("dataset_id={}", dataset_id));
+                    query_parts.push(format!("dataset_id={}", encode(dataset_id)));
                 }
                 if query_parts.is_empty() {
                     "/v1/training/jobs".to_string()
@@ -647,7 +651,7 @@ impl ApiClient {
         status: Option<&str>,
     ) -> ApiResult<RepositoryListResponse> {
         let path = match status {
-            Some(s) => format!("/v1/repositories?status={}", s),
+            Some(s) => format!("/v1/repositories?status={}", encode(s)),
             None => "/v1/repositories".to_string(),
         };
         self.get(&path).await
@@ -704,22 +708,22 @@ impl ApiClient {
         let mut params = Vec::new();
 
         if let Some(ref user_id) = query.user_id {
-            params.push(format!("user_id={}", user_id));
+            params.push(format!("user_id={}", encode(user_id)));
         }
         if let Some(ref action) = query.action {
-            params.push(format!("action={}", action));
+            params.push(format!("action={}", encode(action)));
         }
         if let Some(ref resource_type) = query.resource_type {
-            params.push(format!("resource_type={}", resource_type));
+            params.push(format!("resource_type={}", encode(resource_type)));
         }
         if let Some(ref status) = query.status {
-            params.push(format!("status={}", status));
+            params.push(format!("status={}", encode(status)));
         }
         if let Some(ref from_time) = query.from_time {
-            params.push(format!("from_time={}", from_time));
+            params.push(format!("from_time={}", encode(from_time)));
         }
         if let Some(ref to_time) = query.to_time {
-            params.push(format!("to_time={}", to_time));
+            params.push(format!("to_time={}", encode(to_time)));
         }
         if let Some(limit) = query.limit {
             params.push(format!("limit={}", limit));
@@ -773,10 +777,10 @@ impl ApiClient {
             params.push(format!("limit={}", limit));
         }
         if let Some(ref after) = query.after {
-            params.push(format!("after={}", after));
+            params.push(format!("after={}", encode(after)));
         }
         if let Some(ref status) = query.status {
-            params.push(format!("status={}", status));
+            params.push(format!("status={}", encode(status)));
         }
 
         path.push_str(&params.join("&"));
@@ -959,9 +963,16 @@ impl ApiClient {
 
     // --- Datasets ---
 
-    /// List all datasets
-    pub async fn list_datasets(&self) -> ApiResult<DatasetListResponse> {
-        self.get("/v1/datasets").await
+    /// List all datasets with optional type filter
+    pub async fn list_datasets(
+        &self,
+        dataset_type: Option<&str>,
+    ) -> ApiResult<DatasetListResponse> {
+        let path = match dataset_type {
+            Some(t) => format!("/v1/datasets?type={}", encode(t)),
+            None => "/v1/datasets".to_string(),
+        };
+        self.get(&path).await
     }
 
     /// Get a single dataset by ID
@@ -1376,13 +1387,13 @@ impl ApiClient {
     ) -> ApiResult<RoutingDecisionsResponse> {
         let mut params = Vec::new();
         if let Some(ref tenant) = query.tenant {
-            params.push(format!("tenant={}", tenant));
+            params.push(format!("tenant={}", encode(tenant)));
         }
         if let Some(ref stack_id) = query.stack_id {
-            params.push(format!("stack_id={}", stack_id));
+            params.push(format!("stack_id={}", encode(stack_id)));
         }
         if let Some(ref adapter_id) = query.adapter_id {
-            params.push(format!("adapter_id={}", adapter_id));
+            params.push(format!("adapter_id={}", encode(adapter_id)));
         }
         if let Some(anomalies_only) = query.anomalies_only {
             params.push(format!("anomalies_only={}", anomalies_only));
@@ -1439,7 +1450,9 @@ impl ApiClient {
     ) -> ApiResult<RoutingDecisionChainResponse> {
         self.get(&format!(
             "/v1/routing/chain?tenant={}&inference_id={}&verify={}",
-            tenant, inference_id, verify
+            encode(tenant),
+            encode(inference_id),
+            verify
         ))
         .await
     }
@@ -1460,19 +1473,19 @@ impl ApiClient {
     ) -> ApiResult<adapteros_api_types::telemetry::ClientErrorsListResponse> {
         let mut params = Vec::new();
         if let Some(t) = error_type {
-            params.push(format!("error_type={}", t));
+            params.push(format!("error_type={}", encode(t)));
         }
         if let Some(s) = http_status {
             params.push(format!("http_status={}", s));
         }
         if let Some(p) = page_pattern {
-            params.push(format!("page_pattern={}", p));
+            params.push(format!("page_pattern={}", encode(p)));
         }
         if let Some(s) = since {
-            params.push(format!("since={}", s));
+            params.push(format!("since={}", encode(s)));
         }
         if let Some(u) = until {
-            params.push(format!("until={}", u));
+            params.push(format!("until={}", encode(u)));
         }
         if let Some(l) = limit {
             params.push(format!("limit={}", l));
@@ -1507,6 +1520,35 @@ impl ApiClient {
     ) -> ApiResult<adapteros_api_types::telemetry::ClientErrorItem> {
         self.get(&format!("/v1/telemetry/client-errors/{}", id))
             .await
+    }
+
+    // ========================================================================
+    // Routing Rules
+    // ========================================================================
+
+    /// List all routing rules for an identity dataset
+    pub async fn list_routing_rules(
+        &self,
+        identity_dataset_id: &str,
+    ) -> ApiResult<RoutingRulesResponse> {
+        self.get(&format!(
+            "/v1/routing-rules/identity/{}",
+            identity_dataset_id
+        ))
+        .await
+    }
+
+    /// Create a new routing rule
+    pub async fn create_routing_rule(
+        &self,
+        request: &CreateRoutingRuleRequest,
+    ) -> ApiResult<RoutingRuleResponse> {
+        self.post("/v1/routing-rules", request).await
+    }
+
+    /// Delete a routing rule
+    pub async fn delete_routing_rule(&self, rule_id: &str) -> ApiResult<()> {
+        self.delete(&format!("/v1/routing-rules/{}", rule_id)).await
     }
 }
 
@@ -2076,7 +2118,7 @@ impl ApiClient {
     ) -> ApiResult<Vec<InferenceTraceResponse>> {
         let mut params = Vec::new();
         if let Some(id) = request_id {
-            params.push(format!("request_id={}", js_sys::encode_uri_component(id)));
+            params.push(format!("request_id={}", encode(id)));
         }
         if let Some(l) = limit {
             params.push(format!("limit={}", l));
@@ -2162,6 +2204,9 @@ pub struct InferenceTraceDetailResponse {
     pub timing_breakdown: TimingBreakdown,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub receipt: Option<TraceReceiptSummary>,
+    /// Backend used (e.g., coreml, metal, mlx)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend_id: Option<String>,
 }
 
 /// Per-token routing decision
@@ -2175,6 +2220,12 @@ pub struct TokenDecision {
     pub entropy: f32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub decision_hash: Option<String>,
+    /// Backend ID for this specific token (if different from trace)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend_id: Option<String>,
+    /// Kernel version ID used for this token
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kernel_version_id: Option<String>,
 }
 
 /// Timing breakdown for latency analysis
@@ -2200,7 +2251,21 @@ pub struct TraceReceiptSummary {
     pub logical_output_tokens: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop_reason_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stop_reason_token_index: Option<u32>,
     pub verified: bool,
+    /// Hardware/Equipment attestation fields
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub processor_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub engine_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ane_version: Option<String>,
+    /// Cache metrics
+    #[serde(default)]
+    pub prefix_cache_hit: bool,
+    #[serde(default)]
+    pub prefix_kv_bytes: u64,
 }
 
 // ============================================================================
@@ -2377,6 +2442,8 @@ pub struct DatasetResponse {
     pub file_count: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total_size_bytes: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dataset_type: Option<String>,
     #[serde(default)]
     pub created_by: Option<String>,
     pub created_at: String,

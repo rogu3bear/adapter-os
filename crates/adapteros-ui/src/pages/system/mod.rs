@@ -75,14 +75,6 @@ pub fn System() -> impl IntoView {
     let show_spawn_dialog = RwSignal::new(false);
     let spawn_error = RwSignal::new(Option::<String>::None);
 
-    // Store refetch functions in signals for sharing
-    let refetch_status_signal = StoredValue::new(refetch_status);
-    let refetch_workers_signal = StoredValue::new(refetch_workers);
-    let refetch_nodes_signal = StoredValue::new(refetch_nodes);
-    let refetch_metrics_signal = StoredValue::new(refetch_metrics);
-    let refetch_state_signal = StoredValue::new(refetch_state);
-    let refetch_models_status_signal = StoredValue::new(refetch_models_status);
-
     // Real-time worker status updates via SSE
     // Maps worker_id -> (status, timestamp) for incremental updates
     let worker_status_overrides: RwSignal<HashMap<String, (String, String)>> =
@@ -102,7 +94,7 @@ pub fn System() -> impl IntoView {
                     // to get the complete worker data
                     worker_status_overrides.set(HashMap::new());
                     last_sse_update.set(Some(chrono::Utc::now().to_rfc3339()));
-                    refetch_workers_signal.with_value(|f| f());
+                    refetch_workers.run(());
                 }
                 WorkerStreamEvent::StatusUpdate(update) => {
                     // Apply incremental status update
@@ -128,9 +120,8 @@ pub fn System() -> impl IntoView {
         if sse_status.get() == SseState::Disconnected {
             #[cfg(target_arch = "wasm32")]
             {
-                let refetch = refetch_workers_signal.clone();
                 gloo_timers::callback::Timeout::new(30_000, move || {
-                    refetch.with_value(|f| f());
+                    refetch_workers.run(());
                 })
                 .forget();
             }
@@ -156,15 +147,15 @@ pub fn System() -> impl IntoView {
     // Worker data is now primarily updated via SSE
     // Using use_polling hook which properly cleans up on unmount
     let _ = use_polling(30_000, move || async move {
-        refetch_status_signal.with_value(|f| f());
-        refetch_nodes_signal.with_value(|f| f());
-        refetch_metrics_signal.with_value(|f| f());
-        refetch_state_signal.with_value(|f| f());
-        refetch_models_status_signal.with_value(|f| f());
+        refetch_status.run(());
+        refetch_nodes.run(());
+        refetch_metrics.run(());
+        refetch_state.run(());
+        refetch_models_status.run(());
         // Only refetch workers if SSE is not connected
         // Use get_untracked since we're in an async context outside reactive tracking
         if sse_status.get_untracked() != SseState::Connected {
-            refetch_workers_signal.with_value(|f| f());
+            refetch_workers.run(());
         }
     });
 
@@ -180,12 +171,12 @@ pub fn System() -> impl IntoView {
                         <button
                             class="inline-flex items-center gap-2 rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent"
                             on:click=move |_| {
-                                refetch_status_signal.with_value(|f| f());
-                                refetch_workers_signal.with_value(|f| f());
-                                refetch_nodes_signal.with_value(|f| f());
-                                refetch_metrics_signal.with_value(|f| f());
-                                refetch_state_signal.with_value(|f| f());
-                                refetch_models_status_signal.with_value(|f| f());
+                                refetch_status.run(());
+                                refetch_workers.run(());
+                                refetch_nodes.run(());
+                                refetch_metrics.run(());
+                                refetch_state.run(());
+                                refetch_models_status.run(());
                             }
                         >
                             <RefreshIcon/>
@@ -264,10 +255,10 @@ pub fn System() -> impl IntoView {
                                 <ErrorDisplay
                                     error=e
                                     on_retry=Callback::new(move |_| {
-                                        refetch_status_signal.with_value(|f| f());
-                                        refetch_workers_signal.with_value(|f| f());
-                                        refetch_nodes_signal.with_value(|f| f());
-                                        refetch_metrics_signal.with_value(|f| f());
+                                        refetch_status.run(());
+                                        refetch_workers.run(());
+                                        refetch_nodes.run(());
+                                        refetch_metrics.run(());
                                     })
                                 />
                             }.into_any()
@@ -291,7 +282,6 @@ pub fn System() -> impl IntoView {
                             nodes=nodes_list
                             plans=plans_list
                             on_spawn=Callback::new({
-                                let refetch = refetch_workers_signal;
                                 move |request: SpawnWorkerRequest| {
                                     show_spawn_dialog.set(false);
                                     let client = ApiClient::new();
@@ -299,7 +289,7 @@ pub fn System() -> impl IntoView {
                                         match client.spawn_worker(&request).await {
                                             Ok(_) => {
                                                 spawn_error.set(None);
-                                                refetch.with_value(|f| f());
+                                                refetch_workers.run(());
                                             }
                                             Err(e) => {
                                                 spawn_error.set(Some(format!("Failed to spawn worker: {}", e)));

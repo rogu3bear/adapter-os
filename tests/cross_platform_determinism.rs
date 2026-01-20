@@ -215,7 +215,7 @@ fn test_tie_breaking_order() {
         score: f32,
     }
 
-    let mut adapters = vec![
+    let mut adapters = [
         TestAdapter {
             stable_id: 3,
             score: 0.5,

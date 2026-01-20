@@ -2,7 +2,7 @@ use crate::middleware::context::RequestContext;
 use crate::middleware::trace_context::TraceContextExtension;
 use crate::request_id::{RequestId, REQUEST_ID_HEADER};
 use crate::state::AppState;
-use crate::types::ApiErrorBody;
+use adapteros_api_types::ErrorResponse; // Use standard type
 use axum::body::to_bytes;
 use axum::{
     body::Body,
@@ -94,13 +94,22 @@ async fn observability_middleware_inner(
             .filter(|hint| !hint.trim().is_empty())
             .unwrap_or_else(|| derive_hint(&code, &message, detail.as_deref(), status));
 
-        let envelope = ApiErrorBody {
-            code: code.clone(),
-            message: message.clone(),
-            hint: hint.clone(),
-            detail: detail.clone(),
-            request_id: request_id.clone(),
+        let envelope = ErrorResponse::new(message.clone())
+            .with_code(code.clone())
+            .with_request_id(request_id.clone());
+
+        // Add optional fields
+        let envelope = envelope.with_hint(hint.clone());
+
+        let envelope = if let Some(d) = detail.clone() {
+            envelope.with_string_details(d) // Basic string detail if parsed as string, or we need to handle Value
+        } else {
+            envelope
         };
+
+        // Re-parse detail if it was structured? parse_error_payload returns Option<String>.
+        // Ideally we pass serde_json::Value for details.
+        // Let's refine parse_error_payload later if needed, for now string details are OK.
 
         let mut new_response = (status, Json(envelope)).into_response();
         // We generate a fresh, uncompressed error envelope; drop any compression
@@ -401,11 +410,11 @@ mod tests {
             .expect("request id header set");
 
         let body_bytes = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
-        let envelope: ApiErrorBody = serde_json::from_slice(&body_bytes).unwrap();
+        let envelope: ErrorResponse = serde_json::from_slice(&body_bytes).unwrap();
         assert_eq!(envelope.code, "HTTP_400");
         assert_eq!(envelope.message, "bad input");
-        assert!(!envelope.hint.trim().is_empty());
-        assert_eq!(envelope.request_id, request_id);
+        assert!(envelope.hint.is_some());
+        assert_eq!(envelope.request_id.unwrap(), request_id);
     }
 
     #[tokio::test]

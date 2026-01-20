@@ -1110,7 +1110,7 @@ impl<'a> InferenceCore<'a> {
 
         // 5b. Persist per-token routing chain for audit
         if let Some(chain) = router_decision_chain.as_ref() {
-            let records: Vec<adapteros_db::RoutingDecisionChainRecord> = chain
+            let records_result: Result<Vec<adapteros_db::RoutingDecisionChainRecord>, _> = chain
                 .iter()
                 .map(|entry| {
                     let hash_json = entry
@@ -1127,17 +1127,28 @@ impl<'a> InferenceCore<'a> {
                 })
                 .collect();
 
-            if let Err(e) = self
-                .state
-                .db
-                .insert_routing_decision_chain_batch(&records)
-                .await
-            {
-                warn!(
-                    error = %e,
-                    request_id = %request.request_id,
-                    "Failed to persist routing decision chain"
-                );
+            match records_result {
+                Ok(records) => {
+                    if let Err(e) = self
+                        .state
+                        .db
+                        .insert_routing_decision_chain_batch(&records)
+                        .await
+                    {
+                        warn!(
+                            error = %e,
+                            request_id = %request.request_id,
+                            "Failed to persist routing decision chain"
+                        );
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        error = %e,
+                        request_id = %request.request_id,
+                        "Failed to serialize routing decision chain records - audit trail corrupted"
+                    );
+                }
             }
         }
 

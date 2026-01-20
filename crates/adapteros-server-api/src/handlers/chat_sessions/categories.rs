@@ -5,11 +5,11 @@
 //!
 //! 【2025-01-25†prd-ux-01†chat_sessions_categories】
 
+use crate::api_error::{ApiError, ApiResult};
 use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
-use crate::types::ErrorResponse;
 use adapteros_db::ChatCategory;
 use axum::{
     extract::{Path, State},
@@ -25,13 +25,9 @@ use super::types::{CreateCategoryRequest, SetCategoryRequest, UpdateCategoryRequ
 pub async fn list_chat_categories(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
-) -> Result<Json<Vec<ChatCategory>>, (StatusCode, Json<ErrorResponse>)> {
-    require_permission(&claims, Permission::InferenceExecute).map_err(|_| {
-        (
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Permission denied").with_code("FORBIDDEN")),
-        )
-    })?;
+) -> ApiResult<Vec<ChatCategory>> {
+    require_permission(&claims, Permission::InferenceExecute)
+        .map_err(|_| ApiError::forbidden("Permission denied"))?;
 
     // Tenant isolation check
     validate_tenant_isolation(&claims, &claims.tenant_id)?;
@@ -40,16 +36,7 @@ pub async fn list_chat_categories(
         .db
         .list_chat_categories(&claims.tenant_id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to list categories")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+        .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?;
 
     Ok(Json(categories))
 }
@@ -61,25 +48,15 @@ pub async fn create_chat_category(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Json(req): Json<CreateCategoryRequest>,
-) -> Result<(StatusCode, Json<ChatCategory>), (StatusCode, Json<ErrorResponse>)> {
-    require_permission(&claims, Permission::WorkspaceManage).map_err(|_| {
-        (
-            StatusCode::FORBIDDEN,
-            Json(
-                ErrorResponse::new("Permission denied - requires WorkspaceManage")
-                    .with_code("FORBIDDEN"),
-            ),
-        )
-    })?;
+) -> Result<(StatusCode, Json<ChatCategory>), ApiError> {
+    require_permission(&claims, Permission::WorkspaceManage)
+        .map_err(|_| ApiError::forbidden("Permission denied - requires WorkspaceManage"))?;
 
     // Tenant isolation check
     validate_tenant_isolation(&claims, &claims.tenant_id)?;
 
     if req.name.trim().is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new("Category name cannot be empty").with_code("VALIDATION_ERROR")),
-        ));
+        return Err(ApiError::bad_request("Category name cannot be empty"));
     }
 
     let category = state
@@ -93,19 +70,12 @@ pub async fn create_chat_category(
         )
         .await
         .map_err(|e| {
-            let status = if e.to_string().contains("depth cannot exceed") {
-                StatusCode::BAD_REQUEST
+            let error_str = e.to_string();
+            if error_str.contains("depth cannot exceed") {
+                ApiError::bad_request("Failed to create category").with_details(error_str)
             } else {
-                StatusCode::INTERNAL_SERVER_ERROR
-            };
-            (
-                status,
-                Json(
-                    ErrorResponse::new("Failed to create category")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
+                ApiError::db_error(&e).with_details(error_str)
+            }
         })?;
 
     Ok((StatusCode::CREATED, Json(category)))
@@ -119,38 +89,17 @@ pub async fn update_chat_category(
     Extension(claims): Extension<Claims>,
     Path(category_id): Path<String>,
     Json(req): Json<UpdateCategoryRequest>,
-) -> Result<Json<ChatCategory>, (StatusCode, Json<ErrorResponse>)> {
-    require_permission(&claims, Permission::WorkspaceManage).map_err(|_| {
-        (
-            StatusCode::FORBIDDEN,
-            Json(
-                ErrorResponse::new("Permission denied - requires WorkspaceManage")
-                    .with_code("FORBIDDEN"),
-            ),
-        )
-    })?;
+) -> ApiResult<ChatCategory> {
+    require_permission(&claims, Permission::WorkspaceManage)
+        .map_err(|_| ApiError::forbidden("Permission denied - requires WorkspaceManage"))?;
 
     // Verify category belongs to tenant
     let category = state
         .db
         .get_chat_category(&category_id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to get category")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("Category not found").with_code("NOT_FOUND")),
-            )
-        })?;
+        .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?
+        .ok_or_else(|| ApiError::not_found("Category"))?;
 
     // Tenant isolation check
     validate_tenant_isolation(&claims, &category.tenant_id)?;
@@ -164,37 +113,14 @@ pub async fn update_chat_category(
             req.color.as_deref(),
         )
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to update category")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+        .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?;
 
     let updated = state
         .db
         .get_chat_category(&category_id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to get category")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("Category not found after update").with_code("NOT_FOUND")),
-            )
-        })?;
+        .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?
+        .ok_or_else(|| ApiError::not_found("Category not found after update"))?;
 
     Ok(Json(updated))
 }
@@ -206,38 +132,17 @@ pub async fn delete_chat_category(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(category_id): Path<String>,
-) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
-    require_permission(&claims, Permission::WorkspaceManage).map_err(|_| {
-        (
-            StatusCode::FORBIDDEN,
-            Json(
-                ErrorResponse::new("Permission denied - requires WorkspaceManage")
-                    .with_code("FORBIDDEN"),
-            ),
-        )
-    })?;
+) -> Result<StatusCode, ApiError> {
+    require_permission(&claims, Permission::WorkspaceManage)
+        .map_err(|_| ApiError::forbidden("Permission denied - requires WorkspaceManage"))?;
 
     // Verify category belongs to tenant
     let category = state
         .db
         .get_chat_category(&category_id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to get category")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("Category not found").with_code("NOT_FOUND")),
-            )
-        })?;
+        .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?
+        .ok_or_else(|| ApiError::not_found("Category"))?;
 
     // Tenant isolation check
     validate_tenant_isolation(&claims, &category.tenant_id)?;
@@ -247,19 +152,12 @@ pub async fn delete_chat_category(
         .delete_chat_category(&category_id)
         .await
         .map_err(|e| {
-            let status = if e.to_string().contains("Cannot delete category") {
-                StatusCode::BAD_REQUEST
+            let error_str = e.to_string();
+            if error_str.contains("Cannot delete category") {
+                ApiError::bad_request("Failed to delete category").with_details(error_str)
             } else {
-                StatusCode::INTERNAL_SERVER_ERROR
-            };
-            (
-                status,
-                Json(
-                    ErrorResponse::new("Failed to delete category")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
+                ApiError::db_error(&e).with_details(error_str)
+            }
         })?;
 
     Ok(StatusCode::NO_CONTENT)
@@ -273,35 +171,17 @@ pub async fn set_session_category(
     Extension(claims): Extension<Claims>,
     Path(session_id): Path<String>,
     Json(req): Json<SetCategoryRequest>,
-) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
-    require_permission(&claims, Permission::InferenceExecute).map_err(|_| {
-        (
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Permission denied").with_code("FORBIDDEN")),
-        )
-    })?;
+) -> Result<StatusCode, ApiError> {
+    require_permission(&claims, Permission::InferenceExecute)
+        .map_err(|_| ApiError::forbidden("Permission denied"))?;
 
     // Verify session belongs to tenant
     let session = state
         .db
         .get_chat_session(&session_id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to get session")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("Session not found").with_code("NOT_FOUND")),
-            )
-        })?;
+        .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?
+        .ok_or_else(|| ApiError::not_found("Session"))?;
 
     // Tenant isolation check
     validate_tenant_isolation(&claims, &session.tenant_id)?;
@@ -310,16 +190,7 @@ pub async fn set_session_category(
         .db
         .set_session_category(&session_id, req.category_id.as_deref())
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to set category")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+        .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?;
 
     Ok(StatusCode::NO_CONTENT)
 }

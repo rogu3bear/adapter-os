@@ -120,8 +120,6 @@ fn UsersSection() -> impl IntoView {
         client.list_users(Some(1), Some(50)).await
     });
 
-    let refetch_signal = StoredValue::new(refetch);
-
     view! {
         <Card>
             {move || {
@@ -165,7 +163,7 @@ fn UsersSection() -> impl IntoView {
                                         </span>
                                         <Button
                                             variant=ButtonVariant::Outline
-                                            on_click=Callback::new(move |_| refetch_signal.with_value(|f| f()))
+                                            on_click=refetch
                                         >
                                             "Refresh"
                                         </Button>
@@ -214,7 +212,7 @@ fn UsersSection() -> impl IntoView {
                         view! {
                             <ErrorDisplay
                                 error=e
-                                on_retry=Callback::new(move |_| refetch_signal.with_value(|f| f()))
+                                on_retry=refetch
                             />
                         }.into_any()
                     }
@@ -311,8 +309,6 @@ fn ApiKeysSection() -> impl IntoView {
     let (keys, refetch) =
         use_api_resource(move |client: Arc<ApiClient>| async move { client.list_api_keys().await });
 
-    let refetch_signal = StoredValue::new(refetch);
-
     // Dialog state
     let show_create_dialog = RwSignal::new(false);
     let new_key_name = RwSignal::new(String::new());
@@ -352,7 +348,7 @@ fn ApiKeysSection() -> impl IntoView {
                     new_key_name.set(String::new());
                     selected_scopes.set(vec!["viewer".to_string()]);
                     show_create_dialog.set(false);
-                    refetch_signal.with_value(|f| f());
+                    refetch.run(());
                 }
                 Err(e) => {
                     create_error.set(Some(e.to_string()));
@@ -384,7 +380,7 @@ fn ApiKeysSection() -> impl IntoView {
             let client = ApiClient::new();
             match client.revoke_api_key(&id).await {
                 Ok(_) => {
-                    refetch_signal.with_value(|f| f());
+                    refetch.run(());
                 }
                 Err(e) => {
                     web_sys::console::error_1(&format!("Failed to revoke key: {}", e).into());
@@ -624,7 +620,7 @@ fn ApiKeysSection() -> impl IntoView {
                                             <div class="flex gap-2">
                                                 <Button
                                                     variant=ButtonVariant::Outline
-                                                    on_click=Callback::new(move |_| refetch_signal.with_value(|f| f()))
+                                                    on_click=refetch
                                                 >
                                                     "Refresh"
                                                 </Button>
@@ -709,7 +705,7 @@ fn ApiKeysSection() -> impl IntoView {
                             view! {
                                 <ErrorDisplay
                                     error=e
-                                    on_retry=Callback::new(move |_| refetch_signal.with_value(|f| f()))
+                                    on_retry=refetch
                                 />
                             }.into_any()
                         }

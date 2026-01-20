@@ -5,6 +5,7 @@
 //!
 //! 【2025-01-20†rectification†training_handlers】
 
+use crate::api_error::{ApiError, ApiResult};
 use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
@@ -314,12 +315,12 @@ fn plan_backend_readiness(
 }
 
 #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
-fn coreml_compute_units_label(units: adapteros_lora_kernel_coreml::ComputeUnits) -> String {
+fn coreml_compute_units_label(units: adapteros_lora_worker::ComputeUnits) -> String {
     match units {
-        adapteros_lora_kernel_coreml::ComputeUnits::CpuOnly => "cpu_only",
-        adapteros_lora_kernel_coreml::ComputeUnits::CpuAndGpu => "cpu_and_gpu",
-        adapteros_lora_kernel_coreml::ComputeUnits::CpuAndNeuralEngine => "cpu_and_ne",
-        adapteros_lora_kernel_coreml::ComputeUnits::All => "all",
+        adapteros_lora_worker::ComputeUnits::CpuOnly => "cpu_only",
+        adapteros_lora_worker::ComputeUnits::CpuAndGpu => "cpu_and_gpu",
+        adapteros_lora_worker::ComputeUnits::CpuAndNeuralEngine => "cpu_and_ne",
+        adapteros_lora_worker::ComputeUnits::All => "all",
     }
     .to_string()
 }
@@ -328,7 +329,7 @@ fn build_coreml_readiness(capabilities: &BackendCapabilities) -> TrainingCoremlR
     #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
     {
         let settings = resolve_coreml_backend_settings();
-        return TrainingCoremlReadiness {
+        TrainingCoremlReadiness {
             available: capabilities.has_coreml,
             gpu_available: settings.gpu_available,
             ane_available: settings.ane_available,
@@ -337,7 +338,7 @@ fn build_coreml_readiness(capabilities: &BackendCapabilities) -> TrainingCoremlR
             gpu_used: settings.gpu_used,
             ane_used: settings.ane_used,
             production_mode: settings.production_mode,
-        };
+        }
     }
 
     #[cfg(not(all(target_os = "macos", feature = "coreml-backend")))]
@@ -358,21 +359,12 @@ fn build_coreml_readiness(capabilities: &BackendCapabilities) -> TrainingCoremlR
 async fn load_base_model_readiness(
     state: &AppState,
     tenant_id: &str,
-) -> Result<Option<TrainingBaseModelReadiness>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<Option<TrainingBaseModelReadiness>, ApiError> {
     let status_record = state
         .db
         .get_base_model_status(tenant_id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+        .map_err(ApiError::db_error)?;
 
     let Some(record) = status_record else {
         return Ok(None);
@@ -382,16 +374,7 @@ async fn load_base_model_readiness(
         .db
         .get_model_for_tenant(tenant_id, &record.model_id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+        .map_err(ApiError::db_error)?;
 
     let status = adapteros_api_types::ModelLoadStatus::parse_status(&record.status);
     let retry_exhausted = record
@@ -418,17 +401,11 @@ pub(crate) async fn resolve_base_model_path(
     state: &AppState,
     tenant_id: &str,
     base_model_id: &str,
-) -> Result<PathBuf, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<PathBuf, ApiError> {
     let trimmed = base_model_id.trim();
     if trimmed.is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new(
-                    "base_model_id is required. Training without a base model produces incorrect adapters.",
-                )
-                .with_code("VALIDATION_ERROR"),
-            ),
+        return Err(ApiError::bad_request(
+            "base_model_id is required. Training without a base model produces incorrect adapters.",
         ));
     }
 
@@ -438,25 +415,9 @@ pub(crate) async fn resolve_base_model_path(
         .await
         .map_err(|e| {
             error!(base_model_id = %trimmed, error = %e, "Failed to load base model");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to load base model")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
+            ApiError::db_error(e)
         })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(
-                    ErrorResponse::new(format!("Model not found: {}", trimmed))
-                        .with_code("NOT_FOUND")
-                        .with_string_details(trimmed.to_string()),
-                ),
-            )
-        })?;
+        .ok_or_else(|| ApiError::not_found(format!("Model: {}", trimmed)))?;
 
     let model_path = model
         .model_path
@@ -464,31 +425,19 @@ pub(crate) async fn resolve_base_model_path(
         .map(str::trim)
         .filter(|path| !path.is_empty())
         .ok_or_else(|| {
-            (
-                StatusCode::BAD_REQUEST,
-                Json(
-                    ErrorResponse::new(format!(
-                        "Model '{}' does not have a configured path",
-                        trimmed
-                    ))
-                    .with_code("VALIDATION_ERROR"),
-                ),
-            )
+            ApiError::bad_request(format!(
+                "Model '{}' does not have a configured path",
+                trimmed
+            ))
         })?;
 
     let path = PathBuf::from(model_path);
     if !path.exists() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new(format!(
-                    "Model '{}' path does not exist: {}",
-                    trimmed,
-                    path.display()
-                ))
-                .with_code("VALIDATION_ERROR"),
-            ),
-        ));
+        return Err(ApiError::bad_request(format!(
+            "Model '{}' path does not exist: {}",
+            trimmed,
+            path.display()
+        )));
     }
 
     Ok(path)
@@ -1269,7 +1218,7 @@ pub async fn get_training_backend_readiness(
     }))
 }
 
-fn build_training_error_response(error: &AosError) -> (StatusCode, Json<ErrorResponse>) {
+fn build_training_error_response(error: &AosError) -> ApiError {
     let error_message = error.to_string();
     let is_validation_variant = matches!(error, AosError::Validation(_));
     let is_dataset_validation_message = error_message
@@ -1284,19 +1233,10 @@ fn build_training_error_response(error: &AosError) -> (StatusCode, Json<ErrorRes
             _ => error_message.clone(),
         };
 
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new(&message).with_code("VALIDATION_ERROR")),
-        );
+        return ApiError::bad_request(&message);
     }
 
-    (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        Json(
-            ErrorResponse::new(format!("Failed to start training: {}", error))
-                .with_code("TRAINING_ERROR"),
-        ),
-    )
+    ApiError::internal(format!("Failed to start training: {}", error))
 }
 
 fn map_preprocessing_config(
@@ -1436,12 +1376,7 @@ pub async fn get_preprocess_status(
                     ),
                 )
             })?
-            .ok_or_else(|| {
-                (
-                    StatusCode::NOT_FOUND,
-                    Json(ErrorResponse::new("Dataset not found").with_code("DATASET_NOT_FOUND")),
-                )
-            })?;
+            .ok_or_else(|| ApiError::not_found("Dataset"))?;
         let owner = dataset
             .tenant_id
             .as_deref()
@@ -1455,25 +1390,13 @@ pub async fn get_preprocess_status(
     let base_model_path =
         resolve_base_model_path(&state, &claims.tenant_id, &base_model_id).await?;
     let model_config = ModelConfig::from_config_json(&base_model_path).map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("Failed to parse base model config")
-                    .with_code("CONFIG_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
+        ApiError::internal("Failed to parse base model config").with_details(e.to_string())
     })?;
 
-    let storage_root = state.training_service.storage_root().ok_or_else(|| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("Training storage root not configured")
-                    .with_code("CONFIG_ERROR"),
-            ),
-        )
-    })?;
+    let storage_root = state
+        .training_service
+        .storage_root()
+        .ok_or_else(|| ApiError::internal("Training storage root not configured"))?;
     let artifacts_root = state.training_service.artifacts_root();
 
     let tokenizer_hint = base_model_path.join("tokenizer.json");
@@ -1777,7 +1700,8 @@ pub async fn start_training(
                                     "training_request",
                                     resource_id,
                                     &claims.tenant_id,
-                                    &format!("Evidence policy violation: {}", error_message),
+                                    format!("Evidence policy violation: {}", error_message)
+                                        .as_str(),
                                     None,
                                 )
                                 .await;
@@ -2486,7 +2410,7 @@ pub async fn start_training(
             }
 
             let as_aos = AosError::Internal(e.to_string());
-            return Err(build_training_error_response(&as_aos));
+            return Err(build_training_error_response(&as_aos).into());
         }
     };
 
@@ -2565,14 +2489,16 @@ mod tests {
         let error =
             AosError::Validation("Dataset ds-123 is not validated (status: draft)".to_string());
 
-        let (status, axum::Json(body)) = build_training_error_response(&error);
+        let api_error = build_training_error_response(&error);
+
+        // Extract fields for assertion
+        let status = api_error.status;
+        let code = api_error.code;
+        let message = api_error.message;
 
         assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert_eq!(body.code, "VALIDATION_ERROR");
-        assert_eq!(
-            body.error,
-            "Dataset ds-123 is not validated (status: draft)"
-        );
+        assert_eq!(code, "VALIDATION_ERROR");
+        assert_eq!(message, "Dataset ds-123 is not validated (status: draft)");
     }
 
     #[test]
@@ -2582,14 +2508,16 @@ mod tests {
         let error =
             AosError::Database("Dataset ds-123 is not validated (status: draft)".to_string());
 
-        let (status, axum::Json(body)) = build_training_error_response(&error);
+        let api_error = build_training_error_response(&error);
+
+        // Extract fields for assertion
+        let status = api_error.status;
+        let code = api_error.code;
+        let message = api_error.message;
 
         assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert_eq!(body.code, "VALIDATION_ERROR");
-        assert_eq!(
-            body.error,
-            "Dataset ds-123 is not validated (status: draft)"
-        );
+        assert_eq!(code, "VALIDATION_ERROR");
+        assert_eq!(message, "Dataset ds-123 is not validated (status: draft)");
     }
 
     #[test]
