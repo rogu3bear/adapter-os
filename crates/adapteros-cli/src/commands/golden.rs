@@ -1,6 +1,7 @@
 //! Golden run archive management
 
 use crate::output::OutputWriter;
+use crate::utils::golden_paths::resolve_bundle_path;
 use adapteros_crypto::Keypair;
 use adapteros_verify::{
     archive::{create_golden_run, GoldenRunArchive},
@@ -36,7 +37,7 @@ pub enum GoldenCmd {
 /// Arguments for 'golden create'
 #[derive(Debug, Parser, Clone)]
 pub struct CreateArgs {
-    /// Path to replay bundle
+    /// Path to replay bundle file or capture directory
     #[arg(short, long)]
     pub bundle: PathBuf,
 
@@ -134,6 +135,9 @@ pub async fn create(
         bundle_path.display()
     ));
 
+    // Resolve bundle path using helper
+    let resolved_bundle_path = resolve_bundle_path(bundle_path)?;
+
     // Initialize golden_runs directory if needed
     let golden_runs_dir =
         init_golden_runs_dir(".").context("Failed to initialize golden_runs directory")?;
@@ -144,7 +148,7 @@ pub async fn create(
     output.progress("Extracting epsilon statistics from bundle");
 
     // Create the golden run archive
-    let mut archive = create_golden_run(bundle_path, toolchain, &adapters)
+    let mut archive = create_golden_run(&resolved_bundle_path, toolchain, &adapters)
         .await
         .context("Failed to create golden run")?;
 
@@ -242,6 +246,9 @@ pub async fn verify(
         anyhow::bail!("Golden run not found: {}", golden_name);
     }
 
+    // Resolve bundle path (same logic as create)
+    let resolved_bundle_path = resolve_bundle_path(bundle_path)?;
+
     // Configure comparison
     let mut config = ComparisonConfig::default();
     if let Some(s) = strictness {
@@ -257,7 +264,7 @@ pub async fn verify(
     output.progress("Loading golden run archive");
 
     // Run verification
-    let report = verify_against_golden(&golden_dir, bundle_path, &config)
+    let report = verify_against_golden(&golden_dir, &resolved_bundle_path, &config)
         .await
         .context("Verification failed")?;
 

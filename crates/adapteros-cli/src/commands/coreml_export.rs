@@ -18,10 +18,10 @@ pub async fn run(
     let compute_units = parse_compute_units(compute_units)?;
 
     output.info("Exporting adapter to fused CoreML package");
-    output.kv("Base package", base_package.display().to_string());
-    output.kv("Adapter bundle", adapter_aos.display().to_string());
-    output.kv("Output", output_package.display().to_string());
-    output.kv("Compute units", format!("{compute_units:?}"));
+    output.kv("Base package", &base_package.display().to_string());
+    output.kv("Adapter bundle", &adapter_aos.display().to_string());
+    output.kv("Output", &output_package.display().to_string());
+    output.kv("Compute units", &format!("{compute_units:?}"));
 
     let record = run_coreml_export(CoreMLExportJob {
         base_package,
@@ -34,15 +34,16 @@ pub async fn run(
     let metadata_only = record.base_manifest_hash == record.fused_manifest_hash;
 
     output.success("CoreML export completed");
-    output.kv("Fused package", record.fused_package.display().to_string());
-    output.kv("Metadata", record.metadata_path.display().to_string());
-    output.kv("Base manifest hash", record.base_manifest_hash.to_string());
+    output.kv("Fused package", &record.fused_package.display().to_string());
+    output.kv("Metadata", &record.metadata_path.display().to_string());
+    output.kv("Base manifest hash", &record.base_manifest_hash.to_string());
     output.kv(
         "Fused manifest hash",
-        record.fused_manifest_hash.to_string(),
+        &record.fused_manifest_hash.to_string(),
     );
-    output.kv("Adapter hash", record.adapter_hash.to_string());
-    output.kv("Fusion verified", record.fusion_verified.to_string());
+    output.kv("Adapter hash", &record.adapter_hash.to_string());
+    output.kv("Fusion verified", &record.fusion_verified.to_string());
+
     if metadata_only {
         output.warning(
             "CoreML export produced metadata-only output; fused manifest matches base package",
@@ -153,7 +154,7 @@ pub async fn show_export_status(job_id: &str, base_url: &str, output: &OutputWri
     output.info(&format!("Training job {}", job.id));
     output.kv(
         "coreml_export_requested",
-        job.coreml_export_requested
+        &job.coreml_export_requested
             .map(|b| b.to_string())
             .unwrap_or_else(|| "false".to_string()),
     );

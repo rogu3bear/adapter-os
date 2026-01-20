@@ -331,11 +331,10 @@ pub async fn run(
                     "MLX detected (impl: {}, version: {})",
                     selected, mlx_version
                 ));
-                adapteros_lora_worker::BackendChoice::Mlx {
-                    model_path: model_path.clone(),
-                }
+                adapteros_lora_worker::BackendChoice::Mlx
             }
         }
+
         BackendType::CoreML => {
             output.verbose("Using CoreML backend (macOS Neural Engine)");
 
@@ -377,6 +376,9 @@ pub async fn run(
                     alpha: adapter_spec.alpha,
                     target_modules: adapter_spec.target_modules.clone(),
                     dropout: 0.0,
+                    language_affinities: Vec::new(),
+                    framework: None,
+                    tier: Some("cli-serve".to_string()),
                 };
 
                 output.verbose(format!(

@@ -283,7 +283,7 @@ async fn start(args: TrainStartArgs, output: &OutputWriter) -> Result<()> {
             if let Some(mapped) = map_trust_error(&err, args.dataset_version_ids.first()) {
                 bail!(mapped);
             }
-            bail!("failed to start training: {} ({})", err.error, err.code);
+            bail!("failed to start training: {} ({})", err.message, err.code);
         }
         bail!("failed to start training: {} {}", status, body_text);
     }
@@ -673,10 +673,12 @@ mod tests {
     fn maps_trust_errors_to_ui_copy() {
         let err = ErrorResponse {
             schema_version: API_SCHEMA_VERSION.into(),
-            error: "Dataset version dsv-1 is not trainable (trust_state: blocked)".into(),
+            message: "Dataset version dsv-1 is not trainable (trust_state: blocked)".into(),
             code: "DATASET_TRUST_BLOCKED".into(),
-            details: None,
             failure_code: None,
+            details: None,
+            hint: None,
+            request_id: None,
         };
         let msg = map_trust_error(&err, Some(&"dsv-1".to_string())).unwrap();
         assert!(msg.contains("dsv-1"));
@@ -687,10 +689,12 @@ mod tests {
     fn maps_needs_approval_errors() {
         let err = ErrorResponse {
             schema_version: API_SCHEMA_VERSION.into(),
-            error: "dataset version dsv-2 trust_state=needs_approval blocks training".into(),
+            message: "dataset version dsv-2 trust_state=needs_approval blocks training".into(),
             code: "DATASET_TRUST_NEEDS_APPROVAL".into(),
-            details: None,
             failure_code: None,
+            details: None,
+            hint: None,
+            request_id: None,
         };
         let msg = map_trust_error(&err, Some(&"dsv-2".to_string())).unwrap();
         assert!(msg.contains("approval"));
@@ -701,17 +705,21 @@ mod tests {
     fn maps_lineage_required_and_hash_mismatch() {
         let lineage = ErrorResponse {
             schema_version: API_SCHEMA_VERSION.into(),
-            error: "dataset_version_ids are required for non-synthetic training jobs".into(),
+            message: "dataset_version_ids are required for non-synthetic training jobs".into(),
             code: "LINEAGE_REQUIRED".into(),
-            details: None,
             failure_code: None,
+            details: None,
+            hint: None,
+            request_id: None,
         };
         let hash = ErrorResponse {
             schema_version: API_SCHEMA_VERSION.into(),
-            error: "data_spec_hash mismatch".into(),
+            message: "data_spec_hash mismatch".into(),
             code: "DATA_SPEC_HASH_MISMATCH".into(),
-            details: None,
             failure_code: None,
+            details: None,
+            hint: None,
+            request_id: None,
         };
         let lineage_msg = map_trust_error(&lineage, None).unwrap();
         assert!(lineage_msg.contains("--dataset-version-ids"));
