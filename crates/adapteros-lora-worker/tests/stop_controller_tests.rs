@@ -274,7 +274,10 @@ fn test_stop_policy_spec_serialization_roundtrip() {
     );
     assert_eq!(policy.repetition_ngram, deserialized.repetition_ngram);
     assert_eq!(policy.repetition_window, deserialized.repetition_window);
-    assert_eq!(policy.repetition_threshold, deserialized.repetition_threshold);
+    assert_eq!(
+        policy.repetition_threshold,
+        deserialized.repetition_threshold
+    );
     assert_eq!(policy.stop_sequences, deserialized.stop_sequences);
 
     // Verify digest is stable after round-trip

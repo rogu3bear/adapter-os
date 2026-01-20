@@ -70,6 +70,15 @@ impl Generator {
         derive_seed_indexed(&B3Hash::new(self.base_seed), "sample", step)
     }
 
+    /// Derive a deterministic dropout seed for GPU kernels.
+    ///
+    /// Uses HKDF-SHA256 with label `dropout:<step>`.
+    fn derive_dropout_seed(&self, step: usize) -> u32 {
+        let seed = derive_seed_indexed(&B3Hash::new(self.base_seed), "dropout", step);
+        // Take first 4 bytes as u32 seed
+        u32::from_le_bytes([seed[0], seed[1], seed[2], seed[3]])
+    }
+
     /// Re-seed the RNG for a specific generation step
     ///
     /// In deterministic mode, this ensures each step produces
@@ -255,10 +264,11 @@ impl Generator {
             let decision =
                 router.route_with_adapter_info(&features, &priors, adapter_info, &policy_mask)?;
 
-            // Run inference step
             // Convert Decision to RouterRing
             let mut ring = adapteros_lora_kernel_api::RouterRing::from(&decision);
             ring.position = io.position;
+            ring.dropout_seed = self.derive_dropout_seed(step);
+            ring.dropout_rate = 0.0; // Inference default: no dropout
             backend.run_step(&ring, &mut io)?;
 
             // Sample next token

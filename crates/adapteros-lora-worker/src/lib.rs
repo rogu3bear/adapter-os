@@ -212,12 +212,14 @@ fn detect_ane_version() -> Option<String> {
 pub mod active_learning;
 pub mod adapter_hotswap;
 pub mod adapter_integrity;
+pub mod ane_embedder;
 pub mod anomaly_detection;
 pub mod backend_coordinator;
 pub mod backend_factory;
 pub mod backoff;
 pub mod backpressure;
 pub mod base_model_state;
+pub mod cache_prefix_lookup;
 pub mod chaos_mode;
 pub mod contact_discovery;
 pub mod conv_pipeline;
@@ -257,7 +259,6 @@ pub mod panic_utils;
 pub mod patch_generator;
 pub mod patch_telemetry;
 pub mod patch_validator;
-pub mod cache_prefix_lookup;
 pub mod prefix_kv_cache;
 pub mod reasoning_router;
 pub mod request_pinner;
@@ -439,15 +440,15 @@ pub use adapteros_lora_mlx_ffi::{
     mlx_runtime_init, mlx_runtime_shutdown, mlx_selected_implementation, mlx_version,
     MlxImplementation,
 };
+pub use cache_prefix_lookup::{
+    cache_prefix_lookup, cache_prefix_lookup_with_tensors, CacheEntryHandle, CacheLookupConfig,
+    CacheLookupResult, CacheLookupWithTensors, CacheMissReason,
+};
 pub use model_handle_cache::{
     CacheStats, CachedModelEntry, ModelHandle, ModelHandleCache, DEFAULT_MAX_PINNED_ENTRIES,
 };
 pub use model_key::{FusionMode, ModelCacheIdentityV2, ModelKey, QuantizationMode};
 pub use model_loader::{ModelInfo, ModelLoader, QwenModel, QwenModelConfig, TransformerLayer};
-pub use cache_prefix_lookup::{
-    cache_prefix_lookup, cache_prefix_lookup_with_tensors, CacheEntryHandle, CacheLookupConfig,
-    CacheLookupResult, CacheLookupWithTensors, CacheMissReason,
-};
 pub use prefix_kv_cache::{PrefixKvCache, PrefixKvCacheStats, PrefixKvEntry};
 pub use stop_controller::{StopController, StopDecision};
 pub use telemetry_adapter::{
@@ -479,7 +480,10 @@ pub use adapteros_policy::packs::determinism::{
 };
 
 #[cfg(test)]
-mod tests {
+pub mod tests;
+
+#[cfg(test)]
+mod internal_tests {
     use super::*;
 
     #[test]
@@ -2612,9 +2616,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         let prefix_cache_hit = cache_lookup_result.cache_hit;
         let prefix_cached_token_count = cache_lookup_result.cached_token_count;
         let prefix_kv_bytes = cache_lookup_result.cached_kv_bytes;
-        let prefix_kv_key = cache_lookup_result
-            .cache_id
-            .unwrap_or(context_digest_hash);
+        let prefix_kv_key = cache_lookup_result.cache_id.unwrap_or(context_digest_hash);
 
         if prefix_cache_hit {
             tracing::debug!(

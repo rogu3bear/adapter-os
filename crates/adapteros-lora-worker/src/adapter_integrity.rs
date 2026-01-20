@@ -520,3 +520,739 @@ fn normalize_scope(value: &str) -> Option<AdapterScope> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serial_test::serial;
+
+    /// Helper: create a manifest JSON for testing
+    fn make_manifest(
+        adapter_id: &str,
+        base_model: Option<&str>,
+        tier: Option<&str>,
+        scope: Option<&str>,
+    ) -> Vec<u8> {
+        let mut obj = serde_json::json!({
+            "adapter_id": adapter_id,
+        });
+        if let Some(bm) = base_model {
+            obj["base_model"] = serde_json::json!(bm);
+        }
+        if let Some(t) = tier {
+            obj["tier"] = serde_json::json!(t);
+        }
+        if let Some(s) = scope {
+            obj["scope"] = serde_json::json!(s);
+        }
+        serde_json::to_vec(&obj).unwrap()
+    }
+
+    // ========================================================================
+    // Hash Mismatch Detection Tests
+    // ========================================================================
+
+    #[test]
+    fn test_hash_mismatch_detected() {
+        let adapter_id = "test-adapter";
+        let manifest = make_manifest(adapter_id, Some("Qwen2.5"), None, None);
+        let payload = b"original payload content";
+        let expected_hash = B3Hash::hash(payload);
+
+        // Tamper with payload (single byte change)
+        let tampered_payload = b"original payload contenT"; // last byte changed
+        let actual_hash = B3Hash::hash(tampered_payload);
+
+        let result = verify_manifest_and_hashes(
+            adapter_id,
+            expected_hash,
+            "Qwen2.5",
+            None,
+            &manifest,
+            tampered_payload,
+        );
+
+        let err = result.unwrap_err();
+        assert_eq!(err.reason, AdapterIntegrityReason::HashMismatch);
+        assert_eq!(err.expected, Some(expected_hash));
+        assert_eq!(err.actual, Some(actual_hash));
+        assert!(err.message.contains("hash mismatch"));
+    }
+
+    #[test]
+    fn test_hash_match_succeeds() {
+        let adapter_id = "test-adapter";
+        let manifest = make_manifest(adapter_id, Some("Qwen2.5"), None, None);
+        let payload = b"valid payload content";
+        let expected_hash = B3Hash::hash(payload);
+
+        let result = verify_manifest_and_hashes(
+            adapter_id,
+            expected_hash,
+            "Qwen2.5",
+            None,
+            &manifest,
+            payload,
+        );
+
+        let verification = result.unwrap();
+        assert_eq!(verification.weights_hash, expected_hash);
+        assert_eq!(verification.manifest_info.adapter_id, adapter_id);
+    }
+
+    #[test]
+    fn test_hash_includes_both_hashes_in_error() {
+        let adapter_id = "test-adapter";
+        let manifest = make_manifest(adapter_id, Some("Qwen2.5"), None, None);
+        let original = b"original";
+        let tampered = b"tampered";
+        let expected_hash = B3Hash::hash(original);
+
+        let result = verify_manifest_and_hashes(
+            adapter_id,
+            expected_hash,
+            "Qwen2.5",
+            None,
+            &manifest,
+            tampered,
+        );
+
+        let err = result.unwrap_err();
+        // Both hashes must be present for forensic investigation
+        assert!(err.expected.is_some(), "Expected hash missing from error");
+        assert!(err.actual.is_some(), "Actual hash missing from error");
+        assert_ne!(err.expected, err.actual, "Hashes should differ");
+    }
+
+    // ========================================================================
+    // Adapter ID Mismatch Tests
+    // ========================================================================
+
+    #[test]
+    fn test_adapter_id_mismatch_detected() {
+        let manifest = make_manifest("wrong-adapter-id", Some("Qwen2.5"), None, None);
+        let payload = b"payload";
+        let expected_hash = B3Hash::hash(payload);
+
+        let result = verify_manifest_and_hashes(
+            "expected-adapter-id",
+            expected_hash,
+            "Qwen2.5",
+            None,
+            &manifest,
+            payload,
+        );
+
+        let err = result.unwrap_err();
+        assert_eq!(err.reason, AdapterIntegrityReason::AdapterIdMismatch);
+        assert!(err.message.contains("wrong-adapter-id"));
+        assert!(err.message.contains("expected-adapter-id"));
+    }
+
+    // ========================================================================
+    // Base Model Mismatch Tests
+    // ========================================================================
+
+    #[test]
+    fn test_base_model_mismatch_detected() {
+        let adapter_id = "test-adapter";
+        let manifest = make_manifest(adapter_id, Some("Llama-3-8B"), None, None);
+        let payload = b"payload";
+        let expected_hash = B3Hash::hash(payload);
+
+        let result = verify_manifest_and_hashes(
+            adapter_id,
+            expected_hash,
+            "Qwen2.5-7B-Instruct", // Different base model
+            None,
+            &manifest,
+            payload,
+        );
+
+        let err = result.unwrap_err();
+        assert_eq!(err.reason, AdapterIntegrityReason::BaseModelMismatch);
+        assert!(err.message.contains("Llama-3-8B"));
+        assert!(err.message.contains("Qwen2.5-7B-Instruct"));
+    }
+
+    #[test]
+    fn test_base_model_id_alternative_field() {
+        let adapter_id = "test-adapter";
+        // Use base_model_id instead of base_model
+        let manifest_json = serde_json::json!({
+            "adapter_id": adapter_id,
+            "base_model_id": "Qwen2.5"
+        });
+        let manifest = serde_json::to_vec(&manifest_json).unwrap();
+        let payload = b"payload";
+        let expected_hash = B3Hash::hash(payload);
+
+        let result = verify_manifest_and_hashes(
+            adapter_id,
+            expected_hash,
+            "Qwen2.5", // Matches base_model_id
+            None,
+            &manifest,
+            payload,
+        );
+
+        assert!(result.is_ok(), "base_model_id should be accepted");
+    }
+
+    #[test]
+    fn test_empty_expected_base_model_skips_check() {
+        let adapter_id = "test-adapter";
+        let manifest = make_manifest(adapter_id, Some("AnyModel"), None, None);
+        let payload = b"payload";
+        let expected_hash = B3Hash::hash(payload);
+
+        let result = verify_manifest_and_hashes(
+            adapter_id,
+            expected_hash,
+            "", // Empty = skip base model check
+            None,
+            &manifest,
+            payload,
+        );
+
+        assert!(result.is_ok(), "Empty base model should skip check");
+    }
+
+    // ========================================================================
+    // Tier Violation Tests
+    // ========================================================================
+
+    #[test]
+    fn test_tier_violation_ephemeral_vs_persistent() {
+        let adapter_id = "test-adapter";
+        let manifest = make_manifest(adapter_id, Some("Qwen2.5"), Some("ephemeral"), None);
+        let payload = b"payload";
+        let expected_hash = B3Hash::hash(payload);
+
+        let expected_meta = ExpectedAdapterMetadata {
+            tier: Some(AdapterTier::Persistent),
+            scope: None,
+        };
+
+        let result = verify_manifest_and_hashes(
+            adapter_id,
+            expected_hash,
+            "Qwen2.5",
+            Some(expected_meta),
+            &manifest,
+            payload,
+        );
+
+        let err = result.unwrap_err();
+        assert_eq!(err.reason, AdapterIntegrityReason::TierViolation);
+    }
+
+    #[test]
+    fn test_tier_normalization_case_insensitive() {
+        let adapter_id = "test-adapter";
+        // PERSISTENT in uppercase
+        let manifest = make_manifest(adapter_id, Some("Qwen2.5"), Some("PERSISTENT"), None);
+        let payload = b"payload";
+        let expected_hash = B3Hash::hash(payload);
+
+        let expected_meta = ExpectedAdapterMetadata {
+            tier: Some(AdapterTier::Persistent),
+            scope: None,
+        };
+
+        let result = verify_manifest_and_hashes(
+            adapter_id,
+            expected_hash,
+            "Qwen2.5",
+            Some(expected_meta),
+            &manifest,
+            payload,
+        );
+
+        assert!(
+            result.is_ok(),
+            "Tier normalization should be case-insensitive"
+        );
+    }
+
+    #[test]
+    fn test_tier_warm_alias_for_persistent() {
+        let adapter_id = "test-adapter";
+        let manifest = make_manifest(adapter_id, Some("Qwen2.5"), Some("warm"), None);
+        let payload = b"payload";
+        let expected_hash = B3Hash::hash(payload);
+
+        let expected_meta = ExpectedAdapterMetadata {
+            tier: Some(AdapterTier::Persistent),
+            scope: None,
+        };
+
+        let result = verify_manifest_and_hashes(
+            adapter_id,
+            expected_hash,
+            "Qwen2.5",
+            Some(expected_meta),
+            &manifest,
+            payload,
+        );
+
+        assert!(result.is_ok(), "'warm' should map to Persistent tier");
+    }
+
+    // ========================================================================
+    // Scope Violation Tests (Multi-Tenant Isolation Critical)
+    // ========================================================================
+
+    #[test]
+    fn test_scope_violation_tenant_vs_global() {
+        let adapter_id = "test-adapter";
+        let manifest = make_manifest(adapter_id, Some("Qwen2.5"), None, Some("tenant"));
+        let payload = b"payload";
+        let expected_hash = B3Hash::hash(payload);
+
+        let expected_meta = ExpectedAdapterMetadata {
+            tier: None,
+            scope: Some(AdapterScope::Global),
+        };
+
+        let result = verify_manifest_and_hashes(
+            adapter_id,
+            expected_hash,
+            "Qwen2.5",
+            Some(expected_meta),
+            &manifest,
+            payload,
+        );
+
+        let err = result.unwrap_err();
+        assert_eq!(err.reason, AdapterIntegrityReason::ScopeViolation);
+    }
+
+    #[test]
+    fn test_scope_repo_aliases() {
+        // "repo", "repository", "project" should all map to AdapterScope::Repo
+        for alias in ["repo", "repository", "project"] {
+            let adapter_id = "test-adapter";
+            let manifest = make_manifest(adapter_id, Some("Qwen2.5"), None, Some(alias));
+            let payload = b"payload";
+            let expected_hash = B3Hash::hash(payload);
+
+            let expected_meta = ExpectedAdapterMetadata {
+                tier: None,
+                scope: Some(AdapterScope::Repo),
+            };
+
+            let result = verify_manifest_and_hashes(
+                adapter_id,
+                expected_hash,
+                "Qwen2.5",
+                Some(expected_meta),
+                &manifest,
+                payload,
+            );
+
+            assert!(result.is_ok(), "Scope alias '{}' should map to Repo", alias);
+        }
+    }
+
+    #[test]
+    fn test_all_scope_values() {
+        let scopes = [
+            ("global", AdapterScope::Global),
+            ("tenant", AdapterScope::Tenant),
+            ("repo", AdapterScope::Repo),
+            ("commit", AdapterScope::Commit),
+        ];
+
+        for (scope_str, expected_scope) in scopes {
+            let adapter_id = "test-adapter";
+            let manifest = make_manifest(adapter_id, Some("Qwen2.5"), None, Some(scope_str));
+            let payload = b"payload";
+            let expected_hash = B3Hash::hash(payload);
+
+            let expected_meta = ExpectedAdapterMetadata {
+                tier: None,
+                scope: Some(expected_scope.clone()),
+            };
+
+            let result = verify_manifest_and_hashes(
+                adapter_id,
+                expected_hash,
+                "Qwen2.5",
+                Some(expected_meta),
+                &manifest,
+                payload,
+            );
+
+            assert!(
+                result.is_ok(),
+                "Scope '{}' should match {:?}",
+                scope_str,
+                expected_scope
+            );
+        }
+    }
+
+    // ========================================================================
+    // Manifest Parse Error Tests
+    // ========================================================================
+
+    #[test]
+    fn test_manifest_parse_invalid_json() {
+        let adapter_id = "test-adapter";
+        let invalid_manifest = b"not valid json {{{";
+        let payload = b"payload";
+        let expected_hash = B3Hash::hash(payload);
+
+        let result = verify_manifest_and_hashes(
+            adapter_id,
+            expected_hash,
+            "Qwen2.5",
+            None,
+            invalid_manifest,
+            payload,
+        );
+
+        let err = result.unwrap_err();
+        assert_eq!(err.reason, AdapterIntegrityReason::ManifestParseFailed);
+        assert!(err.message.contains("parse failed"));
+    }
+
+    #[test]
+    fn test_manifest_missing_adapter_id() {
+        let manifest_json = serde_json::json!({
+            "base_model": "Qwen2.5"
+            // Missing adapter_id
+        });
+        let manifest = serde_json::to_vec(&manifest_json).unwrap();
+        let payload = b"payload";
+        let expected_hash = B3Hash::hash(payload);
+
+        let result = verify_manifest_and_hashes(
+            "test-adapter",
+            expected_hash,
+            "Qwen2.5",
+            None,
+            &manifest,
+            payload,
+        );
+
+        let err = result.unwrap_err();
+        assert_eq!(err.reason, AdapterIntegrityReason::ManifestParseFailed);
+        assert!(err.message.contains("missing adapter_id"));
+    }
+
+    #[test]
+    fn test_manifest_metadata_nested_tier_scope() {
+        // Tier and scope can be nested under "metadata"
+        let manifest_json = serde_json::json!({
+            "adapter_id": "test-adapter",
+            "base_model": "Qwen2.5",
+            "metadata": {
+                "tier": "persistent",
+                "scope": "global"
+            }
+        });
+        let manifest = serde_json::to_vec(&manifest_json).unwrap();
+        let payload = b"payload";
+        let expected_hash = B3Hash::hash(payload);
+
+        let expected_meta = ExpectedAdapterMetadata {
+            tier: Some(AdapterTier::Persistent),
+            scope: Some(AdapterScope::Global),
+        };
+
+        let result = verify_manifest_and_hashes(
+            "test-adapter",
+            expected_hash,
+            "Qwen2.5",
+            Some(expected_meta),
+            &manifest,
+            payload,
+        );
+
+        assert!(
+            result.is_ok(),
+            "Nested metadata tier/scope should be accepted"
+        );
+    }
+
+    // ========================================================================
+    // Mode Configuration Tests
+    // ========================================================================
+
+    #[test]
+    #[serial]
+    fn test_mode_from_env_off_variants() {
+        for variant in ["off", "disable", "disabled", "OFF", "DISABLE"] {
+            std::env::set_var("AOS_ADAPTER_VERIFY_MODE", variant);
+            let mode = AdapterIntegrityMode::from_env();
+            assert_eq!(
+                mode,
+                AdapterIntegrityMode::Off,
+                "Variant '{}' should be Off",
+                variant
+            );
+        }
+        std::env::remove_var("AOS_ADAPTER_VERIFY_MODE");
+    }
+
+    #[test]
+    #[serial]
+    fn test_mode_from_env_enforce_variants() {
+        for variant in ["enforce", "strict", "reject", "ENFORCE"] {
+            std::env::set_var("AOS_ADAPTER_VERIFY_MODE", variant);
+            let mode = AdapterIntegrityMode::from_env();
+            assert_eq!(
+                mode,
+                AdapterIntegrityMode::Enforce,
+                "Variant '{}' should be Enforce",
+                variant
+            );
+        }
+        std::env::remove_var("AOS_ADAPTER_VERIFY_MODE");
+    }
+
+    #[test]
+    #[serial]
+    fn test_mode_from_env_warn() {
+        std::env::set_var("AOS_ADAPTER_VERIFY_MODE", "warn");
+        let mode = AdapterIntegrityMode::from_env();
+        assert_eq!(mode, AdapterIntegrityMode::Warn);
+        std::env::remove_var("AOS_ADAPTER_VERIFY_MODE");
+    }
+
+    #[test]
+    fn test_mode_is_off() {
+        assert!(AdapterIntegrityMode::Off.is_off());
+        assert!(!AdapterIntegrityMode::Warn.is_off());
+        assert!(!AdapterIntegrityMode::Enforce.is_off());
+    }
+
+    #[test]
+    fn test_mode_is_enforce() {
+        assert!(!AdapterIntegrityMode::Off.is_enforce());
+        assert!(!AdapterIntegrityMode::Warn.is_enforce());
+        assert!(AdapterIntegrityMode::Enforce.is_enforce());
+    }
+
+    // ========================================================================
+    // Verifier Construction Tests
+    // ========================================================================
+
+    #[test]
+    fn test_verifier_disabled_mode() {
+        let verifier = AdapterIntegrityVerifier::disabled("test-tenant".to_string());
+        assert_eq!(verifier.mode(), AdapterIntegrityMode::Off);
+        assert_eq!(verifier.tenant_id(), "test-tenant");
+    }
+
+    #[test]
+    fn test_verifier_expected_metadata_lookup() {
+        let mut expected = HashMap::new();
+        expected.insert(
+            "adapter-1".to_string(),
+            ExpectedAdapterMetadata {
+                tier: Some(AdapterTier::Persistent),
+                scope: Some(AdapterScope::Tenant),
+            },
+        );
+
+        let verifier =
+            AdapterIntegrityVerifier::new("tenant-1".to_string(), "Qwen2.5".to_string(), expected);
+
+        let meta = verifier.expected_metadata("adapter-1");
+        assert!(meta.is_some());
+        assert_eq!(meta.unwrap().tier, Some(AdapterTier::Persistent));
+
+        let missing = verifier.expected_metadata("nonexistent");
+        assert!(missing.is_none());
+    }
+
+    // ========================================================================
+    // File Identity Tests
+    // ========================================================================
+
+    #[test]
+    fn test_file_identity_missing_file() {
+        let result = file_identity(Path::new("/nonexistent/path/to/adapter.aos"));
+        let err = result.unwrap_err();
+        assert_eq!(err.reason, AdapterIntegrityReason::MissingAdapter);
+    }
+
+    #[test]
+    fn test_identity_matches_same_file() {
+        let id1 = FileIdentity {
+            path: PathBuf::from("/test/path.aos"),
+            len: 1024,
+            modified: Some(SystemTime::UNIX_EPOCH),
+        };
+        let id2 = FileIdentity {
+            path: PathBuf::from("/test/path.aos"),
+            len: 1024,
+            modified: Some(SystemTime::UNIX_EPOCH),
+        };
+        assert!(identity_matches(&id1, &id2));
+    }
+
+    #[test]
+    fn test_identity_mismatch_different_size() {
+        let id1 = FileIdentity {
+            path: PathBuf::from("/test/path.aos"),
+            len: 1024,
+            modified: Some(SystemTime::UNIX_EPOCH),
+        };
+        let id2 = FileIdentity {
+            path: PathBuf::from("/test/path.aos"),
+            len: 2048, // Different size
+            modified: Some(SystemTime::UNIX_EPOCH),
+        };
+        assert!(!identity_matches(&id1, &id2));
+    }
+
+    #[test]
+    fn test_identity_mismatch_different_mtime() {
+        let id1 = FileIdentity {
+            path: PathBuf::from("/test/path.aos"),
+            len: 1024,
+            modified: Some(SystemTime::UNIX_EPOCH),
+        };
+        let id2 = FileIdentity {
+            path: PathBuf::from("/test/path.aos"),
+            len: 1024,
+            modified: Some(SystemTime::UNIX_EPOCH + Duration::from_secs(1)), // Different mtime
+        };
+        assert!(!identity_matches(&id1, &id2));
+    }
+
+    #[test]
+    fn test_identity_mismatch_different_path() {
+        let id1 = FileIdentity {
+            path: PathBuf::from("/test/path1.aos"),
+            len: 1024,
+            modified: Some(SystemTime::UNIX_EPOCH),
+        };
+        let id2 = FileIdentity {
+            path: PathBuf::from("/test/path2.aos"),
+            len: 1024,
+            modified: Some(SystemTime::UNIX_EPOCH),
+        };
+        assert!(!identity_matches(&id1, &id2));
+    }
+
+    // ========================================================================
+    // Verify Timeout Configuration Tests
+    // ========================================================================
+
+    #[test]
+    #[serial]
+    fn test_verify_timeout_from_env() {
+        std::env::set_var("AOS_ADAPTER_VERIFY_TIMEOUT_MS", "100");
+        let timeout = verify_timeout();
+        assert_eq!(timeout, Duration::from_millis(100));
+        std::env::remove_var("AOS_ADAPTER_VERIFY_TIMEOUT_MS");
+    }
+
+    #[test]
+    #[serial]
+    fn test_verify_timeout_default() {
+        std::env::remove_var("AOS_ADAPTER_VERIFY_TIMEOUT_MS");
+        let timeout = verify_timeout();
+        assert_eq!(timeout, Duration::from_millis(DEFAULT_VERIFY_TIMEOUT_MS));
+    }
+
+    #[test]
+    #[serial]
+    fn test_verify_timeout_invalid_env() {
+        std::env::set_var("AOS_ADAPTER_VERIFY_TIMEOUT_MS", "not-a-number");
+        let timeout = verify_timeout();
+        assert_eq!(timeout, Duration::from_millis(DEFAULT_VERIFY_TIMEOUT_MS));
+        std::env::remove_var("AOS_ADAPTER_VERIFY_TIMEOUT_MS");
+    }
+
+    // ========================================================================
+    // Reason String Conversion Tests
+    // ========================================================================
+
+    #[test]
+    fn test_reason_as_str() {
+        assert_eq!(
+            AdapterIntegrityReason::MissingAdapter.as_str(),
+            "missing_adapter"
+        );
+        assert_eq!(
+            AdapterIntegrityReason::ManifestParseFailed.as_str(),
+            "manifest_parse_failed"
+        );
+        assert_eq!(
+            AdapterIntegrityReason::AdapterIdMismatch.as_str(),
+            "adapter_id_mismatch"
+        );
+        assert_eq!(
+            AdapterIntegrityReason::BaseModelMismatch.as_str(),
+            "base_model_mismatch"
+        );
+        assert_eq!(
+            AdapterIntegrityReason::TierViolation.as_str(),
+            "tier_violation"
+        );
+        assert_eq!(
+            AdapterIntegrityReason::ScopeViolation.as_str(),
+            "scope_violation"
+        );
+        assert_eq!(
+            AdapterIntegrityReason::HashMismatch.as_str(),
+            "hash_mismatch"
+        );
+        assert_eq!(
+            AdapterIntegrityReason::VerifyTimeout.as_str(),
+            "verify_timeout"
+        );
+        assert_eq!(
+            AdapterIntegrityReason::StackHashMismatch.as_str(),
+            "stack_hash_mismatch"
+        );
+    }
+
+    // ========================================================================
+    // Error Display Tests
+    // ========================================================================
+
+    #[test]
+    fn test_error_display() {
+        let err = AdapterIntegrityError {
+            adapter_id: "test".to_string(),
+            reason: AdapterIntegrityReason::HashMismatch,
+            message: "Test error message".to_string(),
+            expected: None,
+            actual: None,
+        };
+        assert_eq!(format!("{}", err), "Test error message");
+    }
+
+    // ========================================================================
+    // Normalize Function Unit Tests
+    // ========================================================================
+
+    #[test]
+    fn test_normalize_tier_all_values() {
+        assert_eq!(normalize_tier("persistent"), Some(AdapterTier::Persistent));
+        assert_eq!(normalize_tier("PERSISTENT"), Some(AdapterTier::Persistent));
+        assert_eq!(normalize_tier("warm"), Some(AdapterTier::Persistent));
+        assert_eq!(normalize_tier("ephemeral"), Some(AdapterTier::Ephemeral));
+        assert_eq!(normalize_tier("EPHEMERAL"), Some(AdapterTier::Ephemeral));
+        assert_eq!(normalize_tier("invalid"), None);
+    }
+
+    #[test]
+    fn test_normalize_scope_all_values() {
+        assert_eq!(normalize_scope("global"), Some(AdapterScope::Global));
+        assert_eq!(normalize_scope("GLOBAL"), Some(AdapterScope::Global));
+        assert_eq!(normalize_scope("tenant"), Some(AdapterScope::Tenant));
+        assert_eq!(normalize_scope("repo"), Some(AdapterScope::Repo));
+        assert_eq!(normalize_scope("repository"), Some(AdapterScope::Repo));
+        assert_eq!(normalize_scope("project"), Some(AdapterScope::Repo));
+        assert_eq!(normalize_scope("commit"), Some(AdapterScope::Commit));
+        assert_eq!(normalize_scope("invalid"), None);
+    }
+}

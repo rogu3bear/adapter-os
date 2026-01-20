@@ -16,7 +16,7 @@ use adapteros_types::training::{
 
 use super::trainer::{PreprocessCompression, PreprocessOutputFeature, PreprocessingConfig};
 use adapteros_config::{resolve_base_model_location, ModelConfig};
-use adapteros_core::io_utils::ensure_temp_dir;
+use adapteros_core::io_utils::{ensure_temp_dir, get_directory_size};
 use adapteros_core::path_normalization::normalize_path_for_sorting;
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_platform::common::PlatformUtils;
@@ -1289,6 +1289,7 @@ fn select_backend(model_path: &Path, hidden_dim: usize) -> Result<PreprocessBack
 #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
 struct CoreMLRunner {
     handle: *mut std::ffi::c_void,
+    model_id: String,
     hidden_dim: usize,
 }
 
@@ -1350,8 +1351,21 @@ impl CoreMLRunner {
                 message
             )));
         }
+        // Track model memory for ANE metrics
+        let model_id = format!("preprocess:{}", path_str);
 
-        Ok(Self { handle, hidden_dim })
+        // Use exact on-disk size for memory tracking
+        // Note: Actual ANE memory usage is often compressed/optimized, but
+        // on-disk size is a reliable, conservative proxy for resource budgeting.
+        let model_size = get_directory_size(model_path).unwrap_or(50 * 1024 * 1024);
+
+        adapteros_lora_kernel_coreml::ffi::record_model_load(&model_id, model_size);
+
+        Ok(Self {
+            handle,
+            model_id,
+            hidden_dim,
+        })
     }
 
     fn encode_tokens(&self, token_ids: &[u32], output_name: &str) -> Result<Vec<f32>> {
@@ -1401,6 +1415,9 @@ impl CoreMLRunner {
 impl Drop for CoreMLRunner {
     fn drop(&mut self) {
         if !self.handle.is_null() {
+            // Untrack model memory
+            adapteros_lora_kernel_coreml::ffi::record_model_unload(&self.model_id);
+
             unsafe {
                 adapteros_lora_kernel_coreml::ffi::coreml_unload_model(self.handle);
             }
@@ -1588,11 +1605,13 @@ mod tests {
         };
 
         let temp_dir = tempfile::tempdir().expect("tempdir");
-        let mut cfg = PreprocessingConfig::default();
-        cfg.enabled = true;
-        cfg.coreml_model_path = Some(coreml_model_path);
-        cfg.output_feature = PreprocessOutputFeature::HiddenStateLast;
-        cfg.cache_dir = Some(temp_dir.path().to_path_buf());
+        let cfg = PreprocessingConfig {
+            enabled: true,
+            coreml_model_path: Some(coreml_model_path),
+            output_feature: PreprocessOutputFeature::HiddenStateLast,
+            cache_dir: Some(temp_dir.path().to_path_buf()),
+            ..Default::default()
+        };
 
         let contract = TrainingDataContractConfig::new(0, -1);
         let examples = vec![

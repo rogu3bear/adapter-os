@@ -19,11 +19,9 @@ pub(crate) fn validate_quantized_shapes(
     // Handle multi-module weights
     if weights.is_multi_module() {
         // Get dimensions from first module
-        let first_module = weights
-            .modules
-            .values()
-            .next()
-            .ok_or_else(|| AosError::Validation("Multi-module weights have no modules".to_string()))?;
+        let first_module = weights.modules.values().next().ok_or_else(|| {
+            AosError::Validation("Multi-module weights have no modules".to_string())
+        })?;
 
         let a_rows = first_module.lora_a_q15.len();
         let a_cols = first_module

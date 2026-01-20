@@ -36,7 +36,7 @@ pub mod visualization;
 // Re-export separated trainer for backward compatibility
 pub mod separated_trainer;
 
-pub use adapteros_types::training::TrainingExampleV1;
+pub use adapteros_types::training::{ExampleMetadataV1, TrainingExampleV1};
 pub use builder::{
     BuildConfig, BuildResult, BuiltDatasetManifest, DatasetBuilder, DatasetSource, GitAuth,
     SourceFileInfo,

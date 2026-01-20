@@ -2335,20 +2335,17 @@ Use --force-resume to override (may produce incorrect results).",
         if force_ce {
             info!(
                 vocab_size = self.config.vocab_size,
-                max_vocab,
-                "Cross-entropy loss forced via AOS_TRAIN_FORCE_CE"
+                max_vocab, "Cross-entropy loss forced via AOS_TRAIN_FORCE_CE"
             );
         } else if force_legacy {
             warn!(
                 vocab_size = self.config.vocab_size,
-                max_vocab,
-                "Legacy MSE loss forced via AOS_TRAIN_LEGACY_LOSS"
+                max_vocab, "Legacy MSE loss forced via AOS_TRAIN_LEGACY_LOSS"
             );
         } else if !use_cross_entropy_loss {
             warn!(
                 vocab_size = self.config.vocab_size,
-                max_vocab,
-                "Cross-entropy loss disabled for large vocab; using legacy MSE loss"
+                max_vocab, "Cross-entropy loss disabled for large vocab; using legacy MSE loss"
             );
         }
 
@@ -2801,8 +2798,8 @@ Use --force-resume to override (may produce incorrect results).",
             warmup_steps = warmup_steps,
             initial_lr = self.config.learning_rate,
             gradient_accumulation_steps = accumulation_steps,
-            effective_batch_size = accumulation_steps * dataset.summary.total_examples
-                / total_training_steps as usize,
+            effective_batch_size =
+                accumulation_steps * dataset.summary.total_examples / total_training_steps as usize,
             "Learning rate scheduler initialized"
         );
         if accumulation_steps > 1 {
@@ -3390,11 +3387,9 @@ Use --force-resume to override (may produce incorrect results).",
                 let mut target_tokens = example.target_tokens.as_slice();
                 let mut target_token_buf = [0u32; 1];
                 if target_tokens.len() > 1 {
-                    target_token_buf[0] = *target_tokens
-                        .last()
-                        .ok_or_else(|| {
-                            AosError::Training("Training example missing target tokens".to_string())
-                        })?;
+                    target_token_buf[0] = *target_tokens.last().ok_or_else(|| {
+                        AosError::Training("Training example missing target tokens".to_string())
+                    })?;
                     target_tokens = &target_token_buf;
                 }
 
@@ -3791,11 +3786,9 @@ Use --force-resume to override (may produce incorrect results).",
                 let mut target_tokens = example.target_tokens.as_slice();
                 let mut target_token_buf = [0u32; 1];
                 if target_tokens.len() > 1 {
-                    target_token_buf[0] = *target_tokens
-                        .last()
-                        .ok_or_else(|| {
-                            AosError::Training("Training example missing target tokens".to_string())
-                        })?;
+                    target_token_buf[0] = *target_tokens.last().ok_or_else(|| {
+                        AosError::Training("Training example missing target tokens".to_string())
+                    })?;
                     target_tokens = &target_token_buf;
                 }
 
@@ -4681,14 +4674,8 @@ Use --force-resume to override (may produce incorrect results).",
 
     /// Decide whether to use cross-entropy loss based on vocab size and env overrides.
     fn resolve_cross_entropy_loss(&self) -> (bool, usize, bool, bool) {
-        let force_ce = std::env::var("AOS_TRAIN_FORCE_CE")
-            .ok()
-            .as_deref()
-            == Some("1");
-        let force_legacy = std::env::var("AOS_TRAIN_LEGACY_LOSS")
-            .ok()
-            .as_deref()
-            == Some("1");
+        let force_ce = std::env::var("AOS_TRAIN_FORCE_CE").ok().as_deref() == Some("1");
+        let force_legacy = std::env::var("AOS_TRAIN_LEGACY_LOSS").ok().as_deref() == Some("1");
         let max_vocab = std::env::var("AOS_TRAIN_CE_MAX_VOCAB")
             .ok()
             .and_then(|value| value.parse::<usize>().ok())
