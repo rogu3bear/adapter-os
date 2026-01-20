@@ -5,7 +5,6 @@
 //!
 //! # Citations
 //! - Evidence tracker pattern: [source: crates/adapteros-policy/src/evidence_tracker.rs L172-L187]
-//! - Concurrent filesystem tracker: [source: crates/adapteros-concurrent-fs/src/manager.rs L30-L37]
 //! - Progress broadcasting: [source: crates/adapteros-server-api/src/state.rs L428-L429]
 
 use crate::types::OperationProgressEvent;
