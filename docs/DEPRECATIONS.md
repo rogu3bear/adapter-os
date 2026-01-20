@@ -2,23 +2,23 @@
 
 This document tracks deprecated CLIs and scripts, along with their supported replacements. Adding a new script under `scripts/` requires either:
 
-- An entry here (with a clear deprecation plan), or  
+- An entry here (with a clear deprecation plan), or
 - An entry in `docs/internal/cli-inventory.md` (for active, non-deprecated scripts).
 
 The CI guardrail fails the build if any `scripts/*.sh` file is not referenced by at least one of these documents.
 
 ## Shell Scripts (Root)
 
-- `service-manager.sh`  
-  - Status: **DEPRECATED for direct use** (still used internally by `./start`)  
-  - Replacement: Use `./start` (delegates to this script) or the upcoming `aos`/`aosctl` CLIs for managed workflows.  
-  - Notes: Not a parallel boot path; `./start` is the canonical entrypoint and reuses this implementation.  
+- `service-manager.sh`
+  - Status: **DEPRECATED for direct use** (still used internally by `./start`)
+  - Replacement: Use `./start` (delegates to this script) or the upcoming `aos`/`aosctl` CLIs for managed workflows.
+  - Notes: Not a parallel boot path; `./start` is the canonical entrypoint and reuses this implementation.
   - Sources: `[source: aos L1-L220]`
 
-- `launch.sh` (root)  
-  - Status: **DEPRECATED**  
-  - Replacement: `aos` and `aosctl` CLIs.  
-  - Notes: Use `aos` to manage local services and `aosctl` for system operations instead of shell launchers.  
+- `launch.sh` (root)
+  - Status: **DEPRECATED**
+  - Replacement: `aos` and `aosctl` CLIs.
+  - Notes: Use `aos` to manage local services and `aosctl` for system operations instead of shell launchers.
   - Sources: `[source: aos-launch L1-L220]`
 
 ## Root Binaries
@@ -31,42 +31,42 @@ The CI guardrail fails the build if any `scripts/*.sh` file is not referenced by
 
 ## `scripts/` Directory Deprecations
 
-- `scripts/service-manager.sh`  
-  - Status: **DEPRECATED**  
-  - Replacement:  
-    - `aos` (service lifecycle for backend, UI, and menu bar app on local node)  
-    - `aosctl` (cluster-aware operations, DB, and maintenance tasks)  
-  - Notes: New behavior should not be added here; instead, extend the Rust CLIs.  
+- `scripts/service-manager.sh`
+  - Status: **DEPRECATED**
+  - Replacement:
+    - `aos` (service lifecycle for backend, UI, and menu bar app on local node)
+    - `aosctl` (cluster-aware operations, DB, and maintenance tasks)
+  - Notes: New behavior should not be added here; instead, extend the Rust CLIs.
   - Sources: `[source: aos L1-L220]`
 
-- `scripts/run_complete_system.sh`  
-  - Status: **DEPRECATED (shim)**  
-  - Replacement: `./start`  
-  - Notes: Emits a deprecation banner and 15s prompt (default No) before redirecting to `./start`. Only use if explicitly testing the legacy flow.  
+- `scripts/run_complete_system.sh`
+  - Status: **DEPRECATED (shim)**
+  - Replacement: `./start`
+  - Notes: Emits a deprecation banner and 15s prompt (default No) before redirecting to `./start`. Only use if explicitly testing the legacy flow.
   - Sources: `[source: scripts/run_complete_system.sh L1-L17]`
 
-- `scripts/bootstrap_integration_test.sh`  
-  - Status: **DEPRECATED**  
-  - Replacement: `./start`  
-  - Notes: Legacy bootstrap harness; now guarded by a 15s prompt (default No). Prefer `./start` for all boot validation.  
+- `scripts/bootstrap_integration_test.sh`
+  - Status: **DEPRECATED**
+  - Replacement: `./start`
+  - Notes: Legacy bootstrap harness; now guarded by a 15s prompt (default No). Prefer `./start` for all boot validation.
   - Sources: `[source: scripts/bootstrap_integration_test.sh L1-L20]`
 
-- `scripts/bootstrap_with_checkpoints.sh`  
-  - Status: **DEPRECATED**  
-  - Replacement: `./start`  
-  - Notes: Legacy resumable bootstrap; now guarded by a 15s prompt (default No). Prefer `./start`.  
+- `scripts/bootstrap_with_checkpoints.sh`
+  - Status: **DEPRECATED**
+  - Replacement: `./start`
+  - Notes: Legacy resumable bootstrap; now guarded by a 15s prompt (default No). Prefer `./start`.
   - Sources: `[source: scripts/bootstrap_with_checkpoints.sh L1-L20]`
 
-- `scripts/migrate.sh`  
-  - Status: **DEPRECATED**  
-  - Replacement: `aosctl db migrate`  
-  - Notes: All database migrations should be driven through `aosctl` once implemented.  
+- `scripts/migrate.sh`
+  - Status: **DEPRECATED**
+  - Replacement: `aosctl db migrate`
+  - Notes: All database migrations should be driven through `aosctl` once implemented.
   - Sources: `[source: scripts/migrate.sh L1-L20]`
 
-- `scripts/deploy_adapters.sh`  
-  - Status: **DEPRECATED**  
-  - Replacement: `aosctl deploy adapters`  
-  - Notes: Use `aosctl` for adapter deployment workflows.  
+- `scripts/deploy_adapters.sh`
+  - Status: **DEPRECATED**
+  - Replacement: `aosctl deploy adapters`
+  - Notes: Use `aosctl` for adapter deployment workflows.
   - Sources: `[source: scripts/deploy_adapters.sh L1-L20]`
 
 - `scripts/verify-determinism-loop.sh`
@@ -75,10 +75,10 @@ The CI guardrail fails the build if any `scripts/*.sh` file is not referenced by
   - Notes: Determinism checks are now part of the unified `aosctl verify` subcommand group.
   - Sources: `[source: scripts/verify-determinism-loop.sh L1-L10]`
 
-- `scripts/gc_bundles.sh`  
-  - Status: **DEPRECATED**  
-  - Replacement: `aosctl maintenance gc-bundles`  
-  - Notes: Bundle/artifact GC is a system maintenance concern and belongs in `aosctl`.  
+- `scripts/gc_bundles.sh`
+  - Status: **DEPRECATED**
+  - Replacement: `aosctl maintenance gc-bundles`
+  - Notes: Bundle/artifact GC is a system maintenance concern and belongs in `aosctl`.
   - Sources: `[source: scripts/gc_bundles.sh L1-L20]`
 
 - `scripts/aos.sh`
@@ -104,7 +104,7 @@ The CI guardrail fails the build if any `scripts/*.sh` file is not referenced by
 - `scripts/update_cargo_names.sh`
   - Status: **DEPRECATED**
   - Replacement: None (one-time migration completed)
-  - Notes: Bulk renamed Cargo.toml from `mplora-*` to `adapteros-*`. Phase 2 completed; codebase now uses adapteros-* naming.
+  - Notes: Bulk renamed Cargo.toml from `mplora-*` to `adapteros-*`. Phase 2 completed; codebase now uses adapteros-\* naming.
   - Sources: `[source: scripts/update_cargo_names.sh L1-L50]`
 
 - `scripts/update_rust_imports.sh`
@@ -271,19 +271,13 @@ The CI guardrail fails the build if any `scripts/*.sh` file is not referenced by
   - Notes: Script itself states "For duplication, prefer scripts/run_jscpd.sh". Superseded by authoritative tools.
   - Sources: `[source: scripts/ai-slop-detector.sh L1-L150]`
 
-### Already in `scripts/deprecated/` Directory
+### Removed (Formerly `scripts/deprecated/`)
 
-- `scripts/deprecated/start.sh`
-  - Status: **DEPRECATED**
-  - Replacement: `./start`
-  - Notes: Already relocated to deprecated directory. Contains hardcoded deprecation notice.
-  - Sources: `[source: scripts/deprecated/start.sh L1-L50]`
+The `scripts/deprecated/` directory was removed on 2026-01-20. All scripts that were in that directory have been permanently deleted:
 
-- `scripts/deprecated/run_complete_system.sh`
-  - Status: **DEPRECATED**
-  - Replacement: `./start`
-  - Notes: Already relocated to deprecated directory. Full functionality in unified boot system.
-  - Sources: `[source: scripts/deprecated/run_complete_system.sh L1-L300]`
+- `start.sh`, `run_complete_system.sh`, `build_ui.sh`, `build_web_ui.sh`, and 26 other deprecated scripts.
+
+These scripts are preserved in git history if ever needed for reference.
 
 ## CLI Command Changes (Breaking)
 
@@ -292,6 +286,7 @@ The CI guardrail fails the build if any `scripts/*.sh` file is not referenced by
 As of 2025-01-16, all verify commands have been consolidated into a unified `aosctl verify` subcommand group:
 
 **Old Commands → New Commands:**
+
 - `aosctl verify <bundle>` → `aosctl verify bundle <bundle>`
 - `aosctl verify-adapter --adapters-root <dir> --adapter-id <id>` → `aosctl verify adapter --adapters-root <dir> --adapter-id <id>`
 - `aosctl verify-adapters` → `aosctl verify adapters`
