@@ -408,7 +408,10 @@ impl ValidationRule for Pattern {
         if (self.validator)(input) {
             Ok(())
         } else {
-            Err(ValidationError::pattern_mismatch("value", &self.description))
+            Err(ValidationError::pattern_mismatch(
+                "value",
+                &self.description,
+            ))
         }
     }
 

@@ -55,7 +55,7 @@ static REDACTION_PATTERNS: Lazy<Vec<(Regex, &'static str)>> = Lazy::new(|| {
     vec![
         // Bearer tokens
         (
-            Regex::new(r"Bearer\s+[A-Za-z0-9\-_\.]+").unwrap(),
+            Regex::new(r"(?i)bearer\s+[A-Za-z0-9\-_\.]+").unwrap(),
             "Bearer [REDACTED]",
         ),
         // JWT tokens (three base64 segments)

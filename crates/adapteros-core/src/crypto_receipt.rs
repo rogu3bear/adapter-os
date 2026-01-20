@@ -1124,56 +1124,53 @@ pub struct CancellationReceipt {
 /// Current schema version for cancellation receipts
 pub const CANCELLATION_RECEIPT_SCHEMA_VERSION: u8 = 1;
 
-/// Input fields for computing a cancellation receipt digest.
-///
-/// This struct bundles the parameters needed to compute the receipt digest,
-/// reducing function signature complexity while maintaining type safety.
-struct CancellationDigestInput<'a> {
-    trace_id: &'a str,
-    partial_output_digest: &'a B3Hash,
-    partial_output_count: u32,
-    stop_reason: &'a str,
-    cancellation_source: CancelSource,
-    cancelled_at_token: u32,
-    equipment_profile: Option<&'a EquipmentProfile>,
-    context_digest: Option<&'a B3Hash>,
+/// Parameters for computing cancellation receipt digest.
+pub struct CancellationReceiptDigestParams<'a> {
+    pub trace_id: &'a str,
+    pub partial_output_digest: &'a B3Hash,
+    pub partial_output_count: u32,
+    pub stop_reason: &'a str,
+    pub cancellation_source: CancelSource,
+    pub cancelled_at_token: u32,
+    pub equipment_profile: Option<&'a EquipmentProfile>,
+    pub context_digest: Option<&'a B3Hash>,
 }
 
 impl CancellationReceipt {
     /// Compute the receipt digest from all bound fields.
-    fn compute_receipt_digest(input: &CancellationDigestInput<'_>) -> B3Hash {
+    fn compute_receipt_digest(params: CancellationReceiptDigestParams) -> B3Hash {
         let mut hasher = blake3::Hasher::new();
 
         // Schema version
         hasher.update(&[CANCELLATION_RECEIPT_SCHEMA_VERSION]);
 
         // Trace ID (length-prefixed)
-        let trace_bytes = input.trace_id.as_bytes();
+        let trace_bytes = params.trace_id.as_bytes();
         hasher.update(&(trace_bytes.len() as u32).to_le_bytes());
         hasher.update(trace_bytes);
 
         // Partial output digest
-        hasher.update(input.partial_output_digest.as_bytes());
+        hasher.update(params.partial_output_digest.as_bytes());
 
         // Partial output count
-        hasher.update(&input.partial_output_count.to_le_bytes());
+        hasher.update(&params.partial_output_count.to_le_bytes());
 
         // Stop reason (length-prefixed)
-        let reason_bytes = input.stop_reason.as_bytes();
+        let reason_bytes = params.stop_reason.as_bytes();
         hasher.update(&(reason_bytes.len() as u32).to_le_bytes());
         hasher.update(reason_bytes);
 
         // Cancellation source (as string, length-prefixed)
-        let source_str = input.cancellation_source.to_string();
+        let source_str = params.cancellation_source.to_string();
         let source_bytes = source_str.as_bytes();
         hasher.update(&(source_bytes.len() as u32).to_le_bytes());
         hasher.update(source_bytes);
 
         // Cancelled at token index
-        hasher.update(&input.cancelled_at_token.to_le_bytes());
+        hasher.update(&params.cancelled_at_token.to_le_bytes());
 
         // Equipment profile digest (with presence marker)
-        match input.equipment_profile {
+        match params.equipment_profile {
             Some(ep) => {
                 hasher.update(&[1u8]);
                 hasher.update(ep.digest.as_bytes());
@@ -1184,7 +1181,7 @@ impl CancellationReceipt {
         }
 
         // Context digest (with presence marker)
-        match input.context_digest {
+        match params.context_digest {
             Some(ctx) => {
                 hasher.update(&[1u8]);
                 hasher.update(ctx.as_bytes());
@@ -1199,7 +1196,7 @@ impl CancellationReceipt {
 
     /// Verify the receipt digest matches the bound fields.
     pub fn verify(&self) -> bool {
-        let expected = Self::compute_receipt_digest(&CancellationDigestInput {
+        let expected = Self::compute_receipt_digest(CancellationReceiptDigestParams {
             trace_id: &self.trace_id,
             partial_output_digest: &self.partial_output_digest,
             partial_output_count: self.partial_output_count,
@@ -1336,7 +1333,7 @@ impl CancellationReceiptBuilder {
         let stop_reason = "CANCELLED".to_string();
 
         let receipt_digest =
-            CancellationReceipt::compute_receipt_digest(&CancellationDigestInput {
+            CancellationReceipt::compute_receipt_digest(CancellationReceiptDigestParams {
                 trace_id: &self.trace_id,
                 partial_output_digest: &partial_output_digest,
                 partial_output_count,

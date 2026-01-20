@@ -1254,7 +1254,10 @@ impl From<sqlx::Error> for AosError {
 // Conversion from ZipError for archive operations (zip v1.x)
 impl From<ZipError> for AosError {
     fn from(err: ZipError) -> Self {
-        AosError::Io(format!("Zip operation failed: {}", format_error_chain(&err)))
+        AosError::Io(format!(
+            "Zip operation failed: {}",
+            format_error_chain(&err)
+        ))
     }
 }
 
@@ -1362,7 +1365,9 @@ mod tests {
 
     impl std::error::Error for ChainedError {
         fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-            self.source.as_ref().map(|e| e.as_ref() as &(dyn std::error::Error + 'static))
+            self.source
+                .as_ref()
+                .map(|e| e.as_ref() as &(dyn std::error::Error + 'static))
         }
     }
 
@@ -1398,7 +1403,7 @@ mod tests {
             message: "database.sqlite not found".to_string(),
             source: None,
         };
-        let outer = std::io::Error::new(std::io::ErrorKind::Other, inner);
+        let outer = std::io::Error::other(inner);
 
         let aos_err: AosError = outer.into();
 
@@ -1441,7 +1446,11 @@ mod tests {
                     "root cause missing, got: {}",
                     msg
                 );
-                assert!(msg.contains(" -> "), "chain separator missing, got: {}", msg);
+                assert!(
+                    msg.contains(" -> "),
+                    "chain separator missing, got: {}",
+                    msg
+                );
             }
             _ => panic!("expected Internal variant"),
         }
