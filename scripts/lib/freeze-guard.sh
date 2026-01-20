@@ -4,6 +4,10 @@
 # Prompts for adapterOS resources, pure freeze for external processes.
 #
 # Usage: source scripts/lib/freeze-guard.sh
+#
+# Environment Variables:
+#   FG_AUTO_KILL - Set to "1" or "true" to auto-kill adapterOS processes without prompting
+#                  (useful for automated/agent environments)
 
 # Colors for output
 FG_RED='\033[0;31m'
@@ -78,9 +82,14 @@ freeze_check_port() {
             echo "  Command: $cmd_info"
             echo ""
 
-            # Interactive prompt (default: No)
-            read -p "  Kill this adapterOS process? [y/N] " -n 1 -r
-            echo ""
+            # Interactive prompt (default: No, unless FG_AUTO_KILL is set)
+            if [[ "${FG_AUTO_KILL}" == "1" || "${FG_AUTO_KILL}" == "true" ]]; then
+                fg_status "Auto-kill mode: stopping adapterOS process (PID $pid)..."
+                REPLY="y"
+            else
+                read -p "  Kill this adapterOS process? [y/N] " -n 1 -r
+                echo ""
+            fi
 
             if [[ $REPLY =~ ^[Yy]$ ]]; then
                 fg_status "Stopping adapterOS process (PID $pid)..."
@@ -148,8 +157,13 @@ freeze_check_pid_file() {
     if [ -z "$pid" ]; then
         # Empty PID file - offer to remove
         fg_warn "Empty PID file found: $pid_file"
-        read -p "  Remove empty PID file? [y/N] " -n 1 -r
-        echo ""
+        if [[ "${FG_AUTO_KILL}" == "1" || "${FG_AUTO_KILL}" == "true" ]]; then
+            fg_status "Auto-kill mode: removing empty PID file..."
+            REPLY="y"
+        else
+            read -p "  Remove empty PID file? [y/N] " -n 1 -r
+            echo ""
+        fi
         if [[ $REPLY =~ ^[Yy]$ ]]; then
             rm -f "$pid_file"
             fg_success "Removed empty PID file"
@@ -166,8 +180,13 @@ freeze_check_pid_file() {
             echo ""
             echo "  Command: $(fg_get_process_info "$pid")"
             echo ""
-            read -p "  Stop existing $service_name? [y/N] " -n 1 -r
-            echo ""
+            if [[ "${FG_AUTO_KILL}" == "1" || "${FG_AUTO_KILL}" == "true" ]]; then
+                fg_status "Auto-kill mode: stopping existing $service_name..."
+                REPLY="y"
+            else
+                read -p "  Stop existing $service_name? [y/N] " -n 1 -r
+                echo ""
+            fi
             if [[ $REPLY =~ ^[Yy]$ ]]; then
                 kill -TERM "$pid" 2>/dev/null
                 sleep 2
@@ -188,8 +207,13 @@ freeze_check_pid_file() {
             echo "  Command: $(fg_get_process_info "$pid")"
             echo ""
             echo "  This is unexpected. The PID file may be stale."
-            read -p "  Remove stale PID file? [y/N] " -n 1 -r
-            echo ""
+            if [[ "${FG_AUTO_KILL}" == "1" || "${FG_AUTO_KILL}" == "true" ]]; then
+                fg_status "Auto-kill mode: removing stale PID file..."
+                REPLY="y"
+            else
+                read -p "  Remove stale PID file? [y/N] " -n 1 -r
+                echo ""
+            fi
             if [[ $REPLY =~ ^[Yy]$ ]]; then
                 rm -f "$pid_file"
                 fg_success "Removed stale PID file"
@@ -200,8 +224,13 @@ freeze_check_pid_file() {
     else
         # Process not running - stale PID file
         fg_warn "Stale PID file found: $pid_file (process $pid not running)"
-        read -p "  Remove stale PID file? [y/N] " -n 1 -r
-        echo ""
+        if [[ "${FG_AUTO_KILL}" == "1" || "${FG_AUTO_KILL}" == "true" ]]; then
+            fg_status "Auto-kill mode: removing stale PID file..."
+            REPLY="y"
+        else
+            read -p "  Remove stale PID file? [y/N] " -n 1 -r
+            echo ""
+        fi
         if [[ $REPLY =~ ^[Yy]$ ]]; then
             rm -f "$pid_file"
             fg_success "Removed stale PID file"
@@ -229,8 +258,13 @@ freeze_check_socket() {
         if [ -n "$listener_pid" ]; then
             if fg_is_adapteros_process "$listener_pid"; then
                 fg_warn "Socket in use by adapterOS (PID $listener_pid)"
-                read -p "  Stop the process using this socket? [y/N] " -n 1 -r
-                echo ""
+                if [[ "${FG_AUTO_KILL}" == "1" || "${FG_AUTO_KILL}" == "true" ]]; then
+                    fg_status "Auto-kill mode: stopping process using socket..."
+                    REPLY="y"
+                else
+                    read -p "  Stop the process using this socket? [y/N] " -n 1 -r
+                    echo ""
+                fi
                 if [[ $REPLY =~ ^[Yy]$ ]]; then
                     kill -TERM "$listener_pid" 2>/dev/null
                     sleep 2
@@ -250,8 +284,13 @@ freeze_check_socket() {
 
     # Socket exists but nothing listening - stale
     fg_warn "Stale socket found: $socket_path"
-    read -p "  Remove stale socket? [y/N] " -n 1 -r
-    echo ""
+    if [[ "${FG_AUTO_KILL}" == "1" || "${FG_AUTO_KILL}" == "true" ]]; then
+        fg_status "Auto-kill mode: removing stale socket..."
+        REPLY="y"
+    else
+        read -p "  Remove stale socket? [y/N] " -n 1 -r
+        echo ""
+    fi
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         rm -f "$socket_path"
         fg_success "Removed stale socket"

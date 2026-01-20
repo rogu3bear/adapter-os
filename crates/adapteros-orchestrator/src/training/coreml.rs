@@ -2,13 +2,12 @@
 
 use std::collections::HashMap;
 use std::ffi::OsStr;
-use std::fs;
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
 
 use adapteros_config::CoreMLComputePreference;
-use adapteros_core::{adapter_fs_path_with_root, B3Hash};
+use adapteros_core::adapter_fs_path_with_root;
 use adapteros_core::{AosError, Result};
 use adapteros_db::CreateCoremlFusionPairParams;
 use adapteros_lora_worker::{ComputeUnits, CoreMLExportJob, CoreMLExportRecord};
@@ -236,7 +235,7 @@ pub(crate) fn resolve_coreml_compute_units() -> ComputeUnits {
 }
 
 #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
-fn perform_coreml_export(job: CoreMLExportJob) -> Result<CoreMLExportRecord> {
+pub(crate) fn perform_coreml_export(job: CoreMLExportJob) -> Result<CoreMLExportRecord> {
     adapteros_lora_worker::run_coreml_export(job).map_err(|e| AosError::CoreML(e.to_string()))
 }
 
@@ -259,11 +258,13 @@ pub(crate) fn perform_coreml_export(job: CoreMLExportJob) -> Result<CoreMLExport
          To produce a functional CoreML package, run on macOS with --features coreml-backend"
     );
 
+    use adapteros_core::B3Hash;
+
     if let Some(parent) = job.output_package.parent() {
-        fs::create_dir_all(parent).map_err(|e| AosError::Io(e.to_string()))?;
+        std::fs::create_dir_all(parent).map_err(|e| AosError::Io(e.to_string()))?;
     }
     if job.output_package.is_dir() || job.base_package.is_dir() {
-        fs::create_dir_all(&job.output_package).map_err(|e| AosError::Io(e.to_string()))?;
+        std::fs::create_dir_all(&job.output_package).map_err(|e| AosError::Io(e.to_string()))?;
     }
 
     let base_manifest_path = if job.base_package.is_dir() {
@@ -271,11 +272,11 @@ pub(crate) fn perform_coreml_export(job: CoreMLExportJob) -> Result<CoreMLExport
     } else {
         job.base_package.clone()
     };
-    let manifest_bytes = fs::read(&base_manifest_path).unwrap_or_default();
+    let manifest_bytes = std::fs::read(&base_manifest_path).unwrap_or_default();
     let base_manifest_hash = B3Hash::hash(&manifest_bytes);
     let fused_manifest_hash = base_manifest_hash;
 
-    let adapter_bytes = fs::read(&job.adapter_aos)
+    let adapter_bytes = std::fs::read(&job.adapter_aos)
         .map_err(|e| AosError::Io(format!("Failed to read adapter bundle: {}", e)))?;
     let adapter_hash = B3Hash::hash(&adapter_bytes);
 
@@ -294,7 +295,7 @@ pub(crate) fn perform_coreml_export(job: CoreMLExportJob) -> Result<CoreMLExport
         "stub": true,
         "fusion_verified": false
     });
-    fs::write(&metadata_path, serde_json::to_vec_pretty(&metadata)?)
+    std::fs::write(&metadata_path, serde_json::to_vec_pretty(&metadata)?)
         .map_err(|e| AosError::Io(e.to_string()))?;
 
     Ok(CoreMLExportRecord {

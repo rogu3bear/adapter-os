@@ -718,8 +718,13 @@ impl LoadResult {
     pub fn unwrap(self) -> VerifiedAdapter {
         match self {
             Self::Verified(adapter) => *adapter,
-            Self::Rejected { reason, message, .. } => {
-                panic!("Attempted to unwrap rejected adapter: {:?} - {}", reason, message)
+            Self::Rejected {
+                reason, message, ..
+            } => {
+                panic!(
+                    "Attempted to unwrap rejected adapter: {:?} - {}",
+                    reason, message
+                )
             }
         }
     }
@@ -728,7 +733,12 @@ impl LoadResult {
     pub fn into_result(self) -> Result<VerifiedAdapter> {
         match self {
             Self::Verified(adapter) => Ok(*adapter),
-            Self::Rejected { reason, message, expected, actual } => {
+            Self::Rejected {
+                reason,
+                message,
+                expected,
+                actual,
+            } => {
                 if let (Some(expected), Some(actual)) = (expected, actual) {
                     Err(AosError::AdapterHashMismatch {
                         adapter_id: String::new(),
@@ -898,14 +908,20 @@ impl SealedAdapterLoader {
 
     /// Add a trusted public key
     pub fn add_trusted_key(&mut self, pubkey: VerifyingKey) {
-        if !self.trusted_pubkeys.iter().any(|k| k.to_bytes() == pubkey.to_bytes()) {
+        if !self
+            .trusted_pubkeys
+            .iter()
+            .any(|k| k.to_bytes() == pubkey.to_bytes())
+        {
             self.trusted_pubkeys.push(pubkey);
         }
     }
 
     /// Check if a public key is trusted
     pub fn is_trusted(&self, pubkey: &VerifyingKey) -> bool {
-        self.trusted_pubkeys.iter().any(|k| k.to_bytes() == pubkey.to_bytes())
+        self.trusted_pubkeys
+            .iter()
+            .any(|k| k.to_bytes() == pubkey.to_bytes())
     }
 }
 
@@ -925,11 +941,8 @@ impl SealedAdapterContainer {
         let payload_data = &self.payload.weights_data;
 
         // Compute integrity hash
-        let integrity_hash = Self::compute_container_hash(
-            self.version,
-            &self.manifest,
-            &self.payload,
-        );
+        let integrity_hash =
+            Self::compute_container_hash(self.version, &self.manifest, &self.payload);
 
         // Layout: header (128) + manifest + payload
         let manifest_offset = SEALED_HEADER_SIZE as u64;
@@ -1253,7 +1266,12 @@ mod tests {
         let result = loader.load_from_bytes(&bytes);
 
         match result {
-            LoadResult::Rejected { reason, expected, actual, .. } => {
+            LoadResult::Rejected {
+                reason,
+                expected,
+                actual,
+                ..
+            } => {
                 assert_eq!(reason, RejectionReason::IntegrityMismatch);
                 assert!(expected.is_some());
                 assert!(actual.is_some());
@@ -1341,10 +1359,25 @@ mod tests {
     #[test]
     fn test_rejection_reason_as_str() {
         assert_eq!(RejectionReason::InvalidFormat.as_str(), "invalid_format");
-        assert_eq!(RejectionReason::IntegrityMismatch.as_str(), "integrity_mismatch");
-        assert_eq!(RejectionReason::SignatureInvalid.as_str(), "signature_invalid");
-        assert_eq!(RejectionReason::UntrustedSigner.as_str(), "untrusted_signer");
-        assert_eq!(RejectionReason::PayloadCorrupted.as_str(), "payload_corrupted");
-        assert_eq!(RejectionReason::ManifestInvalid.as_str(), "manifest_invalid");
+        assert_eq!(
+            RejectionReason::IntegrityMismatch.as_str(),
+            "integrity_mismatch"
+        );
+        assert_eq!(
+            RejectionReason::SignatureInvalid.as_str(),
+            "signature_invalid"
+        );
+        assert_eq!(
+            RejectionReason::UntrustedSigner.as_str(),
+            "untrusted_signer"
+        );
+        assert_eq!(
+            RejectionReason::PayloadCorrupted.as_str(),
+            "payload_corrupted"
+        );
+        assert_eq!(
+            RejectionReason::ManifestInvalid.as_str(),
+            "manifest_invalid"
+        );
     }
 }

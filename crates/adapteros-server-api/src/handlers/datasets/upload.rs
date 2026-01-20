@@ -19,9 +19,9 @@ use super::validation::{
     validation_error_response, CompositeValidator, FileExistsRule, FileExtensionRule, FileSizeRule,
     ValidationConfig,
 };
+use crate::api_error::ApiError;
 use crate::auth::Claims;
 use crate::citations::build_dataset_index;
-use crate::error_helpers::{bad_request, db_error, forbidden, internal_error, payload_too_large};
 use crate::handlers::chunked_upload::{
     CompressionFormat, DEFAULT_CHUNK_SIZE, MAX_CHUNK_SIZE, MIN_CHUNK_SIZE,
 };
@@ -136,23 +136,21 @@ pub async fn upload_dataset(
     Extension(claims): Extension<Claims>,
     request_id: Option<Extension<RequestId>>,
     mut multipart: Multipart,
-) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetUpload)?;
 
     let dataset_id = Uuid::now_v7().to_string();
     let correlation_id = request_id
         .map(|r| r.0 .0)
         .unwrap_or_else(|| Uuid::new_v4().to_string());
-    let dataset_root = resolve_dataset_root(&state).map_err(internal_error)?;
+    let dataset_root =
+        resolve_dataset_root(&state).map_err(|e| ApiError::internal(e.to_string()))?;
     let paths = DatasetPaths::new(dataset_root.clone());
     let allowed_roots = [paths.root().to_path_buf()];
     let adapters_root = {
         let cfg = state.config.read().map_err(|_| {
             tracing::error!("Config lock poisoned");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new("config lock poisoned").with_code("CONFIG_UNAVAILABLE")),
-            )
+            ApiError::internal("config lock poisoned")
         })?;
         cfg.paths.adapters_root.clone()
     };
@@ -169,7 +167,7 @@ pub async fn upload_dataset(
     let (soft_quota, hard_quota) = dataset_quota_limits();
     let usage = compute_tenant_storage_usage(&state, &claims.tenant_id)
         .await
-        .map_err(|e| internal_error(format!("Failed to compute storage usage: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to compute storage usage: {}", e)))?;
     let mut current_usage = usage.total_bytes();
 
     emit_progress(
@@ -210,91 +208,82 @@ pub async fn upload_dataset(
     while let Some(field) = multipart
         .next_field()
         .await
-        .map_err(|e| bad_request(format!("Failed to read multipart field: {}", e)))?
+        .map_err(|e| ApiError::bad_request(format!("Failed to read multipart field: {}", e)))?
     {
         let name = field.name().unwrap_or("").to_string();
 
         match name.as_str() {
             "name" => {
-                dataset_name = field
-                    .text()
-                    .await
-                    .map_err(|e| bad_request(format!("Failed to read name field: {}", e)))?;
+                dataset_name = field.text().await.map_err(|e| {
+                    ApiError::bad_request(format!("Failed to read name field: {}", e))
+                })?;
             }
             "source_type" => {
-                let source = field
-                    .text()
-                    .await
-                    .map_err(|e| bad_request(format!("Failed to read source_type field: {}", e)))?;
+                let source = field.text().await.map_err(|e| {
+                    ApiError::bad_request(format!("Failed to read source_type field: {}", e))
+                })?;
                 let trimmed = source.trim();
                 if !trimmed.is_empty() {
                     source_type = Some(trimmed.to_string());
                 }
             }
             "description" => {
-                dataset_description = field
-                    .text()
-                    .await
-                    .map_err(|e| bad_request(format!("Failed to read description field: {}", e)))?;
+                dataset_description = field.text().await.map_err(|e| {
+                    ApiError::bad_request(format!("Failed to read description field: {}", e))
+                })?;
             }
             "language" => {
-                let value = field
-                    .text()
-                    .await
-                    .map_err(|e| bad_request(format!("Failed to read language field: {}", e)))?;
+                let value = field.text().await.map_err(|e| {
+                    ApiError::bad_request(format!("Failed to read language field: {}", e))
+                })?;
                 let trimmed = value.trim();
                 if !trimmed.is_empty() {
                     language = Some(trimmed.to_string());
                 }
             }
             "framework" => {
-                let value = field
-                    .text()
-                    .await
-                    .map_err(|e| bad_request(format!("Failed to read framework field: {}", e)))?;
+                let value = field.text().await.map_err(|e| {
+                    ApiError::bad_request(format!("Failed to read framework field: {}", e))
+                })?;
                 let trimmed = value.trim();
                 if !trimmed.is_empty() {
                     framework = Some(trimmed.to_string());
                 }
             }
             "format" => {
-                let format = field
-                    .text()
-                    .await
-                    .map_err(|e| bad_request(format!("Failed to read format field: {}", e)))?;
+                let format = field.text().await.map_err(|e| {
+                    ApiError::bad_request(format!("Failed to read format field: {}", e))
+                })?;
                 dataset_format = format.trim().to_ascii_lowercase();
             }
             "workspace_id" => {
                 let ws = field.text().await.map_err(|e| {
-                    bad_request(format!("Failed to read workspace_id field: {}", e))
+                    ApiError::bad_request(format!("Failed to read workspace_id field: {}", e))
                 })?;
                 workspace_id = Some(ws);
             }
             "repo_slug" => {
-                let slug = field
-                    .text()
-                    .await
-                    .map_err(|e| bad_request(format!("Failed to read repo_slug field: {}", e)))?;
+                let slug = field.text().await.map_err(|e| {
+                    ApiError::bad_request(format!("Failed to read repo_slug field: {}", e))
+                })?;
                 let trimmed = slug.trim();
                 if !trimmed.is_empty() {
                     repo_slug = Some(trimmed.to_string());
                 }
             }
             "branch" | "repo_branch" => {
-                let branch = field
-                    .text()
-                    .await
-                    .map_err(|e| bad_request(format!("Failed to read branch field: {}", e)))?;
+                let branch = field.text().await.map_err(|e| {
+                    ApiError::bad_request(format!("Failed to read branch field: {}", e))
+                })?;
                 let trimmed = branch.trim();
                 if !trimmed.is_empty() {
                     repo_branch = Some(trimmed.to_string());
                 }
             }
             "commit_sha" | "commit_hash" | "repo_commit" | "commit" => {
-                let commit = field
-                    .text()
-                    .await
-                    .map_err(|e| bad_request(format!("Failed to read commit field: {}", e)))?;
+                let commit = field.text().await.map_err(|e| {
+                    ApiError::bad_request(format!("Failed to read commit field: {}", e))
+                })?;
                 let trimmed = commit.trim();
                 if !trimmed.is_empty() {
                     repo_commit = Some(trimmed.to_string());
@@ -302,7 +291,7 @@ pub async fn upload_dataset(
             }
             "repository_url" | "repo_url" => {
                 let value = field.text().await.map_err(|e| {
-                    bad_request(format!("Failed to read repository_url field: {}", e))
+                    ApiError::bad_request(format!("Failed to read repository_url field: {}", e))
                 })?;
                 let trimmed = value.trim();
                 if !trimmed.is_empty() {
@@ -310,44 +299,39 @@ pub async fn upload_dataset(
                 }
             }
             "auto_train" => {
-                let val = field
-                    .text()
-                    .await
-                    .map_err(|e| bad_request(format!("Failed to read auto_train: {}", e)))?;
+                let val = field.text().await.map_err(|e| {
+                    ApiError::bad_request(format!("Failed to read auto_train: {}", e))
+                })?;
                 auto_train = val.trim().parse().unwrap_or(false);
             }
             "adapter_name" => {
-                let val = field
-                    .text()
-                    .await
-                    .map_err(|e| bad_request(format!("Failed to read adapter_name: {}", e)))?;
+                let val = field.text().await.map_err(|e| {
+                    ApiError::bad_request(format!("Failed to read adapter_name: {}", e))
+                })?;
                 if !val.trim().is_empty() {
                     adapter_name = Some(val);
                 }
             }
             "base_model_id" => {
-                let val = field
-                    .text()
-                    .await
-                    .map_err(|e| bad_request(format!("Failed to read base_model_id: {}", e)))?;
+                let val = field.text().await.map_err(|e| {
+                    ApiError::bad_request(format!("Failed to read base_model_id: {}", e))
+                })?;
                 if !val.trim().is_empty() {
                     base_model_id = Some(val);
                 }
             }
             "training_config" => {
-                let val = field
-                    .text()
-                    .await
-                    .map_err(|e| bad_request(format!("Failed to read training_config: {}", e)))?;
+                let val = field.text().await.map_err(|e| {
+                    ApiError::bad_request(format!("Failed to read training_config: {}", e))
+                })?;
                 if !val.trim().is_empty() {
                     training_config_json = Some(val);
                 }
             }
             "post_actions" => {
-                let val = field
-                    .text()
-                    .await
-                    .map_err(|e| bad_request(format!("Failed to read post_actions: {}", e)))?;
+                let val = field.text().await.map_err(|e| {
+                    ApiError::bad_request(format!("Failed to read post_actions: {}", e))
+                })?;
                 if !val.trim().is_empty() {
                     post_actions_json = Some(val);
                 }
@@ -355,7 +339,7 @@ pub async fn upload_dataset(
             "file" | "files" | "files[]" => {
                 let file_name = field
                     .file_name()
-                    .ok_or_else(|| bad_request("File must have a name"))?
+                    .ok_or_else(|| ApiError::bad_request("File must have a name"))?
                     .to_string();
 
                 let content_type = field
@@ -363,22 +347,21 @@ pub async fn upload_dataset(
                     .map(|ct| ct.to_string())
                     .unwrap_or_else(|| "application/octet-stream".to_string());
 
-                let data = field
-                    .bytes()
-                    .await
-                    .map_err(|e| bad_request(format!("Failed to read file data: {}", e)))?;
+                let data = field.bytes().await.map_err(|e| {
+                    ApiError::bad_request(format!("Failed to read file data: {}", e))
+                })?;
 
                 let file_size = data.len();
 
                 if file_size == 0 {
-                    return Err(bad_request(format!(
+                    return Err(ApiError::bad_request(format!(
                         "Unsupported file {}: empty uploads are not allowed",
                         file_name
                     )));
                 }
 
                 if file_name.contains('/') || file_name.contains('\\') || file_name.contains("..") {
-                    return Err(bad_request(format!(
+                    return Err(ApiError::bad_request(format!(
                         "Unsupported file name '{}': path separators are not allowed",
                         file_name
                     )));
@@ -386,7 +369,7 @@ pub async fn upload_dataset(
 
                 // Check file size limits
                 if file_size > MAX_FILE_SIZE {
-                    return Err(payload_too_large(&format!(
+                    return Err(ApiError::payload_too_large(format!(
                         "File {} exceeds maximum size of {}MB",
                         file_name,
                         MAX_FILE_SIZE / 1024 / 1024
@@ -395,7 +378,7 @@ pub async fn upload_dataset(
 
                 total_size += file_size;
                 if total_size > MAX_TOTAL_SIZE {
-                    return Err(payload_too_large(&format!(
+                    return Err(ApiError::payload_too_large(format!(
                         "Total upload size exceeds maximum of {}MB",
                         MAX_TOTAL_SIZE / 1024 / 1024
                     )));
@@ -403,7 +386,7 @@ pub async fn upload_dataset(
 
                 let predicted_usage = current_usage + total_size as u64;
                 if predicted_usage > hard_quota {
-                    return Err(quota_error(format!(
+                    return Err(ApiError::forbidden(format!(
                         "Dataset storage quota exceeded: {} > {} bytes",
                         predicted_usage, hard_quota
                     )));
@@ -422,7 +405,7 @@ pub async fn upload_dataset(
 
                 file_count += 1;
                 if file_count > MAX_FILE_COUNT {
-                    return Err(payload_too_large(&format!(
+                    return Err(ApiError::payload_too_large(format!(
                         "Upload exceeds maximum file count of {}",
                         MAX_FILE_COUNT
                     )));
@@ -450,21 +433,21 @@ pub async fn upload_dataset(
     }
 
     if !unknown_fields.is_empty() {
-        return Err(bad_request(format!(
+        return Err(ApiError::bad_request(format!(
             "Unsupported upload fields: {}",
             unknown_fields.join(", ")
         )));
     }
 
     if pending_files.is_empty() {
-        return Err(bad_request("No files uploaded"));
+        return Err(ApiError::bad_request("No files uploaded"));
     }
 
     if dataset_name.is_empty() {
         dataset_name = format!("Dataset {}", &dataset_id[0..8]);
     }
 
-    validate_format(&dataset_format).map_err(|e| bad_request(e.to_string()))?;
+    validate_format(&dataset_format).map_err(|e| ApiError::bad_request(e.to_string()))?;
 
     let workspace_id_opt = workspace_id;
     // Ensure caller can access the workspace when provided
@@ -478,9 +461,9 @@ pub async fn upload_dataset(
                 &claims.admin_tenants,
             )
             .await
-            .map_err(|e| db_error(format!("Failed to check workspace access: {}", e)))?;
+            .map_err(|e| ApiError::db_error(format!("Failed to check workspace access: {}", e)))?;
         if access.is_none() {
-            return Err(forbidden(
+            return Err(ApiError::forbidden(
                 "Access denied: you are not a member of this workspace",
             ));
         }
@@ -513,7 +496,9 @@ pub async fn upload_dataset(
     let canonical_dir = storage
         .layout()
         .canonical_dir_path_with_tenant(&dataset_category, &dataset_hash, Some(&claims.tenant_id))
-        .map_err(|e| internal_error(format!("Failed to resolve canonical dataset path: {}", e)))?;
+        .map_err(|e| {
+            ApiError::internal(format!("Failed to resolve canonical dataset path: {}", e))
+        })?;
     ensure_dirs([canonical_dir.as_path()]).await?;
     let canonical_dir = canonicalize_strict_in_allowed_roots(&canonical_dir, &allowed_roots)
         .map_err(|e| {
@@ -528,7 +513,7 @@ pub async fn upload_dataset(
             .db
             .get_dataset_by_hash_and_workspace(&dataset_hash, ws_id)
             .await
-            .map_err(|e| db_error(format!("Failed to check existing datasets: {}", e)))?
+            .map_err(|e| ApiError::db_error(format!("Failed to check existing datasets: {}", e)))?
         {
             if existing
                 .tenant_id
@@ -542,7 +527,7 @@ pub async fn upload_dataset(
                     .ensure_dataset_version_exists(&existing.id)
                     .await
                     .map_err(|e| {
-                        db_error(format!(
+                        ApiError::db_error(format!(
                             "Failed to ensure dataset version for reused dataset: {}",
                             e
                         ))
@@ -553,7 +538,10 @@ pub async fn upload_dataset(
                     .get_latest_trusted_dataset_version_for_dataset(&existing.id)
                     .await
                     .map_err(|e| {
-                        db_error(format!("Failed to get version for reused dataset: {}", e))
+                        ApiError::db_error(format!(
+                            "Failed to get version for reused dataset: {}",
+                            e
+                        ))
                     })?
                     .map(|(v, _trust)| v.id);
                 info!(
@@ -579,6 +567,7 @@ pub async fn upload_dataset(
                         .or_else(|| resolved_workspace_id.clone()),
                     reused: true,
                     created_at: existing.created_at,
+                    dataset_type: existing.dataset_type.clone(),
                     training_job_id: None,
                     stack_id: None,
                 }));
@@ -599,9 +588,9 @@ pub async fn upload_dataset(
         );
         let candidate_path = storage
             .path_for(&key)
-            .map_err(|e| internal_error(format!("Failed to resolve storage path: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to resolve storage path: {}", e)))?;
         let parent = candidate_path.parent().ok_or_else(|| {
-            internal_error(format!(
+            ApiError::internal(format!(
                 "Dataset storage path has no parent: {}",
                 candidate_path.display()
             ))
@@ -614,12 +603,13 @@ pub async fn upload_dataset(
             .map_err(|e| {
                 let msg = e.to_string();
                 if msg.to_ascii_lowercase().contains("insufficient disk space") {
-                    (
+                    ApiError::new(
                         StatusCode::INSUFFICIENT_STORAGE,
-                        Json(ErrorResponse::new(msg.clone()).with_code("INSUFFICIENT_STORAGE")),
+                        "INSUFFICIENT_STORAGE",
+                        msg.clone(),
                     )
                 } else {
-                    internal_error(format!("Failed to store dataset file: {}", msg))
+                    ApiError::internal(format!("Failed to store dataset file: {}", msg))
                 }
             })?;
         if let Err(e) = canonicalize_strict_in_allowed_roots(&location.path, &allowed_roots) {
@@ -744,13 +734,13 @@ pub async fn upload_dataset(
     );
     if !metadata.is_empty() {
         let metadata_json = serde_json::to_string(&metadata)
-            .map_err(|e| bad_request(format!("Invalid metadata_json: {}", e)))?;
+            .map_err(|e| ApiError::bad_request(format!("Invalid metadata_json: {}", e)))?;
         dataset_builder = dataset_builder.metadata_json(metadata_json);
     }
 
     let dataset_params = dataset_builder
         .build()
-        .map_err(|e| bad_request(format!("Invalid dataset parameters: {}", e)))?;
+        .map_err(|e| ApiError::bad_request(format!("Invalid dataset parameters: {}", e)))?;
 
     let (_, dataset_version_id) = state
         .db
@@ -763,7 +753,7 @@ pub async fn upload_dataset(
             None,
         )
         .await
-        .map_err(|e| db_error(format!("Failed to create dataset record: {}", e)))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to create dataset record: {}", e)))?;
 
     // CRITICAL: Associate dataset with user's tenant for tenant isolation
     bind_dataset_to_tenant(&state.db, &dataset_id, &claims.tenant_id).await?;
@@ -788,7 +778,7 @@ pub async fn upload_dataset(
             .await
             .map_err(|e| {
                 tracing::error!("Failed to add file record: {}", e);
-                db_error(format!("Failed to add file record: {}", e))
+                ApiError::db_error(format!("Failed to add file record: {}", e))
             })?;
     }
 
@@ -847,7 +837,7 @@ pub async fn upload_dataset(
             None,
         )
         .await
-        .map_err(|e| db_error(format!("Failed to update validation status: {}", e)))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to update validation status: {}", e)))?;
 
     if let Err(e) = state
         .db
@@ -905,14 +895,12 @@ pub async fn upload_dataset(
                 "Dataset contains unsupported JSONL rows"
             );
             let _ = state.db.update_dataset_status(&dataset_id, "failed").await;
-            return Err((
+            return Err(ApiError::new(
                 StatusCode::BAD_REQUEST,
-                Json(
-                    ErrorResponse::new(format!(
-                        "Dataset contains invalid JSONL rows (parse_errors={}, dropped={})",
-                        parse_errors, dropped
-                    ))
-                    .with_code("DATASET_SCHEMA_INVALID"),
+                "DATASET_SCHEMA_INVALID",
+                format!(
+                    "Dataset contains invalid JSONL rows (parse_errors={}, dropped={})",
+                    parse_errors, dropped
                 ),
             ));
         }
@@ -926,12 +914,10 @@ pub async fn upload_dataset(
                 "No training dataset rows created from upload"
             );
             let _ = state.db.update_dataset_status(&dataset_id, "failed").await;
-            return Err((
+            return Err(ApiError::new(
                 StatusCode::BAD_REQUEST,
-                Json(
-                    ErrorResponse::new("Dataset contains no valid training rows")
-                        .with_code("DATASET_EMPTY"),
-                ),
+                "DATASET_EMPTY",
+                "Dataset contains no valid training rows",
             ));
         }
 
@@ -945,7 +931,7 @@ pub async fn upload_dataset(
                     "Failed to insert training dataset rows"
                 );
                 let _ = state.db.update_dataset_status(&dataset_id, "failed").await;
-                return Err(db_error(format!(
+                return Err(ApiError::db_error(format!(
                     "Failed to insert training dataset rows: {}",
                     e
                 )));
@@ -954,17 +940,18 @@ pub async fn upload_dataset(
 
         if inserted == 0 {
             let _ = state.db.update_dataset_status(&dataset_id, "failed").await;
-            return Err((
+            return Err(ApiError::new(
                 StatusCode::BAD_REQUEST,
-                Json(
-                    ErrorResponse::new("Dataset contains no valid training rows")
-                        .with_code("DATASET_EMPTY"),
-                ),
+                "DATASET_EMPTY",
+                "Dataset contains no valid training rows",
             ));
         }
 
         if let Err(e) = state.db.update_dataset_status(&dataset_id, "ready").await {
-            return Err(db_error(format!("Failed to update dataset status: {}", e)));
+            return Err(ApiError::db_error(format!(
+                "Failed to update dataset status: {}",
+                e
+            )));
         }
 
         info!(
@@ -1112,6 +1099,7 @@ pub async fn upload_dataset(
         workspace_id: resolved_workspace_id,
         reused: false,
         created_at: chrono::Utc::now().to_rfc3339(),
+        dataset_type: Some("training".to_string()),
         training_job_id,
         stack_id,
     }))
@@ -1231,16 +1219,16 @@ pub async fn initiate_chunked_upload(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Json(request): Json<InitiateChunkedUploadRequest>,
-) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetUpload)?;
 
     // Validate total size
     if request.total_size == 0 {
-        return Err(bad_request("File size must be greater than 0"));
+        return Err(ApiError::bad_request("File size must be greater than 0"));
     }
 
     if request.total_size > MAX_TOTAL_SIZE as u64 {
-        return Err(payload_too_large(&format!(
+        return Err(ApiError::payload_too_large(format!(
             "File size exceeds maximum of {}MB",
             MAX_TOTAL_SIZE / 1024 / 1024
         )));
@@ -1250,10 +1238,10 @@ pub async fn initiate_chunked_upload(
     let (soft_quota, hard_quota) = dataset_quota_limits();
     let usage = compute_tenant_storage_usage(&state, &claims.tenant_id)
         .await
-        .map_err(|e| internal_error(format!("Failed to compute storage usage: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to compute storage usage: {}", e)))?;
     let predicted_usage = usage.total_bytes() + request.total_size;
     if predicted_usage > hard_quota {
-        return Err(quota_error(format!(
+        return Err(ApiError::forbidden(format!(
             "Dataset storage quota would be exceeded: predicted {} > {} bytes",
             predicted_usage, hard_quota
         )));
@@ -1278,9 +1266,9 @@ pub async fn initiate_chunked_upload(
                 &claims.admin_tenants,
             )
             .await
-            .map_err(|e| db_error(format!("Failed to check workspace access: {}", e)))?;
+            .map_err(|e| ApiError::db_error(format!("Failed to check workspace access: {}", e)))?;
         if access.is_none() {
-            return Err(forbidden(
+            return Err(ApiError::forbidden(
                 "Access denied: you are not a member of this workspace",
             ));
         }
@@ -1294,12 +1282,12 @@ pub async fn initiate_chunked_upload(
                 let ws_usage = compute_workspace_storage_usage(&state, ws_id)
                     .await
                     .map_err(|e| {
-                        internal_error(format!("Failed to compute workspace usage: {}", e))
+                        ApiError::internal(format!("Failed to compute workspace usage: {}", e))
                     })?;
                 let predicted_ws_usage = ws_usage.total_bytes() + request.total_size;
 
                 if predicted_ws_usage > cfg.workspace_hard_quota_bytes {
-                    return Err(quota_error(format!(
+                    return Err(ApiError::forbidden(format!(
                         "Workspace storage quota exceeded: predicted {} > {} bytes",
                         predicted_ws_usage, cfg.workspace_hard_quota_bytes
                     )));
@@ -1318,10 +1306,10 @@ pub async fn initiate_chunked_upload(
 
     let file_name = request.file_name.trim();
     if file_name.is_empty() {
-        return Err(bad_request("File name must not be empty"));
+        return Err(ApiError::bad_request("File name must not be empty"));
     }
     if file_name.contains('/') || file_name.contains('\\') || file_name.contains("..") {
-        return Err(bad_request(format!(
+        return Err(ApiError::bad_request(format!(
             "Unsupported file name '{}': path separators are not allowed",
             file_name
         )));
@@ -1334,8 +1322,9 @@ pub async fn initiate_chunked_upload(
 
     let expected_file_hash_b3 = match request.expected_file_hash_b3.as_deref() {
         Some(value) => {
-            validate_hash_b3(value)
-                .map_err(|e| bad_request(format!("Invalid expected file hash (BLAKE3): {}", e)))?;
+            validate_hash_b3(value).map_err(|e| {
+                ApiError::bad_request(format!("Invalid expected file hash (BLAKE3): {}", e))
+            })?;
             Some(value.to_string())
         }
         None => None,
@@ -1344,13 +1333,13 @@ pub async fn initiate_chunked_upload(
     // Determine chunk size - reject explicit out-of-bounds values instead of silent clamping
     let chunk_size = match request.chunk_size {
         Some(size) if size < MIN_CHUNK_SIZE => {
-            return Err(bad_request(format!(
+            return Err(ApiError::bad_request(format!(
                 "Chunk size {} is below minimum of {} bytes",
                 size, MIN_CHUNK_SIZE
             )));
         }
         Some(size) if size > MAX_CHUNK_SIZE => {
-            return Err(bad_request(format!(
+            return Err(ApiError::bad_request(format!(
                 "Chunk size {} exceeds maximum of {} bytes",
                 size, MAX_CHUNK_SIZE
             )));
@@ -1368,7 +1357,8 @@ pub async fn initiate_chunked_upload(
         .unwrap_or_else(|| "application/octet-stream".to_string());
     let compression = CompressionFormat::from_content_type(&content_type);
 
-    let dataset_root = resolve_dataset_root(&state).map_err(internal_error)?;
+    let dataset_root =
+        resolve_dataset_root(&state).map_err(|e| ApiError::internal(e.to_string()))?;
     let paths = DatasetPaths::new(dataset_root);
 
     let storage_workspace = request
@@ -1396,18 +1386,16 @@ pub async fn initiate_chunked_upload(
     .await?
     {
         if existing.status == "failed" {
-            return Err((
+            return Err(ApiError::new(
                 StatusCode::BAD_REQUEST,
-                Json(
-                    ErrorResponse::new(format!(
-                        "Upload session {} previously failed: {}",
-                        existing.session_id,
-                        existing
-                            .error_message
-                            .clone()
-                            .unwrap_or_else(|| "unknown".to_string())
-                    ))
-                    .with_code("UPLOAD_SESSION_FAILED"),
+                "UPLOAD_SESSION_FAILED",
+                format!(
+                    "Upload session {} previously failed: {}",
+                    existing.session_id,
+                    existing
+                        .error_message
+                        .clone()
+                        .unwrap_or_else(|| "unknown".to_string())
                 ),
             ));
         }
@@ -1417,14 +1405,10 @@ pub async fn initiate_chunked_upload(
             || existing.chunk_size_bytes != chunk_size
             || existing.content_type != content_type
         {
-            return Err((
+            return Err(ApiError::new(
                 StatusCode::CONFLICT,
-                Json(
-                    ErrorResponse::new(
-                        "Idempotency key already used with different upload parameters",
-                    )
-                    .with_code("IDEMPOTENCY_CONFLICT"),
-                ),
+                "IDEMPOTENCY_CONFLICT",
+                "Idempotency key already used with different upload parameters",
             ));
         }
 
@@ -1437,14 +1421,10 @@ pub async fn initiate_chunked_upload(
                     .metrics_registry
                     .record_metric(METRIC_CHUNKED_CONFLICT_HASH_MISMATCH.to_string(), 1.0)
                     .await;
-                return Err((
+                return Err(ApiError::new(
                     StatusCode::CONFLICT,
-                    Json(
-                        ErrorResponse::new(
-                            "Idempotency key already used with a different expected hash",
-                        )
-                        .with_code("IDEMPOTENCY_CONFLICT"),
-                    ),
+                    "IDEMPOTENCY_CONFLICT",
+                    "Idempotency key already used with a different expected hash",
                 ));
             }
         }

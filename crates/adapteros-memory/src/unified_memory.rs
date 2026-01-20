@@ -33,11 +33,23 @@ pub struct MemoryPool {
 }
 
 /// Memory block within a pool
+///
+/// # Thread Safety
+///
+/// `MemoryBlock` contains a raw pointer but is marked as `Send + Sync` because:
+/// 1. The pointer is obtained from `aligned_alloc` which returns stable addresses
+/// 2. The memory is owned by the manager and blocks are only deallocated through
+///    the manager's `deallocate` method which holds proper locks
+/// 3. The pointer itself is not dereferenced in this struct - it's just an address
+///    that gets passed to backends for actual memory operations
+///
+/// The actual memory access synchronization is handled by the backends (Metal, MLX, etc.)
+/// which have their own synchronization mechanisms.
 #[derive(Debug, Clone)]
 pub struct MemoryBlock {
     /// Block identifier
     id: String,
-    /// Memory address
+    /// Memory address (stable after allocation, safe to send across threads)
     ptr: *mut u8,
     /// Block size
     size: usize,
@@ -46,6 +58,19 @@ pub struct MemoryBlock {
     /// Allocation timestamp (reserved for LRU eviction)
     _timestamp: u64,
 }
+
+// SAFETY: MemoryBlock is Send because:
+// - The raw pointer is a stable address obtained from libc::aligned_alloc
+// - The pointer is not dereferenced within MemoryBlock itself
+// - All memory operations go through synchronized backend code
+// - The Manager's allocate/deallocate methods use proper Mutex synchronization
+unsafe impl Send for MemoryBlock {}
+
+// SAFETY: MemoryBlock is Sync because:
+// - MemoryBlock is immutable after creation (no &mut methods that modify ptr)
+// - Reading the pointer value itself is safe (it's just reading an address)
+// - Actual memory access is synchronized by the backends
+unsafe impl Sync for MemoryBlock {}
 
 /// Memory allocation request
 #[derive(Debug)]
@@ -369,6 +394,287 @@ impl Default for AllocationRequest {
     }
 }
 
+// ============================================================================
+// Phase 2: Predictive Memory Pre-allocation
+// ============================================================================
+
+/// Memory budget for model inference
+///
+/// Pre-computed memory requirements that allow zero dynamic allocation
+/// during inference after initial pre-allocation.
+#[derive(Debug, Clone)]
+pub struct MemoryBudget {
+    /// Budget identifier (e.g., model name)
+    pub id: String,
+    /// KV cache memory per layer (bytes)
+    pub kv_cache_per_layer: usize,
+    /// Number of layers
+    pub num_layers: usize,
+    /// Activation memory per layer
+    pub activation_per_layer: usize,
+    /// LoRA adapter memory (total for all adapters)
+    pub lora_memory: usize,
+    /// Scratch/workspace memory
+    pub scratch_memory: usize,
+    /// Alignment requirement
+    pub alignment: usize,
+    /// Backend to allocate on
+    pub backend: String,
+}
+
+impl MemoryBudget {
+    /// Create a new memory budget
+    pub fn new(id: impl Into<String>, backend: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            kv_cache_per_layer: 0,
+            num_layers: 0,
+            activation_per_layer: 0,
+            lora_memory: 0,
+            scratch_memory: 0,
+            alignment: 64, // Default to cache-line alignment
+            backend: backend.into(),
+        }
+    }
+
+    /// Set KV cache requirements
+    pub fn with_kv_cache(mut self, per_layer: usize, num_layers: usize) -> Self {
+        self.kv_cache_per_layer = per_layer;
+        self.num_layers = num_layers;
+        self
+    }
+
+    /// Set activation memory requirements
+    pub fn with_activations(mut self, per_layer: usize) -> Self {
+        self.activation_per_layer = per_layer;
+        self
+    }
+
+    /// Set LoRA adapter memory
+    pub fn with_lora(mut self, total_memory: usize) -> Self {
+        self.lora_memory = total_memory;
+        self
+    }
+
+    /// Set scratch/workspace memory
+    pub fn with_scratch(mut self, size: usize) -> Self {
+        self.scratch_memory = size;
+        self
+    }
+
+    /// Calculate total memory required
+    pub fn total_memory(&self) -> usize {
+        let kv_total = self.kv_cache_per_layer * self.num_layers;
+        let activation_total = self.activation_per_layer * self.num_layers;
+        kv_total + activation_total + self.lora_memory + self.scratch_memory
+    }
+
+    /// Validate budget against available memory
+    pub fn validate(&self, available: usize) -> Result<()> {
+        let required = self.total_memory();
+        if required > available {
+            return Err(AosError::Memory(format!(
+                "MemoryBudget '{}' requires {} bytes but only {} available",
+                self.id, required, available
+            )));
+        }
+        Ok(())
+    }
+}
+
+/// Pre-allocated memory plan
+///
+/// Holds all pre-allocated memory blocks for a model inference session.
+/// After creation, inference should require zero additional allocations.
+#[derive(Debug)]
+pub struct PreAllocationPlan {
+    /// Plan identifier
+    pub id: String,
+    /// KV cache blocks (one per layer)
+    pub kv_cache_blocks: Vec<MemoryBlock>,
+    /// Activation blocks (one per layer)
+    pub activation_blocks: Vec<MemoryBlock>,
+    /// LoRA adapter block
+    pub lora_block: Option<MemoryBlock>,
+    /// Scratch/workspace block
+    pub scratch_block: Option<MemoryBlock>,
+    /// Total pre-allocated memory
+    pub total_allocated: usize,
+    /// Whether the plan is active
+    pub is_active: bool,
+}
+
+impl PreAllocationPlan {
+    /// Check if pre-allocation is complete
+    pub fn is_complete(&self) -> bool {
+        self.is_active && !self.kv_cache_blocks.is_empty()
+    }
+
+    /// Get total number of blocks
+    pub fn block_count(&self) -> usize {
+        self.kv_cache_blocks.len()
+            + self.activation_blocks.len()
+            + self.lora_block.as_ref().map_or(0, |_| 1)
+            + self.scratch_block.as_ref().map_or(0, |_| 1)
+    }
+}
+
+impl UnifiedMemoryManager {
+    /// Pre-allocate memory for a model based on a memory budget
+    ///
+    /// Allocates all required memory upfront to ensure zero dynamic allocations
+    /// during inference. Returns a PreAllocationPlan that holds all blocks.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let budget = MemoryBudget::new("llama-7b", "metal")
+    ///     .with_kv_cache(4 * 1024 * 1024, 32)  // 4MB per layer, 32 layers
+    ///     .with_activations(1024 * 1024)       // 1MB per layer
+    ///     .with_lora(8 * 1024 * 1024)          // 8MB for LoRA
+    ///     .with_scratch(16 * 1024 * 1024);     // 16MB scratch
+    ///
+    /// let plan = manager.pre_allocate_for_model(&budget)?;
+    /// assert!(plan.is_complete());
+    /// ```
+    pub fn pre_allocate_for_model(&self, budget: &MemoryBudget) -> Result<PreAllocationPlan> {
+        // Validate budget against available memory
+        let stats = self.get_stats();
+        let available = self.memory_limit.saturating_sub(stats.total_allocated);
+        budget.validate(available)?;
+
+        info!(
+            "Pre-allocating {} bytes for model '{}' on backend '{}'",
+            budget.total_memory(),
+            budget.id,
+            budget.backend
+        );
+
+        let mut plan = PreAllocationPlan {
+            id: budget.id.clone(),
+            kv_cache_blocks: Vec::with_capacity(budget.num_layers),
+            activation_blocks: Vec::with_capacity(budget.num_layers),
+            lora_block: None,
+            scratch_block: None,
+            total_allocated: 0,
+            is_active: false,
+        };
+
+        // Pre-allocate KV cache blocks (one per layer)
+        for layer_idx in 0..budget.num_layers {
+            let request = AllocationRequest {
+                size: budget.kv_cache_per_layer,
+                backend: budget.backend.clone(),
+                alignment: budget.alignment,
+                memory_type: MemoryType::Unified,
+            };
+            let block = self.allocate(request).map_err(|e| {
+                AosError::Memory(format!(
+                    "Failed to pre-allocate KV cache for layer {}: {}",
+                    layer_idx, e
+                ))
+            })?;
+            plan.total_allocated += block.size;
+            plan.kv_cache_blocks.push(block);
+        }
+
+        // Pre-allocate activation blocks
+        if budget.activation_per_layer > 0 {
+            for layer_idx in 0..budget.num_layers {
+                let request = AllocationRequest {
+                    size: budget.activation_per_layer,
+                    backend: budget.backend.clone(),
+                    alignment: budget.alignment,
+                    memory_type: MemoryType::Unified,
+                };
+                let block = self.allocate(request).map_err(|e| {
+                    AosError::Memory(format!(
+                        "Failed to pre-allocate activations for layer {}: {}",
+                        layer_idx, e
+                    ))
+                })?;
+                plan.total_allocated += block.size;
+                plan.activation_blocks.push(block);
+            }
+        }
+
+        // Pre-allocate LoRA block
+        if budget.lora_memory > 0 {
+            let request = AllocationRequest {
+                size: budget.lora_memory,
+                backend: budget.backend.clone(),
+                alignment: budget.alignment,
+                memory_type: MemoryType::Unified,
+            };
+            let block = self.allocate(request).map_err(|e| {
+                AosError::Memory(format!("Failed to pre-allocate LoRA memory: {}", e))
+            })?;
+            plan.total_allocated += block.size;
+            plan.lora_block = Some(block);
+        }
+
+        // Pre-allocate scratch block
+        if budget.scratch_memory > 0 {
+            let request = AllocationRequest {
+                size: budget.scratch_memory,
+                backend: budget.backend.clone(),
+                alignment: budget.alignment,
+                memory_type: MemoryType::Unified,
+            };
+            let block = self.allocate(request).map_err(|e| {
+                AosError::Memory(format!("Failed to pre-allocate scratch memory: {}", e))
+            })?;
+            plan.total_allocated += block.size;
+            plan.scratch_block = Some(block);
+        }
+
+        plan.is_active = true;
+
+        info!(
+            "Pre-allocation complete for '{}': {} blocks, {} bytes total",
+            budget.id,
+            plan.block_count(),
+            plan.total_allocated
+        );
+
+        Ok(plan)
+    }
+
+    /// Release all memory from a pre-allocation plan
+    pub fn release_pre_allocation(&self, plan: &mut PreAllocationPlan) -> Result<()> {
+        if !plan.is_active {
+            return Ok(());
+        }
+
+        info!(
+            "Releasing pre-allocation plan '{}' ({} bytes)",
+            plan.id, plan.total_allocated
+        );
+
+        // Deallocate all blocks
+        for block in &plan.kv_cache_blocks {
+            self.deallocate(block)?;
+        }
+        for block in &plan.activation_blocks {
+            self.deallocate(block)?;
+        }
+        if let Some(block) = &plan.lora_block {
+            self.deallocate(block)?;
+        }
+        if let Some(block) = &plan.scratch_block {
+            self.deallocate(block)?;
+        }
+
+        plan.kv_cache_blocks.clear();
+        plan.activation_blocks.clear();
+        plan.lora_block = None;
+        plan.scratch_block = None;
+        plan.total_allocated = 0;
+        plan.is_active = false;
+
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -417,5 +723,98 @@ mod tests {
         assert_eq!(stats.total_allocated, 0);
         assert_eq!(stats.memory_limit, 1024 * 1024);
         assert!(stats.backend_stats.contains_key("test"));
+    }
+
+    // =================== Phase 2: Pre-allocation Tests ===================
+
+    #[test]
+    fn test_memory_budget_creation() {
+        let budget = MemoryBudget::new("test-model", "metal")
+            .with_kv_cache(4 * 1024 * 1024, 32) // 4MB per layer, 32 layers
+            .with_activations(1024 * 1024) // 1MB per layer
+            .with_lora(8 * 1024 * 1024) // 8MB for LoRA
+            .with_scratch(16 * 1024 * 1024); // 16MB scratch
+
+        assert_eq!(budget.id, "test-model");
+        assert_eq!(budget.num_layers, 32);
+        assert_eq!(
+            budget.total_memory(),
+            (4 + 1) * 32 * 1024 * 1024 + 8 * 1024 * 1024 + 16 * 1024 * 1024
+        );
+    }
+
+    #[test]
+    fn test_memory_budget_validation() {
+        let budget = MemoryBudget::new("large-model", "metal").with_kv_cache(1024 * 1024, 10); // 10MB total
+
+        // Should pass with enough memory
+        assert!(budget.validate(20 * 1024 * 1024).is_ok());
+
+        // Should fail with insufficient memory
+        assert!(budget.validate(5 * 1024 * 1024).is_err());
+    }
+
+    #[test]
+    fn test_pre_allocate_for_model() {
+        let mut manager = UnifiedMemoryManager::new(100 * 1024 * 1024); // 100MB limit
+        manager.init_pool("test", 100 * 1024 * 1024).unwrap();
+
+        let budget = MemoryBudget::new("small-model", "test")
+            .with_kv_cache(1024 * 1024, 4) // 4MB KV cache total
+            .with_activations(512 * 1024) // 2MB activations total
+            .with_lora(2 * 1024 * 1024) // 2MB LoRA
+            .with_scratch(1024 * 1024); // 1MB scratch
+
+        let plan = manager.pre_allocate_for_model(&budget).unwrap();
+
+        assert!(plan.is_complete());
+        assert_eq!(plan.kv_cache_blocks.len(), 4);
+        assert_eq!(plan.activation_blocks.len(), 4);
+        assert!(plan.lora_block.is_some());
+        assert!(plan.scratch_block.is_some());
+        assert_eq!(plan.block_count(), 10); // 4 KV + 4 activation + 1 LoRA + 1 scratch
+
+        // Verify total allocation matches budget
+        assert_eq!(plan.total_allocated, budget.total_memory());
+    }
+
+    #[test]
+    fn test_release_pre_allocation() {
+        let mut manager = UnifiedMemoryManager::new(100 * 1024 * 1024);
+        manager.init_pool("test", 100 * 1024 * 1024).unwrap();
+
+        let budget = MemoryBudget::new("release-test", "test")
+            .with_kv_cache(1024 * 1024, 2)
+            .with_scratch(512 * 1024);
+
+        let mut plan = manager.pre_allocate_for_model(&budget).unwrap();
+        let allocated_before = plan.total_allocated;
+
+        // Verify memory was allocated
+        let stats_before = manager.get_stats();
+        assert_eq!(stats_before.total_allocated, allocated_before);
+
+        // Release the plan
+        manager.release_pre_allocation(&mut plan).unwrap();
+
+        // Verify plan is inactive
+        assert!(!plan.is_active);
+        assert_eq!(plan.total_allocated, 0);
+        assert!(plan.kv_cache_blocks.is_empty());
+
+        // Verify memory was freed
+        let stats_after = manager.get_stats();
+        assert_eq!(stats_after.total_allocated, 0);
+    }
+
+    #[test]
+    fn test_pre_allocation_failure_on_insufficient_memory() {
+        let mut manager = UnifiedMemoryManager::new(1024 * 1024); // 1MB limit
+        manager.init_pool("test", 1024 * 1024).unwrap();
+
+        let budget = MemoryBudget::new("too-large", "test").with_kv_cache(1024 * 1024, 10); // 10MB, exceeds limit
+
+        let result = manager.pre_allocate_for_model(&budget);
+        assert!(result.is_err());
     }
 }

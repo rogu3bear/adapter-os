@@ -1,14 +1,21 @@
-#![cfg(all(test, feature = "extended-tests"))]
-use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
+// Throughput benchmarks
+#[cfg(feature = "extended-tests")]
 use adapteros_benchmarks::*;
+#[cfg(feature = "extended-tests")]
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
+#[cfg(feature = "extended-tests")]
 use adapteros_lora_kernel_mtl::MetalKernels;
-use std::sync::Arc;
-use tokio::runtime::Runtime;
+#[cfg(feature = "extended-tests")]
+use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
+#[cfg(feature = "extended-tests")]
+use futures_util::future::join_all;
+#[cfg(feature = "extended-tests")]
 use std::time::{Duration, Instant};
-use futures::future::join_all;
+#[cfg(feature = "extended-tests")]
+use tokio::runtime::Runtime;
 
 /// Benchmark inference throughput
+#[cfg(feature = "extended-tests")]
 fn bench_inference_throughput(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
 
@@ -31,13 +38,10 @@ fn bench_inference_throughput(c: &mut Criterion) {
                     let start = Instant::now();
 
                     for _ in 0..iters {
-                        let input_ids = vec![1u32; batch_size as usize];
-                        let mut io_buffers = IoBuffers {
-                            input_ids: input_ids.clone(),
-                            output_logits: vec![0.0f32; vocab_size],
-                        };
+                        let _input_ids = vec![1u32; batch_size as usize];
 
-                        let router_ring = RouterRing::from_slices(&[0, 1], &[16384, 8192]);
+                        let mut router_ring = RouterRing::new(2);
+                        router_ring.set(&[0, 1], &[16384, 8192]);
 
                         // For batched inference, we'd need to modify the kernel API
                         // For now, simulate sequential processing
@@ -45,8 +49,11 @@ fn bench_inference_throughput(c: &mut Criterion) {
                             let mut single_io = IoBuffers {
                                 input_ids: vec![1u32],
                                 output_logits: vec![0.0f32; vocab_size],
+                                position: 0,
                             };
-                            black_box(kernels.run_step(&router_ring, &mut single_io).unwrap());
+
+                            kernels.run_step(&router_ring, &mut single_io).unwrap();
+                            black_box(());
                         }
                     }
 
@@ -60,6 +67,7 @@ fn bench_inference_throughput(c: &mut Criterion) {
 }
 
 /// Benchmark concurrent request processing
+#[cfg(feature = "extended-tests")]
 fn bench_concurrent_requests(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
 
@@ -67,31 +75,32 @@ fn bench_concurrent_requests(c: &mut Criterion) {
         let concurrent_counts = [1, 4, 8, 16, 32];
 
         for &concurrency in &concurrent_counts {
-            let mut group = c.benchmark_group(format!("concurrent_requests_{}_workers", concurrency));
+            let mut group =
+                c.benchmark_group(format!("concurrent_requests_{}_workers", concurrency));
             group.throughput(Throughput::Elements(concurrency as u64));
             group.sample_size(30);
 
             group.bench_function("async_request_processing", |b| {
                 b.iter_custom(|iters| {
                     let start = Instant::now();
-
-                    for _ in 0..iters {
-                        let futures = (0..concurrency).map(|_| {
-                            async {
-                                // Simulate async request processing
-                                tokio::time::sleep(Duration::from_micros(100)).await;
-                                // Simulate some computation
-                                let mut sum = 0u64;
-                                for i in 0..1000 {
-                                    sum = sum.wrapping_add(i);
+                    rt.block_on(async {
+                        for _ in 0..iters {
+                            let futures = (0..concurrency).map(|_| {
+                                async {
+                                    // Simulate async request processing
+                                    tokio::time::sleep(Duration::from_micros(100)).await;
+                                    // Simulate some computation
+                                    let mut sum = 0u64;
+                                    for i in 0..1000 {
+                                        sum = sum.wrapping_add(i);
+                                    }
+                                    black_box(sum)
                                 }
-                                black_box(sum)
-                            }
-                        });
+                            });
 
-                        black_box(join_all(futures).await);
-                    }
-
+                            black_box(join_all(futures).await);
+                        }
+                    });
                     start.elapsed()
                 })
             });
@@ -102,6 +111,7 @@ fn bench_concurrent_requests(c: &mut Criterion) {
 }
 
 /// Benchmark request queue throughput
+#[cfg(feature = "extended-tests")]
 fn bench_request_queue(c: &mut Criterion) {
     use tokio::sync::mpsc;
 
@@ -118,37 +128,38 @@ fn bench_request_queue(c: &mut Criterion) {
             group.bench_function("async_queue_processing", |b| {
                 b.iter_custom(|iters| {
                     let start = Instant::now();
+                    rt.block_on(async {
+                        for _ in 0..iters {
+                            async fn process_queue(queue_size: usize) -> u64 {
+                                let (tx, mut rx) = mpsc::channel(queue_size);
 
-                    for _ in 0..iters {
-                        async fn process_queue(queue_size: usize) -> u64 {
-                            let (tx, mut rx) = mpsc::channel(queue_size);
+                                // Producer task
+                                let producer = tokio::spawn(async move {
+                                    for i in 0..queue_size {
+                                        tx.send(i as u64).await.unwrap();
+                                    }
+                                });
 
-                            // Producer task
-                            let producer = tokio::spawn(async move {
-                                for i in 0..queue_size {
-                                    tx.send(i as u64).await.unwrap();
-                                }
-                            });
+                                // Consumer task
+                                let consumer = tokio::spawn(async move {
+                                    let mut sum = 0u64;
+                                    while let Some(val) = rx.recv().await {
+                                        sum = sum.wrapping_add(val);
+                                        // Simulate processing time
+                                        tokio::time::sleep(Duration::from_micros(10)).await;
+                                    }
+                                    sum
+                                });
 
-                            // Consumer task
-                            let consumer = tokio::spawn(async move {
-                                let mut sum = 0u64;
-                                while let Some(val) = rx.recv().await {
-                                    sum = sum.wrapping_add(val);
-                                    // Simulate processing time
-                                    tokio::time::sleep(Duration::from_micros(10)).await;
-                                }
-                                sum
-                            });
+                                let (producer_result, consumer_result) =
+                                    tokio::join!(producer, consumer);
+                                producer_result.unwrap();
+                                consumer_result.unwrap()
+                            }
 
-                            let (producer_result, consumer_result) = tokio::join!(producer, consumer);
-                            producer_result.unwrap();
-                            consumer_result.unwrap()
+                            black_box(process_queue(queue_size).await);
                         }
-
-                        black_box(process_queue(queue_size).await);
-                    }
-
+                    });
                     start.elapsed()
                 })
             });
@@ -159,6 +170,7 @@ fn bench_request_queue(c: &mut Criterion) {
 }
 
 /// Benchmark adapter routing throughput
+#[cfg(feature = "extended-tests")]
 fn bench_adapter_routing(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
 
@@ -177,10 +189,12 @@ fn bench_adapter_routing(c: &mut Criterion) {
 
                     for i in 0..num_adapters {
                         indices.push(i as u16);
-                        gates_q15.push((32767 / num_adapters * (i + 1)) as i16); // Distribute gates
+                        gates_q15.push((32767 / num_adapters * (i + 1)) as i16);
+                        // Distribute gates
                     }
 
-                    let router_ring = RouterRing::from_slices(&indices, &gates_q15);
+                    let mut router_ring = RouterRing::new(num_adapters);
+                    router_ring.set(&indices, &gates_q15);
 
                     black_box(router_ring);
                 })
@@ -216,6 +230,7 @@ fn bench_adapter_routing(c: &mut Criterion) {
 }
 
 /// Benchmark evidence processing throughput
+#[cfg(feature = "extended-tests")]
 fn bench_evidence_processing(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
 
@@ -223,7 +238,8 @@ fn bench_evidence_processing(c: &mut Criterion) {
         let evidence_counts = [10, 100, 1000, 10000];
 
         for &num_evidence in &evidence_counts {
-            let mut group = c.benchmark_group(format!("evidence_processing_{}_items", num_evidence));
+            let mut group =
+                c.benchmark_group(format!("evidence_processing_{}_items", num_evidence));
             group.throughput(Throughput::Elements(num_evidence as u64));
             group.sample_size(50);
 
@@ -279,6 +295,7 @@ fn bench_evidence_processing(c: &mut Criterion) {
 }
 
 /// Benchmark end-to-end request latency
+#[cfg(feature = "extended-tests")]
 fn bench_end_to_end_latency(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
 
@@ -293,31 +310,31 @@ fn bench_end_to_end_latency(c: &mut Criterion) {
             group.bench_function("request_processing", |b| {
                 b.iter_custom(|iters| {
                     let start = Instant::now();
+                    rt.block_on(async {
+                        for _ in 0..iters {
+                            async fn process_request(complexity: &str) -> u64 {
+                                // Simulate request parsing
+                                tokio::time::sleep(Duration::from_micros(50)).await;
 
-                    for _ in 0..iters {
-                        async fn process_request(complexity: &str) -> u64 {
-                            // Simulate request parsing
-                            tokio::time::sleep(Duration::from_micros(50)).await;
+                                // Simulate model inference based on complexity
+                                let inference_time = match complexity {
+                                    "simple" => Duration::from_micros(100),
+                                    "medium" => Duration::from_micros(500),
+                                    "complex" => Duration::from_micros(2000),
+                                    _ => Duration::from_micros(100),
+                                };
+                                tokio::time::sleep(inference_time).await;
 
-                            // Simulate model inference based on complexity
-                            let inference_time = match complexity {
-                                "simple" => Duration::from_micros(100),
-                                "medium" => Duration::from_micros(500),
-                                "complex" => Duration::from_micros(2000),
-                                _ => Duration::from_micros(100),
-                            };
-                            tokio::time::sleep(inference_time).await;
+                                // Simulate response formatting
+                                tokio::time::sleep(Duration::from_micros(25)).await;
 
-                            // Simulate response formatting
-                            tokio::time::sleep(Duration::from_micros(25)).await;
+                                // Return some result
+                                42u64
+                            }
 
-                            // Return some result
-                            42u64
+                            black_box(process_request(complexity).await);
                         }
-
-                        black_box(process_request(complexity).await);
-                    }
-
+                    });
                     start.elapsed()
                 })
             });
@@ -327,6 +344,7 @@ fn bench_end_to_end_latency(c: &mut Criterion) {
     });
 }
 
+#[cfg(feature = "extended-tests")]
 criterion_group!(
     name = throughput_benches;
     config = Criterion::default()
@@ -337,4 +355,10 @@ criterion_group!(
              bench_adapter_routing, bench_evidence_processing, bench_end_to_end_latency
 );
 
+#[cfg(feature = "extended-tests")]
 criterion_main!(throughput_benches);
+
+#[cfg(not(feature = "extended-tests"))]
+fn main() {
+    println!("Throughput benchmarks require the 'extended-tests' feature to be enabled.");
+}

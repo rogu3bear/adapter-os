@@ -9,7 +9,9 @@ fn current_unix_timestamp() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or_else(|_| {
-            tracing::error!("System time before UNIX epoch - key age calculations will be incorrect");
+            tracing::error!(
+                "System time before UNIX epoch - key age calculations will be incorrect"
+            );
             0
         })
 }
@@ -52,13 +54,17 @@ impl KeyLifecycleManager {
                         self.get_keychain_creation_date(key_label)
                             .unwrap_or_else(|| {
                                 tracing::warn!(
-                                    "Could not get keychain creation date for {}, using current time",
-                                    key_label
-                                );
+                                "Could not get keychain creation date for {}, using current time",
+                                key_label
+                            );
                                 now
                             });
 
-                    let source = if created_at == now { "manual" } else { "keychain" };
+                    let source = if created_at == now {
+                        "manual"
+                    } else {
+                        "keychain"
+                    };
 
                     if let Err(e) = db
                         .upsert_key_metadata(key_label, created_at, source, key_type)

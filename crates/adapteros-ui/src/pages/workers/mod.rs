@@ -40,10 +40,6 @@ pub fn Workers() -> impl IntoView {
     let selected_worker = RwSignal::new(Option::<String>::None);
     let action_loading = RwSignal::new(false);
     let action_error = RwSignal::new(Option::<String>::None);
-
-    // Store refetch for sharing
-    let refetch_workers_signal = StoredValue::new(refetch_workers);
-
     // Debug logging for list sizes
     #[cfg(debug_assertions)]
     Effect::new(move |_| {
@@ -55,7 +51,7 @@ pub fn Workers() -> impl IntoView {
     // Set up polling interval (every 10 seconds for workers)
     // Using use_polling hook which properly cleans up on unmount
     let _ = use_polling(10_000, move || async move {
-        refetch_workers_signal.with_value(|f| f());
+        refetch_workers.run(());
     });
 
     view! {
@@ -71,7 +67,7 @@ pub fn Workers() -> impl IntoView {
                 <div class="flex items-center gap-2">
                     <button
                         class="inline-flex items-center gap-2 rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent"
-                        on:click=move |_| refetch_workers_signal.with_value(|f| f())
+                        on:click=move |_| refetch_workers.run(())
                     >
                         <RefreshIcon/>
                         "Refresh"
@@ -131,7 +127,6 @@ pub fn Workers() -> impl IntoView {
                                 workers=workers_data.clone()
                                 selected_worker=selected_worker
                                 on_drain=Callback::new({
-                                    let refetch = refetch_workers_signal;
                                     move |worker_id: String| {
                                         action_loading.set(true);
                                         let client = ApiClient::new();
@@ -140,7 +135,7 @@ pub fn Workers() -> impl IntoView {
                                             match client.drain_worker(&worker_id).await {
                                                 Ok(_) => {
                                                     action_error.set(None);
-                                                    refetch.with_value(|f| f());
+                                                    refetch_workers.run(());
                                                 }
                                                 Err(e) => {
                                                     action_error.set(Some(format!("Failed to drain worker: {}", e)));
@@ -151,7 +146,6 @@ pub fn Workers() -> impl IntoView {
                                     }
                                 })
                                 on_stop=Callback::new({
-                                    let refetch = refetch_workers_signal;
                                     move |worker_id: String| {
                                         action_loading.set(true);
                                         let client = ApiClient::new();
@@ -160,7 +154,7 @@ pub fn Workers() -> impl IntoView {
                                             match client.stop_worker(&worker_id).await {
                                                 Ok(_) => {
                                                     action_error.set(None);
-                                                    refetch.with_value(|f| f());
+                                                    refetch_workers.run(());
                                                 }
                                                 Err(e) => {
                                                     action_error.set(Some(format!("Failed to stop worker: {}", e)));
@@ -189,7 +183,6 @@ pub fn Workers() -> impl IntoView {
                                 nodes=nodes_list
                                 plans=plans_list
                                 on_spawn=Callback::new({
-                                    let refetch = refetch_workers_signal;
                                     move |request: SpawnWorkerRequest| {
                                         action_loading.set(true);
                                         show_spawn_dialog.set(false);
@@ -198,7 +191,7 @@ pub fn Workers() -> impl IntoView {
                                             match client.spawn_worker(&request).await {
                                                 Ok(_) => {
                                                     action_error.set(None);
-                                                    refetch.with_value(|f| f());
+                                                    refetch_workers.run(());
                                                 }
                                                 Err(e) => {
                                                     action_error.set(Some(format!("Failed to spawn worker: {}", e)));
@@ -215,7 +208,7 @@ pub fn Workers() -> impl IntoView {
                         view! {
                             <ErrorDisplay
                                 error=e
-                                on_retry=Callback::new(move |_| refetch_workers_signal.with_value(|f| f()))
+                                on_retry=refetch_workers
                             />
                         }.into_any()
                     }
@@ -251,13 +244,10 @@ pub fn WorkerDetail() -> impl IntoView {
         }
     });
 
-    let refetch_worker_signal = StoredValue::new(refetch_worker);
-    let refetch_metrics_signal = StoredValue::new(refetch_metrics);
-
     // Set up polling for metrics
     Effect::new(move |_| {
         let interval_handle = gloo_timers::callback::Interval::new(3_000, move || {
-            refetch_metrics_signal.with_value(|f| f());
+            refetch_metrics.run(());
         });
         std::mem::forget(interval_handle);
     });
@@ -297,8 +287,8 @@ pub fn WorkerDetail() -> impl IntoView {
                                 worker=w
                                 metrics=metrics_data
                                 on_refresh=Callback::new(move |_| {
-                                    refetch_worker_signal.with_value(|f| f());
-                                    refetch_metrics_signal.with_value(|f| f());
+                                    refetch_worker.run(());
+                                    refetch_metrics.run(());
                                 })
                             />
                         }.into_any()
@@ -308,8 +298,8 @@ pub fn WorkerDetail() -> impl IntoView {
                             <ErrorDisplay
                                 error=e
                                 on_retry=Callback::new(move |_| {
-                                    refetch_worker_signal.with_value(|f| f());
-                                    refetch_metrics_signal.with_value(|f| f());
+                                    refetch_worker.run(());
+                                    refetch_metrics.run(());
                                 })
                             />
                         }.into_any()

@@ -39,7 +39,7 @@ DEFAULT_MODEL_DIR="$PROJECT_ROOT/var/models/Qwen2.5-7B-Instruct-4bit"
 DEFAULT_MANIFEST_PATH="$PROJECT_ROOT/manifests/qwen7b-4bit-mlx.yaml"
 # Must match DEFAULT_MANIFEST_HASH in adapteros-server/src/boot/app_state.rs for worker routing
 # This is the hash of qwen7b-4bit-mlx.yaml computed via ManifestV3::compute_hash()
-DEFAULT_MANIFEST_HASH="${DEFAULT_MANIFEST_HASH:-8910e57445575ebf4b0dfb4dc92a26ea174edf13088ae7acacd3262be8bb8a20}"
+DEFAULT_MANIFEST_HASH="${DEFAULT_MANIFEST_HASH:-0a2fff3ce35338f46e052d505b5c9ace606f7fd86b1e0c7b9a1a1923d7a1ce4d}"
 
 # Worker database tracking
 WORKER_ID_FILE="$PID_DIR/worker.id"

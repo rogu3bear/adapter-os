@@ -304,17 +304,21 @@ fn LatencyMetrics(breakdown: TimingBreakdown, #[prop(optional)] compact: bool) -
                 <div class="text-2xl font-bold text-primary">{breakdown.total_ms}</div>
                 <div class="text-xs text-muted-foreground">"Total (ms)"</div>
             </div>
+            {breakdown.prefill_ms.map(|ms| view! {
+                <div class=card_class>
+                    <div class="text-xl font-semibold">{ms}</div>
+                    <div class="text-xs text-muted-foreground">"Prefill"</div>
+                </div>
+            })}
+            {breakdown.decode_ms.map(|ms| view! {
+                <div class=card_class>
+                    <div class="text-xl font-semibold">{ms}</div>
+                    <div class="text-xs text-muted-foreground">"Decode"</div>
+                </div>
+            })}
             <div class=card_class>
                 <div class="text-xl font-semibold">{breakdown.routing_ms}</div>
                 <div class="text-xs text-muted-foreground">"Routing"</div>
-            </div>
-            <div class=card_class>
-                <div class="text-xl font-semibold">{breakdown.inference_ms}</div>
-                <div class="text-xs text-muted-foreground">"Inference"</div>
-            </div>
-            <div class=card_class>
-                <div class="text-xl font-semibold">{breakdown.policy_ms}</div>
-                <div class="text-xs text-muted-foreground">"Policy"</div>
             </div>
         </div>
     }
@@ -556,26 +560,63 @@ fn ReceiptVerification(
         <div class=container_class>
             <div class="flex items-center justify-between mb-3">
                 <h4 class="text-sm font-medium">"Inference Receipt"</h4>
-                <span class={format!("px-2 py-0.5 rounded text-xs font-medium border {}", verified_class)}>
-                    {verified_text}
-                </span>
+                <div class="flex gap-2">
+                    {receipt.stop_reason_code.map(|code| view! {
+                        <span class="px-2 py-0.5 rounded text-xs font-mono bg-muted border border-border">
+                            {code}
+                        </span>
+                    })}
+                    <span class={format!("px-2 py-0.5 rounded text-xs font-medium border {}", verified_class)}>
+                        {verified_text}
+                    </span>
+                </div>
             </div>
             <div class="grid grid-cols-2 gap-2 text-xs">
                 <div>
                     <span class="text-muted-foreground">"Prompt tokens: "</span>
                     <span class="font-mono">{receipt.logical_prompt_tokens}</span>
+                    {if receipt.prefix_cache_hit {
+                        Some(view! { <span class="ml-1 text-[10px] text-status-success">"(Cache Hit)"</span> })
+                    } else {
+                        None
+                    }}
                 </div>
                 <div>
                     <span class="text-muted-foreground">"Output tokens: "</span>
                     <span class="font-mono">{receipt.logical_output_tokens}</span>
                 </div>
-                <div class="col-span-2">
+
+                {receipt.processor_id.as_ref().map(|id| {
+                    let id = id.clone();
+                    view! {
+                        <div class="col-span-2 flex justify-between border-t border-border/50 pt-1 mt-1">
+                            <span class="text-muted-foreground">"Hardware: "</span>
+                            <span class="font-mono text-[10px]">{id}</span>
+                        </div>
+                    }
+                })}
+
+                {let engine = receipt.engine_version.clone();
+                 let ane = receipt.ane_version.clone();
+                 (engine.is_some() || ane.is_some()).then(|| {
+                    let engine_display = engine.unwrap_or_else(|| "Unknown".into());
+                    let ane_display = ane.unwrap_or_else(|| "N/A".into());
+                    let display_text = format!("{} / {}", engine_display, ane_display);
+                    view! {
+                        <div class="col-span-2 flex justify-between text-[10px]">
+                            <span class="text-muted-foreground">"Engine/ANE: "</span>
+                            <span class="font-mono">{display_text}</span>
+                        </div>
+                    }
+                })}
+
+                <div class="col-span-2 border-t border-border/50 pt-1 mt-1">
                     <span class="text-muted-foreground">"Receipt digest: "</span>
-                    <span class="font-mono text-xs break-all">{receipt_short}</span>
+                    <span class="font-mono text-[10px] break-all">{receipt_short}</span>
                 </div>
                 <div class="col-span-2">
                     <span class="text-muted-foreground">"Output hash: "</span>
-                    <span class="font-mono text-xs break-all">{output_short}</span>
+                    <span class="font-mono text-[10px] break-all">{output_short}</span>
                 </div>
             </div>
         </div>

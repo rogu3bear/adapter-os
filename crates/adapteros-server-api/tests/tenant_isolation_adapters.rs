@@ -359,13 +359,17 @@ async fn cross_tenant_get_adapter_activations_returns_404() -> Result<()> {
     )
     .await;
 
-    match result {
-        Err((status, body)) => {
-            assert_eq!(status, StatusCode::NOT_FOUND);
-            assert_eq!(body.0.code, "NOT_FOUND");
-        }
-        Ok(_) => panic!("cross-tenant get_adapter_activations should not succeed"),
-    }
+    assert!(
+        result.is_err(),
+        "cross-tenant get_adapter_activations should not succeed"
+    );
+    let err = result.unwrap_err();
+    let err_str = err.to_string();
+    assert!(
+        err_str.contains("NOT_FOUND"),
+        "Error should contain NOT_FOUND code, got: {}",
+        err_str
+    );
 
     Ok(())
 }
@@ -383,13 +387,17 @@ async fn cross_tenant_get_adapter_stats_returns_404() -> Result<()> {
     )
     .await;
 
-    match result {
-        Err((status, body)) => {
-            assert_eq!(status, StatusCode::NOT_FOUND);
-            assert_eq!(body.0.code, "NOT_FOUND");
-        }
-        Ok(_) => panic!("cross-tenant get_adapter_stats should not succeed"),
-    }
+    assert!(
+        result.is_err(),
+        "cross-tenant get_adapter_stats should not succeed"
+    );
+    let err = result.unwrap_err();
+    let err_str = err.to_string();
+    assert!(
+        err_str.contains("NOT_FOUND"),
+        "Error should contain NOT_FOUND code, got: {}",
+        err_str
+    );
 
     Ok(())
 }
@@ -582,16 +590,17 @@ async fn test_update_adapter_strength_blocks_cross_tenant() -> Result<()> {
     .await;
 
     // Should be denied
-    match result {
-        Err((status, _)) => {
-            assert!(
-                status == StatusCode::NOT_FOUND || status == StatusCode::FORBIDDEN,
-                "Cross-tenant adapter update should be denied (got {})",
-                status
-            );
-        }
-        Ok(_) => panic!("Cross-tenant adapter update must be denied"),
-    }
+    assert!(
+        result.is_err(),
+        "Cross-tenant adapter update must be denied"
+    );
+    let err = result.unwrap_err();
+    let err_str = err.to_string();
+    assert!(
+        err_str.contains("NOT_FOUND") || err_str.contains("FORBIDDEN"),
+        "Cross-tenant adapter update should be denied with NOT_FOUND or FORBIDDEN (got {})",
+        err_str
+    );
 
     Ok(())
 }

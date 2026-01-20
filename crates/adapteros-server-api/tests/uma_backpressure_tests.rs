@@ -39,10 +39,9 @@ async fn uma_backpressure_short_circuits_inference() {
     .await
     .expect_err("should reject under UMA backpressure");
 
-    let (status, body) = err;
-    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
-    assert_eq!(body.code, "BACKPRESSURE");
-    let details = body.details.clone().expect("details payload");
+    assert_eq!(err.status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(err.code, "BACKPRESSURE");
+    let details = err.details.clone().expect("details payload");
     assert_eq!(details["level"], "Critical");
     assert_eq!(details["retry_after_secs"], 30);
 }

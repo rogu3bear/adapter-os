@@ -3,7 +3,6 @@ use adapteros_server_api::state::AppState;
 use axum::{
     extract::{Extension, Path, State},
     http::StatusCode,
-    Json,
 };
 use tempfile::TempDir;
 
@@ -44,7 +43,7 @@ async fn load_model_returns_404_when_model_path_missing() {
     .await
     .expect("insert model");
 
-    let (status, Json(err)) = match load_model(
+    let err = match load_model(
         State(state.clone()),
         Extension(claims.clone()),
         Path(model_id.to_string()),
@@ -54,7 +53,7 @@ async fn load_model_returns_404_when_model_path_missing() {
         Err(e) => e,
         Ok(_) => panic!("expected path-missing error"),
     };
-    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(err.status, StatusCode::NOT_FOUND);
     assert_eq!(err.code, "MODEL_PATH_MISSING");
 
     // Verify status persisted as error with message.
@@ -122,7 +121,7 @@ async fn load_model_rejects_path_outside_allowed_root() {
     .await
     .expect("insert model");
 
-    let (status, Json(err)) = match load_model(
+    let err = match load_model(
         State(state.clone()),
         Extension(claims.clone()),
         Path(model_id.to_string()),
@@ -133,7 +132,7 @@ async fn load_model_rejects_path_outside_allowed_root() {
         Ok(_) => panic!("expected forbidden error"),
     };
 
-    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(err.status, StatusCode::FORBIDDEN);
     assert_eq!(err.code, "MODEL_PATH_FORBIDDEN");
 
     let _ = std::fs::remove_file(fake_socket);

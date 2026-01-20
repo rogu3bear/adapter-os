@@ -1,5 +1,3 @@
-#![allow(unused_variables)]
-
 //! Metrics persistence service
 //!
 //! Background service that collects metrics continuously and stores them in the database.
@@ -394,20 +392,13 @@ impl MetricsPersistenceService {
             .as_secs()
             - (self.config.retention_days as u64 * 24 * 3600);
 
-        let cutoff_rfc3339 = chrono::DateTime::from_timestamp(cutoff_time as i64, 0)
+        let cutoff = chrono::DateTime::from_timestamp(cutoff_time as i64, 0)
             .ok_or_else(|| adapteros_core::AosError::System("Invalid timestamp".to_string()))?
-            .to_rfc3339();
+            .with_timezone(&chrono::Utc);
+        let cutoff_rfc3339 = cutoff.to_rfc3339();
 
         // Delete old health metrics
-        let deleted_count =
-            sqlx::query("DELETE FROM process_health_metrics WHERE collected_at < ?")
-                .bind(&cutoff_rfc3339)
-                .execute(self.db.pool())
-                .await
-                .map_err(|e| {
-                    adapteros_core::AosError::Database(format!("Failed to cleanup metrics: {}", e))
-                })?
-                .rows_affected();
+        let deleted_count = ProcessHealthMetric::delete_older_than(self.db.pool(), cutoff).await?;
 
         info!("Cleaned up {} old health metrics", deleted_count);
 
@@ -434,33 +425,21 @@ impl MetricsPersistenceService {
 
     /// Get active workers from database
     async fn get_active_workers(&self) -> Result<Vec<WorkerInfo>> {
-        let rows = sqlx::query("SELECT id, tenant_id FROM workers WHERE status = 'active'")
-            .fetch_all(self.db.pool())
-            .await
-            .map_err(|e| {
-                adapteros_core::AosError::Database(format!("Failed to get active workers: {}", e))
-            })?;
+        let workers = self.db.list_active_workers().await?;
 
-        let workers = rows
+        Ok(workers
             .into_iter()
-            .map(|row| {
-                use sqlx::Row;
-                WorkerInfo {
-                    id: row
-                        .get::<Option<String>, _>("id")
-                        .unwrap_or_else(|| "unknown".to_string()),
-                    tenant_id: row.get("tenant_id"),
-                }
+            .map(|w| WorkerInfo {
+                id: w.id,
+                tenant_id: w.tenant_id,
             })
-            .collect();
-
-        Ok(workers)
+            .collect())
     }
 
     /// Get metrics aggregation for a time window
     pub async fn get_metrics_aggregation(
         &self,
-        worker_id: &str,
+        _worker_id: &str,
         metric_name: &str,
         start_time: chrono::DateTime<chrono::Utc>,
         end_time: chrono::DateTime<chrono::Utc>,

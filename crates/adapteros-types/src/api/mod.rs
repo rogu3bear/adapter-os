@@ -10,48 +10,6 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Common error response structure
-///
-/// NOTE: Prefer using `adapteros_api_types::ErrorResponse` for new code.
-/// This type is kept for backwards compatibility.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub struct ErrorResponse {
-    /// Error message
-    pub error: String,
-
-    /// Error code (e.g., "NOT_FOUND", "INTERNAL_ERROR")
-    #[serde(default)]
-    pub code: String,
-
-    /// Additional error details (optional)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub details: Option<serde_json::Value>,
-}
-
-impl ErrorResponse {
-    /// Create a new error response
-    pub fn new(error: impl Into<String>) -> Self {
-        Self {
-            error: error.into(),
-            code: "INTERNAL_ERROR".to_string(),
-            details: None,
-        }
-    }
-
-    /// Set the error code
-    pub fn with_code(mut self, code: impl Into<String>) -> Self {
-        self.code = code.into();
-        self
-    }
-
-    /// Set the error details
-    pub fn with_details(mut self, details: serde_json::Value) -> Self {
-        self.details = Some(details);
-        self
-    }
-}
-
 /// Health check response
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

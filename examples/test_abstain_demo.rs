@@ -1,18 +1,19 @@
 // Demonstration of abstain detection feature
 // This file shows how to use the abstain detection API
 
-use adapteros_lora_router::{AdapterInfo, Router, RouterWeights};
+use adapteros_lora_router::{Router, RouterWeights};
 use adapteros_policy::packs::router::RouterConfig;
-use std::sync::Arc;
 
 fn main() {
     println!("=== Abstain Detection Demo ===\n");
 
     // Example 1: Creating router with abstain thresholds from policy
     println!("1. Creating router with policy-configured abstain thresholds:");
-    let mut policy_config = RouterConfig::default();
-    policy_config.abstain_entropy_threshold = Some(0.9);
-    policy_config.abstain_confidence_threshold = Some(0.3);
+    let policy_config = RouterConfig {
+        abstain_entropy_threshold: Some(0.9),
+        abstain_confidence_threshold: Some(0.3),
+        ..Default::default()
+    };
 
     let router = Router::new_with_policy_config(RouterWeights::default(), 3, 1.0, &policy_config);
 

@@ -8,7 +8,7 @@
 //!
 //! Citation: docs/llm-interface-specification.md §5.1
 
-use crate::{types::*, adapterOSClient, TelemetryBundleResponse, TelemetryEvent};
+use crate::{adapterOSClient, types::*, TelemetryBundleResponse, TelemetryEvent};
 use anyhow::Result;
 use futures_util::stream::BoxStream;
 use serde_json;

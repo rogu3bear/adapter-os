@@ -5,10 +5,11 @@
 // - Unpinning adapters to allow eviction
 // - Getting pin status
 
+use crate::adapter_helpers::fetch_adapter_for_tenant;
+use crate::api_error::{ApiError, ApiResult};
 use crate::auth::Claims;
 use crate::middleware::require_any_role;
 use crate::permissions::{require_permission, Permission};
-use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::*;
 use adapteros_db::users::Role;
@@ -105,41 +106,12 @@ pub async fn pin_adapter(
     Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
     Json(req): Json<PinAdapterRequest>,
-) -> Result<Json<PinAdapterResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<PinAdapterResponse> {
     // Require operator or admin role
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
-    // Verify adapter exists
-    let adapter = state
-        .db
-        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
-        .await
-        .map_err(|e| {
-            error!(
-                tenant_id = %claims.tenant_id,
-                adapter_id = %adapter_id,
-                error = %e,
-                "Failed to fetch adapter"
-            );
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            warn!(adapter_id = %adapter_id, "Adapter not found");
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
-            )
-        })?;
-
-    // Validate tenant isolation
-    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
+    // Verify adapter exists and validate tenant isolation
+    let adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;
 
     let tenant_id = adapter.tenant_id.clone();
     let pinned_by = claims.sub.clone();
@@ -157,24 +129,20 @@ pub async fn pin_adapter(
                         pinned_until = %until_str,
                         "Rejected pin request: TTL is in the past"
                     );
-                    return Err((
+                    return Err(ApiError::new(
                         StatusCode::BAD_REQUEST,
-                        Json(
-                            ErrorResponse::new("Adapter pin TTL is in the past")
-                                .with_code("TTL_IN_PAST"),
-                        ),
+                        "TTL_IN_PAST",
+                        "Adapter pin TTL is in the past",
                     ));
                 }
             }
             Err(e) => {
-                return Err((
+                return Err(ApiError::new(
                     StatusCode::BAD_REQUEST,
-                    Json(
-                        ErrorResponse::new(format!(
-                            "Invalid pinned_until timestamp format: {}. Expected RFC3339 (e.g., 2099-12-31T23:59:59Z)",
-                            e
-                        ))
-                        .with_code("INVALID_TTL_FORMAT"),
+                    "INVALID_TTL_FORMAT",
+                    format!(
+                        "Invalid pinned_until timestamp format: {}. Expected RFC3339 (e.g., 2099-12-31T23:59:59Z)",
+                        e
                     ),
                 ));
             }
@@ -199,17 +167,15 @@ pub async fn pin_adapter(
                 error = %e,
                 "Failed to pin adapter"
             );
-            (
+            ApiError::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to pin adapter to prevent eviction")
-                        .with_code("ADAPTER_PIN_FAILED")
-                        .with_string_details(format!(
-                            "Adapter '{}' could not be pinned. The adapter may already be pinned or in an incompatible state. Technical details: {}",
-                            adapter_id, e
-                        )),
-                ),
+                "ADAPTER_PIN_FAILED",
+                "Failed to pin adapter to prevent eviction",
             )
+            .with_details(format!(
+                "Adapter '{}' could not be pinned. The adapter may already be pinned or in an incompatible state. Technical details: {}",
+                adapter_id, e
+            ))
         })?;
 
     // Emit telemetry event
@@ -287,41 +253,12 @@ pub async fn unpin_adapter(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
-) -> Result<Json<UnpinAdapterResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<UnpinAdapterResponse> {
     // Require operator or admin role
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
-    // Verify adapter exists
-    let adapter = state
-        .db
-        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
-        .await
-        .map_err(|e| {
-            error!(
-                tenant_id = %claims.tenant_id,
-                adapter_id = %adapter_id,
-                error = %e,
-                "Failed to fetch adapter"
-            );
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            warn!(adapter_id = %adapter_id, "Adapter not found");
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
-            )
-        })?;
-
-    // Validate tenant isolation
-    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
+    // Verify adapter exists and validate tenant isolation
+    let adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;
 
     let tenant_id = adapter.tenant_id.clone();
     let actor = claims.sub.clone();
@@ -338,14 +275,7 @@ pub async fn unpin_adapter(
                 error = %e,
                 "Failed to unpin adapter"
             );
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to unpin adapter")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
+            ApiError::internal("failed to unpin adapter").with_details(e.to_string())
         })?;
 
     // Emit telemetry event
@@ -416,40 +346,11 @@ pub async fn get_pin_status(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
-) -> Result<Json<PinStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<PinStatusResponse> {
     require_permission(&claims, Permission::AdapterView)?;
 
-    // Verify adapter exists
-    let adapter = state
-        .db
-        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
-        .await
-        .map_err(|e| {
-            error!(
-                tenant_id = %claims.tenant_id,
-                adapter_id = %adapter_id,
-                error = %e,
-                "Failed to fetch adapter"
-            );
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            warn!(adapter_id = %adapter_id, "Adapter not found");
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
-            )
-        })?;
-
-    // Validate tenant isolation
-    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
+    // Verify adapter exists and validate tenant isolation
+    let adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;
 
     let tenant_id = adapter.tenant_id.clone();
 
@@ -465,14 +366,7 @@ pub async fn get_pin_status(
                 error = %e,
                 "Failed to check pin status"
             );
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to check pin status")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
+            ApiError::internal("failed to check pin status").with_details(e.to_string())
         })?;
 
     // Get pin details if pinned
@@ -488,14 +382,7 @@ pub async fn get_pin_status(
                     error = %e,
                     "Failed to list pinned adapters"
                 );
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("failed to get pin details")
-                            .with_code("INTERNAL_ERROR")
-                            .with_string_details(e.to_string()),
-                    ),
-                )
+                ApiError::internal("failed to get pin details").with_details(e.to_string())
             })?;
 
         pinned_adapters

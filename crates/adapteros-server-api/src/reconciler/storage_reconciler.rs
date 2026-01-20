@@ -1099,4 +1099,404 @@ mod tests {
         assert_eq!(report1.hash_mismatch, 9);
         assert_eq!(report1.size_mismatch, 1);
     }
+
+    // ========================================================================
+    // Path Canonicalization Tests
+    // ========================================================================
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn reconciler_handles_symlinks() {
+        let tmp = tempdir().unwrap();
+        let datasets_root = tmp.path().join("datasets");
+        let adapters_root = tmp.path().join("adapters");
+        fs::create_dir_all(&datasets_root).await.unwrap();
+        fs::create_dir_all(datasets_root.join("files"))
+            .await
+            .unwrap();
+        fs::create_dir_all(&adapters_root).await.unwrap();
+
+        let db = Db::new_in_memory().await.unwrap();
+        let tenant_id = db.create_tenant("Test Tenant", false).await.unwrap();
+
+        let ds = db
+            .create_training_dataset_with_id(
+                "ds_sym",
+                "symlink_test",
+                None,
+                "jsonl",
+                "hash",
+                "",
+                None,
+                None,
+                Some("ready"),
+                Some("hash"),
+                None,
+            )
+            .await
+            .unwrap();
+
+        adapteros_db::sqlx::query("UPDATE training_datasets SET tenant_id = ? WHERE id = ?")
+            .bind(&tenant_id)
+            .bind(&ds)
+            .execute(db.pool())
+            .await
+            .unwrap();
+
+        // Create actual file in a different location
+        let actual_path = tmp.path().join("actual_data.jsonl");
+        let content = b"{\"text\":\"symlinked content\"}";
+        fs::write(&actual_path, content).await.unwrap();
+        let file_hash = blake3::hash(content).to_hex().to_string();
+
+        // Create symlink in datasets path
+        let symlink_path = datasets_root.join("files").join(&ds);
+        fs::create_dir_all(&symlink_path).await.unwrap();
+        let symlink_file = symlink_path.join("data.jsonl");
+        std::os::unix::fs::symlink(&actual_path, &symlink_file).unwrap();
+
+        // Record the file using the symlink path
+        db.add_dataset_file(
+            &ds,
+            "data.jsonl",
+            &symlink_file.to_string_lossy(),
+            content.len() as i64,
+            &file_hash,
+            Some("application/json"),
+        )
+        .await
+        .unwrap();
+
+        let reconciler = StorageReconciler::new(db.clone(), datasets_root, adapters_root);
+        let report = reconciler.run_once().await.unwrap();
+
+        // Should not report missing because symlink resolves to valid file
+        assert_eq!(report.missing, 0, "Symlinked file should be found");
+        // Should not report hash mismatch because content is correct
+        assert_eq!(report.hash_mismatch, 0, "Hash should match through symlink");
+    }
+
+    // ========================================================================
+    // Stale Upload Detection Tests
+    // ========================================================================
+
+    #[tokio::test]
+    async fn reconciler_detects_stale_temp_files() {
+        let tmp = tempdir().unwrap();
+        let datasets_root = tmp.path().join("datasets");
+        let adapters_root = tmp.path().join("adapters");
+        fs::create_dir_all(&datasets_root).await.unwrap();
+        fs::create_dir_all(&adapters_root).await.unwrap();
+
+        // Create temp directory with a stale file
+        let temp_dir = datasets_root.join("temp");
+        fs::create_dir_all(&temp_dir).await.unwrap();
+        let stale_file = temp_dir.join("stale_upload.part");
+        fs::write(&stale_file, b"partial upload data")
+            .await
+            .unwrap();
+
+        // Modify file's mtime to be old (simulate stale)
+        // Note: We can't easily set mtime in tests without additional deps,
+        // so we just verify the detection mechanism works for current files
+        // when stale threshold is set to 0
+
+        let db = Db::new_in_memory().await.unwrap();
+
+        let config = ReconcilerConfig {
+            detect_stale_uploads: true,
+            stale_threshold_secs: 0, // Any file is considered stale
+            ..ReconcilerConfig::default()
+        };
+
+        let reconciler =
+            StorageReconciler::new(db.clone(), datasets_root, adapters_root).with_config(config);
+        let report = reconciler.run_once().await.unwrap();
+
+        assert!(
+            report.stale_uploads >= 1,
+            "Should detect stale upload in temp directory"
+        );
+    }
+
+    #[tokio::test]
+    async fn reconciler_detects_stale_chunked_uploads() {
+        let tmp = tempdir().unwrap();
+        let datasets_root = tmp.path().join("datasets");
+        let adapters_root = tmp.path().join("adapters");
+        fs::create_dir_all(&datasets_root).await.unwrap();
+        fs::create_dir_all(&adapters_root).await.unwrap();
+
+        // Create chunked directory with incomplete upload
+        let chunked_dir = datasets_root.join("chunked");
+        fs::create_dir_all(&chunked_dir).await.unwrap();
+        let chunk_file = chunked_dir.join("incomplete_chunk_001.part");
+        fs::write(&chunk_file, b"chunk data").await.unwrap();
+
+        let db = Db::new_in_memory().await.unwrap();
+
+        let config = ReconcilerConfig {
+            detect_stale_uploads: true,
+            stale_threshold_secs: 0, // Any file is considered stale
+            ..ReconcilerConfig::default()
+        };
+
+        let reconciler =
+            StorageReconciler::new(db.clone(), datasets_root, adapters_root).with_config(config);
+        let report = reconciler.run_once().await.unwrap();
+
+        assert!(
+            report.stale_uploads >= 1,
+            "Should detect stale upload in chunked directory"
+        );
+    }
+
+    // ========================================================================
+    // Multi-Tenant Isolation Tests
+    // ========================================================================
+
+    #[tokio::test]
+    async fn reconciler_records_tenant_id_on_issues() {
+        let tmp = tempdir().unwrap();
+        let datasets_root = tmp.path().join("datasets");
+        let adapters_root = tmp.path().join("adapters");
+        fs::create_dir_all(&datasets_root).await.unwrap();
+        fs::create_dir_all(&adapters_root).await.unwrap();
+
+        let db = Db::new_in_memory().await.unwrap();
+
+        // Create two tenants
+        let tenant1_id = db.create_tenant("Tenant One", false).await.unwrap();
+        let tenant2_id = db.create_tenant("Tenant Two", false).await.unwrap();
+
+        // Create dataset for tenant1 with missing file
+        let ds1 = db
+            .create_training_dataset_with_id(
+                "ds_t1",
+                "tenant1_dataset",
+                None,
+                "jsonl",
+                "hash",
+                "",
+                None,
+                None,
+                Some("ready"),
+                Some("hash"),
+                None,
+            )
+            .await
+            .unwrap();
+
+        adapteros_db::sqlx::query("UPDATE training_datasets SET tenant_id = ? WHERE id = ?")
+            .bind(&tenant1_id)
+            .bind(&ds1)
+            .execute(db.pool())
+            .await
+            .unwrap();
+
+        // Record a file that doesn't exist for tenant1
+        let missing_path = datasets_root
+            .join("files")
+            .join(&ds1)
+            .join("missing_t1.jsonl");
+        db.add_dataset_file(
+            &ds1,
+            "missing_t1.jsonl",
+            &missing_path.to_string_lossy(),
+            10,
+            "deadbeef",
+            Some("application/json"),
+        )
+        .await
+        .unwrap();
+
+        // Create dataset for tenant2 with missing file
+        let ds2 = db
+            .create_training_dataset_with_id(
+                "ds_t2",
+                "tenant2_dataset",
+                None,
+                "jsonl",
+                "hash",
+                "",
+                None,
+                None,
+                Some("ready"),
+                Some("hash"),
+                None,
+            )
+            .await
+            .unwrap();
+
+        adapteros_db::sqlx::query("UPDATE training_datasets SET tenant_id = ? WHERE id = ?")
+            .bind(&tenant2_id)
+            .bind(&ds2)
+            .execute(db.pool())
+            .await
+            .unwrap();
+
+        let missing_path2 = datasets_root
+            .join("files")
+            .join(&ds2)
+            .join("missing_t2.jsonl");
+        db.add_dataset_file(
+            &ds2,
+            "missing_t2.jsonl",
+            &missing_path2.to_string_lossy(),
+            10,
+            "deadbeef",
+            Some("application/json"),
+        )
+        .await
+        .unwrap();
+
+        let reconciler = StorageReconciler::new(db.clone(), datasets_root, adapters_root);
+        let report = reconciler.run_once().await.unwrap();
+
+        assert!(
+            report.missing >= 2,
+            "Should detect missing files for both tenants"
+        );
+
+        // Verify issues are recorded with correct tenant_id
+        let issues = db.list_storage_reconciliation_issues(10).await.unwrap();
+        let tenant1_issues: Vec<_> = issues
+            .iter()
+            .filter(|i| i.tenant_id.as_deref() == Some(&tenant1_id))
+            .collect();
+        let tenant2_issues: Vec<_> = issues
+            .iter()
+            .filter(|i| i.tenant_id.as_deref() == Some(&tenant2_id))
+            .collect();
+
+        assert!(!tenant1_issues.is_empty(), "Should have issues for tenant1");
+        assert!(!tenant2_issues.is_empty(), "Should have issues for tenant2");
+    }
+
+    // ========================================================================
+    // Hash Verification Tests
+    // ========================================================================
+
+    #[tokio::test]
+    async fn reconciler_detects_hash_mismatch() {
+        let tmp = tempdir().unwrap();
+        let datasets_root = tmp.path().join("datasets");
+        let adapters_root = tmp.path().join("adapters");
+        fs::create_dir_all(&datasets_root).await.unwrap();
+        fs::create_dir_all(&adapters_root).await.unwrap();
+
+        let db = Db::new_in_memory().await.unwrap();
+        let tenant_id = db.create_tenant("Test Tenant", false).await.unwrap();
+
+        let ds = db
+            .create_training_dataset_with_id(
+                "ds_hash",
+                "hash_test",
+                None,
+                "jsonl",
+                "hash",
+                "",
+                None,
+                None,
+                Some("ready"),
+                Some("hash"),
+                None,
+            )
+            .await
+            .unwrap();
+
+        adapteros_db::sqlx::query("UPDATE training_datasets SET tenant_id = ? WHERE id = ?")
+            .bind(&tenant_id)
+            .bind(&ds)
+            .execute(db.pool())
+            .await
+            .unwrap();
+
+        let file_path = datasets_root.join("files").join(&ds).join("data.jsonl");
+        fs::create_dir_all(file_path.parent().unwrap())
+            .await
+            .unwrap();
+
+        // Write content but record wrong hash
+        let content = b"{\"text\":\"original content\"}";
+        fs::write(&file_path, content).await.unwrap();
+
+        // Record with WRONG hash (file was "tampered" or hash was recorded incorrectly)
+        db.add_dataset_file(
+            &ds,
+            "data.jsonl",
+            &file_path.to_string_lossy(),
+            content.len() as i64,
+            "0000000000000000000000000000000000000000000000000000000000000000", // Wrong hash
+            Some("application/json"),
+        )
+        .await
+        .unwrap();
+
+        let reconciler = StorageReconciler::new(db.clone(), datasets_root, adapters_root);
+        let report = reconciler.run_once().await.unwrap();
+
+        assert!(report.hash_mismatch >= 1, "Should detect hash mismatch");
+
+        // Verify issue was recorded
+        let issues = db.list_storage_reconciliation_issues(10).await.unwrap();
+        assert!(
+            issues.iter().any(|i| i.issue_type == "hash_mismatch"),
+            "Should record hash_mismatch issue"
+        );
+    }
+
+    // ========================================================================
+    // ReconcileReport Tests
+    // ========================================================================
+
+    #[tokio::test]
+    async fn reconcile_report_default_is_empty() {
+        let report = ReconcileReport::default();
+
+        assert_eq!(report.missing, 0);
+        assert_eq!(report.orphaned, 0);
+        assert_eq!(report.hash_mismatch, 0);
+        assert_eq!(report.size_mismatch, 0);
+        assert_eq!(report.empty_files, 0);
+        assert_eq!(report.inaccessible, 0);
+        assert_eq!(report.stale_uploads, 0);
+        assert!(!report.has_issues());
+    }
+
+    #[tokio::test]
+    async fn reconciler_config_default() {
+        let config = ReconcilerConfig::default();
+
+        assert!(
+            config.verify_hashes,
+            "Hash verification should be on by default"
+        );
+        assert!(
+            config.verify_sizes,
+            "Size verification should be on by default"
+        );
+        assert!(
+            config.detect_empty_files,
+            "Empty file detection should be on by default"
+        );
+        assert!(
+            config.check_dataset_versions,
+            "Dataset version check should be on by default"
+        );
+    }
+
+    #[tokio::test]
+    async fn reconciler_config_fast_disables_hashes() {
+        let config = ReconcilerConfig::fast();
+
+        assert!(
+            !config.verify_hashes,
+            "Fast mode should disable hash verification"
+        );
+        assert!(
+            config.max_datasets_per_run > 0,
+            "Fast mode should limit datasets"
+        );
+    }
 }

@@ -1,7 +1,7 @@
 //! Guardrail coverage for inference requests (empty prompt and oversized context).
 
 use adapteros_api_types::ErrorResponse;
-use adapteros_server_api::types::ApiErrorBody;
+
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use serde_json::json;
@@ -11,12 +11,10 @@ mod common;
 use common::test_harness::ApiTestHarness;
 
 fn parse_error(bytes: &[u8]) -> (String, String) {
-    if let Ok(err) = serde_json::from_slice::<ApiErrorBody>(bytes) {
+    if let Ok(err) = serde_json::from_slice::<ErrorResponse>(bytes) {
         return (err.code, err.message);
     }
-    if let Ok(err) = serde_json::from_slice::<ErrorResponse>(bytes) {
-        return (err.code, err.error);
-    }
+    // Fallback/Legacy check removed as we consolidated error types
     panic!("parse error response: {}", String::from_utf8_lossy(bytes));
 }
 

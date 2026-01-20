@@ -26,7 +26,7 @@ fn test_validate_adapter_id_empty() {
     assert!(result.is_err());
     let (status, response) = result.unwrap_err();
     assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert!(response.0.error.contains("empty"));
+    assert!(response.0.message.contains("empty"));
 }
 
 #[test]
@@ -36,7 +36,7 @@ fn test_validate_adapter_id_too_long() {
     assert!(result.is_err());
     let (status, response) = result.unwrap_err();
     assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert!(response.0.error.contains("64 characters"));
+    assert!(response.0.message.contains("64 characters"));
 }
 
 #[test]
@@ -60,7 +60,7 @@ fn test_validate_adapter_id_invalid_chars() {
         );
         let (status, response) = result.unwrap_err();
         assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert!(response.0.error.contains("alphanumeric"));
+        assert!(response.0.message.contains("alphanumeric"));
     }
 }
 
@@ -99,7 +99,7 @@ fn test_validate_name_empty() {
     assert!(result.is_err());
     let (status, response) = result.unwrap_err();
     assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert!(response.0.error.contains("empty"));
+    assert!(response.0.message.contains("empty"));
 }
 
 #[test]
@@ -109,7 +109,7 @@ fn test_validate_name_too_long() {
     assert!(result.is_err());
     let (status, response) = result.unwrap_err();
     assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert!(response.0.error.contains("128 characters"));
+    assert!(response.0.message.contains("128 characters"));
 }
 
 #[test]
@@ -132,7 +132,7 @@ fn test_validate_name_invalid_chars() {
         );
         let (status, response) = result.unwrap_err();
         assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert!(response.0.error.contains("alphanumeric"));
+        assert!(response.0.message.contains("alphanumeric"));
     }
 }
 
@@ -239,7 +239,7 @@ fn test_validate_repo_id_empty() {
     assert!(result.is_err());
     let (status, response) = result.unwrap_err();
     assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert!(response.0.error.contains("empty"));
+    assert!(response.0.message.contains("empty"));
 }
 
 #[test]
@@ -249,7 +249,7 @@ fn test_validate_repo_id_too_long() {
     assert!(result.is_err());
     let (status, response) = result.unwrap_err();
     assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert!(response.0.error.contains("256 characters"));
+    assert!(response.0.message.contains("256 characters"));
 }
 
 #[test]
@@ -311,7 +311,7 @@ fn test_validate_description_empty() {
     assert!(result.is_err());
     let (status, response) = result.unwrap_err();
     assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert!(response.0.error.contains("empty"));
+    assert!(response.0.message.contains("empty"));
 }
 
 #[test]
@@ -320,7 +320,7 @@ fn test_validate_description_whitespace_only() {
     assert!(result.is_err());
     let (status, response) = result.unwrap_err();
     assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert!(response.0.error.contains("empty"));
+    assert!(response.0.message.contains("empty"));
 }
 
 #[test]
@@ -330,7 +330,7 @@ fn test_validate_description_too_long() {
     assert!(result.is_err());
     let (status, response) = result.unwrap_err();
     assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert!(response.0.error.contains("10000 characters"));
+    assert!(response.0.message.contains("10000 characters"));
 }
 
 #[test]
@@ -366,7 +366,7 @@ fn test_validate_file_paths_empty_array() {
     assert!(result.is_err());
     let (status, response) = result.unwrap_err();
     assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert!(response.0.error.contains("empty"));
+    assert!(response.0.message.contains("empty"));
 }
 
 #[test]
@@ -376,7 +376,7 @@ fn test_validate_file_paths_too_many() {
     assert!(result.is_err());
     let (status, response) = result.unwrap_err();
     assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert!(response.0.error.contains("100"));
+    assert!(response.0.message.contains("100"));
 }
 
 #[test]
@@ -405,7 +405,7 @@ fn test_validate_file_paths_too_long() {
     assert!(result.is_err());
     let (status, response) = result.unwrap_err();
     assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert!(response.0.error.contains("512 characters"));
+    assert!(response.0.message.contains("512 characters"));
 }
 
 #[test]
@@ -423,7 +423,7 @@ fn test_validate_file_paths_absolute_path() {
         assert!(result.is_err());
         let (status, response) = result.unwrap_err();
         assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert!(response.0.error.contains("absolute"));
+        assert!(response.0.message.contains("absolute"));
     }
 }
 
@@ -440,7 +440,7 @@ fn test_validate_file_paths_path_traversal() {
         assert!(result.is_err(), "Expected {:?} to fail validation", paths);
         let (status, response) = result.unwrap_err();
         assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert!(response.0.error.contains(".."));
+        assert!(response.0.message.contains(".."));
     }
 }
 
@@ -1327,7 +1327,7 @@ fn test_validation_error_response_format() {
         }));
 
     assert_eq!(err.code, "VALIDATION_ERROR");
-    assert_eq!(err.error, "Validation failed");
+    assert_eq!(err.message, "Validation failed");
     assert!(err.details.is_some());
 }
 

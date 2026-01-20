@@ -1,4 +1,5 @@
 use crate::auth::Claims;
+use crate::error_helpers::internal_error;
 use crate::middleware::require_any_role;
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
@@ -57,17 +58,6 @@ fn generate_token() -> (String, String) {
     hasher.update(token.as_bytes());
     let hash = hasher.finalize().to_hex().to_string();
     (token, hash)
-}
-
-fn internal_error(err: AosError) -> (StatusCode, Json<ErrorResponse>) {
-    (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        Json(
-            ErrorResponse::new("internal error")
-                .with_code("INTERNAL_ERROR")
-                .with_string_details(err.to_string()),
-        ),
-    )
 }
 
 #[utoipa::path(

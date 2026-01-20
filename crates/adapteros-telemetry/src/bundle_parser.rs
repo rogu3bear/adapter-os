@@ -212,7 +212,10 @@ pub fn parse_bundle_events(bundle_path: &Path) -> Result<Vec<TelemetryEvent>> {
 }
 
 /// Parse events from raw bundle content (for testing or streaming)
-pub fn parse_bundle_content(content: &[u8], bundle_stack_id: Option<&str>) -> Result<Vec<TelemetryEvent>> {
+pub fn parse_bundle_content(
+    content: &[u8],
+    bundle_stack_id: Option<&str>,
+) -> Result<Vec<TelemetryEvent>> {
     let content_str = String::from_utf8_lossy(content);
     parse_ndjson_content(&content_str, bundle_stack_id)
 }
@@ -238,9 +241,18 @@ fn resolve_bundle_file(bundle_path: &Path) -> Result<(std::path::PathBuf, Compre
 
     // Try compressed variants
     let compressed_variants = [
-        (bundle_path.with_extension("ndjson.zst"), CompressionAlgorithm::Zstd),
-        (bundle_path.with_extension("ndjson.gz"), CompressionAlgorithm::Gzip),
-        (bundle_path.with_extension("ndjson.lz4"), CompressionAlgorithm::Lz4),
+        (
+            bundle_path.with_extension("ndjson.zst"),
+            CompressionAlgorithm::Zstd,
+        ),
+        (
+            bundle_path.with_extension("ndjson.gz"),
+            CompressionAlgorithm::Gzip,
+        ),
+        (
+            bundle_path.with_extension("ndjson.lz4"),
+            CompressionAlgorithm::Lz4,
+        ),
     ];
 
     for (path, compression) in compressed_variants {
@@ -323,7 +335,10 @@ fn load_bundle_stack_id(bundle_path: &Path) -> Option<String> {
 }
 
 /// Parse NDJSON content into TelemetryEvent structs
-fn parse_ndjson_content(content: &str, bundle_stack_id: Option<&str>) -> Result<Vec<TelemetryEvent>> {
+fn parse_ndjson_content(
+    content: &str,
+    bundle_stack_id: Option<&str>,
+) -> Result<Vec<TelemetryEvent>> {
     let mut events = Vec::new();
 
     for line in content.lines() {
@@ -348,7 +363,10 @@ fn parse_ndjson_content(content: &str, bundle_stack_id: Option<&str>) -> Result<
 }
 
 /// Extract TelemetryEvent fields from raw JSON
-fn extract_telemetry_event(json: &serde_json::Value, bundle_stack_id: Option<&str>) -> TelemetryEvent {
+fn extract_telemetry_event(
+    json: &serde_json::Value,
+    bundle_stack_id: Option<&str>,
+) -> TelemetryEvent {
     // Extract ID - try common field names
     let id = json
         .get("id")
@@ -362,13 +380,15 @@ fn extract_telemetry_event(json: &serde_json::Value, bundle_stack_id: Option<&st
         .get("event_type")
         .and_then(|v| {
             // Could be a string or an object like {"Custom": "..."}
-            v.as_str().map(String::from).or_else(|| {
-                v.get("Custom")
-                    .and_then(|c| c.as_str())
-                    .map(String::from)
-            })
+            v.as_str()
+                .map(String::from)
+                .or_else(|| v.get("Custom").and_then(|c| c.as_str()).map(String::from))
         })
-        .or_else(|| json.get("ev_type").and_then(|v| v.as_str()).map(String::from))
+        .or_else(|| {
+            json.get("ev_type")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        })
         .unwrap_or_default();
 
     // Extract timestamp - try multiple field names

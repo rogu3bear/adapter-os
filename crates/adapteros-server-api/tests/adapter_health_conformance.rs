@@ -3,7 +3,7 @@ use adapteros_db::adapters::AdapterRegistrationBuilder;
 use adapteros_db::sqlx;
 use adapteros_db::{CreateRepositoryParams, CreateVersionParams};
 use adapteros_server_api::handlers::get_adapter_health;
-use axum::{extract::Path, extract::State, http::StatusCode, Extension};
+use axum::{extract::Path, extract::State, Extension};
 use tokio::time::Duration;
 
 mod common;
@@ -234,6 +234,11 @@ async fn tenant_cannot_read_other_tenant_adapter_health() {
         result.is_err(),
         "Cross-tenant adapter health access must be rejected"
     );
-    let (status, _) = result.unwrap_err();
-    assert_eq!(status, StatusCode::NOT_FOUND);
+    let err = result.unwrap_err();
+    let err_str = err.to_string();
+    assert!(
+        err_str.contains("NOT_FOUND"),
+        "Error should contain NOT_FOUND code, got: {}",
+        err_str
+    );
 }

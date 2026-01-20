@@ -86,6 +86,7 @@ async fn build_test_state_with_general(
         seed_mode: SeedMode::BestEffort,
         backend_profile: BackendKind::Auto,
         worker_id: 0,
+        rate_limit: None,
     }));
 
     let metrics_exporter = Arc::new(MetricsExporter::new(vec![0.1]).unwrap());

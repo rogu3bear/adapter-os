@@ -447,6 +447,7 @@ async fn build_state(paths: &HarnessPaths) -> Result<AppState> {
         seed_mode: SeedMode::BestEffort,
         backend_profile: BackendKind::Auto,
         worker_id: 0,
+        rate_limit: None,
     }));
 
     let histogram_buckets = vec![

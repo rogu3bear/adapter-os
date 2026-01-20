@@ -4,6 +4,7 @@
 //!
 //! 【2025-01-25†prd-ux-01†chat_sessions_core】
 
+use crate::api_error::{ApiError, ApiResult};
 use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
@@ -41,14 +42,10 @@ pub async fn create_chat_session(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Json(req): Json<CreateChatSessionRequest>,
-) -> Result<(StatusCode, Json<CreateChatSessionResponse>), (StatusCode, Json<ErrorResponse>)> {
+) -> Result<(StatusCode, Json<CreateChatSessionResponse>), ApiError> {
     // Permission check: InferenceExecute allows chat sessions
-    require_permission(&claims, Permission::InferenceExecute).map_err(|_e| {
-        (
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Permission denied").with_code("FORBIDDEN")),
-        )
-    })?;
+    require_permission(&claims, Permission::InferenceExecute)
+        .map_err(|_e| ApiError::forbidden("Permission denied"))?;
 
     let target_tenant = claims.tenant_id.clone();
 
@@ -57,14 +54,8 @@ pub async fn create_chat_session(
 
     // Validate session name
     if req.name.trim().is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new("Session name cannot be empty")
-                    .with_code("VALIDATION_ERROR")
-                    .with_string_details("Provide a non-empty name for the chat session"),
-            ),
-        ));
+        return Err(ApiError::bad_request("Session name cannot be empty")
+            .with_details("Provide a non-empty name for the chat session"));
     }
 
     let source_type = req.source_type.clone().unwrap_or_else(|| {
@@ -83,36 +74,23 @@ pub async fn create_chat_session(
         "cli_prompt",
     ];
     if !allowed_sources.contains(&source_type.as_str()) {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new("Invalid source_type")
-                    .with_code("VALIDATION_ERROR")
-                    .with_string_details(format!(
-                        "source_type '{}' is not valid. Allowed values: {:?}",
-                        source_type, allowed_sources
-                    )),
-            ),
-        ));
+        return Err(
+            ApiError::bad_request("Invalid source_type").with_details(format!(
+                "source_type '{}' is not valid. Allowed values: {:?}",
+                source_type, allowed_sources
+            )),
+        );
     }
 
     if source_type == "document" && req.document_id.is_none() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new("document_id is required for document chats")
-                    .with_code("VALIDATION_ERROR"),
-            ),
+        return Err(ApiError::bad_request(
+            "document_id is required for document chats",
         ));
     }
 
     if req.document_id.is_some() && source_type != "document" {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new("document_id is only allowed when source_type='document'")
-                    .with_code("VALIDATION_ERROR"),
-            ),
+        return Err(ApiError::bad_request(
+            "document_id is only allowed when source_type='document'",
         ));
     }
 
@@ -122,30 +100,18 @@ pub async fn create_chat_session(
             .get_collection(&target_tenant, collection_id)
             .await
             .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("Failed to validate collection")
-                            .with_code("DATABASE_ERROR")
-                            .with_string_details(format!(
-                                "Database error while validating collection '{}': {}",
-                                collection_id, e
-                            )),
-                    ),
-                )
+                ApiError::db_error(&e).with_details(format!(
+                    "Database error while validating collection '{}': {}",
+                    collection_id, e
+                ))
             })?;
         if collection.is_none() {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(
-                    ErrorResponse::new("collection_id not found for tenant")
-                        .with_code("VALIDATION_ERROR")
-                        .with_string_details(format!(
-                            "Collection '{}' does not exist for tenant '{}'",
-                            collection_id, target_tenant
-                        )),
-                ),
-            ));
+            return Err(
+                ApiError::bad_request("collection_id not found for tenant").with_details(format!(
+                    "Collection '{}' does not exist for tenant '{}'",
+                    collection_id, target_tenant
+                )),
+            );
         }
     }
 
@@ -155,30 +121,18 @@ pub async fn create_chat_session(
             .get_document(&target_tenant, document_id)
             .await
             .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("Failed to validate document")
-                            .with_code("DATABASE_ERROR")
-                            .with_string_details(format!(
-                                "Database error while validating document '{}': {}",
-                                document_id, e
-                            )),
-                    ),
-                )
+                ApiError::db_error(&e).with_details(format!(
+                    "Database error while validating document '{}': {}",
+                    document_id, e
+                ))
             })?;
         if document.is_none() {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(
-                    ErrorResponse::new("document_id not found for tenant")
-                        .with_code("VALIDATION_ERROR")
-                        .with_string_details(format!(
-                            "Document '{}' does not exist for tenant '{}'",
-                            document_id, target_tenant
-                        )),
-                ),
-            ));
+            return Err(
+                ApiError::bad_request("document_id not found for tenant").with_details(format!(
+                    "Document '{}' does not exist for tenant '{}'",
+                    document_id, target_tenant
+                )),
+            );
         }
 
         if let Some(collection_id) = req.collection_id.as_ref() {
@@ -187,41 +141,26 @@ pub async fn create_chat_session(
                 .is_document_in_collection(collection_id, document_id)
                 .await
                 .map_err(|e| {
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(
-                            ErrorResponse::new("Failed to verify document binding")
-                                .with_code("DATABASE_ERROR")
-                                .with_string_details(format!("Database error while checking if document '{}' is in collection '{}': {}", document_id, collection_id, e)),
-                        ),
-                    )
+                    ApiError::db_error(&e).with_details(format!(
+                        "Database error while checking if document '{}' is in collection '{}': {}",
+                        document_id, collection_id, e
+                    ))
                 })?;
             if !in_collection {
-                return Err((
-                    StatusCode::BAD_REQUEST,
-                    Json(
-                        ErrorResponse::new("document_id is not in the provided collection")
-                            .with_code("VALIDATION_ERROR")
-                            .with_string_details(format!(
-                                "Document '{}' is not in collection '{}'",
-                                document_id, collection_id
-                            )),
-                    ),
-                ));
+                return Err(
+                    ApiError::bad_request("document_id is not in the provided collection")
+                        .with_details(format!(
+                            "Document '{}' is not in collection '{}'",
+                            document_id, collection_id
+                        )),
+                );
             }
         }
     }
 
     let tags_json = if let Some(tags) = req.tags.as_ref() {
         Some(serde_json::to_string(tags).map_err(|e| {
-            (
-                StatusCode::BAD_REQUEST,
-                Json(
-                    ErrorResponse::new("Invalid tags payload")
-                        .with_code("VALIDATION_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
+            ApiError::bad_request("Invalid tags payload").with_details(e.to_string())
         })?)
     } else {
         None
@@ -250,16 +189,11 @@ pub async fn create_chat_session(
     };
 
     // Create session in database
-    state.db.create_chat_session(params).await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("Failed to create session")
-                    .with_code("DATABASE_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    state
+        .db
+        .create_chat_session(params)
+        .await
+        .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?;
 
     // Retrieve created session
     let session = state
@@ -267,30 +201,16 @@ pub async fn create_chat_session(
         .get_chat_session(&session_id)
         .await
         .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to retrieve session")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(format!(
-                            "Database error retrieving session '{}': {}",
-                            session_id, e
-                        )),
-                ),
-            )
+            ApiError::db_error(&e).with_details(format!(
+                "Database error retrieving session '{}': {}",
+                session_id, e
+            ))
         })?
         .ok_or_else(|| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Session not found after creation")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(format!(
-                            "Session '{}' was created but could not be retrieved",
-                            session_id
-                        )),
-                ),
-            )
+            ApiError::internal("Session not found after creation").with_details(format!(
+                "Session '{}' was created but could not be retrieved",
+                session_id
+            ))
         })?;
 
     info!(
@@ -346,13 +266,9 @@ pub async fn update_chat_session(
     Extension(claims): Extension<Claims>,
     Path(session_id): Path<String>,
     Json(req): Json<UpdateChatSessionRequest>,
-) -> Result<Json<ChatSession>, (StatusCode, Json<ErrorResponse>)> {
-    require_permission(&claims, Permission::InferenceExecute).map_err(|_| {
-        (
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Permission denied").with_code("FORBIDDEN")),
-        )
-    })?;
+) -> ApiResult<ChatSession> {
+    require_permission(&claims, Permission::InferenceExecute)
+        .map_err(|_| ApiError::forbidden("Permission denied"))?;
 
     // Verify session exists and tenant matches
     let session = state
@@ -360,30 +276,14 @@ pub async fn update_chat_session(
         .get_chat_session(&session_id)
         .await
         .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to get session")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(format!(
-                            "Database error retrieving session '{}': {}",
-                            session_id, e
-                        )),
-                ),
-            )
+            ApiError::db_error(&e).with_details(format!(
+                "Database error retrieving session '{}': {}",
+                session_id, e
+            ))
         })?
         .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(
-                    ErrorResponse::new("Session not found")
-                        .with_code("NOT_FOUND")
-                        .with_string_details(format!(
-                            "Chat session '{}' does not exist",
-                            session_id
-                        )),
-                ),
-            )
+            ApiError::not_found("Session")
+                .with_details(format!("Chat session '{}' does not exist", session_id))
         })?;
 
     // Tenant isolation check
@@ -406,10 +306,7 @@ pub async fn update_chat_session(
         "cli_prompt",
     ];
     if !allowed_sources.contains(&target_source_type.as_str()) {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new("Invalid source_type").with_code("VALIDATION_ERROR")),
-        ));
+        return Err(ApiError::bad_request("Invalid source_type"));
     }
 
     let target_document_id = match &req.document_id {
@@ -424,22 +321,14 @@ pub async fn update_chat_session(
     };
 
     if target_source_type == "document" && target_document_id.is_none() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new("document_id is required for document chats")
-                    .with_code("VALIDATION_ERROR"),
-            ),
+        return Err(ApiError::bad_request(
+            "document_id is required for document chats",
         ));
     }
 
     if target_document_id.is_some() && target_source_type != "document" {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new("document_id is only allowed when source_type='document'")
-                    .with_code("VALIDATION_ERROR"),
-            ),
+        return Err(ApiError::bad_request(
+            "document_id is only allowed when source_type='document'",
         ));
     }
 
@@ -448,24 +337,9 @@ pub async fn update_chat_session(
             .db
             .get_collection(&session.tenant_id, collection_id)
             .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("Failed to validate collection")
-                            .with_code("DATABASE_ERROR")
-                            .with_string_details(e.to_string()),
-                    ),
-                )
-            })?;
+            .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?;
         if collection.is_none() {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(
-                    ErrorResponse::new("collection_id not found for tenant")
-                        .with_code("VALIDATION_ERROR"),
-                ),
-            ));
+            return Err(ApiError::bad_request("collection_id not found for tenant"));
         }
     }
 
@@ -474,24 +348,9 @@ pub async fn update_chat_session(
             .db
             .get_document(&session.tenant_id, document_id)
             .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("Failed to validate document")
-                            .with_code("DATABASE_ERROR")
-                            .with_string_details(e.to_string()),
-                    ),
-                )
-            })?;
+            .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?;
         if document.is_none() {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(
-                    ErrorResponse::new("document_id not found for tenant")
-                        .with_code("VALIDATION_ERROR"),
-                ),
-            ));
+            return Err(ApiError::bad_request("document_id not found for tenant"));
         }
 
         if let Some(collection_id) = target_collection_id.as_ref() {
@@ -499,23 +358,10 @@ pub async fn update_chat_session(
                 .db
                 .is_document_in_collection(collection_id, document_id)
                 .await
-                .map_err(|e| {
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(
-                            ErrorResponse::new("Failed to verify document binding")
-                                .with_code("DATABASE_ERROR")
-                                .with_string_details(e.to_string()),
-                        ),
-                    )
-                })?;
+                .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?;
             if !in_collection {
-                return Err((
-                    StatusCode::BAD_REQUEST,
-                    Json(
-                        ErrorResponse::new("document_id is not in the provided collection")
-                            .with_code("VALIDATION_ERROR"),
-                    ),
+                return Err(ApiError::bad_request(
+                    "document_id is not in the provided collection",
                 ));
             }
         }
@@ -539,40 +385,14 @@ pub async fn update_chat_session(
             },
         )
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to update session")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+        .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?;
 
     let updated = state
         .db
         .get_chat_session(&session_id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to retrieve session")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Session not found after update")
-                        .with_code("INTERNAL_ERROR"),
-                ),
-            )
-        })?;
+        .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?
+        .ok_or_else(|| ApiError::internal("Session not found after update"))?;
 
     Ok(Json(updated))
 }
@@ -594,14 +414,10 @@ pub async fn list_chat_sessions(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Query(query): Query<ListSessionsQuery>,
-) -> Result<Json<Vec<ChatSession>>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<Vec<ChatSession>> {
     // Permission check
-    require_permission(&claims, Permission::InferenceExecute).map_err(|_e| {
-        (
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Permission denied").with_code("FORBIDDEN")),
-        )
-    })?;
+    require_permission(&claims, Permission::InferenceExecute)
+        .map_err(|_e| ApiError::forbidden("Permission denied"))?;
 
     // Tenant isolation check
     validate_tenant_isolation(&claims, &claims.tenant_id)?;
@@ -620,16 +436,7 @@ pub async fn list_chat_sessions(
             query.limit,
         )
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to list sessions")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+        .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?;
 
     debug!(
         tenant_id = %claims.tenant_id,
@@ -660,36 +467,18 @@ pub async fn get_chat_session(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(session_id): Path<String>,
-) -> Result<Json<ChatSession>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<ChatSession> {
     // Permission check
-    require_permission(&claims, Permission::InferenceExecute).map_err(|_e| {
-        (
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Permission denied").with_code("FORBIDDEN")),
-        )
-    })?;
+    require_permission(&claims, Permission::InferenceExecute)
+        .map_err(|_e| ApiError::forbidden("Permission denied"))?;
 
     // Get session
     let session = state
         .db
         .get_chat_session(&session_id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to get session")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("Session not found").with_code("NOT_FOUND")),
-            )
-        })?;
+        .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?
+        .ok_or_else(|| ApiError::not_found("Session"))?;
 
     // Tenant isolation check
     validate_tenant_isolation(&claims, &session.tenant_id)?;
@@ -717,36 +506,18 @@ pub async fn delete_chat_session(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(session_id): Path<String>,
-) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<StatusCode, ApiError> {
     // Permission check
-    require_permission(&claims, Permission::InferenceExecute).map_err(|_e| {
-        (
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Permission denied").with_code("FORBIDDEN")),
-        )
-    })?;
+    require_permission(&claims, Permission::InferenceExecute)
+        .map_err(|_e| ApiError::forbidden("Permission denied"))?;
 
     // Verify session exists and tenant has access
     let session = state
         .db
         .get_chat_session(&session_id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to get session")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("Session not found").with_code("NOT_FOUND")),
-            )
-        })?;
+        .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?
+        .ok_or_else(|| ApiError::not_found("Session"))?;
 
     // Tenant isolation check
     validate_tenant_isolation(&claims, &session.tenant_id)?;
@@ -756,16 +527,7 @@ pub async fn delete_chat_session(
         .db
         .soft_delete_session(&session_id, &claims.sub)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to delete session")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+        .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?;
 
     info!(
         session_id = %session_id,

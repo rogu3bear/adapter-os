@@ -1,7 +1,5 @@
+use crate::api_error::{ApiError, ApiResult};
 use crate::auth::Claims;
-use crate::error_helpers::{
-    bad_gateway, db_error_msg, internal_error, internal_error_msg, not_found_with_details,
-};
 use crate::middleware::require_any_role;
 use crate::state::AppState;
 use crate::types::*;
@@ -16,7 +14,6 @@ use adapteros_db::workers::{is_schema_compatible, WorkerRegistrationParams};
 use adapteros_telemetry::{build_health_event, make_health_payload, HealthEventKind};
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
     Extension, Json,
 };
 use serde::Deserialize;
@@ -65,22 +62,16 @@ pub async fn worker_spawn(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Json(req): Json<SpawnWorkerRequest>,
-) -> Result<Json<WorkerResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<WorkerResponse> {
     require_any_role(&claims, &[Role::Operator])?;
 
     // PRD-RECT-002: Validate caller can spawn workers for the requested tenant
     let is_admin = claims.roles.iter().any(|r| r.to_lowercase() == "admin");
     if !is_admin && req.tenant_id != claims.tenant_id {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(
-                ErrorResponse::new("cannot spawn worker for another tenant")
-                    .with_code("FORBIDDEN")
-                    .with_string_details(
-                        "Non-admin users can only spawn workers for their own tenant",
-                    ),
-            ),
-        ));
+        return Err(
+            ApiError::forbidden("cannot spawn worker for another tenant")
+                .with_details("Non-admin users can only spawn workers for their own tenant"),
+        );
     }
     if is_admin && req.tenant_id != claims.tenant_id {
         crate::security::validate_tenant_isolation(&claims, &req.tenant_id)?;
@@ -91,9 +82,9 @@ pub async fn worker_spawn(
         .db
         .get_node(&req.node_id)
         .await
-        .map_err(|e| db_error_msg("database error", e))?
+        .map_err(ApiError::db_error)?
         .ok_or_else(|| {
-            not_found_with_details("node not found", format!("Node ID: {}", req.node_id))
+            ApiError::not_found("node").with_details(format!("Node ID: {}", req.node_id))
         })?;
 
     // Prepare spawn request for node agent
@@ -109,7 +100,9 @@ pub async fn worker_spawn(
         .connect_timeout(std::time::Duration::from_millis(500))
         .timeout(std::time::Duration::from_secs(10))
         .build()
-        .map_err(|e| internal_error_msg("failed to create HTTP client", e))?;
+        .map_err(|e| {
+            ApiError::internal("failed to create HTTP client").with_details(e.to_string())
+        })?;
     let spawn_url = format!("{}/spawn_worker", node.agent_endpoint);
 
     let max_attempts = 3u32;
@@ -129,52 +122,38 @@ pub async fn worker_spawn(
         }
     }
     .map_err(|e| {
-        bad_gateway(
-            "failed to contact node agent",
-            format!("{} (after {} attempts)", e, max_attempts),
-        )
+        ApiError::bad_gateway("failed to contact node agent")
+            .with_details(format!("{} (after {} attempts)", e, max_attempts))
     })?;
 
     if !response.status().is_success() {
         let error_text = response.text().await.unwrap_or_default();
-        return Err(internal_error_msg("node agent spawn failed", error_text));
+        return Err(ApiError::internal("node agent spawn failed").with_details(error_text));
     }
 
-    let spawn_response: serde_json::Value = response
-        .json()
-        .await
-        .map_err(|e| internal_error_msg("failed to parse node agent response", e))?;
+    let spawn_response: serde_json::Value = response.json().await.map_err(|e| {
+        ApiError::internal("failed to parse node agent response").with_details(e.to_string())
+    })?;
 
     let pid = spawn_response["pid"].as_i64().ok_or_else(|| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("invalid response from node agent")
-                    .with_code("BAD_REQUEST")
-                    .with_string_details("missing or invalid PID field"),
-            ),
-        )
+        ApiError::internal("invalid response from node agent")
+            .with_details("missing or invalid PID field")
     })? as i32;
 
     // Create UDS path for worker
     // SECURITY: Validate tenant_id doesn't contain path traversal sequences
     if req.tenant_id.contains("..") || req.tenant_id.contains('/') || req.tenant_id.contains('\\') {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new("invalid tenant_id")
-                    .with_code("VALIDATION_ERROR")
-                    .with_string_details(format!("tenant_id '{}' contains invalid characters (path traversal sequences or slashes are not allowed)", req.tenant_id)),
-            ),
-        ));
+        return Err(ApiError::bad_request("invalid tenant_id")
+            .with_details(format!("tenant_id '{}' contains invalid characters (path traversal sequences or slashes are not allowed)", req.tenant_id)));
     }
 
     let uds_path = format!("/var/run/aos/{}/worker.sock", req.tenant_id);
 
     // SECURITY: Validate constructed path is safe
     let uds_path_buf = std::path::PathBuf::from(&uds_path);
-    reject_tmp_socket(&uds_path_buf, "worker-socket")
-        .map_err(|e| internal_error_msg("worker socket path validation failed", e))?;
+    reject_tmp_socket(&uds_path_buf, "worker-socket").map_err(|e| {
+        ApiError::internal("worker socket path validation failed").with_details(e.to_string())
+    })?;
 
     // Register worker using Db trait method
     use adapteros_db::workers::WorkerInsertBuilder;
@@ -187,14 +166,14 @@ pub async fn worker_spawn(
         .uds_path(&uds_path)
         .status(WorkerStatus::Created.as_str());
     builder = builder.pid(pid);
-    let params = builder
-        .build()
-        .map_err(|e| internal_error_msg("failed to build worker parameters", e))?;
+    let params = builder.build().map_err(|e| {
+        ApiError::internal("failed to build worker parameters").with_details(e.to_string())
+    })?;
     state
         .db
         .insert_worker(params)
         .await
-        .map_err(|e| db_error_msg("failed to register worker in database", e))?;
+        .map_err(ApiError::db_error)?;
 
     // Return worker info
     Ok(Json(WorkerResponse {
@@ -229,7 +208,7 @@ pub async fn list_workers(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Query(query): Query<ListWorkersQuery>,
-) -> Result<Json<Vec<WorkerResponse>>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<Vec<WorkerResponse>> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
     let is_admin = claims.roles.iter().any(|r| r.to_lowercase() == "admin");
@@ -248,28 +227,14 @@ pub async fn list_workers(
             .db
             .list_workers_by_tenant(&tenant_id)
             .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("database error")
-                            .with_code("INTERNAL_SERVER_ERROR")
-                            .with_string_details(e.to_string()),
-                    ),
-                )
-            })?
+            .map_err(ApiError::db_error)?
     } else {
         // Only admin reaches here (listing all workers)
-        state.db.list_all_workers().await.map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
+        state
+            .db
+            .list_all_workers()
+            .await
+            .map_err(ApiError::db_error)?
     };
 
     // Build response with model lookups
@@ -375,7 +340,7 @@ pub async fn stop_worker(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(worker_id): Path<String>,
-) -> Result<Json<crate::types::WorkerStopResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<crate::types::WorkerStopResponse> {
     // Require worker manage permission
     crate::permissions::require_permission(&claims, crate::permissions::Permission::WorkerManage)?;
 
@@ -387,18 +352,9 @@ pub async fn stop_worker(
             .db
             .get_worker(&worker_id)
             .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("database error")
-                            .with_code("DATABASE_ERROR")
-                            .with_string_details(e.to_string()),
-                    ),
-                )
-            })?
+            .map_err(ApiError::db_error)?
             .ok_or_else(|| {
-                not_found_with_details("worker not found", format!("Worker ID: {}", worker_id))
+                ApiError::not_found("worker").with_details(format!("Worker ID: {}", worker_id))
             })?;
         crate::security::validate_tenant_isolation(&claims, &w.tenant_id)?;
         w
@@ -407,18 +363,9 @@ pub async fn stop_worker(
             .db
             .get_worker_for_tenant(&claims.tenant_id, &worker_id)
             .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("database error")
-                            .with_code("DATABASE_ERROR")
-                            .with_string_details(e.to_string()),
-                    ),
-                )
-            })?
+            .map_err(ApiError::db_error)?
             .ok_or_else(|| {
-                not_found_with_details("worker not found", format!("Worker ID: {}", worker_id))
+                ApiError::not_found("worker").with_details(format!("Worker ID: {}", worker_id))
             })?
     };
 
@@ -455,26 +402,14 @@ pub async fn stop_worker(
                     error = %e,
                     "Invalid state transition attempted"
                 );
-                return Err((
-                    StatusCode::CONFLICT,
-                    Json(
-                        ErrorResponse::new("invalid state transition")
-                            .with_code("LIFECYCLE_ERROR")
-                            .with_string_details(format!(
-                                "Cannot stop worker in '{}' state. Valid transitions from serving: draining, crashed",
-                                previous_status
-                            )),
-                    ),
-                ));
+                return Err(ApiError::conflict("invalid state transition")
+                    .with_details(format!(
+                        "Cannot stop worker in '{}' state. Valid transitions from serving: draining, crashed",
+                        previous_status
+                    )));
             }
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to transition worker status")
-                        .with_code("INTERNAL_SERVER_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            ));
+            return Err(ApiError::internal("failed to transition worker status")
+                .with_details(e.to_string()));
         }
     }
 
@@ -586,7 +521,7 @@ pub async fn stop_worker(
 pub async fn register_worker(
     State(state): State<AppState>,
     Json(req): Json<WorkerRegistrationRequest>,
-) -> Result<Json<WorkerRegistrationResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<WorkerRegistrationResponse> {
     info!(
         worker_id = %req.worker_id,
         tenant_id = %req.tenant_id,
@@ -611,7 +546,7 @@ pub async fn register_worker(
         .db
         .worker_exists(&req.worker_id)
         .await
-        .map_err(|e| db_error_msg("failed to check worker existence", e))?;
+        .map_err(ApiError::db_error)?;
 
     if exists {
         info!(
@@ -627,7 +562,7 @@ pub async fn register_worker(
         .db
         .get_plan_by_plan_id(&req.plan_id)
         .await
-        .map_err(|e| db_error_msg("failed to fetch plan", e))?;
+        .map_err(ApiError::db_error)?;
 
     let plan = match plan {
         Some(p) => p,
@@ -648,7 +583,7 @@ pub async fn register_worker(
                     .db
                     .get_manifest_by_hash(&req.manifest_hash)
                     .await
-                    .map_err(|e| db_error_msg("failed to check manifest", e))?;
+                    .map_err(ApiError::db_error)?;
 
                 if manifest_exists.is_none() {
                     // Create placeholder manifest
@@ -656,7 +591,7 @@ pub async fn register_worker(
                         .db
                         .create_manifest(&req.tenant_id, &req.manifest_hash, "{}")
                         .await
-                        .map_err(|e| db_error_msg("failed to create manifest", e))?;
+                        .map_err(ApiError::db_error)?;
                     info!(
                         manifest_hash = %req.manifest_hash,
                         tenant_id = %req.tenant_id,
@@ -678,7 +613,7 @@ pub async fn register_worker(
                         &req.manifest_hash,
                     )
                     .await
-                    .map_err(|e| db_error_msg("failed to create plan", e))?;
+                    .map_err(ApiError::db_error)?;
                 info!(
                     plan_id = %req.plan_id,
                     manifest_hash = %req.manifest_hash,
@@ -691,8 +626,10 @@ pub async fn register_worker(
                     .db
                     .get_plan_by_plan_id(&req.plan_id)
                     .await
-                    .map_err(|e| db_error_msg("failed to fetch created plan", e))?
-                    .ok_or_else(|| internal_error("Plan creation succeeded but plan not found"))?
+                    .map_err(ApiError::db_error)?
+                    .ok_or_else(|| {
+                        ApiError::internal("Plan creation succeeded but plan not found")
+                    })?
             } else {
                 warn!(
                     worker_id = %req.worker_id,
@@ -772,7 +709,7 @@ pub async fn register_worker(
         .db
         .get_tenant(&req.tenant_id)
         .await
-        .map_err(|e| db_error_msg("failed to fetch tenant", e))?;
+        .map_err(ApiError::db_error)?;
 
     let (kv_quota_bytes, kv_residency_policy_id) = match tenant {
         Some(t) => {
@@ -840,7 +777,7 @@ pub async fn register_worker(
         .db
         .register_worker(params)
         .await
-        .map_err(|e| db_error_msg("failed to register worker", e))?;
+        .map_err(ApiError::db_error)?;
 
     state.worker_runtime.insert(
         req.worker_id.clone(),
@@ -932,7 +869,7 @@ pub async fn register_worker(
 pub async fn notify_worker_status(
     State(state): State<AppState>,
     Json(req): Json<WorkerStatusNotification>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<Json<serde_json::Value>, ApiError> {
     info!(
         worker_id = %req.worker_id,
         status = %req.status,
@@ -944,16 +881,9 @@ pub async fn notify_worker_status(
         .db
         .get_worker(&req.worker_id)
         .await
-        .map_err(|e| db_error_msg("failed to fetch worker", e))?
+        .map_err(ApiError::db_error)?
         .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(
-                    ErrorResponse::new("Worker not found")
-                        .with_code("NOT_FOUND")
-                        .with_string_details(format!("Worker ID: {}", req.worker_id)),
-                ),
-            )
+            ApiError::not_found("Worker").with_details(format!("Worker ID: {}", req.worker_id))
         })?;
 
     let previous_status = Some(worker_row.status.clone());
@@ -973,32 +903,11 @@ pub async fn notify_worker_status(
                     error = %err_str,
                     "Invalid worker status transition"
                 );
-                (
-                    StatusCode::BAD_REQUEST,
-                    Json(
-                        ErrorResponse::new("Invalid status transition")
-                            .with_code("INVALID_TRANSITION")
-                            .with_string_details(err_str),
-                    ),
-                )
+                ApiError::bad_request("Invalid status transition").with_details(err_str)
             } else if err_str.contains("not found") {
-                (
-                    StatusCode::NOT_FOUND,
-                    Json(
-                        ErrorResponse::new("Worker not found")
-                            .with_code("NOT_FOUND")
-                            .with_string_details(format!("Worker ID: {}", req.worker_id)),
-                    ),
-                )
+                ApiError::not_found("Worker").with_details(format!("Worker ID: {}", req.worker_id))
             } else {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("Failed to update worker status")
-                            .with_code("INTERNAL_ERROR")
-                            .with_string_details(err_str),
-                    ),
-                )
+                ApiError::internal("Failed to update worker status").with_details(err_str)
             }
         })?;
 
@@ -1078,10 +987,7 @@ pub async fn get_worker_history(
     Extension(claims): Extension<Claims>,
     Path(worker_id): Path<String>,
     Query(query): Query<HistoryQuery>,
-) -> Result<
-    Json<Vec<adapteros_db::workers::WorkerStatusHistoryRecord>>,
-    (StatusCode, Json<ErrorResponse>),
-> {
+) -> ApiResult<Vec<adapteros_db::workers::WorkerStatusHistoryRecord>> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
     // PRD-RECT-002: Use tenant-scoped query for non-admins to prevent enumeration.
@@ -1093,9 +999,9 @@ pub async fn get_worker_history(
             .db
             .get_worker(&worker_id)
             .await
-            .map_err(|e| db_error_msg("database error", e))?
+            .map_err(ApiError::db_error)?
             .ok_or_else(|| {
-                not_found_with_details("worker not found", format!("Worker ID: {}", worker_id))
+                ApiError::not_found("worker").with_details(format!("Worker ID: {}", worker_id))
             })?
     } else {
         // Non-admin: tenant-scoped query, returns 404 for cross-tenant (not 403)
@@ -1103,10 +1009,10 @@ pub async fn get_worker_history(
             .db
             .get_worker_for_tenant(&claims.tenant_id, &worker_id)
             .await
-            .map_err(|e| db_error_msg("database error", e))?
+            .map_err(ApiError::db_error)?
             .ok_or_else(|| {
                 // Same error for both "not found" and "cross-tenant" cases
-                not_found_with_details("worker not found", format!("Worker ID: {}", worker_id))
+                ApiError::not_found("worker").with_details(format!("Worker ID: {}", worker_id))
             })?
     };
 
@@ -1114,7 +1020,7 @@ pub async fn get_worker_history(
         .db
         .get_worker_status_history(&worker_id, query.limit)
         .await
-        .map_err(|e| db_error_msg("failed to get worker history", e))?;
+        .map_err(ApiError::db_error)?;
 
     Ok(Json(history))
 }
@@ -1144,7 +1050,7 @@ pub struct HistoryQuery {
 pub async fn receive_worker_fatal(
     State(state): State<AppState>,
     Json(fatal_msg): Json<crate::types::WorkerFatal>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<Json<serde_json::Value>, ApiError> {
     // Log the fatal error at the control plane
     tracing::error!(
         event = "worker.fatal.received",
@@ -1160,25 +1066,10 @@ pub async fn receive_worker_fatal(
         .db
         .get_worker(&fatal_msg.worker_id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
+        .map_err(ApiError::db_error)?
         .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(
-                    ErrorResponse::new("worker not found")
-                        .with_code("NOT_FOUND")
-                        .with_string_details(format!("Worker ID: {}", fatal_msg.worker_id)),
-                ),
-            )
+            ApiError::not_found("worker")
+                .with_details(format!("Worker ID: {}", fatal_msg.worker_id))
         })?;
 
     // Insert worker incident with incident_type = "fatal"
@@ -1193,16 +1084,7 @@ pub async fn receive_worker_fatal(
             None, // latency_at_incident_ms
         )
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to record incident")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+        .map_err(ApiError::db_error)?;
 
     // Log successful incident recording
     tracing::info!(
@@ -1259,33 +1141,17 @@ pub async fn list_worker_incidents(
     Extension(claims): Extension<Claims>,
     Path(worker_id): Path<String>,
     Query(params): Query<ListIncidentsParams>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<Json<serde_json::Value>, ApiError> {
     // PRD-RECT-002: Use tenant-scoped query to prevent cross-tenant worker access.
     // Returns 404 for both missing and cross-tenant workers.
     let _worker = state
         .db
         .get_worker_for_tenant(&claims.tenant_id, &worker_id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
+        .map_err(ApiError::db_error)?
         .ok_or_else(|| {
             // Returns same error for both "not found" and "cross-tenant" cases
-            (
-                StatusCode::NOT_FOUND,
-                Json(
-                    ErrorResponse::new("worker not found")
-                        .with_code("NOT_FOUND")
-                        .with_string_details(format!("Worker ID: {}", worker_id)),
-                ),
-            )
+            ApiError::not_found("worker").with_details(format!("Worker ID: {}", worker_id))
         })?;
 
     // Get incidents for the worker
@@ -1293,16 +1159,7 @@ pub async fn list_worker_incidents(
         .db
         .list_worker_incidents(&worker_id, params.limit)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+        .map_err(ApiError::db_error)?;
 
     Ok(Json(serde_json::json!({
         "worker_id": worker_id,
@@ -1328,18 +1185,13 @@ pub async fn list_worker_incidents(
 )]
 pub async fn get_worker_health_summary(
     State(state): State<AppState>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<Json<serde_json::Value>, ApiError> {
     // Get all workers with health metrics
-    let workers = state.db.list_all_workers().await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("database error")
-                    .with_code("DATABASE_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    let workers = state
+        .db
+        .list_all_workers()
+        .await
+        .map_err(ApiError::db_error)?;
 
     // Get health records for workers that have them
     let mut health_records = Vec::new();

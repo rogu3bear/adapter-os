@@ -1,9 +1,9 @@
 //! Benchmark utilities and helper functions
 
-use std::time::{Duration, Instant};
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
-use sysinfo::{System, SystemExt};
+use std::collections::HashMap;
+use std::time::{Duration, Instant};
+use sysinfo::System;
 
 /// Memory usage statistics
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,20 +36,30 @@ impl ResourceMonitor {
         let mut system = System::new_all();
         system.refresh_all();
 
+        let initial_memory = system.used_memory();
+
         Self {
             system,
             start_time: Instant::now(),
-            initial_memory: system.used_memory(),
+            initial_memory,
         }
     }
+}
 
+impl Default for ResourceMonitor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ResourceMonitor {
     pub fn get_memory_usage_mb(&mut self) -> f64 {
         self.system.refresh_memory();
         (self.system.used_memory() - self.initial_memory) as f64 / 1024.0 / 1024.0
     }
 
     pub fn get_cpu_usage(&mut self) -> f32 {
-        self.system.refresh_cpu_all();
+        self.system.refresh_all();
         self.system.global_cpu_info().cpu_usage()
     }
 
@@ -136,9 +146,18 @@ impl PerformanceTimer {
             checkpoints: HashMap::new(),
         }
     }
+}
 
+impl Default for PerformanceTimer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl PerformanceTimer {
     pub fn checkpoint(&mut self, name: &str) {
-        self.checkpoints.insert(name.to_string(), self.start.elapsed());
+        self.checkpoints
+            .insert(name.to_string(), self.start.elapsed());
     }
 
     pub fn get_checkpoint(&self, name: &str) -> Option<Duration> {
@@ -173,7 +192,8 @@ pub mod stats {
             return 0.0;
         }
         let m = mean(values);
-        let variance = values.iter().map(|v| (v - m).powi(2)).sum::<f64>() / (values.len() - 1) as f64;
+        let variance =
+            values.iter().map(|v| (v - m).powi(2)).sum::<f64>() / (values.len() - 1) as f64;
         variance.sqrt()
     }
 
@@ -181,7 +201,7 @@ pub mod stats {
     pub fn median(values: &mut [f64]) -> f64 {
         values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
         let len = values.len();
-        if len % 2 == 0 {
+        if len.is_multiple_of(2) {
             (values[len / 2 - 1] + values[len / 2]) / 2.0
         } else {
             values[len / 2]
@@ -228,7 +248,7 @@ mod tests {
         let mut gen = DataGenerator::new(123);
         let matrix = gen.generate_matrix(10, 10);
         assert_eq!(matrix.len(), 100);
-        assert!(matrix.iter().all(|&x| x >= -1.0 && x <= 1.0));
+        assert!(matrix.iter().all(|&x| (-1.0..=1.0).contains(&x)));
     }
 
     #[test]

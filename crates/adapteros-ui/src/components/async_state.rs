@@ -549,3 +549,137 @@ pub fn DetailRow(
         </div>
     }
 }
+
+/// Async boundary component for handling LoadingState
+///
+/// Replaces repetitive `match loading_state` patterns across pages.
+/// Automatically renders LoadingDisplay, ErrorDisplay, or children based on state.
+///
+/// # Example
+/// ```rust,ignore
+/// let (data, refetch) = use_api_resource(|client| async move { client.list_items().await });
+///
+/// view! {
+///     <AsyncBoundary state=data on_retry=refetch>
+///         {move |items| view! {
+///             <ItemList items=items />
+///         }}
+///     </AsyncBoundary>
+/// }
+/// ```
+#[component]
+pub fn AsyncBoundary<T, V, F>(
+    /// The loading state signal
+    state: ReadSignal<crate::hooks::LoadingState<T>>,
+    /// Optional retry callback for error state
+    #[prop(optional)]
+    on_retry: Option<Callback<()>>,
+    /// Optional loading message
+    #[prop(optional, into)]
+    loading_message: Option<String>,
+    /// Children render function - receives the loaded data
+    children: F,
+) -> impl IntoView
+where
+    T: Clone + 'static,
+    V: IntoView + 'static,
+    F: Fn(T) -> V + Clone + 'static,
+{
+    let children = children.clone();
+
+    view! {
+        {move || {
+            let children = children.clone();
+            match state.get() {
+                crate::hooks::LoadingState::Idle | crate::hooks::LoadingState::Loading => {
+                    view! {
+                        <LoadingDisplay message=loading_message.clone() />
+                    }.into_any()
+                }
+                crate::hooks::LoadingState::Loaded(data) => {
+                    children(data).into_any()
+                }
+                crate::hooks::LoadingState::Error(e) => {
+                    view! {
+                        <ErrorDisplay error=e on_retry=on_retry />
+                    }.into_any()
+                }
+            }
+        }}
+    }
+}
+
+/// Async boundary with empty state handling
+///
+/// Like AsyncBoundary but also handles the case when loaded data is empty.
+/// Useful for list views where you want to show a specific empty state.
+#[component]
+pub fn AsyncBoundaryWithEmpty<T, V, F, E>(
+    /// The loading state signal
+    state: ReadSignal<crate::hooks::LoadingState<T>>,
+    /// Function to check if data is empty
+    is_empty: E,
+    /// Optional retry callback for error state
+    #[prop(optional)]
+    on_retry: Option<Callback<()>>,
+    /// Optional loading message
+    #[prop(optional, into)]
+    loading_message: Option<String>,
+    /// Empty state title
+    #[prop(into)]
+    empty_title: String,
+    /// Optional empty state description
+    #[prop(optional, into)]
+    empty_description: Option<String>,
+    /// Optional empty state variant
+    #[prop(optional)]
+    empty_variant: EmptyStateVariant,
+    /// Children render function - receives the loaded data
+    children: F,
+) -> impl IntoView
+where
+    T: Clone + 'static,
+    V: IntoView + 'static,
+    F: Fn(T) -> V + Clone + 'static,
+    E: Fn(&T) -> bool + Clone + 'static,
+{
+    let children = children.clone();
+    let is_empty = is_empty.clone();
+    let empty_title = empty_title.clone();
+    let empty_description = empty_description.clone();
+
+    view! {
+        {move || {
+            let children = children.clone();
+            let is_empty = is_empty.clone();
+            let empty_title = empty_title.clone();
+            let empty_desc = empty_description.clone();
+
+            match state.get() {
+                crate::hooks::LoadingState::Idle | crate::hooks::LoadingState::Loading => {
+                    view! {
+                        <LoadingDisplay message=loading_message.clone() />
+                    }.into_any()
+                }
+                crate::hooks::LoadingState::Loaded(data) => {
+                    if is_empty(&data) {
+                        view! {
+                            <EmptyState
+                                title=empty_title
+                                description=empty_desc
+                                variant=empty_variant
+                            />
+                        }.into_any()
+                    } else {
+                        children(data).into_any()
+                    }
+                }
+                crate::hooks::LoadingState::Error(e) => {
+                    view! {
+                        <ErrorDisplay error=e on_retry=on_retry />
+                    }.into_any()
+                }
+            }
+        }}
+    }
+}

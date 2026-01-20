@@ -78,6 +78,25 @@ impl CachingMetadata {
     }
 }
 
+/// ETag response extension
+///
+/// Handlers can set this extension to provide a pre-computed ETag.
+/// The caching middleware will read this and set the ETag header.
+///
+/// # Example
+/// ```ignore
+/// async fn get_resource() -> impl IntoResponse {
+///     let content = fetch_content().await;
+///     let etag = generate_etag(content.as_bytes());
+///     (
+///         Extension(ETagExtension(etag)),
+///         content
+///     )
+/// }
+/// ```
+#[derive(Debug, Clone)]
+pub struct ETagExtension(pub String);
+
 /// Generate ETag from response body hash
 ///
 /// Uses BLAKE3 for deterministic hashing across process restarts.
@@ -155,9 +174,12 @@ pub async fn caching_middleware(req: Request, next: Next) -> Response {
         }
     }
 
-    // Note: ETag generation requires access to response body, which is complex
-    // in Axum middleware. For now, we'll add a placeholder that handlers can override.
-    // TODO: Implement proper ETag generation with body inspection
+    // Add ETag header if handler provided one via extension
+    if let Some(etag_ext) = response.extensions().get::<ETagExtension>() {
+        if let Ok(etag_header) = HeaderValue::from_str(&etag_ext.0) {
+            response.headers_mut().insert(header::ETAG, etag_header);
+        }
+    }
 
     debug!(
         path = %path,

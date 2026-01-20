@@ -4,9 +4,10 @@
 // - Adapter lineage tree retrieval (ancestors + descendants)
 // - Adapter detail views with full metadata
 
+use crate::adapter_helpers::fetch_adapter_for_tenant;
+use crate::api_error::{ApiError, ApiResult};
 use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
-use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::*;
 use adapteros_db::adapters::Adapter;
@@ -17,7 +18,7 @@ use axum::{
     Extension,
 };
 use serde::{Deserialize, Serialize};
-use tracing::{error, warn};
+use tracing::error;
 use utoipa::ToSchema;
 
 // ============================================================================
@@ -233,50 +234,11 @@ pub async fn get_adapter_lineage(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
-) -> Result<Json<AdapterLineageResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<AdapterLineageResponse> {
     require_permission(&claims, Permission::AdapterView)?;
 
-    // Verify adapter exists
-    let current_adapter = state
-        .db
-        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
-        .await
-        .map_err(|e| {
-            error!(
-                tenant_id = %claims.tenant_id,
-                adapter_id = %adapter_id,
-                error = %e,
-                "Failed to fetch adapter"
-            );
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to retrieve adapter from database")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(format!(
-                            "Adapter '{}' metadata could not be loaded for tenant '{}'. This may indicate a temporary database issue. Technical details: {}",
-                            adapter_id, claims.tenant_id, e
-                        )),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            warn!(adapter_id = %adapter_id, "Adapter not found");
-            (
-                StatusCode::NOT_FOUND,
-                Json(
-                    ErrorResponse::new("Adapter not found")
-                        .with_code("ADAPTER_NOT_FOUND")
-                        .with_string_details(format!(
-                            "Adapter '{}' does not exist for tenant '{}'. Verify the adapter ID is correct or list available adapters using GET /v1/adapters",
-                            adapter_id, claims.tenant_id
-                        )),
-                ),
-            )
-        })?;
-
-    // Validate tenant isolation
-    validate_tenant_isolation(&claims, &current_adapter.tenant_id)?;
+    // Verify adapter exists and validate tenant isolation
+    let current_adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;
 
     // Get full lineage tree
     let lineage_adapters = state
@@ -290,17 +252,15 @@ pub async fn get_adapter_lineage(
                 error = %e,
                 "Failed to fetch lineage"
             );
-            (
+            ApiError::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to retrieve adapter lineage tree")
-                        .with_code("LINEAGE_RETRIEVAL_FAILED")
-                        .with_string_details(format!(
-                            "Lineage tree for adapter '{}' could not be constructed. Parent/child relationships may be corrupted. Technical details: {}",
-                            adapter_id, e
-                        )),
-                ),
+                "LINEAGE_RETRIEVAL_FAILED",
+                "Failed to retrieve adapter lineage tree",
             )
+            .with_details(format!(
+                "Lineage tree for adapter '{}' could not be constructed. Parent/child relationships may be corrupted.",
+                adapter_id
+            ))
         })?;
 
     // Separate into ancestors, self, and descendants
@@ -406,39 +366,10 @@ pub async fn get_adapter_detail(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
-) -> Result<Json<AdapterDetailResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<AdapterDetailResponse> {
     require_permission(&claims, Permission::AdapterView)?;
 
-    let adapter = state
-        .db
-        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
-        .await
-        .map_err(|e| {
-            error!(
-                tenant_id = %claims.tenant_id,
-                adapter_id = %adapter_id,
-                error = %e,
-                "Failed to fetch adapter"
-            );
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            warn!(adapter_id = %adapter_id, "Adapter not found");
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
-            )
-        })?;
-
-    // Validate tenant isolation
-    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
+    let adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;
 
     let mut response = AdapterDetailResponse::from(adapter.clone());
     if let Ok(status) = state.db.check_adapter_consistency(&adapter_id).await {

@@ -81,6 +81,7 @@ pub fn StyleAudit() -> impl IntoView {
         created_at: "2023-10-27T10:00:00Z".to_string(),
         latency_ms: 450,
         adapters_used: vec!["finance_v1".to_string(), "legal_v2".to_string()],
+        backend_id: Some("apple_silicon_ane".to_string()),
         token_decisions: vec![
             TokenDecision {
                 token_index: 0,
@@ -89,6 +90,8 @@ pub fn StyleAudit() -> impl IntoView {
                 gates_q15: vec![30000],
                 entropy: 0.1,
                 decision_hash: None,
+                backend_id: None,
+                kernel_version_id: None,
             },
             TokenDecision {
                 token_index: 1,
@@ -97,6 +100,8 @@ pub fn StyleAudit() -> impl IntoView {
                 gates_q15: vec![16000, 15000],
                 entropy: 0.8,
                 decision_hash: None,
+                backend_id: None,
+                kernel_version_id: None,
             },
         ],
         timing_breakdown: TimingBreakdown {
@@ -114,7 +119,13 @@ pub fn StyleAudit() -> impl IntoView {
             logical_prompt_tokens: 15,
             logical_output_tokens: 42,
             stop_reason_code: Some("stop".to_string()),
+            stop_reason_token_index: Some(41),
             verified: true,
+            processor_id: Some("Apple M2 Ultra".to_string()),
+            engine_version: Some("MLX 0.1.0".to_string()),
+            ane_version: Some("v2.1".to_string()),
+            prefix_cache_hit: true,
+            prefix_kv_bytes: 1024,
         }),
     };
 

@@ -279,8 +279,6 @@ fn HistorySection() -> impl IntoView {
             .await
     });
 
-    let refetch_signal = StoredValue::new(refetch);
-
     view! {
         <div class="space-y-4">
             // Filters
@@ -291,7 +289,7 @@ fn HistorySection() -> impl IntoView {
                         class="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
                         on:change=move |ev| {
                             error_type_filter.set(event_target_value(&ev));
-                            refetch_signal.with_value(|f| f());
+                            refetch.run(());
                         }
                     >
                         <option value="">"All"</option>
@@ -307,7 +305,7 @@ fn HistorySection() -> impl IntoView {
                         class="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
                         on:change=move |ev| {
                             http_status_filter.set(event_target_value(&ev));
-                            refetch_signal.with_value(|f| f());
+                            refetch.run(());
                         }
                     >
                         <option value="">"All"</option>
@@ -322,7 +320,7 @@ fn HistorySection() -> impl IntoView {
                 </div>
                 <Button
                     variant=ButtonVariant::Outline
-                    on:click=move |_| refetch_signal.with_value(|f| f())
+                    on:click=move |_| refetch.run(())
                 >
                     "Refresh"
                 </Button>
@@ -394,14 +392,12 @@ fn AnalyticsSection() -> impl IntoView {
         client.get_client_error_stats(None).await
     });
 
-    let refetch_signal = StoredValue::new(refetch);
-
     view! {
         <div class="space-y-4">
             <div class="flex items-center justify-end">
                 <Button
                     variant=ButtonVariant::Outline
-                    on:click=move |_| refetch_signal.with_value(|f| f())
+                    on:click=move |_| refetch.run(())
                 >
                     "Refresh"
                 </Button>

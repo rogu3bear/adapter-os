@@ -71,8 +71,9 @@ async fn test_concurrent_load_different_adapters() -> Result<()> {
             .name(format!("Stress Adapter {}", i))
             .hash_b3(format!("hash_{}", i))
             .rank(16)
-            .tier(2)
+            .tier("warm")
             .build()?;
+
         db.register_adapter(params).await?;
         adapter_ids.push(adapter_id);
     }
@@ -104,26 +105,33 @@ async fn test_concurrent_load_different_adapters() -> Result<()> {
         let handle = tokio::spawn(async move {
             // Update DB state to loading
             let _ = db_clone
-                .update_adapter_state(&adapter_id, "loading", "concurrent_load")
+                .update_adapter_state("default-tenant", &adapter_id, "loading", "concurrent_load")
                 .await;
 
             // Attempt to load adapter
-            let mut loader = AdapterLoader::new(temp_dir.clone());
+            let mut loader = AdapterLoader::new(temp_dir.clone(), std::collections::HashMap::new());
             let load_result = loader.load_adapter_async(adapter_idx, &adapter_name).await;
 
             match load_result {
                 Ok(_handle) => {
                     // Update DB state to warm
                     let _ = db_clone
-                        .update_adapter_state(&adapter_id, "warm", "loaded_successfully")
+                        .update_adapter_state(
+                            "default-tenant",
+                            &adapter_id,
+                            "warm",
+                            "loaded_successfully",
+                        )
                         .await;
+
                     Ok(())
                 }
                 Err(e) => {
                     // Rollback on error
                     let _ = db_clone
-                        .update_adapter_state(&adapter_id, "cold", "load_failed")
+                        .update_adapter_state("default-tenant", &adapter_id, "cold", "load_failed")
                         .await;
+
                     Err(e)
                 }
             }
@@ -199,8 +207,9 @@ async fn test_concurrent_load_unload_same_adapter() -> Result<()> {
         .name("Concurrent Test Adapter")
         .hash_b3("concurrent_hash")
         .rank(16)
-        .tier(2)
+        .tier("warm")
         .build()?;
+
     db.register_adapter(params).await?;
 
     let num_ops = 30;
@@ -216,21 +225,40 @@ async fn test_concurrent_load_unload_same_adapter() -> Result<()> {
             if is_load {
                 // Load operation
                 db_clone
-                    .update_adapter_state(&adapter_id_clone, "loading", "concurrent_load")
+                    .update_adapter_state(
+                        "default-tenant",
+                        &adapter_id_clone,
+                        "loading",
+                        "concurrent_load",
+                    )
                     .await?;
 
-                let mut loader = AdapterLoader::new(temp_dir_clone.clone());
+                let mut loader =
+                    AdapterLoader::new(temp_dir_clone.clone(), std::collections::HashMap::new());
+
                 match loader.load_adapter_async(0, "concurrent-adapter").await {
                     Ok(_) => {
                         db_clone
-                            .update_adapter_state(&adapter_id_clone, "warm", "loaded_successfully")
+                            .update_adapter_state(
+                                "default-tenant",
+                                &adapter_id_clone,
+                                "warm",
+                                "loaded_successfully",
+                            )
                             .await?;
+
                         Ok(())
                     }
                     Err(e) => {
                         db_clone
-                            .update_adapter_state(&adapter_id_clone, "cold", "load_failed")
+                            .update_adapter_state(
+                                "default-tenant",
+                                &adapter_id_clone,
+                                "cold",
+                                "load_failed",
+                            )
                             .await?;
+
                         Err(e)
                     }
                 }
@@ -239,26 +267,43 @@ async fn test_concurrent_load_unload_same_adapter() -> Result<()> {
                 let adapter = db_clone.get_adapter(&adapter_id_clone).await?;
                 if adapter.is_some() && adapter.unwrap().current_state == "warm" {
                     db_clone
-                        .update_adapter_state(&adapter_id_clone, "unloading", "concurrent_unload")
+                        .update_adapter_state(
+                            "default-tenant",
+                            &adapter_id_clone,
+                            "unloading",
+                            "concurrent_unload",
+                        )
                         .await?;
 
-                    let mut loader = AdapterLoader::new(temp_dir_clone);
+                    let mut loader =
+                        AdapterLoader::new(temp_dir_clone, std::collections::HashMap::new());
+
                     match loader.unload_adapter(0) {
                         Ok(_) => {
                             db_clone
                                 .update_adapter_state(
+                                    "default-tenant",
                                     &adapter_id_clone,
                                     "cold",
                                     "unloaded_successfully",
                                 )
                                 .await?;
-                            db_clone.update_adapter_memory(&adapter_id_clone, 0).await?;
+                            db_clone
+                                .update_adapter_memory("default-tenant", &adapter_id_clone, 0)
+                                .await?;
+
                             Ok(())
                         }
                         Err(e) => {
                             db_clone
-                                .update_adapter_state(&adapter_id_clone, "warm", "unload_failed")
+                                .update_adapter_state(
+                                    "default-tenant",
+                                    &adapter_id_clone,
+                                    "warm",
+                                    "unload_failed",
+                                )
                                 .await?;
+
                             Err(e)
                         }
                     }
@@ -322,28 +367,45 @@ async fn test_rapid_load_unload_cycles() -> Result<()> {
         .name("Rapid Cycle Adapter")
         .hash_b3("rapid_hash")
         .rank(16)
-        .tier(2)
+        .tier("warm")
         .build()?;
+
     db.register_adapter(params).await?;
 
     let num_cycles = 20;
-    let mut loader = AdapterLoader::new(temp_dir.clone());
+    let mut loader = AdapterLoader::new(temp_dir.clone(), std::collections::HashMap::new());
 
     for cycle in 0..num_cycles {
         // Load
-        db.update_adapter_state(adapter_id, "loading", &format!("cycle_{}_load", cycle))
-            .await?;
+        db.update_adapter_state(
+            "default-tenant",
+            adapter_id,
+            "loading",
+            &format!("cycle_{}_load", cycle),
+        )
+        .await?;
 
         match loader.load_adapter_async(0, "rapid-cycle-adapter").await {
             Ok(handle) => {
-                db.update_adapter_state(adapter_id, "warm", "loaded_successfully")
-                    .await?;
-                db.update_adapter_memory(adapter_id, handle.memory_bytes() as i64)
-                    .await?;
+                db.update_adapter_state(
+                    "default-tenant",
+                    adapter_id,
+                    "warm",
+                    "loaded_successfully",
+                )
+                .await?;
+                db.update_adapter_memory(
+                    "default-tenant",
+                    adapter_id,
+                    handle.memory_bytes() as i64,
+                )
+                .await?;
             }
+
             Err(e) => {
-                db.update_adapter_state(adapter_id, "cold", "load_failed")
+                db.update_adapter_state("default-tenant", adapter_id, "cold", "load_failed")
                     .await?;
+
                 eprintln!("Load failed in cycle {}: {}", cycle, e);
                 continue;
             }
@@ -353,18 +415,31 @@ async fn test_rapid_load_unload_cycles() -> Result<()> {
         sleep(Duration::from_millis(10)).await;
 
         // Unload
-        db.update_adapter_state(adapter_id, "unloading", &format!("cycle_{}_unload", cycle))
-            .await?;
+        db.update_adapter_state(
+            "default-tenant",
+            adapter_id,
+            "unloading",
+            &format!("cycle_{}_unload", cycle),
+        )
+        .await?;
 
         match loader.unload_adapter(0) {
             Ok(_) => {
-                db.update_adapter_state(adapter_id, "cold", "unloaded_successfully")
+                db.update_adapter_state(
+                    "default-tenant",
+                    adapter_id,
+                    "cold",
+                    "unloaded_successfully",
+                )
+                .await?;
+                db.update_adapter_memory("default-tenant", adapter_id, 0)
                     .await?;
-                db.update_adapter_memory(adapter_id, 0).await?;
             }
+
             Err(e) => {
-                db.update_adapter_state(adapter_id, "warm", "unload_failed")
+                db.update_adapter_state("default-tenant", adapter_id, "warm", "unload_failed")
                     .await?;
+
                 eprintln!("Unload failed in cycle {}: {}", cycle, e);
             }
         }
@@ -407,8 +482,9 @@ async fn test_memory_pressure_concurrent_loads() -> Result<()> {
             .name(format!("Memory Adapter {}", i))
             .hash_b3(format!("memory_hash_{}", i))
             .rank(16)
-            .tier(2)
+            .tier("warm")
             .build()?;
+
         db.register_adapter(params).await?;
         adapter_ids.push(adapter_id);
     }
@@ -423,24 +499,47 @@ async fn test_memory_pressure_concurrent_loads() -> Result<()> {
 
         let handle = tokio::spawn(async move {
             db_clone
-                .update_adapter_state(&adapter_id_clone, "loading", "memory_pressure_load")
+                .update_adapter_state(
+                    "default-tenant",
+                    &adapter_id_clone,
+                    "loading",
+                    "memory_pressure_load",
+                )
                 .await?;
 
-            let mut loader = AdapterLoader::new(temp_dir_clone);
+            let mut loader = AdapterLoader::new(temp_dir_clone, std::collections::HashMap::new());
+
             match loader.load_adapter_async(idx as u16, &adapter_name).await {
                 Ok(handle) => {
                     db_clone
-                        .update_adapter_state(&adapter_id_clone, "warm", "loaded_successfully")
+                        .update_adapter_state(
+                            "default-tenant",
+                            &adapter_id_clone,
+                            "warm",
+                            "loaded_successfully",
+                        )
                         .await?;
+
                     db_clone
-                        .update_adapter_memory(&adapter_id_clone, handle.memory_bytes() as i64)
+                        .update_adapter_memory(
+                            "default-tenant",
+                            &adapter_id_clone,
+                            handle.memory_bytes() as i64,
+                        )
                         .await?;
+
                     Ok(())
                 }
                 Err(e) => {
                     db_clone
-                        .update_adapter_state(&adapter_id_clone, "cold", "load_failed")
+                        .update_adapter_state(
+                            "default-tenant",
+                            &adapter_id_clone,
+                            "cold",
+                            "load_failed",
+                        )
                         .await?;
+
                     Err(e)
                 }
             }
@@ -512,12 +611,13 @@ async fn test_operation_timeout_handling() -> Result<()> {
         .name("Timeout Test Adapter")
         .hash_b3("timeout_hash")
         .rank(16)
-        .tier(2)
+        .tier("warm")
         .build()?;
+
     db.register_adapter(params).await?;
 
     // Start a load operation
-    db.update_adapter_state(adapter_id, "loading", "timeout_test")
+    db.update_adapter_state("default-tenant", adapter_id, "loading", "timeout_test")
         .await?;
 
     // Simulate timeout by setting a very short timeout and blocking operation
@@ -530,16 +630,27 @@ async fn test_operation_timeout_handling() -> Result<()> {
         // Simulate slow operation
         sleep(Duration::from_millis(timeout_ms * 2)).await;
 
-        let mut loader = AdapterLoader::new(temp_dir_clone);
+        let mut loader = AdapterLoader::new(temp_dir_clone, std::collections::HashMap::new());
+
         match loader.load_adapter_async(0, "timeout-adapter").await {
             Ok(_) => {
                 db_clone
-                    .update_adapter_state(&adapter_id_clone, "warm", "loaded_successfully")
+                    .update_adapter_state(
+                        "default-tenant",
+                        &adapter_id_clone,
+                        "warm",
+                        "loaded_successfully",
+                    )
                     .await
             }
             Err(e) => {
                 db_clone
-                    .update_adapter_state(&adapter_id_clone, "cold", "load_failed")
+                    .update_adapter_state(
+                        "default-tenant",
+                        &adapter_id_clone,
+                        "cold",
+                        "load_failed",
+                    )
                     .await
             }
         }

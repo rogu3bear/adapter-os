@@ -229,7 +229,7 @@ pub async fn stream_logs(
         Ok(filters) => filters.realtime,
         Err(err) => {
             warn!(
-                error = %err.error,
+                error = %err.message,
                 "invalid log stream filters provided; defaulting to unfiltered stream"
             );
             NormalizedLogFilters::default()

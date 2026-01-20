@@ -6,12 +6,12 @@
 //! - Getting dataset statistics
 //! - Validating individual files for format, structure, and content compliance
 
+use crate::api_error::ApiError;
 use crate::auth::Claims;
-use crate::error_helpers::{db_error, forbidden, not_found, payload_too_large};
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
-use crate::types::{DatasetFileResponse, DatasetStatisticsResponse, ErrorResponse};
+use crate::types::{DatasetFileResponse, DatasetStatisticsResponse};
 use adapteros_core::B3Hash;
 use adapteros_db::training_datasets::{CreateDatasetFileParams, DatasetFile, TrainingDataset};
 use adapteros_storage::{ByteStorage, FsByteStorage, StorageKey};
@@ -36,15 +36,13 @@ use super::validation::{
 };
 use super::{resolve_dataset_root, DatasetPaths, VERSIONS_DIR_NAME};
 
-fn resolve_dataset_storage(
-    state: &AppState,
-) -> Result<FsByteStorage, (StatusCode, Json<ErrorResponse>)> {
+fn resolve_dataset_storage(state: &AppState) -> Result<FsByteStorage, ApiError> {
     let datasets_root = resolve_dataset_root(state)
-        .map_err(|e| db_error(format!("Failed to resolve datasets root: {}", e)))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to resolve datasets root: {}", e)))?;
     let adapters_root = state
         .config
         .read()
-        .map_err(|_| db_error("Config lock poisoned".to_string()))?
+        .map_err(|_| ApiError::db_error("Config lock poisoned".to_string()))?
         .paths
         .adapters_root
         .clone();
@@ -56,7 +54,7 @@ fn resolve_dataset_file_path(
     dataset: &TrainingDataset,
     file: &DatasetFile,
     workspace_override: Option<&str>,
-) -> Result<PathBuf, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<PathBuf, ApiError> {
     let workspace_id = workspace_override
         .or(dataset.workspace_id.as_deref())
         .or(dataset.tenant_id.as_deref());
@@ -68,7 +66,7 @@ fn resolve_dataset_file_path(
     );
     let expected_path = storage
         .path_for(&key)
-        .map_err(|e| db_error(format!("Failed to resolve dataset file path: {}", e)))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to resolve dataset file path: {}", e)))?;
 
     if file.file_path.is_empty() {
         return Ok(expected_path);
@@ -80,9 +78,9 @@ fn resolve_dataset_file_path(
     }
 
     let legacy_key = StorageKey::dataset_file(None, &file.dataset_id, None, &file.file_name);
-    let legacy_path = storage
-        .path_for(&legacy_key)
-        .map_err(|e| db_error(format!("Failed to resolve legacy dataset file path: {}", e)))?;
+    let legacy_path = storage.path_for(&legacy_key).map_err(|e| {
+        ApiError::db_error(format!("Failed to resolve legacy dataset file path: {}", e))
+    })?;
     if reported_path == legacy_path {
         return Ok(legacy_path);
     }
@@ -92,7 +90,7 @@ fn resolve_dataset_file_path(
         return Ok(reported_path);
     }
 
-    Err(db_error(format!(
+    Err(ApiError::db_error(format!(
         "Dataset file path does not match storage layout for {}",
         file.file_name
     )))
@@ -101,42 +99,42 @@ fn resolve_dataset_file_path(
 async fn load_dataset_files(
     state: &AppState,
     dataset: &TrainingDataset,
-) -> Result<Vec<DatasetFile>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<Vec<DatasetFile>, ApiError> {
     if let Some(workspace_id) = dataset.workspace_id.as_deref() {
         return state
             .db
             .get_dataset_files_for_workspace(workspace_id, &dataset.id)
             .await
-            .map_err(|e| db_error(format!("Failed to get dataset files: {}", e)));
+            .map_err(|e| ApiError::db_error(format!("Failed to get dataset files: {}", e)));
     }
 
     state
         .db
         .get_dataset_files(&dataset.id)
         .await
-        .map_err(|e| db_error(format!("Failed to get dataset files: {}", e)))
+        .map_err(|e| ApiError::db_error(format!("Failed to get dataset files: {}", e)))
 }
 
 async fn load_dataset_file(
     state: &AppState,
     dataset: &TrainingDataset,
     file_id: &str,
-) -> Result<DatasetFile, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<DatasetFile, ApiError> {
     if let Some(workspace_id) = dataset.workspace_id.as_deref() {
         return state
             .db
             .get_dataset_file_for_workspace(workspace_id, &dataset.id, file_id)
             .await
-            .map_err(|e| db_error(format!("Failed to get dataset file: {}", e)))?
-            .ok_or_else(|| not_found("File"));
+            .map_err(|e| ApiError::db_error(format!("Failed to get dataset file: {}", e)))?
+            .ok_or_else(|| ApiError::not_found("File"));
     }
 
     state
         .db
         .get_dataset_file(&dataset.id, file_id)
         .await
-        .map_err(|e| db_error(format!("Failed to get dataset file: {}", e)))?
-        .ok_or_else(|| not_found("File"))
+        .map_err(|e| ApiError::db_error(format!("Failed to get dataset file: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("File"))
 }
 
 async fn hash_file_streaming(path: &StdPath) -> Result<String, std::io::Error> {
@@ -186,7 +184,7 @@ async fn collect_dataset_file_paths(root: &StdPath) -> Result<Vec<PathBuf>, std:
 async fn populate_dataset_files_from_storage(
     state: &AppState,
     dataset: &TrainingDataset,
-) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+) -> Result<(), ApiError> {
     if dataset.tenant_id.is_none() {
         debug!(
             dataset_id = %dataset.id,
@@ -264,7 +262,7 @@ async fn populate_dataset_files_from_storage(
         } else {
             collect_dataset_file_paths(&root)
                 .await
-                .map_err(|e| db_error(format!("Failed to list dataset files: {}", e)))?
+                .map_err(|e| ApiError::db_error(format!("Failed to list dataset files: {}", e)))?
         };
 
         file_paths.sort();
@@ -272,7 +270,7 @@ async fn populate_dataset_files_from_storage(
         for path in file_paths {
             let metadata = fs::metadata(&path)
                 .await
-                .map_err(|e| db_error(format!("Failed to stat dataset file: {}", e)))?;
+                .map_err(|e| ApiError::db_error(format!("Failed to stat dataset file: {}", e)))?;
             if !metadata.is_file() {
                 continue;
             }
@@ -306,7 +304,7 @@ async fn populate_dataset_files_from_storage(
 
             let hash_b3 = hash_file_streaming(&path)
                 .await
-                .map_err(|e| db_error(format!("Failed to hash dataset file: {}", e)))?;
+                .map_err(|e| ApiError::db_error(format!("Failed to hash dataset file: {}", e)))?;
 
             file_records.push(CreateDatasetFileParams {
                 file_name,
@@ -326,7 +324,9 @@ async fn populate_dataset_files_from_storage(
         .db
         .insert_dataset_files(&dataset.id, &file_records)
         .await
-        .map_err(|e| db_error(format!("Failed to insert dataset file metadata: {}", e)))?;
+        .map_err(|e| {
+            ApiError::db_error(format!("Failed to insert dataset file metadata: {}", e))
+        })?;
 
     Ok(())
 }
@@ -349,7 +349,7 @@ pub async fn get_dataset_files(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(dataset_id): Path<String>,
-) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetView)?;
 
     // Verify dataset exists
@@ -357,15 +357,15 @@ pub async fn get_dataset_files(
         .db
         .get_training_dataset(&dataset_id)
         .await
-        .map_err(|e| db_error(format!("Failed to get dataset: {}", e)))?
-        .ok_or_else(|| not_found("Dataset"))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to get dataset: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Dataset"))?;
 
     // CRITICAL: Validate tenant isolation - non-admin users can only access their own tenant's datasets
     if let Some(ref dataset_tenant_id) = dataset.tenant_id {
         validate_tenant_isolation(&claims, dataset_tenant_id)?;
     } else if claims.role != "admin" {
         // Datasets without tenant_id are only accessible to admins
-        return Err(forbidden(
+        return Err(ApiError::forbidden(
             "Access denied: dataset has no tenant association",
         ));
     }
@@ -411,7 +411,7 @@ pub async fn get_dataset_statistics(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(dataset_id): Path<String>,
-) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetView)?;
 
     // Verify dataset exists
@@ -419,15 +419,15 @@ pub async fn get_dataset_statistics(
         .db
         .get_training_dataset(&dataset_id)
         .await
-        .map_err(|e| db_error(format!("Failed to get dataset: {}", e)))?
-        .ok_or_else(|| not_found("Dataset"))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to get dataset: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Dataset"))?;
 
     // CRITICAL: Validate tenant isolation - non-admin users can only access their own tenant's datasets
     if let Some(ref dataset_tenant_id) = dataset.tenant_id {
         validate_tenant_isolation(&claims, dataset_tenant_id)?;
     } else if claims.role != "admin" {
         // Datasets without tenant_id are only accessible to admins
-        return Err(forbidden(
+        return Err(ApiError::forbidden(
             "Access denied: dataset has no tenant association",
         ));
     }
@@ -436,8 +436,8 @@ pub async fn get_dataset_statistics(
         .db
         .get_dataset_statistics(&dataset_id)
         .await
-        .map_err(|e| db_error(format!("Failed to get statistics: {}", e)))?
-        .ok_or_else(|| not_found("Statistics for this dataset"))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to get statistics: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Statistics for this dataset"))?;
 
     Ok(Json(DatasetStatisticsResponse {
         schema_version: "1.0".to_string(),
@@ -483,7 +483,7 @@ pub async fn get_dataset_file_content(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(path): Path<DatasetFileContentPath>,
-) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetView)?;
 
     // Verify dataset exists and check tenant isolation
@@ -491,15 +491,15 @@ pub async fn get_dataset_file_content(
         .db
         .get_training_dataset(&path.dataset_id)
         .await
-        .map_err(|e| db_error(format!("Failed to get dataset: {}", e)))?
-        .ok_or_else(|| not_found("Dataset"))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to get dataset: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Dataset"))?;
 
     // CRITICAL: Validate tenant isolation - non-admin users can only access their own tenant's datasets
     if let Some(ref dataset_tenant_id) = dataset.tenant_id {
         validate_tenant_isolation(&claims, dataset_tenant_id)?;
     } else if claims.role != "admin" {
         // Datasets without tenant_id are only accessible to admins
-        return Err(forbidden(
+        return Err(ApiError::forbidden(
             "Access denied: dataset has no tenant association",
         ));
     }
@@ -513,9 +513,9 @@ pub async fn get_dataset_file_content(
 
     let metadata = fs::metadata(&safe_path)
         .await
-        .map_err(|e| db_error(format!("Failed to stat file: {}", e)))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to stat file: {}", e)))?;
     if metadata.len() > MAX_FILE_SIZE as u64 {
-        return Err(payload_too_large(&format!(
+        return Err(ApiError::payload_too_large(format!(
             "File exceeds maximum size of {}MB",
             MAX_FILE_SIZE / 1024 / 1024
         )));
@@ -524,7 +524,7 @@ pub async fn get_dataset_file_content(
     // Read file content
     let file_data = fs::read(&safe_path)
         .await
-        .map_err(|e| db_error(format!("Failed to read file: {}", e)))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to read file: {}", e)))?;
 
     // Determine Content-Type from mime_type or default to application/octet-stream
     let content_type = file
@@ -710,7 +710,7 @@ pub async fn validate_dataset_file(
     Extension(claims): Extension<Claims>,
     Path(path): Path<DatasetFileContentPath>,
     Json(request): Json<ValidateFileRequest>,
-) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetValidate)?;
 
     // Verify dataset exists and check tenant isolation
@@ -718,14 +718,14 @@ pub async fn validate_dataset_file(
         .db
         .get_training_dataset(&path.dataset_id)
         .await
-        .map_err(|e| db_error(format!("Failed to get dataset: {}", e)))?
-        .ok_or_else(|| not_found("Dataset"))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to get dataset: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Dataset"))?;
 
     // CRITICAL: Validate tenant isolation - non-admin users can only validate their own tenant's datasets
     if let Some(ref dataset_tenant_id) = dataset.tenant_id {
         validate_tenant_isolation(&claims, dataset_tenant_id)?;
     } else if claims.role != "admin" {
-        return Err(forbidden(
+        return Err(ApiError::forbidden(
             "Access denied: dataset has no tenant association",
         ));
     }
@@ -805,7 +805,7 @@ pub async fn validate_all_dataset_files(
     Extension(claims): Extension<Claims>,
     Path(dataset_id): Path<String>,
     Json(request): Json<ValidateFileRequest>,
-) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetValidate)?;
 
     // Verify dataset exists and check tenant isolation
@@ -813,14 +813,14 @@ pub async fn validate_all_dataset_files(
         .db
         .get_training_dataset(&dataset_id)
         .await
-        .map_err(|e| db_error(format!("Failed to get dataset: {}", e)))?
-        .ok_or_else(|| not_found("Dataset"))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to get dataset: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Dataset"))?;
 
     // CRITICAL: Validate tenant isolation
     if let Some(ref dataset_tenant_id) = dataset.tenant_id {
         validate_tenant_isolation(&claims, dataset_tenant_id)?;
     } else if claims.role != "admin" {
-        return Err(forbidden(
+        return Err(ApiError::forbidden(
             "Access denied: dataset has no tenant association",
         ));
     }
@@ -1005,7 +1005,7 @@ pub async fn get_dataset_files_for_workspace(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(path): Path<WorkspaceDatasetFilesPath>,
-) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetView)?;
 
     // Verify dataset exists and belongs to the workspace
@@ -1013,19 +1013,19 @@ pub async fn get_dataset_files_for_workspace(
         .db
         .get_training_dataset(&path.dataset_id)
         .await
-        .map_err(|e| db_error(format!("Failed to get dataset: {}", e)))?
-        .ok_or_else(|| not_found("Dataset"))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to get dataset: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Dataset"))?;
 
     // Verify workspace match
     if dataset.workspace_id.as_deref() != Some(&path.workspace_id) {
-        return Err(not_found("Dataset not found in this workspace"));
+        return Err(ApiError::not_found("Dataset not found in this workspace"));
     }
 
     // CRITICAL: Validate tenant isolation
     if let Some(ref dataset_tenant_id) = dataset.tenant_id {
         validate_tenant_isolation(&claims, dataset_tenant_id)?;
     } else if claims.role != "admin" {
-        return Err(forbidden(
+        return Err(ApiError::forbidden(
             "Access denied: dataset has no tenant association",
         ));
     }
@@ -1035,14 +1035,14 @@ pub async fn get_dataset_files_for_workspace(
         .db
         .get_dataset_files_for_workspace(&path.workspace_id, &path.dataset_id)
         .await
-        .map_err(|e| db_error(format!("Failed to get dataset files: {}", e)))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to get dataset files: {}", e)))?;
     if files.is_empty() && dataset.file_count == 0 && dataset.total_size_bytes == 0 {
         populate_dataset_files_from_storage(&state, &dataset).await?;
         files = state
             .db
             .get_dataset_files_for_workspace(&path.workspace_id, &path.dataset_id)
             .await
-            .map_err(|e| db_error(format!("Failed to get dataset files: {}", e)))?;
+            .map_err(|e| ApiError::db_error(format!("Failed to get dataset files: {}", e)))?;
     }
 
     let responses: Vec<DatasetFileResponse> = files
@@ -1086,7 +1086,7 @@ pub async fn get_dataset_file_content_for_workspace(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(path): Path<WorkspaceDatasetFileContentPath>,
-) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetView)?;
 
     // Verify dataset exists and belongs to the workspace
@@ -1094,19 +1094,19 @@ pub async fn get_dataset_file_content_for_workspace(
         .db
         .get_training_dataset(&path.dataset_id)
         .await
-        .map_err(|e| db_error(format!("Failed to get dataset: {}", e)))?
-        .ok_or_else(|| not_found("Dataset"))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to get dataset: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Dataset"))?;
 
     // Verify workspace match
     if dataset.workspace_id.as_deref() != Some(&path.workspace_id) {
-        return Err(not_found("Dataset not found in this workspace"));
+        return Err(ApiError::not_found("Dataset not found in this workspace"));
     }
 
     // CRITICAL: Validate tenant isolation
     if let Some(ref dataset_tenant_id) = dataset.tenant_id {
         validate_tenant_isolation(&claims, dataset_tenant_id)?;
     } else if claims.role != "admin" {
-        return Err(forbidden(
+        return Err(ApiError::forbidden(
             "Access denied: dataset has no tenant association",
         ));
     }
@@ -1116,8 +1116,8 @@ pub async fn get_dataset_file_content_for_workspace(
         .db
         .get_dataset_file_for_workspace(&path.workspace_id, &path.dataset_id, &path.file_id)
         .await
-        .map_err(|e| db_error(format!("Failed to get dataset file: {}", e)))?
-        .ok_or_else(|| not_found("File not found in this workspace"))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to get dataset file: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("File not found in this workspace"))?;
 
     let storage = resolve_dataset_storage(&state)?;
     let resolved_path =
@@ -1127,7 +1127,7 @@ pub async fn get_dataset_file_content_for_workspace(
     // Read file content
     let file_data = fs::read(&safe_path)
         .await
-        .map_err(|e| db_error(format!("Failed to read file: {}", e)))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to read file: {}", e)))?;
 
     // Determine Content-Type from mime_type or default to application/octet-stream
     let content_type = file
@@ -1169,7 +1169,7 @@ pub async fn list_workspace_files(
     Extension(claims): Extension<Claims>,
     Path(workspace_id): Path<String>,
     axum::extract::Query(query): axum::extract::Query<WorkspaceFilesQuery>,
-) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetView)?;
 
     // For workspace-level access, verify the user has access to this workspace
@@ -1180,11 +1180,11 @@ pub async fn list_workspace_files(
             .db
             .list_training_datasets_for_workspace(&claims.tenant_id, &workspace_id, 1)
             .await
-            .map_err(|e| db_error(format!("Failed to verify workspace access: {}", e)))?;
+            .map_err(|e| ApiError::db_error(format!("Failed to verify workspace access: {}", e)))?;
 
         if datasets.is_empty() {
             // Check if workspace exists but user has no access, or workspace doesn't exist
-            return Err(forbidden(
+            return Err(ApiError::forbidden(
                 "Access denied: no datasets found in this workspace for your tenant",
             ));
         }
@@ -1195,14 +1195,14 @@ pub async fn list_workspace_files(
         .db
         .count_files_for_workspace(&workspace_id)
         .await
-        .map_err(|e| db_error(format!("Failed to count workspace files: {}", e)))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to count workspace files: {}", e)))?;
 
     // Get files
     let files = state
         .db
         .list_all_files_for_workspace(&workspace_id, query.limit)
         .await
-        .map_err(|e| db_error(format!("Failed to list workspace files: {}", e)))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to list workspace files: {}", e)))?;
 
     let file_responses: Vec<DatasetFileResponse> = files
         .into_iter()

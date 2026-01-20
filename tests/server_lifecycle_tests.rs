@@ -626,8 +626,17 @@ async fn test_health_check_degradation() -> Result<()> {
 
     // Query initial health status
     let client = reqwest::Client::new();
-    let response = client.get(&config.health_url()).send().await?;
-    let health_data: Value = response.json().await?;
+    let response = client
+        .get(&config.health_url())
+        .send()
+        .await
+        .map_err(|e| AosError::Network(e.to_string()))?;
+    let health_data: Value = response.json().await.map_err(|e| {
+        AosError::Serialization(
+            serde_json::from_str(&e.to_string())
+                .unwrap_or(serde_json::Error::custom("reqwest json failed")),
+        )
+    })?;
 
     eprintln!("Initial health status:");
     eprintln!("{}", serde_json::to_string_pretty(&health_data)?);
@@ -644,10 +653,18 @@ async fn test_health_check_degradation() -> Result<()> {
 
     for component in component_names {
         let component_url = format!("{}/healthz/{}", config.base_url(), component);
-        let response = client.get(&component_url).send().await?;
+        let response = client
+            .get(&component_url)
+            .send()
+            .await
+            .map_err(|e| AosError::Network(e.to_string()))?;
 
         if response.status().is_success() {
-            let component_health: Value = response.json().await?;
+            let component_health: Value = response
+                .json()
+                .await
+                .map_err(|e| AosError::Network(e.to_string()))?;
+
             eprintln!(
                 "✓ Component '{}' health: {}",
                 component,

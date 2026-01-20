@@ -21,9 +21,6 @@ pub fn Models() -> impl IntoView {
     let (models, refetch_models) =
         use_api_resource(move |client: Arc<ApiClient>| async move { client.list_models().await });
 
-    // Store refetch in a signal for sharing
-    let refetch_signal = StoredValue::new(refetch_models);
-
     let on_model_select = move |model_id: String| {
         selected_model_id.set(Some(model_id));
     };
@@ -50,7 +47,7 @@ pub fn Models() -> impl IntoView {
                                 <div class="flex items-center gap-2">
                                     <Button
                                         variant=ButtonVariant::Outline
-                                        on_click=Callback::new(move |_| refetch_signal.with_value(|f| f()))
+                                        on_click=Callback::new(move |_| refetch_models.run(()))
                                     >
                                         "Refresh"
                                     </Button>
@@ -80,7 +77,7 @@ pub fn Models() -> impl IntoView {
                                         view! {
                                             <ErrorDisplay
                                                 error=e
-                                                on_retry=Callback::new(move |_| refetch_signal.with_value(|f| f()))
+                                                on_retry=refetch_models
                                             />
                                         }.into_any()
                                     }
@@ -225,8 +222,6 @@ fn ModelDetail(model_id: String, on_close: impl Fn() + Copy + 'static) -> impl I
         async move { client.get_model(&id).await }
     });
 
-    let refetch_signal = StoredValue::new(refetch);
-
     view! {
         <div class="space-y-4">
             // Header with close button
@@ -271,7 +266,7 @@ fn ModelDetail(model_id: String, on_close: impl Fn() + Copy + 'static) -> impl I
                         view! {
                             <ErrorDisplay
                                 error=e
-                                on_retry=Callback::new(move |_| refetch_signal.with_value(|f| f()))
+                                on_retry=refetch
                             />
                         }.into_any()
                     }

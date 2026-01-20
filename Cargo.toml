@@ -23,7 +23,7 @@ members = [
     "crates/adapteros-types",
     "crates/adapteros-lora-kernel-mtl",  # Metal kernels - re-enabled for MVP
     "crates/adapteros-system-metrics",
-    "crates/adapteros-mlx",           # mlx-rs abstraction (experimental fallback)
+
     "crates/adapteros-lora-mlx-ffi",  # MLX backend - primary C++ FFI (production)
     "crates/adapteros-lora-plan",
     "crates/adapteros-lora-router",
@@ -48,6 +48,7 @@ members = [
     "crates/adapteros-metrics-exporter",
     "crates/adapteros-orchestrator",
     "crates/adapteros-profiler",
+    "crates/adapteros-lora-kernel-prof",
     "tests/benchmark",  # Performance benchmark suite
     "crates/adapteros-lora-lifecycle",
     "crates/adapteros-scenarios",
@@ -238,6 +239,8 @@ reqwest = { version = "0.12", features = ["json"] }
 clap = { version = "4.4", features = ["derive", "env"] }
 comfy-table = "7.1"
 fs2 = "0.4"
+git2 = "0.18"
+
 
 # ML & Search
 hnsw_rs = "0.3"
@@ -408,7 +411,9 @@ adapteros-boot = { path = "crates/adapteros-boot" }
 adapteros-federation = { path = "crates/adapteros-federation" }
 adapteros-secd = { path = "crates/adapteros-secd" }
 reqwest = { workspace = true }
+toml = { workspace = true }
 futures-util = { workspace = true }
+
 base64 = { workspace = true }
 ed25519-dalek = { workspace = true }
 rand = { workspace = true }
@@ -432,11 +437,7 @@ adapteros-registry = { path = "crates/adapteros-registry" }
 adapteros-artifacts = { path = "crates/adapteros-artifacts" }
 adapteros-lora-kernel-api = { path = "crates/adapteros-lora-kernel-api" }
 adapteros-lora-kernel-mtl = { path = "crates/adapteros-lora-kernel-mtl" }  # macOS only - needed for KV quota tests
-# NOTE: adapteros-mlx removed from dev-dependencies to fix MLX symbol conflict.
-# adapteros-mlx uses mlx-rs which builds its own libmlx.a from source.
-# adapteros-lora-mlx-ffi uses Homebrew MLX via C++ FFI with different symbols.
-# Having both causes undefined symbol errors at link time for integration tests.
-# adapteros-mlx is deprecated and not used by workspace tests.
+
 adapteros-lora-mlx-ffi = { path = "crates/adapteros-lora-mlx-ffi" }  # MLX C++ FFI layer
 # adapteros-lora-kernel-prof = { path = "crates/adapteros-lora-kernel-prof" }  # macOS only
 # adapteros-system-metrics = { path = "crates/adapteros-system-metrics" }  # Requires DATABASE_URL

@@ -80,7 +80,7 @@ pub fn Diff() -> impl IntoView {
                         "Compare two diagnostic runs to find deterministic divergence"
                     </p>
                 </div>
-                <Button variant=ButtonVariant::Outline on:click=move |_| refetch_runs()>
+                <Button variant=ButtonVariant::Outline on:click=move |_| refetch_runs.run(())>
                     "Refresh Runs"
                 </Button>
             </div>

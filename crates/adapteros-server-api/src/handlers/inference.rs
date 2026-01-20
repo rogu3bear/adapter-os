@@ -9,6 +9,7 @@
 //!
 //! All inference execution is routed through InferenceCore for unified handling.
 
+use crate::api_error::{ApiError, ApiResult};
 use crate::auth::{is_dev_bypass_enabled, Claims};
 use crate::backpressure::check_uma_backpressure;
 use crate::chat_context::build_chat_prompt;
@@ -79,7 +80,7 @@ pub async fn infer(
     request_id: Option<Extension<RequestId>>,
     api_key: Option<Extension<ApiKeyToken>>,
     Json(req): Json<InferRequest>,
-) -> Result<Json<InferResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<InferResponse> {
     // Extract request_id for hook context
     let request_id_str = request_id
         .map(|r| r.0 .0.clone())
@@ -90,10 +91,7 @@ pub async fn infer(
 
     // Validate request
     if req.prompt.trim().is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new("prompt cannot be empty").with_code("BAD_REQUEST")),
-        ));
+        return Err(ApiError::bad_request("prompt cannot be empty"));
     }
 
     // Audit log: inference execution start
@@ -139,16 +137,17 @@ pub async fn infer(
     let routing_decisions = match enforce_at_hook(&state, &routing_hook_ctx).await {
         Ok(decisions) => decisions,
         Err(violation) => {
-            let code = violation.code.as_deref().unwrap_or("POLICY_HOOK_VIOLATION");
-            return Err((
+            let code = violation
+                .code
+                .clone()
+                .unwrap_or_else(|| "POLICY_HOOK_VIOLATION".to_string());
+            return Err(ApiError::new(
                 StatusCode::FORBIDDEN,
-                Json(
-                    ErrorResponse::new("policy hook violation (pre-routing)")
-                        .with_code(code)
-                        .with_failure_code(FailureCode::PolicyDivergence)
-                        .with_string_details(violation.message),
-                ),
-            ));
+                "POLICY_HOOK_VIOLATION",
+                "policy hook violation (pre-routing)",
+            )
+            .with_code(code)
+            .with_details(violation.message));
         }
     };
 
@@ -163,16 +162,17 @@ pub async fn infer(
     let inference_decisions = match enforce_at_hook(&state, &hook_ctx).await {
         Ok(decisions) => decisions,
         Err(violation) => {
-            let code = violation.code.as_deref().unwrap_or("POLICY_HOOK_VIOLATION");
-            return Err((
+            let code = violation
+                .code
+                .clone()
+                .unwrap_or_else(|| "POLICY_HOOK_VIOLATION".to_string());
+            return Err(ApiError::new(
                 StatusCode::FORBIDDEN,
-                Json(
-                    ErrorResponse::new("policy hook violation")
-                        .with_code(code)
-                        .with_failure_code(FailureCode::PolicyDivergence)
-                        .with_string_details(violation.message),
-                ),
-            ));
+                "POLICY_HOOK_VIOLATION",
+                "policy hook violation",
+            )
+            .with_code(code)
+            .with_details(violation.message));
         }
     };
 
@@ -229,10 +229,7 @@ pub async fn infer(
     };
 
     if base_prompt.len() > MAX_REPLAY_TEXT_SIZE {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new("prompt too long for context window").with_code("BAD_REQUEST")),
-        ));
+        return Err(ApiError::bad_request("prompt too long for context window"));
     }
 
     // Convert to internal format with the (possibly multi-turn) prompt
@@ -268,14 +265,7 @@ pub async fn infer(
     let inference_result = match inference_task.await {
         Ok(res) => res,
         Err(e) => {
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("inference task join error")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            ));
+            return Err(ApiError::internal("inference task join error").with_details(e.to_string()));
         }
     };
     cancel_guard.disarm();
@@ -289,7 +279,7 @@ pub async fn infer(
                     tenant_id = %claims.tenant_id,
                     "Inference cancelled due to client disconnect"
                 );
-                return Err(<(StatusCode, Json<ErrorResponse>)>::from(e));
+                return Err(<(StatusCode, Json<ErrorResponse>)>::from(e).into());
             }
 
             // Dev echo mode: when no worker is available in dev bypass mode,
@@ -406,7 +396,7 @@ pub async fn infer(
                 }
             }
 
-            return Err(<(StatusCode, Json<ErrorResponse>)>::from(e));
+            return Err(<(StatusCode, Json<ErrorResponse>)>::from(e).into());
         }
     };
 
@@ -419,16 +409,17 @@ pub async fn infer(
         adapters_requested.as_deref(),
     );
     if let Err(violation) = enforce_at_hook(&state, &after_hook_ctx).await {
-        let code = violation.code.as_deref().unwrap_or("POLICY_HOOK_VIOLATION");
-        return Err((
+        let code = violation
+            .code
+            .clone()
+            .unwrap_or_else(|| "POLICY_HOOK_VIOLATION".to_string());
+        return Err(ApiError::new(
             StatusCode::FORBIDDEN,
-            Json(
-                ErrorResponse::new("policy hook violation (post-inference)")
-                    .with_code(code)
-                    .with_failure_code(FailureCode::PolicyDivergence)
-                    .with_string_details(violation.message),
-            ),
-        ));
+            "POLICY_HOOK_VIOLATION",
+            "policy hook violation (post-inference)",
+        )
+        .with_code(code)
+        .with_details(violation.message));
     }
 
     // AARA Lifecycle: Log inference decision for audit trail
@@ -483,14 +474,7 @@ pub async fn infer(
 
     // Validate response schema before returning
     let response_value = serde_json::to_value(&response).map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("response serialization failed")
-                    .with_code("INTERNAL_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
+        ApiError::internal("response serialization failed").with_details(e.to_string())
     })?;
 
     state
@@ -498,14 +482,7 @@ pub async fn infer(
         .validate_response(&response_value, "inference_response")
         .await
         .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("response validation failed")
-                        .with_code("VALIDATION_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
+            ApiError::internal("response validation failed").with_details(e.to_string())
         })?;
 
     Ok(Json(response))
@@ -583,9 +560,7 @@ pub async fn get_inference_provenance(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     axum::extract::Path(trace_id): axum::extract::Path<String>,
-) -> Result<Json<ProvenanceResponse>, (StatusCode, Json<ErrorResponse>)> {
-    use crate::error_helpers::internal_error;
-
+) -> ApiResult<ProvenanceResponse> {
     // Permission check - allow audit/view access
     crate::permissions::require_permission(&claims, Permission::AuditView)?;
 
@@ -594,12 +569,9 @@ pub async fn get_inference_provenance(
         .await
         .map_err(|e| {
             if e.to_string().contains("not found") {
-                (
-                    StatusCode::NOT_FOUND,
-                    Json(ErrorResponse::new("Inference trace not found").with_code("NOT_FOUND")),
-                )
+                ApiError::not_found("Inference trace")
             } else {
-                internal_error(e)
+                ApiError::db_error(e)
             }
         })?;
 

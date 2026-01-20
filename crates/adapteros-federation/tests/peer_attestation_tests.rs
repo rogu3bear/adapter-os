@@ -153,7 +153,8 @@ mod attestation_metadata_parsing {
             "secure_enclave_available": "not_a_bool"
         }"#;
 
-        let result: std::result::Result<AttestationMetadata, _> = serde_json::from_str(invalid_json);
+        let result: std::result::Result<AttestationMetadata, _> =
+            serde_json::from_str(invalid_json);
         assert!(result.is_err());
     }
 
@@ -209,12 +210,7 @@ mod certificate_validation {
         let zero_pubkey = adapteros_crypto::PublicKey::from_bytes(&zero_bytes)?;
 
         let result = registry
-            .register_peer(
-                "bad-host".to_string(),
-                zero_pubkey,
-                None,
-                None,
-            )
+            .register_peer("bad-host".to_string(), zero_pubkey, None, None)
             .await;
 
         assert!(result.is_err());
@@ -233,12 +229,7 @@ mod certificate_validation {
         let weak_pubkey = adapteros_crypto::PublicKey::from_bytes(&weak_bytes)?;
 
         let result = registry
-            .register_peer(
-                "weak-host".to_string(),
-                weak_pubkey,
-                None,
-                None,
-            )
+            .register_peer("weak-host".to_string(), weak_pubkey, None, None)
             .await;
 
         assert!(result.is_err());
@@ -417,7 +408,12 @@ mod peer_registration {
 
         let keypair = Keypair::generate();
         registry
-            .register_peer("to-deactivate".to_string(), keypair.public_key(), None, None)
+            .register_peer(
+                "to-deactivate".to_string(),
+                keypair.public_key(),
+                None,
+                None,
+            )
             .await?;
 
         // Verify active
@@ -557,7 +553,12 @@ mod health_status_transitions {
 
         let keypair = Keypair::generate();
         registry
-            .register_peer("threshold-test".to_string(), keypair.public_key(), None, None)
+            .register_peer(
+                "threshold-test".to_string(),
+                keypair.public_key(),
+                None,
+                None,
+            )
             .await?;
 
         // First failed check - degraded
@@ -596,7 +597,12 @@ mod health_status_transitions {
 
         let keypair = Keypair::generate();
         registry
-            .register_peer("recovery-test".to_string(), keypair.public_key(), None, None)
+            .register_peer(
+                "recovery-test".to_string(),
+                keypair.public_key(),
+                None,
+                None,
+            )
             .await?;
 
         // Make degraded
@@ -686,7 +692,12 @@ mod health_status_transitions {
         for i in 0..6 {
             let keypair = Keypair::generate();
             registry
-                .register_peer(format!("status-test-{}", i), keypair.public_key(), None, None)
+                .register_peer(
+                    format!("status-test-{}", i),
+                    keypair.public_key(),
+                    None,
+                    None,
+                )
                 .await?;
         }
 
@@ -754,7 +765,9 @@ mod discovery_status_state_machine {
             federation_epoch: 1,
         };
 
-        let discovered = registry.process_discovery_announcement(&announcement).await?;
+        let discovered = registry
+            .process_discovery_announcement(&announcement)
+            .await?;
         assert_eq!(discovered.len(), 2);
         assert!(discovered.contains(&"new-peer-1".to_string()));
         assert!(discovered.contains(&"new-peer-2".to_string()));
@@ -781,14 +794,16 @@ mod discovery_status_state_machine {
         let announcement = DiscoveryAnnouncement {
             sender_id: "sender".to_string(),
             known_peers: vec![
-                "known-peer".to_string(),  // Already known
+                "known-peer".to_string(),   // Already known
                 "unknown-peer".to_string(), // New
             ],
             announcement_time: time::unix_timestamp_secs(),
             federation_epoch: 1,
         };
 
-        let discovered = registry.process_discovery_announcement(&announcement).await?;
+        let discovered = registry
+            .process_discovery_announcement(&announcement)
+            .await?;
         assert_eq!(discovered.len(), 1);
         assert!(discovered.contains(&"unknown-peer".to_string()));
 
@@ -839,7 +854,10 @@ mod discovery_status_state_machine {
     async fn test_discovery_error_packet_format() {
         let packet = DiscoveryErrorPacket::time_sync_required(6000);
 
-        assert_eq!(packet.code, adapteros_federation::peer::DiscoveryErrorCode::TimeSyncRequired);
+        assert_eq!(
+            packet.code,
+            adapteros_federation::peer::DiscoveryErrorCode::TimeSyncRequired
+        );
         assert!(packet.message.contains("6000"));
         assert!(packet.message.contains("5000ms tolerance"));
     }
@@ -897,7 +915,12 @@ mod consensus_and_partition {
 
         let target_keypair = Keypair::generate();
         registry
-            .register_peer("target".to_string(), target_keypair.public_key(), None, None)
+            .register_peer(
+                "target".to_string(),
+                target_keypair.public_key(),
+                None,
+                None,
+            )
             .await?;
 
         // Register 3 voters
@@ -1096,7 +1119,10 @@ mod attestation_verification {
 
         let result = verify_hardware_attestation(&attestation);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("not hardware-attested"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("not hardware-attested"));
     }
 
     #[test]
@@ -1110,7 +1136,10 @@ mod attestation_verification {
 
         let result = verify_hardware_attestation(&attestation);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("missing enclave ID"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("missing enclave ID"));
     }
 
     #[test]
@@ -1248,7 +1277,12 @@ mod cache_tests {
         for i in 0..3 {
             let keypair = Keypair::generate();
             registry1
-                .register_peer(format!("cached-peer-{}", i), keypair.public_key(), None, None)
+                .register_peer(
+                    format!("cached-peer-{}", i),
+                    keypair.public_key(),
+                    None,
+                    None,
+                )
                 .await?;
         }
 

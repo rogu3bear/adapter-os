@@ -1126,9 +1126,9 @@ async fn test_stop_worker_cross_tenant_returns_404() {
     // Should return 404 (not 403) to prevent enumeration
     assert!(result.is_err(), "Cross-tenant stop should fail");
     match result {
-        Err((status, _)) => {
+        Err(err) => {
             assert_eq!(
-                status,
+                err.status,
                 StatusCode::NOT_FOUND,
                 "Cross-tenant stop should return 404"
             );
@@ -1197,9 +1197,9 @@ async fn test_worker_history_cross_tenant_returns_404() {
     // Should return 404 (not 403) to prevent enumeration
     assert!(result.is_err(), "Cross-tenant history should fail");
     match result {
-        Err((status, _)) => {
+        Err(err) => {
             assert_eq!(
-                status,
+                err.status,
                 StatusCode::NOT_FOUND,
                 "Cross-tenant history should return 404"
             );

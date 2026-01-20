@@ -107,6 +107,11 @@ pub fn build_api_config(server_config: Arc<RwLock<Config>>) -> Result<Arc<RwLock
         seed_mode: SeedMode::default(),
         backend_profile: BackendKind::default_inference_backend(),
         worker_id: 0,
+        rate_limit: Some(adapteros_server_api::rate_limit::RateLimiterConfig {
+            requests_per_minute: cfg.rate_limits.requests_per_minute,
+            burst_size: cfg.rate_limits.burst_size,
+            ..Default::default()
+        }),
     })))
 }
 

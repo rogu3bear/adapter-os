@@ -1,6 +1,6 @@
 //! Internal helper functions for dataset handlers.
 
-use crate::error_helpers::{forbidden, internal_error};
+use crate::api_error::ApiError;
 use crate::handlers::datasets::validation::ValidationError;
 use crate::types::{DatasetValidationStatus, ErrorResponse};
 use adapteros_api_types::training::{JsonlFieldTypeMismatch, JsonlValidationDiagnostic};
@@ -164,17 +164,13 @@ struct ValidationDiagnosticsPayload {
 }
 
 /// Build a standardized error for path policy violations so the UI can map it.
-pub fn path_policy_error(
-    path: &Path,
-    err: impl std::fmt::Display,
-) -> (StatusCode, Json<ErrorResponse>) {
-    let response = ErrorResponse::new("Path policy violation")
+pub fn path_policy_error(path: &Path, err: impl std::fmt::Display) -> ApiError {
+    ApiError::bad_request("Path policy violation")
         .with_code("PATH_POLICY_VIOLATION")
-        .with_details(serde_json::json!({
+        .with_json_details(serde_json::json!({
             "path": path.to_string_lossy(),
             "error": err.to_string(),
-        }));
-    (StatusCode::BAD_REQUEST, Json(response))
+        }))
 }
 
 /// Validate file hash using streaming to avoid loading entire file into memory
@@ -217,8 +213,9 @@ pub async fn validate_file_hash_streaming(
 pub async fn ensure_dataset_file_within_root(
     state: &AppState,
     file_path: &std::path::Path,
-) -> Result<std::path::PathBuf, (StatusCode, Json<ErrorResponse>)> {
-    let dataset_root = resolve_dataset_root(state).map_err(internal_error)?;
+) -> Result<std::path::PathBuf, ApiError> {
+    let dataset_root =
+        resolve_dataset_root(state).map_err(|e| ApiError::internal(e.to_string()))?;
     let candidate = if file_path.is_absolute() {
         file_path.to_path_buf()
     } else {
@@ -229,9 +226,9 @@ pub async fn ensure_dataset_file_within_root(
         canonicalize_strict_in_allowed_roots(&candidate, &allowed_roots).map_err(|e| {
             let msg = e.to_string();
             if msg.contains("allowed roots") || msg.contains("traversal") {
-                forbidden(&format!("Dataset file path rejected: {}", msg))
+                ApiError::forbidden(format!("Dataset file path rejected: {}", msg))
             } else {
-                internal_error(format!(
+                ApiError::internal(format!(
                     "Failed to resolve dataset file path {}: {}",
                     candidate.display(),
                     msg
@@ -694,8 +691,7 @@ mod path_policy_tests {
     #[test]
     fn path_policy_error_is_structured() {
         let path = std::env::temp_dir().join("..").join("escape");
-        let (status, Json(err)) = path_policy_error(&path, "outside allowed roots");
-        assert_eq!(status, StatusCode::BAD_REQUEST);
+        let err = path_policy_error(&path, "outside allowed roots");
         assert_eq!(err.code, "PATH_POLICY_VIOLATION");
         let details = err.details.expect("details present");
         let serialized = details.to_string();

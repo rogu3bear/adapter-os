@@ -323,6 +323,9 @@ pub struct ApiConfig {
     /// Worker identifier used in seed derivation
     #[serde(default)]
     pub worker_id: u32,
+    /// Rate limit configuration
+    #[serde(default)]
+    pub rate_limit: Option<RateLimiterConfig>,
 }
 
 fn default_directory_analysis_timeout() -> u64 {
@@ -568,6 +571,7 @@ impl Default for ApiConfig {
             },
             backend_profile: BackendKind::default_inference_backend(),
             worker_id: 0,
+            rate_limit: None,
         }
     }
 }
@@ -1012,10 +1016,11 @@ impl AppState {
         let clock: Arc<dyn Clock> = Arc::new(SystemClock);
 
         // Create rate limiter with shared clock
-        let rate_limiter = Arc::new(RateLimiterState::new(
-            RateLimiterConfig::default(),
-            clock.clone(),
-        ));
+        let rate_limiter_config = {
+            let cfg = config.read().unwrap();
+            cfg.rate_limit.clone().unwrap_or_default()
+        };
+        let rate_limiter = Arc::new(RateLimiterState::new(rate_limiter_config, clock.clone()));
 
         Self {
             db: db.clone(),

@@ -1081,7 +1081,12 @@ pub fn validate_boot_invariants(
     } else {
         let _dev_algo = cfg.auth.dev_algo.to_lowercase();
         let prod_algo = cfg.auth.prod_algo.to_lowercase();
-        let jwt_mode = cfg.security.jwt_mode.as_deref().unwrap_or("hs256").to_lowercase();
+        let jwt_mode = cfg
+            .security
+            .jwt_mode
+            .as_deref()
+            .unwrap_or("hs256")
+            .to_lowercase();
 
         // In production, jwt_mode should match prod_algo
         if production && jwt_mode != prod_algo && !prod_algo.is_empty() {
@@ -1461,7 +1466,11 @@ pub async fn validate_post_db_invariants(
                         id: "DAT-002",
                         category: InvariantCategory::Database,
                         message: "Foreign key constraints are DISABLED".to_string(),
-                        severity: if production { Severity::Fatal } else { Severity::Warning },
+                        severity: if production {
+                            Severity::Fatal
+                        } else {
+                            Severity::Warning
+                        },
                         remediation: "Ensure PRAGMA foreign_keys = ON is set at connection time",
                     });
                 } else {
@@ -1497,7 +1506,11 @@ pub async fn validate_post_db_invariants(
                         id: "DAT-006",
                         category: InvariantCategory::Database,
                         message: "Migration table _sqlx_migrations does not exist".to_string(),
-                        severity: if production { Severity::Fatal } else { Severity::Warning },
+                        severity: if production {
+                            Severity::Fatal
+                        } else {
+                            Severity::Warning
+                        },
                         remediation: "Run database migrations: ./aosctl db migrate",
                     });
                 } else {
@@ -1514,7 +1527,11 @@ pub async fn validate_post_db_invariants(
                                     id: "DAT-006",
                                     category: InvariantCategory::Database,
                                     message: "No successful migrations recorded".to_string(),
-                                    severity: if production { Severity::Fatal } else { Severity::Warning },
+                                    severity: if production {
+                                        Severity::Fatal
+                                    } else {
+                                        Severity::Warning
+                                    },
                                     remediation: "Run database migrations: ./aosctl db migrate",
                                 });
                             } else {
@@ -1542,7 +1559,11 @@ pub async fn validate_post_db_invariants(
                     id: "DAT-006",
                     category: InvariantCategory::Database,
                     message: format!("Failed to check migration table: {}", e),
-                    severity: if production { Severity::Fatal } else { Severity::Warning },
+                    severity: if production {
+                        Severity::Fatal
+                    } else {
+                        Severity::Warning
+                    },
                     remediation: "Ensure database is accessible and migrations have run",
                 });
             }
@@ -1599,27 +1620,24 @@ pub async fn validate_post_db_invariants(
             Ok(table_exists) => {
                 if table_exists == 0 {
                     // Check for alternative audit table names
-                    match sqlx::query_scalar::<_, i32>(
+                    if let Ok(alt_count) = sqlx::query_scalar::<_, i32>(
                         "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name LIKE '%audit%'",
                     )
                     .fetch_one(pool)
                     .await
                     {
-                        Ok(alt_count) => {
-                            if alt_count == 0 {
-                                warn!(
-                                    invariant = "DAT-007",
-                                    "No audit tables found; audit trail may not be enabled"
-                                );
-                            } else {
-                                info!(
-                                    invariant = "DAT-007",
-                                    tables = alt_count,
-                                    "Found audit-related tables"
-                                );
-                            }
+                        if alt_count == 0 {
+                            warn!(
+                                invariant = "DAT-007",
+                                "No audit tables found; audit trail may not be enabled"
+                            );
+                        } else {
+                            info!(
+                                invariant = "DAT-007",
+                                tables = alt_count,
+                                "Found audit-related tables"
+                            );
                         }
-                        Err(_) => {}
                     }
                 }
                 report.record_pass(); // Advisory only
@@ -1704,7 +1722,9 @@ mod tests {
         let summary = report.category_summary();
         assert_eq!(summary.len(), 2);
         // Find auth category
-        let auth_summary = summary.iter().find(|(cat, _, _)| *cat == InvariantCategory::Authentication);
+        let auth_summary = summary
+            .iter()
+            .find(|(cat, _, _)| *cat == InvariantCategory::Authentication);
         assert!(auth_summary.is_some());
         let (_, count, fatal) = auth_summary.unwrap();
         assert_eq!(*count, 2);

@@ -304,9 +304,9 @@ async fn test_load_model_denies_cross_tenant_access() -> Result<()> {
 
     // Should return 404 NOT_FOUND (model doesn't exist for tenant-b)
     match result {
-        Err((status, _)) => {
+        Err(err) => {
             assert_eq!(
-                status,
+                err.status,
                 StatusCode::NOT_FOUND,
                 "Cross-tenant load should return 404"
             );
@@ -429,9 +429,20 @@ async fn test_import_model_scoped_to_tenant() -> Result<()> {
     create_test_tenant(&state.db, "tenant-a").await?;
     create_test_tenant(&state.db, "tenant-b").await?;
 
-    // Create a temporary directory for testing
-    let temp_dir = std::env::temp_dir().join(format!("aos-test-{}", Uuid::new_v4()));
-    std::fs::create_dir_all(&temp_dir).unwrap();
+    // Use a subdirectory within the resolved model cache root to satisfy security checks
+    let model_cache_root = adapteros_config::resolve_base_model_location(None, None, false)
+        .map(|loc| loc.cache_root)
+        .unwrap_or_else(|_| std::path::PathBuf::from("var/models"));
+
+    std::fs::create_dir_all(&model_cache_root).unwrap();
+
+    let test_model_dir = model_cache_root.join(format!("test-import-{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&test_model_dir).unwrap();
+
+    // Create required mock files for validation
+    std::fs::write(test_model_dir.join("config.json"), "{}").unwrap();
+    std::fs::write(test_model_dir.join("tokenizer.json"), "{}").unwrap();
+    std::fs::write(test_model_dir.join("model.safetensors"), "").unwrap();
 
     // Tenant A imports a model
     let claims_a = create_test_claims("user-a", "user-a@tenant-a.com", "operator", "tenant-a");
@@ -441,7 +452,7 @@ async fn test_import_model_scoped_to_tenant() -> Result<()> {
         Extension(claims_a.clone()),
         Json(ImportModelRequest {
             model_name: "test-model".to_string(),
-            model_path: temp_dir.to_string_lossy().to_string(),
+            model_path: test_model_dir.to_string_lossy().to_string(),
             format: "mlx".to_string(),
             backend: "mlx".to_string(),
             capabilities: Some(vec!["chat".to_string()]),
@@ -472,7 +483,7 @@ async fn test_import_model_scoped_to_tenant() -> Result<()> {
     );
 
     // Cleanup
-    std::fs::remove_dir_all(&temp_dir).ok();
+    std::fs::remove_dir_all(&test_model_dir).ok();
 
     Ok(())
 }
@@ -793,9 +804,9 @@ async fn test_viewer_cannot_load_model() -> Result<()> {
 
     // Should return 403 FORBIDDEN (no permission)
     match result {
-        Err((status, _)) => {
+        Err(err) => {
             assert_eq!(
-                status,
+                err.status,
                 StatusCode::FORBIDDEN,
                 "Viewer should not have permission to load model"
             );

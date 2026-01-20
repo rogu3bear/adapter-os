@@ -556,7 +556,10 @@ async fn test_uds_path_in_worker_info() {
                 w.uds_path.contains(tenant_id),
                 "UDS path should contain tenant ID"
             );
-            assert!(w.uds_path.ends_with(".sock"), "UDS path should end in .sock");
+            assert!(
+                w.uds_path.ends_with(".sock"),
+                "UDS path should end in .sock"
+            );
         }
 
         let _ = agent.stop_worker(pid).await;
@@ -596,11 +599,7 @@ async fn test_simulated_worker_creation() {
         Err(e) => {
             // PF rules not active - expected in most test environments
             let err_msg = format!("{}", e);
-            assert!(
-                err_msg.contains("PF"),
-                "Should fail due to PF: {}",
-                err_msg
-            );
+            assert!(err_msg.contains("PF"), "Should fail due to PF: {}", err_msg);
         }
     }
 }
@@ -647,10 +646,7 @@ async fn test_full_worker_lifecycle() {
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     // 6. Stop worker
-    agent
-        .stop_worker(pid)
-        .await
-        .expect("Stop should succeed");
+    agent.stop_worker(pid).await.expect("Stop should succeed");
 
     // 7. Verify worker is removed
     let workers = agent.list_workers().await.unwrap();
