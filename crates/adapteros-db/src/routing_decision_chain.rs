@@ -239,29 +239,41 @@ impl Db {
 }
 
 /// Helper to build a record from API-layer chain entry
+///
+/// Returns an error if JSON serialization fails for any routing decision field.
+/// This ensures audit trail integrity by failing explicitly rather than storing
+/// corrupted data (empty strings) that would cause downstream hash verification failures.
 pub fn make_chain_record_from_api(
     tenant_id: &str,
     inference_id: &str,
     request_id: Option<&str>,
     entry: &adapteros_api_types::inference::RouterDecisionChainEntry,
     decision_hash_json: Option<String>,
-) -> RoutingDecisionChainRecord {
-    RoutingDecisionChainRecord {
+) -> Result<RoutingDecisionChainRecord> {
+    let adapter_indices = serde_json::to_string(&entry.adapter_indices).map_err(|e| {
+        AosError::validation(format!("adapter_indices at step {}: {}", entry.step, e))
+    })?;
+    let adapter_ids = serde_json::to_string(&entry.adapter_ids)
+        .map_err(|e| AosError::validation(format!("adapter_ids at step {}: {}", entry.step, e)))?;
+    let gates_q15 = serde_json::to_string(&entry.gates_q15)
+        .map_err(|e| AosError::validation(format!("gates_q15 at step {}: {}", entry.step, e)))?;
+
+    Ok(RoutingDecisionChainRecord {
         id: Uuid::now_v7().to_string(),
         tenant_id: tenant_id.to_string(),
         inference_id: inference_id.to_string(),
         request_id: request_id.map(|s| s.to_string()),
         step: entry.step as i64,
         input_token_id: entry.input_token_id.map(|v| v as i64),
-        adapter_indices: serde_json::to_string(&entry.adapter_indices).unwrap_or_default(),
-        adapter_ids: serde_json::to_string(&entry.adapter_ids).unwrap_or_default(),
-        gates_q15: serde_json::to_string(&entry.gates_q15).unwrap_or_default(),
+        adapter_indices,
+        adapter_ids,
+        gates_q15,
         entropy: entry.entropy as f64,
         decision_hash_json,
         previous_hash: entry.previous_hash.clone(),
         entry_hash: entry.entry_hash.clone(),
         created_at: chrono::Utc::now().to_rfc3339(),
-    }
+    })
 }
 
 /// Chain verification result

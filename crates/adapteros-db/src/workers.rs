@@ -268,6 +268,20 @@ impl Db {
         Ok(())
     }
 
+    /// List all active workers (status = 'active')
+    pub async fn list_active_workers(&self) -> Result<Vec<Worker>> {
+        let workers = sqlx::query_as::<_, Worker>(
+            "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at, last_seen_at, manifest_hash_b3, backend, model_hash_b3, capabilities_json
+             FROM workers
+             WHERE status = 'active'
+             ORDER BY started_at DESC",
+        )
+        .fetch_all(self.pool())
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
+        Ok(workers)
+    }
+
     /// Insert a worker record
     ///
     /// Use [`WorkerInsertBuilder`] to construct worker parameters:

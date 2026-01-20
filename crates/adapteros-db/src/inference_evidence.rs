@@ -286,24 +286,25 @@ impl Db {
         }
 
         // Build parameterized query with placeholders for evidence IDs
-        let placeholders: String = evidence_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let placeholders: String = evidence_ids
+            .iter()
+            .map(|_| "?")
+            .collect::<Vec<_>>()
+            .join(",");
         let query = format!(
             "UPDATE inference_evidence SET message_id = ? WHERE tenant_id = ? AND id IN ({}) AND message_id IS NULL",
             placeholders
         );
 
-        let mut query_builder = sqlx::query(&query)
-            .bind(message_id)
-            .bind(tenant_id);
+        let mut query_builder = sqlx::query(&query).bind(message_id).bind(tenant_id);
 
         for evidence_id in evidence_ids {
             query_builder = query_builder.bind(evidence_id);
         }
 
-        let result = query_builder
-            .execute(self.pool())
-            .await
-            .map_err(|e| AosError::Database(format!("Failed to bind evidence to message: {}", e)))?;
+        let result = query_builder.execute(self.pool()).await.map_err(|e| {
+            AosError::Database(format!("Failed to bind evidence to message: {}", e))
+        })?;
 
         let rows_affected = result.rows_affected();
 
@@ -793,7 +794,7 @@ mod tests {
         // Bind evidence to message (Phase 2)
         let message_id = "msg-bind-001";
         let bound_count = db
-            .bind_evidence_to_message(&tenant_id, &[evidence_id.clone()], message_id)
+            .bind_evidence_to_message(&tenant_id, std::slice::from_ref(&evidence_id), message_id)
             .await
             .unwrap();
         assert_eq!(bound_count, 1);
