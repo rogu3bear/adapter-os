@@ -68,16 +68,16 @@ impl KeyProvider for EnvProvider {
         let public_key = self.signing_key.verifying_key();
         let public_key_bytes = public_key.to_bytes();
 
-        let provider_type = "env".to_string();
+        let backend_type = "env".to_string();
         let fingerprint = B3Hash::hash(&public_key_bytes).to_hex();
         let policy_hash = B3Hash::hash(b"env-provider").to_hex();
         let timestamp = adapteros_core::time::unix_timestamp_secs();
 
-        let msg = format!("{provider_type}|{fingerprint}|{policy_hash}|{timestamp}");
+        let msg = format!("{backend_type}|{fingerprint}|{policy_hash}|{timestamp}");
         let signature = self.signing_key.sign(msg.as_bytes()).to_bytes().to_vec();
 
         Ok(ProviderAttestation {
-            provider_type,
+            provider_type: backend_type,
             fingerprint,
             policy_hash,
             timestamp,
