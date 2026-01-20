@@ -12,7 +12,7 @@ use crate::key_provider::{KeyAlgorithm, KeyHandle, KeyProvider, KeyProviderMode}
 use crate::providers::env::EnvProvider;
 use crate::providers::file::FileProvider;
 use crate::providers::keychain::KeychainProvider;
-use crate::providers::kms::KmsProvider;
+use crate::providers::kms::KmsManager;
 use crate::signature::SigningKey;
 use adapteros_core::{AosError, B3Hash, Result};
 use std::path::PathBuf;
@@ -153,7 +153,7 @@ impl KeyManager {
                     file_path: None,
                     rotation_interval_secs: Some(86400),
                 };
-                let provider = KmsProvider::new(provider_config)?;
+                let provider = KmsManager::new(provider_config)?;
                 (
                     Box::new(provider) as Box<dyn KeyProvider>,
                     KeyProviderMode::Kms,
