@@ -41,7 +41,7 @@ This table is representative, not exhaustive. See the inventory for the full lis
 | Clients | User entry points | `adapteros-cli`, `adapteros-tui`, `adapteros-ui` |
 | Control plane | HTTP API, auth, policy hooks, orchestration | `adapteros-server`, `adapteros-server-api`, `adapteros-orchestrator`, `adapteros-service-supervisor` |
 | Worker + routing | Inference/training execution and adapter routing | `adapteros-lora-worker`, `adapteros-lora-router`, `adapteros-lora-lifecycle`, `adapteros-lora-plan` |
-| Backends | Kernel implementations | `adapteros-lora-kernel-coreml`, `adapteros-lora-kernel-mtl`, `adapteros-lora-mlx-ffi`, `adapteros-lora-kernel-api` |
+| Backends | Kernel implementations | `adapteros-lora-kernel-coreml`, `adapteros-lora-kernel-mtl`, `adapteros-lora-mlx-ffi`, `adapteros-lora-kernel-api`, `adapteros-lora-kernel-prof` |
 | Data + storage | Relational DB and content-addressed storage | `adapteros-db`, `adapteros-storage`, `adapteros-artifacts`, `adapteros-registry`, `adapteros-manifest` |
 | Observability + policy | Enforcement and audit trail | `adapteros-policy`, `adapteros-telemetry`, `adapteros-trace`, `adapteros-telemetry-verifier` |
 | Determinism + replay | Seed derivation, replay verification | `adapteros-core`, `adapteros-deterministic-exec`, `adapteros-replay` |
@@ -104,7 +104,7 @@ flowchart TB
         Config[adapteros-config]
         Crypto[adapteros-crypto]
         Types[adapteros-types]
-        Numerics[adapteros-numerics]
+        Numerics[adapteros-numerics (incl. Autograd metadata)]
     end
 
     Clients --> ControlPlane
@@ -201,7 +201,6 @@ Ordered as listed in the workspace `members` array.
 - adapteros-lora-kernel-mtl
 - adapteros-system-metrics
 - adapteros-lora-mlx-ffi
-- adapteros-autograd
 - adapteros-lora-plan
 - adapteros-lora-router
 - adapteros-lora-rag
@@ -242,8 +241,8 @@ Ordered as listed in the workspace `members` array.
 - adapteros-error-recovery
 - adapteros-base-llm
 - adapteros-testing
-- adapteros-verification
-- adapteros-lora-mlx-ffi (listed twice in Cargo.toml)
+- adapteros-lora-kernel-prof
+- adapteros-lora-mlx-ffi
 - sign-migrations
 - adapteros-plugin-advanced-metrics
 - xtask

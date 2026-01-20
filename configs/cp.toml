@@ -25,7 +25,7 @@ require_pf_deny = false
 mtls_required = false
 # SECURITY: leave empty here and set AOS_SECURITY_JWT_SECRET in your env.
 # Generate with: openssl rand -base64 64
-jwt_secret = ""
+jwt_secret = "demo-secret-key-for-development-only-32-chars-min-at-least"
 jwt_mode = "hmac"
 dev_login_enabled = true
 dev_bypass = true
