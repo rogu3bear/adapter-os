@@ -27,7 +27,6 @@
     "**/test_data/**",
     "**/adapters/**",
     "**/artifacts/**",
-    "**/menu-bar-app/.build/**",
     "**/installer/build/**",
     "**/fuzz/target/**",
     "**/xtask/target/**",

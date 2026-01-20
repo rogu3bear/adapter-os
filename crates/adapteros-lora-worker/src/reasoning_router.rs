@@ -7,6 +7,7 @@
 
 use std::collections::HashMap;
 
+use adapteros_core::{cosine_similarity, normalize};
 use blake3::Hasher;
 use tracing::{debug, info};
 
@@ -78,8 +79,7 @@ impl FastEmbedder {
             }
         }
 
-        normalize(&mut accum);
-        accum
+        normalize(&accum)
     }
 }
 
@@ -265,7 +265,8 @@ impl StreamInspector {
         self.buffer.push_str(token);
         if self.buffer.len() > self.config.analysis_window {
             let keep_from = self.buffer.len() - self.config.analysis_window;
-            self.buffer = self.buffer[keep_from..].to_string();
+            // Use drain to avoid allocation on hot path
+            self.buffer.drain(..keep_from);
         }
 
         if !self.is_boundary_token(token) {
@@ -342,30 +343,7 @@ impl StreamInspector {
     }
 }
 
-fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
-    if a.len() != b.len() || a.is_empty() {
-        return 0.0;
-    }
-
-    let mut dot = 0.0;
-    let mut norm_a = 0.0;
-    let mut norm_b = 0.0;
-    for (x, y) in a.iter().zip(b.iter()) {
-        dot += x * y;
-        norm_a += x * x;
-        norm_b += y * y;
-    }
-
-    let denom = (norm_a.sqrt() * norm_b.sqrt()).max(EPS);
-    (dot / denom).clamp(-1.0, 1.0)
-}
-
-fn normalize(v: &mut [f32]) {
-    let norm = (v.iter().map(|x| x * x).sum::<f32>()).sqrt().max(EPS);
-    for val in v.iter_mut() {
-        *val /= norm;
-    }
-}
+// cosine_similarity and normalize are imported from adapteros_core::vector_math
 
 fn truncate(text: &str, max_len: usize) -> String {
     if text.chars().count() <= max_len {

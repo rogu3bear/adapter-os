@@ -5,7 +5,7 @@
 # Copyright (c) 2025 JKCA / James KC Auchterlonie. All rights reserved.
 #
 # Usage:
-#   ./scripts/service-manager.sh start <service>     Start a service (backend, ui, menu-bar)
+#   ./scripts/service-manager.sh start <service>     Start a service (backend, ui)
 #   ./scripts/service-manager.sh stop all [mode]    Stop all services (graceful|fast|immediate)
 #   ./scripts/service-manager.sh status             Show status of all services
 #
@@ -24,7 +24,6 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 PID_DIR="$PROJECT_ROOT/var"
 BACKEND_PID_FILE="$PID_DIR/backend.pid"
 UI_PID_FILE="$PID_DIR/ui.pid"
-MENU_BAR_PID_FILE="$PID_DIR/menu-bar.pid"
 WORKER_PID_FILE="$PID_DIR/worker.pid"
 QUARANTINE_DIR="$PID_DIR/quarantine"
 
@@ -32,7 +31,6 @@ QUARANTINE_DIR="$PID_DIR/quarantine"
 LOG_DIR="$PROJECT_ROOT/var/logs"
 BACKEND_LOG="$LOG_DIR/backend.log"
 UI_LOG="$LOG_DIR/ui.log"
-MENU_BAR_LOG="$LOG_DIR/menu-bar.log"
 WORKER_LOG="$LOG_DIR/worker.log"
 SCRIPT_LOG="$LOG_DIR/service-manager.log"
 
@@ -64,7 +62,6 @@ GRACEFUL_TIMEOUT=120
 FAST_TIMEOUT=30
 FORCE_TIMEOUT=10
 UI_TIMEOUT=15
-MENU_BAR_TIMEOUT=5
 WORKER_TIMEOUT=60
 
 # =============================================================================
@@ -142,7 +139,7 @@ quarantine_artifact() {
 }
 
 cleanup_stale_artifacts() {
-    local pid_files=("$BACKEND_PID_FILE" "$UI_PID_FILE" "$WORKER_PID_FILE" "$MENU_BAR_PID_FILE")
+    local pid_files=("$BACKEND_PID_FILE" "$UI_PID_FILE" "$WORKER_PID_FILE")
     for pf in "${pid_files[@]}"; do
         if [ -f "$pf" ]; then
             local pid
@@ -727,100 +724,6 @@ stop_ui() {
     # No-op: Leptos UI is served from static/ by the backend
     status_msg "UI is served by the backend (no separate process)"
     return 0
-}
-
-# =============================================================================
-# Service: Menu Bar App (macOS only)
-# =============================================================================
-
-start_menu_bar() {
-    ensure_dirs
-
-    if [[ "$OSTYPE" != "darwin"* ]]; then
-        status_msg "Menu Bar App is only available on macOS"
-        return 0
-    fi
-
-    if is_running "$MENU_BAR_PID_FILE"; then
-        local pid=$(get_pid "$MENU_BAR_PID_FILE")
-        warning_msg "Menu Bar App is already running (PID: $pid)"
-        return 0
-    fi
-
-    status_msg "Starting Menu Bar App..."
-
-    # Check if the menu bar app exists
-    local menu_bar_app="$PROJECT_ROOT/menu-bar-app"
-
-    if [ ! -d "$menu_bar_app" ]; then
-        warning_msg "Menu Bar App directory not found: $menu_bar_app"
-        return 0  # Not an error, just optional
-    fi
-
-    # Check for Swift package
-    if [ -f "$menu_bar_app/Package.swift" ]; then
-        cd "$menu_bar_app"
-
-        # Build if needed
-        if [ ! -d ".build/release" ]; then
-            status_msg "Building Menu Bar App..."
-            swift build -c release 2>&1 | tail -5 || {
-                warning_msg "Menu Bar App build failed (optional component)"
-                cd "$PROJECT_ROOT"
-                return 0
-            }
-        fi
-
-        # Find the executable
-        local executable=$(find .build/release -maxdepth 1 -type f -perm +111 | head -1)
-
-        if [ -n "$executable" ] && [ -x "$executable" ]; then
-            nohup "$executable" > "$MENU_BAR_LOG" 2>&1 &
-            local pid=$!
-            echo "$pid" > "$MENU_BAR_PID_FILE"
-
-            sleep 1
-
-            if kill -0 "$pid" 2>/dev/null; then
-                success_msg "Menu Bar App started (PID: $pid)"
-            else
-                warning_msg "Menu Bar App failed to start (optional component)"
-                rm -f "$MENU_BAR_PID_FILE"
-            fi
-        else
-            warning_msg "Menu Bar App executable not found (optional component)"
-        fi
-
-        cd "$PROJECT_ROOT"
-    else
-        status_msg "Menu Bar App not configured (optional component)"
-    fi
-
-    return 0
-}
-
-restart_menu_bar() {
-    local mode="${1:-graceful}"
-    status_msg "Restarting Menu Bar App (mode: ${mode})..."
-    stop_menu_bar "$mode"
-    start_menu_bar
-}
-
-stop_menu_bar() {
-    local mode="${1:-graceful}"
-
-    if [[ "$OSTYPE" != "darwin"* ]]; then
-        return 0
-    fi
-
-    if ! is_running "$MENU_BAR_PID_FILE"; then
-        status_msg "Menu Bar App is not running"
-        return 0
-    fi
-
-    local pid=$(get_pid "$MENU_BAR_PID_FILE")
-    stop_process "$pid" "Menu Bar App" "$MENU_BAR_TIMEOUT" "$mode"
-    rm -f "$MENU_BAR_PID_FILE"
 }
 
 # =============================================================================
@@ -1460,18 +1363,6 @@ show_status() {
         else
             echo -e "          ${YELLOW}Web UI initializing...${NC}"
         fi
-    else
-        echo -e "${RED}[STOPPED]${NC} Web UI"
-    fi
-
-    # Menu Bar status (macOS only)
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        if is_running "$MENU_BAR_PID_FILE"; then
-            local pid=$(get_pid "$MENU_BAR_PID_FILE")
-            echo -e "${GREEN}[RUNNING]${NC} Menu Bar App (PID: $pid)"
-        else
-            echo -e "${WHITE}[STOPPED]${NC} Menu Bar App (optional)"
-        fi
     fi
 
     # Worker status
@@ -1549,12 +1440,7 @@ stop_all() {
     # 1. UI
     stop_ui "$mode"
 
-    # 2. Menu Bar (macOS only)
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        stop_menu_bar "$mode"
-    fi
-
-    # 3. Backend (last, as others may depend on it)
+    # 2. Backend (last, as others may depend on it)
     stop_backend "$mode"
 
     echo ""
@@ -1579,7 +1465,6 @@ usage() {
     echo "  backend     Backend API server"
     echo "  ui          Web UI development server"
     echo "  worker      Inference worker (ML model server)"
-    echo "  menu-bar    Menu Bar status app (macOS only)"
     echo ""
     echo "STOP MODES (used by stop/restart commands):"
     echo "  graceful    Graceful shutdown with full cleanup (default)"
@@ -1618,9 +1503,6 @@ case "$COMMAND" in
             ui)
                 start_ui
                 ;;
-            menu-bar|menubar)
-                start_menu_bar
-                ;;
             worker)
                 start_worker
                 ;;
@@ -1647,9 +1529,6 @@ case "$COMMAND" in
             ui)
                 stop_ui "$MODE"
                 ;;
-            menu-bar|menubar)
-                stop_menu_bar "$MODE"
-                ;;
             worker)
                 stop_worker "$MODE"
                 ;;
@@ -1672,9 +1551,6 @@ case "$COMMAND" in
                 ;;
             ui)
                 restart_ui "$MODE"
-                ;;
-            menu-bar|menubar)
-                restart_menu_bar "$MODE"
                 ;;
             worker)
                 restart_worker "$MODE"
