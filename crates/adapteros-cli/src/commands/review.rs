@@ -3,6 +3,7 @@
 //! These commands enable operators to list, inspect, and respond to
 //! items that require human review (paused inferences, dataset approvals, etc.)
 
+use super::review_tui;
 use crate::output::OutputWriter;
 use adapteros_api_types::review::{
     InferenceStateResponse, IssueSeverity, ListPausedResponse, PausedInferenceInfo, Review,
@@ -133,6 +134,14 @@ pub enum ReviewCommand {
         #[arg(long, env = "AOS_API_URL", default_value = "http://127.0.0.1:8080")]
         base_url: String,
     },
+
+    /// Launch TUI for active learning sample review
+    #[command(after_help = "Examples:\n  aosctl review tui")]
+    Tui {
+        /// Active learning directory (optional)
+        #[arg(long, env = "AOS_ACTIVE_LEARNING_DIR")]
+        dir: Option<PathBuf>,
+    },
 }
 
 /// Filter for pause kinds
@@ -236,6 +245,7 @@ pub async fn handle_review_command(cmd: ReviewCommand, output: &OutputWriter) ->
             reviewer,
             base_url,
         } => import_review(&pause_id, &file, &reviewer, &base_url, output).await,
+        ReviewCommand::Tui { dir } => review_tui::run_review_tui(dir, output).await,
     }
 }
 
@@ -628,6 +638,7 @@ fn get_review_command_name(cmd: &ReviewCommand) -> String {
         ReviewCommand::Submit { .. } => "review-submit",
         ReviewCommand::Export { .. } => "review-export",
         ReviewCommand::Import { .. } => "review-import",
+        ReviewCommand::Tui { .. } => "review-tui",
     }
     .to_string()
 }

@@ -9,6 +9,9 @@ pub mod adapter_swap;
 pub mod adapters;
 pub mod agent;
 pub mod aos;
+pub mod session;
+pub mod worker_executor;
+
 pub mod aos_impl;
 pub mod audit;
 pub mod audit_determinism;
@@ -85,6 +88,7 @@ pub mod replay_bundle;
 pub mod repo;
 pub mod report;
 pub mod review;
+pub mod review_tui;
 pub mod rollback;
 pub mod router;
 #[cfg(feature = "scenarios")]

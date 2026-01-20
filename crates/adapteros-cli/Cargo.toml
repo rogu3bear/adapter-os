@@ -58,6 +58,8 @@ comfy-table = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+ratatui = "0.30"
+crossterm = "0.28"
 reqwest = { workspace = true, features = ["multipart", "cookies"] }
 nix = { workspace = true }
 dotenvy = "0.15"
@@ -93,6 +95,11 @@ rand = { workspace = true }
 indicatif = "0.17"
 adapteros-orchestrator = { path = "../adapteros-orchestrator", optional = true }
 adapteros-normalization = { path = "../adapteros-normalization" }
+git2 = { workspace = true }
+parking_lot = { workspace = true }
+
+
+
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # adapteros-lora-kernel-mtl = { path = "../adapteros-lora-kernel-mtl" }  # Disabled for stable compilation
@@ -126,3 +133,4 @@ minimal = []
 axum = { version = "0.8", features = ["macros", "json"] }
 serial_test = "3.1"
 tokenizers = { workspace = true }
+
