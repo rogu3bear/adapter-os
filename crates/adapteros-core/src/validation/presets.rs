@@ -236,7 +236,9 @@ pub fn repo_id_validator() -> Validator {
 /// assert!(validator.validate("A short description").is_ok());
 /// ```
 pub fn description_validator() -> Validator {
-    ValidatorBuilder::new("description").max_length(1024).build()
+    ValidatorBuilder::new("description")
+        .max_length(1024)
+        .build()
 }
 
 // =============================================================================
@@ -522,7 +524,9 @@ mod tests {
     fn test_commit_hash_validator() {
         let v = commit_hash_validator();
         assert!(v.validate("abc123f").is_ok());
-        assert!(v.validate("abcdef1234567890abcdef1234567890abcdef12").is_ok());
+        assert!(v
+            .validate("abcdef1234567890abcdef1234567890abcdef12")
+            .is_ok());
         assert!(v.validate("abc").is_err());
         assert!(v.validate("not-hex!").is_err());
     }

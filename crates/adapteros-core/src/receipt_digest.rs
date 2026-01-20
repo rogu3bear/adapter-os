@@ -603,7 +603,6 @@ pub fn compute_output_digest(output_tokens: &[u32]) -> B3Hash {
     B3Hash::hash(&buf)
 }
 
-
 /// Hash a single token decision for the run_head chain.
 ///
 /// This is the canonical algorithm for decision hashing.
@@ -1042,7 +1041,11 @@ mod tests {
         // Empty tokens should produce a valid, deterministic digest
         let digest2 = compute_output_digest(&tokens);
         assert_eq!(digest, digest2);
-        assert_ne!(digest, B3Hash::zero(), "Empty tokens should not produce zero hash");
+        assert_ne!(
+            digest,
+            B3Hash::zero(),
+            "Empty tokens should not produce zero hash"
+        );
     }
 
     #[test]

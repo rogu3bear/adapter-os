@@ -502,6 +502,43 @@ impl Drop for TempFileGuard {
     }
 }
 
+/// Calculate the total size of a directory recursively
+///
+/// Walks the directory tree and sums the file sizes. Returns 0 for empty directories.
+/// Follows symlinks if they point within the directory (not currently enforced, simple walk).
+///
+/// # Errors
+/// Returns `AosError::Io` if reading metadata fails.
+pub fn get_directory_size(path: &Path) -> Result<u64> {
+    if !path.exists() {
+        return Ok(0);
+    }
+
+    if path.is_file() {
+        return path
+            .metadata()
+            .map(|m| m.len())
+            .map_err(|e| classify_and_convert_io_error(e, path, "metadata"));
+    }
+
+    let mut total_size = 0;
+    let walk_dir = walkdir::WalkDir::new(path);
+
+    for entry in walk_dir {
+        let entry = entry.map_err(|e| {
+            // Convert walkdir error to io error
+            let io_err = std::io::Error::other(e.to_string());
+            classify_and_convert_io_error(io_err, path, "walk_dir")
+        })?;
+
+        if entry.file_type().is_file() {
+            total_size += entry.metadata().map(|m| m.len()).unwrap_or(0);
+        }
+    }
+
+    Ok(total_size)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

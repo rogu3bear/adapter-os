@@ -221,7 +221,8 @@ impl ValidatorBuilder {
     ///     .build();
     /// ```
     pub fn custom_fn(mut self, description: &str, validator: fn(&str) -> bool) -> Self {
-        self.rules.push(Box::new(Pattern::new(description, validator)));
+        self.rules
+            .push(Box::new(Pattern::new(description, validator)));
         self
     }
 
