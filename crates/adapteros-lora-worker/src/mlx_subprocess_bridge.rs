@@ -972,7 +972,9 @@ impl MLXSubprocessBridge {
                         Ok(mut guard) => *guard = true,
                         Err(e) => {
                             error!("Mutex poisoned updating collect_routing: {}", e);
-                            return Err(AosError::Kernel("Bridge state mutex poisoned".to_string()));
+                            return Err(AosError::Kernel(
+                                "Bridge state mutex poisoned".to_string(),
+                            ));
                         }
                     }
                     info!("Expert routing collection enabled for MoE model");
@@ -1057,7 +1059,9 @@ impl MLXSubprocessBridge {
                 }
                 Err(e) => {
                     error!("Restart count mutex poisoned while incrementing: {}", e);
-                    return Err(AosError::Kernel("Bridge restart count mutex poisoned".to_string()));
+                    return Err(AosError::Kernel(
+                        "Bridge restart count mutex poisoned".to_string(),
+                    ));
                 }
             }
         }
@@ -1610,7 +1614,9 @@ impl FusedKernels for MLXSubprocessBridge {
             Ok(mut guard) => guard.clear(),
             Err(e) => {
                 error!("Context buffer mutex poisoned in load: {}", e);
-                return Err(AosError::Kernel("Bridge context buffer mutex poisoned".to_string()));
+                return Err(AosError::Kernel(
+                    "Bridge context buffer mutex poisoned".to_string(),
+                ));
             }
         }
 

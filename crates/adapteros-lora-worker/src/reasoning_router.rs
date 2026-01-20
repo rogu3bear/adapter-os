@@ -9,7 +9,10 @@ use std::collections::HashMap;
 
 use adapteros_core::{cosine_similarity, normalize};
 use blake3::Hasher;
+use std::sync::Arc;
 use tracing::{debug, info};
+
+pub use crate::ane_embedder::TinyBertEmbedder;
 
 /// Default token that signals explicit reasoning boundary.
 pub const DEFAULT_THINKING_TOKEN: &str = "<thinking>";
@@ -25,6 +28,19 @@ pub struct ReasoningRouterConfig {
     pub thinking_token: String,
     /// Maximum characters to keep in the rolling buffer.
     pub analysis_window: usize,
+    /// Type of embedder to use.
+    pub embedder_type: EmbedderType,
+    /// Path to the embedder model (if using TinyBert).
+    pub model_path: Option<String>,
+}
+
+/// Supported embedder types for the reasoning router.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EmbedderType {
+    /// Legacy hash-based projection (semantic noise).
+    Hashed,
+    /// Tiny-BERT model pinned to ANE (semantic understanding).
+    TinyBert,
 }
 
 impl Default for ReasoningRouterConfig {
@@ -35,6 +51,39 @@ impl Default for ReasoningRouterConfig {
             shadow_mode: false,
             thinking_token: DEFAULT_THINKING_TOKEN.to_string(),
             analysis_window: 1024,
+            embedder_type: EmbedderType::Hashed,
+            model_path: None,
+        }
+    }
+}
+
+/// Unified embedder interface for the reasoning router.
+pub enum Embedder {
+    Hashed(FastEmbedder),
+    TinyBert(Box<TinyBertEmbedder>),
+}
+
+impl Embedder {
+    pub fn embed(&self, text: &str) -> Vec<f32> {
+        match self {
+            Self::Hashed(e) => e.embed(text),
+            Self::TinyBert(e) => e.embed(text),
+        }
+    }
+
+    pub fn dim(&self) -> usize {
+        match self {
+            Self::Hashed(e) => e.dim(),
+            Self::TinyBert(e) => e.dimension(),
+        }
+    }
+}
+
+impl std::fmt::Debug for Embedder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Hashed(e) => f.debug_tuple("Hashed").field(e).finish(),
+            Self::TinyBert(_) => f.debug_tuple("TinyBert").finish(),
         }
     }
 }
@@ -152,7 +201,7 @@ impl ReasoningScorer {
         }
     }
 
-    pub fn from_adapter_ids(adapter_ids: &[String], embedder: &FastEmbedder) -> Self {
+    pub fn from_adapter_ids(adapter_ids: &[String], embedder: &Embedder) -> Self {
         let clusters = adapter_ids
             .iter()
             .map(|id| (id.clone(), embedder.embed(id)))
@@ -233,7 +282,7 @@ pub struct HotSwapDecision {
 pub struct StreamInspector {
     buffer: String,
     scorer: ReasoningScorer,
-    embedder: FastEmbedder,
+    embedder: Arc<Embedder>,
     config: ReasoningRouterConfig,
     current_cluster: String,
     last_swap_token: Option<usize>,
@@ -243,7 +292,7 @@ impl StreamInspector {
     pub fn new(
         initial_cluster: String,
         scorer: ReasoningScorer,
-        embedder: FastEmbedder,
+        embedder: Arc<Embedder>,
         config: ReasoningRouterConfig,
     ) -> Self {
         Self {
@@ -382,7 +431,7 @@ mod tests {
         ]);
         let topology = TopologyPrior::default().with_transition("creative", "math", 0.9);
         let scorer = ReasoningScorer::new(clusters, topology, 0.7, 0.3);
-        let embedder = FastEmbedder::new(2);
+        let embedder = Arc::new(Embedder::Hashed(FastEmbedder::new(2)));
         let mut inspector = StreamInspector::new(
             "creative".to_string(),
             scorer,
@@ -393,6 +442,8 @@ mod tests {
                 shadow_mode: false,
                 thinking_token: DEFAULT_THINKING_TOKEN.to_string(),
                 analysis_window: 256,
+                embedder_type: EmbedderType::Hashed,
+                model_path: None,
             },
         );
 

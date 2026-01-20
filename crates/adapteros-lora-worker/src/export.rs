@@ -240,7 +240,10 @@ mod tests {
             fusion_verified: true,
         };
 
-        assert_eq!(record.fused_package, PathBuf::from("/output/fused.mlpackage"));
+        assert_eq!(
+            record.fused_package,
+            PathBuf::from("/output/fused.mlpackage")
+        );
         assert_eq!(record.metadata_path, PathBuf::from("/output/metadata.json"));
         assert!(record.fusion_verified);
         assert_eq!(record.base_model_id.as_deref(), Some("model-123"));
@@ -367,9 +370,17 @@ mod tests {
         };
 
         // Verify path construction is correct
-        assert!(job.base_package.to_str().unwrap().contains("base_model.mlpackage"));
+        assert!(job
+            .base_package
+            .to_str()
+            .unwrap()
+            .contains("base_model.mlpackage"));
         assert!(job.adapter_aos.to_str().unwrap().contains("fine_tuned.aos"));
-        assert!(job.output_package.to_str().unwrap().contains("fused_model.mlpackage"));
+        assert!(job
+            .output_package
+            .to_str()
+            .unwrap()
+            .contains("fused_model.mlpackage"));
     }
 
     #[test]

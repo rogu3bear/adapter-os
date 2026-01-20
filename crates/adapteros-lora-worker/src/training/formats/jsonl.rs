@@ -116,9 +116,7 @@ fn parse_jsonl_line(line: &str, path: &str, line_num: usize) -> Result<RawSample
             .and_then(|v| v.as_str())
             .map(str::trim)
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| {
-                AosError::Validation(format!("Line {} has empty prompt", context))
-            })?;
+            .ok_or_else(|| AosError::Validation(format!("Line {} has empty prompt", context)))?;
         let completion = obj
             .get(SUPERVISED_COMPLETION_KEY)
             .and_then(|v| v.as_str())
@@ -142,10 +140,7 @@ fn parse_jsonl_line(line: &str, path: &str, line_num: usize) -> Result<RawSample
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .ok_or_else(|| AosError::Validation(format!("Line {} has empty text", context)))?;
-    metadata.insert(
-        "schema".to_string(),
-        SCHEMA_RAW_CONTINUATION.to_string(),
-    );
+    metadata.insert("schema".to_string(), SCHEMA_RAW_CONTINUATION.to_string());
     Ok(RawSample {
         input: text.to_string(),
         target: String::new(),
@@ -187,18 +182,14 @@ mod tests {
 
     #[test]
     fn test_empty_line_is_rejected() {
-        let file = write_temp_jsonl(&[
-            r#"{"prompt": "a", "completion": "b"}"#,
-            "",
-        ]);
+        let file = write_temp_jsonl(&[r#"{"prompt": "a", "completion": "b"}"#, ""]);
         let err = parse_jsonl_file(file.path()).unwrap_err();
         assert!(err.to_string().contains("Empty JSONL line"));
     }
 
     #[test]
     fn test_rejects_extra_fields() {
-        let file =
-            write_temp_jsonl(&[r#"{"prompt": "a", "completion": "b", "extra": "nope"}"#]);
+        let file = write_temp_jsonl(&[r#"{"prompt": "a", "completion": "b", "extra": "nope"}"#]);
         let err = parse_jsonl_file(file.path()).unwrap_err();
         assert!(err.to_string().contains("Unsupported JSONL schema"));
     }
@@ -212,10 +203,7 @@ mod tests {
 
     #[test]
     fn test_rejects_mixed_schema() {
-        let file = write_temp_jsonl(&[
-            r#"{"prompt": "a", "completion": "b"}"#,
-            r#"{"text": "c"}"#,
-        ]);
+        let file = write_temp_jsonl(&[r#"{"prompt": "a", "completion": "b"}"#, r#"{"text": "c"}"#]);
         let err = parse_jsonl_file(file.path()).unwrap_err();
         assert!(err.to_string().contains("Mixed JSONL schemas"));
     }

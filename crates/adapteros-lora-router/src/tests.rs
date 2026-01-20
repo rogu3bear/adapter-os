@@ -1481,7 +1481,9 @@ fn test_sort_scores_deterministic_mixed() {
 
     // One tie event between idx 0 and 1
     assert_eq!(ties.len(), 1);
-    assert!((ties[0].idx_a == 0 && ties[0].idx_b == 1) || (ties[0].idx_a == 1 && ties[0].idx_b == 0));
+    assert!(
+        (ties[0].idx_a == 0 && ties[0].idx_b == 1) || (ties[0].idx_a == 1 && ties[0].idx_b == 0)
+    );
 }
 
 #[test]
@@ -1537,11 +1539,7 @@ fn test_sort_scores_deterministic_total_cmp() {
     ];
 
     // Test with infinity and negative zero
-    let mut scores = vec![
-        (0, f32::INFINITY),
-        (1, 0.5f32),
-        (2, f32::NEG_INFINITY),
-    ];
+    let mut scores = vec![(0, f32::INFINITY), (1, 0.5f32), (2, f32::NEG_INFINITY)];
 
     let ties = sort_scores_deterministic(&mut scores, &adapter_info, true);
 

@@ -623,6 +623,10 @@ fn compile_real_wrapper(include_dir: &Path, lib_dir: &Path) {
         build.flag_if_supported("-Wextra"); // Extra warnings
         build.flag_if_supported("-fvisibility=hidden"); // Hidden symbols by default
 
+        // Suppress warnings from 3rd party MLX headers
+        build.flag_if_supported("-Wno-unused-parameter");
+        build.flag_if_supported("-Wno-deprecated-copy");
+
         // C++17 standard compatibility flags
         build.flag_if_supported("-std=c++17");
         build.flag_if_supported("-fno-strict-aliasing"); // Safety with C bindings
