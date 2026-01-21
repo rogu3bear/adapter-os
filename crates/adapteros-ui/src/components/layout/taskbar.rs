@@ -1,0 +1,189 @@
+//! Taskbar - Bottom navigation bar
+//!
+//! Windows-style bottom taskbar with start button, pinned pages, and system tray.
+
+use super::start_menu::StartMenu;
+use super::system_tray::SystemTray;
+use crate::signals::{use_chat, DockState};
+use leptos::prelude::*;
+use leptos_router::hooks::use_location;
+
+/// Navigation item for taskbar
+struct NavItem {
+    label: &'static str,
+    href: &'static str,
+    icon: &'static str,
+}
+
+impl NavItem {
+    const fn new(label: &'static str, href: &'static str, icon: &'static str) -> Self {
+        Self { label, href, icon }
+    }
+}
+
+/// Pinned navigation items
+const NAV_ITEMS: &[NavItem] = &[
+    NavItem::new("Dashboard", "/", "M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"),
+    NavItem::new("Adapters", "/adapters", "M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"),
+    NavItem::new("Chat", "/chat", "M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"),
+    NavItem::new("Training", "/training", "M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"),
+    NavItem::new("System", "/system", "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"),
+    NavItem::new("Settings", "/settings", "M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"),
+];
+
+/// Bottom taskbar with start button, pinned pages, and system tray
+#[component]
+pub fn Taskbar() -> impl IntoView {
+    let (start_menu_open, set_start_menu_open) = signal(false);
+    let location = use_location();
+    let (chat_state, chat_action) = use_chat();
+
+    view! {
+        <nav class="h-12 flex items-center justify-between border-t border-border bg-background/95 backdrop-blur-sm px-2 shrink-0">
+            // Left: Start button
+            <div class="relative">
+                <button
+                    class=move || format!(
+                        "flex items-center gap-2 px-3 py-1.5 rounded-md transition-colors {}",
+                        if start_menu_open.get() {
+                            "bg-primary text-primary-foreground"
+                        } else {
+                            "hover:bg-muted/50 text-foreground"
+                        }
+                    )
+                    on:click=move |_| set_start_menu_open.update(|v| *v = !*v)
+                >
+                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                        <rect x="3" y="3" width="8" height="8" rx="1"/>
+                        <rect x="13" y="3" width="8" height="8" rx="1"/>
+                        <rect x="3" y="13" width="8" height="8" rx="1"/>
+                        <rect x="13" y="13" width="8" height="8" rx="1"/>
+                    </svg>
+                    <span class="text-sm font-medium hidden sm:block">"Start"</span>
+                </button>
+
+                // Start menu dropdown
+                <Show when=move || start_menu_open.get()>
+                    <StartMenu on_close=move || set_start_menu_open.set(false)/>
+                </Show>
+            </div>
+
+            // Center: Pinned pages
+            <div class="flex items-center gap-1">
+                {NAV_ITEMS.iter().map(|item| {
+                    let href = item.href;
+                    let label = item.label;
+                    let icon_path = item.icon;
+
+                    view! {
+                        <TaskbarButton
+                            href=href
+                            label=label
+                            icon_path=icon_path
+                            is_active=move || {
+                                let path = location.pathname.get();
+                                if href == "/" {
+                                    path == "/" || path == "/dashboard"
+                                } else {
+                                    path.starts_with(href)
+                                }
+                            }
+                        />
+                    }
+                }).collect::<Vec<_>>()}
+
+                // Separator
+                <div class="w-px h-6 bg-border/50 mx-1"></div>
+
+                // Chat toggle button with unread badge
+                {
+                    let action = chat_action.clone();
+                    view! {
+                        <button
+                            class=move || format!(
+                                "relative flex items-center gap-2 px-3 py-1.5 rounded-md transition-colors {}",
+                                if chat_state.get().dock_state == DockState::Docked {
+                                    "bg-primary/20 text-primary"
+                                } else {
+                                    "hover:bg-muted/50 text-muted-foreground hover:text-foreground"
+                                }
+                            )
+                            on:click={
+                                let action = action.clone();
+                                move |_| action.toggle_dock()
+                            }
+                            title="Toggle chat panel"
+                        >
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+                            </svg>
+
+                            // Unread badge
+                            {move || {
+                                let unread = chat_state.get().unread_count();
+                                if unread > 0 && chat_state.get().dock_state != DockState::Docked {
+                                    view! {
+                                        <span class="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[9px] font-medium text-destructive-foreground">
+                                            {if unread > 9 { "9+".to_string() } else { unread.to_string() }}
+                                        </span>
+                                    }.into_any()
+                                } else {
+                                    view! {}.into_any()
+                                }
+                            }}
+                        </button>
+                    }
+                }
+            </div>
+
+            // Right: System tray
+            <SystemTray/>
+        </nav>
+    }
+}
+
+/// Taskbar button for pinned pages
+#[component]
+fn TaskbarButton(
+    href: &'static str,
+    label: &'static str,
+    icon_path: &'static str,
+    is_active: impl Fn() -> bool + Copy + Send + Sync + 'static,
+) -> impl IntoView {
+    view! {
+        <a
+            href=href
+            class=move || format!(
+                "group flex items-center gap-2 px-3 py-1.5 rounded-md transition-colors relative {}",
+                if is_active() {
+                    "bg-muted text-foreground"
+                } else {
+                    "hover:bg-muted/50 text-muted-foreground hover:text-foreground"
+                }
+            )
+            title=label
+        >
+            <svg
+                class="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                stroke-width="2"
+            >
+                <path stroke-linecap="round" stroke-linejoin="round" d=icon_path/>
+            </svg>
+            <span class="text-sm hidden lg:block">{label}</span>
+
+            // Active indicator
+            {move || {
+                if is_active() {
+                    view! {
+                        <span class="absolute bottom-0 left-1/2 -translate-x-1/2 w-4 h-0.5 bg-primary rounded-full"></span>
+                    }.into_any()
+                } else {
+                    view! {}.into_any()
+                }
+            }}
+        </a>
+    }
+}

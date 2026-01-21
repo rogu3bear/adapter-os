@@ -46,6 +46,7 @@ web-sys = { version = "0.3", features = [
     "AbortSignal",
     "console",
     "Document",
+    "DomException",
     "Element",
     "EventSource",
     "EventSourceInit",

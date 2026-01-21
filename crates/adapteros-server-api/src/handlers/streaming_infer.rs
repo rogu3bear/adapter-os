@@ -126,6 +126,11 @@ pub struct StreamingInferRequest {
     /// Stop policy specification (PRD: Hard Deterministic Stop Controller)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop_policy: Option<adapteros_api_types::inference::StopPolicySpec>,
+    /// Context request for UI context injection (PRD-002 Phase 2)
+    /// When flags are true, the server fetches and injects the corresponding
+    /// context data into the prompt.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<adapteros_api_types::inference::ContextRequest>,
 }
 
 impl From<(&StreamingInferRequest, &Claims)> for InferenceRequestInternal {
@@ -335,6 +340,142 @@ pub enum LoadPhase {
     Downloading,
     LoadingWeights,
     Warmup,
+}
+
+/// Build context prefix from ContextRequest flags.
+///
+/// Fetches system health snapshot and/or page context when the corresponding
+/// flags are enabled, returning a formatted prefix to prepend to the prompt.
+async fn build_context_prefix(
+    state: &AppState,
+    context: &adapteros_api_types::inference::ContextRequest,
+    tenant_id: &str,
+) -> String {
+    let mut prefix_parts = Vec::new();
+
+    // Include system health snapshot
+    if context.include_system_snapshot {
+        let health_summary = match collect_system_snapshot(state, tenant_id).await {
+            Ok(snapshot) => snapshot,
+            Err(e) => {
+                warn!(error = %e, "Failed to collect system snapshot for context");
+                "[System health data unavailable]".to_string()
+            }
+        };
+        prefix_parts.push(format!("## System Status\n{}", health_summary));
+    }
+
+    // Include page context
+    if context.include_page_context {
+        let mut page_info = Vec::new();
+        if let Some(path) = &context.page_path {
+            page_info.push(format!("Current page: {}", path));
+        }
+        if let Some(entity_type) = &context.entity_type {
+            if let Some(entity_id) = &context.entity_id {
+                page_info.push(format!("Selected {}: {}", entity_type, entity_id));
+            }
+        }
+        if !page_info.is_empty() {
+            prefix_parts.push(format!("## Page Context\n{}", page_info.join("\n")));
+        }
+    }
+
+    // Fetch recent audit logs (limited to 20 most recent)
+    if context.include_recent_logs {
+        let logs_summary = collect_recent_logs(&state, &tenant_id).await;
+        prefix_parts.push(format!("## Recent Logs\n{}", logs_summary));
+    }
+
+    if prefix_parts.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "Use the following system context to help answer:\n\n{}\n\n---\n\n",
+            prefix_parts.join("\n\n")
+        )
+    }
+}
+
+/// Collect a compact system health snapshot for context injection.
+async fn collect_system_snapshot(state: &AppState, tenant_id: &str) -> Result<String, String> {
+    let mut lines = Vec::new();
+
+    // Worker count (use list and count pattern)
+    let worker_count = state
+        .db
+        .list_healthy_workers_by_tenant(tenant_id)
+        .await
+        .map(|workers| workers.len())
+        .unwrap_or(0);
+    lines.push(format!("- Workers: {} healthy", worker_count));
+
+    // Adapter count (use list and count pattern)
+    let adapter_count = state
+        .db
+        .list_adapters_for_tenant(tenant_id)
+        .await
+        .map(|adapters| adapters.len())
+        .unwrap_or(0);
+    lines.push(format!("- Adapters: {} registered", adapter_count));
+
+    // System ready status
+    lines.push("- Status: System online".to_string());
+
+    Ok(lines.join("\n"))
+}
+
+/// Collect recent audit logs for context injection.
+///
+/// Fetches the 20 most recent audit log entries for the tenant,
+/// formatted as a concise summary suitable for prompt injection.
+async fn collect_recent_logs(state: &AppState, tenant_id: &str) -> String {
+    const MAX_LOGS: i64 = 20;
+
+    match state
+        .db
+        .query_audit_logs_for_tenant(
+            tenant_id, None, // user_id
+            None, // action
+            None, // resource_type
+            None, // start_date
+            None, // end_date
+            MAX_LOGS,
+        )
+        .await
+    {
+        Ok(logs) if !logs.is_empty() => {
+            let log_lines: Vec<String> = logs
+                .iter()
+                .take(MAX_LOGS as usize)
+                .map(|log| {
+                    // Extract time portion from RFC3339 timestamp (e.g., "2024-01-20T15:30:45Z" -> "15:30:45")
+                    let timestamp = log
+                        .timestamp
+                        .split('T')
+                        .nth(1)
+                        .and_then(|t| t.split('Z').next())
+                        .and_then(|t| t.split('.').next())
+                        .unwrap_or(&log.timestamp);
+                    let status_icon = if log.status == "success" {
+                        "✓"
+                    } else {
+                        "✗"
+                    };
+                    format!(
+                        "[{}] {} {} {}",
+                        timestamp, status_icon, log.action, log.resource_type
+                    )
+                })
+                .collect();
+            log_lines.join("\n")
+        }
+        Ok(_) => "[No recent activity]".to_string(),
+        Err(e) => {
+            warn!(error = %e, "Failed to fetch recent logs for context");
+            "[Log retrieval failed]".to_string()
+        }
+    }
 }
 
 fn serialize_safe<T: Serialize>(value: &T, context: &str) -> String {
@@ -875,6 +1016,29 @@ pub async fn streaming_infer(
     } else {
         // No collection_id, use base_prompt directly (may include chat history)
         (base_prompt, Vec::new())
+    };
+
+    // PRD-002 Phase 2: Inject UI context when toggles are enabled
+    let augmented_prompt = if let Some(ref context) = req.context {
+        if context.has_any_context() {
+            let context_prefix = build_context_prefix(&state, context, &claims.tenant_id).await;
+            if !context_prefix.is_empty() {
+                info!(
+                    request_id = %request_id,
+                    page_context = context.include_page_context,
+                    recent_logs = context.include_recent_logs,
+                    system_snapshot = context.include_system_snapshot,
+                    "Injecting UI context into prompt"
+                );
+                format!("{}{}", context_prefix, augmented_prompt)
+            } else {
+                augmented_prompt
+            }
+        } else {
+            augmented_prompt
+        }
+    } else {
+        augmented_prompt
     };
 
     // Audit log: inference execution start

@@ -90,7 +90,7 @@ pub fn NarrowChatDock() -> impl IntoView {
 
                 // Unread badge
                 {move || {
-                    let unread = chat_state.get().unread_count;
+                    let unread = chat_state.get().unread_count();
                     if unread > 0 {
                         view! {
                             <span class="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-3xs font-medium text-destructive-foreground">
@@ -141,10 +141,9 @@ fn CollapseButton() -> impl IntoView {
 /// Pop-out button to navigate to full chat page
 #[component]
 fn PopOutButton() -> impl IntoView {
+    let navigate_fn = leptos_router::hooks::use_navigate();
     let navigate = move |_| {
-        if let Some(window) = web_sys::window() {
-            let _ = window.location().set_href("/chat");
-        }
+        navigate_fn("/chat", Default::default());
     };
 
     view! {
@@ -171,11 +170,23 @@ fn PopOutButton() -> impl IntoView {
     }
 }
 
-/// Target selector dropdown
+/// Target options fetched from API
+#[derive(Debug, Clone, Default)]
+struct TargetOptions {
+    models: Vec<(String, String)>,   // (id, name)
+    stacks: Vec<(String, String)>,   // (id, name)
+    policies: Vec<(String, String)>, // (cpid, display_name)
+    loading: bool,
+    error: Option<String>, // API error message for display
+}
+
+/// Target selector dropdown with dynamic data from API
 #[component]
 fn TargetSelector() -> impl IntoView {
     let (chat_state, chat_action) = use_chat();
     let show_dropdown = RwSignal::new(false);
+    let options = RwSignal::new(TargetOptions::default());
+    let has_loaded = RwSignal::new(false);
 
     let toggle_dropdown = move |_| {
         show_dropdown.update(|v| *v = !*v);
@@ -188,6 +199,118 @@ fn TargetSelector() -> impl IntoView {
             show_dropdown.set(false);
         }
     };
+
+    // Reset has_loaded when dropdown closes to allow refresh on next open
+    Effect::new(move |prev_open: Option<bool>| {
+        let is_open = show_dropdown.get();
+        if let Some(was_open) = prev_open {
+            if was_open && !is_open {
+                // Dropdown just closed - reset to allow refresh on next open
+                has_loaded.set(false);
+            }
+        }
+        is_open
+    });
+
+    // Fetch options when dropdown is first opened
+    Effect::new(move || {
+        if show_dropdown.get() && !has_loaded.get() {
+            has_loaded.set(true);
+            options.update(|o| {
+                o.loading = true;
+                o.error = None;
+            });
+
+            wasm_bindgen_futures::spawn_local(async move {
+                let client = crate::api::ApiClient::with_base_url(&crate::api::api_base_url());
+
+                // Fetch all in parallel
+                let models_fut = client.list_models();
+                let stacks_fut = client.list_stacks();
+                let policies_fut = client.list_policies();
+
+                let (models_res, stacks_res, policies_res) =
+                    futures::join!(models_fut, stacks_fut, policies_fut);
+
+                // Track errors for display
+                let mut errors: Vec<String> = Vec::new();
+
+                options.update(|o| {
+                    o.loading = false;
+
+                    // Parse models
+                    match models_res {
+                        Ok(resp) => {
+                            o.models = resp
+                                .models
+                                .into_iter()
+                                .map(|m| (m.id.clone(), m.name.clone()))
+                                .collect();
+                        }
+                        Err(e) => {
+                            let msg = format!("Models: {}", e);
+                            web_sys::console::warn_1(&msg.clone().into());
+                            errors.push(msg);
+                        }
+                    }
+
+                    // Parse stacks
+                    match stacks_res {
+                        Ok(stacks) => {
+                            o.stacks = stacks
+                                .into_iter()
+                                .filter(|s| s.is_active)
+                                .map(|s| (s.id.clone(), s.name.clone()))
+                                .collect();
+                        }
+                        Err(e) => {
+                            let msg = format!("Stacks: {}", e);
+                            web_sys::console::warn_1(&msg.clone().into());
+                            errors.push(msg);
+                        }
+                    }
+
+                    // Parse policies - extract display name from CPID
+                    match policies_res {
+                        Ok(policies) => {
+                            o.policies = policies
+                                .into_iter()
+                                .map(|p| {
+                                    // Parse display name from CPID (e.g., "medical-qa-v1" -> "Medical QA v1")
+                                    let display = p
+                                        .cpid
+                                        .replace('-', " ")
+                                        .split_whitespace()
+                                        .map(|w| {
+                                            let mut chars = w.chars();
+                                            match chars.next() {
+                                                Some(first) => {
+                                                    first.to_uppercase().chain(chars).collect()
+                                                }
+                                                None => String::new(),
+                                            }
+                                        })
+                                        .collect::<Vec<String>>()
+                                        .join(" ");
+                                    (p.cpid, display)
+                                })
+                                .collect();
+                        }
+                        Err(e) => {
+                            let msg = format!("Policies: {}", e);
+                            web_sys::console::warn_1(&msg.clone().into());
+                            errors.push(msg);
+                        }
+                    }
+
+                    // Set combined error if any
+                    if !errors.is_empty() {
+                        o.error = Some(format!("Failed to load: {}", errors.join(", ")));
+                    }
+                });
+            });
+        }
+    });
 
     view! {
         <div class="relative border-b px-4 py-2">
@@ -212,45 +335,103 @@ fn TargetSelector() -> impl IntoView {
             {move || {
                 if show_dropdown.get() {
                     let select = select_target.clone();
+                    let opts = options.get();
+
                     view! {
-                        <div class="absolute left-4 right-4 top-full z-50 mt-1 rounded-md border bg-popover shadow-lg">
+                        <div class="absolute left-4 right-4 top-full z-50 mt-1 rounded-md border bg-popover shadow-lg max-h-80 overflow-y-auto">
                             <div class="p-1">
-                                <TargetOption
+                                <DynamicTargetOption
                                     target=ChatTarget::Default
-                                    label="Default"
+                                    label="Default".to_string()
                                     on_select=select.clone()
                                 />
-                                <div class="my-1 border-t"/>
-                                <div class="px-2 py-1.5 text-xs font-medium text-muted-foreground">"Models"</div>
-                                <TargetOption
-                                    target=ChatTarget::Model("llama-3.2-3b".to_string())
-                                    label="Llama 3.2 3B"
-                                    on_select=select.clone()
-                                />
-                                <TargetOption
-                                    target=ChatTarget::Model("mistral-7b".to_string())
-                                    label="Mistral 7B"
-                                    on_select=select.clone()
-                                />
-                                <div class="my-1 border-t"/>
-                                <div class="px-2 py-1.5 text-xs font-medium text-muted-foreground">"Stacks"</div>
-                                <TargetOption
-                                    target=ChatTarget::Stack("production".to_string())
-                                    label="Production Stack"
-                                    on_select=select.clone()
-                                />
-                                <TargetOption
-                                    target=ChatTarget::Stack("development".to_string())
-                                    label="Development Stack"
-                                    on_select=select.clone()
-                                />
-                                <div class="my-1 border-t"/>
-                                <div class="px-2 py-1.5 text-xs font-medium text-muted-foreground">"Policy Packs"</div>
-                                <TargetOption
-                                    target=ChatTarget::PolicyPack("safety-v1".to_string())
-                                    label="Safety v1"
-                                    on_select=select.clone()
-                                />
+
+                                // Error display
+                                {opts.error.as_ref().map(|e| view! {
+                                    <div class="px-2 py-2 text-xs text-destructive bg-destructive/10 rounded mx-1 my-1">
+                                        {e.clone()}
+                                    </div>
+                                })}
+
+                                // Loading indicator
+                                {if opts.loading {
+                                    Some(view! {
+                                        <div class="px-2 py-3 text-center text-sm text-muted-foreground">
+                                            <span class="animate-pulse">"Loading options..."</span>
+                                        </div>
+                                    })
+                                } else {
+                                    None
+                                }}
+
+                                // Models section
+                                {if !opts.models.is_empty() {
+                                    let select = select.clone();
+                                    Some(view! {
+                                        <div class="my-1 border-t"/>
+                                        <div class="px-2 py-1.5 text-xs font-medium text-muted-foreground">"Models"</div>
+                                        {opts.models.iter().map(|(id, name)| {
+                                            let target = ChatTarget::Model(id.clone());
+                                            let label = name.clone();
+                                            let select = select.clone();
+                                            view! {
+                                                <DynamicTargetOption
+                                                    target=target
+                                                    label=label
+                                                    on_select=select
+                                                />
+                                            }
+                                        }).collect::<Vec<_>>()}
+                                    })
+                                } else {
+                                    None
+                                }}
+
+                                // Stacks section
+                                {if !opts.stacks.is_empty() {
+                                    let select = select.clone();
+                                    Some(view! {
+                                        <div class="my-1 border-t"/>
+                                        <div class="px-2 py-1.5 text-xs font-medium text-muted-foreground">"Stacks"</div>
+                                        {opts.stacks.iter().map(|(id, name)| {
+                                            let target = ChatTarget::Stack(id.clone());
+                                            let label = name.clone();
+                                            let select = select.clone();
+                                            view! {
+                                                <DynamicTargetOption
+                                                    target=target
+                                                    label=label
+                                                    on_select=select
+                                                />
+                                            }
+                                        }).collect::<Vec<_>>()}
+                                    })
+                                } else {
+                                    None
+                                }}
+
+                                // Policies section
+                                {if !opts.policies.is_empty() {
+                                    let select = select.clone();
+                                    Some(view! {
+                                        <div class="my-1 border-t"/>
+                                        <div class="px-2 py-1.5 text-xs font-medium text-muted-foreground">"Policy Packs"</div>
+                                        {opts.policies.iter().map(|(id, name)| {
+                                            let target = ChatTarget::PolicyPack(id.clone());
+                                            let label = name.clone();
+                                            let select = select.clone();
+                                            view! {
+                                                <DynamicTargetOption
+                                                    target=target
+                                                    label=label
+                                                    on_select=select
+                                                />
+                                            }
+                                        }).collect::<Vec<_>>()}
+                                    })
+                                } else {
+                                    None
+                                }}
                             </div>
                         </div>
                     }.into_any()
@@ -262,9 +443,9 @@ fn TargetSelector() -> impl IntoView {
     }
 }
 
-/// Individual target option in dropdown
+/// Dynamic target option with String label
 #[component]
-fn TargetOption<F>(target: ChatTarget, label: &'static str, on_select: F) -> impl IntoView
+fn DynamicTargetOption<F>(target: ChatTarget, label: String, on_select: F) -> impl IntoView
 where
     F: Fn(ChatTarget) + Clone + 'static,
 {
@@ -283,16 +464,126 @@ where
     }
 }
 
+/// Individual message item with memoization for performance
+///
+/// This component uses `Memo` for derived values to avoid O(n) clones per render.
+/// Instead of cloning all message content on every state update, we only recompute
+/// when the specific message changes.
+#[component]
+fn MessageItem(msg_id: String) -> impl IntoView {
+    let (chat_state, _) = use_chat();
+    let msg_id_clone = msg_id.clone();
+
+    // Memoize message lookup - only recomputes when messages change
+    let message = Memo::new(move |_| {
+        chat_state
+            .get()
+            .messages
+            .iter()
+            .find(|m| m.id == msg_id_clone)
+            .cloned()
+    });
+
+    // Memoize derived values - only recompute when message changes
+    let formatted_time = Memo::new(move |_| {
+        message
+            .get()
+            .map(|m| m.timestamp.format("%H:%M").to_string())
+            .unwrap_or_default()
+    });
+
+    let is_user = Memo::new(move |_| message.get().is_some_and(|m| m.role == "user"));
+
+    let is_streaming = Memo::new(move |_| message.get().is_some_and(|m| m.is_streaming));
+
+    let content = Memo::new(move |_| message.get().map(|m| m.content).unwrap_or_default());
+
+    view! {
+        {move || {
+            message.get().map(|_| {
+                let user = is_user.get();
+                view! {
+                    <div class=format!(
+                        "flex {}",
+                        if user { "justify-end" } else { "justify-start" }
+                    )>
+                        <div class=format!(
+                            "chat-bubble-compact rounded-lg px-3 py-2 {}",
+                            if user {
+                                "bg-primary text-primary-foreground"
+                            } else {
+                                "bg-muted"
+                            }
+                        )>
+                            <p class="text-sm whitespace-pre-wrap break-words">{move || content.get()}</p>
+                            <div class=format!(
+                                "mt-1 text-2xs {}",
+                                if user { "text-primary-foreground/70" } else { "text-muted-foreground" }
+                            )>
+                                {move || formatted_time.get()}
+                                {move || {
+                                    if is_streaming.get() {
+                                        view! { <span class="ml-1 animate-pulse">"..."</span> }.into_any()
+                                    } else {
+                                        view! {}.into_any()
+                                    }
+                                }}
+                            </div>
+                        </div>
+                    </div>
+                }
+            })
+        }}
+    }
+}
+
 /// Message list component
+///
+/// Uses Leptos's `<For>` component with keyed iteration for efficient diffing.
+/// Only re-renders messages that have actually changed, reducing O(n) clones
+/// to O(1) for unchanged messages during streaming.
 #[component]
 fn MessageList() -> impl IntoView {
     let (chat_state, _) = use_chat();
+    let container_ref = leptos::prelude::NodeRef::<leptos::html::Div>::new();
+
+    // Auto-scroll to bottom when messages change
+    Effect::new(move |_| {
+        let msg_count = chat_state.get().messages.len();
+        // Scroll to bottom when message count changes
+        if msg_count > 0 {
+            if let Some(el) = container_ref.get() {
+                // Use requestAnimationFrame to ensure DOM is updated
+                let el_clone = el.clone();
+                wasm_bindgen_futures::spawn_local(async move {
+                    // Small delay to let content render
+                    gloo_timers::future::TimeoutFuture::new(10).await;
+                    el_clone.set_scroll_top(el_clone.scroll_height());
+                });
+            }
+        }
+    });
+
+    // Memoize message IDs for keyed iteration - only recomputes when message list changes
+    let message_ids = Memo::new(move |_| {
+        chat_state
+            .get()
+            .messages
+            .iter()
+            .map(|m| m.id.clone())
+            .collect::<Vec<_>>()
+    });
+
+    let is_loading = Memo::new(move |_| chat_state.get().loading);
+    let is_empty = Memo::new(move |_| chat_state.get().messages.is_empty());
 
     view! {
-        <div class="flex-1 overflow-y-auto p-4 space-y-4">
+        <div
+            node_ref=container_ref
+            class="flex-1 overflow-y-auto p-4 space-y-4"
+        >
             {move || {
-                let state = chat_state.get();
-                if state.messages.is_empty() {
+                if is_empty.get() {
                     view! {
                         <div class="flex h-full items-center justify-center text-center">
                             <div class="space-y-2">
@@ -317,53 +608,25 @@ fn MessageList() -> impl IntoView {
                 } else {
                     view! {
                         <div class="space-y-4">
-                            {state.messages.iter().map(|msg| {
-                                let is_user = msg.role == "user";
-                                let content = msg.content.clone();
-                                let timestamp = msg.timestamp.format("%H:%M").to_string();
-                                let is_streaming = msg.is_streaming;
-
-                                view! {
-                                    <div class=format!(
-                                        "flex {}",
-                                        if is_user { "justify-end" } else { "justify-start" }
-                                    )>
-                                        <div class=format!(
-                                            "chat-bubble-compact rounded-lg px-3 py-2 {}",
-                                            if is_user {
-                                                "bg-primary text-primary-foreground"
-                                            } else {
-                                                "bg-muted"
-                                            }
-                                        )>
-                                            <p class="text-sm whitespace-pre-wrap break-words">{content}</p>
-                                            <div class=format!(
-                                                "mt-1 text-2xs {}",
-                                                if is_user { "text-primary-foreground/70" } else { "text-muted-foreground" }
-                                            )>
-                                                {timestamp}
-                                                {if is_streaming {
-                                                    view! { <span class="ml-1 animate-pulse">"..."</span> }.into_any()
-                                                } else {
-                                                    view! {}.into_any()
-                                                }}
-                                            </div>
-                                        </div>
-                                    </div>
-                                }
-                            }).collect::<Vec<_>>()}
+                            <For
+                                each=move || message_ids.get()
+                                key=|id| id.clone()
+                                children=move |id| view! { <MessageItem msg_id=id/> }
+                            />
 
                             // Loading indicator
-                            {if state.loading {
-                                view! {
-                                    <div class="flex justify-start">
-                                        <div class="rounded-lg bg-muted px-3 py-2">
-                                            <Spinner/>
+                            {move || {
+                                if is_loading.get() {
+                                    view! {
+                                        <div class="flex justify-start">
+                                            <div class="rounded-lg bg-muted px-3 py-2">
+                                                <Spinner/>
+                                            </div>
                                         </div>
-                                    </div>
-                                }.into_any()
-                            } else {
-                                view! {}.into_any()
+                                    }.into_any()
+                                } else {
+                                    view! {}.into_any()
+                                }
                             }}
                         </div>
                     }.into_any()
@@ -505,32 +768,38 @@ fn ClearButton() -> impl IntoView {
     }
 }
 
-/// Chat input component
+/// Chat input component with SSE streaming support
 #[component]
 fn ChatInput() -> impl IntoView {
     let (chat_state, chat_action) = use_chat();
     let message = RwSignal::new(String::new());
 
-    // Create derived signal for loading state (fixes reactive tracking warning)
+    // Create derived signals for state tracking
     let is_loading = Memo::new(move |_| chat_state.get().loading);
-    let can_send = Memo::new(move |_| !message.get().trim().is_empty() && !is_loading.get());
+    let is_streaming = Memo::new(move |_| chat_state.get().streaming);
+    let is_busy = Memo::new(move |_| {
+        let state = chat_state.get();
+        state.loading || state.streaming
+    });
+    let can_send = Memo::new(move |_| !message.get().trim().is_empty() && !is_busy.get());
 
     let do_send = {
         let action = chat_action.clone();
-        let is_loading = is_loading.clone();
         move || {
-            if is_loading.get() {
-                return;
-            }
             let msg = message.get();
             if !msg.trim().is_empty() {
-                let action = action.clone();
                 message.set(String::new());
-                wasm_bindgen_futures::spawn_local(async move {
-                    let _ = action.send_message(msg).await;
-                });
+                // Use streaming instead of non-streaming
+                action.send_message_streaming(msg);
             }
         }
+    };
+
+    let do_cancel = {
+        let action = chat_action.clone();
+        Callback::new(move |_: ()| {
+            action.cancel_stream();
+        })
     };
 
     let send_callback = Callback::new({
@@ -557,18 +826,32 @@ fn ChatInput() -> impl IntoView {
                     rows=2
                     class="resize-none".to_string()
                 />
-                <div class="flex justify-end">
+                <div class="flex justify-end gap-2">
                     {move || {
-                        let disabled = !can_send.get();
-                        view! {
-                            <Button
-                                size=ButtonSize::Sm
-                                loading=is_loading.get()
-                                disabled=disabled
-                                on_click=send_callback.clone()
-                            >
-                                "Send"
-                            </Button>
+                        if is_streaming.get() {
+                            // Show Stop button when streaming
+                            view! {
+                                <Button
+                                    size=ButtonSize::Sm
+                                    on_click=do_cancel
+                                    class="bg-destructive hover:bg-destructive/90".to_string()
+                                >
+                                    "Stop"
+                                </Button>
+                            }.into_any()
+                        } else {
+                            // Show Send button when not streaming
+                            let disabled = !can_send.get();
+                            view! {
+                                <Button
+                                    size=ButtonSize::Sm
+                                    loading=is_loading.get()
+                                    disabled=disabled
+                                    on_click=send_callback.clone()
+                                >
+                                    "Send"
+                                </Button>
+                            }.into_any()
                         }
                     }}
                 </div>
@@ -615,7 +898,7 @@ pub fn MobileChatOverlay() -> impl IntoView {
 
                 // Unread badge
                 {move || {
-                    let unread = chat_state.get().unread_count;
+                    let unread = chat_state.get().unread_count();
                     if unread > 0 {
                         view! {
                             <span class="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-2xs font-medium text-destructive-foreground">
