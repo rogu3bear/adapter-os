@@ -33,9 +33,8 @@ struct GqaConfig {
 struct RingBuffer {
     uint top_k;                 // Number of active adapters (K-sparse)
     uint current_pos;           // Current position in ring buffer
-    uint adapter_indices[8];    // Max K=8 adapter indices
-    uint16_t gates[8];         // Q15 format gate values
-    uint reserved[2];          // Padding for alignment / metadata
+    ushort adapter_indices[8];  // Max K=8 adapter indices (u16)
+    short gates[8];            // Q15 format gate values (i16)
 };
 
 // MLP kernel parameter structures
@@ -120,8 +119,11 @@ struct FlashAttentionParams {
 };
 
 // Deterministic math functions
+
+/// SiLU (Sigmoid Linear Unit) activation function
+/// Also known as Swish activation
+/// Formula: SiLU(x) = x * sigmoid(x) = x / (1 + exp(-x))
 float deterministic_silu(float x) {
-    // SiLU(x) = x * sigmoid(x) = x / (1 + exp(-x))
     return x / (1.0f + exp(-x));
 }
 
@@ -144,10 +146,6 @@ float deterministic_relu(float x) {
     return max(0.0f, x);
 }
 
-float deterministic_swish(float x) {
-    // Swish(x) = x * sigmoid(x) = x / (1 + exp(-x))
-    return x / (1.0f + exp(-x));
-}
 
 // Deterministic dropout function
 float deterministic_dropout(uint seed, uint position, float dropout_rate) {

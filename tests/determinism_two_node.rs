@@ -8,8 +8,10 @@
 //!
 //! Run with: cargo test --test determinism_two_node -- --ignored --test-threads=1
 
-use adapteros_core::B3Hash;
+use adapteros_core::{derive_seed_indexed, B3Hash};
+use adapteros_lora_kernel_api::FusedKernels;
 use adapteros_telemetry::{find_divergence, load_replay_bundle};
+
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
@@ -73,12 +75,12 @@ fn test_deterministic_seed_generation() {
 
     let global_seed = B3Hash::hash(b"test-global-seed");
 
-    let seed1 = derive_seed(&global_seed, "router", 0);
-    let seed2 = derive_seed(&global_seed, "router", 0);
+    let seed1 = derive_seed_indexed(&global_seed, "router", 0);
+    let seed2 = derive_seed_indexed(&global_seed, "router", 0);
 
     assert_eq!(seed1, seed2, "Same label and index must produce same seed");
 
-    let seed3 = derive_seed(&global_seed, "router", 1);
+    let seed3 = derive_seed_indexed(&global_seed, "router", 1);
     assert_ne!(seed1, seed3, "Different index must produce different seed");
 
     println!("✓ Seed derivation is deterministic");

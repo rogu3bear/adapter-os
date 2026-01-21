@@ -10,13 +10,11 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 # Configuration
 BACKEND_PID_FILE="$PROJECT_ROOT/var/backend.pid"
 UI_PID_FILE="$PROJECT_ROOT/var/ui.pid"
-MENU_BAR_PID_FILE="$PROJECT_ROOT/var/menu-bar.pid"
 
 # Timeouts (in seconds)
 GRACEFUL_TIMEOUT=120  # 2 minutes for graceful shutdown
 FORCE_TIMEOUT=10      # 10 seconds before force kill
 UI_TIMEOUT=15         # UI should stop quickly
-MENU_BAR_TIMEOUT=5    # Menu bar should stop quickly
 
 # Colors
 RED='\033[0;31m'
@@ -220,33 +218,6 @@ stop_ui() {
     rm -f "$UI_PID_FILE"
 }
 
-# Stop menu bar app
-stop_menu_bar() {
-    if [[ "$OSTYPE" != "darwin"* ]]; then
-        return 0
-    fi
-    
-    if ! is_running "$MENU_BAR_PID_FILE"; then
-        return 0
-    fi
-    
-    local pid=$(get_pid "$MENU_BAR_PID_FILE")
-    
-    case "$SHUTDOWN_MODE" in
-        graceful)
-            graceful_stop "$pid" "Menu Bar App" "$MENU_BAR_TIMEOUT" "$FORCE_TIMEOUT"
-            ;;
-        fast)
-            fast_stop "$pid" "Menu Bar App" "$MENU_BAR_TIMEOUT"
-            ;;
-        immediate)
-            immediate_stop "$pid" "Menu Bar App"
-            ;;
-    esac
-    
-    rm -f "$MENU_BAR_PID_FILE"
-}
-
 # Stop backend server
 stop_backend() {
     if ! is_running "$BACKEND_PID_FILE"; then
@@ -293,17 +264,8 @@ shutdown_all() {
     fi
     echo ""
     
-    # 2. Menu bar app (optional, macOS only)
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        status_msg "Phase 2: Stopping Menu Bar App..."
-        if ! stop_menu_bar; then
-            ((errors++))
-        fi
-        echo ""
-    fi
-    
-    # 3. Backend server (core service, stop last)
-    status_msg "Phase 3: Stopping Backend Server..."
+    # 2. Backend server (core service, stop last)
+    status_msg "Phase 2: Stopping Backend Server..."
     if ! stop_backend; then
         ((errors++))
     fi
@@ -342,13 +304,11 @@ usage() {
     echo ""
     echo "The script will:"
     echo "  1. Stop Web UI (if running)"
-    echo "  2. Stop Menu Bar App (if running, macOS only)"
-    echo "  3. Stop Backend Server (with phased cleanup)"
+    echo "  2. Stop Backend Server (with phased cleanup)"
     echo ""
     echo "Timeouts:"
     echo "  Backend graceful: ${GRACEFUL_TIMEOUT}s"
     echo "  UI: ${UI_TIMEOUT}s"
-    echo "  Menu bar: ${MENU_BAR_TIMEOUT}s"
 }
 
 # Main

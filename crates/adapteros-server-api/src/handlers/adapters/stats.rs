@@ -3,18 +3,17 @@
 // This module provides REST API endpoints for:
 // - Getting detailed adapter statistics
 
+use crate::adapter_helpers::fetch_adapter_for_tenant;
+use crate::api_error::ApiResult;
 use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
-use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::{AdapterStatsResponse, ErrorResponse};
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
     response::Json,
     Extension,
 };
-use tracing::{error, warn};
 
 // ============================================================================
 // Handlers
@@ -48,41 +47,12 @@ pub async fn get_adapter_stats(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
-) -> Result<Json<AdapterStatsResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<AdapterStatsResponse> {
     // Require view permission
     require_permission(&claims, Permission::AdapterView)?;
 
-    // Get adapter from database
-    let adapter = state
-        .db
-        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
-        .await
-        .map_err(|e| {
-            error!(
-                tenant_id = %claims.tenant_id,
-                adapter_id = %adapter_id,
-                error = %e,
-                "Failed to fetch adapter"
-            );
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            warn!(adapter_id = %adapter_id, "Adapter not found");
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
-            )
-        })?;
-
-    // Validate tenant isolation
-    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
+    // Get adapter from database with tenant isolation
+    let adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;
 
     // Get stats from database
     let (total_activations, selected_count, avg_gate_value) = state

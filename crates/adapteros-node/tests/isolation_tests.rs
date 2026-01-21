@@ -209,12 +209,9 @@ async fn test_worker_spawn_with_uid_gid_change() {
     // This requires CAP_SETUID and CAP_SETGID capabilities or root
     let result = agent
         .spawn_worker(
-            "uid-test",
-            "plan-uid",
-            1000, // target uid
+            "uid-test", "plan-uid", 1000, // target uid
             1000, // target gid
-            None,
-            None,
+            None, None,
         )
         .await;
 
@@ -252,7 +249,10 @@ fn test_uds_socket_directory_format() {
 
     // Different tenants should have different paths
     let tenant2_dir = format!("/var/run/aos/{}", "tenant-def456");
-    assert_ne!(expected_dir, tenant2_dir, "Different tenants different paths");
+    assert_ne!(
+        expected_dir, tenant2_dir,
+        "Different tenants different paths"
+    );
 }
 
 #[test]
@@ -280,7 +280,8 @@ fn test_uds_directory_creation() {
             // Permission denied is expected without elevated privileges
             let err_msg = format!("{}", e);
             assert!(
-                err_msg.contains("Permission denied") || err_msg.contains("Operation not permitted"),
+                err_msg.contains("Permission denied")
+                    || err_msg.contains("Operation not permitted"),
                 "Should fail with permission error: {}",
                 err_msg
             );
@@ -357,7 +358,10 @@ fn test_unix_socket_only_communication() {
     // The path should be a Unix socket path (not TCP)
     assert!(uds_path.starts_with("/"), "Should be absolute path");
     assert!(uds_path.ends_with(".sock"), "Should end in .sock");
-    assert!(!uds_path.contains(":"), "Should not be TCP format (host:port)");
+    assert!(
+        !uds_path.contains(":"),
+        "Should not be TCP format (host:port)"
+    );
 }
 
 // ============================================================
@@ -544,7 +548,10 @@ async fn test_full_isolation_stack() {
 
     // 3. Verify worker is tracked
     let workers = agent.list_workers().await.expect("list works");
-    assert!(workers.iter().any(|w| w.pid == pid), "Worker should be tracked");
+    assert!(
+        workers.iter().any(|w| w.pid == pid),
+        "Worker should be tracked"
+    );
 
     // 4. Verify UDS path is correct
     let worker = workers.iter().find(|w| w.pid == pid).unwrap();

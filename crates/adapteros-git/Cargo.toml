@@ -24,7 +24,7 @@ uuid.workspace = true
 chrono.workspace = true
 
 # Git operations
-git2 = "0.18"
+git2.workspace = true
 
 # File watching
 notify = "6.1"

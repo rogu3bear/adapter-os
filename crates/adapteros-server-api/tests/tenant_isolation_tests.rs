@@ -453,7 +453,7 @@ async fn test_dataset_validate_enforces_tenant_isolation() -> Result<()> {
     .await;
 
     match result {
-        Err((status, _)) => assert_eq!(status, StatusCode::FORBIDDEN),
+        Err(err) => assert_eq!(err.status, StatusCode::FORBIDDEN),
         Ok(_) => panic!("Cross-tenant validation must be forbidden"),
     }
 

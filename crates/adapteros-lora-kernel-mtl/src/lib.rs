@@ -51,6 +51,7 @@ pub mod gpu_memory_pool;
 pub mod keys;
 pub mod kv_cache;
 pub mod kv_quota;
+pub mod layout_validator;
 pub mod manifest;
 pub mod memory_integration;
 pub mod noise_tracker;
@@ -80,6 +81,7 @@ pub use fused_mlp::{FusedMlpKernel, LoraConfig};
 pub use fused_qkv::{FlashAttentionKernel, FusedQkvKernel, GqaConfig};
 pub use kv_cache::{CachedFlashAttention, KVCache, KVCacheConfig, KvResidency, LayerKVCache};
 pub use kv_quota::{COLD_DEMOTION_IDLE_TIME, HOT_PROMOTION_THRESHOLD, HOT_RECENCY_WINDOW};
+pub use layout_validator::LayoutValidator;
 pub use manifest::{verify_embedded_manifest, KernelManifest};
 pub use noise_tracker::{NoiseTracker, NoiseTrackingConfig};
 pub use purgeable::{PurgeableBuffer, PurgeableResult, PurgeableState};
@@ -1159,11 +1161,12 @@ impl MetalKernels {
         Ok(())
     }
 
-    /// Run transformer layers with LoRA adapters
     fn run_transformer_layers(
         &mut self,
         adapters: &[ActiveAdapter],
         _io: &mut IoBuffers,
+        dropout_seed: u32,
+        dropout_rate: f32,
     ) -> Result<()> {
         let transformer_weights = self
             .transformer_weights
@@ -1224,13 +1227,15 @@ impl MetalKernels {
         // Execute Fused MLP Kernel with actual adapter weights
         if let Some(ref mut mlp_kernel) = self.mlp_kernel {
             mlp_kernel.execute(
-                &intermediate_buffers.attention_output,
+                &intermediate_buffers.hidden_states,
                 &transformer_weights.gate_weight,
                 &transformer_weights.up_weight,
                 &transformer_weights.down_weight,
                 &intermediate_buffers.mlp_output,
-                &adapter_weight_refs,
+                &self.adapter_weights.values().collect::<Vec<_>>(),
                 adapters,
+                dropout_seed,
+                dropout_rate,
             )?;
         }
 
@@ -1490,7 +1495,7 @@ impl FusedKernels for MetalKernels {
 
         // Step 2: Run transformer layers (QKV → Attention → MLP)
         // This processes through all transformer layers with LoRA adapter fusion
-        self.run_transformer_layers(&adapters, io)?;
+        self.run_transformer_layers(&adapters, io, ring.dropout_seed, ring.dropout_rate)?;
 
         // Step 3: Vocabulary projection (hidden states → logits)
         self.perform_vocabulary_projection(&adapters, io)?;

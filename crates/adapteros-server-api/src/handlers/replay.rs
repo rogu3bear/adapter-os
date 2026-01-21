@@ -19,8 +19,8 @@ use tracing::{debug, info, warn};
 use utoipa::{IntoParams, ToSchema};
 use zip::ZipArchive;
 
+use crate::api_error::{ApiError, ApiResult};
 use crate::auth::Claims;
-use crate::error_helpers::{bad_request, db_error, internal_error, not_found};
 use crate::handlers::rag_common::reconstruct_rag_context;
 use crate::inference_core::InferenceCore;
 use crate::permissions::{require_permission, Permission};
@@ -143,14 +143,14 @@ pub async fn list_replay_sessions(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Query(params): Query<ListReplaySessionsParams>,
-) -> Result<Json<Vec<ReplaySessionResponse>>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<Vec<ReplaySessionResponse>> {
     require_permission(&claims, Permission::ReplayManage)?;
 
     let sessions = state
         .db
         .list_replay_sessions(params.tenant_id.as_deref())
         .await
-        .map_err(db_error)?;
+        .map_err(ApiError::db_error)?;
 
     let responses: Vec<ReplaySessionResponse> = sessions
         .into_iter()
@@ -173,17 +173,18 @@ pub async fn get_replay_session(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(session_id): Path<String>,
-) -> Result<Json<ReplaySessionResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<ReplaySessionResponse> {
     require_permission(&claims, Permission::ReplayManage)?;
 
     let session = state
         .db
         .get_replay_session(&session_id)
         .await
-        .map_err(db_error)?
-        .ok_or_else(|| not_found("Replay session"))?;
+        .map_err(ApiError::db_error)?
+        .ok_or_else(|| ApiError::not_found("Replay session"))?;
 
-    let response = session_to_response(session).map_err(internal_error)?;
+    let response = session_to_response(session)
+        .map_err(|e| ApiError::internal("Failed to convert session").with_details(e.to_string()))?;
 
     Ok(Json(response))
 }
@@ -202,7 +203,7 @@ pub async fn create_replay_session(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Json(req): Json<CreateReplaySessionRequest>,
-) -> Result<Json<ReplaySessionResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<ReplaySessionResponse> {
     require_permission(&claims, Permission::ReplayManage)?;
 
     // Generate session ID
@@ -278,7 +279,9 @@ pub async fn create_replay_session(
         "label": format!("replay:{}", session_id),
         "step_count": 0
     });
-    let rng_state_json = serde_json::to_string(&rng_state).map_err(internal_error)?;
+    let rng_state_json = serde_json::to_string(&rng_state).map_err(|e| {
+        ApiError::internal("Failed to serialize RNG state").with_details(e.to_string())
+    })?;
 
     // Compute manifest hash from merkle roots of telemetry bundles
     let manifest_input = if merkle_roots.is_empty() {
@@ -328,11 +331,18 @@ pub async fn create_replay_session(
         manifest_hash_b3,
         policy_hash_b3,
         kernel_hash_b3: None,
-        telemetry_bundle_ids_json: serde_json::to_string(&req.telemetry_bundle_ids)
-            .map_err(internal_error)?,
-        adapter_state_json: serde_json::to_string(&adapter_state).map_err(internal_error)?,
-        routing_decisions_json: serde_json::to_string(&routing_decisions)
-            .map_err(internal_error)?,
+        telemetry_bundle_ids_json: serde_json::to_string(&req.telemetry_bundle_ids).map_err(
+            |e| {
+                ApiError::internal("Failed to serialize telemetry bundle IDs")
+                    .with_details(e.to_string())
+            },
+        )?,
+        adapter_state_json: serde_json::to_string(&adapter_state).map_err(|e| {
+            ApiError::internal("Failed to serialize adapter state").with_details(e.to_string())
+        })?,
+        routing_decisions_json: serde_json::to_string(&routing_decisions).map_err(|e| {
+            ApiError::internal("Failed to serialize routing decisions").with_details(e.to_string())
+        })?,
         inference_traces_json: None,
         signature: hex::encode(signature.to_bytes()),
         created_at: chrono::Utc::now().to_rfc3339(),
@@ -343,9 +353,10 @@ pub async fn create_replay_session(
         .db
         .create_replay_session(&session)
         .await
-        .map_err(db_error)?;
+        .map_err(ApiError::db_error)?;
 
-    let response = session_to_response(session).map_err(internal_error)?;
+    let response = session_to_response(session)
+        .map_err(|e| ApiError::internal("Failed to convert session").with_details(e.to_string()))?;
 
     Ok(Json(response))
 }
@@ -363,15 +374,15 @@ pub async fn verify_replay_session(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(session_id): Path<String>,
-) -> Result<Json<ReplayVerificationResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<ReplayVerificationResponse> {
     require_permission(&claims, Permission::ReplayManage)?;
 
     let session = state
         .db
         .get_replay_session(&session_id)
         .await
-        .map_err(db_error)?
-        .ok_or_else(|| not_found("Replay session"))?;
+        .map_err(ApiError::db_error)?
+        .ok_or_else(|| ApiError::not_found("Replay session"))?;
 
     // Perform cryptographic verification of the replay session
     let mut divergences = Vec::new();
@@ -506,25 +517,15 @@ pub async fn execute_replay_session(
     Extension(claims): Extension<Claims>,
     Path(session_id): Path<String>,
     Json(req): Json<ExecuteReplayRequest>,
-) -> Result<Json<ExecuteReplayResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<ExecuteReplayResponse> {
     require_permission(&claims, Permission::ReplayManage)?;
 
     let session = state
         .db
         .get_replay_session(&session_id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new(e.to_string())),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("Replay session not found")),
-            )
-        })?;
+        .map_err(ApiError::db_error)?
+        .ok_or_else(|| ApiError::not_found("Replay session"))?;
 
     let mut degraded = false;
     let mut missing_doc_ids = Vec::new();
@@ -544,13 +545,8 @@ pub async fn execute_replay_session(
                 )
                 .await
                 .map_err(|e| {
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(ErrorResponse::new(format!(
-                            "Failed to reconstruct RAG context: {}",
-                            e
-                        ))),
-                    )
+                    ApiError::internal("Failed to reconstruct RAG context")
+                        .with_details(e.to_string())
                 })?;
 
                 rag_context = context;
@@ -580,27 +576,18 @@ pub async fn execute_replay_session(
                     error = %e,
                     "Failed to restore RAG state"
                 );
-                return Err((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse::new(format!(
-                        "Failed to restore RAG state: {}",
-                        e
-                    ))),
-                ));
+                return Err(
+                    ApiError::internal("Failed to restore RAG state").with_details(e.to_string())
+                );
             }
         }
     }
 
     // Get the base prompt - either from request override or try to extract from session
     // For now, require the prompt in the request since session doesn't store original prompt
-    let base_prompt = req.prompt.ok_or_else(|| {
-        (
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new(
-                "prompt is required for replay execution",
-            )),
-        )
-    })?;
+    let base_prompt = req
+        .prompt
+        .ok_or_else(|| ApiError::bad_request("prompt is required for replay execution"))?;
 
     // Build the final prompt with RAG context if available
     let final_prompt = if !rag_context.is_empty() {
@@ -931,15 +918,15 @@ pub async fn verify_trace_receipt(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Json(req): Json<TraceVerifyRequest>,
-) -> Result<Json<ReceiptVerificationResult>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<ReceiptVerificationResult> {
     require_permission(&claims, Permission::ReplayManage)?;
 
     let verification = adapteros_db::recompute_receipt(&state.db, &req.trace_id)
         .await
         .map_err(|e| match e {
-            AosError::NotFound(_) => not_found("Inference trace"),
-            AosError::Database(_) => db_error(e),
-            _ => internal_error(e),
+            AosError::NotFound(_) => ApiError::not_found("Inference trace"),
+            AosError::Database(_) => ApiError::db_error(e),
+            _ => ApiError::internal("Failed to verify trace receipt").with_details(e.to_string()),
         })?;
 
     validate_tenant_isolation(&claims, &verification.tenant_id)?;
@@ -1545,31 +1532,34 @@ pub async fn verify_bundle_receipt(
     State(_state): State<AppState>,
     Extension(claims): Extension<Claims>,
     mut multipart: Multipart,
-) -> Result<Json<ReceiptVerificationResult>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<ReceiptVerificationResult> {
     require_permission(&claims, Permission::ReplayManage)?;
 
     let mut bundle_bytes: Option<Vec<u8>> = None;
     while let Some(field) = multipart
         .next_field()
         .await
-        .map_err(|e| bad_request(format!("Failed to read upload: {e}")))?
+        .map_err(|e| ApiError::bad_request(format!("Failed to read upload: {e}")))?
     {
         if field.name() == Some("bundle") {
             bundle_bytes = Some(
                 field
                     .bytes()
                     .await
-                    .map_err(|e| bad_request(format!("Failed to read bundle bytes: {e}")))?
+                    .map_err(|e| {
+                        ApiError::bad_request(format!("Failed to read bundle bytes: {e}"))
+                    })?
                     .to_vec(),
             );
             break;
         }
     }
 
-    let bytes = bundle_bytes.ok_or_else(|| bad_request("Missing 'bundle' file field"))?;
+    let bytes = bundle_bytes.ok_or_else(|| ApiError::bad_request("Missing 'bundle' file field"))?;
 
-    let bundle = load_bundle_from_bytes(&bytes).map_err(bad_request)?;
-    let report = verify_bundle(&bundle).map_err(bad_request)?;
+    let bundle =
+        load_bundle_from_bytes(&bytes).map_err(|e| ApiError::bad_request(e.to_string()))?;
+    let report = verify_bundle(&bundle).map_err(|e| ApiError::bad_request(e.to_string()))?;
 
     // Tenant isolation for uploaded bundles (best-effort using bundle metadata)
     if let Some(tenant) = report.tenant_id.as_ref() {

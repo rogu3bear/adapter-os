@@ -189,7 +189,25 @@ pub struct MetricsViolation {
     pub resolved_at: Option<i64>,
     /// Unix timestamp when record was created
     #[sqlx(default)]
+    /// Unix timestamp when record was created
+    #[sqlx(default)]
     pub created_at: Option<i64>,
+}
+
+/// Metrics aggregation record for caching
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct MetricsAggregation {
+    pub window_start: u64, // Database INTEGER -> u64
+    pub window_end: u64,   // Database INTEGER -> u64
+    pub avg_cpu_usage: Option<f64>,
+    pub max_cpu_usage: Option<f64>,
+    pub avg_memory_usage: Option<f64>,
+    pub max_memory_usage: Option<f64>,
+    pub total_disk_read: u64,  // Database INTEGER -> u64
+    pub total_disk_write: u64, // Database INTEGER -> u64
+    pub total_network_rx: u64, // Database INTEGER -> u64
+    pub total_network_tx: u64, // Database INTEGER -> u64
+    pub sample_count: usize,   // Database INTEGER -> usize
 }
 
 impl MetricsViolation {
@@ -287,6 +305,27 @@ pub trait SystemMetricsDbOps {
     /// # Returns
     /// Number of rows deleted
     async fn cleanup_old_metrics(&self, retention_days: u32) -> Result<u64>;
+
+    /// Store metrics aggregation
+    async fn store_metrics_aggregation(
+        &self,
+        aggregation: &MetricsAggregation,
+        window_type: &str,
+    ) -> Result<()>;
+
+    /// Get metrics aggregation for time window
+    async fn get_metrics_aggregation(
+        &self,
+        window_start: i64,
+        window_end: i64,
+        window_type: &str,
+    ) -> Result<Option<MetricsAggregation>>;
+
+    /// Get configuration value
+    async fn get_config(&self, key: &str) -> Result<Option<String>>;
+
+    /// Set configuration value
+    async fn set_config(&self, key: &str, value: &str) -> Result<()>;
 }
 
 #[async_trait]
@@ -468,6 +507,125 @@ impl SystemMetricsDbOps for Db {
             .map_err(|e| AosError::Database(format!("Failed to cleanup metrics: {}", e)))?;
 
         Ok(result.rows_affected())
+    }
+
+    async fn store_metrics_aggregation(
+        &self,
+        aggregation: &MetricsAggregation,
+        window_type: &str,
+    ) -> Result<()> {
+        let window_start = aggregation.window_start as i64;
+        let window_end = aggregation.window_end as i64;
+        let total_disk_read = aggregation.total_disk_read as i64;
+        let total_disk_write = aggregation.total_disk_write as i64;
+        let total_network_rx = aggregation.total_network_rx as i64;
+        let total_network_tx = aggregation.total_network_tx as i64;
+        let sample_count = aggregation.sample_count as i64;
+
+        sqlx::query(
+            r#"
+            INSERT OR REPLACE INTO metrics_aggregations (
+                window_start, window_end, window_type, avg_cpu_usage, max_cpu_usage,
+                avg_memory_usage, max_memory_usage, total_disk_read, total_disk_write,
+                total_network_rx, total_network_tx, sample_count
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(window_start)
+        .bind(window_end)
+        .bind(window_type)
+        .bind(aggregation.avg_cpu_usage)
+        .bind(aggregation.max_cpu_usage)
+        .bind(aggregation.avg_memory_usage)
+        .bind(aggregation.max_memory_usage)
+        .bind(total_disk_read)
+        .bind(total_disk_write)
+        .bind(total_network_rx)
+        .bind(total_network_tx)
+        .bind(sample_count)
+        .execute(self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to store aggregation: {}", e)))?;
+
+        Ok(())
+    }
+
+    async fn get_metrics_aggregation(
+        &self,
+        window_start: i64,
+        window_end: i64,
+        window_type: &str,
+    ) -> Result<Option<MetricsAggregation>> {
+        let row = sqlx::query(
+            r#"
+            SELECT window_start, window_end, avg_cpu_usage, max_cpu_usage, avg_memory_usage,
+                   max_memory_usage, total_disk_read, total_disk_write, total_network_rx,
+                   total_network_tx, sample_count
+            FROM metrics_aggregations
+            WHERE window_start = ? AND window_end = ? AND window_type = ?
+            "#,
+        )
+        .bind(window_start)
+        .bind(window_end)
+        .bind(window_type)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to get aggregation: {}", e)))?;
+
+        if let Some(row) = row {
+            use sqlx::Row;
+            Ok(Some(MetricsAggregation {
+                window_start: row.get::<i64, _>("window_start") as u64,
+                window_end: row.get::<i64, _>("window_end") as u64,
+                avg_cpu_usage: row.get("avg_cpu_usage"),
+                max_cpu_usage: row.get("max_cpu_usage"),
+                avg_memory_usage: row.get("avg_memory_usage"),
+                max_memory_usage: row.get("max_memory_usage"),
+                total_disk_read: row.get::<i64, _>("total_disk_read") as u64,
+                total_disk_write: row.get::<i64, _>("total_disk_write") as u64,
+                total_network_rx: row.get::<i64, _>("total_network_rx") as u64,
+                total_network_tx: row.get::<i64, _>("total_network_tx") as u64,
+                sample_count: row.get::<i64, _>("sample_count") as usize,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn get_config(&self, key: &str) -> Result<Option<String>> {
+        let row =
+            sqlx::query("SELECT config_value FROM system_metrics_config WHERE config_key = ?")
+                .bind(key)
+                .fetch_optional(self.pool())
+                .await
+                .map_err(|e| AosError::Database(format!("Failed to get config: {}", e)))?;
+
+        Ok(row.map(|r| {
+            use sqlx::Row;
+            r.get("config_value")
+        }))
+    }
+
+    async fn set_config(&self, key: &str, value: &str) -> Result<()> {
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("System time before UNIX epoch")
+            .as_secs() as i64;
+
+        sqlx::query(
+            r#"
+            INSERT OR REPLACE INTO system_metrics_config (config_key, config_value, updated_at)
+            VALUES (?, ?, ?)
+            "#,
+        )
+        .bind(key)
+        .bind(value)
+        .bind(timestamp)
+        .execute(self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to set config: {}", e)))?;
+
+        Ok(())
     }
 }
 

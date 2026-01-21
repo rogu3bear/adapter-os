@@ -1727,9 +1727,8 @@ async fn resolve_tokenizer_info(
     tenant_id: Option<&str>,
     base_model_id: Option<&str>,
 ) -> Result<(PathBuf, String)> {
-    let base_model_path = base_model_path.ok_or_else(|| {
-        AosError::Config("base_model_path is required for training".to_string())
-    })?;
+    let base_model_path = base_model_path
+        .ok_or_else(|| AosError::Config("base_model_path is required for training".to_string()))?;
     let tokenizer_path = base_model_path.join("tokenizer.json");
     if !tokenizer_path.exists() {
         return Err(AosError::Validation(format!(
@@ -1794,9 +1793,8 @@ fn compute_pipeline_training_config_hash(worker_cfg: &WorkerTrainingConfig) -> R
 }
 
 fn compute_pipeline_base_model_hash(base_model_path: Option<&PathBuf>) -> Result<String> {
-    let model_path = base_model_path.ok_or_else(|| {
-        AosError::Config("base_model_path is required for training".to_string())
-    })?;
+    let model_path = base_model_path
+        .ok_or_else(|| AosError::Config("base_model_path is required for training".to_string()))?;
     let config_path = model_path.join("config.json");
     let hash = if config_path.exists() {
         B3Hash::hash_file(&config_path).map_err(|e| {

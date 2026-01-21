@@ -697,7 +697,7 @@ pub async fn process_document(
             // Allowed to process - will acquire lock
         }
         _ => {
-            return Err(bad_request(&format!(
+            return Err(bad_request(format!(
                 "Unknown document status: {}",
                 document.status
             )));
@@ -778,7 +778,7 @@ async fn process_document_inner(
             .ingest_markdown_bytes(&file_data, &document.name)
             .map_err(|e| db_error(format!("Failed to parse markdown: {}", e)))?
     } else {
-        return Err(bad_request(&format!(
+        return Err(bad_request(format!(
             "Unsupported document type: {}",
             document.mime_type
         )));

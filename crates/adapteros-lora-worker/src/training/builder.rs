@@ -269,8 +269,12 @@ impl DatasetBuilder {
         write_examples(&examples, &examples_path)?;
 
         // Generate manifest
-        let manifest =
-            self.create_manifest(&tokenizer_hash, &dataset_hash, &source_files, examples.len());
+        let manifest = self.create_manifest(
+            &tokenizer_hash,
+            &dataset_hash,
+            &source_files,
+            examples.len(),
+        );
         let manifest_path = output_dir.join("DatasetManifest.json");
         write_manifest(&manifest, &manifest_path)?;
 
@@ -640,10 +644,14 @@ fn tokenize_samples(
             .or_else(|| sample.metadata.get("source_line"))
             .and_then(|v| v.parse::<u64>().ok())
             .unwrap_or(i as u64);
-        let source_hash = sample.metadata.get("source_hash").cloned().unwrap_or_else(|| {
-            B3Hash::hash_multi(&[sample.input.as_bytes(), b"\0", sample.target.as_bytes()])
-                .to_hex()
-        });
+        let source_hash = sample
+            .metadata
+            .get("source_hash")
+            .cloned()
+            .unwrap_or_else(|| {
+                B3Hash::hash_multi(&[sample.input.as_bytes(), b"\0", sample.target.as_bytes()])
+                    .to_hex()
+            });
 
         if schema == SCHEMA_RAW_CONTINUATION {
             let tokens = tokenizer.encode(&sample.input).map_err(|e| {
@@ -675,8 +683,8 @@ fn tokenize_samples(
                     break;
                 }
 
-                total_tokens = total_tokens
-                    .saturating_add((input_tokens.len() + target_tokens.len()) as u64);
+                total_tokens =
+                    total_tokens.saturating_add((input_tokens.len() + target_tokens.len()) as u64);
                 if total_tokens > limits.max_tokens {
                     return Err(AosError::Validation(format!(
                         "Dataset token count exceeds limit: {} > {}",
@@ -1242,9 +1250,21 @@ mod tests {
         let dir = tempdir().unwrap();
 
         // Create files in non-alphabetical order
-        create_test_jsonl(dir.path(), "c.jsonl", &[r#"{"prompt":"a","completion":"b"}"#]);
-        create_test_jsonl(dir.path(), "a.jsonl", &[r#"{"prompt":"a","completion":"b"}"#]);
-        create_test_jsonl(dir.path(), "b.jsonl", &[r#"{"prompt":"a","completion":"b"}"#]);
+        create_test_jsonl(
+            dir.path(),
+            "c.jsonl",
+            &[r#"{"prompt":"a","completion":"b"}"#],
+        );
+        create_test_jsonl(
+            dir.path(),
+            "a.jsonl",
+            &[r#"{"prompt":"a","completion":"b"}"#],
+        );
+        create_test_jsonl(
+            dir.path(),
+            "b.jsonl",
+            &[r#"{"prompt":"a","completion":"b"}"#],
+        );
 
         let files = collect_files_sorted(dir.path()).unwrap();
 
@@ -1298,8 +1318,8 @@ mod tests {
 
         // Create mock tokenizer in temp dir to avoid ".." path traversal
         let tokenizer_path = create_mock_tokenizer_dir(dir.path());
-        let builder = DatasetBuilder::new(tokenizer_path, dir.path().join("out"))
-            .with_limits(limits);
+        let builder =
+            DatasetBuilder::new(tokenizer_path, dir.path().join("out")).with_limits(limits);
         let err = builder
             .validate(&DatasetSource::Filesystem(data_path))
             .unwrap_err();

@@ -11,9 +11,11 @@
 use crate::kv_cache::PrefixKvTensors;
 use crate::MLXFFIModel;
 use adapteros_core::{derive_seed, AosError, B3Hash, Result};
+use adapteros_lora_router::RoutingDecision;
 use rand::Rng;
 use rand::SeedableRng;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Sampling strategy selector
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -185,6 +187,25 @@ impl KVCache {
     }
 }
 
+/// Trait for per-token dynamic routing
+pub trait TokenRouter: std::fmt::Debug + Send + Sync {
+    /// Route the next token generation step
+    ///
+    /// # Arguments
+    /// * `tokens` - Current sequence of tokens (including prompt)
+    /// * `step` - Current generation step index
+    ///
+    /// # Returns
+    /// Optional routing decision. If None, use default/base model.
+    fn route(&self, tokens: &[u32], step: usize) -> Result<Option<RoutingDecision>>;
+}
+
+/// Trait for recording per-token routing decisions (Telemetry)
+pub trait RoutingRecorder: std::fmt::Debug + Send + Sync {
+    /// Record a routing decision for a specific step
+    fn record(&self, decision: &RoutingDecision, step: usize);
+}
+
 /// Token generator with deterministic sampling
 #[derive(Debug)]
 pub struct MLXGenerator {
@@ -196,6 +217,10 @@ pub struct MLXGenerator {
     cache: Option<crate::kv_cache::MLXKVCache>,
     /// Base seed for deterministic generation
     base_seed: B3Hash,
+    /// Optional dynamic router for per-step adapter selection
+    pub router: Option<Arc<dyn TokenRouter>>,
+    /// Optional telemetry recorder for routing decisions
+    pub recorder: Option<Arc<dyn RoutingRecorder>>,
 }
 
 impl MLXGenerator {
@@ -232,7 +257,43 @@ impl MLXGenerator {
             config,
             cache,
             base_seed,
+            router: None,
+            recorder: None,
         })
+    }
+
+    /// Attach a dynamic router to this generator (builder pattern)
+    pub fn with_router(mut self, router: Arc<dyn TokenRouter>) -> Self {
+        self.router = Some(router);
+        self
+    }
+
+    /// Attach a telemetry recorder to this generator (builder pattern)
+    pub fn with_recorder(mut self, recorder: Arc<dyn RoutingRecorder>) -> Self {
+        self.recorder = Some(recorder);
+        self
+    }
+
+    /// Prepare generation step: handle routing and seeding
+    #[inline]
+    fn prepare_step(&mut self, tokens: &[u32], step: usize) {
+        // Dynamic Routing Hook
+        if let Some(router) = &self.router {
+            if let Ok(Some(decision)) = router.route(tokens, step) {
+                tracing::debug!(
+                    step,
+                    ?decision,
+                    "Dynamic routing decision applied (simulated)"
+                );
+                if let Some(recorder) = &self.recorder {
+                    recorder.record(&decision, step);
+                }
+            }
+        }
+
+        // Derive step-specific seed for determinism
+        let step_seed = self.derive_step_seed(step);
+        self.rng = rand::rngs::StdRng::from_seed(step_seed);
     }
 
     /// Generate text from prompt
@@ -260,9 +321,8 @@ impl MLXGenerator {
         }
 
         for step in 0..self.config.max_tokens {
-            // Derive step-specific seed for determinism
-            let step_seed = self.derive_step_seed(step);
-            self.rng = rand::rngs::StdRng::from_seed(step_seed);
+            // Prepare step (routing + seeding)
+            self.prepare_step(&tokens, step);
 
             // Run forward pass
             // For now, use simple forward (KV cache integration requires model changes)
@@ -334,9 +394,8 @@ impl MLXGenerator {
         }
 
         for step in 0..self.config.max_tokens {
-            // Derive step-specific seed
-            let step_seed = self.derive_step_seed(step);
-            self.rng = rand::rngs::StdRng::from_seed(step_seed);
+            // Prepare step (routing + seeding)
+            self.prepare_step(&tokens, step);
 
             // Run forward pass
             let position = tokens.len() - 1;
@@ -406,9 +465,8 @@ impl MLXGenerator {
         }
 
         for step in 0..self.config.max_tokens {
-            // Derive step-specific seed
-            let step_seed = self.derive_step_seed(step);
-            self.rng = rand::rngs::StdRng::from_seed(step_seed);
+            // Prepare step (routing + seeding)
+            self.prepare_step(&tokens, step);
 
             // Run forward pass
             let position = tokens.len() - 1;
@@ -777,6 +835,9 @@ impl MLXGenerator {
         }
 
         for step in 0..max_tokens {
+            // Prepare step (routing + seeding)
+            self.prepare_step(&tokens, step);
+
             let position = tokens.len() - 1;
 
             // Use cached forward: full sequence on step 0, single token after
@@ -974,6 +1035,9 @@ impl MLXGenerator {
 
         // Generation loop
         for step in 0..max_tokens {
+            // Prepare step (routing + seeding)
+            self.prepare_step(&tokens, step);
+
             let position = tokens.len() - 1;
 
             // Get last token for incremental decode

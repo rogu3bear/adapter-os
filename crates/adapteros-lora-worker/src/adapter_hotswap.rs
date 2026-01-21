@@ -143,6 +143,34 @@ pub struct AdapterState {
     /// Optional backing for zero-copy galaxy mmaps. Keeps the mmap alive while
     /// the adapter is referenced.
     pub backing: Option<AdapterBacking>,
+    /// Recent usage timestamps for heat calculation (last 60 seconds)
+    pub recent_uses: std::collections::VecDeque<Instant>,
+}
+
+impl AdapterState {
+    /// Record adapter usage for heat calculation
+    pub fn record_use(&mut self) {
+        let now = Instant::now();
+        self.recent_uses.push_back(now);
+
+        // Keep only last 60 seconds of usage data
+        let cutoff = now - Duration::from_secs(60);
+        while self.recent_uses.front().is_some_and(|t| *t < cutoff) {
+            self.recent_uses.pop_front();
+        }
+    }
+
+    /// Get usage rate (uses per minute)
+    pub fn uses_per_minute(&self) -> u32 {
+        self.recent_uses.len() as u32
+    }
+
+    /// Check if adapter was used recently (within last 5 seconds)
+    pub fn recently_used(&self) -> bool {
+        self.recent_uses
+            .back()
+            .is_some_and(|t| t.elapsed() < Duration::from_secs(5))
+    }
 }
 
 /// Identity metadata for adapter cache keys so refcount/pinning aligns with
@@ -433,6 +461,21 @@ impl AdapterTable {
         let _ = tel.log_health_lifecycle(identity, payload);
     }
 
+    /// Set retirement sender for event-driven cleanup
+    pub fn set_retirement_sender(&mut self, sender: Option<MpscSender<()>>) {
+        self.retirement_sender = sender;
+    }
+
+    /// Explicitly trigger a retirement check
+    pub fn send_retirement_signal(&self) -> Result<()> {
+        if let Some(tx) = &self.retirement_sender {
+            tx.try_send(()).map_err(|e| {
+                AosError::Worker(format!("Failed to send retirement signal: {}", e))
+            })?;
+        }
+        Ok(())
+    }
+
     /// Preload adapter into staging area
     pub async fn preload(&self, id: String, hash: B3Hash, vram_mb: u64) -> Result<()> {
         self.preload_with_backing(id, hash, hash, vram_mb, None)
@@ -471,6 +514,7 @@ impl AdapterTable {
                         active: false,
                         lifecycle: LifecycleState::Loaded,
                         backing: backing.clone(),
+                        recent_uses: std::collections::VecDeque::new(),
                     },
                 );
             }

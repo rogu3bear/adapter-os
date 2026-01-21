@@ -15,6 +15,7 @@
 //! - Router seed preservation for deterministic adapter selection
 //! - Policy hooks and worker health-based selection
 
+use crate::api_error::{ApiError, ApiResult};
 use crate::auth::Claims;
 use crate::inference_core::InferenceCore;
 use crate::middleware::policy_enforcement::{create_hook_context, enforce_at_hook};
@@ -133,7 +134,7 @@ pub async fn check_availability(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(inference_id): Path<String>,
-) -> Result<Json<ReplayAvailabilityResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<ReplayAvailabilityResponse> {
     // Permission check - InferenceExecute grants access to inference results
     crate::permissions::require_permission(
         &claims,
@@ -153,10 +154,7 @@ pub async fn check_availability(
         .await
         .map_err(|e| {
             error!(inference_id = %inference_id, error = %e, "Failed to load replay metadata");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new("Failed to load replay metadata").with_code("DB_ERROR")),
-            )
+            ApiError::db_error(e)
         })?;
 
     let metadata = match metadata {
@@ -177,10 +175,7 @@ pub async fn check_availability(
 
     // Validate tenant access
     if !check_tenant_access(&claims, &metadata.tenant_id) {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Access denied to this inference").with_code("ACCESS_DENIED")),
-        ));
+        return Err(ApiError::forbidden("Access denied to this inference"));
     }
 
     // Parse stored data (used for both failure and availability checks)
@@ -398,7 +393,7 @@ pub async fn execute_replay(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Json(req): Json<ReplayRequest>,
-) -> Result<Json<ReplayResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<ReplayResponse> {
     // Permission check
     crate::permissions::require_permission(
         &claims,
@@ -407,24 +402,15 @@ pub async fn execute_replay(
 
     // Validate request: must have either inference_id or replay_key
     if req.inference_id.is_none() && req.replay_key.is_none() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new("Must provide either inference_id or replay_key")
-                    .with_code("VALIDATION_ERROR"),
-            ),
+        return Err(ApiError::bad_request(
+            "Must provide either inference_id or replay_key",
         ));
     }
 
-    let inference_id = req.inference_id.clone().ok_or_else(|| {
-        (
-            StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new("inference_id is required for replay")
-                    .with_code("VALIDATION_ERROR"),
-            ),
-        )
-    })?;
+    let inference_id = req
+        .inference_id
+        .clone()
+        .ok_or_else(|| ApiError::bad_request("inference_id is required for replay"))?;
 
     info!(
         inference_id = %inference_id,
@@ -441,24 +427,13 @@ pub async fn execute_replay(
         .await
         .map_err(|e| {
             error!(inference_id = %inference_id, error = %e, "Failed to load replay metadata");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new("Failed to load replay metadata").with_code("DB_ERROR")),
-            )
+            ApiError::db_error(e)
         })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("Inference not found").with_code("NOT_FOUND")),
-            )
-        })?;
+        .ok_or_else(|| ApiError::not_found("Inference"))?;
 
     // Validate tenant access
     if !check_tenant_access(&claims, &metadata.tenant_id) {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Access denied").with_code("ACCESS_DENIED")),
-        ));
+        return Err(ApiError::forbidden("Access denied"));
     }
 
     // PRD-06: Enforce policies at OnRequestBeforeRouting hook (before adapter selection)
@@ -472,20 +447,21 @@ pub async fn execute_replay(
         None, // No adapter selected yet
     );
     if let Err(violation) = enforce_at_hook(&state, &routing_hook_ctx).await {
-        let code = violation.code.as_deref().unwrap_or("POLICY_HOOK_VIOLATION");
+        let code = violation
+            .code
+            .unwrap_or_else(|| "POLICY_HOOK_VIOLATION".to_string());
         warn!(
             inference_id = %inference_id,
             policy_violation = %violation.message,
             "Replay blocked by policy at OnRequestBeforeRouting"
         );
-        return Err((
+        return Err(ApiError::new(
             StatusCode::FORBIDDEN,
-            Json(
-                ErrorResponse::new("Policy violation (pre-routing)")
-                    .with_code(code)
-                    .with_string_details(&violation.message),
-            ),
-        ));
+            "POLICY_HOOK_VIOLATION",
+            "Policy violation (pre-routing)",
+        )
+        .with_code(code)
+        .with_details(violation.message));
     }
 
     // Parse stored params
@@ -504,14 +480,8 @@ pub async fn execute_replay(
             .map(|ids| !ids.is_empty())
             .unwrap_or(false)
     {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new(
-                    "Replay metadata is marked base-only but includes adapter IDs; cannot replay with adapters",
-                )
-                .with_code("BASE_ONLY_MISMATCH"),
-            ),
+        return Err(ApiError::bad_request(
+            "Replay metadata is marked base-only but includes adapter IDs; cannot replay with adapters",
         ));
     }
 
@@ -538,14 +508,12 @@ pub async fn execute_replay(
                         inference_id = %inference_id,
                         "Replay blocked: adapter is archived or purged"
                     );
-                    return Err((
+                    return Err(ApiError::new(
                         StatusCode::SERVICE_UNAVAILABLE,
-                        Json(
-                            ErrorResponse::new(format!(
-                                "Adapter '{}' is archived or purged and cannot be used for replay",
-                                adapter_id
-                            ))
-                            .with_code("ADAPTER_NOT_LOADABLE"),
+                        "ADAPTER_NOT_LOADABLE",
+                        format!(
+                            "Adapter '{}' is archived or purged and cannot be used for replay",
+                            adapter_id
                         ),
                     ));
                 }
@@ -555,15 +523,10 @@ pub async fn execute_replay(
                         error = %e,
                         "Replay blocked: adapter not found or not loadable"
                     );
-                    return Err((
+                    return Err(ApiError::new(
                         StatusCode::SERVICE_UNAVAILABLE,
-                        Json(
-                            ErrorResponse::new(format!(
-                                "Adapter '{}' is not loadable: {}",
-                                adapter_id, e
-                            ))
-                            .with_code("ADAPTER_NOT_FOUND"),
-                        ),
+                        "ADAPTER_NOT_FOUND",
+                        format!("Adapter '{}' is not loadable: {}", adapter_id, e),
                     ));
                 }
             }
@@ -605,14 +568,12 @@ pub async fn execute_replay(
 
     // Check if approximate replay is allowed
     if replay_mode != "exact" && !req.allow_approximate {
-        return Err((
+        return Err(ApiError::new(
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(
-                ErrorResponse::new(format!(
-                    "Replay would be {} but allow_approximate=false",
-                    replay_mode
-                ))
-                .with_code("APPROXIMATE_REPLAY_REQUIRED"),
+            "APPROXIMATE_REPLAY_REQUIRED",
+            format!(
+                "Replay would be {} but allow_approximate=false",
+                replay_mode
             ),
         ));
     }
@@ -751,14 +712,8 @@ pub async fn execute_replay(
             .map(|ids| !ids.is_empty())
             .unwrap_or(true)
     {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new(
-                    "Replay metadata is base-only but replay request is not base-only (adapters present)",
-                )
-                .with_code("BASE_ONLY_MISMATCH"),
-            ),
+        return Err(ApiError::bad_request(
+            "Replay metadata is base-only but replay request is not base-only (adapters present)",
         ));
     }
 
@@ -782,20 +737,21 @@ pub async fn execute_replay(
         adapters_for_hook.as_deref(),
     );
     if let Err(violation) = enforce_at_hook(&state, &before_hook_ctx).await {
-        let code = violation.code.as_deref().unwrap_or("POLICY_HOOK_VIOLATION");
+        let code = violation
+            .code
+            .unwrap_or_else(|| "POLICY_HOOK_VIOLATION".to_string());
         warn!(
             inference_id = %inference_id,
             policy_violation = %violation.message,
             "Replay blocked by policy at OnBeforeInference"
         );
-        return Err((
+        return Err(ApiError::new(
             StatusCode::FORBIDDEN,
-            Json(
-                ErrorResponse::new("Policy violation (pre-inference)")
-                    .with_code(code)
-                    .with_string_details(&violation.message),
-            ),
-        ));
+            "POLICY_HOOK_VIOLATION",
+            "Policy violation (pre-inference)",
+        )
+        .with_code(code)
+        .with_details(violation.message));
     }
 
     // Log policy mask digest restoration for audit trail
@@ -854,20 +810,21 @@ pub async fn execute_replay(
         adapters_for_hook.as_deref(),
     );
     if let Err(violation) = enforce_at_hook(&state, &after_hook_ctx).await {
-        let code = violation.code.as_deref().unwrap_or("POLICY_HOOK_VIOLATION");
+        let code = violation
+            .code
+            .unwrap_or_else(|| "POLICY_HOOK_VIOLATION".to_string());
         warn!(
             inference_id = %inference_id,
             policy_violation = %violation.message,
             "Replay blocked by policy at OnAfterInference"
         );
-        return Err((
+        return Err(ApiError::new(
             StatusCode::FORBIDDEN,
-            Json(
-                ErrorResponse::new("Policy violation (post-inference)")
-                    .with_code(code)
-                    .with_string_details(&violation.message),
-            ),
-        ));
+            "POLICY_HOOK_VIOLATION",
+            "Policy violation (post-inference)",
+        )
+        .with_code(code)
+        .with_details(violation.message));
     }
 
     // Compute divergence details
@@ -996,7 +953,7 @@ pub async fn get_replay_history(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(inference_id): Path<String>,
-) -> Result<Json<ReplayHistoryResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<ReplayHistoryResponse> {
     // Permission check - InferenceExecute grants access to inference results
     crate::permissions::require_permission(
         &claims,
@@ -1016,18 +973,12 @@ pub async fn get_replay_history(
         .await
         .map_err(|e| {
             error!(inference_id = %inference_id, error = %e, "Failed to load replay metadata");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new("Failed to load metadata").with_code("DB_ERROR")),
-            )
+            ApiError::db_error(e)
         })?;
 
     if let Some(ref m) = metadata {
         if !check_tenant_access(&claims, &m.tenant_id) {
-            return Err((
-                StatusCode::FORBIDDEN,
-                Json(ErrorResponse::new("Access denied").with_code("ACCESS_DENIED")),
-            ));
+            return Err(ApiError::forbidden("Access denied"));
         }
     }
 
@@ -1038,10 +989,7 @@ pub async fn get_replay_history(
         .await
         .map_err(|e| {
             error!(inference_id = %inference_id, error = %e, "Failed to load replay history");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new("Failed to load history").with_code("DB_ERROR")),
-            )
+            ApiError::db_error(e)
         })?;
 
     // Convert to response format

@@ -134,15 +134,16 @@ pub mod reembedding;
 pub mod replay_kv;
 pub mod repository_training_policies;
 pub mod retry;
+pub mod routing_rules;
 pub mod sqlite_backend;
 pub mod storage_issues;
 pub mod storage_reconciliation;
 pub mod telemetry_kv;
 pub mod tenant_execution_policies;
+pub mod tenant_metrics; // Tenant resource metrics
 pub mod tenant_policies;
 pub mod tenant_policy_bindings_kv;
 pub mod tenant_settings;
-pub mod tenant_metrics;  // Tenant resource metrics
 pub mod topology;
 pub mod traits;
 
@@ -199,8 +200,8 @@ pub use write_ack::{WriteAck, WriteAckStore, WriteStatus};
 
 // Re-export tenant metrics types
 pub use tenant_metrics::{
-    TenantCpuTracker, TenantGpuTracker, TenantMetricsService, TenantResourceMetrics,
-    TenantStorageMetrics, TenantStoragePaths, get_system_memory, MemoryMetrics,
+    get_system_memory, MemoryMetrics, TenantCpuTracker, TenantGpuTracker, TenantMetricsService,
+    TenantResourceMetrics, TenantStorageMetrics, TenantStoragePaths,
 };
 
 const MIN_FREE_SPACE_BYTES: u64 = 100 * 1024 * 1024;
@@ -2167,7 +2168,9 @@ impl Db {
             }
             Err(poisoned) => {
                 tracing::error!(query_key = %query_key, "Plan cache lock poisoned during write, recovering");
-                poisoned.into_inner().insert(query_key.to_string(), plan.to_string());
+                poisoned
+                    .into_inner()
+                    .insert(query_key.to_string(), plan.to_string());
             }
         }
     }

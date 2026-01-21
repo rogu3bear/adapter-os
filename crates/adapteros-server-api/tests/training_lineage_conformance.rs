@@ -247,7 +247,7 @@ async fn non_synthetic_without_datasets_is_rejected_and_counts_metric() {
 
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(body.code, "LINEAGE_REQUIRED");
-    assert!(body.error.contains("dataset_version_ids"));
+    assert!(body.message.contains("dataset_version_ids"));
 
     tokio::time::sleep(Duration::from_millis(10)).await;
     let count = state
@@ -289,8 +289,8 @@ async fn trust_blocked_dataset_rejected_with_metric() {
 
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(body.code, "DATASET_TRUST_BLOCKED");
-    assert!(body.error.contains("dsv-blocked"));
-    assert!(body.error.contains("blocked"));
+    assert!(body.message.contains("dsv-blocked"));
+    assert!(body.message.contains("blocked"));
 
     tokio::time::sleep(Duration::from_millis(10)).await;
     let count = state
@@ -332,8 +332,8 @@ async fn trust_unknown_is_rejected_as_needs_approval_and_counts_metric() {
 
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(body.code, "DATASET_TRUST_NEEDS_APPROVAL");
-    assert!(body.error.contains("dsv-unknown"));
-    assert!(body.error.contains("unknown"));
+    assert!(body.message.contains("dsv-unknown"));
+    assert!(body.message.contains("unknown"));
 
     tokio::time::sleep(Duration::from_millis(10)).await;
     let count = state

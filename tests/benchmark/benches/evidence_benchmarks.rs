@@ -1,13 +1,12 @@
-#![cfg(all(test, feature = "extended-tests"))]
-use adapteros_benchmarks::*;
+// Evidence benchmarks
+use adapteros_benchmarks::{self, utils};
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::runtime::Runtime;
 
-/// Benchmark evidence collection and processing
-fn bench_evidence_collection(c: &mut Criterion) {
+/// Benchmark evidence processing
+fn bench_evidence_processing(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
 
     rt.block_on(async {
@@ -109,7 +108,7 @@ fn bench_evidence_grounding(c: &mut Criterion) {
                     if i < 3 {
                         // Use top 3 evidence items
                         grounded_response.push_str(&format!(" [{}]", i + 1));
-                        citations.push(evidence.clone());
+                        citations.push(*evidence);
                     }
                 }
 
@@ -120,8 +119,8 @@ fn bench_evidence_grounding(c: &mut Criterion) {
         // Benchmark confidence scoring for grounded responses
         c.bench_function("confidence_scoring_grounded_response", |b| {
             b.iter(|| {
-                let evidence_scores = vec![0.9, 0.8, 0.7, 0.6, 0.5];
-                let evidence_weights = vec![0.3, 0.25, 0.2, 0.15, 0.1];
+                let evidence_scores = [0.9, 0.8, 0.7, 0.6, 0.5];
+                let evidence_weights = [0.3, 0.25, 0.2, 0.15, 0.1];
 
                 // Calculate weighted confidence
                 let mut total_weighted_score = 0.0f32;
@@ -155,7 +154,7 @@ fn bench_evidence_grounding(c: &mut Criterion) {
                     ("source_4", 0.6, vec!["fact_d", "fact_e"]),
                 ];
 
-                let mut validated_chain = Vec::new();
+                let mut validated_chain: Vec<(&str, f32, Vec<&str>)> = Vec::new();
                 let mut consistency_score = 1.0f32;
 
                 for (source, score, facts) in &evidence_chain {
@@ -165,17 +164,13 @@ fn bench_evidence_grounding(c: &mut Criterion) {
                     // Check consistency with previous evidence
                     if !validated_chain.is_empty() {
                         let prev_facts = &validated_chain.last().unwrap().2;
-                        let overlap = facts.iter().filter(|f| prev_facts.contains(f)).count();
+                        let overlap = facts.iter().filter(|f| prev_facts.contains(*f)).count();
                         let overlap_ratio =
                             overlap as f32 / facts.len().max(prev_facts.len()) as f32;
                         consistency_score *= overlap_ratio;
                     }
 
-                    validated_chain.push((
-                        source.clone(),
-                        *score * internal_consistency,
-                        facts.clone(),
-                    ));
+                    validated_chain.push((*source, *score * internal_consistency, facts.clone()));
                 }
 
                 let is_valid_chain = consistency_score >= 0.5;
@@ -186,6 +181,7 @@ fn bench_evidence_grounding(c: &mut Criterion) {
 }
 
 /// Benchmark evidence caching and retrieval
+#[allow(dead_code)]
 fn bench_evidence_caching(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
 
@@ -273,6 +269,7 @@ fn bench_evidence_caching(c: &mut Criterion) {
 }
 
 /// Benchmark evidence-based decision making
+#[allow(dead_code)]
 fn bench_evidence_decisions(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
 
@@ -280,7 +277,7 @@ fn bench_evidence_decisions(c: &mut Criterion) {
         // Benchmark multi-criteria evidence evaluation
         c.bench_function("multi_criteria_evidence_evaluation", |b| {
             b.iter(|| {
-                let criteria = vec![
+                let criteria = [
                     ("accuracy", 0.4),
                     ("relevance", 0.3),
                     ("timeliness", 0.2),
@@ -391,6 +388,7 @@ fn bench_evidence_decisions(c: &mut Criterion) {
 }
 
 /// Benchmark response latency with evidence processing
+#[allow(dead_code)]
 fn bench_response_latency(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
 
@@ -430,7 +428,7 @@ fn bench_response_latency(c: &mut Criterion) {
                         request_start.elapsed()
                     }
 
-                    let _latency = process_with_evidence().await;
+                    let _latency = rt.block_on(async { process_with_evidence().await });
                 }
 
                 start.elapsed()
@@ -486,14 +484,6 @@ fn bench_response_latency(c: &mut Criterion) {
     });
 }
 
-criterion_group!(
-    name = evidence_benches;
-    config = Criterion::default()
-        .sample_size(50)
-        .measurement_time(std::time::Duration::from_secs(20))
-        .noise_threshold(0.05);
-    targets = bench_evidence_collection, bench_evidence_grounding, bench_evidence_caching,
-             bench_evidence_decisions, bench_response_latency
-);
+criterion_group!(benches, bench_evidence_processing, bench_evidence_grounding);
 
-criterion_main!(evidence_benches);
+criterion_main!(benches);

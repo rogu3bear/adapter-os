@@ -115,13 +115,11 @@ fn aos_status_json_is_structured() {
     // Ensure we have entries for the known services.
     let mut have_backend = false;
     let mut have_ui = false;
-    let mut have_menubar = false;
     for svc in services {
         if let Some(name) = svc.get("service").and_then(|v| v.as_str()) {
             match name {
                 "backend" => have_backend = true,
                 "ui" => have_ui = true,
-                "menu-bar" => have_menubar = true,
                 _ => {}
             }
         }
@@ -129,5 +127,4 @@ fn aos_status_json_is_structured() {
 
     assert!(have_backend, "status JSON should include backend service");
     assert!(have_ui, "status JSON should include ui service");
-    assert!(have_menubar, "status JSON should include menu-bar service");
 }

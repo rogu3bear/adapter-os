@@ -9,7 +9,7 @@
 //! - Mock KMS servers for offline testing
 
 use adapteros_core::Result;
-use adapteros_crypto::providers::kms::{KmsBackendType, KmsConfig, KmsCredentials, KmsProvider};
+use adapteros_crypto::providers::kms::{KmsConfig, KmsCredentials, KmsManager, KmsProviderType};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -115,7 +115,7 @@ impl MockKmsServer {
 /// Simulated AWS KMS configuration for testing
 fn create_mock_aws_config() -> KmsConfig {
     KmsConfig {
-        backend_type: KmsBackendType::AwsKms,
+        provider_type: KmsProviderType::AwsKms,
         endpoint: "http://localhost:4566".to_string(), // LocalStack default
         region: Some("us-east-1".to_string()),
         credentials: KmsCredentials::AwsIam {
@@ -132,7 +132,7 @@ fn create_mock_aws_config() -> KmsConfig {
 /// Simulated GCP KMS configuration for testing
 fn create_mock_gcp_config() -> KmsConfig {
     KmsConfig {
-        backend_type: KmsBackendType::GcpKms,
+        provider_type: KmsProviderType::GcpKms,
         endpoint: "http://localhost:8080".to_string(), // Test endpoint
         region: Some("us-central1".to_string()),
         credentials: KmsCredentials::GcpServiceAccount {
@@ -249,7 +249,7 @@ async fn test_aws_kms_mock_server_failure_simulation() -> Result<()> {
 #[tokio::test]
 async fn test_gcp_kms_error_handling_invalid_credentials() {
     let _config = KmsConfig {
-        backend_type: KmsBackendType::GcpKms,
+        provider_type: KmsProviderType::GcpKms,
         endpoint: "http://localhost:8080".to_string(),
         region: None,
         credentials: KmsCredentials::AwsIam {
@@ -269,7 +269,7 @@ async fn test_gcp_kms_error_handling_invalid_credentials() {
 #[tokio::test]
 async fn test_gcp_kms_error_handling_missing_endpoint() {
     let _config = KmsConfig {
-        backend_type: KmsBackendType::GcpKms,
+        provider_type: KmsProviderType::GcpKms,
         endpoint: String::new(), // Empty endpoint
         region: Some("us-central1".to_string()),
         credentials: KmsCredentials::GcpServiceAccount {
@@ -289,7 +289,7 @@ async fn test_gcp_kms_error_handling_timeout() -> Result<()> {
 
     // Verify timeout handling with short timeout
     let _config = KmsConfig {
-        backend_type: KmsBackendType::GcpKms,
+        provider_type: KmsProviderType::GcpKms,
         endpoint: "http://localhost:8080".to_string(),
         region: None,
         credentials: KmsCredentials::GcpServiceAccount {
@@ -416,7 +416,7 @@ async fn test_kms_concurrent_key_generation() -> Result<()> {
 fn test_credential_leak_detection_in_config() {
     // Test that sensitive credentials are properly stored in config
     let config = KmsConfig {
-        backend_type: KmsBackendType::AwsKms,
+        provider_type: KmsProviderType::AwsKms,
         endpoint: "https://kms.us-east-1.amazonaws.com".to_string(),
         region: Some("us-east-1".to_string()),
         credentials: KmsCredentials::AwsIam {
@@ -454,7 +454,7 @@ fn test_credential_leak_detection_in_config() {
 fn test_credential_leak_detection_in_errors() {
     // Verify that credential errors properly expose structure (credentials are in memory)
     let config = KmsConfig {
-        backend_type: KmsBackendType::AwsKms,
+        provider_type: KmsProviderType::AwsKms,
         endpoint: "https://kms.us-east-1.amazonaws.com".to_string(),
         region: Some("us-east-1".to_string()),
         credentials: KmsCredentials::AwsIam {
@@ -516,7 +516,7 @@ async fn test_kms_fallback_chain_aws_to_gcp() -> Result<()> {
         create_mock_aws_config(),
         create_mock_gcp_config(),
         KmsConfig {
-            backend_type: KmsBackendType::Mock,
+            provider_type: KmsProviderType::Mock,
             ..Default::default()
         },
     ];
@@ -525,7 +525,7 @@ async fn test_kms_fallback_chain_aws_to_gcp() -> Result<()> {
     let mut last_error = None;
 
     for config in configs {
-        match KmsProvider::with_kms_config(config) {
+        match KmsManager::with_kms_config(config) {
             Ok(_provider) => {
                 // Successfully created provider
                 return Ok(());
@@ -592,8 +592,8 @@ async fn test_kms_provider_factory() -> Result<()> {
     let gcp_config = create_mock_gcp_config();
 
     // Create providers (may fail in test environment, but shouldn't panic)
-    let _aws_result = KmsProvider::with_kms_config(aws_config);
-    let _gcp_result = KmsProvider::with_kms_config(gcp_config);
+    let _aws_result = KmsManager::with_kms_config(aws_config);
+    let _gcp_result = KmsManager::with_kms_config(gcp_config);
 
     Ok(())
 }
@@ -603,13 +603,13 @@ async fn test_kms_provider_factory() -> Result<()> {
 // ============================================================================
 
 #[test]
-fn test_kms_config_validation_backend_types() {
+fn test_kms_config_validation_provider_types() {
     let backends = vec![
-        KmsBackendType::AwsKms,
-        KmsBackendType::GcpKms,
-        KmsBackendType::HashicorpVault,
-        KmsBackendType::Pkcs11Hsm,
-        KmsBackendType::Mock,
+        KmsProviderType::AwsKms,
+        KmsProviderType::GcpKms,
+        KmsProviderType::HashicorpVault,
+        KmsProviderType::Pkcs11Hsm,
+        KmsProviderType::Mock,
     ];
 
     for backend in backends {
@@ -633,7 +633,7 @@ fn test_kms_config_timeout_validation() {
 
     for (timeout_secs, _description) in configs {
         let config = KmsConfig {
-            backend_type: KmsBackendType::Mock,
+            provider_type: KmsProviderType::Mock,
             endpoint: "http://localhost:8200".to_string(),
             region: None,
             credentials: KmsCredentials::None,
@@ -657,7 +657,7 @@ fn test_kms_config_retry_validation() {
 
     for (max_retries, _description) in configs {
         let config = KmsConfig {
-            backend_type: KmsBackendType::Mock,
+            provider_type: KmsProviderType::Mock,
             endpoint: "http://localhost:8200".to_string(),
             region: None,
             credentials: KmsCredentials::None,

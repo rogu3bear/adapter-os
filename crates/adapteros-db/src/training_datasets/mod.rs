@@ -4745,13 +4745,12 @@ pub fn build_training_rows_from_jsonl_bytes(
 
         let source_line = i32::try_from(line_idx + 1).ok();
 
-        let mut builder =
-            CreateTrainingDatasetRowParams::builder(dataset_id, prompt, response)
-                .dataset_version_id(dataset_version_id)
-                .weight(1.0)
-                .split(default_split)
-                .sample_role(SampleRole::Positive)
-                .source_file(file_name);
+        let mut builder = CreateTrainingDatasetRowParams::builder(dataset_id, prompt, response)
+            .dataset_version_id(dataset_version_id)
+            .weight(1.0)
+            .split(default_split)
+            .sample_role(SampleRole::Positive)
+            .source_file(file_name);
 
         if let Some(source_line) = source_line {
             builder = builder.source_line(source_line);

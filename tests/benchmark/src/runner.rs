@@ -1,7 +1,7 @@
 //! Benchmark runner and reporting utilities
 
-use crate::reporting::{BenchmarkResult, BenchmarkReport, SystemInfo, BenchmarkSummary};
-use chrono::{DateTime, Utc};
+use crate::reporting::{BenchmarkReport, BenchmarkResult, BenchmarkSummary, SystemInfo};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -104,11 +104,14 @@ impl BenchmarkRunner {
         println!("Running kernel performance benchmarks...");
 
         let output = Command::new("cargo")
-            .args(&["bench", "--bench", "kernel_performance"])
+            .args(["bench", "--bench", "kernel_performance"])
             .output()?;
 
         if !output.status.success() {
-            eprintln!("Kernel benchmarks failed: {}", String::from_utf8_lossy(&output.stderr));
+            eprintln!(
+                "Kernel benchmarks failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
             return Err("Kernel benchmarks failed".into());
         }
 
@@ -123,11 +126,14 @@ impl BenchmarkRunner {
         println!("Running memory benchmarks...");
 
         let output = Command::new("cargo")
-            .args(&["bench", "--bench", "memory_benchmarks"])
+            .args(["bench", "--bench", "memory_benchmarks"])
             .output()?;
 
         if !output.status.success() {
-            eprintln!("Memory benchmarks failed: {}", String::from_utf8_lossy(&output.stderr));
+            eprintln!(
+                "Memory benchmarks failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
             return Err("Memory benchmarks failed".into());
         }
 
@@ -141,11 +147,14 @@ impl BenchmarkRunner {
         println!("Running throughput benchmarks...");
 
         let output = Command::new("cargo")
-            .args(&["bench", "--bench", "throughput_benchmarks"])
+            .args(["bench", "--bench", "throughput_benchmarks"])
             .output()?;
 
         if !output.status.success() {
-            eprintln!("Throughput benchmarks failed: {}", String::from_utf8_lossy(&output.stderr));
+            eprintln!(
+                "Throughput benchmarks failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
             return Err("Throughput benchmarks failed".into());
         }
 
@@ -159,11 +168,14 @@ impl BenchmarkRunner {
         println!("Running system benchmarks...");
 
         let output = Command::new("cargo")
-            .args(&["bench", "--bench", "system_metrics"])
+            .args(["bench", "--bench", "system_metrics"])
             .output()?;
 
         if !output.status.success() {
-            eprintln!("System benchmarks failed: {}", String::from_utf8_lossy(&output.stderr));
+            eprintln!(
+                "System benchmarks failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
             return Err("System benchmarks failed".into());
         }
 
@@ -177,11 +189,14 @@ impl BenchmarkRunner {
         println!("Running isolation benchmarks...");
 
         let output = Command::new("cargo")
-            .args(&["bench", "--bench", "isolation_benchmarks"])
+            .args(["bench", "--bench", "isolation_benchmarks"])
             .output()?;
 
         if !output.status.success() {
-            eprintln!("Isolation benchmarks failed: {}", String::from_utf8_lossy(&output.stderr));
+            eprintln!(
+                "Isolation benchmarks failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
             return Err("Isolation benchmarks failed".into());
         }
 
@@ -195,11 +210,14 @@ impl BenchmarkRunner {
         println!("Running evidence benchmarks...");
 
         let output = Command::new("cargo")
-            .args(&["bench", "--bench", "evidence_benchmarks"])
+            .args(["bench", "--bench", "evidence_benchmarks"])
             .output()?;
 
         if !output.status.success() {
-            eprintln!("Evidence benchmarks failed: {}", String::from_utf8_lossy(&output.stderr));
+            eprintln!(
+                "Evidence benchmarks failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
             return Err("Evidence benchmarks failed".into());
         }
 
@@ -209,7 +227,11 @@ impl BenchmarkRunner {
     }
 
     /// Parse Criterion.rs benchmark results
-    fn parse_criterion_results(&mut self, category: &str, output: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+    fn parse_criterion_results(
+        &mut self,
+        category: &str,
+        output: &[u8],
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let output_str = String::from_utf8_lossy(output);
 
         // Simple parsing of criterion output - in practice, you'd want more robust parsing
@@ -265,7 +287,9 @@ impl BenchmarkRunner {
 
         // Calculate summary statistics
         let total_benchmarks = self.results.len();
-        let total_time_seconds = self.results.iter()
+        let total_time_seconds = self
+            .results
+            .iter()
             .map(|r| r.mean_time_ns / 1_000_000_000.0)
             .sum::<f64>();
 
@@ -313,7 +337,11 @@ impl BenchmarkRunner {
         let system = sysinfo::System::new_all();
 
         SystemInfo {
-            os: format!("{} {}", system.name().unwrap_or_default(), system.os_version().unwrap_or_default()),
+            os: format!(
+                "{} {}",
+                sysinfo::System::name().unwrap_or_default(),
+                sysinfo::System::os_version().unwrap_or_default()
+            ),
             cpu: system.global_cpu_info().brand().to_string(),
             memory_gb: system.total_memory() as f64 / 1024.0 / 1024.0 / 1024.0,
             gpu: Some("Metal GPU".to_string()), // Would need more sophisticated detection
@@ -321,7 +349,10 @@ impl BenchmarkRunner {
     }
 
     /// Compare results with baseline
-    fn compare_with_baseline(&self, baseline_path: &str) -> Result<(Vec<String>, Vec<String>), Box<dyn std::error::Error>> {
+    fn compare_with_baseline(
+        &self,
+        baseline_path: &str,
+    ) -> Result<(Vec<String>, Vec<String>), Box<dyn std::error::Error>> {
         let baseline_content = fs::read_to_string(baseline_path)?;
         let baseline_report: BenchmarkReport = serde_json::from_str(&baseline_content)?;
 
@@ -329,7 +360,9 @@ impl BenchmarkRunner {
         let mut improvements = Vec::new();
 
         // Create lookup map for baseline results
-        let baseline_map: HashMap<_, _> = baseline_report.results.iter()
+        let baseline_map: HashMap<_, _> = baseline_report
+            .results
+            .iter()
             .map(|r| ((r.category.clone(), r.name.clone()), r.mean_time_ns))
             .collect();
 
@@ -363,7 +396,10 @@ impl BenchmarkRunner {
     }
 
     /// Generate HTML report
-    fn generate_html_report(&self, report: &BenchmarkReport) -> Result<(), Box<dyn std::error::Error>> {
+    fn generate_html_report(
+        &self,
+        report: &BenchmarkReport,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let html_path = Path::new(&self.config.output_dir).join("benchmark_report.html");
 
         let html_content = format!(
@@ -431,9 +467,12 @@ impl BenchmarkRunner {
 
     /// Generate HTML table rows for results
     fn generate_html_table_rows(&self, report: &BenchmarkReport) -> String {
-        report.results.iter().map(|result| {
-            format!(
-                "<tr>
+        report
+            .results
+            .iter()
+            .map(|result| {
+                format!(
+                    "<tr>
                     <td>{}</td>
                     <td>{}</td>
                     <td>{:.2}</td>
@@ -441,14 +480,20 @@ impl BenchmarkRunner {
                     <td>{}</td>
                     <td>{}</td>
                 </tr>",
-                result.category,
-                result.name,
-                result.mean_time_ns,
-                result.std_dev_ns,
-                result.throughput.map_or("N/A".to_string(), |t| format!("{:.2}", t)),
-                result.memory_usage_mb.map_or("N/A".to_string(), |m| format!("{:.2}", m))
-            )
-        }).collect::<Vec<_>>().join("\n")
+                    result.category,
+                    result.name,
+                    result.mean_time_ns,
+                    result.std_dev_ns,
+                    result
+                        .throughput
+                        .map_or("N/A".to_string(), |t| format!("{:.2}", t)),
+                    result
+                        .memory_usage_mb
+                        .map_or("N/A".to_string(), |m| format!("{:.2}", m))
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
     /// Print summary to console
@@ -456,7 +501,10 @@ impl BenchmarkRunner {
         println!("\n{}", "=".repeat(60));
         println!("adapterOS Benchmark Report Summary");
         println!("{}", "=".repeat(60));
-        println!("Timestamp: {}", report.timestamp.format("%Y-%m-%d %H:%M:%S UTC"));
+        println!(
+            "Timestamp: {}",
+            report.timestamp.format("%Y-%m-%d %H:%M:%S UTC")
+        );
         println!("System: {}", report.system_info.os);
         println!("CPU: {}", report.system_info.cpu);
         println!("Memory: {:.1} GB", report.system_info.memory_gb);
@@ -465,7 +513,10 @@ impl BenchmarkRunner {
         }
         println!();
         println!("Total Benchmarks: {}", report.summary.total_benchmarks);
-        println!("Total Time: {:.2} seconds", report.summary.total_time_seconds);
+        println!(
+            "Total Time: {:.2} seconds",
+            report.summary.total_time_seconds
+        );
         println!();
 
         if !report.summary.regressions.is_empty() {

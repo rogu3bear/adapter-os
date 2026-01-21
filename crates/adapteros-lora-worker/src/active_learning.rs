@@ -11,7 +11,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 /// Record written to the active-learning queue.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, serde::Deserialize)]
 pub struct AbstainSampleRecord {
     pub id: String,
     pub timestamp_us: u64,
@@ -30,7 +30,7 @@ pub struct AbstainSampleRecord {
 }
 
 /// Candidate written to the golden dataset staging file.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, serde::Deserialize)]
 pub struct GoldenCandidate {
     pub sample_id: String,
     pub prompt: Option<String>,
@@ -674,7 +674,10 @@ mod tests {
         let golden_path = temp_dir.path().join("golden.ndjson");
 
         std::env::remove_var("AOS_ACTIVE_LEARNING_DISABLE_GOLDEN");
-        std::env::set_var("AOS_ACTIVE_LEARNING_GOLDEN_PATH", golden_path.to_str().unwrap());
+        std::env::set_var(
+            "AOS_ACTIVE_LEARNING_GOLDEN_PATH",
+            golden_path.to_str().unwrap(),
+        );
 
         let record = AbstainSampleRecord {
             id: "golden-test".to_string(),

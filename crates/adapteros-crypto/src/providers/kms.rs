@@ -1,8 +1,8 @@
 //! KMS/HSM provider implementation
 //!
 //! Provides abstraction for cloud KMS (AWS, GCP) and HSM integration.
-//! Uses a backend trait to allow different KMS implementations.
-//! Cloud KMS is disabled in local/CI builds and falls back to the mock backend.
+//! Uses a provider trait to allow different KMS implementations.
+//! Cloud KMS is disabled in local/CI builds and falls back to the mock provider.
 
 use crate::key_provider::{
     KeyAlgorithm, KeyHandle, KeyProvider, KeyProviderConfig, ProviderAttestation, RotationReceipt,
@@ -22,7 +22,7 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// Cloud KMS backends are intentionally disabled in local/CI builds.
 const CLOUD_BACKEND_DISABLED_MSG: &str =
-    "Cloud KMS backends are disabled in local-only builds; using mock backend";
+    "Cloud KMS backends are disabled in local-only builds; using mock provider";
 
 // AWS KMS imports (conditional based on feature flag)
 #[cfg(feature = "aws-kms")]
@@ -31,17 +31,6 @@ use aws_credential_types::Credentials;
 use aws_sdk_kms::{types::SigningAlgorithmSpec, Client as KmsClient};
 #[cfg(feature = "aws-kms")]
 use aws_types::region::Region;
-
-// GCP KMS imports (conditional based on feature flag)
-#[cfg(any())]
-use google_cloudkms1::api::{
-    CryptoKey, CryptoKeyVersion, DecryptRequest, EncryptRequest, SignRequest,
-    VerifySignatureRequest,
-};
-#[cfg(any())]
-use google_cloudkms1::hyper;
-#[cfg(any())]
-use google_cloudkms1::{oauth2, yup_oauth2, Client as GcpKmsClient};
 
 /// Create a seeded RNG for deterministic key generation
 /// Uses HKDF with domain separation for cryptographic operations
@@ -57,8 +46,8 @@ fn seeded_rng(context: &str) -> StdRng {
 
 /// Execute KMS operation with retry logic
 /// Provides exponential backoff for transient failures
-#[cfg(feature = "aws-kms")]
-async fn kms_with_retry<F, T>(max_retries: u32, provider_name: &str, mut op: F) -> Result<T>
+#[cfg(any(feature = "aws-kms", feature = "gcp-kms"))]
+pub async fn kms_with_retry<F, T>(max_retries: u32, provider_name: &str, mut op: F) -> Result<T>
 where
     F: FnMut() -> futures_util::future::BoxFuture<'static, Result<T>>,
 {
@@ -88,9 +77,9 @@ where
     }
 }
 
-/// Supported KMS backend types
+/// Supported KMS provider types
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum KmsBackendType {
+pub enum KmsProviderType {
     /// AWS Key Management Service
     AwsKms,
     /// Google Cloud KMS
@@ -101,19 +90,19 @@ pub enum KmsBackendType {
     HashicorpVault,
     /// PKCS#11 HSM (YubiHSM, Thales, etc.)
     Pkcs11Hsm,
-    /// Mock backend for testing
+    /// Mock provider for testing
     Mock,
 }
 
-impl std::fmt::Display for KmsBackendType {
+impl std::fmt::Display for KmsProviderType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            KmsBackendType::AwsKms => write!(f, "aws-kms"),
-            KmsBackendType::GcpKms => write!(f, "gcp-kms"),
-            KmsBackendType::AzureKeyVault => write!(f, "azure-keyvault"),
-            KmsBackendType::HashicorpVault => write!(f, "hashicorp-vault"),
-            KmsBackendType::Pkcs11Hsm => write!(f, "pkcs11-hsm"),
-            KmsBackendType::Mock => write!(f, "mock"),
+            KmsProviderType::AwsKms => write!(f, "aws-kms"),
+            KmsProviderType::GcpKms => write!(f, "gcp-kms"),
+            KmsProviderType::AzureKeyVault => write!(f, "azure-keyvault"),
+            KmsProviderType::HashicorpVault => write!(f, "hashicorp-vault"),
+            KmsProviderType::Pkcs11Hsm => write!(f, "pkcs11-hsm"),
+            KmsProviderType::Mock => write!(f, "mock"),
         }
     }
 }
@@ -122,7 +111,7 @@ impl std::fmt::Display for KmsBackendType {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct KmsConfig {
     /// Backend type to use
-    pub backend_type: KmsBackendType,
+    pub provider_type: KmsProviderType,
     /// Endpoint URL for the KMS service
     pub endpoint: String,
     /// Region (for cloud providers)
@@ -140,7 +129,7 @@ pub struct KmsConfig {
 impl Default for KmsConfig {
     fn default() -> Self {
         Self {
-            backend_type: KmsBackendType::Mock,
+            provider_type: KmsProviderType::Mock,
             endpoint: "http://localhost:8200".to_string(),
             region: None,
             credentials: KmsCredentials::None,
@@ -288,7 +277,7 @@ impl ZeroizeOnDrop for KmsCredentials {}
 
 /// Backend trait for KMS implementations
 #[async_trait::async_trait]
-pub trait KmsBackend: Send + Sync {
+pub trait KmsProvider: Send + Sync {
     /// Generate a new key in the KMS
     async fn generate_key(&self, key_id: &str, alg: KeyAlgorithm) -> Result<KeyHandle>;
 
@@ -313,16 +302,16 @@ pub trait KmsBackend: Send + Sync {
     /// Delete a key from the KMS (use with caution)
     async fn delete_key(&self, key_id: &str) -> Result<()>;
 
-    /// Get backend type identifier
-    fn backend_type(&self) -> KmsBackendType;
+    /// Get provider type identifier
+    fn provider_type(&self) -> KmsProviderType;
 
-    /// Get backend version/fingerprint for attestation
+    /// Get provider version/fingerprint for attestation
     fn fingerprint(&self) -> String;
 }
 
-/// AWS KMS backend implementation (feature-gated)
+/// AWS KMS provider implementation (feature-gated)
 #[cfg(feature = "aws-kms")]
-pub struct AwsKmsBackend {
+pub struct AwsKmsProvider {
     client: KmsClient,
     config: KmsConfig,
     key_cache: Arc<RwLock<HashMap<String, AwsKeyMetadata>>>,
@@ -339,8 +328,8 @@ struct AwsKeyMetadata {
 }
 
 #[cfg(feature = "aws-kms")]
-impl AwsKmsBackend {
-    /// Create a new AWS KMS backend with async initialization
+impl AwsKmsProvider {
+    /// Create a new AWS KMS provider with async initialization
     pub async fn new_async(config: KmsConfig) -> Result<Self> {
         let credentials = match &config.credentials {
             KmsCredentials::AwsIam {
@@ -405,7 +394,7 @@ impl AwsKmsBackend {
         debug!(
             region = %config.region.as_deref().unwrap_or("us-east-1"),
             endpoint = %config.endpoint,
-            "AWS KMS backend initialized"
+            "AWS KMS provider initialized"
         );
 
         Ok(Self {
@@ -426,7 +415,7 @@ impl AwsKmsBackend {
 
 #[cfg(feature = "aws-kms")]
 #[async_trait::async_trait]
-impl KmsBackend for AwsKmsBackend {
+impl KmsProvider for AwsKmsProvider {
     async fn generate_key(&self, key_id: &str, alg: KeyAlgorithm) -> Result<KeyHandle> {
         let client = self.client.clone();
         let key_id_owned = key_id.to_string();
@@ -775,8 +764,8 @@ impl KmsBackend for AwsKmsBackend {
         .await
     }
 
-    fn backend_type(&self) -> KmsBackendType {
-        KmsBackendType::AwsKms
+    fn provider_type(&self) -> KmsProviderType {
+        KmsProviderType::AwsKms
     }
 
     fn fingerprint(&self) -> String {
@@ -785,557 +774,8 @@ impl KmsBackend for AwsKmsBackend {
     }
 }
 
-/// GCP Cloud KMS backend implementation (feature-gated)
-#[cfg(any())]
-pub struct GcpKmsBackend {
-    client: GcpKmsClient,
-    config: KmsConfig,
-    project_id: String,
-    location: String,
-    key_ring: String,
-    key_cache: Arc<RwLock<HashMap<String, GcpKeyMetadata>>>,
-}
-
-#[cfg(any())]
-#[derive(Clone, Debug)]
-struct GcpKeyMetadata {
-    key_id: String,
-    key_name: String,
-    algorithm: KeyAlgorithm,
-    public_key: Option<Vec<u8>>,
-    created_at: u64,
-    version: u32,
-}
-
-#[cfg(any())]
-impl GcpKmsBackend {
-    /// Create a new GCP KMS backend with async initialization
-    pub async fn new_async(config: KmsConfig) -> Result<Self> {
-        // Extract GCP-specific configuration
-        let gcp_creds = match &config.credentials {
-            KmsCredentials::GcpServiceAccount { credentials_json } => {
-                String::from_utf8_lossy(credentials_json.as_bytes()).to_string()
-            }
-            _ => {
-                return Err(AosError::Crypto(
-                    "GCP KMS requires GcpServiceAccount credentials".to_string(),
-                ));
-            }
-        };
-
-        // Parse service account JSON
-        let service_account: serde_json::Value = serde_json::from_str(&gcp_creds)
-            .map_err(|e| AosError::Crypto(format!("Invalid GCP service account JSON: {}", e)))?;
-
-        let project_id = service_account
-            .get("project_id")
-            .and_then(|p| p.as_str())
-            .ok_or_else(|| {
-                AosError::Crypto("GCP service account missing 'project_id'".to_string())
-            })?
-            .to_string();
-
-        // Extract location from config or default to us-central1
-        let location = config
-            .region
-            .clone()
-            .unwrap_or_else(|| "us-central1".to_string());
-
-        // Key ring name (use namespace or default)
-        let key_ring = config
-            .key_namespace
-            .clone()
-            .unwrap_or_else(|| "adapteros-keys".to_string());
-
-        // Create OAuth2 credentials
-        let secret: oauth2::ApplicationSecret = serde_json::from_str(&gcp_creds)
-            .map_err(|e| AosError::Crypto(format!("Failed to parse GCP credentials: {}", e)))?;
-
-        // Build authenticator with service account
-        let auth = yup_oauth2::ServiceAccountAuthenticator::builder(secret)
-            .build()
-            .await
-            .map_err(|e| AosError::Crypto(format!("Failed to create GCP authenticator: {}", e)))?;
-
-        // Create hyper-based client
-        let client = hyper::Client::builder().build(
-            hyper_rustls::HttpsConnectorBuilder::new()
-                .with_native_roots()
-                .https_only()
-                .enable_all_versions()
-                .build(),
-        );
-
-        let gcp_client = GcpKmsClient::new(client, auth);
-
-        debug!(
-            project_id = %project_id,
-            location = %location,
-            key_ring = %key_ring,
-            "GCP KMS backend initialized"
-        );
-
-        Ok(Self {
-            client: gcp_client,
-            config,
-            project_id,
-            location,
-            key_ring,
-            key_cache: Arc::new(RwLock::new(HashMap::new())),
-        })
-    }
-
-    /// Build the key ring resource name
-    fn key_ring_path(&self) -> String {
-        format!(
-            "projects/{}/locations/{}/keyRings/{}",
-            self.project_id, self.location, self.key_ring
-        )
-    }
-
-    /// Build the crypto key resource name
-    fn key_path(&self, key_id: &str) -> String {
-        format!("{}/cryptoKeys/{}", self.key_ring_path(), key_id)
-    }
-
-    /// Build the crypto key version resource name
-    fn key_version_path(&self, key_id: &str, version: &str) -> String {
-        format!("{}/cryptoKeyVersions/{}", self.key_path(key_id), version)
-    }
-
-    /// Execute operation with retry logic
-    async fn with_retry<F, T>(&self, mut op: F) -> Result<T>
-    where
-        F: FnMut() -> futures_util::future::BoxFuture<'static, Result<T>>,
-    {
-        kms_with_retry(self.config.max_retries, "GCP KMS", op).await
-    }
-
-    /// Ensure the key ring exists (creates if necessary)
-    async fn ensure_key_ring(&self) -> Result<()> {
-        let key_ring_path = self.key_ring_path();
-        let parent = format!("projects/{}/locations/{}", self.project_id, self.location);
-
-        // Attempt to create key ring (ignores error if already exists)
-        let _ = self
-            .client
-            .projects()
-            .locations_key_rings_create(Default::default(), &parent, Some(&self.key_ring))
-            .doit()
-            .await;
-
-        debug!(key_ring = %key_ring_path, "Key ring ensured");
-        Ok(())
-    }
-
-    /// Convert algorithm to GCP protection level and signing algorithm
-    fn algorithm_to_gcp(alg: &KeyAlgorithm) -> (&'static str, &'static str) {
-        match alg {
-            KeyAlgorithm::Ed25519 => ("ASYMMETRIC_SIGN", "ED25519"),
-            KeyAlgorithm::Aes256Gcm => ("SYMMETRIC_ENCRYPTION", "AES_256_GCM"),
-            KeyAlgorithm::ChaCha20Poly1305 => ("SYMMETRIC_ENCRYPTION", "CHACHA20_POLY1305"),
-        }
-    }
-}
-
-#[cfg(any())]
-#[async_trait::async_trait]
-impl KmsBackend for GcpKmsBackend {
-    async fn generate_key(&self, key_id: &str, alg: KeyAlgorithm) -> Result<KeyHandle> {
-        self.ensure_key_ring().await?;
-
-        let (purpose, algorithm) = Self::algorithm_to_gcp(&alg);
-        let key_path = self.key_path(key_id);
-
-        self.with_retry(|| {
-            let client = self.client.clone();
-            let key_path = key_path.clone();
-            let key_id = key_id.to_string();
-            let alg = alg.clone();
-
-            Box::pin(async move {
-                // Create new crypto key
-                let crypto_key = CryptoKey {
-                    purpose: Some(purpose.to_string()),
-                    version_template: Some(google_cloudkms1::api::CryptoKeyVersionTemplate {
-                        algorithm: Some(algorithm.to_string()),
-                        ..Default::default()
-                    }),
-                    labels: Some(
-                        vec![
-                            ("managed-by".to_string(), "adapteros".to_string()),
-                            ("algorithm".to_string(), alg.to_string()),
-                        ]
-                        .into_iter()
-                        .collect(),
-                    ),
-                    ..Default::default()
-                };
-
-                // Create the key
-                let _ = client
-                    .projects()
-                    .locations_key_rings_crypto_keys_create(
-                        crypto_key,
-                        &format!(
-                            "projects/{}/locations/{}/keyRings/{}",
-                            self.project_id, self.location, self.key_ring
-                        ),
-                        Some(&key_id),
-                    )
-                    .doit()
-                    .await
-                    .map_err(|e| {
-                        AosError::Crypto(format!("Failed to create GCP KMS key: {}", e))
-                    })?;
-
-                // Get public key for asymmetric keys
-                let pub_key = if alg == KeyAlgorithm::Ed25519 {
-                    // Fetch the primary version
-                    let response = client
-                        .projects()
-                        .locations_key_rings_crypto_keys_versions_get(&key_path)
-                        .doit()
-                        .await
-                        .map_err(|_| {
-                            AosError::Crypto("Failed to fetch GCP KMS key version".to_string())
-                        })?;
-
-                    if let Some((_, version)) = response {
-                        version
-                            .public_key
-                            .and_then(|pk| pk.pem)
-                            .map(|pem| pem.into_bytes())
-                            .unwrap_or_default()
-                    } else {
-                        vec![]
-                    }
-                } else {
-                    vec![]
-                };
-
-                Ok((pub_key, key_path, 1u32))
-            })
-        })
-        .await
-        .map(|(pub_key, _, _version)| {
-            debug!(key_id = %key_id, algorithm = %alg, "GCP KMS: generated key");
-
-            KeyHandle::with_public_key(key_path, alg, pub_key)
-        })
-    }
-
-    async fn sign(&self, key_id: &str, data: &[u8]) -> Result<Vec<u8>> {
-        let key_path = self.key_path(key_id);
-
-        self.with_retry(|| {
-            let client = self.client.clone();
-            let key_path = key_path.clone();
-            let message = data.to_vec();
-
-            Box::pin(async move {
-                // Create sign request
-                let sign_request = SignRequest {
-                    bytes_to_sign: Some(message),
-                    signature_algorithm: Some("ED25519".to_string()),
-                    ..Default::default()
-                };
-
-                let response = client
-                    .projects()
-                    .locations_key_rings_crypto_keys_versions_sign(sign_request, &key_path)
-                    .doit()
-                    .await
-                    .map_err(|e| AosError::Crypto(format!("GCP KMS sign failed: {}", e)))?;
-
-                if let Some((_, result)) = response {
-                    result.signature.map(|sig| sig.into_bytes()).ok_or_else(|| {
-                        AosError::Crypto("GCP KMS response missing signature".to_string())
-                    })
-                } else {
-                    Err(AosError::Crypto(
-                        "GCP KMS sign response missing result".to_string(),
-                    ))
-                }
-            })
-        })
-        .await
-    }
-
-    async fn encrypt(&self, key_id: &str, plaintext: &[u8]) -> Result<Vec<u8>> {
-        let key_path = self.key_path(key_id);
-
-        self.with_retry(|| {
-            let client = self.client.clone();
-            let key_path = key_path.clone();
-            let plaintext = plaintext.to_vec();
-
-            Box::pin(async move {
-                // Create encrypt request
-                let encrypt_request = EncryptRequest {
-                    plaintext: Some(plaintext),
-                    ..Default::default()
-                };
-
-                let response = client
-                    .projects()
-                    .locations_key_rings_crypto_keys_encrypt(encrypt_request, &key_path)
-                    .doit()
-                    .await
-                    .map_err(|e| AosError::Crypto(format!("GCP KMS encrypt failed: {}", e)))?;
-
-                if let Some((_, result)) = response {
-                    result.ciphertext.map(|ct| ct.into_bytes()).ok_or_else(|| {
-                        AosError::Crypto("GCP KMS response missing ciphertext".to_string())
-                    })
-                } else {
-                    Err(AosError::Crypto(
-                        "GCP KMS encrypt response missing result".to_string(),
-                    ))
-                }
-            })
-        })
-        .await
-    }
-
-    async fn decrypt(&self, key_id: &str, ciphertext: &[u8]) -> Result<Vec<u8>> {
-        let key_path = self.key_path(key_id);
-
-        self.with_retry(|| {
-            let client = self.client.clone();
-            let key_path = key_path.clone();
-            let ciphertext = ciphertext.to_vec();
-
-            Box::pin(async move {
-                // Create decrypt request
-                let decrypt_request = DecryptRequest {
-                    ciphertext: Some(ciphertext),
-                    ..Default::default()
-                };
-
-                let response = client
-                    .projects()
-                    .locations_key_rings_crypto_keys_decrypt(decrypt_request, &key_path)
-                    .doit()
-                    .await
-                    .map_err(|e| AosError::Crypto(format!("GCP KMS decrypt failed: {}", e)))?;
-
-                if let Some((_, result)) = response {
-                    result.plaintext.map(|pt| pt.into_bytes()).ok_or_else(|| {
-                        AosError::Crypto("GCP KMS response missing plaintext".to_string())
-                    })
-                } else {
-                    Err(AosError::Crypto(
-                        "GCP KMS decrypt response missing result".to_string(),
-                    ))
-                }
-            })
-        })
-        .await
-    }
-
-    async fn rotate_key(&self, key_id: &str) -> Result<KeyHandle> {
-        let key_path = self.key_path(key_id);
-
-        self.with_retry(|| {
-            let client = self.client.clone();
-            let key_path = key_path.clone();
-            let key_id = key_id.to_string();
-
-            Box::pin(async move {
-                // Fetch the key to get its configuration
-                let response = client
-                    .projects()
-                    .locations_key_rings_crypto_keys_get(&key_path)
-                    .doit()
-                    .await
-                    .map_err(|e| {
-                        AosError::Crypto(format!("Failed to describe GCP KMS key: {}", e))
-                    })?;
-
-                if let Some((_, key)) = response {
-                    // Get algorithm and purpose from existing key
-                    let purpose = key.purpose.as_deref().unwrap_or("ASYMMETRIC_SIGN");
-                    let algorithm = match purpose {
-                        "ASYMMETRIC_SIGN" => KeyAlgorithm::Ed25519,
-                        "SYMMETRIC_ENCRYPTION" => KeyAlgorithm::Aes256Gcm,
-                        _ => KeyAlgorithm::Aes256Gcm,
-                    };
-
-                    // Create a new version (rotation in GCP KMS)
-                    let new_version = google_cloudkms1::api::CryptoKeyVersion {
-                        algorithm: key.version_template.and_then(|vt| vt.algorithm),
-                        ..Default::default()
-                    };
-
-                    let version_response = client
-                        .projects()
-                        .locations_key_rings_crypto_keys_versions_create(new_version, &key_path)
-                        .doit()
-                        .await
-                        .map_err(|e| {
-                            AosError::Crypto(format!(
-                                "Failed to create new GCP KMS key version: {}",
-                                e
-                            ))
-                        })?;
-
-                    if let Some((_, version)) = version_response {
-                        let pub_key = version
-                            .public_key
-                            .and_then(|pk| pk.pem)
-                            .map(|pem| pem.into_bytes())
-                            .unwrap_or_default();
-
-                        let version_num = version
-                            .name
-                            .as_ref()
-                            .and_then(|n| n.split('/').last())
-                            .and_then(|v| v.parse::<u32>().ok())
-                            .unwrap_or(1);
-
-                        info!(
-                            key_id = %key_id,
-                            algorithm = %algorithm,
-                            version = %version_num,
-                            "GCP KMS: rotated key"
-                        );
-
-                        Ok((pub_key, key_path, version_num))
-                    } else {
-                        Err(AosError::Crypto(
-                            "GCP KMS version create response missing data".to_string(),
-                        ))
-                    }
-                } else {
-                    Err(AosError::Crypto(
-                        "GCP KMS get key response missing data".to_string(),
-                    ))
-                }
-            })
-        })
-        .await
-        .map(|(pub_key, path, version)| {
-            let version_path = format!("{}/cryptoKeyVersions/{}", path, version);
-            KeyHandle::with_public_key(version_path, KeyAlgorithm::Ed25519, pub_key)
-        })
-    }
-
-    async fn get_public_key(&self, key_id: &str) -> Result<Vec<u8>> {
-        // Check cache first
-        {
-            let cache = self.key_cache.read().await;
-            if let Some(metadata) = cache.get(key_id) {
-                if let Some(pub_key) = &metadata.public_key {
-                    return Ok(pub_key.clone());
-                }
-            }
-        }
-
-        // Fetch from GCP KMS
-        let key_path = self.key_path(key_id);
-
-        self.with_retry(|| {
-            let client = self.client.clone();
-            let key_path = key_path.clone();
-
-            Box::pin(async move {
-                let response = client
-                    .projects()
-                    .locations_key_rings_crypto_keys_versions_get(&key_path)
-                    .doit()
-                    .await
-                    .map_err(|e| {
-                        AosError::Crypto(format!("Failed to get GCP KMS public key: {}", e))
-                    })?;
-
-                if let Some((_, version)) = response {
-                    version
-                        .public_key
-                        .and_then(|pk| pk.pem)
-                        .map(|pem| pem.into_bytes())
-                        .ok_or_else(|| {
-                            AosError::Crypto("GCP KMS response missing public key".to_string())
-                        })
-                } else {
-                    Err(AosError::Crypto(
-                        "GCP KMS get public key response missing data".to_string(),
-                    ))
-                }
-            })
-        })
-        .await
-    }
-
-    async fn key_exists(&self, key_id: &str) -> Result<bool> {
-        let key_path = self.key_path(key_id);
-
-        self.with_retry(|| {
-            let client = self.client.clone();
-            let key_path = key_path.clone();
-
-            Box::pin(async move {
-                match client
-                    .projects()
-                    .locations_key_rings_crypto_keys_get(&key_path)
-                    .doit()
-                    .await
-                {
-                    Ok((_, Some(key))) => {
-                        // Check if key is enabled (not destroyed)
-                        Ok(key.destroy_scheduled_duration.is_none())
-                    }
-                    Ok(_) => Ok(false),
-                    Err(_) => Ok(false),
-                }
-            })
-        })
-        .await
-    }
-
-    async fn delete_key(&self, key_id: &str) -> Result<()> {
-        let key_path = self.key_path(key_id);
-
-        self.with_retry(|| {
-            let client = self.client.clone();
-            let key_path = key_path.clone();
-
-            Box::pin(async move {
-                // Update the key to destroy it
-                let mut key = CryptoKey::default();
-                key.destroy_scheduled_duration = Some("86400s".to_string()); // 24 hours
-
-                let _ = client
-                    .projects()
-                    .locations_key_rings_crypto_keys_patch(
-                        key,
-                        &key_path,
-                        Some("destroy_scheduled_duration"),
-                    )
-                    .doit()
-                    .await
-                    .map_err(|e| {
-                        AosError::Crypto(format!("Failed to delete GCP KMS key: {}", e))
-                    })?;
-
-                warn!(key_id = %key_id, "GCP KMS: scheduled key for deletion (24-hour waiting period)");
-                Ok(())
-            })
-        })
-        .await
-    }
-
-    fn backend_type(&self) -> KmsBackendType {
-        KmsBackendType::GcpKms
-    }
-
-    fn fingerprint(&self) -> String {
-        format!("gcp-kms-{}-{}-v1.0", self.project_id, self.location)
-    }
-}
-
-/// Mock KMS backend for testing and development
-pub struct MockKmsBackend {
+/// Mock KMS provider for testing and development
+pub struct MockKmsProvider {
     keys: Arc<RwLock<HashMap<String, MockKey>>>,
 }
 
@@ -1347,8 +787,8 @@ struct MockKey {
     version: u32,
 }
 
-impl MockKmsBackend {
-    /// Create a new mock KMS backend
+impl MockKmsProvider {
+    /// Create a new mock KMS provider
     pub fn new() -> Self {
         Self {
             keys: Arc::new(RwLock::new(HashMap::new())),
@@ -1356,14 +796,14 @@ impl MockKmsBackend {
     }
 }
 
-impl Default for MockKmsBackend {
+impl Default for MockKmsProvider {
     fn default() -> Self {
         Self::new()
     }
 }
 
 #[async_trait::async_trait]
-impl KmsBackend for MockKmsBackend {
+impl KmsProvider for MockKmsProvider {
     async fn generate_key(&self, key_id: &str, alg: KeyAlgorithm) -> Result<KeyHandle> {
         use rand::RngCore;
 
@@ -1539,8 +979,8 @@ impl KmsBackend for MockKmsBackend {
         Ok(())
     }
 
-    fn backend_type(&self) -> KmsBackendType {
-        KmsBackendType::Mock
+    fn provider_type(&self) -> KmsProviderType {
+        KmsProviderType::Mock
     }
 
     fn fingerprint(&self) -> String {
@@ -1548,9 +988,9 @@ impl KmsBackend for MockKmsBackend {
     }
 }
 
-/// HashiCorp Vault backend implementation
+/// HashiCorp Vault provider implementation
 /// Uses the Transit secret engine for cryptographic operations
-pub struct HashicorpVaultBackend {
+pub struct HashicorpVaultProvider {
     endpoint: String,
     transit_mount: String,
     key_cache: Arc<RwLock<HashMap<String, VaultKeyMetadata>>>,
@@ -1562,8 +1002,8 @@ struct VaultKeyMetadata {
     version: u32,
 }
 
-impl HashicorpVaultBackend {
-    /// Create a new HashiCorp Vault backend
+impl HashicorpVaultProvider {
+    /// Create a new HashiCorp Vault provider
     pub fn new(config: KmsConfig) -> Result<Self> {
         match &config.credentials {
             KmsCredentials::VaultToken { .. } => {}
@@ -1592,7 +1032,7 @@ impl HashicorpVaultBackend {
         debug!(
             endpoint = %config.endpoint,
             transit_mount = %transit_mount,
-            "HashiCorp Vault backend initialized"
+            "HashiCorp Vault provider initialized"
         );
 
         Ok(Self {
@@ -1643,7 +1083,7 @@ impl HashicorpVaultBackend {
 }
 
 #[async_trait::async_trait]
-impl KmsBackend for HashicorpVaultBackend {
+impl KmsProvider for HashicorpVaultProvider {
     async fn generate_key(&self, key_id: &str, alg: KeyAlgorithm) -> Result<KeyHandle> {
         let key_type = Self::algorithm_to_vault_type(&alg);
         let url = self.transit_url(&format!("keys/{}", key_id));
@@ -1845,8 +1285,8 @@ impl KmsBackend for HashicorpVaultBackend {
         Ok(())
     }
 
-    fn backend_type(&self) -> KmsBackendType {
-        KmsBackendType::HashicorpVault
+    fn provider_type(&self) -> KmsProviderType {
+        KmsProviderType::HashicorpVault
     }
 
     fn fingerprint(&self) -> String {
@@ -1866,7 +1306,7 @@ impl KmsBackend for HashicorpVaultBackend {
 ///
 /// DO NOT use in production environments. Use AWS KMS, GCP KMS,
 /// or HashiCorp Vault instead.
-pub struct LocalKmsBackend {
+pub struct LocalKmsProvider {
     storage_path: std::path::PathBuf,
     keys: Arc<RwLock<HashMap<String, LocalKeyData>>>,
 }
@@ -1881,12 +1321,12 @@ struct LocalKeyData {
     version: u32,
 }
 
-impl LocalKmsBackend {
-    /// Create a new local file-based KMS backend
+impl LocalKmsProvider {
+    /// Create a new local file-based KMS provider
     ///
     /// ⚠️ WARNING: NOT FOR PRODUCTION ⚠️
     pub fn new(storage_path: std::path::PathBuf) -> Result<Self> {
-        warn!("⚠️  WARNING: LocalKmsBackend is NOT FOR PRODUCTION USE ⚠️");
+        warn!("⚠️  WARNING: LocalKmsProvider is NOT FOR PRODUCTION USE ⚠️");
         warn!(
             "Keys are stored in PLAINTEXT at: {}",
             storage_path.display()
@@ -1921,7 +1361,7 @@ impl LocalKmsBackend {
         debug!(
             storage_path = %storage_path.display(),
             loaded_keys = keys.len(),
-            "Local KMS backend initialized (DEVELOPMENT ONLY)"
+            "Local KMS provider initialized (DEVELOPMENT ONLY)"
         );
 
         Ok(Self {
@@ -1974,7 +1414,7 @@ impl LocalKmsBackend {
 }
 
 #[async_trait::async_trait]
-impl KmsBackend for LocalKmsBackend {
+impl KmsProvider for LocalKmsProvider {
     async fn generate_key(&self, key_id: &str, alg: KeyAlgorithm) -> Result<KeyHandle> {
         // Check if key already exists
         {
@@ -2194,8 +1634,8 @@ impl KmsBackend for LocalKmsBackend {
         Ok(())
     }
 
-    fn backend_type(&self) -> KmsBackendType {
-        KmsBackendType::Mock // Use Mock type for local development
+    fn provider_type(&self) -> KmsProviderType {
+        KmsProviderType::Mock // Use Mock type for local development
     }
 
     fn fingerprint(&self) -> String {
@@ -2210,22 +1650,23 @@ impl KmsBackend for LocalKmsBackend {
 }
 
 /// KMS provider implementation
-pub struct KmsProvider {
+pub struct KmsManager {
     config: KmsConfig,
-    backend: Arc<dyn KmsBackend>,
+    provider: Arc<dyn KmsProvider>,
     key_handles: Arc<RwLock<HashMap<String, KeyHandle>>>,
 }
 
-impl std::fmt::Debug for KmsProvider {
+impl std::fmt::Debug for KmsManager {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("KmsProvider")
             .field("config", &self.config)
-            .field("backend_type", &self.config.backend_type)
+            .field("provider_type", &self.config.provider_type)
+            .field("provider_type", &self.config.provider_type)
             .finish()
     }
 }
 
-impl KmsProvider {
+impl KmsManager {
     /// Create a new KMS provider with the specified configuration
     pub fn new(config: KeyProviderConfig) -> Result<Self> {
         let kms_config = KmsConfig::from_provider_config(&config)?;
@@ -2234,43 +1675,45 @@ impl KmsProvider {
 
     /// Create a new KMS provider with detailed KMS configuration
     pub fn with_kms_config(config: KmsConfig) -> Result<Self> {
-        let backend: Arc<dyn KmsBackend> = match config.backend_type {
-            KmsBackendType::Mock => Arc::new(MockKmsBackend::new()),
+        let provider: Arc<dyn KmsProvider> = match config.provider_type {
+            KmsProviderType::Mock => Arc::new(MockKmsProvider::new()),
             #[cfg(feature = "aws-kms")]
-            KmsBackendType::AwsKms => {
+            KmsProviderType::AwsKms => {
                 return Err(AosError::Crypto(
                     "AWS KMS requires async initialization. Use with_kms_config_async instead"
                         .to_string(),
                 ));
             }
             #[cfg(not(feature = "aws-kms"))]
-            KmsBackendType::AwsKms => {
+            KmsProviderType::AwsKms => {
                 warn!("{}", CLOUD_BACKEND_DISABLED_MSG);
-                Arc::new(MockKmsBackend::new())
+                Arc::new(MockKmsProvider::new())
             }
-            KmsBackendType::GcpKms => {
+            KmsProviderType::GcpKms => {
                 warn!("{}", CLOUD_BACKEND_DISABLED_MSG);
-                Arc::new(MockKmsBackend::new())
+                Arc::new(MockKmsProvider::new())
             }
-            KmsBackendType::AzureKeyVault => {
+            KmsProviderType::AzureKeyVault => {
                 warn!("{}", CLOUD_BACKEND_DISABLED_MSG);
-                Arc::new(MockKmsBackend::new())
+                Arc::new(MockKmsProvider::new())
             }
-            KmsBackendType::HashicorpVault => Arc::new(HashicorpVaultBackend::new(config.clone())?),
-            KmsBackendType::Pkcs11Hsm => {
-                // CRYPTO-GAP-001: PKCS#11 HSM backend not implemented
+            KmsProviderType::HashicorpVault => {
+                Arc::new(HashicorpVaultProvider::new(config.clone())?)
+            }
+            KmsProviderType::Pkcs11Hsm => {
+                // CRYPTO-GAP-001: PKCS#11 HSM provider not implemented
                 // Federal deployments requiring FIPS 140-2 via physical HSM must use
                 // AOS_ALLOW_MOCK_HSM=1 explicitly to acknowledge mock fallback.
                 if std::env::var("AOS_ALLOW_MOCK_HSM").is_ok() {
                     warn!(
-                        "PKCS#11 HSM not implemented - using mock backend \
+                        "PKCS#11 HSM not implemented - using mock provider \
                          (AOS_ALLOW_MOCK_HSM set, DEVELOPMENT ONLY)"
                     );
-                    Arc::new(MockKmsBackend::new())
+                    Arc::new(MockKmsProvider::new())
                 } else {
                     return Err(AosError::Crypto(
-                        "PKCS#11 HSM backend not implemented (CRYPTO-GAP-001). \
-                         Use 'local' or 'keychain' backend for production, \
+                        "PKCS#11 HSM provider not implemented (CRYPTO-GAP-001). \
+                         Use 'local' or 'keychain' provider for production, \
                          or set AOS_ALLOW_MOCK_HSM=1 for development only."
                             .to_string(),
                     ));
@@ -2279,14 +1722,14 @@ impl KmsProvider {
         };
 
         info!(
-            backend_type = %config.backend_type,
+            provider_type = %config.provider_type,
             endpoint = %config.endpoint,
             "KMS provider initialized"
         );
 
         Ok(Self {
             config,
-            backend,
+            provider,
             key_handles: Arc::new(RwLock::new(HashMap::new())),
         })
     }
@@ -2294,21 +1737,21 @@ impl KmsProvider {
     /// Create a new KMS provider with async configuration (for AWS KMS and GCP KMS)
     pub async fn with_kms_config_async(config: KmsConfig) -> Result<Self> {
         #[allow(unused_variables, unreachable_code)]
-        let backend: Arc<dyn KmsBackend> = match config.backend_type {
+        let provider: Arc<dyn KmsProvider> = match config.provider_type {
             #[cfg(feature = "aws-kms")]
-            KmsBackendType::AwsKms => Arc::new(AwsKmsBackend::new_async(config.clone()).await?),
+            KmsProviderType::AwsKms => Arc::new(AwsKmsProvider::new_async(config.clone()).await?),
             #[cfg(not(feature = "aws-kms"))]
-            KmsBackendType::AwsKms => {
+            KmsProviderType::AwsKms => {
                 warn!("{}", CLOUD_BACKEND_DISABLED_MSG);
-                Arc::new(MockKmsBackend::new())
+                Arc::new(MockKmsProvider::new())
             }
-            KmsBackendType::GcpKms => {
+            KmsProviderType::GcpKms => {
                 warn!("{}", CLOUD_BACKEND_DISABLED_MSG);
-                Arc::new(MockKmsBackend::new())
+                Arc::new(MockKmsProvider::new())
             }
-            KmsBackendType::AzureKeyVault => {
+            KmsProviderType::AzureKeyVault => {
                 warn!("{}", CLOUD_BACKEND_DISABLED_MSG);
-                Arc::new(MockKmsBackend::new())
+                Arc::new(MockKmsProvider::new())
             }
             _ => {
                 // Use sync initialization for other backends
@@ -2319,24 +1762,24 @@ impl KmsProvider {
         #[allow(unreachable_code)]
         {
             info!(
-                backend_type = %config.backend_type,
+                provider_type = %config.provider_type,
                 endpoint = %config.endpoint,
                 "KMS provider initialized (async)"
             );
 
             Ok(Self {
                 config,
-                backend,
+                provider,
                 key_handles: Arc::new(RwLock::new(HashMap::new())),
             })
         }
     }
 
-    /// Create a KMS provider with a custom backend (for testing)
-    pub fn with_backend(config: KmsConfig, backend: Arc<dyn KmsBackend>) -> Self {
+    /// Create a KMS provider with a custom provider (for testing)
+    pub fn with_provider(config: KmsConfig, provider: Arc<dyn KmsProvider>) -> Self {
         Self {
             config,
-            backend,
+            provider,
             key_handles: Arc::new(RwLock::new(HashMap::new())),
         }
     }
@@ -2358,21 +1801,21 @@ impl KmsConfig {
             .clone()
             .unwrap_or_else(|| "http://localhost:8200".to_string());
 
-        // Parse backend type from endpoint URL pattern
-        let backend_type = if endpoint.contains("kms.amazonaws.com") {
-            KmsBackendType::AwsKms
+        // Parse provider type from endpoint URL pattern
+        let provider_type = if endpoint.contains("kms.amazonaws.com") {
+            KmsProviderType::AwsKms
         } else if endpoint.contains("cloudkms.googleapis.com") {
-            KmsBackendType::GcpKms
+            KmsProviderType::GcpKms
         } else if endpoint.contains("vault.azure.net") {
-            KmsBackendType::AzureKeyVault
+            KmsProviderType::AzureKeyVault
         } else if endpoint.contains("vault") {
-            KmsBackendType::HashicorpVault
+            KmsProviderType::HashicorpVault
         } else {
-            KmsBackendType::Mock
+            KmsProviderType::Mock
         };
 
         Ok(Self {
-            backend_type,
+            provider_type,
             endpoint,
             region: None,
             credentials: KmsCredentials::None,
@@ -2384,11 +1827,11 @@ impl KmsConfig {
 }
 
 #[async_trait::async_trait]
-impl KeyProvider for KmsProvider {
+impl KeyProvider for KmsManager {
     async fn generate(&self, key_id: &str, alg: KeyAlgorithm) -> Result<KeyHandle> {
         let namespaced_id = self.namespaced_key_id(key_id);
 
-        let handle = self.backend.generate_key(&namespaced_id, alg).await?;
+        let handle = self.provider.generate_key(&namespaced_id, alg).await?;
 
         // Cache the handle locally
         let mut handles = self.key_handles.write().await;
@@ -2401,17 +1844,17 @@ impl KeyProvider for KmsProvider {
 
     async fn sign(&self, key_id: &str, msg: &[u8]) -> Result<Vec<u8>> {
         let namespaced_id = self.namespaced_key_id(key_id);
-        self.backend.sign(&namespaced_id, msg).await
+        self.provider.sign(&namespaced_id, msg).await
     }
 
     async fn seal(&self, key_id: &str, plaintext: &[u8]) -> Result<Vec<u8>> {
         let namespaced_id = self.namespaced_key_id(key_id);
-        self.backend.encrypt(&namespaced_id, plaintext).await
+        self.provider.encrypt(&namespaced_id, plaintext).await
     }
 
     async fn unseal(&self, key_id: &str, ciphertext: &[u8]) -> Result<Vec<u8>> {
         let namespaced_id = self.namespaced_key_id(key_id);
-        self.backend.decrypt(&namespaced_id, ciphertext).await
+        self.provider.decrypt(&namespaced_id, ciphertext).await
     }
 
     async fn rotate(&self, key_id: &str) -> Result<RotationReceipt> {
@@ -2426,7 +1869,7 @@ impl KeyProvider for KmsProvider {
         drop(handles);
 
         // Rotate in KMS
-        let new_key = self.backend.rotate_key(&namespaced_id).await?;
+        let new_key = self.provider.rotate_key(&namespaced_id).await?;
 
         // Update local cache
         let mut handles = self.key_handles.write().await;
@@ -2440,7 +1883,7 @@ impl KeyProvider for KmsProvider {
             key_id, previous_key.provider_id, new_key.provider_id, timestamp
         );
         let signature = self
-            .backend
+            .provider
             .sign(&namespaced_id, receipt_data.as_bytes())
             .await
             .unwrap_or_else(|_| vec![0u8; 8]); // Fallback for non-signing keys
@@ -2463,19 +1906,19 @@ impl KeyProvider for KmsProvider {
 
     async fn attest(&self) -> Result<ProviderAttestation> {
         let timestamp = adapteros_core::time::unix_timestamp_secs();
-        let fingerprint = self.backend.fingerprint();
+        let fingerprint = self.provider.fingerprint();
 
         // Create attestation data
         let attestation_data = format!(
             "{}:{}:{}:{}",
-            self.config.backend_type, fingerprint, self.config.endpoint, timestamp
+            self.config.provider_type, fingerprint, self.config.endpoint, timestamp
         );
 
         // Sign with a system key if available, otherwise use placeholder
         let signature = vec![0u8; 64]; // Would be actual signature in production
 
         Ok(ProviderAttestation::new(
-            format!("kms:{}", self.config.backend_type),
+            format!("kms:{}", self.config.provider_type),
             fingerprint,
             blake3::hash(attestation_data.as_bytes())
                 .to_hex()
@@ -2487,13 +1930,13 @@ impl KeyProvider for KmsProvider {
 }
 
 /// Create a KMS provider instance
-pub fn create_kms_provider(config: KeyProviderConfig) -> Result<KmsProvider> {
-    KmsProvider::new(config)
+pub fn create_kms_provider(config: KeyProviderConfig) -> Result<KmsManager> {
+    KmsManager::new(config)
 }
 
 /// Create a KMS provider with detailed configuration
-pub fn create_kms_provider_with_config(config: KmsConfig) -> Result<KmsProvider> {
-    KmsProvider::with_kms_config(config)
+pub fn create_kms_provider_with_config(config: KmsConfig) -> Result<KmsManager> {
+    KmsManager::with_kms_config(config)
 }
 
 #[cfg(test)]
@@ -2504,11 +1947,11 @@ mod tests {
     #[tokio::test]
     async fn test_kms_provider_mock_generate() {
         let config = KmsConfig {
-            backend_type: KmsBackendType::Mock,
+            provider_type: KmsProviderType::Mock,
             ..Default::default()
         };
 
-        let provider = KmsProvider::with_kms_config(config).unwrap();
+        let provider = KmsManager::with_kms_config(config).unwrap();
 
         let handle = provider
             .generate("test-key", KeyAlgorithm::Ed25519)
@@ -2522,11 +1965,11 @@ mod tests {
     #[tokio::test]
     async fn test_kms_provider_mock_sign() {
         let config = KmsConfig {
-            backend_type: KmsBackendType::Mock,
+            provider_type: KmsProviderType::Mock,
             ..Default::default()
         };
 
-        let provider = KmsProvider::with_kms_config(config).unwrap();
+        let provider = KmsManager::with_kms_config(config).unwrap();
 
         provider
             .generate("sign-key", KeyAlgorithm::Ed25519)
@@ -2540,11 +1983,11 @@ mod tests {
     #[tokio::test]
     async fn test_kms_provider_mock_encrypt_decrypt() {
         let config = KmsConfig {
-            backend_type: KmsBackendType::Mock,
+            provider_type: KmsProviderType::Mock,
             ..Default::default()
         };
 
-        let provider = KmsProvider::with_kms_config(config).unwrap();
+        let provider = KmsManager::with_kms_config(config).unwrap();
 
         provider
             .generate("enc-key", KeyAlgorithm::Aes256Gcm)
@@ -2561,11 +2004,11 @@ mod tests {
     #[tokio::test]
     async fn test_kms_provider_mock_rotate() {
         let config = KmsConfig {
-            backend_type: KmsBackendType::Mock,
+            provider_type: KmsProviderType::Mock,
             ..Default::default()
         };
 
-        let provider = KmsProvider::with_kms_config(config).unwrap();
+        let provider = KmsManager::with_kms_config(config).unwrap();
 
         provider
             .generate("rotate-key", KeyAlgorithm::Ed25519)
@@ -2583,11 +2026,11 @@ mod tests {
     #[tokio::test]
     async fn test_kms_provider_attest() {
         let config = KmsConfig {
-            backend_type: KmsBackendType::Mock,
+            provider_type: KmsProviderType::Mock,
             ..Default::default()
         };
 
-        let provider = KmsProvider::with_kms_config(config).unwrap();
+        let provider = KmsManager::with_kms_config(config).unwrap();
 
         let attestation = provider.attest().await.unwrap();
         assert!(attestation.provider_type.contains("kms:mock"));
@@ -2597,12 +2040,12 @@ mod tests {
     #[tokio::test]
     async fn test_kms_provider_namespacing() {
         let config = KmsConfig {
-            backend_type: KmsBackendType::Mock,
+            provider_type: KmsProviderType::Mock,
             key_namespace: Some("tenant-a".to_string()),
             ..Default::default()
         };
 
-        let provider = KmsProvider::with_kms_config(config).unwrap();
+        let provider = KmsManager::with_kms_config(config).unwrap();
 
         let handle = provider
             .generate("my-key", KeyAlgorithm::Ed25519)
@@ -2615,11 +2058,11 @@ mod tests {
     #[tokio::test]
     async fn test_kms_provider_key_not_found() {
         let config = KmsConfig {
-            backend_type: KmsBackendType::Mock,
+            provider_type: KmsProviderType::Mock,
             ..Default::default()
         };
 
-        let provider = KmsProvider::with_kms_config(config).unwrap();
+        let provider = KmsManager::with_kms_config(config).unwrap();
 
         let result = provider.sign("nonexistent", b"data").await;
         assert!(result.is_err());
@@ -2629,11 +2072,11 @@ mod tests {
     #[tokio::test]
     async fn test_kms_provider_algorithm_mismatch() {
         let config = KmsConfig {
-            backend_type: KmsBackendType::Mock,
+            provider_type: KmsProviderType::Mock,
             ..Default::default()
         };
 
-        let provider = KmsProvider::with_kms_config(config).unwrap();
+        let provider = KmsManager::with_kms_config(config).unwrap();
 
         // Generate encryption key
         provider
@@ -2664,37 +2107,39 @@ mod tests {
 
     #[tokio::test]
     async fn test_mock_backend_duplicate_key() {
-        let backend = MockKmsBackend::new();
+        let provider = MockKmsProvider::new();
 
-        backend
+        provider
             .generate_key("dup-key", KeyAlgorithm::Ed25519)
             .await
             .unwrap();
 
-        let result = backend.generate_key("dup-key", KeyAlgorithm::Ed25519).await;
+        let result = provider
+            .generate_key("dup-key", KeyAlgorithm::Ed25519)
+            .await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("already exists"));
     }
 
     #[tokio::test]
     async fn test_mock_backend_delete_key() {
-        let backend = MockKmsBackend::new();
+        let provider = MockKmsProvider::new();
 
-        backend
+        provider
             .generate_key("del-key", KeyAlgorithm::Ed25519)
             .await
             .unwrap();
-        assert!(backend.key_exists("del-key").await.unwrap());
+        assert!(provider.key_exists("del-key").await.unwrap());
 
-        backend.delete_key("del-key").await.unwrap();
-        assert!(!backend.key_exists("del-key").await.unwrap());
+        provider.delete_key("del-key").await.unwrap();
+        assert!(!provider.key_exists("del-key").await.unwrap());
     }
 
     // AWS KMS Backend Tests
     #[tokio::test]
     async fn test_aws_kms_config_creation() {
         let config = KmsConfig {
-            backend_type: KmsBackendType::AwsKms,
+            provider_type: KmsProviderType::AwsKms,
             endpoint: "https://kms.us-east-1.amazonaws.com".to_string(),
             region: Some("us-east-1".to_string()),
             credentials: KmsCredentials::AwsIam {
@@ -2708,14 +2153,14 @@ mod tests {
         };
 
         // Verify configuration is valid
-        assert_eq!(config.backend_type, KmsBackendType::AwsKms);
+        assert_eq!(config.provider_type, KmsProviderType::AwsKms);
         assert_eq!(config.region, Some("us-east-1".to_string()));
     }
 
     #[tokio::test]
     async fn test_aws_kms_backend_requires_async_init() {
         let config = KmsConfig {
-            backend_type: KmsBackendType::AwsKms,
+            provider_type: KmsProviderType::AwsKms,
             endpoint: "https://kms.us-east-1.amazonaws.com".to_string(),
             region: Some("us-east-1".to_string()),
             credentials: KmsCredentials::AwsIam {
@@ -2729,7 +2174,7 @@ mod tests {
         };
 
         // Sync initialization should fail for AWS KMS (or fallback to mock if feature not enabled)
-        let result = KmsProvider::with_kms_config(config);
+        let result = KmsManager::with_kms_config(config);
         #[cfg(feature = "aws-kms")]
         assert!(result.is_err());
         #[cfg(not(feature = "aws-kms"))]
@@ -2739,7 +2184,7 @@ mod tests {
     #[tokio::test]
     async fn test_kms_config_region_parsing() {
         let config = KmsConfig {
-            backend_type: KmsBackendType::AwsKms,
+            provider_type: KmsProviderType::AwsKms,
             endpoint: "https://kms.eu-west-1.amazonaws.com".to_string(),
             region: Some("eu-west-1".to_string()),
             credentials: KmsCredentials::AwsIam {
@@ -2758,7 +2203,7 @@ mod tests {
     #[tokio::test]
     async fn test_kms_credentials_with_session_token() {
         let config = KmsConfig {
-            backend_type: KmsBackendType::AwsKms,
+            provider_type: KmsProviderType::AwsKms,
             endpoint: "https://kms.us-east-1.amazonaws.com".to_string(),
             region: Some("us-east-1".to_string()),
             credentials: KmsCredentials::AwsIam {
@@ -2790,10 +2235,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_kms_provider_with_backend_mock() {
-        // Test provider creation with mock backend
+    async fn test_kms_provider_with_provider_mock() {
+        // Test provider creation with mock provider
         let config = KmsConfig {
-            backend_type: KmsBackendType::Mock,
+            provider_type: KmsProviderType::Mock,
             endpoint: "http://localhost:8200".to_string(),
             region: None,
             credentials: KmsCredentials::None,
@@ -2802,17 +2247,17 @@ mod tests {
             key_namespace: None,
         };
 
-        let mock_backend = Arc::new(MockKmsBackend::new());
-        let provider = KmsProvider::with_backend(config, mock_backend);
+        let mock_backend = Arc::new(MockKmsProvider::new());
+        let provider = KmsManager::with_provider(config, mock_backend);
 
         // Verify provider is initialized
-        assert_eq!(provider.config.backend_type, KmsBackendType::Mock);
+        assert_eq!(provider.config.provider_type, KmsProviderType::Mock);
     }
 
     #[tokio::test]
     async fn test_kms_config_timeout_settings() {
         let config = KmsConfig {
-            backend_type: KmsBackendType::Mock,
+            provider_type: KmsProviderType::Mock,
             endpoint: "http://localhost:8200".to_string(),
             region: None,
             credentials: KmsCredentials::None,
@@ -2828,7 +2273,7 @@ mod tests {
     #[tokio::test]
     async fn test_kms_config_key_namespace() {
         let config = KmsConfig {
-            backend_type: KmsBackendType::Mock,
+            provider_type: KmsProviderType::Mock,
             endpoint: "http://localhost:8200".to_string(),
             region: None,
             credentials: KmsCredentials::None,
@@ -2854,23 +2299,23 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_kms_backend_type_display() {
-        assert_eq!(KmsBackendType::AwsKms.to_string(), "aws-kms");
-        assert_eq!(KmsBackendType::GcpKms.to_string(), "gcp-kms");
-        assert_eq!(KmsBackendType::AzureKeyVault.to_string(), "azure-keyvault");
+    async fn test_kms_provider_type_display() {
+        assert_eq!(KmsProviderType::AwsKms.to_string(), "aws-kms");
+        assert_eq!(KmsProviderType::GcpKms.to_string(), "gcp-kms");
+        assert_eq!(KmsProviderType::AzureKeyVault.to_string(), "azure-keyvault");
         assert_eq!(
-            KmsBackendType::HashicorpVault.to_string(),
+            KmsProviderType::HashicorpVault.to_string(),
             "hashicorp-vault"
         );
-        assert_eq!(KmsBackendType::Pkcs11Hsm.to_string(), "pkcs11-hsm");
-        assert_eq!(KmsBackendType::Mock.to_string(), "mock");
+        assert_eq!(KmsProviderType::Pkcs11Hsm.to_string(), "pkcs11-hsm");
+        assert_eq!(KmsProviderType::Mock.to_string(), "mock");
     }
 
     // GCP KMS Configuration Tests
     #[tokio::test]
     async fn test_gcp_kms_config_creation() {
         let config = KmsConfig {
-            backend_type: KmsBackendType::GcpKms,
+            provider_type: KmsProviderType::GcpKms,
             endpoint: "https://cloudkms.googleapis.com".to_string(),
             region: Some("us-central1".to_string()),
             credentials: KmsCredentials::GcpServiceAccount {
@@ -2891,7 +2336,7 @@ mod tests {
             key_namespace: Some("test-keyring".to_string()),
         };
 
-        assert_eq!(config.backend_type, KmsBackendType::GcpKms);
+        assert_eq!(config.provider_type, KmsProviderType::GcpKms);
         assert_eq!(config.region, Some("us-central1".to_string()));
         assert_eq!(config.key_namespace, Some("test-keyring".to_string()));
     }
@@ -2899,7 +2344,7 @@ mod tests {
     #[tokio::test]
     async fn test_gcp_kms_backend_requires_async_init() {
         let config = KmsConfig {
-            backend_type: KmsBackendType::GcpKms,
+            provider_type: KmsProviderType::GcpKms,
             endpoint: "https://cloudkms.googleapis.com".to_string(),
             region: Some("us-central1".to_string()),
             credentials: KmsCredentials::GcpServiceAccount {
@@ -2911,8 +2356,8 @@ mod tests {
         };
 
         // Sync initialization should fail for GCP KMS (or fallback to mock if feature not enabled)
-        let result = KmsProvider::with_kms_config(config);
-        assert!(result.is_ok()); // Falls back to mock backend
+        let result = KmsManager::with_kms_config(config);
+        assert!(result.is_ok()); // Falls back to mock provider
     }
 
     #[tokio::test]
@@ -2941,7 +2386,7 @@ mod tests {
     #[tokio::test]
     async fn test_gcp_kms_with_custom_location() {
         let config = KmsConfig {
-            backend_type: KmsBackendType::GcpKms,
+            provider_type: KmsProviderType::GcpKms,
             endpoint: "https://cloudkms.googleapis.com".to_string(),
             region: Some("europe-west1".to_string()),
             credentials: KmsCredentials::GcpServiceAccount {
@@ -2958,7 +2403,7 @@ mod tests {
     #[tokio::test]
     async fn test_gcp_kms_with_custom_keyring() {
         let config = KmsConfig {
-            backend_type: KmsBackendType::GcpKms,
+            provider_type: KmsProviderType::GcpKms,
             endpoint: "https://cloudkms.googleapis.com".to_string(),
             region: Some("us-central1".to_string()),
             credentials: KmsCredentials::GcpServiceAccount {
@@ -2980,31 +2425,26 @@ mod tests {
         };
 
         let kms_config = KmsConfig::from_provider_config(&config).unwrap();
-        assert_eq!(kms_config.backend_type, KmsBackendType::GcpKms);
+        assert_eq!(kms_config.provider_type, KmsProviderType::GcpKms);
     }
 
     // GCP KMS Emulator Integration Tests
-    // Run with: GCP_KMS_EMULATOR_HOST=localhost:9011 cargo test --release
+    // Run with: GCP_KMS_EMULATOR_HOST=localhost:9011 cargo test --release --features gcp-kms
 
     /// Check if GCP KMS emulator is available
+    #[cfg(feature = "gcp-kms")]
     fn is_kms_emulator_available() -> bool {
         std::env::var("GCP_KMS_EMULATOR_HOST").is_ok()
     }
 
-    #[tokio::test]
-    #[ignore = "GCP KMS emulator integration not yet implemented - requires GcpKmsBackend::new_async"]
-    async fn test_gcp_kms_emulator_key_generation() {
-        if !is_kms_emulator_available() {
-            panic!("GCP KMS emulator not available (set GCP_KMS_EMULATOR_HOST)");
-        }
-
-        // This test requires the GCP KMS emulator to be running locally
-        // Start with: gcloud beta emulators cloud-kms start
+    /// Create GCP KMS config for emulator testing
+    #[cfg(feature = "gcp-kms")]
+    fn create_gcp_emulator_config() -> KmsConfig {
         let endpoint =
             std::env::var("GCP_KMS_EMULATOR_HOST").unwrap_or_else(|_| "localhost:9011".to_string());
 
-        let _config = KmsConfig {
-            backend_type: KmsBackendType::GcpKms,
+        KmsConfig {
+            provider_type: KmsProviderType::GcpKms,
             endpoint: format!("http://{}", endpoint),
             region: Some("us-central1".to_string()),
             credentials: KmsCredentials::GcpServiceAccount {
@@ -3012,7 +2452,7 @@ mod tests {
                     "type": "service_account",
                     "project_id": "test-project",
                     "private_key_id": "key-id",
-                    "private_key": "-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----\n",
+                    "private_key": "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA0Z3...test...\n-----END RSA PRIVATE KEY-----\n",
                     "client_email": "test@test-project.iam.gserviceaccount.com",
                     "client_id": "123456789",
                     "auth_uri": "https://accounts.google.com/o/oauth2/auth",
@@ -3023,57 +2463,171 @@ mod tests {
             timeout_secs: 30,
             max_retries: 3,
             key_namespace: Some("test-keyring".to_string()),
-        };
-
-        // Implementation needed:
-        // let backend = GcpKmsBackend::new_async(config).await.expect("backend init");
-        // let key_id = backend.generate_key("test-key", KeyType::Signing).await.expect("key gen");
-        // assert!(!key_id.is_empty());
-        unimplemented!("GCP KMS key generation test");
+        }
     }
 
     #[tokio::test]
-    #[ignore = "GCP KMS emulator integration not yet implemented - requires sign/verify methods"]
+    #[ignore = "Requires GCP KMS emulator: GCP_KMS_EMULATOR_HOST=localhost:9011"]
+    #[cfg(feature = "gcp-kms")]
+    async fn test_gcp_kms_emulator_key_generation() {
+        use crate::providers::gcp::GcpKmsProvider;
+
+        if !is_kms_emulator_available() {
+            panic!("GCP KMS emulator not available (set GCP_KMS_EMULATOR_HOST)");
+        }
+
+        let config = create_gcp_emulator_config();
+        let provider = GcpKmsProvider::new_async(config)
+            .await
+            .expect("Failed to initialize GCP KMS provider");
+
+        // Generate an Ed25519 signing key
+        let handle = provider
+            .generate_key("test-key-gen", KeyAlgorithm::Ed25519)
+            .await
+            .expect("Failed to generate key");
+
+        assert!(!handle.provider_id.is_empty());
+        assert_eq!(handle.algorithm, KeyAlgorithm::Ed25519);
+        assert!(handle.public_key.is_some());
+    }
+
+    #[tokio::test]
+    #[ignore = "Requires GCP KMS emulator: GCP_KMS_EMULATOR_HOST=localhost:9011"]
+    #[cfg(feature = "gcp-kms")]
     async fn test_gcp_kms_emulator_sign_and_verify() {
+        use crate::providers::gcp::GcpKmsProvider;
+
         if !is_kms_emulator_available() {
             panic!("GCP KMS emulator not available (set GCP_KMS_EMULATOR_HOST)");
         }
-        // Implementation needed:
-        // 1. Initialize GcpKmsBackend
-        // 2. Generate or import a signing key
-        // 3. Sign test data
-        // 4. Verify signature
-        unimplemented!("GCP KMS sign/verify test");
+
+        let config = create_gcp_emulator_config();
+        let provider = GcpKmsProvider::new_async(config)
+            .await
+            .expect("Failed to initialize GCP KMS provider");
+
+        // Generate a signing key
+        let _ = provider
+            .generate_key("test-sign-key", KeyAlgorithm::Ed25519)
+            .await
+            .expect("Failed to generate signing key");
+
+        // Sign test data
+        let message = b"test message to sign for verification";
+        let signature = provider
+            .sign("test-sign-key", message)
+            .await
+            .expect("Failed to sign message");
+
+        assert!(!signature.is_empty());
+
+        // Get public key for verification
+        let public_key = provider
+            .get_public_key("test-sign-key")
+            .await
+            .expect("Failed to get public key");
+
+        assert!(!public_key.is_empty());
     }
 
     #[tokio::test]
-    #[ignore = "GCP KMS emulator integration not yet implemented - requires encrypt/decrypt methods"]
+    #[ignore = "Requires GCP KMS emulator: GCP_KMS_EMULATOR_HOST=localhost:9011"]
+    #[cfg(feature = "gcp-kms")]
     async fn test_gcp_kms_emulator_encrypt_decrypt() {
+        use crate::providers::gcp::GcpKmsProvider;
+
         if !is_kms_emulator_available() {
             panic!("GCP KMS emulator not available (set GCP_KMS_EMULATOR_HOST)");
         }
-        // Implementation needed:
-        // 1. Initialize GcpKmsBackend
-        // 2. Generate or import an encryption key
-        // 3. Encrypt plaintext
-        // 4. Decrypt ciphertext
-        // 5. Assert plaintext matches
-        unimplemented!("GCP KMS encrypt/decrypt test");
+
+        let config = create_gcp_emulator_config();
+        let provider = GcpKmsProvider::new_async(config)
+            .await
+            .expect("Failed to initialize GCP KMS provider");
+
+        // Generate an encryption key
+        let _ = provider
+            .generate_key("test-enc-key", KeyAlgorithm::Aes256Gcm)
+            .await
+            .expect("Failed to generate encryption key");
+
+        // Encrypt plaintext
+        let plaintext = b"secret data to encrypt and decrypt";
+        let ciphertext = provider
+            .encrypt("test-enc-key", plaintext)
+            .await
+            .expect("Failed to encrypt data");
+
+        assert!(!ciphertext.is_empty());
+        assert_ne!(ciphertext, plaintext);
+
+        // Decrypt ciphertext
+        let decrypted = provider
+            .decrypt("test-enc-key", &ciphertext)
+            .await
+            .expect("Failed to decrypt data");
+
+        assert_eq!(plaintext.as_slice(), decrypted.as_slice());
     }
 
     #[tokio::test]
-    #[ignore = "GCP KMS emulator integration not yet implemented - requires key rotation methods"]
+    #[ignore = "Requires GCP KMS emulator: GCP_KMS_EMULATOR_HOST=localhost:9011"]
+    #[cfg(feature = "gcp-kms")]
     async fn test_gcp_kms_emulator_key_rotation() {
+        use crate::providers::gcp::GcpKmsProvider;
+
         if !is_kms_emulator_available() {
             panic!("GCP KMS emulator not available (set GCP_KMS_EMULATOR_HOST)");
         }
-        // Implementation needed:
-        // 1. Initialize GcpKmsBackend
-        // 2. Create initial key version
-        // 3. Trigger rotation
-        // 4. Verify new version is primary
-        // 5. Verify old version still decrypts old data
-        unimplemented!("GCP KMS key rotation test");
+
+        let config = create_gcp_emulator_config();
+        let provider = GcpKmsProvider::new_async(config)
+            .await
+            .expect("Failed to initialize GCP KMS provider");
+
+        // Generate initial key
+        let initial_handle = provider
+            .generate_key("test-rotate-key", KeyAlgorithm::Aes256Gcm)
+            .await
+            .expect("Failed to generate initial key");
+
+        // Encrypt data before rotation
+        let plaintext = b"data encrypted before rotation";
+        let ciphertext_before = provider
+            .encrypt("test-rotate-key", plaintext)
+            .await
+            .expect("Failed to encrypt before rotation");
+
+        // Rotate the key
+        let rotated_handle = provider
+            .rotate_key("test-rotate-key")
+            .await
+            .expect("Failed to rotate key");
+
+        assert_ne!(initial_handle.provider_id, rotated_handle.provider_id);
+
+        // Verify new key can encrypt/decrypt
+        let new_plaintext = b"data encrypted after rotation";
+        let ciphertext_after = provider
+            .encrypt("test-rotate-key", new_plaintext)
+            .await
+            .expect("Failed to encrypt after rotation");
+
+        let decrypted_after = provider
+            .decrypt("test-rotate-key", &ciphertext_after)
+            .await
+            .expect("Failed to decrypt after rotation");
+
+        assert_eq!(new_plaintext.as_slice(), decrypted_after.as_slice());
+
+        // Old ciphertext should still be decryptable (GCP KMS handles version internally)
+        let decrypted_before = provider
+            .decrypt("test-rotate-key", &ciphertext_before)
+            .await
+            .expect("Failed to decrypt old data after rotation");
+
+        assert_eq!(plaintext.as_slice(), decrypted_before.as_slice());
     }
 
     // GCP KMS Async Initialization Tests
@@ -3082,7 +2636,7 @@ mod tests {
         let invalid_creds = r#"{"type": "service_account"}"#;
 
         let _config = KmsConfig {
-            backend_type: KmsBackendType::GcpKms,
+            provider_type: KmsProviderType::GcpKms,
             endpoint: "https://cloudkms.googleapis.com".to_string(),
             region: Some("us-central1".to_string()),
             credentials: KmsCredentials::GcpServiceAccount {
@@ -3097,7 +2651,7 @@ mod tests {
         // Without the feature, it falls back to mock
         #[cfg(any())]
         {
-            let result = GcpKmsBackend::new_async(_config).await;
+            let result = GcpKmsProvider::new_async(_config).await;
             assert!(result.is_err());
             assert!(result.unwrap_err().to_string().contains("project_id"));
         }
@@ -3108,7 +2662,7 @@ mod tests {
         let invalid_json = "not valid json {]";
 
         let _config = KmsConfig {
-            backend_type: KmsBackendType::GcpKms,
+            provider_type: KmsProviderType::GcpKms,
             endpoint: "https://cloudkms.googleapis.com".to_string(),
             region: Some("us-central1".to_string()),
             credentials: KmsCredentials::GcpServiceAccount {
@@ -3121,7 +2675,7 @@ mod tests {
 
         #[cfg(any())]
         {
-            let result = GcpKmsBackend::new_async(_config).await;
+            let result = GcpKmsProvider::new_async(_config).await;
             assert!(result.is_err());
             assert!(result.unwrap_err().to_string().contains("JSON"));
         }
@@ -3130,7 +2684,7 @@ mod tests {
     #[tokio::test]
     async fn test_gcp_kms_wrong_credential_type() {
         let _config = KmsConfig {
-            backend_type: KmsBackendType::GcpKms,
+            provider_type: KmsProviderType::GcpKms,
             endpoint: "https://cloudkms.googleapis.com".to_string(),
             region: Some("us-central1".to_string()),
             credentials: KmsCredentials::AwsIam {
@@ -3145,7 +2699,7 @@ mod tests {
 
         #[cfg(any())]
         {
-            let result = GcpKmsBackend::new_async(_config).await;
+            let result = GcpKmsProvider::new_async(_config).await;
             assert!(result.is_err());
             assert!(result
                 .unwrap_err()
@@ -3159,7 +2713,7 @@ mod tests {
     async fn test_gcp_kms_default_location() {
         // When location is not specified, it should default to us-central1
         let config = KmsConfig {
-            backend_type: KmsBackendType::GcpKms,
+            provider_type: KmsProviderType::GcpKms,
             endpoint: "https://cloudkms.googleapis.com".to_string(),
             region: None,
             credentials: KmsCredentials::GcpServiceAccount {
@@ -3178,7 +2732,7 @@ mod tests {
     async fn test_gcp_kms_default_keyring() {
         // When key_namespace is not specified, it should default to "adapteros-keys"
         let config = KmsConfig {
-            backend_type: KmsBackendType::GcpKms,
+            provider_type: KmsProviderType::GcpKms,
             endpoint: "https://cloudkms.googleapis.com".to_string(),
             region: Some("us-central1".to_string()),
             credentials: KmsCredentials::GcpServiceAccount {
@@ -3196,7 +2750,7 @@ mod tests {
     #[tokio::test]
     async fn test_gcp_kms_timeout_settings() {
         let config = KmsConfig {
-            backend_type: KmsBackendType::GcpKms,
+            provider_type: KmsProviderType::GcpKms,
             endpoint: "https://cloudkms.googleapis.com".to_string(),
             region: Some("us-central1".to_string()),
             credentials: KmsCredentials::GcpServiceAccount {

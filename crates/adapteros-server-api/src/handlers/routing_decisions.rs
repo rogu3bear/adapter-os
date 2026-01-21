@@ -5,6 +5,8 @@
 //! - GET /v1/routing/decisions/:id - Get specific routing decision
 //! - POST /v1/telemetry/routing - Ingest router decision events (internal)
 
+use crate::adapter_helpers::fetch_adapter_for_tenant;
+use crate::api_error::{ApiError, ApiResult};
 use crate::auth::Claims;
 use crate::middleware::require_any_role;
 use crate::security::validate_tenant_isolation;
@@ -616,40 +618,14 @@ pub async fn get_adapter_usage(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
-) -> Result<Json<AdapterUsageResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<AdapterUsageResponse> {
     require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
 
     debug!(adapter_id = %adapter_id, "Querying adapter usage statistics");
 
     // PRD-RECT-001: Use tenant-scoped query to prevent cross-tenant enumeration.
     // Returns 404 for both missing and cross-tenant adapters.
-    let _adapter = state
-        .db
-        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
-        .await
-        .map_err(|e| {
-            warn!(error = %e, adapter_id = %adapter_id, "Failed to query adapter");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to query adapter")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            // Returns same error for both "not found" and "cross-tenant" cases
-            (
-                StatusCode::NOT_FOUND,
-                Json(
-                    ErrorResponse::new("Adapter not found")
-                        .with_code("NOT_FOUND")
-                        .with_string_details(format!("Adapter '{}' not found", adapter_id)),
-                ),
-            )
-        })?;
-    // No validate_tenant_isolation() call needed - query is already tenant-scoped
+    let _adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;
 
     // Get usage statistics from routing decisions
     let (call_count, avg_gate, last_used) = state
@@ -658,14 +634,7 @@ pub async fn get_adapter_usage(
         .await
         .map_err(|e| {
             warn!(error = %e, adapter_id = %adapter_id, "Failed to get adapter usage stats");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to get adapter usage statistics")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
+            ApiError::internal("Failed to get adapter usage statistics").with_details(e.to_string())
         })?;
 
     Ok(Json(AdapterUsageResponse {

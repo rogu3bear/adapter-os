@@ -68,7 +68,13 @@ pub async fn initialize_security(
     let keypair_start = std::time::Instant::now();
     let worker_keypair = {
         let keys_dir = std::path::Path::new("var/keys");
-        std::fs::create_dir_all(keys_dir).ok();
+        std::fs::create_dir_all(keys_dir).map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to create worker keys directory at {}: {} (check permissions or disk space)",
+                keys_dir.display(),
+                e
+            )
+        })?;
 
         let key_path = keys_dir.join("worker_signing.key");
         match load_or_generate_worker_keypair(&key_path) {

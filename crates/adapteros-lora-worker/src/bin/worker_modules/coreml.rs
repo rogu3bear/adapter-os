@@ -430,9 +430,7 @@ pub fn run_coreml_boot_smoke(
 
     info!(
         coreml_lane = label,
-        vocab_size,
-        input_len,
-        "CoreML boot smoke inference completed"
+        vocab_size, input_len, "CoreML boot smoke inference completed"
     );
 
     Ok(())

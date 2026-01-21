@@ -2,8 +2,10 @@
 //!
 //! Headless-style components with Tailwind CSS styling.
 
+pub mod adapter_bar;
 pub mod async_state;
 pub mod auth;
+pub mod boot_sequence;
 pub mod button;
 pub mod card;
 pub mod charts;
@@ -11,7 +13,9 @@ pub mod chat_dock;
 pub mod command_palette;
 pub mod confirmation_dialog;
 pub mod danger_zone;
+pub mod data_table;
 pub mod dialog;
+pub mod form_dialog;
 pub mod form_field;
 pub mod glass_toggle;
 pub mod global_search;
@@ -37,18 +41,22 @@ pub mod version_skew_banner;
 pub mod virtual_list;
 pub mod workspace;
 
+pub use adapter_bar::{AdapterBar, AdapterHeat, AdapterMagnet};
 pub use async_state::{
-    Breadcrumb, DetailRow, EmptyState, EmptyStateVariant, ErrorDisplay, LoadingDisplay, PageHeader,
-    RefreshButton,
+    AsyncBoundary, AsyncBoundaryWithEmpty, Breadcrumb, DetailRow, EmptyState, EmptyStateVariant,
+    ErrorDisplay, LoadingDisplay, PageHeader, RefreshButton,
 };
 pub use auth::{AuthProvider, ProtectedRoute};
+pub use boot_sequence::BootSequence;
 pub use button::{Button, ButtonSize, ButtonVariant};
 pub use card::Card;
 pub use chat_dock::{ChatDock, ChatDockPanel, MobileChatOverlay, NarrowChatDock};
 pub use command_palette::CommandPalette;
 pub use confirmation_dialog::{ConfirmationDialog, ConfirmationSeverity, SimpleConfirmDialog};
 pub use danger_zone::{DangerZone, DangerZoneItem, InfoBanner, WarningBanner};
+pub use data_table::{Column, DataTable};
 pub use dialog::Dialog;
+pub use form_dialog::{FormDialog, StepFormDialog};
 pub use form_field::{FormField, HelpTooltip, LabelWithHelp};
 pub use glass_toggle::GlassThemeToggle;
 pub use global_search::{GlobalSearchBox, SearchTriggerButton};

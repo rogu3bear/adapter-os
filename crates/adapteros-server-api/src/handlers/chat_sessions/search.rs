@@ -4,15 +4,14 @@
 //!
 //! 【2025-01-25†prd-ux-01†chat_sessions_search】
 
+use crate::api_error::{ApiError, ApiResult};
 use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
-use crate::types::ErrorResponse;
 use adapteros_db::ChatSearchResult;
 use axum::{
     extract::{Query, State},
-    http::StatusCode,
     Extension, Json,
 };
 
@@ -25,24 +24,16 @@ pub async fn search_chat_sessions(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Query(query): Query<SearchSessionsQuery>,
-) -> Result<Json<Vec<ChatSearchResult>>, (StatusCode, Json<ErrorResponse>)> {
-    require_permission(&claims, Permission::InferenceExecute).map_err(|_| {
-        (
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Permission denied").with_code("FORBIDDEN")),
-        )
-    })?;
+) -> ApiResult<Vec<ChatSearchResult>> {
+    require_permission(&claims, Permission::InferenceExecute)
+        .map_err(|_| ApiError::forbidden("Permission denied"))?;
 
     // Tenant isolation check
     validate_tenant_isolation(&claims, &claims.tenant_id)?;
 
     if query.q.len() < 2 {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new("Search query must be at least 2 characters")
-                    .with_code("VALIDATION_ERROR"),
-            ),
+        return Err(ApiError::bad_request(
+            "Search query must be at least 2 characters",
         ));
     }
 
@@ -62,16 +53,7 @@ pub async fn search_chat_sessions(
             query.limit,
         )
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Search failed")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+        .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?;
 
     Ok(Json(results))
 }

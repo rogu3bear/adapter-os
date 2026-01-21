@@ -24,6 +24,19 @@ typedef struct {
 
 AneCheckResult coreml_check_ane(void);
 
+// ANE memory information
+typedef struct {
+    bool available;
+    uint64_t allocated_bytes;
+    uint64_t used_bytes;
+    uint64_t cached_bytes;
+    uint64_t peak_bytes;
+    bool throttled;
+} AneMemoryInfo;
+
+AneMemoryInfo coreml_query_ane_memory(void);
+bool coreml_reset_ane_peak(void);
+
 // Load a CoreML model
 // compute_units: 0=CPU, 1=CPU+GPU, 2=CPU+ANE, 3=All
 void* coreml_load_model(const char* path, size_t path_len, int32_t compute_units);

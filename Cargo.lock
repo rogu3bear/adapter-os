@@ -72,8 +72,9 @@ dependencies = [
  "sqlx",
  "sysinfo 0.31.4",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tokio",
+ "toml 0.8.23",
  "tower 0.5.2",
  "tracing",
  "tracing-subscriber",
@@ -97,7 +98,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tokio",
  "tokio-test",
  "tokio-util",
@@ -153,7 +154,7 @@ dependencies = [
  "hyper-util",
  "serde",
  "serde_json",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tokio",
  "tokio-stream",
  "tower 0.5.2",
@@ -194,7 +195,7 @@ dependencies = [
  "serde_json",
  "tar",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tokio",
  "tracing",
  "uuid",
@@ -216,7 +217,7 @@ dependencies = [
  "parking_lot",
  "serde",
  "serde_json",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tokio",
  "tracing",
  "uuid",
@@ -231,6 +232,7 @@ dependencies = [
  "adapteros-lora-kernel-api",
  "adapteros-lora-kernel-mtl",
  "adapteros-lora-router",
+ "adapteros-manifest",
  "adapteros-memory",
  "adapteros-policy",
  "adapteros-system-metrics",
@@ -238,8 +240,10 @@ dependencies = [
  "anyhow",
  "bytemuck",
  "chrono",
+ "clap",
  "criterion",
  "futures-util",
+ "memmap2",
  "metal 0.28.0",
  "objc",
  "rand 0.8.5",
@@ -248,7 +252,8 @@ dependencies = [
  "serde_json",
  "smallvec",
  "sysinfo 0.30.13",
- "thiserror 1.0.69",
+ "tempfile",
+ "thiserror 2.0.17",
  "tokio",
  "uuid",
 ]
@@ -269,7 +274,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tokio",
  "tracing",
  "uuid",
@@ -283,7 +288,7 @@ dependencies = [
  "anyhow",
  "serde",
  "serde_json",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
 ]
 
 [[package]]
@@ -338,11 +343,13 @@ dependencies = [
  "clap_complete",
  "clap_mangen",
  "comfy-table",
+ "crossterm 0.28.1",
  "dialoguer",
  "dirs",
  "dotenvy",
  "ed25519-dalek",
  "fs_extra",
+ "git2",
  "glob",
  "half",
  "hex",
@@ -351,7 +358,9 @@ dependencies = [
  "nix 0.29.0",
  "once_cell",
  "owo-colors",
+ "parking_lot",
  "rand 0.8.5",
+ "ratatui",
  "reqwest",
  "rusqlite",
  "safetensors",
@@ -391,7 +400,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tokio",
  "tokio-stream",
  "wasm-bindgen",
@@ -415,7 +424,7 @@ dependencies = [
  "sqlx",
  "streaming-iterator",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tokio",
  "tokio-test",
  "toml 0.8.23",
@@ -488,12 +497,13 @@ dependencies = [
  "sha2",
  "sqlx",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tokenizers",
  "tokio",
  "tracing",
  "unicode-normalization",
  "utoipa",
+ "walkdir",
  "zip 1.1.4",
 ]
 
@@ -535,7 +545,7 @@ dependencies = [
  "sha2",
  "subtle",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tokio",
  "tracing",
  "x509-parser",
@@ -583,7 +593,7 @@ dependencies = [
  "sqlx",
  "sysinfo 0.31.4",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tokio",
  "toml 0.8.23",
  "tracing",
@@ -618,7 +628,7 @@ dependencies = [
  "sha2",
  "sqlx",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tokio",
  "tokio-test",
  "tracing",
@@ -637,7 +647,7 @@ dependencies = [
  "serde",
  "serde_jcs",
  "serde_json",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tokio",
  "tracing",
  "uuid",
@@ -661,7 +671,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tokio",
  "tokio-test",
  "toml 0.8.23",
@@ -730,7 +740,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tokio",
  "tracing",
  "uuid",
@@ -765,7 +775,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tokio",
  "tokio-stream",
  "tokio-test",
@@ -807,7 +817,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tokenizers",
  "tokio",
  "tracing",
@@ -836,7 +846,7 @@ dependencies = [
  "adapteros-core",
  "serde",
  "serde_json",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tracing",
 ]
 
@@ -867,7 +877,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tokio",
  "tracing",
 ]
@@ -905,8 +915,19 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tracing",
+]
+
+[[package]]
+name = "adapteros-lora-kernel-prof"
+version = "0.13.1"
+dependencies = [
+ "adapteros-core",
+ "mach2",
+ "metal 0.30.0",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -957,10 +978,11 @@ dependencies = [
  "adapteros-core",
  "adapteros-deterministic-exec",
  "adapteros-lora-kernel-api",
+ "adapteros-lora-router",
  "adapteros-secure-fs",
  "anyhow",
  "arc-swap",
- "bindgen 0.69.5",
+ "bindgen",
  "blake3",
  "cc",
  "core-foundation 0.9.4",
@@ -974,7 +996,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tokenizers",
  "tokio",
  "tracing",
@@ -997,7 +1019,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tracing",
 ]
 
@@ -1010,7 +1032,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
 ]
 
 [[package]]
@@ -1027,7 +1049,7 @@ dependencies = [
  "sqlx",
  "tantivy",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tokio",
  "tracing",
  "walkdir",
@@ -1136,7 +1158,7 @@ dependencies = [
  "sysinfo 0.30.13",
  "tar",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tokenizers",
  "tokio",
  "tokio-util",
@@ -1159,7 +1181,7 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
 ]
 
 [[package]]
@@ -1189,7 +1211,7 @@ dependencies = [
  "proptest",
  "serde",
  "serde_json",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tokio",
  "tracing",
  "uuid",
@@ -1211,18 +1233,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "adapteros-mlx"
-version = "0.13.1"
-dependencies = [
- "adapteros-core",
- "adapteros-lora-kernel-coreml",
- "mlx-rs",
- "thiserror 1.0.69",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "adapteros-model-hub"
 version = "0.13.1"
 dependencies = [
@@ -1238,7 +1248,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tokio",
  "tokio-test",
  "tokio-util",
@@ -1270,7 +1280,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tokio",
  "tokio-rustls 0.26.4",
  "tower 0.5.2",
@@ -1294,7 +1304,7 @@ version = "0.13.1"
 dependencies = [
  "criterion",
  "serde",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tracing",
 ]
 
@@ -1342,7 +1352,7 @@ dependencies = [
  "serde_yaml",
  "sqlx",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tokenizers",
  "tokio",
  "tracing",
@@ -1400,7 +1410,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tokio",
  "tracing",
  "uuid",
@@ -1430,7 +1440,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tracing",
  "zeroize",
 ]
@@ -1453,7 +1463,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tokio",
  "tracing",
  "uuid",
@@ -1466,7 +1476,7 @@ dependencies = [
  "adapteros-core",
  "serde",
  "serde_json",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
 ]
 
 [[package]]
@@ -1503,7 +1513,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -1571,7 +1581,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tokio",
  "toml 0.8.23",
  "tower 0.5.2",
@@ -1604,6 +1614,7 @@ dependencies = [
  "adapteros-git",
  "adapteros-ingest-docs",
  "adapteros-lora-kernel-api",
+ "adapteros-lora-kernel-coreml",
  "adapteros-lora-lifecycle",
  "adapteros-lora-mlx-ffi",
  "adapteros-lora-rag",
@@ -1674,7 +1685,7 @@ dependencies = [
  "sysinfo 0.31.4",
  "tar",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tokenizers",
  "tokio",
  "tokio-stream",
@@ -1726,7 +1737,7 @@ dependencies = [
  "signal-hook",
  "sysinfo 0.30.13",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tokio",
  "tokio-test",
  "tokio-util",
@@ -1779,7 +1790,7 @@ dependencies = [
  "serde_json",
  "tantivy",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tokio",
  "tracing",
 ]
@@ -1809,7 +1820,7 @@ dependencies = [
  "sqlx",
  "sysinfo 0.31.4",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tokio",
  "tracing",
  "utoipa",
@@ -1840,7 +1851,7 @@ dependencies = [
  "serde_jcs",
  "serde_json",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tokio",
  "tower 0.5.2",
  "tower-http",
@@ -1909,7 +1920,7 @@ dependencies = [
  "serde_jcs",
  "serde_json",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tokio",
  "tracing",
  "uuid",
@@ -1927,6 +1938,7 @@ dependencies = [
  "dirs",
  "futures-util",
  "once_cell",
+ "rand 0.8.5",
  "ratatui",
  "reqwest",
  "reqwest-eventsource",
@@ -1954,7 +1966,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "utoipa",
  "uuid",
 ]
@@ -1980,9 +1992,10 @@ dependencies = [
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tracing",
  "tracing-wasm",
+ "urlencoding",
  "uuid",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -2012,7 +2025,7 @@ dependencies = [
  "serde_json",
  "sysinfo 0.31.4",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tokio",
  "tracing",
  "uuid",
@@ -2041,7 +2054,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "sqlx",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tokio",
  "tracing",
  "url",
@@ -3150,26 +3163,6 @@ dependencies = [
  "shlex",
  "syn 2.0.111",
  "which 4.4.2",
-]
-
-[[package]]
-name = "bindgen"
-version = "0.70.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f49d8fed880d473ea71efb9bf597651e77201bdd4893efe54c9e5d65ae04ce6f"
-dependencies = [
- "bitflags 2.10.0",
- "cexpr",
- "clang-sys",
- "itertools 0.13.0",
- "log",
- "prettyplease",
- "proc-macro2",
- "quote",
- "regex",
- "rustc-hash 1.1.0",
- "shlex",
- "syn 2.0.111",
 ]
 
 [[package]]
@@ -7153,15 +7146,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mach-sys"
-version = "0.5.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "48460c2e82a3a0de197152fdf8d2c2d5e43adc501501553e439bf2156e6f87c7"
-dependencies = [
- "fastrand",
-]
-
-[[package]]
 name = "mach2"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7482,66 +7466,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mlx-internal-macros"
-version = "0.25.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a7c4444d624bf6b93db5cc22ebff4fdfa13593fd56154fe33b1f302a557c2c6"
-dependencies = [
- "darling 0.21.3",
- "itertools 0.14.0",
- "proc-macro2",
- "quote",
- "syn 2.0.111",
-]
-
-[[package]]
-name = "mlx-macros"
-version = "0.25.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a819ee8b4434690572b6feb9c3ef0b6e90137e4190b340cf00150703b410aaf9"
-dependencies = [
- "darling 0.21.3",
- "proc-macro2",
- "quote",
- "syn 2.0.111",
-]
-
-[[package]]
-name = "mlx-rs"
-version = "0.25.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3a0f592c5839b0237b3072530b1d3c503923579a2009ee0761df3edd1b1f27b"
-dependencies = [
- "dyn-clone",
- "half",
- "itertools 0.14.0",
- "libc",
- "mach-sys",
- "mlx-internal-macros",
- "mlx-macros",
- "mlx-sys",
- "num-complex",
- "num-traits",
- "num_enum",
- "parking_lot",
- "paste",
- "smallvec",
- "strum 0.27.2",
- "thiserror 2.0.17",
-]
-
-[[package]]
-name = "mlx-sys"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e3bc3880111918b2d5018f845d48fd995f9901f16efc81d1fcfd2f4210b8219"
-dependencies = [
- "bindgen 0.70.1",
- "cc",
- "cmake",
-]
-
-[[package]]
 name = "mmap-rs"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7824,15 +7748,6 @@ dependencies = [
  "rand 0.8.5",
  "smallvec",
  "zeroize",
-]
-
-[[package]]
-name = "num-complex"
-version = "0.4.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "73f88a1307638156682bada9d7604135552957b7818057dcef22705b4d509495"
-dependencies = [
- "num-traits",
 ]
 
 [[package]]

@@ -10,7 +10,7 @@
 //! - Determinism Ruleset (#2): Score DESC, doc_id ASC tie-breaking
 //! - Performance Ruleset (#11): In-memory similarity calculation
 
-use adapteros_core::{AosError, B3Hash, Result};
+use adapteros_core::{cosine_similarity, AosError, B3Hash, Result};
 use serde::{Deserialize, Serialize};
 use sqlx::sqlite::SqlitePool;
 
@@ -259,48 +259,11 @@ fn compute_span_hash(doc_id: &str, text: &str, rev: &str) -> B3Hash {
     B3Hash::hash(combined.as_bytes())
 }
 
-/// Compute cosine similarity between two embeddings
-/// Returns a value between -1.0 and 1.0, where 1.0 means identical vectors
-fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
-    if a.len() != b.len() {
-        return 0.0;
-    }
-
-    let dot_product: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
-    let magnitude_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
-    let magnitude_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
-
-    if magnitude_a == 0.0 || magnitude_b == 0.0 {
-        return 0.0;
-    }
-
-    dot_product / (magnitude_a * magnitude_b)
-}
+// cosine_similarity is imported from adapteros_core::vector_math
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_cosine_similarity() {
-        // Identical vectors
-        let a = vec![1.0, 0.0, 0.0];
-        let b = vec![1.0, 0.0, 0.0];
-        assert!((cosine_similarity(&a, &b) - 1.0).abs() < 1e-6);
-
-        // Orthogonal vectors
-        let c = vec![1.0, 0.0];
-        let d = vec![0.0, 1.0];
-        assert!((cosine_similarity(&c, &d) - 0.0).abs() < 1e-6);
-
-        // Opposite vectors
-        let e = vec![1.0, 0.0];
-        let f = vec![-1.0, 0.0];
-        assert!((cosine_similarity(&e, &f) + 1.0).abs() < 1e-6);
-
-        // Different lengths
-        let g = vec![1.0, 2.0];
-        let h = vec![1.0];
-        assert_eq!(cosine_similarity(&g, &h), 0.0);
-    }
+    // cosine_similarity tests moved to adapteros_core::vector_math
 }

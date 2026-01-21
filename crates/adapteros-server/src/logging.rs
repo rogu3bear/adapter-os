@@ -73,46 +73,12 @@ mod tests {
     }
 }
 
-/// PRD-4.0: Patterns that indicate sensitive data requiring redaction.
-/// These patterns are matched case-insensitively.
-const REDACT_PATTERNS: &[&str] = &[
-    "bearer ",
-    "api_key=",
-    "api-key=",
-    "password=",
-    "secret=",
-    "authorization:",
-    "token=",
-    "access_token=",
-    "refresh_token=",
-    "jwt=",
-    "apikey=",
-];
-
 /// PRD-4.0: Redact sensitive data from log values.
 ///
-/// Scans the input for patterns indicating sensitive data (auth tokens, passwords, etc.)
-/// and replaces the sensitive portion with `[REDACTED]`.
+/// Delegates to `adapteros_core::redaction::redact_sensitive` for consistent
+/// redaction across the entire system.
 fn redact_sensitive(value: &str) -> String {
-    let mut result = value.to_string();
-    let lower = result.to_lowercase();
-
-    for pattern in REDACT_PATTERNS {
-        let pattern_lower = pattern.to_lowercase();
-        if let Some(idx) = lower.find(&pattern_lower) {
-            let start = idx + pattern.len();
-            // Find end of sensitive value (whitespace, quote, comma, or end of string)
-            let end = result[start..]
-                .find(|c: char| c.is_whitespace() || c == '"' || c == '\'' || c == ',' || c == '}')
-                .map(|i| start + i)
-                .unwrap_or(result.len());
-            if end > start {
-                result.replace_range(start..end, "[REDACTED]");
-            }
-        }
-    }
-
-    result
+    adapteros_core::redaction::redact_sensitive(value).into_owned()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -208,7 +174,10 @@ where
         payload.insert("phase".to_string(), serde_json::Value::String(phase));
 
         // Standard keys with deterministic presence (empty string if absent)
-        payload.insert("run_id".to_string(), serde_json::Value::String(self.run_id.clone()));
+        payload.insert(
+            "run_id".to_string(),
+            serde_json::Value::String(self.run_id.clone()),
+        );
         for key in ["trace_id", "span_id", "request_id", "tenant", "error_code"] {
             payload.insert(key.to_string(), serde_json::Value::String(String::new()));
         }

@@ -17,6 +17,9 @@ aws-kms = [
     "aws-smithy-types",
     "aws-types",
 ]
+gcp-kms = []
+
+
 
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }

@@ -568,8 +568,9 @@ mod tests {
 
     #[test]
     fn test_extract_sufficient_input_returns_some() {
-        let features = CodeFeatures::extract("Fix this python bug in src/main.py with def function()")
-            .expect("should extract from sufficient input");
+        let features =
+            CodeFeatures::extract("Fix this python bug in src/main.py with def function()")
+                .expect("should extract from sufficient input");
 
         assert!(features.lang_one_hot[0] > 0.0); // Python detected
         assert_eq!(features.prompt_verb, PromptVerb::Fix);
@@ -581,7 +582,8 @@ mod tests {
 
     #[test]
     fn test_extraction_determinism() {
-        let context = "Fix the python FastAPI bug in src/api/handlers.py with async def endpoint():";
+        let context =
+            "Fix the python FastAPI bug in src/api/handlers.py with async def endpoint():";
 
         let v1 = CodeFeatures::from_context(context).to_vector();
         let v2 = CodeFeatures::from_context(context).to_vector();

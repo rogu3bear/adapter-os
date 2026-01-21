@@ -513,11 +513,7 @@ fn bench_adapter_lineage(c: &mut Criterion) {
             .tenant_id(&bench_db.tenant_id)
             .build()
             .unwrap();
-        let parent_id = bench_db
-            .db
-            .register_adapter(parent_params)
-            .await
-            .unwrap();
+        let parent_id = bench_db.db.register_adapter(parent_params).await.unwrap();
 
         // Create children
         for i in 1..=2 {
@@ -575,11 +571,7 @@ fn bench_adapter_lineage(c: &mut Criterion) {
             .tenant_id(&bench_db.tenant_id)
             .build()
             .unwrap();
-        let parent_id = bench_db
-            .db
-            .register_adapter(parent_params)
-            .await
-            .unwrap();
+        let parent_id = bench_db.db.register_adapter(parent_params).await.unwrap();
 
         for i in 1..=2 {
             let child_params = AdapterRegistrationBuilder::new()

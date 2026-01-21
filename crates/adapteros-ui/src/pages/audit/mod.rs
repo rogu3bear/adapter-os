@@ -135,9 +135,9 @@ pub fn Audit() -> impl IntoView {
     });
 
     let refetch_all = move || {
-        refetch_logs();
-        refetch_chain();
-        refetch_verification();
+        refetch_logs.run(());
+        refetch_chain.run(());
+        refetch_verification.run(());
     };
 
     view! {

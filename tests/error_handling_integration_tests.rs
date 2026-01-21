@@ -33,7 +33,7 @@ mod error_propagation {
         let db_err = AosError::Database("connection failed".to_string());
         let api_response = ErrorResponse::new(&db_err.to_string()).with_code("DATABASE_ERROR");
         assert_eq!(api_response.code, "DATABASE_ERROR");
-        assert!(api_response.error.contains("connection failed"));
+        assert!(api_response.message.contains("connection failed"));
     }
 
     /// Test that storage errors maintain context through conversion
@@ -279,7 +279,7 @@ mod error_serialization {
         let json = serde_json::to_string(&original).expect("Failed to serialize");
         let parsed: ErrorResponse = serde_json::from_str(&json).expect("Failed to deserialize");
 
-        assert_eq!(parsed.error, original.error);
+        assert_eq!(parsed.message, original.message);
         assert_eq!(parsed.code, original.code);
         assert_eq!(parsed.details, original.details);
     }
@@ -649,7 +649,7 @@ mod cross_crate_compatibility {
         let response = ErrorResponse::new(&original.to_string()).with_code("DATABASE_ERROR");
 
         // The error message should be preserved
-        assert!(response.error.contains("test database error"));
+        assert!(response.message.contains("test database error"));
         assert_eq!(response.code, "DATABASE_ERROR");
     }
 
@@ -663,8 +663,8 @@ mod cross_crate_compatibility {
 
         let response = ErrorResponse::new(&storage_err.to_string()).with_code("QUERY_TIMEOUT");
 
-        assert!(response.error.contains("30000ms"));
-        assert!(response.error.contains("large_table"));
+        assert!(response.message.contains("30000ms"));
+        assert!(response.message.contains("large_table"));
     }
 
     /// Test DbErrorClass consistency with FailureCode semantics

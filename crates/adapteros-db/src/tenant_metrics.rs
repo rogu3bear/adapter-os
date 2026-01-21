@@ -132,14 +132,15 @@ impl TenantStorageMetrics {
     /// Calculate storage from database tables
     async fn calculate_db_storage(db: &Db, tenant_id: &str) -> Result<u64> {
         // Sum file_size from documents table
-        let doc_size: i64 = sqlx::query(
-            "SELECT COALESCE(SUM(file_size), 0) FROM documents WHERE tenant_id = ?",
-        )
-        .bind(tenant_id)
-        .fetch_one(db.pool())
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to calculate document storage: {}", e)))?
-        .get(0);
+        let doc_size: i64 =
+            sqlx::query("SELECT COALESCE(SUM(file_size), 0) FROM documents WHERE tenant_id = ?")
+                .bind(tenant_id)
+                .fetch_one(db.pool())
+                .await
+                .map_err(|e| {
+                    AosError::Database(format!("Failed to calculate document storage: {}", e))
+                })?
+                .get(0);
 
         // Sum text length from rag_documents (approximate storage)
         let rag_size: i64 = sqlx::query(

@@ -388,6 +388,7 @@ impl DefaultTrainingDatasetService {
             created_by: claims.sub.clone(),
             created_at: now.clone(),
             updated_at: now,
+            dataset_type: Some("standard".to_string()), // Defaulting to standard
         })
     }
 

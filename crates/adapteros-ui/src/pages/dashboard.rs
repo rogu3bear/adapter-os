@@ -195,8 +195,8 @@ pub fn Dashboard() -> impl IntoView {
 
     // Refetch all data (SSE reconnection handled separately due to non-Send types)
     let refetch_all = move || {
-        refetch_signal.with_value(|f| f());
-        refetch_workers_signal.with_value(|f| f());
+        refetch_signal.with_value(|f| f.run(()));
+        refetch_workers_signal.with_value(|f| f.run(()));
     };
 
     view! {

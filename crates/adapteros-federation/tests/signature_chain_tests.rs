@@ -41,7 +41,10 @@ async fn setup_test_db() -> Result<Db> {
 }
 
 // Helper to create test bundle metadata
-fn create_test_metadata(merkle_root: &str, prev_bundle_hash: Option<String>) -> StoredBundleMetadata {
+fn create_test_metadata(
+    merkle_root: &str,
+    prev_bundle_hash: Option<String>,
+) -> StoredBundleMetadata {
     StoredBundleMetadata {
         bundle_hash: B3Hash::hash(b"test_bundle"),
         cpid: Some("cpid-001".to_string()),
@@ -149,13 +152,7 @@ mod chain_validation_missing_hosts {
         let now = Utc::now();
 
         // Chain where host2 is missing but links are correct
-        let sig1 = create_signature_with_time(
-            "host1",
-            "hash1",
-            "sig1",
-            None,
-            now,
-        );
+        let sig1 = create_signature_with_time("host1", "hash1", "sig1", None, now);
 
         // Host 3 links directly to host 1 (host 2 is missing from chain)
         let sig3 = create_signature_with_time(
@@ -188,13 +185,7 @@ mod chain_validation_missing_hosts {
 
         let now = Utc::now();
 
-        let sig1 = create_signature_with_time(
-            "host1",
-            "hash1",
-            "sig1",
-            None,
-            now,
-        );
+        let sig1 = create_signature_with_time("host1", "hash1", "sig1", None, now);
 
         // Signature 2 has no prev_hash at all (should log warning but not fail)
         let sig2 = create_signature_with_time(
@@ -277,21 +268,11 @@ mod clock_skew_handling {
         let now = Utc::now();
 
         // Signatures with proper timestamp ordering
-        let sig1 = create_signature_with_time(
-            "host1",
-            "hash1",
-            "sig1",
-            None,
-            now - Duration::hours(1),
-        );
+        let sig1 =
+            create_signature_with_time("host1", "hash1", "sig1", None, now - Duration::hours(1));
 
-        let sig2 = create_signature_with_time(
-            "host2",
-            "hash2",
-            "sig2",
-            Some("hash1".to_string()),
-            now,
-        );
+        let sig2 =
+            create_signature_with_time("host2", "hash2", "sig2", Some("hash1".to_string()), now);
 
         let chain = vec![sig1, sig2];
         let result = manager.verify_cross_host_chain(&chain).await;
@@ -316,13 +297,7 @@ mod clock_skew_handling {
         let now = Utc::now();
 
         // Two signatures with exactly the same timestamp (edge case)
-        let sig1 = create_signature_with_time(
-            "host1",
-            "hash1",
-            "sig1",
-            None,
-            now,
-        );
+        let sig1 = create_signature_with_time("host1", "hash1", "sig1", None, now);
 
         let sig2 = create_signature_with_time(
             "host2",
@@ -355,13 +330,7 @@ mod clock_skew_handling {
         let now = Utc::now();
 
         // Signatures with millisecond differences
-        let sig1 = create_signature_with_time(
-            "host1",
-            "hash1",
-            "sig1",
-            None,
-            now,
-        );
+        let sig1 = create_signature_with_time("host1", "hash1", "sig1", None, now);
 
         let sig2 = create_signature_with_time(
             "host2",
@@ -399,13 +368,7 @@ mod chain_continuity {
 
         let now = Utc::now();
 
-        let sig1 = create_signature_with_time(
-            "host1",
-            "hash1",
-            "sig1",
-            None,
-            now,
-        );
+        let sig1 = create_signature_with_time("host1", "hash1", "sig1", None, now);
 
         let sig2 = create_signature_with_time(
             "host2",
@@ -443,13 +406,7 @@ mod chain_continuity {
 
         let now = Utc::now();
 
-        let sig1 = create_signature_with_time(
-            "host1",
-            "hash1",
-            "sig1",
-            None,
-            now,
-        );
+        let sig1 = create_signature_with_time("host1", "hash1", "sig1", None, now);
 
         // sig2 has wrong prev_hash - chain break!
         let sig2 = create_signature_with_time(
@@ -518,25 +475,29 @@ mod chain_continuity {
 
         let now = Utc::now();
 
-        let sig1 = create_signature_with_time(
-            "host1", "hash1", "sig1", None, now,
-        );
+        let sig1 = create_signature_with_time("host1", "hash1", "sig1", None, now);
 
         let sig2 = create_signature_with_time(
-            "host2", "hash2", "sig2",
+            "host2",
+            "hash2",
+            "sig2",
             Some("hash1".to_string()),
             now + Duration::seconds(1),
         );
 
         // Chain break at position 3
         let sig3 = create_signature_with_time(
-            "host3", "hash3", "sig3",
+            "host3",
+            "hash3",
+            "sig3",
             Some("bad_link".to_string()), // Should be "hash2"
             now + Duration::seconds(2),
         );
 
         let sig4 = create_signature_with_time(
-            "host4", "hash4", "sig4",
+            "host4",
+            "hash4",
+            "sig4",
             Some("hash3".to_string()),
             now + Duration::seconds(3),
         );
@@ -675,7 +636,10 @@ mod invalid_signature_detection {
         // Should error due to invalid hex
         let result = manager.verify_signature(&fed_sig, &keypair.public_key(), &metadata);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Invalid signature hex"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid signature hex"));
 
         Ok(())
     }
@@ -704,7 +668,10 @@ mod invalid_signature_detection {
         // Should error due to wrong length
         let result = manager.verify_signature(&fed_sig, &keypair.public_key(), &metadata);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Invalid signature length"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid signature length"));
 
         Ok(())
     }
@@ -738,7 +705,8 @@ mod invalid_signature_detection {
         let tampered_metadata = create_test_metadata("different_merkle_root", None);
 
         // Verification should fail with tampered metadata
-        let result = manager.verify_signature(&fed_sig, &keypair.public_key(), &tampered_metadata)?;
+        let result =
+            manager.verify_signature(&fed_sig, &keypair.public_key(), &tampered_metadata)?;
         assert!(!result);
 
         Ok(())
@@ -781,7 +749,9 @@ mod quorum_tests {
         manager.init_quorum(&bundle_hash, 3).await?;
 
         // Only one signature (need 3)
-        let reached = manager.record_signature(&bundle_hash, "host1", &sig).await?;
+        let reached = manager
+            .record_signature(&bundle_hash, "host1", &sig)
+            .await?;
         assert!(!reached);
 
         let is_reached = manager.is_quorum_reached(&bundle_hash).await?;
@@ -803,13 +773,17 @@ mod quorum_tests {
         // First signature
         let keypair1 = Keypair::generate();
         let sig1 = keypair1.sign(message);
-        let reached1 = manager.record_signature(&bundle_hash, "host1", &sig1).await?;
+        let reached1 = manager
+            .record_signature(&bundle_hash, "host1", &sig1)
+            .await?;
         assert!(!reached1);
 
         // Second signature - should reach quorum
         let keypair2 = Keypair::generate();
         let sig2 = keypair2.sign(message);
-        let reached2 = manager.record_signature(&bundle_hash, "host2", &sig2).await?;
+        let reached2 = manager
+            .record_signature(&bundle_hash, "host2", &sig2)
+            .await?;
         assert!(reached2);
 
         Ok(())
@@ -827,11 +801,15 @@ mod quorum_tests {
 
         let keypair1 = Keypair::generate();
         let sig1 = keypair1.sign(message);
-        manager.record_signature(&bundle_hash, "host1", &sig1).await?;
+        manager
+            .record_signature(&bundle_hash, "host1", &sig1)
+            .await?;
 
         let keypair2 = Keypair::generate();
         let sig2 = keypair2.sign(message);
-        manager.record_signature(&bundle_hash, "host2", &sig2).await?;
+        manager
+            .record_signature(&bundle_hash, "host2", &sig2)
+            .await?;
 
         let exchange = manager.build_exchange(&bundle_hash).await?;
         assert_eq!(exchange.signature_count(), 2);
@@ -948,7 +926,10 @@ mod quorum_tests {
         let result = manager.get_quorum_status(&bundle_hash).await;
 
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("No quorum tracking found"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("No quorum tracking found"));
 
         Ok(())
     }
@@ -980,7 +961,9 @@ mod bundle_signing {
         assert_eq!(sig.bundle_hash, metadata.merkle_root.to_string());
 
         // Verify signature was stored
-        let signatures = manager.get_signatures_for_bundle(&metadata.merkle_root.to_string()).await?;
+        let signatures = manager
+            .get_signatures_for_bundle(&metadata.merkle_root.to_string())
+            .await?;
         assert_eq!(signatures.len(), 1);
 
         Ok(())
@@ -1048,17 +1031,23 @@ mod bundle_signing {
         let _sig = manager.sign_bundle(&metadata).await?;
 
         // Initially not verified
-        let signatures = manager.get_signatures_for_bundle(&metadata.merkle_root.to_string()).await?;
+        let signatures = manager
+            .get_signatures_for_bundle(&metadata.merkle_root.to_string())
+            .await?;
         assert!(!signatures[0].verified);
 
         // Mark as verified (need to get the ID from stored signature)
-        let stored = manager.get_signatures_for_bundle(&metadata.merkle_root.to_string()).await?;
+        let stored = manager
+            .get_signatures_for_bundle(&metadata.merkle_root.to_string())
+            .await?;
         if let Some(id) = &stored[0].id {
             manager.mark_verified(id).await?;
         }
 
         // Check verified flag
-        let signatures = manager.get_signatures_for_bundle(&metadata.merkle_root.to_string()).await?;
+        let signatures = manager
+            .get_signatures_for_bundle(&metadata.merkle_root.to_string())
+            .await?;
         assert!(signatures[0].verified);
 
         Ok(())

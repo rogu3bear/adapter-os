@@ -42,12 +42,9 @@ pub fn FlightRecorder() -> impl IntoView {
         }
     });
 
-    // Store refetch in a signal for sharing
-    let refetch_signal = StoredValue::new(refetch_runs);
-
     // Polling for live updates (every 10 seconds)
     let _ = use_polling(10_000, move || async move {
-        refetch_signal.with_value(|f| f());
+        refetch_runs.run(());
     });
 
     let on_run_select = move |run_id: String| {

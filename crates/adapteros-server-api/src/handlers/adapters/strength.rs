@@ -3,14 +3,14 @@
 // This module provides REST API endpoints for:
 // - Updating runtime LoRA strength multiplier for adapters
 
+use crate::adapter_helpers::fetch_adapter_for_tenant;
+use crate::api_error::{ApiError, ApiResult};
 use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
-use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::*;
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
     response::Json,
     Extension,
 };
@@ -56,52 +56,20 @@ pub async fn update_adapter_strength(
     Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
     Json(req): Json<UpdateAdapterStrengthRequest>,
-) -> Result<Json<AdapterDetailResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<AdapterDetailResponse> {
     require_permission(&claims, Permission::AdapterRegister)?;
 
     if !(0.0..=2.0).contains(&req.lora_strength) {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new("Invalid LoRA strength value")
-                    .with_code("LORA_STRENGTH_OUT_OF_RANGE")
-                    .with_string_details(format!(
-                        "LoRA strength must be between 0.0 and 2.0 (provided: {}). Use 1.0 for standard strength, lower values to reduce adapter influence, higher values to amplify it.",
-                        req.lora_strength
-                    ))
-            ),
-        ));
+        return Err(ApiError::bad_request("Invalid LoRA strength value").with_details(format!(
+            "LoRA strength must be between 0.0 and 2.0 (provided: {}). Use 1.0 for standard strength, lower values to reduce adapter influence, higher values to amplify it.",
+            req.lora_strength
+        )));
     }
 
-    let adapter = state
-        .db
-        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
-        .await
-        .map_err(|e| {
-            error!(
-                tenant_id = %claims.tenant_id,
-                adapter_id = %adapter_id,
-                error = %e,
-                "Failed to fetch adapter"
-            );
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
-            )
-        })?;
+    // Fetch adapter with tenant isolation validation
+    let _adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;
 
-    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
-
+    // Update adapter strength
     state
         .db
         .update_adapter_strength(&adapter_id, req.lora_strength)
@@ -113,45 +81,14 @@ pub async fn update_adapter_strength(
                 error = %e,
                 "Failed to update adapter strength"
             );
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to update adapter LoRA strength")
-                        .with_code("STRENGTH_UPDATE_FAILED")
-                        .with_string_details(format!(
-                            "Adapter '{}' LoRA strength could not be updated to {}. The adapter may be locked or in an invalid state. Technical details: {}",
-                            adapter_id, req.lora_strength, e
-                        )),
-                ),
-            )
+            ApiError::internal("Failed to update adapter LoRA strength").with_details(format!(
+                "Adapter '{}' LoRA strength could not be updated to {}. The adapter may be locked or in an invalid state. Technical details: {}",
+                adapter_id, req.lora_strength, e
+            ))
         })?;
 
-    let updated = state
-        .db
-        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
-        .await
-        .map_err(|e| {
-            error!(
-                tenant_id = %claims.tenant_id,
-                adapter_id = %adapter_id,
-                error = %e,
-                "Failed to reload adapter"
-            );
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
-            )
-        })?;
+    // Reload adapter to return updated state
+    let updated = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;
 
     Ok(Json(AdapterDetailResponse::from(updated)))
 }

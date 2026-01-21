@@ -4,7 +4,6 @@ use adapteros_server_api::handlers::chat_sessions::{
     create_chat_session, get_chat_session, list_chat_sessions, CreateChatSessionRequest,
     ListSessionsQuery,
 };
-use adapteros_server_api::types::ErrorResponse;
 use axum::{extract::State, http::StatusCode, Extension, Json};
 
 mod common;
@@ -29,8 +28,8 @@ async fn create_document_session_requires_document_id() {
     };
 
     let result = create_chat_session(State(state.clone()), Extension(claims), Json(req)).await;
-    let (status, _) = result.expect_err("expected validation failure");
-    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let err = result.expect_err("expected validation failure");
+    assert_eq!(err.status, StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test]
@@ -80,8 +79,8 @@ async fn document_and_collection_must_match() {
     };
 
     let result = create_chat_session(State(state.clone()), Extension(claims), Json(req)).await;
-    let (status, _) = result.expect_err("expected validation failure");
-    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let err = result.expect_err("expected validation failure");
+    assert_eq!(err.status, StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test]
@@ -120,9 +119,8 @@ async fn cross_tenant_access_is_forbidden() {
     )
     .await;
 
-    let (status, Json(err)): (StatusCode, Json<ErrorResponse>) =
-        result.expect_err("expected forbidden");
-    assert_eq!(status, StatusCode::FORBIDDEN);
+    let err = result.expect_err("expected forbidden");
+    assert_eq!(err.status, StatusCode::FORBIDDEN);
     assert_eq!(err.code, "TENANT_ISOLATION_ERROR");
 }
 

@@ -40,6 +40,23 @@ pub struct RingBuffer {
     _device: Arc<Device>,
 }
 
+/// Metal buffer layout matching common.metal::RingBuffer
+///
+/// **CRITICAL**: This struct must match the byte layout of the Metal shader struct exactly.
+/// Metal layout:
+/// - uint top_k (4 bytes)
+/// - uint current_pos (4 bytes)
+/// - ushort adapter_indices[8] (16 bytes)
+/// - short gates[8] (16 bytes)
+///   Total: 40 bytes
+#[repr(C)]
+struct MetalRingBufferLayout {
+    top_k: u32,
+    current_pos: u32,
+    adapter_indices: [u16; 8],
+    gates: [i16; 8],
+}
+
 impl RingBuffer {
     /// Create a new ring buffer (canonical format: u16 indices, i16 gates)
     pub fn new(device: Arc<Device>, top_k: usize) -> Result<Self> {
@@ -55,9 +72,9 @@ impl RingBuffer {
         //  16 bytes: adapter_indices[8] (u16 * 8) - changed from u32 to save VRAM
         //  16 bytes: gates[8] (i16 * 8) - signed Q15 format
         // Total: 40 bytes (was 56 bytes with u32 indices)
-        let buffer_size = std::mem::size_of::<u32>() * 2  // top_k + current_pos
-            + std::mem::size_of::<u16>() * 8  // indices (u16)
-            + std::mem::size_of::<i16>() * 8; // gates (i16 signed Q15)
+        // Total: 40 bytes (was 56 bytes with u32 indices)
+        // Verified by static assertion in tests
+        let buffer_size = std::mem::size_of::<MetalRingBufferLayout>();
         let buffer = device.new_buffer(buffer_size as u64, MTLResourceOptions::StorageModeShared);
 
         Ok(Self {
@@ -107,37 +124,29 @@ impl RingBuffer {
             std::slice::from_raw_parts_mut(contents as *mut u8, buffer.length() as usize)
         };
 
-        let mut offset = 0;
+        // Create the layout struct
+        let mut layout = MetalRingBufferLayout {
+            top_k: self.top_k as u32,
+            current_pos: self.current_pos as u32,
+            adapter_indices: [0; 8],
+            gates: [0; 8],
+        };
 
-        // IMPORTANT: This layout must match the Metal struct RingBuffer in common.metal:
-        // struct RingBuffer {
-        //     uint top_k;          // 4 bytes (u32)
-        //     uint current_pos;    // 4 bytes (u32)
-        //     ushort adapter_indices[8];  // 8 * 2 bytes = 16 bytes (u16)
-        //     short gates[8];      // 8 * 2 bytes = 16 bytes (i16 signed Q15)
-        // };
-        //
-        // **NOTE**: Canonical format uses u16 indices (not uint) and i16 gates (not ushort)
-        // This saves 16 bytes VRAM per ring and preserves signed Q15 gates
+        // Fill indices and gates
+        layout
+            .adapter_indices
+            .copy_from_slice(&self.adapter_indices);
+        layout.gates.copy_from_slice(&self.gates);
 
-        // Write top_k (4 bytes)
-        slice[offset..offset + 4].copy_from_slice(&(self.top_k as u32).to_le_bytes());
-        offset += 4;
-
-        // Write current_pos (4 bytes)
-        slice[offset..offset + 4].copy_from_slice(&(self.current_pos as u32).to_le_bytes());
-        offset += 4;
-
-        // Write adapter indices (8 * 2 bytes = 16 bytes, u16 canonical format)
-        for &idx in &self.adapter_indices {
-            slice[offset..offset + 2].copy_from_slice(&idx.to_le_bytes());
-            offset += 2;
-        }
-
-        // Write gates (8 * 2 bytes = 16 bytes, i16 signed Q15)
-        for &gate in &self.gates {
-            slice[offset..offset + 2].copy_from_slice(&gate.to_le_bytes());
-            offset += 2;
+        // Copy to buffer
+        // SAFETY: The Metal buffer is allocated with size_of::<MetalRingBufferLayout> (verified in new())
+        // and we are copying exactly that size. Alignment is handled by Metal allocator.
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                &layout as *const MetalRingBufferLayout as *const u8,
+                slice.as_mut_ptr(),
+                std::mem::size_of::<MetalRingBufferLayout>(),
+            );
         }
 
         Ok(())
@@ -222,5 +231,13 @@ mod tests {
         assert_eq!(RingBuffer::q15_to_float(16383), 16383.0 / 32767.0);
         assert_eq!(RingBuffer::q15_to_float(32767), 1.0);
         assert_eq!(RingBuffer::q15_to_float(-32767), -1.0);
+    }
+
+    #[test]
+    fn test_struct_layout() {
+        // Assert size matches Metal expectation (40 bytes)
+        assert_eq!(std::mem::size_of::<MetalRingBufferLayout>(), 40);
+        // Assert alignment is reasonable (4 bytes)
+        assert_eq!(std::mem::align_of::<MetalRingBufferLayout>(), 4);
     }
 }

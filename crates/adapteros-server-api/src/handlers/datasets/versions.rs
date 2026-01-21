@@ -1,16 +1,15 @@
 //! Dataset version handlers.
 
 use super::types::{CreateDatasetVersionRequest, CreateDatasetVersionResponse};
+use crate::api_error::ApiError;
 use crate::auth::Claims;
-use crate::error_helpers::{bad_request, db_error, forbidden, not_found};
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
-use crate::types::{DatasetVersionSummary, DatasetVersionsResponse, ErrorResponse};
+use crate::types::{DatasetVersionSummary, DatasetVersionsResponse};
 use adapteros_orchestrator::code_ingestion::normalize_repo_id;
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
     response::IntoResponse,
     Extension, Json,
 };
@@ -36,7 +35,7 @@ pub async fn list_dataset_versions(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(dataset_id): Path<String>,
-) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetView)?;
 
     // Ensure dataset exists and enforce tenant isolation
@@ -44,13 +43,13 @@ pub async fn list_dataset_versions(
         .db
         .get_training_dataset_routed(&claims.tenant_id, &dataset_id)
         .await
-        .map_err(|e| db_error(format!("Failed to load dataset: {}", e)))?
-        .ok_or_else(|| not_found("Dataset"))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to load dataset: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Dataset"))?;
 
     if let Some(ref dataset_tenant_id) = dataset.tenant_id {
         validate_tenant_isolation(&claims, dataset_tenant_id)?;
     } else if claims.role != "admin" {
-        return Err(forbidden(
+        return Err(ApiError::forbidden(
             "Access denied: dataset has no tenant association",
         ));
     }
@@ -60,7 +59,7 @@ pub async fn list_dataset_versions(
         .db
         .list_dataset_versions_routed(tenant_key, &dataset_id)
         .await
-        .map_err(|e| db_error(format!("Failed to list dataset versions: {}", e)))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to list dataset versions: {}", e)))?;
 
     // Include repo_slug from parent dataset in version summaries
     let repo_slug = repo_slug_from_dataset(&dataset);
@@ -108,20 +107,20 @@ pub async fn create_dataset_version(
     Extension(claims): Extension<Claims>,
     Path(dataset_id): Path<String>,
     Json(body): Json<CreateDatasetVersionRequest>,
-) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetValidate)?;
 
     let dataset = state
         .db
         .get_training_dataset_routed(&claims.tenant_id, &dataset_id)
         .await
-        .map_err(|e| db_error(format!("Failed to load dataset: {}", e)))?
-        .ok_or_else(|| not_found("Dataset"))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to load dataset: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Dataset"))?;
 
     if let Some(ref dataset_tenant_id) = dataset.tenant_id {
         validate_tenant_isolation(&claims, dataset_tenant_id)?;
     } else if claims.role != "admin" {
-        return Err(forbidden(
+        return Err(ApiError::forbidden(
             "Access denied: dataset has no tenant association",
         ));
     }
@@ -129,7 +128,7 @@ pub async fn create_dataset_version(
     let manifest_json = if let Some(v) = body.manifest_json {
         Some(
             serde_json::to_string(&v)
-                .map_err(|e| bad_request(format!("invalid manifest_json: {}", e)))?,
+                .map_err(|e| ApiError::bad_request(format!("invalid manifest_json: {}", e)))?,
         )
     } else {
         None
@@ -148,17 +147,15 @@ pub async fn create_dataset_version(
             Some(&claims.sub),
         )
         .await
-        .map_err(|e| db_error(format!("Failed to create dataset version: {}", e)))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to create dataset version: {}", e)))?;
 
     let tenant_key = dataset.tenant_id.as_deref().unwrap_or("default");
     let version = state
         .db
         .get_training_dataset_version_routed(tenant_key, &version_id)
         .await
-        .map_err(|e| db_error(format!("Failed to fetch created dataset version: {}", e)))?
-        .ok_or_else(|| {
-            crate::error_helpers::internal_error("Dataset version was created but not found")
-        })?;
+        .map_err(|e| ApiError::db_error(format!("Failed to fetch created dataset version: {}", e)))?
+        .ok_or_else(|| ApiError::internal("Dataset version was created but not found"))?;
 
     Ok(Json(CreateDatasetVersionResponse {
         dataset_id,
@@ -241,7 +238,7 @@ fn repo_slug_from_dataset(
 async fn resolve_trust_state(
     db: &adapteros_db::Db,
     version: &adapteros_db::training_datasets::TrainingDatasetVersion,
-) -> Result<String, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<String, ApiError> {
     if db.storage_mode().read_from_sql() {
         match db.get_effective_trust_state(&version.id).await {
             Ok(Some(state)) => Ok(state),
@@ -305,7 +302,7 @@ pub async fn get_dataset_version(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path((dataset_id, revision)): Path<(String, String)>,
-) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetView)?;
 
     // Ensure dataset exists and enforce tenant isolation
@@ -313,13 +310,13 @@ pub async fn get_dataset_version(
         .db
         .get_training_dataset_routed(&claims.tenant_id, &dataset_id)
         .await
-        .map_err(|e| db_error(format!("Failed to load dataset: {}", e)))?
-        .ok_or_else(|| not_found("Dataset"))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to load dataset: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Dataset"))?;
 
     if let Some(ref dataset_tenant_id) = dataset.tenant_id {
         validate_tenant_isolation(&claims, dataset_tenant_id)?;
     } else if claims.role != "admin" {
-        return Err(forbidden(
+        return Err(ApiError::forbidden(
             "Access denied: dataset has no tenant association",
         ));
     }
@@ -333,35 +330,35 @@ pub async fn get_dataset_version(
             .db
             .list_dataset_versions_routed(tenant_key, &dataset_id)
             .await
-            .map_err(|e| db_error(format!("Failed to load latest version: {}", e)))?;
+            .map_err(|e| ApiError::db_error(format!("Failed to load latest version: {}", e)))?;
         versions
             .into_iter()
             .next()
-            .ok_or_else(|| not_found("Dataset version"))?
+            .ok_or_else(|| ApiError::not_found("Dataset version"))?
     } else if let Ok(version_number) = revision.parse::<i64>() {
         // Lookup by version number
         let versions = state
             .db
             .list_dataset_versions_routed(tenant_key, &dataset_id)
             .await
-            .map_err(|e| db_error(format!("Failed to list versions: {}", e)))?;
+            .map_err(|e| ApiError::db_error(format!("Failed to list versions: {}", e)))?;
 
         versions
             .into_iter()
             .find(|v| v.version_number == version_number)
-            .ok_or_else(|| not_found("Dataset version"))?
+            .ok_or_else(|| ApiError::not_found("Dataset version"))?
     } else {
         // Assume it's a version ID
         let version = state
             .db
             .get_training_dataset_version_routed(tenant_key, &revision)
             .await
-            .map_err(|e| db_error(format!("Failed to load version: {}", e)))?
-            .ok_or_else(|| not_found("Dataset version"))?;
+            .map_err(|e| ApiError::db_error(format!("Failed to load version: {}", e)))?
+            .ok_or_else(|| ApiError::not_found("Dataset version"))?;
 
         // Verify the version belongs to this dataset
         if version.dataset_id != dataset_id {
-            return Err(not_found("Dataset version"));
+            return Err(ApiError::not_found("Dataset version"));
         }
         version
     };
@@ -423,7 +420,7 @@ pub async fn list_versions_by_codebase(
     Extension(claims): Extension<Claims>,
     Path(codebase_id): Path<String>,
     Query(params): Query<ListVersionsQuery>,
-) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetView)?;
 
     let limit = params.limit.unwrap_or(50).min(100);
@@ -431,7 +428,7 @@ pub async fn list_versions_by_codebase(
 
     // URL-decode the codebase_id (it may contain slashes, etc.)
     let source_location = urlencoding::decode(&codebase_id)
-        .map_err(|e| bad_request(format!("Invalid codebase_id encoding: {}", e)))?
+        .map_err(|e| ApiError::bad_request(format!("Invalid codebase_id encoding: {}", e)))?
         .into_owned();
     let normalized_codebase_id = normalize_repo_id(&source_location);
     let tenant_scopes: Vec<Option<&str>> = if claims.role == "admin" {
@@ -457,7 +454,7 @@ pub async fn list_versions_by_codebase(
             .db
             .list_codebase_datasets_by_repo(&source_location, *tenant_scope)
             .await
-            .map_err(|e| db_error(format!("Failed to list codebase datasets: {}", e)))?
+            .map_err(|e| ApiError::db_error(format!("Failed to list codebase datasets: {}", e)))?
         {
             push_dataset(dataset);
         }
@@ -466,7 +463,9 @@ pub async fn list_versions_by_codebase(
                 .db
                 .list_codebase_datasets_by_repo(&normalized_codebase_id, *tenant_scope)
                 .await
-                .map_err(|e| db_error(format!("Failed to list codebase datasets: {}", e)))?
+                .map_err(|e| {
+                    ApiError::db_error(format!("Failed to list codebase datasets: {}", e))
+                })?
             {
                 push_dataset(dataset);
             }
@@ -475,7 +474,7 @@ pub async fn list_versions_by_codebase(
             .db
             .list_codebase_datasets_by_repo_identifier(&normalized_codebase_id, *tenant_scope)
             .await
-            .map_err(|e| db_error(format!("Failed to list codebase datasets: {}", e)))?
+            .map_err(|e| ApiError::db_error(format!("Failed to list codebase datasets: {}", e)))?
         {
             push_dataset(dataset);
         }
@@ -519,7 +518,7 @@ pub async fn list_versions_by_codebase(
             .db
             .list_dataset_versions_routed(tenant_key, &dataset.id)
             .await
-            .map_err(|e| db_error(format!("Failed to list dataset versions: {}", e)))?;
+            .map_err(|e| ApiError::db_error(format!("Failed to list dataset versions: {}", e)))?;
         let dataset_repo_slug = repo_slug_from_dataset(dataset);
 
         for version in versions {

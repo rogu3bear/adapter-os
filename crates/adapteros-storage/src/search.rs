@@ -14,6 +14,8 @@ use tantivy::schema::*;
 use tantivy::{Index, IndexWriter, ReloadPolicy, TantivyDocument, Term};
 use tracing::{debug, info, warn};
 
+use adapteros_core::cosine_similarity;
+
 /// Error type for search operations
 #[derive(Debug)]
 pub enum SearchError {
@@ -495,8 +497,8 @@ impl SearchService {
             let stored_vector: Vec<f32> = serde_json::from_str(vector_str)
                 .map_err(|e| SearchError::IndexError(format!("Failed to parse vector: {}", e)))?;
 
-            // Compute cosine similarity
-            let similarity = Self::cosine_similarity(embedding, &stored_vector);
+            // Compute cosine similarity using shared implementation
+            let similarity = cosine_similarity(embedding, &stored_vector);
 
             let chunk_id = retrieved_doc
                 .get_first(self.id_field)
@@ -662,22 +664,7 @@ impl SearchService {
         Ok(())
     }
 
-    /// Compute cosine similarity between two vectors
-    fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
-        if a.len() != b.len() {
-            return 0.0;
-        }
-
-        let dot_product: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
-        let magnitude_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
-        let magnitude_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
-
-        if magnitude_a == 0.0 || magnitude_b == 0.0 {
-            return 0.0;
-        }
-
-        dot_product / (magnitude_a * magnitude_b)
-    }
+    // cosine_similarity is imported from adapteros_core::vector_math
 
     /// Delete a document from the index
     pub async fn delete_document(&self, id: &str) -> Result<(), SearchError> {
@@ -839,13 +826,5 @@ mod tests {
         assert_eq!(results[0].chunk_id, "chunk_001");
     }
 
-    #[test]
-    fn test_cosine_similarity() {
-        let a = vec![1.0, 0.0, 0.0];
-        let b = vec![1.0, 0.0, 0.0];
-        let c = vec![0.0, 1.0, 0.0];
-
-        assert!((SearchService::cosine_similarity(&a, &b) - 1.0).abs() < 0.001);
-        assert!((SearchService::cosine_similarity(&a, &c)).abs() < 0.001);
-    }
+    // cosine_similarity tests moved to adapteros_core::vector_math
 }

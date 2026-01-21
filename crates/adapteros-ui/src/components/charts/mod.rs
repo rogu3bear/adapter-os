@@ -5,6 +5,7 @@
 //! - **LineChart**: Time series visualization with tooltips and legends
 //! - **Sparkline**: Compact inline charts for metric cards
 //! - **StatusHeatmap**: Worker health grid visualization
+//! - **chart_helpers**: Convenient functions for common chart configurations
 //!
 //! All components use pure SVG rendering via Leptos, with no JavaScript dependencies.
 //! Charts integrate with the glass morphism design system for consistent styling.
@@ -12,18 +13,15 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use adapteros_ui::components::charts::{LineChart, TimeSeriesData, DataSeries, ChartPoint};
+//! use adapteros_ui::components::charts::{chart_helpers, TimeSeriesData, DataSeries, ChartPoint};
 //!
-//! let data = TimeSeriesData::single(DataSeries {
-//!     name: "Throughput".to_string(),
-//!     color: "var(--color-primary)".to_string(),
-//!     points: vec![
-//!         ChartPoint::new(1000, 42.0),
-//!         ChartPoint::new(2000, 45.0),
-//!         ChartPoint::new(3000, 48.0),
-//!     ],
-//! });
+//! // Using helper functions
+//! let chart = chart_helpers::line_chart("Throughput", "req/s", data_signal);
 //!
+//! // Quick mini chart
+//! let chart = chart_helpers::mini_chart(data_signal, Some("red".to_string()));
+//!
+//! // Traditional component usage still works
 //! view! {
 //!     <LineChart
 //!         data={Signal::derive(move || data.clone())}
@@ -33,6 +31,7 @@
 //! }
 //! ```
 
+pub mod builder;
 pub mod heatmap;
 pub mod line_chart;
 pub mod primitives;
@@ -50,6 +49,11 @@ pub use types::{
 pub use heatmap::{MiniHeatmap, StatusHeatmap};
 pub use line_chart::{LineChart, MiniLineChart};
 pub use sparkline::{Sparkline, SparklineMetric, Trend};
+
+// Re-export chart helper functions
+pub mod chart_helpers {
+    pub use super::builder::*;
+}
 
 // Re-export primitives for custom charts
 pub use primitives::{ChartLayout, ChartTooltip, Grid, TooltipContent, TooltipState, XAxis, YAxis};

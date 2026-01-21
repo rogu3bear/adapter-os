@@ -105,7 +105,7 @@ pub async fn login_user(
         if let Ok(err) = serde_json::from_slice::<ErrorResponse>(&bytes) {
             return Err(format!(
                 "login failed with {} ({}): {}",
-                status, err.code, err.error
+                status, err.code, err.message
             ));
         }
         return Err(format!(
@@ -147,7 +147,7 @@ pub async fn make_authenticated_request(
         if let Ok(err) = serde_json::from_slice::<ErrorResponse>(&bytes) {
             return Err(format!(
                 "request to {} failed with {} ({}): {}",
-                path, status, err.code, err.error
+                path, status, err.code, err.message
             ));
         }
         return Err(format!(

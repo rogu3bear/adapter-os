@@ -1,7 +1,7 @@
 //! RAG storage abstraction over SQL + KV with deterministic retrieval.
 
 use crate::{Db, StorageMode};
-use adapteros_core::{AosError, B3Hash, Result};
+use adapteros_core::{cosine_similarity, AosError, B3Hash, Result};
 use adapteros_storage::{RagDocumentKv, RagRepository};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -687,18 +687,7 @@ impl Db {
     }
 }
 
-fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
-    if a.len() != b.len() || a.is_empty() {
-        return 0.0;
-    }
-    let dot: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
-    let mag_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
-    let mag_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
-    if mag_a == 0.0 || mag_b == 0.0 {
-        return 0.0;
-    }
-    dot / (mag_a * mag_b)
-}
+// cosine_similarity is imported from adapteros_core::vector_math
 
 fn deterministic_sort_and_take(
     mut docs: Vec<(String, String, f32)>,

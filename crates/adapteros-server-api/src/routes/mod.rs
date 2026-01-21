@@ -398,7 +398,6 @@ use utoipa_swagger_ui::SwaggerUi;
     ),
     components(schemas(
         crate::types::ErrorResponse,
-        crate::types::ApiErrorBody,
         crate::types::LoginRequest,
         crate::types::LoginResponse,
         crate::types::HealthResponse,
@@ -1646,6 +1645,18 @@ pub fn build(state: AppState) -> Router {
             get(handlers::adapters::get_commit_diff),
         )
         // Routing routes
+        .route(
+            "/v1/routing-rules/identity/{identity_dataset_id}",
+            get(handlers::routing_rules::list_rules),
+        )
+        .route(
+            "/v1/routing-rules",
+            post(handlers::routing_rules::create_rule),
+        )
+        .route(
+            "/v1/routing-rules/{rule_id}",
+            delete(handlers::routing_rules::delete_rule),
+        )
         .route(
             "/v1/routing/debug",
             post(handlers::routing_decisions::debug_routing),

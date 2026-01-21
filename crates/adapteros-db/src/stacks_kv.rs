@@ -186,7 +186,9 @@ impl StackKvRepository {
                 stack.tenant_id.as_bytes().to_vec(),
             )
             .await
-            .map_err(|e| AosError::Database(format!("Failed to update stack lookup index: {}", e)))?;
+            .map_err(|e| {
+                AosError::Database(format!("Failed to update stack lookup index: {}", e))
+            })?;
 
         Ok(())
     }

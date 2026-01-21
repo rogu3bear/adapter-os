@@ -5,21 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use utoipa::ToSchema;
 
-/// Standard error envelope returned by the API for all 4xx/5xx responses.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct ApiErrorBody {
-    /// Machine-readable error code (e.g., "ADAPTER_NOT_FOUND")
-    pub code: String,
-    /// Human-readable message suitable for UI display
-    pub message: String,
-    /// Actionable hint for common failures
-    pub hint: String,
-    /// Optional developer-facing detail (stack trace, context, etc.)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub detail: Option<String>,
-    /// Correlation ID that matches the `x-request-id` header and server logs
-    pub request_id: String,
-}
+// ApiErrorBody removed in favor of adapteros_api_types::ErrorResponse
 
 /// Structured UMA backpressure error payload
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

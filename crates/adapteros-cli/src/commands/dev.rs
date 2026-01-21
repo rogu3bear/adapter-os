@@ -519,6 +519,8 @@ async fn start_ui_server(output: &OutputWriter) -> Result<()> {
 }
 
 async fn attach_tui(output: &OutputWriter) -> Result<()> {
+    let _ = output;
+
     #[cfg(feature = "tui")]
     {
         crate::commands::tui::run(crate::commands::tui::TuiArgs { server_url: None })

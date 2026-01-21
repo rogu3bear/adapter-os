@@ -25,7 +25,7 @@ pub fn Adapters() -> impl IntoView {
                 <h1 class="text-3xl font-bold tracking-tight">"Adapters"</h1>
                 <button
                     class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-                    on:click=move |_| refetch_signal.with_value(|f| f())
+                    on:click=move |_| refetch.run(())
                 >
                     "Refresh"
                 </button>
@@ -47,7 +47,7 @@ pub fn Adapters() -> impl IntoView {
                         view! {
                             <ErrorDisplay
                                 error=e
-                                on_retry=Callback::new(move |_| refetch_signal.with_value(|f| f()))
+                                on_retry=Callback::new(move |_| refetch_signal.with_value(|f| f.run(())))
                             />
                         }.into_any()
                     }
@@ -251,7 +251,7 @@ pub fn AdapterDetail() -> impl IntoView {
                 </div>
                 <button
                     class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-                    on:click=move |_| refetch_signal.with_value(|f| f())
+                    on:click=move |_| refetch.run(())
                 >
                     "Refresh"
                 </button>
@@ -304,7 +304,7 @@ pub fn AdapterDetail() -> impl IntoView {
                             view! {
                                 <ErrorDisplay
                                     error=e
-                                    on_retry=Callback::new(move |_| refetch_signal.with_value(|f| f()))
+                                    on_retry=Callback::new(move |_| refetch_signal.with_value(|f| f.run(())))
                                 />
                             }.into_any()
                         }

@@ -9,8 +9,8 @@
 //! - Row counting
 
 use crate::Db;
-use adapteros_core::{AosError, Result};
 use adapteros_core::validation::{Validator, ValidatorBuilder};
+use adapteros_core::{AosError, Result};
 use tracing::warn;
 
 /// Validator for SQL table names to prevent injection attacks.

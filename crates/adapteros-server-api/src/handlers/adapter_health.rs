@@ -2,11 +2,12 @@
 //!
 //! Handlers for verifying adapter health, GPU integrity, and tracking activations.
 
+use crate::adapter_helpers::fetch_adapter_for_tenant;
+use crate::api_error::{ApiError, ApiResult};
 use crate::auth::Claims;
 use crate::handlers::utils::aos_error_to_response;
 use crate::middleware::require_any_role;
 use crate::permissions::{require_permission, Permission};
-use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::*;
 use adapteros_core::AosError;
@@ -116,31 +117,10 @@ pub async fn get_adapter_activations(
     Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
     Query(query): Query<std::collections::HashMap<String, String>>,
-) -> Result<Json<Vec<AdapterActivationResponse>>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<Vec<AdapterActivationResponse>> {
     require_permission(&claims, Permission::AdapterView)?;
 
-    let adapter = state
-        .db
-        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to fetch adapter")
-                        .with_code("INTERNAL_SERVER_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
-            )
-        })?;
-
-    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
+    let _adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;
 
     let limit = query
         .get("limit")
@@ -151,16 +131,7 @@ pub async fn get_adapter_activations(
         .db
         .get_adapter_activations(&adapter_id, limit)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to get activations")
-                        .with_code("INTERNAL_SERVER_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+        .map_err(ApiError::db_error)?;
 
     let responses: Vec<AdapterActivationResponse> = activations
         .into_iter()
@@ -183,28 +154,9 @@ pub async fn get_adapter_health(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
-) -> Result<Json<AdapterHealthResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // Fetch adapter with tenant-scoped query
-    let adapter = state
-        .db
-        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
-            )
-        })?;
+) -> ApiResult<AdapterHealthResponse> {
+    // Fetch adapter with tenant isolation validation
+    let adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;
 
     // Health thresholds (drift/per-tier)
     let (drift_hard_threshold, high_tier_block_threshold) = adapteros_config::effective_config()
@@ -379,16 +331,7 @@ pub async fn get_adapter_health(
         .db
         .get_adapter_activations(&adapter_id, 100)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to get activations")
-                        .with_code("INTERNAL_SERVER_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+        .map_err(ApiError::db_error)?;
 
     // Get adapter stats
     let (total, selected, avg_gate) = state

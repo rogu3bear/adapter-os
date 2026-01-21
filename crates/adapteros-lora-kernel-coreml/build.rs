@@ -15,6 +15,7 @@ fn main() {
 
 fn compile_coreml_bridge() {
     println!("cargo:rerun-if-changed=src/coreml_bridge.mm");
+    println!("cargo:rerun-if-changed=src/coreml_ane_memory.mm");
     println!("cargo:rerun-if-changed=src/coreml_ffi.h");
 
     let bridge_path = PathBuf::from("src/coreml_bridge.mm");
@@ -25,6 +26,7 @@ fn compile_coreml_bridge() {
 
     cc::Build::new()
         .file("src/coreml_bridge.mm")
+        .file("src/coreml_ane_memory.mm")
         .flag("-DACCELERATE_NEW_LAPACK")
         .flag("-DACCELERATE_LAPACK_ILP64")
         .flag("-std=c++17")
@@ -37,6 +39,7 @@ fn compile_coreml_bridge() {
     println!("cargo:rustc-link-lib=framework=Foundation");
     println!("cargo:rustc-link-lib=framework=Metal");
     println!("cargo:rustc-link-lib=framework=Accelerate");
+    println!("cargo:rustc-link-lib=framework=IOKit");
 
     println!("cargo:warning=CoreML bridge compiled successfully");
 }

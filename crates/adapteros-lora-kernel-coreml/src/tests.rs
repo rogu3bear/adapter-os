@@ -193,10 +193,10 @@ fn coreml_stub_hot_swap_sidecar_switches_and_restores() -> Result<()> {
     let mut backend = CoreMLBackend::new_stub(ComputeUnits::CpuAndNeuralEngine)?;
 
     // Baseline run without adapters
-    let mut base_ring = RouterRing::new(0);
+    let base_ring = RouterRing::new(0);
     let mut base_io = IoBuffers::new(6);
     base_io.input_ids = vec![1];
-    backend.run_step(&mut base_ring, &mut base_io)?;
+    backend.run_step(&base_ring, &mut base_io)?;
     let base_logits = base_io.output_logits.clone();
 
     // Attach adapter A and run twice for determinism
@@ -206,12 +206,12 @@ fn coreml_stub_hot_swap_sidecar_switches_and_restores() -> Result<()> {
     ring_a.set(&[7u16], &[32767]);
     let mut io_a = IoBuffers::new(6);
     io_a.input_ids = vec![1];
-    backend.run_step(&mut ring_a, &mut io_a)?;
+    backend.run_step(&ring_a, &mut io_a)?;
     let logits_a = io_a.output_logits.clone();
 
     let mut io_a_repeat = IoBuffers::new(6);
     io_a_repeat.input_ids = vec![1];
-    backend.run_step(&mut ring_a, &mut io_a_repeat)?;
+    backend.run_step(&ring_a, &mut io_a_repeat)?;
     assert_eq!(
         logits_a, io_a_repeat.output_logits,
         "Same adapter + seed must be deterministic"
@@ -1785,6 +1785,109 @@ fn test_ane_detection_handles_non_macos() {
             "Neural engine should not be available on non-macOS"
         );
     }
+}
+
+#[test]
+#[cfg(target_os = "macos")]
+fn test_ane_memory_query_ffi() {
+    // Test the low-level FFI for ANE memory querying
+    let info = ffi::get_ane_memory_info();
+
+    // On Apple Silicon with ANE, should have valid data
+    if has_neural_engine() {
+        // Info may or may not be available depending on IOKit access
+        if info.available {
+            println!("\n=== ANE Memory Query FFI Test ===");
+            println!("  Available: {}", info.available);
+            println!(
+                "  Allocated: {} bytes ({} MB)",
+                info.allocated_bytes,
+                info.allocated_bytes / (1024 * 1024)
+            );
+            println!(
+                "  Used: {} bytes ({} MB)",
+                info.used_bytes,
+                info.used_bytes / (1024 * 1024)
+            );
+            println!(
+                "  Cached: {} bytes ({} MB)",
+                info.cached_bytes,
+                info.cached_bytes / (1024 * 1024)
+            );
+            println!(
+                "  Peak: {} bytes ({} MB)",
+                info.peak_bytes,
+                info.peak_bytes / (1024 * 1024)
+            );
+            println!("  Throttled: {}", info.throttled);
+
+            // Validate reasonable values
+            if info.allocated_bytes > 0 {
+                assert!(
+                    info.allocated_bytes < 100 * 1024 * 1024 * 1024,
+                    "Allocated memory unexpectedly large"
+                );
+                assert!(
+                    info.used_bytes <= info.allocated_bytes,
+                    "Used should not exceed allocated"
+                );
+            }
+        } else {
+            println!("ANE memory query returned unavailable (IOKit may require entitlements)");
+        }
+    } else {
+        // On non-ANE systems, should gracefully report unavailable
+        assert!(
+            !info.available,
+            "ANE memory should be unavailable on non-ANE systems"
+        );
+        assert_eq!(info.allocated_bytes, 0);
+        assert_eq!(info.used_bytes, 0);
+    }
+
+    // Dump registry for manual inspection (only shows output if captured)
+    unsafe { ffi::coreml_debug_dump_ane_registry() };
+}
+
+#[test]
+#[cfg(target_os = "macos")]
+fn test_ane_memory_reset_peak() {
+    // Test peak memory reset (may require entitlements)
+    let result = unsafe { ffi::coreml_reset_ane_peak() };
+
+    // This may fail without proper entitlements, which is expected
+    println!("ANE peak reset result: {}", result);
+
+    // Even if it fails, it shouldn't crash
+}
+
+#[test]
+#[cfg(target_os = "macos")]
+fn test_ane_model_tracking_registry() {
+    // Phase 7: Test model load/unload tracking registry state
+    ffi::reset_memory_tracker();
+    assert_eq!(ffi::loaded_model_count(), 0);
+
+    // Record model load
+    ffi::record_model_load("test_model_1", 100 * 1024 * 1024);
+    assert_eq!(ffi::loaded_model_count(), 1);
+
+    let info = ffi::get_ane_memory_info();
+    if info.available {
+        assert!(info.allocated_bytes >= 100 * 1024 * 1024);
+    }
+
+    // Record another model
+    ffi::record_model_load("test_model_2", 50 * 1024 * 1024);
+    assert_eq!(ffi::loaded_model_count(), 2);
+
+    // Unload one
+    ffi::record_model_unload("test_model_1");
+    assert_eq!(ffi::loaded_model_count(), 1);
+
+    // Reset
+    ffi::reset_memory_tracker();
+    assert_eq!(ffi::loaded_model_count(), 0);
 }
 
 // ========== Export Validation Error Tests ==========
