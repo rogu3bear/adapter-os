@@ -515,9 +515,9 @@ impl AdapterLoader {
 
                 // Map rejection reason to appropriate error
                 match reason {
-                    RejectionReason::InvalidFormat => Err(AosError::InvalidSealedData {
-                        reason: message,
-                    }),
+                    RejectionReason::InvalidFormat => {
+                        Err(AosError::InvalidSealedData { reason: message })
+                    }
                     RejectionReason::IntegrityMismatch | RejectionReason::PayloadCorrupted => {
                         Err(AosError::AdapterHashMismatch {
                             adapter_id: sealed_path.display().to_string(),

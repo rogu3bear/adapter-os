@@ -1,9 +1,8 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use adapteros_benchmarks::*;
+use adapteros_benchmarks::utils;
 use adapteros_lora_kernel_api::{FusedKernels, IoBuffers, RouterRing};
 use adapteros_lora_kernel_mtl::MetalKernels;
-use adapteros_memory::MemoryPool;
-use std::sync::Arc;
+use adapteros_memory::unified_memory::{AllocationRequest, MemoryType, UnifiedMemoryManager};
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tokio::runtime::Runtime;
 
 /// Benchmark Metal kernel operations
@@ -25,13 +24,15 @@ fn bench_metal_kernels(c: &mut Criterion) {
         let input_ids = vec![1u32, 2, 3, 4]; // Sample token IDs
         let vocab_size = 152064; // Qwen2.5-7B vocab size
 
-        let mut io_buffers = IoBuffers {
+        let _io_buffers = IoBuffers {
             input_ids: input_ids.clone(),
             output_logits: vec![0.0f32; vocab_size],
+            position: 0,
         };
 
         // Create router ring with sample adapters
-        let router_ring = RouterRing::from_slices(&[0, 1, 2], &[16384, 8192, 4096]); // Q15 format gates
+        let mut router_ring = RouterRing::new(3);
+        router_ring.set(&[0, 1, 2], &[16384, 8192, 4096]); // Q15 format gates
 
         // Benchmark single inference step
         c.bench_function("metal_kernel_inference_step", |b| {
@@ -39,8 +40,10 @@ fn bench_metal_kernels(c: &mut Criterion) {
                 let mut io_copy = IoBuffers {
                     input_ids: input_ids.clone(),
                     output_logits: vec![0.0f32; vocab_size],
+                    position: 0,
                 };
-                black_box(kernels.run_step(&router_ring, &mut io_copy).unwrap());
+                kernels.run_step(&router_ring, &mut io_copy).unwrap();
+                black_box(());
             })
         });
 
@@ -171,13 +174,21 @@ fn bench_memory_operations(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
 
     rt.block_on(async {
-        // Initialize memory pool
-        let memory_pool = Arc::new(MemoryPool::new(1024 * 1024 * 100).unwrap()); // 100MB pool
+        // Initialize memory manager and pool
+        let mut manager = UnifiedMemoryManager::new(1024 * 1024 * 100);
+        manager.init_pool("bench", 1024 * 1024 * 100).unwrap();
+        let memory_manager = std::rc::Rc::new(manager);
 
         // Benchmark buffer allocation
         c.bench_function("memory_pool_allocation_1mb", |b| {
             b.iter(|| {
-                let buffer = memory_pool.allocate(1024 * 1024).unwrap();
+                let request = AllocationRequest {
+                    size: 1024 * 1024,
+                    backend: "bench".to_string(),
+                    alignment: 16,
+                    memory_type: MemoryType::GPU,
+                };
+                let buffer = memory_manager.allocate(request).unwrap();
                 black_box(buffer);
             })
         });
@@ -185,8 +196,14 @@ fn bench_memory_operations(c: &mut Criterion) {
         // Benchmark buffer deallocation
         c.bench_function("memory_pool_deallocation_1mb", |b| {
             b.iter(|| {
-                let buffer = memory_pool.allocate(1024 * 1024).unwrap();
-                drop(buffer);
+                let request = AllocationRequest {
+                    size: 1024 * 1024,
+                    backend: "bench".to_string(),
+                    alignment: 16,
+                    memory_type: MemoryType::GPU,
+                };
+                let buffer = memory_manager.allocate(request).unwrap();
+                memory_manager.deallocate(&buffer).unwrap();
             })
         });
 
@@ -264,8 +281,8 @@ fn bench_deterministic_operations(c: &mut Criterion) {
 fn bench_backend_comparison(c: &mut Criterion) {
     use adapteros_lora_kernel_api::MockKernels;
     use adapteros_lora_kernel_mtl::ane_acceleration::{
-        ANEAccelerator, ANEModelConfig, ANEDataType, ANELoRAConfig,
-        ANEQuantization, ANECalibrationMethod,
+        ANEAccelerator, ANECalibrationMethod, ANEDataType, ANELoRAConfig, ANEModelConfig,
+        ANEQuantization,
     };
 
     // Metal backend benchmark
@@ -278,11 +295,14 @@ fn bench_backend_comparison(c: &mut Criterion) {
                 let mut kernels = MockKernels::new();
                 kernels.load(b"metal_plan").unwrap();
 
-                let ring = RouterRing::from_slices(&[0, 1], &[16384, 16384]);
+                let mut ring = RouterRing::new(2);
+                ring.set(&[0, 1], &[16384, 16384]);
                 let mut io = IoBuffers::new(1024);
                 io.input_ids = vec![1, 2, 3, 4];
+                io.position = 0;
 
-                black_box(kernels.run_step(&ring, &mut io).unwrap());
+                kernels.run_step(&ring, &mut io).unwrap();
+                black_box(());
             })
         })
     });
@@ -391,7 +411,8 @@ fn bench_training_operations(c: &mut Criterion) {
             let max_val = weights.iter().fold(0.0f32, |a, &b| a.max(b.abs()));
             let scale = max_val / 127.0;
 
-            let quantized: Vec<i8> = weights.iter()
+            let quantized: Vec<i8> = weights
+                .iter()
                 .map(|&w| (w / scale).round().clamp(-128.0, 127.0) as i8)
                 .collect();
 
@@ -403,7 +424,7 @@ fn bench_training_operations(c: &mut Criterion) {
 /// Benchmark memory efficiency
 #[cfg(target_os = "macos")]
 fn bench_memory_efficiency(c: &mut Criterion) {
-    use adapteros_memory::unified_memory::{UnifiedMemoryManager, AllocationRequest, MemoryType};
+    use adapteros_memory::unified_memory::{AllocationRequest, MemoryType, UnifiedMemoryManager};
 
     c.bench_function("memory_allocation_throughput", |b| {
         let mut manager = UnifiedMemoryManager::new(100 * 1024 * 1024);
@@ -415,7 +436,6 @@ fn bench_memory_efficiency(c: &mut Criterion) {
                 backend: "bench".to_string(),
                 alignment: 16,
                 memory_type: MemoryType::GPU,
-                ..Default::default()
             };
 
             if let Ok(block) = manager.allocate(request) {
@@ -438,7 +458,6 @@ fn bench_memory_efficiency(c: &mut Criterion) {
                     backend: "bench".to_string(),
                     alignment: 16,
                     memory_type: MemoryType::GPU,
-                    ..Default::default()
                 };
 
                 if let Ok(block) = manager.allocate(request) {

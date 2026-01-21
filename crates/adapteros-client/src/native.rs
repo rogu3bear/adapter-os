@@ -1,4 +1,4 @@
-use crate::{types::*, adapterOSClient, TelemetryBundleResponse, TelemetryEvent};
+use crate::{adapterOSClient, types::*, TelemetryBundleResponse, TelemetryEvent};
 use anyhow::{Context, Result};
 
 pub struct NativeClient {

@@ -225,7 +225,9 @@ impl ReplayVerificationResult {
                     expected: "available".to_string(),
                     actual: reason,
                 }],
-                possible_causes: vec!["Required model or adapter version is not available".to_string()],
+                possible_causes: vec![
+                    "Required model or adapter version is not available".to_string()
+                ],
             }),
             stats: ReplayExecutionStats::default(),
         }
@@ -478,9 +480,15 @@ impl AvailabilityCheckResult {
 
     /// Create an unavailable result
     pub fn unavailable(components: Vec<UnavailableComponent>) -> Self {
-        let model_available = !components.iter().any(|c| matches!(c.component_type, ComponentType::Model));
-        let adapters_available = !components.iter().any(|c| matches!(c.component_type, ComponentType::Adapter));
-        let backend_available = !components.iter().any(|c| matches!(c.component_type, ComponentType::Backend));
+        let model_available = !components
+            .iter()
+            .any(|c| matches!(c.component_type, ComponentType::Model));
+        let adapters_available = !components
+            .iter()
+            .any(|c| matches!(c.component_type, ComponentType::Adapter));
+        let backend_available = !components
+            .iter()
+            .any(|c| matches!(c.component_type, ComponentType::Backend));
 
         Self {
             available: false,
@@ -528,11 +536,26 @@ mod tests {
 
     #[test]
     fn test_divergence_type_display() {
-        assert_eq!(DivergenceType::OutputMismatch.to_string(), "output_mismatch");
-        assert_eq!(DivergenceType::RoutingMismatch.to_string(), "routing_mismatch");
-        assert_eq!(DivergenceType::RunHeadDivergence.to_string(), "run_head_divergence");
-        assert_eq!(DivergenceType::ConfigurationDrift.to_string(), "configuration_drift");
-        assert_eq!(DivergenceType::StopConditionMismatch.to_string(), "stop_condition_mismatch");
+        assert_eq!(
+            DivergenceType::OutputMismatch.to_string(),
+            "output_mismatch"
+        );
+        assert_eq!(
+            DivergenceType::RoutingMismatch.to_string(),
+            "routing_mismatch"
+        );
+        assert_eq!(
+            DivergenceType::RunHeadDivergence.to_string(),
+            "run_head_divergence"
+        );
+        assert_eq!(
+            DivergenceType::ConfigurationDrift.to_string(),
+            "configuration_drift"
+        );
+        assert_eq!(
+            DivergenceType::StopConditionMismatch.to_string(),
+            "stop_condition_mismatch"
+        );
     }
 
     #[test]
@@ -687,7 +710,8 @@ mod tests {
         };
 
         let json = serde_json::to_string(&spec).expect("serialization failed");
-        let parsed: ReproducibleReplaySpec = serde_json::from_str(&json).expect("deserialization failed");
+        let parsed: ReproducibleReplaySpec =
+            serde_json::from_str(&json).expect("deserialization failed");
         assert_eq!(parsed.original_receipt_digest, spec.original_receipt_digest);
         assert_eq!(parsed.input_tokens, spec.input_tokens);
         assert_eq!(parsed.model.id, spec.model.id);

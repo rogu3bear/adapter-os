@@ -1,9 +1,41 @@
 //! Apple Neural Engine (ANE) metrics collection
 //!
 //! Provides ANE-specific metrics collection including:
-//! - ANE memory usage (via CoreML bridge)
+//! - **ANE memory usage** (via CoreML bridge and IOKit on macOS 15+)
 //! - ANE availability and generation detection
-//! - ANE utilization tracking
+//! - ANE utilization and throttling tracking
+//!
+//! ## Data Sources (Priority Order)
+//!
+//! ANE memory statistics are collected using multiple strategies:
+//!
+//! 1. **Instrumented tracking** (best accuracy):
+//!    - Uses `AneMemoryTracker` in the CoreML bridge
+//!    - Call `ffi::record_model_load(id, bytes)` when loading models
+//!    - Call `ffi::record_model_unload(id)` when unloading
+//!    - Provides exact per-model memory accounting
+//!
+//! 2. **IOKit/Metal estimation** (fallback):
+//!    - Queries Metal device `currentAllocatedSize`
+//!    - Estimates ~40% of unified memory to ANE
+//!    - Less accurate but always available on Apple Silicon
+//!
+//! 3. **System memory estimation** (last resort):
+//!    - Estimates ~18% of system RAM for ANE
+//!    - Least accurate, for pre-macOS 15 or fallback scenarios
+//!
+//! ## Accuracy Note
+//!
+//! For production monitoring, **instrument model loads** via the FFI:
+//! ```ignore
+//! use adapteros_lora_kernel_coreml::ffi;
+//! ffi::record_model_load("adapter-abc123", model_size_bytes);
+//! // ... use model ...
+//! ffi::record_model_unload("adapter-abc123");
+//! ```
+//!
+//! Check the `source` field in `AneMemoryStats` to determine which
+//! method was used: "direct" (instrumented), "estimated", or "unavailable".
 //!
 //! Platform: macOS only (gracefully handles non-macOS platforms)
 
@@ -14,18 +46,26 @@ use tracing::debug;
 /// ANE memory statistics
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AneMemoryStats {
-    /// Total ANE-allocated memory in bytes
+    /// Total ANE-allocated memory in MB
     pub allocated_mb: u64,
-    /// Currently used ANE memory in bytes
+    /// Currently used ANE memory in MB
     pub used_mb: u64,
-    /// Available ANE memory in bytes
+    /// Available ANE memory in MB
     pub available_mb: u64,
+    /// Cached models/weights in MB
+    pub cached_mb: u64,
+    /// Peak memory usage in MB (since boot or last reset)
+    pub peak_mb: u64,
     /// Usage percentage (0-100)
     pub usage_percent: f32,
+    /// Whether ANE is thermally throttled
+    pub throttled: bool,
     /// Whether ANE is available on this system
     pub available: bool,
     /// ANE generation (0 if unavailable)
     pub generation: u8,
+    /// Data source: "direct", "estimated", or "unavailable"
+    pub source: String,
 }
 
 /// ANE metrics collector
@@ -158,10 +198,37 @@ impl AneMetricsCollector {
 
     #[cfg(all(target_os = "macos", feature = "coreml"))]
     fn get_ane_stats_from_coreml(&self) -> Option<AneMemoryStats> {
-        // This would query CoreML for ANE-specific memory usage
-        // For now, return None to fall back to estimation
-        // TODO: Implement when CoreML bridge provides ANE memory API
-        None
+        use adapteros_lora_kernel_coreml::ffi;
+
+        let info = ffi::get_ane_memory_info();
+
+        if !info.available {
+            return None;
+        }
+
+        let allocated_mb = info.allocated_bytes / (1024 * 1024);
+        let used_mb = info.used_bytes / (1024 * 1024);
+        let cached_mb = info.cached_bytes / (1024 * 1024);
+        let peak_mb = info.peak_bytes / (1024 * 1024);
+        let available_mb = allocated_mb.saturating_sub(used_mb);
+        let usage_percent = if allocated_mb > 0 {
+            (used_mb as f32 / allocated_mb as f32) * 100.0
+        } else {
+            0.0
+        };
+
+        Some(AneMemoryStats {
+            allocated_mb,
+            used_mb,
+            available_mb,
+            cached_mb,
+            peak_mb,
+            usage_percent,
+            throttled: info.throttled,
+            available: true,
+            generation: self.ane_generation,
+            source: "direct".to_string(),
+        })
     }
 
     #[cfg(target_os = "macos")]
@@ -204,9 +271,13 @@ impl AneMetricsCollector {
             allocated_mb: ane_allocated_mb,
             used_mb: ane_used_mb,
             available_mb: ane_available_mb,
+            cached_mb: 0,
+            peak_mb: 0,
             usage_percent: ane_used_pct as f32,
+            throttled: false,
             available: self.ane_available,
             generation: self.ane_generation,
+            source: "estimated".to_string(),
         }
     }
 
@@ -336,5 +407,26 @@ mod tests {
         assert_eq!(stats.generation, 0);
         assert_eq!(stats.allocated_mb, 0);
         assert_eq!(stats.used_mb, 0);
+        assert_eq!(stats.cached_mb, 0);
+        assert_eq!(stats.peak_mb, 0);
+        assert!(!stats.throttled);
+        assert_eq!(stats.source, "");
+    }
+
+    #[test]
+    fn test_ane_metrics_source_field() {
+        let collector = AneMetricsCollector::new();
+        let stats = collector.collect_metrics();
+
+        // Verify source field is populated
+        #[cfg(target_os = "macos")]
+        {
+            assert!(["direct", "estimated", "unavailable"].contains(&stats.source.as_str()));
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            assert_eq!(stats.source, "unavailable");
+        }
     }
 }

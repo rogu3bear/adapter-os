@@ -19,52 +19,69 @@ using namespace metal;
 
 #include "common.metal"
 
+// Function constants for optimization
+constant bool has_gate_lora = false;
+constant bool has_up_lora = false;
+constant bool has_down_lora = false;
+
 // Fused MLP kernel with SwiGLU activation, LoRA support, and bias
 kernel void fused_mlp(
-    constant MlpParams& params,
+    device const float* input [[buffer(0)]],
+    device float* output [[buffer(1)]],
+    device const float* gate_weight [[buffer(2)]],
+    device const float* up_weight [[buffer(3)]],
+    device const float* down_weight [[buffer(4)]],
+    device const float* gate_bias [[buffer(5)]],
+    device const float* up_bias [[buffer(6)]],
+    device const float* down_bias [[buffer(7)]],
+    device const float* gate_lora_a [[buffer(8)]],
+    device const float* gate_lora_b [[buffer(9)]],
+    device const float* up_lora_a [[buffer(10)]],
+    device const float* up_lora_b [[buffer(11)]],
+    device const float* down_lora_a [[buffer(12)]],
+    device const float* down_lora_b [[buffer(13)]],
+    constant LoraConfig& lora_config [[buffer(14)]],
+    constant RingBuffer& ring_buffer [[buffer(15)]],
+    constant uint& dropout_seed [[buffer(16)]],
+    constant uint& hidden_size [[buffer(17)]],
+    constant uint& intermediate_size [[buffer(18)]],
+    constant uint& batch_size [[buffer(19)]],
+    constant uint& max_adapters [[buffer(20)]],
     uint3 gid [[thread_position_in_grid]]
 ) {
     uint batch_idx = gid.x;
     uint hidden_idx = gid.y;
 
-    if (batch_idx >= params.batch_size || hidden_idx >= params.hidden_size) {
+    if (batch_idx >= batch_size || hidden_idx >= hidden_size) {
         return;
     }
 
-    const uint hidden_size = params.hidden_size;
-    const uint intermediate_size = params.intermediate_size;
-    const uint rank = params.lora_config.rank;
-
-    float output_val = 0.0f;
-    const bool has_gate_lora = (params.gate_lora_a && params.gate_lora_b && rank > 0);
-    const bool has_up_lora   = (params.up_lora_a && params.up_lora_b && rank > 0);
-    const bool has_down_lora = (params.down_lora_a && params.down_lora_b && rank > 0);
-
     // Preload input vector pointer for convenience
-    device const float* input_vec = params.input + batch_idx * hidden_size;
+    device const float* input_vec = input + batch_idx * hidden_size;
+    float output_val = 0.0f;
 
     // Precompute x^T A for gate and up once per token for all adapters
     thread float gate_ax[MAX_ADAPTER_SLOTS * MAX_LORA_RANK];
     thread float up_ax[MAX_ADAPTER_SLOTS * MAX_LORA_RANK];
     if (has_gate_lora) {
         compute_lora_ax_thread(
-            params.gate_lora_a,
+            gate_lora_a,
             input_vec,
             hidden_size,
-            rank,
-            params.ring_buffer,
-            params.max_adapters,
+            lora_config.rank,
+            ring_buffer,
+            max_adapters,
             gate_ax
         );
     }
     if (has_up_lora) {
         compute_lora_ax_thread(
-            params.up_lora_a,
+            up_lora_a,
             input_vec,
             hidden_size,
-            rank,
-            params.ring_buffer,
-            params.max_adapters,
+            lora_config.rank,
+            ring_buffer,
+            max_adapters,
             up_ax
         );
     }
@@ -75,67 +92,67 @@ kernel void fused_mlp(
         float up_val = 0.0f;
         for (uint i = 0; i < hidden_size; ++i) {
             float x = input_vec[i];
-            gate_val = fma(x, params.gate_weight[i * intermediate_size + j], gate_val);
-            up_val   = fma(x, params.up_weight[i * intermediate_size + j],   up_val);
+            gate_val = fma(x, gate_weight[i * intermediate_size + j], gate_val);
+            up_val   = fma(x, up_weight[i * intermediate_size + j],   up_val);
         }
 
         // LoRA deltas via precomputed A*x and adapter-specific B
         if (has_gate_lora) {
-            const uint K = min(params.ring_buffer.top_k, (uint)MAX_ADAPTER_SLOTS);
+            const uint K = min(ring_buffer.top_k, (uint)MAX_ADAPTER_SLOTS);
             for (uint kslot = 0; kslot < K; ++kslot) {
-                uint adapter_id = params.ring_buffer.adapter_indices[kslot];
-                if (adapter_id >= params.max_adapters) { continue; }
-                uint b_base = adapter_id * rank * intermediate_size;
-                for (uint r = 0; r < rank && r < (uint)MAX_LORA_RANK; ++r) {
+                uint adapter_id = ring_buffer.adapter_indices[kslot];
+                if (adapter_id >= max_adapters) { continue; }
+                uint b_base = adapter_id * lora_config.rank * intermediate_size;
+                for (uint r = 0; r < lora_config.rank && r < (uint)MAX_LORA_RANK; ++r) {
                     gate_val = fma(
                         gate_ax[kslot * MAX_LORA_RANK + r],
-                        params.gate_lora_b[b_base + r * intermediate_size + j],
+                        gate_lora_b[b_base + r * intermediate_size + j],
                         gate_val
                     );
                 }
             }
         }
         if (has_up_lora) {
-            const uint K = min(params.ring_buffer.top_k, (uint)MAX_ADAPTER_SLOTS);
+            const uint K = min(ring_buffer.top_k, (uint)MAX_ADAPTER_SLOTS);
             for (uint kslot = 0; kslot < K; ++kslot) {
-                uint adapter_id = params.ring_buffer.adapter_indices[kslot];
-                if (adapter_id >= params.max_adapters) { continue; }
-                uint b_base = adapter_id * rank * intermediate_size;
-                for (uint r = 0; r < rank && r < (uint)MAX_LORA_RANK; ++r) {
+                uint adapter_id = ring_buffer.adapter_indices[kslot];
+                if (adapter_id >= max_adapters) { continue; }
+                uint b_base = adapter_id * lora_config.rank * intermediate_size;
+                for (uint r = 0; r < lora_config.rank && r < (uint)MAX_LORA_RANK; ++r) {
                     up_val = fma(
                         up_ax[kslot * MAX_LORA_RANK + r],
-                        params.up_lora_b[b_base + r * intermediate_size + j],
+                        up_lora_b[b_base + r * intermediate_size + j],
                         up_val
                     );
                 }
             }
         }
 
-        if (params.gate_bias) { gate_val += params.gate_bias[j]; }
-        if (params.up_bias)   { up_val   += params.up_bias[j]; }
+        if (gate_bias) { gate_val += gate_bias[j]; }
+        if (up_bias)   { up_val   += up_bias[j]; }
 
         float activated = deterministic_silu(gate_val);
-        if (params.lora_config.dropout_rate > 0.0f) {
+        if (lora_config.dropout_rate > 0.0f) {
             uint dropout_position = batch_idx * hidden_size * intermediate_size + hidden_idx * intermediate_size + j;
-            float mask = deterministic_dropout(params.dropout_seed, dropout_position, params.lora_config.dropout_rate);
+            float mask = deterministic_dropout(dropout_seed, dropout_position, lora_config.dropout_rate);
             activated *= mask;
         }
 
         float intermediate_val = activated * up_val;
 
         // Down projection (base + LoRA for current j, hidden_idx)
-        float down_val = params.down_weight[j * hidden_size + hidden_idx];
+        float down_val = down_weight[j * hidden_size + hidden_idx];
         if (has_down_lora) {
-            const uint K = min(params.ring_buffer.top_k, (uint)MAX_ADAPTER_SLOTS);
+            const uint K = min(ring_buffer.top_k, (uint)MAX_ADAPTER_SLOTS);
             for (uint kslot = 0; kslot < K; ++kslot) {
-                uint adapter_id = params.ring_buffer.adapter_indices[kslot];
-                if (adapter_id >= params.max_adapters) { continue; }
-                float gate = q15_to_float(params.ring_buffer.gates[kslot]);
-                uint a_base = adapter_id * intermediate_size * rank;
-                uint b_base = adapter_id * rank * hidden_size;
-                for (uint r = 0; r < rank && r < (uint)MAX_LORA_RANK; ++r) {
-                    float a = params.down_lora_a[a_base + j * rank + r];
-                    float b = params.down_lora_b[b_base + r * hidden_size + hidden_idx];
+                uint adapter_id = ring_buffer.adapter_indices[kslot];
+                if (adapter_id >= max_adapters) { continue; }
+                float gate = q15_to_float(ring_buffer.gates[kslot]);
+                uint a_base = adapter_id * intermediate_size * lora_config.rank;
+                uint b_base = adapter_id * lora_config.rank * hidden_size;
+                for (uint r = 0; r < lora_config.rank && r < (uint)MAX_LORA_RANK; ++r) {
+                    float a = down_lora_a[a_base + j * lora_config.rank + r];
+                    float b = down_lora_b[b_base + r * hidden_size + hidden_idx];
                     down_val = fma(gate * a, b, down_val);
                 }
             }
@@ -144,9 +161,9 @@ kernel void fused_mlp(
         output_val += intermediate_val * down_val;
     }
 
-    if (params.down_bias) {
-        output_val += params.down_bias[hidden_idx];
+    if (down_bias) {
+        output_val += down_bias[hidden_idx];
     }
 
-    params.output[batch_idx * hidden_size + hidden_idx] = output_val;
+    output[batch_idx * hidden_size + hidden_idx] = output_val;
 }

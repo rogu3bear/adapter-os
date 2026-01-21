@@ -14,9 +14,7 @@ use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criteri
 use std::time::{Duration, Instant};
 
 // Router imports
-use adapteros_lora_router::{
-    policy_mask::PolicyMask, AdapterInfo, Router, RouterWeights,
-};
+use adapteros_lora_router::{policy_mask::PolicyMask, AdapterInfo, Router, RouterWeights};
 use adapteros_policy::packs::router::RouterConfig;
 
 /// Generate test adapter info for benchmarking
@@ -24,6 +22,7 @@ fn generate_adapter_info(count: usize) -> Vec<AdapterInfo> {
     (0..count)
         .map(|i| AdapterInfo {
             id: format!("adapter_{}", i),
+            stable_id: i as u64,
             framework: if i % 3 == 0 {
                 Some("django".to_string())
             } else if i % 3 == 1 {
@@ -40,6 +39,11 @@ fn generate_adapter_info(count: usize) -> Vec<AdapterInfo> {
             scope_path: Some(format!("/src/module_{}", i % 10)),
             lora_tier: Some(format!("tier_{}", i % 3)),
             base_model: Some("qwen-7b".to_string()),
+            recommended_for_moe: true,
+            reasoning_specialties: Vec::new(),
+            adapter_type: Some("standard".to_string()),
+            stream_session_id: None,
+            base_adapter_id: None,
         })
         .collect()
 }
@@ -52,7 +56,7 @@ fn generate_features() -> Vec<f32> {
         0.5, // Symbol hits (1)
         0.7, // Path tokens (1)
         0.4, 0.3, 0.15, 0.1, 0.03, 0.01, 0.005, 0.005, // Prompt verb scores (8)
-        0.45, // Attention entropy (1)
+        0.45,  // Attention entropy (1)
     ]
 }
 
@@ -179,9 +183,8 @@ fn bench_routing_overhead(c: &mut Criterion) {
                 }
 
                 // Calculate overhead percentage
-                let overhead_pct = (total_routing_time.as_secs_f64()
-                    / total_inference_time.as_secs_f64())
-                    * 100.0;
+                let overhead_pct =
+                    (total_routing_time.as_secs_f64() / total_inference_time.as_secs_f64()) * 100.0;
 
                 eprintln!(
                     "Routing overhead for {}: {:.2}% (target: <5%, ruleset: <8%)",
@@ -214,28 +217,21 @@ fn bench_routing_with_policy_mask(c: &mut Criterion) {
     // Test different policy scenarios
     let scenarios = [
         ("no_restrictions", PolicyMask::allow_all(&adapter_ids, None)),
-        (
-            "block_50_percent",
-            {
-                let mut mask = PolicyMask::allow_all(&adapter_ids, None);
-                for i in (0..adapter_count).step_by(2) {
-                    mask.block_adapter(&adapter_ids[i]);
-                }
-                mask
-            },
-        ),
-        (
-            "allow_only_tier_0",
-            {
-                let mut mask = PolicyMask::deny_all(&adapter_ids, None);
-                for (i, info) in adapter_info.iter().enumerate() {
-                    if info.lora_tier.as_deref() == Some("tier_0") {
-                        mask.allow_adapter(&adapter_ids[i]);
-                    }
-                }
-                mask
-            },
-        ),
+        ("block_50_percent", {
+            let blocked_ids: Vec<String> = (0..adapter_count)
+                .step_by(2)
+                .map(|i| adapter_ids[i].clone())
+                .collect();
+            PolicyMask::build(&adapter_ids, None, Some(&blocked_ids), None, None, None)
+        }),
+        ("allow_only_tier_0", {
+            let allowed_ids: Vec<String> = adapter_info
+                .iter()
+                .filter(|info| info.lora_tier.as_deref() == Some("tier_0"))
+                .map(|info| info.id.clone())
+                .collect();
+            PolicyMask::build(&adapter_ids, Some(&allowed_ids), None, None, None, None)
+        }),
     ];
 
     for (scenario_name, policy_mask) in scenarios {

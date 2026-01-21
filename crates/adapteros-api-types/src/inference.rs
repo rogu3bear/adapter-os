@@ -136,6 +136,43 @@ impl StopPolicySpec {
     }
 }
 
+/// Context request for inference with UI context toggles.
+///
+/// Allows the UI to inject contextual information into inference requests,
+/// such as the current page being viewed, recent system logs, or a system
+/// health snapshot. The server processes these flags and fetches the
+/// appropriate context data to augment the prompt.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct ContextRequest {
+    /// Include current page context (navigation path, selected entity)
+    #[serde(default)]
+    pub include_page_context: bool,
+    /// Include recent system logs (last 200 lines)
+    #[serde(default)]
+    pub include_recent_logs: bool,
+    /// Include system health snapshot (workers, memory, health)
+    #[serde(default)]
+    pub include_system_snapshot: bool,
+    /// Current page path (e.g., "/adapters/my-adapter")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page_path: Option<String>,
+    /// Type of selected entity (e.g., "adapter", "job")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entity_type: Option<String>,
+    /// ID of selected entity
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entity_id: Option<String>,
+}
+
+impl ContextRequest {
+    /// Returns true if any context flags are enabled
+    pub fn has_any_context(&self) -> bool {
+        self.include_page_context || self.include_recent_logs || self.include_system_snapshot
+    }
+}
+
 /// Inference request
 #[cfg(feature = "server")]
 pub type InferRequest = RootInferRequest<BackendKind, FusionInterval, StopPolicySpec>;

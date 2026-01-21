@@ -4,6 +4,7 @@
 //!
 //! 【2025-01-25†prd-ux-01†chat_sessions_collection】
 
+use crate::api_error::{ApiError, ApiResult};
 use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
@@ -12,7 +13,6 @@ use crate::types::ErrorResponse;
 use adapteros_db::ChatSession;
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
     Extension, Json,
 };
 use tracing::info;
@@ -41,36 +41,18 @@ pub async fn update_session_collection(
     Extension(claims): Extension<Claims>,
     Path(session_id): Path<String>,
     Json(request): Json<UpdateCollectionRequest>,
-) -> Result<Json<ChatSession>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<ChatSession> {
     // Permission check
-    require_permission(&claims, Permission::InferenceExecute).map_err(|_e| {
-        (
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Permission denied").with_code("FORBIDDEN")),
-        )
-    })?;
+    require_permission(&claims, Permission::InferenceExecute)
+        .map_err(|_e| ApiError::forbidden("Permission denied"))?;
 
     // Verify session exists and tenant has access
     let session = state
         .db
         .get_chat_session(&session_id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to get session")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("Session not found").with_code("NOT_FOUND")),
-            )
-        })?;
+        .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?
+        .ok_or_else(|| ApiError::not_found("Session"))?;
 
     // Tenant isolation check
     validate_tenant_isolation(&claims, &session.tenant_id)?;
@@ -80,41 +62,15 @@ pub async fn update_session_collection(
         .db
         .update_session_collection(&session_id, request.collection_id.clone())
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to update collection")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+        .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?;
 
     // Retrieve updated session
     let updated_session = state
         .db
         .get_chat_session(&session_id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to retrieve updated session")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Session not found after update")
-                        .with_code("INTERNAL_ERROR"),
-                ),
-            )
-        })?;
+        .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?
+        .ok_or_else(|| ApiError::internal("Session not found after update"))?;
 
     info!(
         session_id = %session_id,

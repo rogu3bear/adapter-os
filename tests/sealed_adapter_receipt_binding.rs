@@ -12,8 +12,8 @@
 //! 6. Receipt digest computation produces deterministic output
 
 use adapteros_aos::{
-    AdapterBundle, AdapterMetadata, LoadResult, RejectionReason, SealedAdapterLoader,
-    SealedContainerHeader, VerifiedAdapter, SEALED_CONTAINER_VERSION, SEALED_HEADER_SIZE,
+    AdapterMetadata, LoadResult, RejectionReason, SealedAdapterLoader, SealedContainerHeader,
+    SEALED_CONTAINER_VERSION, SEALED_HEADER_SIZE,
 };
 use adapteros_core::{
     context_manifest::{ContextAdapterEntryV1, ContextManifestV1},
@@ -86,8 +86,13 @@ fn test_sealed_adapter_weights_hash_flows_to_context_manifest() {
     // Step 2: Extract verified adapter and get weights_hash
     let verified = match result {
         LoadResult::Verified(v) => *v,
-        LoadResult::Rejected { reason, message, .. } => {
-            panic!("Expected verified adapter, got rejection: {:?} - {}", reason, message);
+        LoadResult::Rejected {
+            reason, message, ..
+        } => {
+            panic!(
+                "Expected verified adapter, got rejection: {:?} - {}",
+                reason, message
+            );
         }
     };
 
@@ -264,7 +269,10 @@ fn test_tampered_adapter_is_rejected() {
     match result {
         LoadResult::Rejected { reason, .. } => {
             assert!(
-                matches!(reason, RejectionReason::IntegrityMismatch | RejectionReason::PayloadCorrupted),
+                matches!(
+                    reason,
+                    RejectionReason::IntegrityMismatch | RejectionReason::PayloadCorrupted
+                ),
                 "Tampered adapter should be rejected with integrity error"
             );
         }

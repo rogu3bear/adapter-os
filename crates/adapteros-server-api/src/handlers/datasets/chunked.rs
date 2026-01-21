@@ -108,7 +108,7 @@ pub async fn persist_chunk(
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
                 schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-                error: format!(
+                message: format!(
                     "Invalid chunk index {}. Expected 0-{} for {} total chunks",
                     chunk_index,
                     expected_chunks - 1,
@@ -117,6 +117,8 @@ pub async fn persist_chunk(
                 code: "INVALID_CHUNK_INDEX".to_string(),
                 failure_code: None,
                 details: None,
+                hint: None,
+                request_id: None,
             }),
         ));
     }
@@ -162,13 +164,15 @@ pub async fn persist_chunk(
             StatusCode::CONFLICT,
             Json(ErrorResponse {
                 schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-                error: format!(
+                message: format!(
                     "Chunk {} has already been uploaded with a different hash",
                     chunk_index
                 ),
                 code: "CHUNK_HASH_MISMATCH".to_string(),
                 failure_code: None,
                 details: None,
+                hint: None,
+                request_id: None,
             }),
         ));
     }
@@ -180,7 +184,7 @@ pub async fn persist_chunk(
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
                 schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-                error: format!(
+                message: format!(
                     "Invalid chunk size {}. Expected {} bytes for chunk {}",
                     body.len(),
                     expected_chunk_size,
@@ -189,6 +193,8 @@ pub async fn persist_chunk(
                 code: "INVALID_CHUNK_SIZE".to_string(),
                 failure_code: None,
                 details: None,
+                hint: None,
+                request_id: None,
             }),
         ));
     }

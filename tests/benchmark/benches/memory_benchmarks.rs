@@ -1,10 +1,10 @@
-#![cfg(all(test, feature = "extended-tests"))]
+// Memory benchmarks and utilities
+use adapteros_benchmarks::utils;
+use adapteros_memory::{AllocationRequest, MemoryType, UnifiedMemoryManager, UnifiedMemoryTracker};
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use adapteros_benchmarks::*;
-use adapteros_memory::{MemoryPool, MemoryTracker, AllocationStrategy};
 use std::sync::Arc;
-use tokio::runtime::Runtime;
 use std::thread;
+use tokio::runtime::Runtime;
 
 /// Benchmark memory allocation patterns
 fn bench_memory_allocation(c: &mut Criterion) {
@@ -23,13 +23,21 @@ fn bench_memory_allocation(c: &mut Criterion) {
             });
         }
 
-        // Benchmark memory pool allocation
-        let memory_pool = Arc::new(MemoryPool::new(1024 * 1024 * 100).unwrap()); // 100MB pool
+        // Initialize memory manager and pool
+        let mut manager = UnifiedMemoryManager::new(1024 * 1024 * 100);
+        manager.init_pool("bench", 1024 * 1024 * 100).unwrap();
+        let memory_manager = Arc::new(manager);
 
         for &size in &sizes {
             c.bench_function(&format!("memory_pool_allocation_{}b", size), |b| {
                 b.iter(|| {
-                    let buffer = memory_pool.allocate(size).unwrap();
+                    let request = AllocationRequest {
+                        size,
+                        backend: "bench".to_string(),
+                        alignment: 16,
+                        memory_type: MemoryType::GPU,
+                    };
+                    let buffer = memory_manager.allocate(request).unwrap();
                     black_box(buffer);
                 })
             });
@@ -60,7 +68,7 @@ fn bench_memory_access_patterns(c: &mut Criterion) {
         });
 
         // Benchmark random access
-        let indices: Vec<usize> = (0..data.len()).collect();
+        let _indices: Vec<usize> = (0..data.len()).collect();
         let mut rng = utils::DeterministicRng::new(42);
 
         c.bench_function("memory_random_access_64mb", |b| {
@@ -156,15 +164,17 @@ fn bench_concurrent_memory(c: &mut Criterion) {
         // Benchmark concurrent allocations
         c.bench_function("concurrent_memory_allocation_4_threads", |b| {
             b.iter(|| {
-                let handles: Vec<_> = (0..4).map(|_| {
-                    thread::spawn(|| {
-                        let mut allocations = Vec::new();
-                        for _ in 0..100 {
-                            allocations.push(vec![0u8; 64 * 1024]); // 64KB each
-                        }
-                        allocations
+                let handles: Vec<_> = (0..4)
+                    .map(|_| {
+                        thread::spawn(|| {
+                            let mut allocations = Vec::new();
+                            for _ in 0..100 {
+                                allocations.push(vec![0u8; 64 * 1024]); // 64KB each
+                            }
+                            allocations
+                        })
                     })
-                }).collect();
+                    .collect();
 
                 let mut total_size = 0;
                 for handle in handles {
@@ -176,28 +186,39 @@ fn bench_concurrent_memory(c: &mut Criterion) {
             })
         });
 
-        // Benchmark shared memory pool contention
-        let memory_pool = Arc::new(MemoryPool::new(1024 * 1024 * 50).unwrap()); // 50MB pool
+        // Benchmark memory pool contention across 8 threads
+        // Tests true contention on a shared memory pool with proper thread-safe MemoryBlock
+        let mut manager = UnifiedMemoryManager::new(1024 * 1024 * 50);
+        manager.init_pool("bench", 1024 * 1024 * 50).unwrap();
+        let memory_manager = Arc::new(manager);
 
         c.bench_function("memory_pool_contention_8_threads", |b| {
             b.iter(|| {
-                let pool = Arc::clone(&memory_pool);
-                let handles: Vec<_> = (0..8).map(|_| {
-                    let pool_clone = Arc::clone(&pool);
-                    thread::spawn(move || {
-                        let mut allocations = Vec::new();
-                        for _ in 0..50 {
-                            let buffer = pool_clone.allocate(64 * 1024).unwrap(); // 64KB
-                            allocations.push(buffer);
-                        }
-                        allocations
+                let manager_clone = Arc::clone(&memory_manager);
+                let handles: Vec<_> = (0..8)
+                    .map(|_| {
+                        let inner_manager = Arc::clone(&manager_clone);
+                        thread::spawn(move || {
+                            let mut count = 0;
+                            for _ in 0..50 {
+                                let request = AllocationRequest {
+                                    size: 64 * 1024,
+                                    backend: "bench".to_string(),
+                                    alignment: 16,
+                                    memory_type: MemoryType::GPU,
+                                };
+                                let _buffer = inner_manager.allocate(request).unwrap();
+                                count += 1;
+                            }
+                            count
+                        })
                     })
-                }).collect();
+                    .collect();
 
                 let mut total_allocations = 0;
                 for handle in handles {
-                    let allocations = handle.join().unwrap();
-                    total_allocations += allocations.len();
+                    let count = handle.join().unwrap();
+                    total_allocations += count;
                 }
 
                 black_box(total_allocations);
@@ -211,41 +232,18 @@ fn bench_memory_tracking(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
 
     rt.block_on(async {
-        // Benchmark memory tracker
-        let tracker = MemoryTracker::new();
-
+        // Benchmark memory tracking overhead
+        let tracker = UnifiedMemoryTracker::new(adapteros_memory::MemoryLimits::new(
+            8 * 1024 * 1024 * 1024,
+            16 * 1024 * 1024 * 1024,
+            0.15,
+        ));
         c.bench_function("memory_tracking_overhead", |b| {
             b.iter(|| {
-                let allocation_id = tracker.allocate(1024 * 1024).unwrap(); // 1MB
-                tracker.record_access(allocation_id, 0, 1024).unwrap();
-                tracker.deallocate(allocation_id).unwrap();
+                let pressure = tracker.check_memory_pressure();
+                black_box(pressure);
             })
         });
-
-        // Benchmark allocation strategy selection
-        let strategies = vec![
-            AllocationStrategy::FirstFit,
-            AllocationStrategy::BestFit,
-            AllocationStrategy::WorstFit,
-        ];
-
-        for strategy in strategies {
-            c.bench_function(&format!("allocation_strategy_{:?}", strategy), |b| {
-                let mut pool = MemoryPool::new(1024 * 1024 * 10).unwrap(); // 10MB
-                pool.set_strategy(strategy);
-
-                b.iter(|| {
-                    let mut allocations = Vec::new();
-                    // Allocate various sizes to test strategy
-                    for size in [1024, 2048, 4096, 8192, 16384] {
-                        if let Ok(buffer) = pool.allocate(size) {
-                            allocations.push(buffer);
-                        }
-                    }
-                    black_box(allocations.len());
-                })
-            });
-        }
     });
 }
 
@@ -271,7 +269,9 @@ fn bench_memory_mapped_files(c: &mut Criterion) {
         // Benchmark memory-mapped file access
         c.bench_function("memory_mapped_file_64mb", |b| {
             b.iter(|| {
-                let mmap = unsafe { memmap2::Mmap::map(&fs::File::open(temp_file.path()).unwrap()).unwrap() };
+                let mmap = unsafe {
+                    memmap2::Mmap::map(&fs::File::open(temp_file.path()).unwrap()).unwrap()
+                };
                 let mut sum = 0u64;
 
                 // Access every 1024th byte to simulate sparse access
@@ -300,13 +300,13 @@ fn bench_memory_mapped_files(c: &mut Criterion) {
 }
 
 criterion_group!(
-    name = memory_benches;
-    config = Criterion::default()
-        .sample_size(50)
-        .measurement_time(std::time::Duration::from_secs(15))
-        .noise_threshold(0.05);
-    targets = bench_memory_allocation, bench_memory_access_patterns, bench_memory_pressure,
-             bench_concurrent_memory, bench_memory_tracking, bench_memory_mapped_files
+    benches,
+    bench_memory_allocation,
+    bench_memory_access_patterns,
+    bench_memory_pressure,
+    bench_concurrent_memory,
+    bench_memory_tracking,
+    bench_memory_mapped_files
 );
 
-criterion_main!(memory_benches);
+criterion_main!(benches);

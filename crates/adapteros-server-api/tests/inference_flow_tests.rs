@@ -1,4 +1,3 @@
-use adapteros_api_types::ErrorResponse;
 use adapteros_api_types::InferRequest;
 use adapteros_core::identity::IdentityEnvelope;
 use adapteros_core::version::API_SCHEMA_VERSION;
@@ -407,7 +406,6 @@ async fn not_ready_model_fails_fast_with_model_not_ready_code() {
     .await
     .expect_err("inference should fail fast when model is not ready");
 
-    let (status, Json(body)): (StatusCode, Json<ErrorResponse>) = err;
-    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
-    assert_eq!(body.code, "MODEL_NOT_READY");
+    assert_eq!(err.status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(err.code, "MODEL_NOT_READY");
 }

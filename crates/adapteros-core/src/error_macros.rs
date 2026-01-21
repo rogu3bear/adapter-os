@@ -386,7 +386,7 @@ mod tests {
     #[derive(Debug, PartialEq)]
     enum LocalError {
         Parse(String),
-        Network(String),
+        // Network(String),
     }
 
     impl_error_from_for!(LocalError: std::num::ParseIntError => Parse);
@@ -398,7 +398,6 @@ mod tests {
         let local_err: LocalError = err.into();
         match local_err {
             LocalError::Parse(msg) => assert!(msg.contains("invalid")),
-            _ => panic!("Expected Parse variant"),
         }
     }
 
@@ -420,7 +419,9 @@ mod tests {
 
     impl std::error::Error for OuterError {
         fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-            self.source.as_ref().map(|e| e as &(dyn std::error::Error + 'static))
+            self.source
+                .as_ref()
+                .map(|e| e as &(dyn std::error::Error + 'static))
         }
     }
 

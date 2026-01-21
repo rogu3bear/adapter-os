@@ -89,6 +89,7 @@ pub mod repos;
 pub mod review;
 pub mod router_config;
 pub mod routing_decisions;
+pub mod routing_rules;
 pub mod run_evidence;
 pub mod runtime;
 pub mod search;

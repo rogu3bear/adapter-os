@@ -54,7 +54,6 @@ pub struct DatasetEntry {
     pub notes: Option<String>,
 }
 
-
 /// Load training examples from a manifest using the provided tokenizer.
 pub fn load_examples_from_manifest<P: AsRef<Path>>(
     manifest_path: P,
@@ -203,9 +202,8 @@ where
                 ))
             })?;
 
-            let is_supervised = obj.len() == 2
-                && obj.contains_key("prompt")
-                && obj.contains_key("completion");
+            let is_supervised =
+                obj.len() == 2 && obj.contains_key("prompt") && obj.contains_key("completion");
             let is_raw = obj.len() == 1 && obj.contains_key("text");
 
             if !is_supervised && !is_raw {
@@ -381,8 +379,8 @@ where
                     break;
                 }
 
-                total_tokens = total_tokens
-                    .saturating_add((input_tokens.len() + target_tokens.len()) as u64);
+                total_tokens =
+                    total_tokens.saturating_add((input_tokens.len() + target_tokens.len()) as u64);
                 if total_tokens > limits.max_tokens {
                     return Err(AosError::Training(format!(
                         "Dataset token count exceeds limit: {} > {}",

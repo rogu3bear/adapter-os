@@ -31,13 +31,10 @@ pub fn TrainingJobDetail(
         async move { client.get_training_job(&id).await }
     });
 
-    // Store refetch in a signal for sharing
-    let refetch_signal = StoredValue::new(refetch);
-
     // Poll for updates on running jobs
     // Return value (stop fn) intentionally ignored - polling runs until unmount
     let _ = use_polling(3000, move || async move {
-        refetch_signal.with_value(|f| f());
+        refetch.run(());
     });
 
     // Cancel job handler
@@ -131,7 +128,7 @@ pub fn TrainingJobDetail(
                         view! {
                             <ErrorDisplay
                                 error=e
-                                on_retry=Callback::new(move |_| refetch_signal.with_value(|f| f()))
+                                on_retry=Callback::new(move |_| refetch.run(()))
                             />
                         }.into_any()
                     }

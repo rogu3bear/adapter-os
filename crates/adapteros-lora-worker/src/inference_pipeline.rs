@@ -23,8 +23,8 @@ use adapteros_policy::{
     packs::determinism::{
         DeterminismConfig, DeterminismPolicy, EnforcementMode, OperationValidation,
     },
-    PolicyDecisionChain, PolicyEngine, QuarantineManager, QuarantineOperation,
-    ThreatAssessment, ThreatSeverity,
+    PolicyDecisionChain, PolicyEngine, QuarantineManager, QuarantineOperation, ThreatAssessment,
+    ThreatSeverity,
 };
 use adapteros_telemetry::events::{
     AbstainEvent, PerformanceBudgetViolationEvent, RouterCandidate, RouterDecisionEvent,
@@ -42,7 +42,8 @@ use tracing::{debug, info, warn};
 use crate::backend_factory::KernelBox;
 use crate::generation::Generator;
 use crate::reasoning_router::{
-    FastEmbedder, ReasoningRouterConfig, ReasoningScorer, StreamInspector, ThoughtTransition,
+    Embedder, EmbedderType, FastEmbedder, ReasoningRouterConfig, ReasoningScorer, StreamInspector,
+    ThoughtTransition, TinyBertEmbedder,
 };
 use crate::router_bridge::decision_to_router_ring;
 use crate::stop_controller::StopController;
@@ -932,7 +933,30 @@ impl InferencePipeline {
         );
 
         // Reasoning router setup
-        let embedder = FastEmbedder::default_quantized();
+        let embedder = match reasoning_config.embedder_type {
+            EmbedderType::Hashed => Arc::new(Embedder::Hashed(FastEmbedder::default_quantized())),
+            EmbedderType::TinyBert => {
+                let model_path = reasoning_config
+                    .model_path
+                    .as_ref()
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or_else(|| {
+                        std::path::PathBuf::from("var/models/tiny-bert-4bit-ane.mlpackage")
+                    });
+
+                match TinyBertEmbedder::load(model_path, None) {
+                    Ok(e) => Arc::new(Embedder::TinyBert(Box::new(e))),
+                    Err(e) => {
+                        warn!(
+                            "Failed to load Tiny-BERT embedder, falling back to Hashed: {}",
+                            e
+                        );
+                        Arc::new(Embedder::Hashed(FastEmbedder::default_quantized()))
+                    }
+                }
+            }
+        };
+
         let scorer = ReasoningScorer::from_adapter_ids(&adapter_ids, &embedder);
         let initial_cluster = adapter_ids
             .first()

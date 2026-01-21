@@ -509,6 +509,7 @@ fn create_test_config(global_determinism: Option<&str>, use_session_stack: bool)
         seed_mode: SeedMode::BestEffort,
         backend_profile: BackendKind::Auto,
         worker_id: 0,
+        rate_limit: None,
     }
 }
 

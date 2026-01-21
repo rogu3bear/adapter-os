@@ -1,5 +1,7 @@
 #![allow(unused_variables)]
 
+use crate::adapter_helpers::fetch_adapter_for_tenant;
+use crate::api_error::{ApiError, ApiResult};
 use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
@@ -1216,30 +1218,8 @@ pub async fn promote_adapter_version_handler(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
-) -> Result<Json<AdapterResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let adapter = state
-        .db
-        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
-            )
-        })?;
-
-    // Validate tenant isolation
-    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
+) -> ApiResult<AdapterResponse> {
+    let adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;
 
     let (total, selected, avg_gate) = state
         .db

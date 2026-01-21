@@ -44,9 +44,9 @@ impl RmsNormKernel {
     pub fn new(device: Arc<Device>, config: RmsNormConfig) -> Result<Self> {
         let command_queue = device.new_command_queue();
 
-        // Load library and create pipeline
+        // Load library from embedded bytes
         let library = device
-            .new_library_with_data(include_bytes!("../shaders/aos_kernels.metallib"))
+            .new_library_with_data(crate::METALLIB_BYTES)
             .map_err(|e| AosError::Kernel(format!("Failed to load library: {}", e)))?;
 
         let function = library

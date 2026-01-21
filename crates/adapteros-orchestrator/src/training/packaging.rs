@@ -249,10 +249,7 @@ pub(crate) async fn package_and_register_adapter(
             "best-effort".to_string()
         },
     );
-    package_metadata.insert(
-        "determinism_tier".to_string(),
-        determinism_tier.to_string(),
-    );
+    package_metadata.insert("determinism_tier".to_string(), determinism_tier.to_string());
     package_metadata.insert("quantization".to_string(), "q15".to_string());
     package_metadata.insert(
         "gate_q15_denominator".to_string(),

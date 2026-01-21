@@ -30,4 +30,5 @@ pub use registration::{
 };
 
 #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
+#[allow(unused_imports)]
 pub use coreml::*;

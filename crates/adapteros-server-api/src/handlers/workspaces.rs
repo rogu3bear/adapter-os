@@ -4,6 +4,7 @@
 //! Workspaces enable cross-tenant collaboration while maintaining tenant isolation.
 
 use crate::audit_helper::{actions, log_success_or_warn, resources};
+use crate::error_helpers::internal_error_msg as internal_error;
 use crate::handlers::{AppState, Claims, ErrorResponse};
 use crate::permissions::{require_permission, Permission};
 use crate::uds_client::UdsClient;
@@ -1905,17 +1906,6 @@ fn not_found_response(entity: &str, id: &str) -> (StatusCode, Json<ErrorResponse
             ErrorResponse::new(format!("{entity} not found"))
                 .with_code("NOT_FOUND")
                 .with_string_details(format!("{entity} '{id}' does not exist")),
-        ),
-    )
-}
-
-fn internal_error<E: ToString>(message: &str, err: E) -> (StatusCode, Json<ErrorResponse>) {
-    (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        Json(
-            ErrorResponse::new(message)
-                .with_code("INTERNAL_ERROR")
-                .with_string_details(err.to_string()),
         ),
     )
 }

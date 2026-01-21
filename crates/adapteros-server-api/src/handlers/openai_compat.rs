@@ -232,7 +232,8 @@ pub async fn chat_completions(
     .await
     {
         Ok(Json(r)) => r,
-        Err((status, Json(err))) => {
+        Err(api_error) => {
+            let (status, Json(err)): (StatusCode, Json<ErrorResponse>) = api_error.into();
             return Err((status, Json(map_adapteros_error_to_openai(err))));
         }
     };
@@ -271,7 +272,7 @@ pub async fn chat_completions(
 }
 
 fn map_adapteros_error_to_openai(err: ErrorResponse) -> OpenAiErrorResponse {
-    let mut message = err.error;
+    let mut message = err.message;
     if let Some(details) = err.details {
         if let Ok(details_str) = serde_json::to_string(&details) {
             message = format!("{} ({})", message, details_str);

@@ -760,7 +760,12 @@ impl PrefixKvCache {
     }
 }
 
-// Thread safety markers
+// SAFETY: PrefixKvCache is Send+Sync because:
+// - `entries`: RwLock<HashMap<...>> is Send+Sync when K/V are Send+Sync
+// - `used_bytes`: AtomicU64 is Send+Sync
+// - `stats`: parking_lot::Mutex<...> is Send+Sync when T is Send
+// - `singleflight`: SingleFlightSync<...> is Send+Sync by design
+// - All interior mutability uses proper synchronization primitives
 unsafe impl Send for PrefixKvCache {}
 unsafe impl Sync for PrefixKvCache {}
 

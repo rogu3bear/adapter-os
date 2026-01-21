@@ -530,10 +530,13 @@ mod validation_engine {
 
         let temp_dir = new_test_tempdir()?;
         let test_file = temp_dir.path().join("config.toml");
-        tokio::fs::write(&test_file, r#"[section]
+        tokio::fs::write(
+            &test_file,
+            r#"[section]
 key = "value"
-number = 42"#)
-            .await?;
+number = 42"#,
+        )
+        .await?;
 
         let result = engine.validate_file_detailed(&test_file).await?;
         assert!(result.is_valid, "Valid TOML should pass validation");
@@ -547,9 +550,12 @@ number = 42"#)
 
         let temp_dir = new_test_tempdir()?;
         let test_file = temp_dir.path().join("invalid.toml");
-        tokio::fs::write(&test_file, r#"[section
-key = "value""#)
-            .await?; // Missing closing bracket
+        tokio::fs::write(
+            &test_file,
+            r#"[section
+key = "value""#,
+        )
+        .await?; // Missing closing bracket
 
         let result = engine.validate_file_detailed(&test_file).await?;
         assert!(!result.is_valid, "Invalid TOML should fail validation");
@@ -724,7 +730,10 @@ mod corruption_detection {
         let test_file = temp_dir.path().join("nonexistent.txt");
 
         let result = detector.detect_corruption(&test_file).await?;
-        assert!(!result.is_corrupted, "Nonexistent file should not be marked corrupted");
+        assert!(
+            !result.is_corrupted,
+            "Nonexistent file should not be marked corrupted"
+        );
         assert!(result.details.contains("does not exist"));
 
         Ok(())
@@ -739,7 +748,10 @@ mod corruption_detection {
         tokio::fs::write(&test_file, "valid content without issues").await?;
 
         let result = detector.detect_corruption(&test_file).await?;
-        assert!(!result.is_corrupted, "Valid file should not be marked corrupted");
+        assert!(
+            !result.is_corrupted,
+            "Valid file should not be marked corrupted"
+        );
 
         Ok(())
     }
@@ -778,7 +790,10 @@ mod corruption_detection {
         tokio::fs::write(test_dir.join("file2.txt"), "content2").await?;
 
         let result = detector.detect_corruption(&test_dir).await?;
-        assert!(!result.is_corrupted, "Valid directory should not be marked corrupted");
+        assert!(
+            !result.is_corrupted,
+            "Valid directory should not be marked corrupted"
+        );
 
         Ok(())
     }
@@ -811,7 +826,10 @@ mod corruption_detection {
         tokio::fs::write(&test_file, "").await?;
 
         let result = detector.detect_corruption(&test_file).await?;
-        assert!(!result.is_corrupted, "Empty file should not be marked corrupted");
+        assert!(
+            !result.is_corrupted,
+            "Empty file should not be marked corrupted"
+        );
 
         Ok(())
     }
@@ -996,8 +1014,13 @@ mod integration {
 
         // Non-existent directory
         let nonexistent_dir = temp_dir.path().join("nonexistent");
-        let is_valid = manager.validate_directory_integrity(&nonexistent_dir).await?;
-        assert!(!is_valid, "Nonexistent directory should fail integrity check");
+        let is_valid = manager
+            .validate_directory_integrity(&nonexistent_dir)
+            .await?;
+        assert!(
+            !is_valid,
+            "Nonexistent directory should fail integrity check"
+        );
 
         Ok(())
     }

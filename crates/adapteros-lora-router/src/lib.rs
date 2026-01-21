@@ -10,6 +10,7 @@ pub mod code_features;
 pub mod constants;
 pub mod features;
 pub mod framework_routing;
+pub mod identity_boost;
 pub mod layer_routing;
 pub mod metrics;
 pub mod orthogonal;
@@ -36,6 +37,7 @@ pub use features::{
 pub use framework_routing::{
     compute_framework_scores, FrameworkRoutingContext, FrameworkRoutingScore,
 };
+pub use identity_boost::{IdentityBooster, IdentityConfig, RouterContext};
 pub use metrics::{
     AdapterMetrics, MemoryMetrics, MemoryPressure, RouterMonitoringMetrics, RouterOverheadMetrics,
     ThroughputMetrics,

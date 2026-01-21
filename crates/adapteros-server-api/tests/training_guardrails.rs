@@ -147,7 +147,7 @@ async fn start_training_rejects_base_model_mismatch() {
     assert_eq!(err.0, axum::http::StatusCode::BAD_REQUEST);
     let body = err.1 .0;
     assert_eq!(body.code, "BASE_MODEL_MISMATCH");
-    assert!(body.error.to_ascii_lowercase().contains("base_model"));
+    assert!(body.message.to_ascii_lowercase().contains("base_model"));
 }
 
 #[tokio::test]
@@ -301,5 +301,5 @@ async fn start_training_rejects_empty_dataset() {
     assert_eq!(err.0, axum::http::StatusCode::BAD_REQUEST);
     let body = err.1 .0;
     assert_eq!(body.code, "DATASET_EMPTY");
-    assert!(body.error.to_ascii_lowercase().contains("dataset"));
+    assert!(body.message.to_ascii_lowercase().contains("dataset"));
 }

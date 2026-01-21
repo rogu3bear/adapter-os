@@ -25,13 +25,10 @@ pub fn Reviews() -> impl IntoView {
 
     let refetch_trigger = RwSignal::new(0u32);
 
-    // Store refetch in a StoredValue for sharing
-    let refetch_stored = StoredValue::new(refetch);
-
     // Call refetch when trigger changes
     Effect::new(move |_| {
         let _ = refetch_trigger.get();
-        refetch_stored.with_value(|f| f());
+        refetch.run(());
     });
 
     let trigger_refresh = move || {

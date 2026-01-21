@@ -5,9 +5,10 @@
 // - Unarchiving adapters
 // - Getting archive status
 
+use crate::adapter_helpers::fetch_adapter_for_tenant;
+use crate::api_error::{ApiError, ApiResult};
 use crate::auth::Claims;
 use crate::middleware::require_any_role;
-use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::*;
 use adapteros_db::users::Role;
@@ -18,7 +19,7 @@ use axum::{
     Extension,
 };
 use serde::{Deserialize, Serialize};
-use tracing::{error, info, warn};
+use tracing::{error, info};
 use utoipa::ToSchema;
 
 // ============================================================================
@@ -102,47 +103,19 @@ pub async fn archive_adapter(
     Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
     Json(req): Json<ArchiveAdapterRequest>,
-) -> Result<Json<ArchiveAdapterResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<ArchiveAdapterResponse> {
     // Require operator or admin role
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
-    // Verify adapter exists
-    let adapter = state
-        .db
-        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
-        .await
-        .map_err(|e| {
-            error!(
-                tenant_id = %claims.tenant_id,
-                adapter_id = %adapter_id,
-                error = %e,
-                "Failed to fetch adapter"
-            );
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            warn!(adapter_id = %adapter_id, "Adapter not found");
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
-            )
-        })?;
-
-    // Validate tenant isolation
-    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
+    // Verify adapter exists and validate tenant isolation
+    let adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;
 
     // Check if already archived
     if adapter.archived_at.is_some() {
-        return Err((
+        return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new("adapter is already archived").with_code("ALREADY_ARCHIVED")),
+            "ALREADY_ARCHIVED",
+            "adapter is already archived",
         ));
     }
 
@@ -161,14 +134,7 @@ pub async fn archive_adapter(
                 error = %e,
                 "Failed to archive adapter"
             );
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to archive adapter")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
+            ApiError::internal("failed to archive adapter").with_details(e.to_string())
         })?;
 
     // Emit telemetry event
@@ -245,58 +211,28 @@ pub async fn unarchive_adapter(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
-) -> Result<Json<UnarchiveAdapterResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<UnarchiveAdapterResponse> {
     // Require operator or admin role
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
-    // Verify adapter exists
-    let adapter = state
-        .db
-        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
-        .await
-        .map_err(|e| {
-            error!(
-                tenant_id = %claims.tenant_id,
-                adapter_id = %adapter_id,
-                error = %e,
-                "Failed to fetch adapter"
-            );
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            warn!(adapter_id = %adapter_id, "Adapter not found");
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
-            )
-        })?;
-
-    // Validate tenant isolation
-    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
+    // Verify adapter exists and validate tenant isolation
+    let adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;
 
     // Check if not archived
     if adapter.archived_at.is_none() {
-        return Err((
+        return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new("adapter is not archived").with_code("NOT_ARCHIVED")),
+            "NOT_ARCHIVED",
+            "adapter is not archived",
         ));
     }
 
     // Check if already purged
     if adapter.purged_at.is_some() {
-        return Err((
+        return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new("cannot unarchive purged adapter - file has been deleted")
-                    .with_code("ALREADY_PURGED"),
-            ),
+            "ALREADY_PURGED",
+            "cannot unarchive purged adapter - file has been deleted",
         ));
     }
 
@@ -312,14 +248,7 @@ pub async fn unarchive_adapter(
                 error = %e,
                 "Failed to unarchive adapter"
             );
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to unarchive adapter")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
+            ApiError::internal("failed to unarchive adapter").with_details(e.to_string())
         })?;
 
     let unarchived_by = claims.sub.clone();
@@ -391,41 +320,12 @@ pub async fn get_archive_status(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
-) -> Result<Json<ArchiveStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<ArchiveStatusResponse> {
     // Require at least viewer role
     require_any_role(&claims, &[Role::Viewer, Role::Operator, Role::Admin])?;
 
-    // Fetch adapter
-    let adapter = state
-        .db
-        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
-        .await
-        .map_err(|e| {
-            error!(
-                tenant_id = %claims.tenant_id,
-                adapter_id = %adapter_id,
-                error = %e,
-                "Failed to fetch adapter"
-            );
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            warn!(adapter_id = %adapter_id, "Adapter not found");
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
-            )
-        })?;
-
-    // Validate tenant isolation
-    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
+    // Fetch adapter and validate tenant isolation
+    let adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;
 
     Ok(Json(ArchiveStatusResponse {
         adapter_id,

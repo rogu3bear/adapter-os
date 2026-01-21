@@ -1,9 +1,8 @@
 use crate::Db;
 use adapteros_core::{
-    compute_input_digest_v2, compute_output_digest, emit_observability_event,
-    hash_token_decision, receipt_mismatch_event,
+    compute_input_digest_v2, compute_output_digest, emit_observability_event, hash_token_decision,
     receipt_digest::{compute_receipt_digest, ReceiptDigestInput, RECEIPT_SCHEMA_V4},
-    update_run_head, AosError, B3Hash, EquipmentProfile, Result,
+    receipt_mismatch_event, update_run_head, AosError, B3Hash, EquipmentProfile, Result,
     CRYPTO_RECEIPT_SCHEMA_VERSION,
 };
 use async_trait::async_trait;
@@ -153,7 +152,10 @@ pub trait TraceSink: Send {
     ///
     /// Generates a cancellation receipt capturing the partial output state
     /// for audit trail completeness. Returns the receipt for storage and response.
-    async fn finalize_cancelled(&mut self, cancellation: TraceCancellation) -> Result<TraceCancellationReceipt>;
+    async fn finalize_cancelled(
+        &mut self,
+        cancellation: TraceCancellation,
+    ) -> Result<TraceCancellationReceipt>;
     async fn flush(&mut self) -> Result<()>;
 }
 
@@ -560,7 +562,9 @@ impl TraceSink for SqlTraceSink {
             finalization.prefix_kv_bytes,
         )
         .with_model_cache_identity(
-            finalization.model_cache_identity_v2_digest_b3.map(|h| *h.as_bytes()),
+            finalization
+                .model_cache_identity_v2_digest_b3
+                .map(|h| *h.as_bytes()),
         );
 
         let receipt_digest = compute_receipt_digest(&receipt_input, RECEIPT_SCHEMA_V4)
@@ -698,12 +702,15 @@ impl TraceSink for SqlTraceSink {
     ///
     /// Generates a cancellation receipt and stores it in the cancellation_receipts table.
     /// This ensures audit trail completeness for cancelled inferences.
-    async fn finalize_cancelled(&mut self, cancellation: TraceCancellation) -> Result<TraceCancellationReceipt> {
+    async fn finalize_cancelled(
+        &mut self,
+        cancellation: TraceCancellation,
+    ) -> Result<TraceCancellationReceipt> {
         // Flush any pending token records
         self.insert_buffer().await?;
 
         // Build the cancellation receipt using the builder
-        use adapteros_core::{CancellationReceiptBuilder, CancelSource};
+        use adapteros_core::{CancelSource, CancellationReceiptBuilder};
 
         let mut builder = CancellationReceiptBuilder::new(
             self.start.trace_id.clone(),
@@ -760,9 +767,19 @@ impl TraceSink for SqlTraceSink {
         .bind(&receipt.cancellation_source.to_string())
         .bind(receipt.cancelled_at_token as i64)
         .bind(receipt.receipt_digest.as_bytes().as_slice())
-        .bind(receipt.signature.as_ref().map(|s| s.as_slice()))
-        .bind(receipt.equipment_profile.as_ref().map(|ep| ep.digest.as_bytes().as_slice()))
-        .bind(receipt.context_digest.as_ref().map(|d| d.as_bytes().as_slice()))
+        .bind(receipt.signature.as_deref())
+        .bind(
+            receipt
+                .equipment_profile
+                .as_ref()
+                .map(|ep| ep.digest.as_bytes().as_slice()),
+        )
+        .bind(
+            receipt
+                .context_digest
+                .as_ref()
+                .map(|d| d.as_bytes().as_slice()),
+        )
         .bind(&receipt.tenant_id)
         .bind(&receipt.cancelled_at)
         .execute(self.db.pool())
@@ -938,8 +955,7 @@ pub async fn recompute_receipt(db: &Db, trace_id: &str) -> Result<TraceReceiptVe
         };
 
         // Extract input digest and equipment profile from stored receipt
-        let input_digest_bytes: Option<Vec<u8>> =
-            row.try_get("input_digest_b3").ok().flatten();
+        let input_digest_bytes: Option<Vec<u8>> = row.try_get("input_digest_b3").ok().flatten();
         let input_digest_b3 = match input_digest_bytes {
             Some(bytes) if bytes.len() == 32 => {
                 Some(B3Hash::from_bytes(SqlTraceSink::to_digest(bytes)?))
@@ -1072,20 +1088,17 @@ pub async fn recompute_receipt(db: &Db, trace_id: &str) -> Result<TraceReceiptVe
         prefix_cache_hit,
         prefix_kv_bytes,
     )
-    .with_model_cache_identity(
-        model_cache_identity_v2_digest_b3.map(|h| *h.as_bytes()),
-    );
+    .with_model_cache_identity(model_cache_identity_v2_digest_b3.map(|h| *h.as_bytes()));
 
     let recomputed_receipt_digest = compute_receipt_digest(&receipt_input, RECEIPT_SCHEMA_V4)
         .expect("V4 schema is always supported");
 
     // For recomputation, carry over input_digest and equipment_profile from stored receipt
-    let (recomputed_input_digest_b3, recomputed_equipment_profile) =
-        if let Some(stored) = &stored {
-            (stored.input_digest_b3, stored.equipment_profile.clone())
-        } else {
-            (None, None)
-        };
+    let (recomputed_input_digest_b3, recomputed_equipment_profile) = if let Some(stored) = &stored {
+        (stored.input_digest_b3, stored.equipment_profile.clone())
+    } else {
+        (None, None)
+    };
 
     let recomputed = TraceReceipt {
         trace_id: trace_id.to_string(),
@@ -1692,9 +1705,7 @@ pub async fn backfill_receipt_digests(
 /// This is useful for monitoring and progress reporting.
 pub async fn count_pending_receipt_backfill(db: &Db) -> Result<u64> {
     let Some(pool) = db.pool_opt() else {
-        return Err(AosError::Database(
-            "SQL backend unavailable".to_string(),
-        ));
+        return Err(AosError::Database("SQL backend unavailable".to_string()));
     };
 
     let row = sqlx::query(
@@ -1717,9 +1728,7 @@ pub async fn count_pending_receipt_backfill(db: &Db) -> Result<u64> {
 /// Returns (total_verified, matched, mismatched) counts.
 pub async fn get_receipt_parity_stats(db: &Db) -> Result<(u64, u64, u64)> {
     let Some(pool) = db.pool_opt() else {
-        return Err(AosError::Database(
-            "SQL backend unavailable".to_string(),
-        ));
+        return Err(AosError::Database("SQL backend unavailable".to_string()));
     };
 
     let row = sqlx::query(

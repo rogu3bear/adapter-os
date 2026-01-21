@@ -28,7 +28,7 @@ use anyhow::Result;
 use clap::Parser;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
-use tracing::{error, info, warn, instrument};
+use tracing::{error, info, instrument, warn};
 
 mod alerting;
 mod openapi;

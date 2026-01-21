@@ -32,15 +32,17 @@ fn init_git_repo(path: &Path) -> Repository {
     let repo = Repository::init(path).expect("git init");
     let sig = Signature::now("Codex", "codex@example.com").unwrap();
 
-    let mut index = repo.index().unwrap();
-    index
-        .add_all(["*"].iter(), IndexAddOption::DEFAULT, None)
-        .unwrap();
-    index.write().unwrap();
-    let tree_id = index.write_tree().unwrap();
-    let tree = repo.find_tree(tree_id).unwrap();
-    repo.commit(Some("HEAD"), &sig, &sig, "initial", &tree, &[])
-        .unwrap();
+    {
+        let mut index = repo.index().unwrap();
+        index
+            .add_all(["*"].iter(), IndexAddOption::DEFAULT, None)
+            .unwrap();
+        index.write().unwrap();
+        let tree_id = index.write_tree().unwrap();
+        let tree = repo.find_tree(tree_id).unwrap();
+        repo.commit(Some("HEAD"), &sig, &sig, "initial", &tree, &[])
+            .unwrap();
+    }
     repo
 }
 
@@ -81,7 +83,7 @@ fn train_from_code_pipeline_is_deterministic() {
         init_git_repo(&repo_dir);
 
         let db_path = temp.path().join("registry.sqlite");
-        std::env::set_var("DATABASE_URL", db_path.to_string_lossy());
+        std::env::set_var("DATABASE_URL", &db_path);
 
         let output_dir = temp.path().join("artifacts");
         let adapter_id = "test.code.ingestion".to_string();

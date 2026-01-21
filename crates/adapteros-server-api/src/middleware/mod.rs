@@ -353,7 +353,7 @@ pub async fn tenant_route_guard_middleware(
                 .details
                 .as_ref()
                 .and_then(|d| d.as_str())
-                .unwrap_or(err_body.error.as_str())
+                .unwrap_or(err_body.message.as_str())
                 .to_string();
             return Err(tenant_isolation_error(detail));
         }

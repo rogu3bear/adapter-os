@@ -683,10 +683,10 @@ pub fn execute_pipeline<E: StepExecutor>(
         stop_reason,
         ctx.elapsed_ms(),
         stop_fields,
-        None, // KV fields - caller can provide via builder pattern
-        None, // Prefix cache fields
-        None, // Model cache identity
-        None, // Equipment fields (enables V5)
+        None,               // KV fields - caller can provide via builder pattern
+        None,               // Prefix cache fields
+        None,               // Model cache identity
+        None,               // Equipment fields (enables V5)
         Some(input_tokens), // Input tokens for input_digest
     );
 

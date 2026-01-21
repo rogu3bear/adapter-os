@@ -64,6 +64,10 @@ pub struct RouterRing {
     pub position: usize,
     /// Number of active entries (K ≤ 8)
     pub k: usize,
+    /// Deterministic dropout seed for GPU kernels
+    pub dropout_seed: u32,
+    /// Dropout rate for GPU kernels (0.0 to 1.0)
+    pub dropout_rate: f32,
 }
 
 impl RouterRing {
@@ -92,6 +96,8 @@ impl RouterRing {
             gates_q15: [0; 8],
             position: 0,
             k: clamped_k,
+            dropout_seed: 0,
+            dropout_rate: 0.0,
         }
     }
 
@@ -1464,7 +1470,10 @@ mod tests {
         let mock = MockKernels::new();
         // Use FusedKernels trait method to disambiguate
         assert!(FusedKernels::supports_liquid_blending(&mock));
-        assert_eq!(FusedKernels::liquid_max_adapters(&mock), liquid::LIQUID_MAX_ADAPTERS);
+        assert_eq!(
+            FusedKernels::liquid_max_adapters(&mock),
+            liquid::LIQUID_MAX_ADAPTERS
+        );
     }
 
     #[test]
@@ -1517,7 +1526,10 @@ mod tests {
         let report = kernel.attest_determinism().unwrap();
 
         assert!(!report.deterministic);
-        assert_eq!(report.determinism_level, attestation::DeterminismLevel::None);
+        assert_eq!(
+            report.determinism_level,
+            attestation::DeterminismLevel::None
+        );
     }
 
     // =========================================================================

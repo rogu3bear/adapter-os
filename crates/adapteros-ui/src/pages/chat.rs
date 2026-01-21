@@ -1,91 +1,67 @@
 //! Chat page with SSE streaming support
 //!
-//! This module provides the chat interface with real-time token streaming
-//! using Server-Sent Events (SSE) for inference responses.
+//! This module provides the chat interface. The full chat page uses
+//! the global chat state from signals/chat.rs for unified state management
+//! with the dock panel.
 
-use crate::api::api_base_url;
-use crate::components::{Button, Card, Spinner, Textarea, TraceButton, TracePanel};
+use crate::components::{
+    AdapterBar, AdapterHeat, AdapterMagnet, Badge, BadgeVariant, Button, Card, EmptyState,
+    EmptyStateVariant, Spinner, Textarea, TraceButton, TracePanel,
+};
+use crate::signals::{use_chat, ChatSessionMeta, ChatSessionsManager};
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
-use send_wrapper::SendWrapper;
-use serde::{Deserialize, Serialize};
-use std::cell::RefCell;
-use std::rc::Rc;
-use wasm_bindgen::prelude::*;
-use wasm_bindgen::JsCast;
-use wasm_bindgen_futures::JsFuture;
-use web_sys::{AbortController, AbortSignal, Request, RequestInit, RequestMode, Response};
 
-/// Streaming inference request for POST /v1/infer/stream
-#[derive(Debug, Clone, Serialize)]
-struct StreamingInferRequest {
-    pub prompt: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_tokens: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub temperature: Option<f32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub adapters: Option<Vec<String>>,
-}
+/// Maximum prompt length for URL-embedded prompts (bytes).
+/// This prevents DoS attacks from extremely long URLs that could:
+/// 1. Exceed browser URL limits (typically 2KB-8KB)
+/// 2. Exhaust memory when decoded
+/// 3. Overwhelm the inference endpoint
+const MAX_URL_PROMPT_LENGTH: usize = 2000;
 
-/// SSE event types from the streaming inference endpoint
-#[derive(Debug, Clone, Deserialize)]
-#[serde(tag = "event")]
-enum InferenceEvent {
-    /// Inference token
-    Token { text: String },
-    /// Inference complete
-    Done {
-        #[serde(default)]
-        total_tokens: usize,
-        #[serde(default)]
-        latency_ms: u64,
-        #[serde(default)]
-        trace_id: Option<String>,
-        #[serde(default)]
-        prompt_tokens: Option<u32>,
-        #[serde(default)]
-        completion_tokens: Option<u32>,
-    },
-    /// Error occurred
-    Error { message: String },
-    /// Catch-all for other events (Loading, Ready, etc.)
-    #[serde(other)]
-    Other,
-}
-
-/// OpenAI-compatible streaming chunk (alternative format)
-#[derive(Debug, Clone, Deserialize)]
-struct StreamingChunk {
-    #[serde(default)]
-    pub choices: Vec<StreamingChoice>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct StreamingChoice {
-    #[serde(default)]
-    pub delta: Delta,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-struct Delta {
-    #[serde(default)]
-    pub content: Option<String>,
-}
-
-/// Chat sessions list page
+/// Chat sessions landing page with recent sessions
 #[component]
 pub fn Chat() -> impl IntoView {
-    // Create a new session ID when clicking "New Session"
+    let (chat_state, chat_action) = use_chat();
+    let sessions = RwSignal::new(ChatSessionsManager::load_sessions());
+
+    // Check if dock has messages
+    let dock_has_messages = Memo::new(move |_| !chat_state.get().messages.is_empty());
+    let dock_message_count = Memo::new(move |_| chat_state.get().messages.len());
+
+    // Create new session
     let create_session = move |_| {
-        let session_id = format!("session-{}", js_sys::Date::now() as u64);
+        let session_id = format!("session-{}", uuid::Uuid::new_v4());
         if let Some(window) = web_sys::window() {
             let _ = window.location().set_href(&format!("/chat/{}", session_id));
         }
     };
 
+    // Save dock to session and navigate - wrap in Callback for reuse in reactive closures
+    let save_dock_and_navigate = {
+        let action = chat_action.clone();
+        Callback::new(move |_: ()| {
+            let state = chat_state.get_untracked();
+            let session_id = format!("session-{}", uuid::Uuid::new_v4());
+            let session = ChatSessionsManager::session_from_state(&session_id, &state);
+            ChatSessionsManager::save_session(&session);
+            // Clear dock messages after saving
+            action.clear_messages();
+            if let Some(window) = web_sys::window() {
+                let _ = window.location().set_href(&format!("/chat/{}", session_id));
+            }
+        })
+    };
+
+    // Delete session handler
+    let delete_session = move |id: String| {
+        ChatSessionsManager::delete_session(&id);
+        sessions.set(ChatSessionsManager::load_sessions());
+    };
+
     view! {
         <div class="p-6 space-y-6">
+            // Header
             <div class="flex items-center justify-between">
                 <h1 class="text-3xl font-bold tracking-tight">"Chat"</h1>
                 <Button on_click=Callback::new(create_session)>
@@ -93,20 +69,226 @@ pub fn Chat() -> impl IntoView {
                 </Button>
             </div>
 
-            <Card>
-                <div class="py-8 text-center">
-                    <p class="text-muted-foreground">"Select or create a chat session to get started"</p>
-                </div>
+            // Continue from dock (if dock has messages)
+            {move || {
+                if dock_has_messages.get() {
+                    Some(view! {
+                        <Card class="border-primary/30 bg-primary/5".to_string()>
+                            <div class="flex items-center justify-between p-4">
+                                <div>
+                                    <h3 class="font-medium">"Continue current conversation"</h3>
+                                    <p class="text-sm text-muted-foreground">
+                                        {move || format!("{} messages in dock", dock_message_count.get())}
+                                    </p>
+                                </div>
+                                <Button on_click=save_dock_and_navigate.clone()>
+                                    "Save & Open"
+                                </Button>
+                            </div>
+                        </Card>
+                    })
+                } else {
+                    None
+                }
+            }}
+
+            // Recent sessions
+            <Card title="Recent Sessions".to_string()>
+                {move || {
+                    let session_list = sessions.get();
+                    if session_list.is_empty() {
+                        view! {
+                            <div class="p-4">
+                                <EmptyState
+                                    title="No chat sessions yet"
+                                    description="Start a new conversation to begin"
+                                    variant=EmptyStateVariant::Empty
+                                />
+                            </div>
+                        }.into_any()
+                    } else {
+                        view! {
+                            <div class="divide-y">
+                                {session_list.into_iter().map(|session| {
+                                    let id = session.id.clone();
+                                    let delete_id = id.clone();
+                                    view! {
+                                        <SessionCard
+                                            session=session
+                                            on_delete=Callback::new(move |_: ()| {
+                                                delete_session(delete_id.clone());
+                                            })
+                                        />
+                                    }
+                                }).collect::<Vec<_>>()}
+                            </div>
+                        }.into_any()
+                    }
+                }}
             </Card>
+
+            // Quick start suggestions (when no sessions)
+            {move || {
+                if sessions.get().is_empty() && !dock_has_messages.get() {
+                    Some(view! { <QuickStartSuggestions/> })
+                } else {
+                    None
+                }
+            }}
         </div>
     }
 }
 
-/// Wrapper type for AbortController that implements Send + Sync using SendWrapper
-/// This is safe because WASM is single-threaded
-type AbortControllerCell = SendWrapper<Rc<RefCell<Option<AbortController>>>>;
+/// Session card component
+#[component]
+fn SessionCard(session: ChatSessionMeta, on_delete: Callback<()>) -> impl IntoView {
+    let id = session.id.clone();
+    let href = format!("/chat/{}", id);
 
-/// Chat session page with SSE streaming
+    view! {
+        <a
+            href=href
+            class="block group p-4 hover:bg-muted/50 transition-colors"
+        >
+            <div class="flex items-start justify-between gap-4">
+                <div class="flex-1 min-w-0">
+                    // Title row
+                    <div class="flex items-center gap-2">
+                        <h3 class="font-medium truncate">{session.title}</h3>
+                        <Badge variant=BadgeVariant::Outline>
+                            {session.target}
+                        </Badge>
+                    </div>
+
+                    // Preview
+                    {if !session.preview.is_empty() {
+                        Some(view! {
+                            <p class="text-sm text-muted-foreground mt-1 line-clamp-2">
+                                {session.preview}
+                            </p>
+                        })
+                    } else {
+                        None
+                    }}
+
+                    // Metadata row
+                    <div class="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
+                        <span>{format_relative_time(&session.updated_at)}</span>
+                        <span>"·"</span>
+                        <span>{format!("{} messages", session.message_count)}</span>
+                    </div>
+                </div>
+
+                // Delete button
+                <button
+                    class="p-2 rounded opacity-0 group-hover:opacity-100 hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all"
+                    on:click=move |ev: web_sys::MouseEvent| {
+                        ev.prevent_default();
+                        ev.stop_propagation();
+                        on_delete.run(());
+                    }
+                    title="Delete session"
+                    aria-label="Delete session"
+                >
+                    <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        class="h-4 w-4"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        stroke-width="2"
+                    >
+                        <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                        />
+                    </svg>
+                </button>
+            </div>
+        </a>
+    }
+}
+
+/// Quick start suggestions
+#[component]
+fn QuickStartSuggestions() -> impl IntoView {
+    let suggestions = [
+        (
+            "Explain adapters",
+            "How do LoRA adapters work in AdapterOS?",
+        ),
+        ("System status", "What's the current system health?"),
+        ("Training help", "How do I train a new adapter?"),
+    ];
+
+    view! {
+        <Card title="Quick Start".to_string() description="Try one of these prompts".to_string()>
+            <div class="grid gap-2 sm:grid-cols-3 p-4">
+                {suggestions.iter().map(|(title, prompt)| {
+                    let title = title.to_string();
+                    let prompt = prompt.to_string();
+                    let prompt_display = prompt.clone();
+                    view! {
+                        <button
+                            class="text-left p-3 rounded-lg border hover:bg-muted/50 transition-colors"
+                            on:click=move |_| {
+                                let session_id = format!("session-{}", uuid::Uuid::new_v4());
+                                // Validate and truncate prompt if too long for URL embedding
+                                let safe_prompt = if prompt.len() > MAX_URL_PROMPT_LENGTH {
+                                    // Truncate at char boundary with indicator
+                                    let mut truncated = prompt.chars().take(MAX_URL_PROMPT_LENGTH - 3).collect::<String>();
+                                    truncated.push_str("...");
+                                    web_sys::console::warn_1(
+                                        &format!("Prompt truncated from {} to {} chars for URL safety", prompt.len(), truncated.len()).into()
+                                    );
+                                    truncated
+                                } else {
+                                    prompt.clone()
+                                };
+                                // Navigate with prompt as query param (handled by session page)
+                                if let Some(window) = web_sys::window() {
+                                    let _ = window.location().set_href(
+                                        &format!("/chat/{}?prompt={}", session_id, js_sys::encode_uri_component(&safe_prompt))
+                                    );
+                                }
+                            }
+                        >
+                            <p class="font-medium text-sm">{title}</p>
+                            <p class="text-xs text-muted-foreground mt-1 line-clamp-1">{prompt_display}</p>
+                        </button>
+                    }
+                }).collect::<Vec<_>>()}
+            </div>
+        </Card>
+    }
+}
+
+/// Format a timestamp as relative time
+fn format_relative_time(timestamp: &str) -> String {
+    use chrono::{DateTime, Utc};
+
+    let Ok(dt) = DateTime::parse_from_rfc3339(timestamp) else {
+        return timestamp.to_string();
+    };
+
+    let now = Utc::now();
+    let diff = now.signed_duration_since(dt.with_timezone(&Utc));
+
+    if diff.num_minutes() < 1 {
+        "Just now".to_string()
+    } else if diff.num_minutes() < 60 {
+        format!("{} min ago", diff.num_minutes())
+    } else if diff.num_hours() < 24 {
+        format!("{} hours ago", diff.num_hours())
+    } else if diff.num_days() < 7 {
+        format!("{} days ago", diff.num_days())
+    } else {
+        dt.format("%b %d").to_string()
+    }
+}
+
+/// Chat session page using global state with SSE streaming
 #[component]
 pub fn ChatSession() -> impl IntoView {
     let params = use_params_map();
@@ -120,154 +302,193 @@ pub fn ChatSession() -> impl IntoView {
         }
     };
 
+    // Use global chat state
+    let (chat_state, chat_action) = use_chat();
+
+    // Local state for input and trace panel
     let message = RwSignal::new(String::new());
-    let messages: RwSignal<Vec<ChatMessage>> = RwSignal::new(vec![]);
-    let loading = RwSignal::new(false);
-    let streaming = RwSignal::new(false);
-    let error = RwSignal::new(Option::<String>::None);
     let active_trace = RwSignal::new(Option::<String>::None);
-    let is_busy = Memo::new(move |_| loading.get() || streaming.get());
-    let can_send = Memo::new(move |_| !message.get().trim().is_empty() && !is_busy.get());
+    let session_loaded = RwSignal::new(false);
+    let current_session_id = RwSignal::new(String::new());
+    let session_error = RwSignal::new(Option::<String>::None);
 
-    // Store the AbortController wrapped in SendWrapper for thread safety
-    // This is safe because WASM is single-threaded
-    let abort_controller: RwSignal<AbortControllerCell> =
-        RwSignal::new(SendWrapper::new(Rc::new(RefCell::new(None))));
+    // Load session from localStorage on mount
+    {
+        let action = chat_action.clone();
+        Effect::new(move |_| {
+            if session_loaded.get_untracked() {
+                return;
+            }
 
-    // Callback to cancel the stream
-    let do_cancel = Callback::new(move |_: ()| {
-        let cell = abort_controller.get();
-        if let Some(controller) = cell.borrow_mut().take() {
-            controller.abort();
-        }
-        streaming.set(false);
-        loading.set(false);
-        // Mark the last message as no longer streaming
-        messages.update(|msgs| {
-            if let Some(last) = msgs.last_mut() {
-                if last.role == "assistant" {
-                    last.is_streaming = false;
+            let id = session_id();
+
+            // Handle empty/invalid session ID - redirect to landing page
+            if id.is_empty() {
+                web_sys::console::warn_1(
+                    &"[ChatSession] Empty session ID, redirecting to /chat".into(),
+                );
+                if let Some(window) = web_sys::window() {
+                    let _ = window.location().set_href("/chat");
                 }
-            }
-        });
-    });
-
-    // Use a Callback for the send action with SSE streaming
-    let do_send = {
-        let is_busy = is_busy.clone();
-        Callback::new(move |_: ()| {
-            if is_busy.get() {
-                return;
-            }
-            let msg = message.get();
-            if msg.trim().is_empty() {
                 return;
             }
 
-            // Add user message
-            messages.update(|msgs| {
-                msgs.push(ChatMessage {
-                    role: "user".to_string(),
-                    content: msg.clone(),
-                    is_streaming: false,
-                    trace_id: None,
-                    latency_ms: None,
-                    token_count: None,
-                    prompt_tokens: None,
-                    completion_tokens: None,
-                });
-            });
+            // Clear any existing messages from a different session before loading
+            let prev_session = current_session_id.get_untracked();
+            if !prev_session.is_empty() && prev_session != id {
+                action.clear_messages();
+            }
 
-            message.set(String::new());
-            loading.set(true);
-            streaming.set(true);
-            error.set(None);
+            current_session_id.set(id.clone());
 
-            // Build conversation context
-            let conversation = messages.get();
-            let prompt = conversation
-                .iter()
-                .map(|m| format!("{}: {}", m.role, m.content))
-                .collect::<Vec<_>>()
-                .join("\n\n");
-
-            // Add a placeholder assistant message for streaming
-            messages.update(|msgs| {
-                msgs.push(ChatMessage {
-                    role: "assistant".to_string(),
-                    content: String::new(),
-                    is_streaming: true,
-                    trace_id: None,
-                    latency_ms: None,
-                    token_count: None,
-                    prompt_tokens: None,
-                    completion_tokens: None,
-                });
-            });
-
-            // Create AbortController for this request
-            let controller = AbortController::new().ok();
-            let signal = controller.as_ref().map(|c| c.signal());
-
-            // Store the controller in the signal
-            let cell = abort_controller.get();
-            *cell.borrow_mut() = controller;
-
-            wasm_bindgen_futures::spawn_local(async move {
-                let request = StreamingInferRequest {
-                    prompt,
-                    max_tokens: Some(1024),
-                    temperature: Some(0.7),
-                    adapters: None,
-                };
-
-                match stream_inference(&request, messages, signal.as_ref()).await {
-                    Ok(trace_info) => {
-                        // Mark the last message as no longer streaming and add trace info
-                        messages.update(|msgs| {
-                            if let Some(last) = msgs.last_mut() {
-                                if last.role == "assistant" {
-                                    last.is_streaming = false;
-                                    last.trace_id = trace_info.trace_id;
-                                    last.latency_ms = trace_info.latency_ms;
-                                    last.token_count = trace_info.token_count;
-                                    last.prompt_tokens = trace_info.prompt_tokens;
-                                    last.completion_tokens = trace_info.completion_tokens;
+            // Try to load session from localStorage
+            if let Some(stored) = ChatSessionsManager::load_session(&id) {
+                action.restore_session(stored);
+                session_error.set(None);
+            } else {
+                // Session not found - this is a new session, not an error
+                // Only show error if we expected an existing session (no prompt param)
+                if let Some(window) = web_sys::window() {
+                    if let Ok(search) = window.location().search() {
+                        // If no prompt param and session doesn't exist, it's a stale link
+                        if !search.contains("prompt=") {
+                            // Check if ID looks like a real session ID (not just created)
+                            let now = js_sys::Date::now() as u64;
+                            if let Some(timestamp_str) = id.strip_prefix("session-") {
+                                if let Ok(timestamp) = timestamp_str.parse::<u64>() {
+                                    // If more than 5 seconds old, likely a stale session
+                                    if now.saturating_sub(timestamp) > 5000 {
+                                        session_error.set(Some(
+                                            "Session not found. It may have been deleted."
+                                                .to_string(),
+                                        ));
+                                    }
                                 }
                             }
-                        });
-                    }
-                    Err(e) => {
-                        // Check if the error is an AbortError - if so, handle gracefully
-                        if is_abort_error(&e) {
-                            // Stream was cancelled by user - mark message as no longer streaming
-                            messages.update(|msgs| {
-                                if let Some(last) = msgs.last_mut() {
-                                    if last.role == "assistant" {
-                                        last.is_streaming = false;
-                                    }
-                                }
-                            });
-                        } else {
-                            // Remove the empty assistant message on error
-                            messages.update(|msgs| {
-                                if let Some(last) = msgs.last() {
-                                    if last.role == "assistant" && last.content.is_empty() {
-                                        msgs.pop();
-                                    }
-                                }
-                            });
-                            error.set(Some(e));
                         }
                     }
                 }
+            }
 
-                loading.set(false);
-                streaming.set(false);
-                // Clear the abort controller
-                let cell = abort_controller.get();
-                *cell.borrow_mut() = None;
-            });
+            // Check for ?prompt= query parameter
+            if let Some(window) = web_sys::window() {
+                if let Ok(search) = window.location().search() {
+                    if let Ok(params) = web_sys::UrlSearchParams::new_with_str(&search) {
+                        if let Some(prompt) = params.get("prompt") {
+                            let decoded = js_sys::decode_uri_component(&prompt)
+                                .map(|s| s.as_string().unwrap_or_default())
+                                .unwrap_or(prompt);
+                            // Defense in depth: validate decoded prompt length
+                            if decoded.len() > MAX_URL_PROMPT_LENGTH {
+                                web_sys::console::warn_1(
+                                    &format!("Prompt parameter too long ({} bytes), rejecting for security", decoded.len()).into()
+                                );
+                                session_error.set(Some(format!(
+                                    "Prompt too long ({} characters). Maximum is {} characters.",
+                                    decoded.len(),
+                                    MAX_URL_PROMPT_LENGTH
+                                )));
+                                return;
+                            }
+                            if !decoded.is_empty() {
+                                action.send_message_streaming(decoded);
+                            }
+                        }
+                    }
+                }
+            }
+
+            session_loaded.set(true);
+        });
+    }
+
+    // Auto-save session when messages change
+    // Uses get_untracked() for state to avoid re-entrancy during streaming
+    {
+        Effect::new(move |prev_state: Option<(usize, bool)>| {
+            let state = chat_state.get_untracked();
+            let msg_count = state.messages.len();
+            let is_streaming = state.streaming;
+            let id = current_session_id.get_untracked();
+
+            // Only save if:
+            // 1. We have a session ID and messages
+            // 2. Not currently streaming (wait for stream to complete)
+            // 3. Message count changed OR streaming just stopped
+            let should_save = !id.is_empty() && msg_count > 0 && !is_streaming;
+
+            if should_save {
+                if let Some((prev_count, was_streaming)) = prev_state {
+                    // Save when message count changes, or when streaming just completed
+                    if msg_count != prev_count || (was_streaming && !is_streaming) {
+                        let session = ChatSessionsManager::session_from_state(&id, &state);
+                        ChatSessionsManager::save_session(&session);
+                    }
+                }
+            }
+
+            (msg_count, is_streaming)
+        });
+    }
+
+    // Cleanup: Always cancel any pending stream when component unmounts
+    {
+        use leptos::prelude::on_cleanup;
+        let action = chat_action.clone();
+        on_cleanup(move || {
+            // Always attempt to cancel to prevent stale updates after navigation
+            action.cancel_stream();
+        });
+    }
+
+    // Derived signals from global state
+    let is_loading = Memo::new(move |_| chat_state.get().loading);
+    let is_streaming = Memo::new(move |_| chat_state.get().streaming);
+    let is_busy = Memo::new(move |_| {
+        let state = chat_state.get();
+        state.loading || state.streaming
+    });
+    let can_send = Memo::new(move |_| !message.get().trim().is_empty() && !is_busy.get());
+    let error = Memo::new(move |_| chat_state.get().error.clone());
+
+    // Convert active_adapters to AdapterMagnets for the AdapterBar
+    let adapter_magnets = Memo::new(move |_| {
+        chat_state
+            .get()
+            .active_adapters
+            .iter()
+            .map(|info| {
+                let heat = match info.uses_per_minute {
+                    n if n > 10 => AdapterHeat::Hot,
+                    n if n > 0 => AdapterHeat::Warm,
+                    _ => AdapterHeat::Cold,
+                };
+                AdapterMagnet {
+                    adapter_id: info.adapter_id.clone(),
+                    heat,
+                    is_active: info.is_active,
+                }
+            })
+            .collect::<Vec<_>>()
+    });
+
+    // Send message handler
+    let do_send = {
+        let action = chat_action.clone();
+        move || {
+            let msg = message.get();
+            if !msg.trim().is_empty() {
+                message.set(String::new());
+                action.send_message_streaming(msg);
+            }
+        }
+    };
+
+    // Cancel handler
+    let do_cancel = {
+        let action = chat_action.clone();
+        Callback::new(move |_: ()| {
+            action.cancel_stream();
         })
     };
 
@@ -284,13 +505,14 @@ pub fn ChatSession() -> impl IntoView {
                 </div>
                 <div class="flex items-center gap-2">
                     {move || {
-                        if error.get().is_some() {
+                        let err = error.get();
+                        if err.is_some() {
                             view! {
                                 <span class="rounded-full bg-status-error/10 px-2 py-1 text-xs font-medium text-status-error">
                                     "Error"
                                 </span>
                             }.into_any()
-                        } else if streaming.get() {
+                        } else if is_streaming.get() {
                             view! {
                                 <span
                                     class="rounded-full bg-status-success/10 px-2 py-1 text-xs font-medium text-status-success"
@@ -301,7 +523,10 @@ pub fn ChatSession() -> impl IntoView {
                             }.into_any()
                         } else {
                             view! {
-                                <span class="rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground">
+                                <span
+                                    class="rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground"
+                                    aria-label="Chat status: Ready"
+                                >
                                     "Ready"
                                 </span>
                             }.into_any()
@@ -310,11 +535,19 @@ pub fn ChatSession() -> impl IntoView {
                 </div>
             </div>
 
+            // Adapter Bar - shows active adapters as colored magnets
+            <AdapterBar adapters=adapter_magnets/>
+
             // Messages
-            <div class="flex-1 overflow-y-auto rounded-lg border bg-card">
+            <div
+                class="flex-1 overflow-y-auto rounded-lg border bg-card"
+                role="log"
+                aria-live="polite"
+                aria-label="Chat messages"
+            >
                 <div class="p-4">
                     {move || {
-                        let msgs = messages.get();
+                        let msgs = chat_state.get().messages;
                         if msgs.is_empty() {
                             view! {
                                 <div class="flex h-full items-center justify-center">
@@ -418,11 +651,38 @@ pub fn ChatSession() -> impl IntoView {
                 })
             }}
 
-            // Error display
+            // Session error display (stale/missing session)
             {move || {
+                session_error.get().map(|e| view! {
+                    <div class="rounded-md bg-warning/10 border border-warning p-3 mb-4">
+                        <div class="flex items-center justify-between gap-2">
+                            <p class="text-sm text-warning-foreground">{e}</p>
+                            <a
+                                href="/chat"
+                                class="text-sm font-medium text-primary hover:underline"
+                            >
+                                "Start New Session"
+                            </a>
+                        </div>
+                    </div>
+                })
+            }}
+
+            // Error display with dismiss button
+            {move || {
+                let action = chat_action.clone();
                 error.get().map(|e| view! {
                     <div class="rounded-md bg-destructive/10 border border-destructive p-3 mb-4">
-                        <p class="text-sm text-destructive">{e}</p>
+                        <div class="flex items-center justify-between gap-2">
+                            <p class="text-sm text-destructive">{e}</p>
+                            <button
+                                class="text-sm font-medium text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-muted transition-colors"
+                                on:click=move |_| action.clear_error()
+                                aria-label="Dismiss error"
+                            >
+                                "Dismiss"
+                            </button>
+                        </div>
                     </div>
                 })
             }}
@@ -434,7 +694,7 @@ pub fn ChatSession() -> impl IntoView {
                     on:submit=move |ev: web_sys::SubmitEvent| {
                         ev.prevent_default();
                         if can_send.get() {
-                            do_send.run(());
+                            do_send();
                         }
                     }
                 >
@@ -446,7 +706,7 @@ pub fn ChatSession() -> impl IntoView {
                         aria_label="Chat message input".to_string()
                     />
                     {move || {
-                        if streaming.get() {
+                        if is_streaming.get() {
                             view! {
                                 <Button
                                     on_click=do_cancel
@@ -460,9 +720,8 @@ pub fn ChatSession() -> impl IntoView {
                             let disabled = !can_send.get();
                             view! {
                                 <Button
-                                    loading=loading.get()
+                                    loading=is_loading.get()
                                     disabled=disabled
-                                    on_click=do_send
                                     aria_label=if disabled { "Send message (disabled)".to_string() } else { "Send message".to_string() }
                                 >
                                     "Send"
@@ -474,41 +733,6 @@ pub fn ChatSession() -> impl IntoView {
             </div>
         </div>
     }
-}
-
-#[derive(Debug, Clone)]
-struct ChatMessage {
-    role: String,
-    content: String,
-    is_streaming: bool,
-    /// Trace ID for this message (if available from inference)
-    trace_id: Option<String>,
-    /// Latency in milliseconds (if available)
-    latency_ms: Option<u64>,
-    /// Total tokens generated
-    token_count: Option<u32>,
-    /// Prompt tokens (input tokens)
-    prompt_tokens: Option<u32>,
-    /// Completion tokens (output tokens)
-    completion_tokens: Option<u32>,
-}
-
-/// Get CSRF token from cookies (csrf_token is not httpOnly)
-fn get_csrf_token() -> Option<String> {
-    use wasm_bindgen::JsCast;
-    web_sys::window()
-        .and_then(|w| w.document())
-        .and_then(|d| d.dyn_into::<web_sys::HtmlDocument>().ok())
-        .and_then(|d| d.cookie().ok())
-        .and_then(|cookies| {
-            for cookie in cookies.split(';') {
-                let cookie = cookie.trim();
-                if let Some(token) = cookie.strip_prefix("csrf_token=") {
-                    return Some(token.to_string());
-                }
-            }
-            None
-        })
 }
 
 /// Format token display with breakdown if available
@@ -526,274 +750,4 @@ fn format_token_display(
         }
         _ => format!("{} tokens", total),
     }
-}
-
-/// Check if an error string indicates an AbortError
-fn is_abort_error(error: &str) -> bool {
-    error.contains("AbortError")
-        || error.contains("aborted")
-        || error.contains("The operation was aborted")
-}
-
-/// Trace info returned from stream_inference
-#[derive(Debug, Clone, Default)]
-struct StreamTraceInfo {
-    trace_id: Option<String>,
-    latency_ms: Option<u64>,
-    token_count: Option<u32>,
-    prompt_tokens: Option<u32>,
-    completion_tokens: Option<u32>,
-}
-
-/// Stream inference using POST SSE endpoint
-///
-/// This function connects to the streaming inference endpoint and
-/// accumulates tokens into the assistant message in real-time.
-/// Accepts an optional AbortSignal for cancellation support.
-/// Uses httpOnly cookie-based auth with CSRF protection.
-async fn stream_inference(
-    request: &StreamingInferRequest,
-    messages: RwSignal<Vec<ChatMessage>>,
-    abort_signal: Option<&AbortSignal>,
-) -> Result<StreamTraceInfo, String> {
-    let url = format!("{}/v1/infer/stream", api_base_url());
-
-    let body = serde_json::to_string(request)
-        .map_err(|e| format!("Failed to serialize request: {}", e))?;
-
-    // Create fetch request with POST method
-    let opts = RequestInit::new();
-    opts.set_method("POST");
-    opts.set_mode(RequestMode::Cors);
-    opts.set_body(&JsValue::from_str(&body));
-    // Include credentials to send httpOnly cookies
-    opts.set_credentials(web_sys::RequestCredentials::Include);
-
-    // Set the abort signal if provided
-    if let Some(signal) = abort_signal {
-        opts.set_signal(Some(signal));
-    }
-
-    let request_obj = Request::new_with_str_and_init(&url, &opts)
-        .map_err(|e| format!("Failed to create request: {:?}", e))?;
-
-    // Set headers
-    request_obj
-        .headers()
-        .set("Content-Type", "application/json")
-        .map_err(|e| format!("Failed to set Content-Type header: {:?}", e))?;
-
-    request_obj
-        .headers()
-        .set("Accept", "text/event-stream")
-        .map_err(|e| format!("Failed to set Accept header: {:?}", e))?;
-
-    // Add CSRF token for mutation (POST request)
-    if let Some(csrf_token) = get_csrf_token() {
-        request_obj
-            .headers()
-            .set("X-CSRF-Token", &csrf_token)
-            .map_err(|e| format!("Failed to set CSRF header: {:?}", e))?;
-    }
-
-    // Fetch the response
-    let window = web_sys::window().ok_or("No window object")?;
-    let response: Response = JsFuture::from(window.fetch_with_request(&request_obj))
-        .await
-        .map_err(|e| {
-            // Check if this is an AbortError
-            let error_str = format!("{:?}", e);
-            if error_str.contains("AbortError") || error_str.contains("aborted") {
-                "AbortError: The operation was aborted".to_string()
-            } else {
-                format!("Fetch failed: {:?}", e)
-            }
-        })?
-        .dyn_into()
-        .map_err(|_| "Response is not a Response object")?;
-
-    if !response.ok() {
-        let status = response.status();
-        let status_text = response.status_text();
-        return Err(format!("HTTP error {}: {}", status, status_text));
-    }
-
-    // Get the response body as a ReadableStream
-    let body_stream = response.body().ok_or("No response body")?;
-
-    // Get the reader from the stream
-    let reader = body_stream
-        .get_reader()
-        .dyn_into::<web_sys::ReadableStreamDefaultReader>()
-        .map_err(|_| "Failed to get reader")?;
-
-    // Buffer for incomplete SSE data
-    let mut buffer = String::new();
-    let mut trace_info = StreamTraceInfo::default();
-
-    // Read and process chunks
-    loop {
-        // Check if the abort signal is triggered
-        if let Some(signal) = abort_signal {
-            if signal.aborted() {
-                // Cancel the reader and return gracefully
-                let _ = reader.cancel();
-                return Err("AbortError: The operation was aborted".to_string());
-            }
-        }
-
-        let result = JsFuture::from(reader.read()).await.map_err(|e| {
-            // Check if this is an AbortError
-            let error_str = format!("{:?}", e);
-            if error_str.contains("AbortError") || error_str.contains("aborted") {
-                "AbortError: The operation was aborted".to_string()
-            } else {
-                format!("Read failed: {:?}", e)
-            }
-        })?;
-
-        let done = js_sys::Reflect::get(&result, &JsValue::from_str("done"))
-            .map_err(|_| "Failed to get done property")?
-            .as_bool()
-            .unwrap_or(true);
-
-        if done {
-            break;
-        }
-
-        let value = js_sys::Reflect::get(&result, &JsValue::from_str("value"))
-            .map_err(|_| "Failed to get value property")?;
-
-        if value.is_undefined() {
-            continue;
-        }
-
-        // Convert Uint8Array to string
-        let array = js_sys::Uint8Array::new(&value);
-        let bytes: Vec<u8> = array.to_vec();
-        let chunk = String::from_utf8_lossy(&bytes).to_string();
-
-        buffer.push_str(&chunk);
-
-        // Process complete SSE events from buffer
-        while let Some(event_end) = buffer.find("\n\n") {
-            let event_data = buffer[..event_end].to_string();
-            buffer = buffer[event_end + 2..].to_string();
-
-            // Parse SSE event
-            let parsed = parse_sse_event_with_info(&event_data);
-            if let Some(token_content) = parsed.token {
-                // Append token to the last (assistant) message
-                messages.update(|msgs| {
-                    if let Some(last) = msgs.last_mut() {
-                        if last.role == "assistant" {
-                            last.content.push_str(&token_content);
-                        }
-                    }
-                });
-            }
-            // Capture trace info from Done event
-            if parsed.trace_id.is_some() {
-                trace_info.trace_id = parsed.trace_id;
-            }
-            if parsed.latency_ms.is_some() {
-                trace_info.latency_ms = parsed.latency_ms;
-            }
-            if parsed.token_count.is_some() {
-                trace_info.token_count = parsed.token_count;
-            }
-            if parsed.prompt_tokens.is_some() {
-                trace_info.prompt_tokens = parsed.prompt_tokens;
-            }
-            if parsed.completion_tokens.is_some() {
-                trace_info.completion_tokens = parsed.completion_tokens;
-            }
-        }
-    }
-
-    Ok(trace_info)
-}
-
-/// Parsed SSE event result
-#[derive(Debug, Clone, Default)]
-struct ParsedSseEvent {
-    token: Option<String>,
-    trace_id: Option<String>,
-    latency_ms: Option<u64>,
-    token_count: Option<u32>,
-    prompt_tokens: Option<u32>,
-    completion_tokens: Option<u32>,
-}
-
-/// Parse an SSE event and extract token content plus trace info
-fn parse_sse_event_with_info(event_data: &str) -> ParsedSseEvent {
-    let mut result = ParsedSseEvent::default();
-
-    // SSE events have format:
-    // event: <event_type>
-    // data: <json_data>
-    // or just:
-    // data: <json_data>
-
-    let mut data_line: Option<&str> = None;
-
-    for line in event_data.lines() {
-        if let Some(stripped) = line.strip_prefix("data: ") {
-            data_line = Some(stripped);
-        }
-    }
-
-    let data = match data_line {
-        Some(d) => d,
-        None => return result,
-    };
-
-    // Check for [DONE] marker
-    if data == "[DONE]" {
-        return result;
-    }
-
-    // Try parsing as InferenceEvent first (adapterOS format)
-    if let Ok(event) = serde_json::from_str::<InferenceEvent>(data) {
-        match event {
-            InferenceEvent::Token { text } => {
-                result.token = Some(text);
-            }
-            InferenceEvent::Done {
-                total_tokens,
-                latency_ms,
-                trace_id,
-                prompt_tokens,
-                completion_tokens,
-            } => {
-                result.trace_id = trace_id;
-                result.latency_ms = Some(latency_ms);
-                result.token_count = Some(total_tokens as u32);
-                result.prompt_tokens = prompt_tokens;
-                result.completion_tokens = completion_tokens;
-            }
-            InferenceEvent::Error { message } => {
-                // Log error but don't return it as content
-                web_sys::console::error_1(&JsValue::from_str(&format!(
-                    "Stream error: {}",
-                    message
-                )));
-            }
-            InferenceEvent::Other => {
-                // Ignore Loading, Ready, and other unhandled events
-            }
-        }
-        return result;
-    }
-
-    // Try parsing as OpenAI-compatible StreamingChunk
-    if let Ok(chunk) = serde_json::from_str::<StreamingChunk>(data) {
-        if let Some(choice) = chunk.choices.first() {
-            if let Some(content) = &choice.delta.content {
-                result.token = Some(content.clone());
-            }
-        }
-    }
-
-    result
 }

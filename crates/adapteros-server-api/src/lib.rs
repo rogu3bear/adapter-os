@@ -29,6 +29,8 @@
 //! 1. Request arrives at Axum router
 //! 2. Middleware stack processes request (auth, rate limit, request ID)
 //! 3. Route handler extracts parameters and validates input
+// This tool call is just a placeholder to check file content in next step
+// I realized I should view the server-api structure first.ion
 //! 4. Handler calls service layer or database directly
 //! 5. Response is serialized and returned
 //!
@@ -69,7 +71,9 @@
 #![allow(clippy::single_component_path_imports)]
 #![allow(deprecated)]
 #![allow(clippy::assertions_on_constants)]
+#![allow(clippy::result_large_err)]
 
+pub mod adapter_helpers;
 pub mod api_error;
 pub mod audit_helper;
 pub mod auth;

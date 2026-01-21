@@ -46,7 +46,7 @@ fn generate_features() -> Vec<f32> {
         0.5, // Symbol hits
         0.7, // Path tokens
         0.4, 0.3, 0.15, 0.1, 0.03, 0.01, 0.005, 0.005, // Prompt verb scores
-        0.45, // Attention entropy
+        0.45,  // Attention entropy
     ]
 }
 

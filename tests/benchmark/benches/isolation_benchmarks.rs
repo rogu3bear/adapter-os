@@ -1,10 +1,9 @@
-#![cfg(all(test, feature = "extended-tests"))]
+// Isolation benchmarks
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use adapteros_benchmarks::*;
 use std::sync::Arc;
-use tokio::runtime::Runtime;
 use std::thread;
 use std::time::{Duration, Instant};
+use tokio::runtime::Runtime;
 use tokio::sync::Semaphore;
 
 /// Benchmark multi-tenant isolation mechanisms
@@ -21,7 +20,7 @@ fn bench_tenant_isolation(c: &mut Criterion) {
 
                 for i in 0..1000 {
                     // Simulate tenant context switch
-                    current_tenant = (i % tenant_count as u32) as u32;
+                    current_tenant = i % tenant_count as u32;
 
                     // Simulate tenant-specific operations
                     let tenant_data = format!("tenant_{}_data", current_tenant);
@@ -99,7 +98,10 @@ fn bench_concurrent_tenant_operations(c: &mut Criterion) {
                 for _ in 0..iters {
                     let semaphore_clone = Arc::clone(&semaphore);
 
-                    async fn process_tenant_request(tenant_id: u32, semaphore: Arc<Semaphore>) -> u64 {
+                    async fn process_tenant_request(
+                        tenant_id: u32,
+                        semaphore: Arc<Semaphore>,
+                    ) -> u64 {
                         let _permit = semaphore.acquire().await.unwrap();
 
                         // Simulate tenant-specific processing
@@ -112,12 +114,14 @@ fn bench_concurrent_tenant_operations(c: &mut Criterion) {
                         result
                     }
 
-                    let futures: Vec<_> = (0..tenant_count).map(|tenant_id| {
-                        process_tenant_request(tenant_id as u32, Arc::clone(&semaphore_clone))
-                    }).collect();
+                    let futures: Vec<_> = (0..tenant_count)
+                        .map(|tenant_id| {
+                            process_tenant_request(tenant_id as u32, Arc::clone(&semaphore_clone))
+                        })
+                        .collect();
 
-                    let results = futures::future::join_all(futures).await;
-                    black_box(results);
+                    let _results =
+                        rt.block_on(async { futures_util::future::join_all(futures).await });
                 }
 
                 start.elapsed()
@@ -193,7 +197,9 @@ fn bench_isolation_boundaries(c: &mut Criterion) {
 
                 // Initialize tenant data
                 for tenant_id in 0..5 {
-                    let data: Vec<String> = (0..20).map(|i| format!("tenant_{}_secret_{}", tenant_id, i)).collect();
+                    let data: Vec<String> = (0..20)
+                        .map(|i| format!("tenant_{}_secret_{}", tenant_id, i))
+                        .collect();
                     tenant_data.insert(tenant_id, data);
                 }
 
@@ -248,7 +254,11 @@ fn bench_isolation_boundaries(c: &mut Criterion) {
 
                 // Verify isolation - each tenant's metrics should be independent
                 for (tenant_id, (cpu, mem)) in &tenant_metrics {
-                    assert!(*cpu > 0 && *mem > 0, "Tenant {} has invalid metrics", tenant_id);
+                    assert!(
+                        *cpu > 0 && *mem > 0,
+                        "Tenant {} has invalid metrics",
+                        tenant_id
+                    );
                 }
 
                 black_box(tenant_metrics);
@@ -269,7 +279,9 @@ fn bench_tenant_cleanup(c: &mut Criterion) {
 
                 // Create sessions
                 for tenant_id in 0..10 {
-                    let sessions: Vec<String> = (0..5).map(|i| format!("session_{}_{}", tenant_id, i)).collect();
+                    let sessions: Vec<String> = (0..5)
+                        .map(|i| format!("session_{}_{}", tenant_id, i))
+                        .collect();
                     active_sessions.insert(tenant_id, sessions);
                 }
 
@@ -294,7 +306,8 @@ fn bench_tenant_cleanup(c: &mut Criterion) {
 
                 // Allocate resources per tenant
                 for tenant_id in 0..8 {
-                    let resources: Vec<Vec<u8>> = (0..10).map(|_| vec![tenant_id as u8; 1024]).collect();
+                    let resources: Vec<Vec<u8>> =
+                        (0..10).map(|_| vec![tenant_id as u8; 1024]).collect();
                     tenant_resources.insert(tenant_id, resources);
                 }
 
@@ -321,7 +334,9 @@ fn bench_tenant_cleanup(c: &mut Criterion) {
 
                 // Create tenant data
                 for tenant_id in 0..5 {
-                    let data: Vec<String> = (0..100).map(|i| format!("tenant_{}_record_{}", tenant_id, i)).collect();
+                    let data: Vec<String> = (0..100)
+                        .map(|i| format!("tenant_{}_record_{}", tenant_id, i))
+                        .collect();
                     tenant_data.insert(tenant_id, data);
                 }
 
@@ -359,7 +374,8 @@ fn bench_tenant_migration(c: &mut Criterion) {
                 let migrated_data = source_tenant_data.remove(&source_tenant).unwrap();
 
                 // Transform data for new tenant (simulate)
-                let transformed_data: Vec<String> = migrated_data.into_iter()
+                let transformed_data: Vec<String> = migrated_data
+                    .into_iter()
                     .map(|item| format!("tenant_{}_{}", dest_tenant, item))
                     .collect();
 
@@ -393,7 +409,7 @@ fn bench_tenant_migration(c: &mut Criterion) {
                 let dest = 4;
 
                 let source_config = tenant_configs.get(&source).unwrap().clone();
-                let mut dest_config = tenant_configs.get_mut(&dest).unwrap();
+                let dest_config = tenant_configs.get_mut(&dest).unwrap();
 
                 // Merge configurations (simulate migration)
                 if let Some(settings) = dest_config.get_mut("settings") {

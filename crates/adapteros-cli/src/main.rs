@@ -38,6 +38,7 @@ use std::path::{Path, PathBuf};
 mod cli;
 mod cmd_replay;
 mod cmd_trace_export;
+pub mod utils;
 
 // Use commands from library crate to avoid duplicate module compilation
 use adapteros_cli::auth_store;
@@ -691,6 +692,10 @@ Examples:
         /// Dry-run: validate preflight checks without starting server
         #[arg(long)]
         dry_run: bool,
+
+        /// Capture event trace to directory (containing bundle_*.ndjson files)
+        #[arg(long)]
+        capture_events: Option<PathBuf>,
     },
 
     /// Run audit checks
@@ -1757,6 +1762,7 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             socket,
             backend,
             dry_run,
+            capture_events,
         } => {
             // Build model config from CLI flags (precedence: CLI > ENV > defaults)
             let model_config = cli.get_model_config().ok();
@@ -1766,7 +1772,7 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
                 socket,
                 backend.clone(),
                 *dry_run,
-                None, // capture_events (not supported in legacy main.rs)
+                capture_events.as_ref(), // capture_events
                 model_config.as_ref(),
                 &output,
             )

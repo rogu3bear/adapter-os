@@ -204,11 +204,7 @@ async fn readyz_body_ready_matches_http_status() -> Result<(), Box<dyn std::erro
     } else {
         // In Strict/Relaxed modes, HTTP status reflects ready field
         if readyz.ready {
-            assert_eq!(
-                status,
-                StatusCode::OK,
-                "ready=true should return HTTP 200"
-            );
+            assert_eq!(status, StatusCode::OK, "ready=true should return HTTP 200");
         } else {
             assert_eq!(
                 status,

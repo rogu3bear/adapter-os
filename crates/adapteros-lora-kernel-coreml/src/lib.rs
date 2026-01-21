@@ -1411,6 +1411,13 @@ impl CoreMLBackend {
         {
             // Unload any previously loaded model before switching handles.
             if !self.model_handle.is_null() {
+                // Untrack model from ANE memory metrics
+                if let Some(hash) = &self.model_hash {
+                    ffi::record_model_unload(&hash.to_hex());
+                } else if let Some(path) = &self.base_model_path {
+                    ffi::record_model_unload(&path.to_string_lossy());
+                }
+
                 unsafe { ffi::coreml_unload_model(self.model_handle) };
                 self.model_handle = std::ptr::null_mut();
             }
@@ -1463,6 +1470,18 @@ impl CoreMLBackend {
             }
 
             self.model_handle = handle;
+
+            // Track model in ANE memory metrics
+            // Estimate footprint based on Manifest.json size as a heuristic (or use 50MB baseline)
+            let footprint_bytes = std::fs::metadata(&hash_path)
+                .map(|m| m.len().max(50 * 1024 * 1024))
+                .unwrap_or(50 * 1024 * 1024);
+
+            if let Some(hash) = &self.model_hash {
+                ffi::record_model_load(&hash.to_hex(), footprint_bytes);
+            } else {
+                ffi::record_model_load(&path_str, footprint_bytes);
+            }
 
             tracing::info!(
                 model_path = %load_path.display(),
@@ -2441,6 +2460,13 @@ impl Drop for CoreMLBackend {
         #[cfg(target_os = "macos")]
         {
             if !self.model_handle.is_null() {
+                // Untrack model from ANE memory metrics
+                if let Some(hash) = &self.model_hash {
+                    ffi::record_model_unload(&hash.to_hex());
+                } else if let Some(path) = &self.base_model_path {
+                    ffi::record_model_unload(&path.to_string_lossy());
+                }
+
                 unsafe { ffi::coreml_unload_model(self.model_handle) };
                 self.model_handle = std::ptr::null_mut();
             }

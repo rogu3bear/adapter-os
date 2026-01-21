@@ -21,6 +21,7 @@ pub mod http_client;
 pub mod logging;
 pub mod output;
 pub mod progress;
+pub mod utils;
 pub mod validation;
 
 // Re-export app module for testing

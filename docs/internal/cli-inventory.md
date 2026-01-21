@@ -48,6 +48,7 @@ adapterOS CLI/tooling surface. Each script name here satisfies the
 - dev-up.sh
 - diagnose.sh
 - download-model.sh
+- download-tinybert-ane.sh
 - execute_doc_audit.sh
 - free-ports.sh
 - fresh-build.sh

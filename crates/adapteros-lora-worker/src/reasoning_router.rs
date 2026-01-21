@@ -7,8 +7,12 @@
 
 use std::collections::HashMap;
 
+use adapteros_core::{cosine_similarity, normalize};
 use blake3::Hasher;
+use std::sync::Arc;
 use tracing::{debug, info};
+
+pub use crate::ane_embedder::TinyBertEmbedder;
 
 /// Default token that signals explicit reasoning boundary.
 pub const DEFAULT_THINKING_TOKEN: &str = "<thinking>";
@@ -24,6 +28,19 @@ pub struct ReasoningRouterConfig {
     pub thinking_token: String,
     /// Maximum characters to keep in the rolling buffer.
     pub analysis_window: usize,
+    /// Type of embedder to use.
+    pub embedder_type: EmbedderType,
+    /// Path to the embedder model (if using TinyBert).
+    pub model_path: Option<String>,
+}
+
+/// Supported embedder types for the reasoning router.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EmbedderType {
+    /// Legacy hash-based projection (semantic noise).
+    Hashed,
+    /// Tiny-BERT model pinned to ANE (semantic understanding).
+    TinyBert,
 }
 
 impl Default for ReasoningRouterConfig {
@@ -34,6 +51,39 @@ impl Default for ReasoningRouterConfig {
             shadow_mode: false,
             thinking_token: DEFAULT_THINKING_TOKEN.to_string(),
             analysis_window: 1024,
+            embedder_type: EmbedderType::Hashed,
+            model_path: None,
+        }
+    }
+}
+
+/// Unified embedder interface for the reasoning router.
+pub enum Embedder {
+    Hashed(FastEmbedder),
+    TinyBert(Box<TinyBertEmbedder>),
+}
+
+impl Embedder {
+    pub fn embed(&self, text: &str) -> Vec<f32> {
+        match self {
+            Self::Hashed(e) => e.embed(text),
+            Self::TinyBert(e) => e.embed(text),
+        }
+    }
+
+    pub fn dim(&self) -> usize {
+        match self {
+            Self::Hashed(e) => e.dim(),
+            Self::TinyBert(e) => e.dimension(),
+        }
+    }
+}
+
+impl std::fmt::Debug for Embedder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Hashed(e) => f.debug_tuple("Hashed").field(e).finish(),
+            Self::TinyBert(_) => f.debug_tuple("TinyBert").finish(),
         }
     }
 }
@@ -78,8 +128,7 @@ impl FastEmbedder {
             }
         }
 
-        normalize(&mut accum);
-        accum
+        normalize(&accum)
     }
 }
 
@@ -152,7 +201,7 @@ impl ReasoningScorer {
         }
     }
 
-    pub fn from_adapter_ids(adapter_ids: &[String], embedder: &FastEmbedder) -> Self {
+    pub fn from_adapter_ids(adapter_ids: &[String], embedder: &Embedder) -> Self {
         let clusters = adapter_ids
             .iter()
             .map(|id| (id.clone(), embedder.embed(id)))
@@ -233,7 +282,7 @@ pub struct HotSwapDecision {
 pub struct StreamInspector {
     buffer: String,
     scorer: ReasoningScorer,
-    embedder: FastEmbedder,
+    embedder: Arc<Embedder>,
     config: ReasoningRouterConfig,
     current_cluster: String,
     last_swap_token: Option<usize>,
@@ -243,7 +292,7 @@ impl StreamInspector {
     pub fn new(
         initial_cluster: String,
         scorer: ReasoningScorer,
-        embedder: FastEmbedder,
+        embedder: Arc<Embedder>,
         config: ReasoningRouterConfig,
     ) -> Self {
         Self {
@@ -265,7 +314,8 @@ impl StreamInspector {
         self.buffer.push_str(token);
         if self.buffer.len() > self.config.analysis_window {
             let keep_from = self.buffer.len() - self.config.analysis_window;
-            self.buffer = self.buffer[keep_from..].to_string();
+            // Use drain to avoid allocation on hot path
+            self.buffer.drain(..keep_from);
         }
 
         if !self.is_boundary_token(token) {
@@ -342,30 +392,7 @@ impl StreamInspector {
     }
 }
 
-fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
-    if a.len() != b.len() || a.is_empty() {
-        return 0.0;
-    }
-
-    let mut dot = 0.0;
-    let mut norm_a = 0.0;
-    let mut norm_b = 0.0;
-    for (x, y) in a.iter().zip(b.iter()) {
-        dot += x * y;
-        norm_a += x * x;
-        norm_b += y * y;
-    }
-
-    let denom = (norm_a.sqrt() * norm_b.sqrt()).max(EPS);
-    (dot / denom).clamp(-1.0, 1.0)
-}
-
-fn normalize(v: &mut [f32]) {
-    let norm = (v.iter().map(|x| x * x).sum::<f32>()).sqrt().max(EPS);
-    for val in v.iter_mut() {
-        *val /= norm;
-    }
-}
+// cosine_similarity and normalize are imported from adapteros_core::vector_math
 
 fn truncate(text: &str, max_len: usize) -> String {
     if text.chars().count() <= max_len {
@@ -404,7 +431,7 @@ mod tests {
         ]);
         let topology = TopologyPrior::default().with_transition("creative", "math", 0.9);
         let scorer = ReasoningScorer::new(clusters, topology, 0.7, 0.3);
-        let embedder = FastEmbedder::new(2);
+        let embedder = Arc::new(Embedder::Hashed(FastEmbedder::new(2)));
         let mut inspector = StreamInspector::new(
             "creative".to_string(),
             scorer,
@@ -415,6 +442,8 @@ mod tests {
                 shadow_mode: false,
                 thinking_token: DEFAULT_THINKING_TOKEN.to_string(),
                 analysis_window: 256,
+                embedder_type: EmbedderType::Hashed,
+                model_path: None,
             },
         );
 

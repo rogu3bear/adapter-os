@@ -5,9 +5,10 @@
 // This module provides REST API endpoints for:
 // - Exporting adapters as .aos files
 
+use crate::adapter_helpers::fetch_adapter_for_tenant;
+use crate::api_error::ApiError;
 use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
-use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::*;
 use axum::{
@@ -59,14 +60,9 @@ pub async fn export_adapter(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
-) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<impl IntoResponse, ApiError> {
     // Permission check
-    require_permission(&claims, Permission::AdapterView).map_err(|_| {
-        (
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Permission denied").with_code("FORBIDDEN")),
-        )
-    })?;
+    require_permission(&claims, Permission::AdapterView)?;
 
     // Reject exports during shutdown to prevent race conditions with cleanup
     if state
@@ -74,43 +70,11 @@ pub async fn export_adapter(
         .as_ref()
         .is_some_and(|b| b.is_draining() || b.is_shutting_down())
     {
-        return Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(ErrorResponse::new("Service shutting down").with_code("DRAINING")),
-        ));
+        return Err(ApiError::service_unavailable("Service shutting down"));
     }
 
-    // Get adapter details
-    let adapter = state
-        .db
-        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
-        .await
-        .map_err(|e| {
-            error!(
-                tenant_id = %claims.tenant_id,
-                adapter_id = %adapter_id,
-                error = %e,
-                "Failed to get adapter for export"
-            );
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to get adapter")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            warn!(adapter_id = %adapter_id, "Adapter not found for export");
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("Adapter not found").with_code("NOT_FOUND")),
-            )
-        })?;
-
-    // Validate tenant isolation
-    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
+    // Get adapter details and validate tenant isolation
+    let adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;
 
     // === ISSUE 5: Validate required SBOM fields are present before export ===
     let mut missing_artifacts: Vec<&str> = Vec::new();
@@ -151,38 +115,32 @@ pub async fn export_adapter(
             missing = ?missing_artifacts,
             "Export rejected: missing required SBOM artifacts"
         );
-        return Err((
+        return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new(format!(
-                    "Adapter export omits required artifacts: [{}]",
-                    missing_artifacts.join(", ")
-                ))
-                .with_code("MISSING_ARTIFACTS"),
+            "MISSING_ARTIFACTS",
+            format!(
+                "Adapter export omits required artifacts: [{}]",
+                missing_artifacts.join(", ")
             ),
         ));
     }
 
     // Check if adapter is archived/purged
     if adapter.purged_at.is_some() {
-        return Err((
+        return Err(ApiError::new(
             StatusCode::NOT_FOUND,
-            Json(
-                ErrorResponse::new("Adapter has been purged - .aos file no longer available")
-                    .with_code("ADAPTER_PURGED"),
-            ),
+            "ADAPTER_PURGED",
+            "Adapter has been purged - .aos file no longer available",
         ));
     }
 
     // Get the .aos file path
     let aos_path = adapter.aos_file_path.as_ref().ok_or_else(|| {
         warn!(adapter_id = %adapter_id, "No .aos file path for adapter");
-        (
+        ApiError::new(
             StatusCode::NOT_FOUND,
-            Json(
-                ErrorResponse::new("No .aos file available for this adapter")
-                    .with_code("NO_AOS_FILE"),
-            ),
+            "NO_AOS_FILE",
+            "No .aos file available for this adapter",
         )
     })?;
 
@@ -195,12 +153,10 @@ pub async fn export_adapter(
             path = %aos_path,
             "Adapter .aos file not found on disk"
         );
-        return Err((
+        return Err(ApiError::new(
             StatusCode::NOT_FOUND,
-            Json(
-                ErrorResponse::new("Adapter .aos file not found on disk")
-                    .with_code("FILE_NOT_FOUND"),
-            ),
+            "FILE_NOT_FOUND",
+            "Adapter .aos file not found on disk",
         ));
     }
 
@@ -213,14 +169,12 @@ pub async fn export_adapter(
                 error = %e,
                 "Failed to read .aos file for checksum verification"
             );
-            (
+            ApiError::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to verify adapter file integrity")
-                        .with_code("IO_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
+                "IO_ERROR",
+                "Failed to verify adapter file integrity",
             )
+            .with_details(e.to_string())
         })?;
 
         let computed_hash = blake3::hash(&file_data).to_hex().to_string();
@@ -233,17 +187,15 @@ pub async fn export_adapter(
                 computed_hash = %computed_hash,
                 "Archive checksum mismatch - file may be corrupted or tampered"
             );
-            return Err((
+            return Err(ApiError::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Adapter archive checksum does not match")
-                        .with_code("CHECKSUM_MISMATCH")
-                        .with_string_details(format!(
-                            "Stored hash {} does not match computed hash {}",
-                            stored_hash, computed_hash
-                        )),
-                ),
-            ));
+                "CHECKSUM_MISMATCH",
+                "Adapter archive checksum does not match",
+            )
+            .with_details(format!(
+                "Stored hash {} does not match computed hash {}",
+                stored_hash, computed_hash
+            )));
         }
 
         info!(
@@ -262,14 +214,12 @@ pub async fn export_adapter(
             error = %e,
             "Failed to open .aos file"
         );
-        (
+        ApiError::new(
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("Failed to open adapter file")
-                    .with_code("IO_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
+            "IO_ERROR",
+            "Failed to open adapter file",
         )
+        .with_details(e.to_string())
     })?;
 
     // Get file metadata for content-length
@@ -280,14 +230,12 @@ pub async fn export_adapter(
             error = %e,
             "Failed to get file metadata"
         );
-        (
+        ApiError::new(
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("Failed to read file metadata")
-                    .with_code("IO_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
+            "IO_ERROR",
+            "Failed to read file metadata",
         )
+        .with_details(e.to_string())
     })?;
 
     // Create streaming response body

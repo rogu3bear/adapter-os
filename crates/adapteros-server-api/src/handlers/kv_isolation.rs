@@ -1,4 +1,5 @@
 use crate::auth::Claims;
+use crate::error_helpers::internal_error;
 use crate::kv_isolation::{kv_isolation_config_from_env, run_kv_isolation_scan};
 use crate::middleware::require_any_role;
 use crate::state::AppState;
@@ -90,15 +91,4 @@ pub async fn trigger_kv_isolation_scan(
         .await
         .map(Json)
         .map_err(internal_error)
-}
-
-fn internal_error(err: AosError) -> (StatusCode, Json<ErrorResponse>) {
-    (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        Json(
-            ErrorResponse::new("KV isolation scan failed")
-                .with_code("INTERNAL_ERROR")
-                .with_string_details(err.to_string()),
-        ),
-    )
 }

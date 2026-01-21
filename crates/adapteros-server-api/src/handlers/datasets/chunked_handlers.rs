@@ -28,7 +28,7 @@ use crate::api_error::ApiError;
 use crate::audit_helper::{actions, log_failure_or_warn, log_success_or_warn, resources};
 use crate::auth::Claims;
 use crate::citations::build_dataset_index;
-use crate::error_helpers::{bad_request, db_error, forbidden, internal_error, not_found};
+use crate::error_helpers::{bad_request, forbidden, internal_error, not_found};
 use crate::handlers::chunked_upload::{
     ChunkWriter, CompressionFormat, FileValidator, UploadSession, UploadSessionManager,
     MAX_CHUNK_SIZE, UPLOAD_TIMEOUT_SECS,
@@ -98,7 +98,7 @@ async fn ensure_session_loaded(
             .upload_session_manager
             .restore_session(restored)
             .await
-            .map_err(internal_error)?;
+            .map_err(|e| ApiError::internal(e.to_string()))?;
     }
 
     Ok(record)
@@ -175,48 +175,42 @@ pub async fn upload_chunk(
     Path(session_id): Path<String>,
     Query(query): Query<UploadChunkQuery>,
     body: axum::body::Bytes,
-) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<impl IntoResponse, ApiError> {
     // Check permission
     require_permission(&claims, Permission::DatasetUpload)?;
 
     // PRD Phase 3: Early rejection for oversized chunks BEFORE any processing.
     // This catches malformed requests before we hit the session or disk.
     if body.len() > MAX_CHUNK_SIZE {
-        return Err((
+        return Err(ApiError::new(
             StatusCode::PAYLOAD_TOO_LARGE,
-            Json(
-                ErrorResponse::new(format!(
-                    "Chunk size {} exceeds maximum of {} bytes",
-                    body.len(),
-                    MAX_CHUNK_SIZE
-                ))
-                .with_code("CHUNK_TOO_LARGE"),
+            "CHUNK_TOO_LARGE",
+            format!(
+                "Chunk size {} exceeds maximum of {} bytes",
+                body.len(),
+                MAX_CHUNK_SIZE
             ),
         ));
     }
 
     let session_record = ensure_session_loaded(&state, &claims, &session_id).await?;
     if session_record.status == "complete" {
-        return Err((
+        return Err(ApiError::new(
             StatusCode::CONFLICT,
-            Json(
-                ErrorResponse::new("Upload session already completed")
-                    .with_code("UPLOAD_ALREADY_COMPLETE"),
-            ),
+            "UPLOAD_ALREADY_COMPLETE",
+            "Upload session already completed",
         ));
     }
     if session_record.status == "failed" {
-        return Err((
+        return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new(format!(
-                    "Upload session failed: {}",
-                    session_record
-                        .error_message
-                        .clone()
-                        .unwrap_or_else(|| "unknown".to_string())
-                ))
-                .with_code("UPLOAD_SESSION_FAILED"),
+            "UPLOAD_SESSION_FAILED",
+            format!(
+                "Upload session failed: {}",
+                session_record
+                    .error_message
+                    .clone()
+                    .unwrap_or_else(|| "unknown".to_string())
             ),
         ));
     }
@@ -299,17 +293,18 @@ pub async fn complete_chunked_upload(
     request_id: Option<Extension<RequestId>>,
     Path(session_id): Path<String>,
     Json(request): Json<CompleteChunkedUploadRequest>,
-) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<impl IntoResponse, ApiError> {
     // Check permission
     require_permission(&claims, Permission::DatasetUpload)?;
 
     if !request.format.eq_ignore_ascii_case("jsonl") {
-        return Err(bad_request(
-            "Only jsonl datasets are supported by PLAN_4".to_string(),
+        return Err(ApiError::bad_request(
+            "Only jsonl datasets are supported by PLAN_4",
         ));
     }
 
-    let dataset_root = resolve_dataset_root(&state).map_err(internal_error)?;
+    let dataset_root =
+        resolve_dataset_root(&state).map_err(|e| ApiError::internal(e.to_string()))?;
     let correlation_id = request_id
         .map(|r| r.0 .0)
         .unwrap_or_else(|| Uuid::new_v4().to_string());
@@ -323,7 +318,7 @@ pub async fn complete_chunked_upload(
             .db
             .get_training_dataset(&session_record.dataset_id)
             .await
-            .map_err(|e| db_error(format!("Failed to fetch completed dataset: {}", e)))?
+            .map_err(|e| ApiError::db_error(format!("Failed to fetch completed dataset: {}", e)))?
             .ok_or_else(|| {
                 internal_error(format!(
                     "Completed session {} references missing dataset {}",
@@ -334,7 +329,7 @@ pub async fn complete_chunked_upload(
             .db
             .get_latest_dataset_version_for_dataset(&session_record.dataset_id)
             .await
-            .map_err(|e| db_error(format!("Failed to fetch dataset version: {}", e)))?
+            .map_err(|e| ApiError::db_error(format!("Failed to fetch dataset version: {}", e)))?
             .map(|v| v.id);
         return Ok(Json(CompleteChunkedUploadResponse {
             dataset_id: dataset.id,
@@ -348,17 +343,15 @@ pub async fn complete_chunked_upload(
         }));
     }
     if session_record.status == "failed" {
-        return Err((
+        return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new(format!(
-                    "Upload session failed: {}",
-                    session_record
-                        .error_message
-                        .clone()
-                        .unwrap_or_else(|| "unknown".to_string())
-                ))
-                .with_code("UPLOAD_SESSION_FAILED"),
+            "UPLOAD_SESSION_FAILED",
+            format!(
+                "Upload session failed: {}",
+                session_record
+                    .error_message
+                    .clone()
+                    .unwrap_or_else(|| "unknown".to_string())
             ),
         ));
     }
@@ -367,9 +360,9 @@ pub async fn complete_chunked_upload(
         .upload_session_manager
         .get_session(&session_id)
         .await
-        .map_err(|_| not_found("Upload session"))?;
+        .map_err(|_| ApiError::not_found("Upload session"))?;
     if UploadSessionManager::is_session_expired(&session) {
-        return Err(not_found("Upload session"));
+        return Err(ApiError::not_found("Upload session"));
     }
 
     // Validate workspace_id consistency between session and request for tenant isolation
@@ -379,8 +372,7 @@ pub async fn complete_chunked_upload(
             if session_workspace_id != request_workspace_id {
                 return Err(ApiError::bad_request(
                     "Workspace ID mismatch: session was created for a different workspace",
-                )
-                .into());
+                ));
             }
         }
     }
@@ -402,14 +394,12 @@ pub async fn complete_chunked_upload(
                 &claims.admin_tenants,
             )
             .await
-            .map_err(|e| db_error(format!("Failed to check workspace access: {}", e)))?;
+            .map_err(|e| ApiError::db_error(format!("Failed to check workspace access: {}", e)))?;
         if access.is_none() {
-            return Err((
+            return Err(ApiError::new(
                 StatusCode::FORBIDDEN,
-                Json(
-                    ErrorResponse::new("Access denied: you are not a member of this workspace")
-                        .with_code("WORKSPACE_ACCESS_DENIED"),
-                ),
+                "WORKSPACE_ACCESS_DENIED",
+                "Access denied: you are not a member of this workspace",
             ));
         }
     }
@@ -425,7 +415,7 @@ pub async fn complete_chunked_upload(
         .upload_session_manager
         .is_upload_complete(&session_id)
         .await
-        .map_err(internal_error)?;
+        .map_err(|e| ApiError::internal(e.to_string()))?;
 
     if !is_complete {
         let total_chunks = session.total_size.div_ceil(session.chunk_size as u64) as usize;
@@ -437,25 +427,20 @@ pub async fn complete_chunked_upload(
             .take(10)
             .collect();
 
-        return Err((
+        return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-                error: format!(
-                    "Upload not complete. Received {}/{} chunks. Missing chunks: {:?}{}",
-                    received,
-                    total_chunks,
-                    missing,
-                    if missing.len() < total_chunks - received {
-                        "..."
-                    } else {
-                        ""
-                    }
-                ),
-                code: "UPLOAD_INCOMPLETE".to_string(),
-                failure_code: None,
-                details: None,
-            }),
+            "UPLOAD_INCOMPLETE",
+            format!(
+                "Upload not complete. Received {}/{} chunks. Missing chunks: {:?}{}",
+                received,
+                total_chunks,
+                missing,
+                if missing.len() < total_chunks - received {
+                    "..."
+                } else {
+                    ""
+                }
+            ),
         ));
     }
 
@@ -470,9 +455,10 @@ pub async fn complete_chunked_upload(
     let adapters_root = {
         let cfg = state.config.read().map_err(|_| {
             tracing::error!("Config lock poisoned");
-            (
+            ApiError::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new("config lock poisoned").with_code("CONFIG_UNAVAILABLE")),
+                "CONFIG_UNAVAILABLE",
+                "config lock poisoned",
             )
         })?;
         cfg.paths.adapters_root.clone()
@@ -487,7 +473,7 @@ pub async fn complete_chunked_upload(
         &session.file_name,
     );
     let output_path = storage.path_for(&storage_key).map_err(|e| {
-        internal_error(format!(
+        ApiError::internal(format!(
             "Failed to resolve storage path for dataset {}: {}",
             dataset_id, e
         ))
@@ -502,12 +488,10 @@ pub async fn complete_chunked_upload(
 
     // Seal chunk manifest before assembly to prevent chunk substitution
     let sealed_manifest_hash = session.compute_sealed_manifest_hash().ok_or_else(|| {
-        (
+        ApiError::new(
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("Failed to compute sealed manifest hash")
-                    .with_code("MANIFEST_SEAL_FAILED"),
-            ),
+            "MANIFEST_SEAL_FAILED",
+            "Failed to compute sealed manifest hash",
         )
     })?;
     info!(
@@ -520,8 +504,9 @@ pub async fn complete_chunked_upload(
     // Assemble chunks
     let (file_hash, total_bytes) = match assemble_chunks(&session, &output_path).await {
         Ok(res) => res,
-        Err((status, Json(payload))) => {
-            let error_msg = payload.error.clone();
+        Err(err) => {
+            let (status, Json(response)) = &err;
+            let error_msg = response.message.clone();
             error!("Failed to assemble chunks: {}", error_msg);
             mark_session_failed_with_metric(&state, &session_id, &error_msg).await;
             if !keep_partial_uploads() {
@@ -558,7 +543,7 @@ pub async fn complete_chunked_upload(
                     .await;
                 });
             }
-            return Err((status, Json(payload)));
+            return Err(err.into());
         }
     };
     if let Err(e) = canonicalize_strict_in_allowed_roots(&output_path, &allowed_roots) {
@@ -575,18 +560,13 @@ pub async fn complete_chunked_upload(
             let _ = tokio::fs::remove_file(&output_path).await;
             clean_temp(&session.temp_dir).await;
         }
-        return Err((
+        return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-                error: format!(
-                    "Assembled size {} does not match expected size {}",
-                    total_bytes, session.total_size
-                ),
-                code: "SIZE_MISMATCH".to_string(),
-                failure_code: None,
-                details: None,
-            }),
+            "SIZE_MISMATCH",
+            format!(
+                "Assembled size {} does not match expected size {}",
+                total_bytes, session.total_size
+            ),
         ));
     }
 
@@ -602,14 +582,10 @@ pub async fn complete_chunked_upload(
                 let _ = tokio::fs::remove_file(&output_path).await;
                 clean_temp(&session.temp_dir).await;
             }
-            return Err((
+            return Err(ApiError::new(
                 StatusCode::BAD_REQUEST,
-                Json(
-                    ErrorResponse::new(
-                        "Uploaded file hash does not match expected hash for this session",
-                    )
-                    .with_code("UPLOAD_HASH_MISMATCH"),
-                ),
+                "UPLOAD_HASH_MISMATCH",
+                "Uploaded file hash does not match expected hash for this session",
             ));
         }
     }
@@ -623,7 +599,8 @@ pub async fn complete_chunked_upload(
         return Err(quota_error(format!(
             "Dataset storage quota exceeded: {} > {} bytes",
             predicted_usage, hard_quota
-        )));
+        ))
+        .into());
     }
     if predicted_usage > soft_quota {
         warn!(
@@ -826,7 +803,10 @@ pub async fn complete_chunked_upload(
             clean_temp(&session.temp_dir).await;
         }
         error!("Failed to create dataset record: {}", e);
-        return Err(db_error(format!("Failed to create dataset record: {}", e)));
+        return Err(ApiError::db_error(format!(
+            "Failed to create dataset record: {}",
+            e
+        )));
     }
 
     // CRITICAL: Associate dataset with user's tenant for tenant isolation
@@ -837,7 +817,7 @@ pub async fn complete_chunked_upload(
             let _ = tokio::fs::remove_file(&output_path).await;
             clean_temp(&session.temp_dir).await;
         }
-        return Err(e);
+        return Err(e.into());
     }
     info!(
         dataset_id = %dataset_id,
@@ -864,7 +844,10 @@ pub async fn complete_chunked_upload(
             clean_temp(&session.temp_dir).await;
         }
         error!("Failed to add file record: {}", e);
-        return Err(db_error(format!("Failed to add file record: {}", e)));
+        return Err(ApiError::db_error(format!(
+            "Failed to add file record: {}",
+            e
+        )));
     }
 
     if let Err(e) = state
@@ -882,7 +865,7 @@ pub async fn complete_chunked_upload(
         if !keep_partial_uploads() {
             clean_temp(&session.temp_dir).await;
         }
-        return Err(db_error(format!(
+        return Err(ApiError::db_error(format!(
             "Failed to update validation status: {}",
             e
         )));
@@ -945,13 +928,13 @@ pub async fn complete_chunked_upload(
             .db
             .record_dataset_version_for_run(&dataset_id, &session_id, None, None, Some(&claims.sub))
             .await
-            .map_err(|e| db_error(format!("Failed to record dataset version: {}", e)))?
+            .map_err(|e| ApiError::db_error(format!("Failed to record dataset version: {}", e)))?
     } else {
         state
             .db
             .ensure_dataset_version_exists(&dataset_id)
             .await
-            .map_err(|e| db_error(format!("Failed to ensure dataset version: {}", e)))?
+            .map_err(|e| ApiError::db_error(format!("Failed to ensure dataset version: {}", e)))?
     };
 
     if let Err(e) = state
@@ -1001,14 +984,12 @@ pub async fn complete_chunked_upload(
                 )
                 .await;
                 let _ = state.db.update_dataset_status(&dataset_id, "failed").await;
-                return Err((
+                return Err(ApiError::new(
                     StatusCode::BAD_REQUEST,
-                    Json(
-                        ErrorResponse::new(format!(
-                            "Dataset contains invalid JSONL rows (parse_errors={}, dropped={})",
-                            parse_errors, dropped
-                        ))
-                        .with_code("DATASET_SCHEMA_INVALID"),
+                    "DATASET_SCHEMA_INVALID",
+                    format!(
+                        "Dataset contains invalid JSONL rows (parse_errors={}, dropped={})",
+                        parse_errors, dropped
                     ),
                 ));
             }
@@ -1027,12 +1008,10 @@ pub async fn complete_chunked_upload(
                 )
                 .await;
                 let _ = state.db.update_dataset_status(&dataset_id, "failed").await;
-                return Err((
+                return Err(ApiError::new(
                     StatusCode::BAD_REQUEST,
-                    Json(
-                        ErrorResponse::new("Dataset contains no valid training rows")
-                            .with_code("DATASET_EMPTY"),
-                    ),
+                    "DATASET_EMPTY",
+                    "Dataset contains no valid training rows",
                 ));
             }
 
@@ -1052,7 +1031,7 @@ pub async fn complete_chunked_upload(
                     )
                     .await;
                     let _ = state.db.update_dataset_status(&dataset_id, "failed").await;
-                    return Err(db_error(format!(
+                    return Err(ApiError::db_error(format!(
                         "Failed to insert training dataset rows: {}",
                         e
                     )));
@@ -1067,12 +1046,10 @@ pub async fn complete_chunked_upload(
                 )
                 .await;
                 let _ = state.db.update_dataset_status(&dataset_id, "failed").await;
-                return Err((
+                return Err(ApiError::new(
                     StatusCode::BAD_REQUEST,
-                    Json(
-                        ErrorResponse::new("Dataset contains no valid training rows")
-                            .with_code("DATASET_EMPTY"),
-                    ),
+                    "DATASET_EMPTY",
+                    "Dataset contains no valid training rows",
                 ));
             }
 
@@ -1083,7 +1060,10 @@ pub async fn complete_chunked_upload(
                     "Failed to update dataset status",
                 )
                 .await;
-                return Err(db_error(format!("Failed to update dataset status: {}", e)));
+                return Err(ApiError::db_error(format!(
+                    "Failed to update dataset status: {}",
+                    e
+                )));
             }
 
             info!(
@@ -1106,7 +1086,7 @@ pub async fn complete_chunked_upload(
             )
             .await;
             let _ = state.db.update_dataset_status(&dataset_id, "failed").await;
-            return Err(internal_error(
+            return Err(ApiError::internal(
                 "Failed to read uploaded dataset for row creation",
             ));
         }
@@ -1126,15 +1106,13 @@ pub async fn complete_chunked_upload(
                 .await;
         }
         Ok(false) => {
-            return Err((
+            return Err(ApiError::new(
                 StatusCode::CONFLICT,
-                Json(
-                    ErrorResponse::new("Upload session already completed")
-                        .with_code("UPLOAD_ALREADY_COMPLETE"),
-                ),
+                "UPLOAD_ALREADY_COMPLETE",
+                "Upload session already completed",
             ));
         }
-        Err(e) => return Err(e),
+        Err(e) => return Err(e.into()),
     }
 
     if let Err(e) = state
@@ -1415,7 +1393,7 @@ pub async fn get_upload_session_status(
         .upload_session_manager
         .get_session(&session_id)
         .await
-        .map_err(|_| not_found("Upload session"))?;
+        .map_err(|_| ApiError::not_found("Upload session"))?;
 
     let total_chunks = expected_chunks(session.total_size, session.chunk_size);
 
@@ -1467,7 +1445,7 @@ pub async fn cancel_chunked_upload(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(session_id): Path<String>,
-) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<impl IntoResponse, ApiError> {
     // Check permission
     require_permission(&claims, Permission::DatasetUpload)?;
 
@@ -1476,7 +1454,7 @@ pub async fn cancel_chunked_upload(
         .upload_session_manager
         .get_session(&session_id)
         .await
-        .map_err(|_| not_found("Upload session"))?;
+        .map_err(|_| ApiError::not_found("Upload session"))?;
 
     // Remove session from manager
     state
@@ -1485,7 +1463,7 @@ pub async fn cancel_chunked_upload(
         .await
         .map_err(|e| {
             error!("Failed to remove session: {}", e);
-            internal_error(format!("Failed to remove session: {}", e))
+            ApiError::internal(format!("Failed to remove session: {}", e))
         })?;
 
     mark_session_failed_with_metric(&state, &session_id, "upload session cancelled").await;
@@ -1565,19 +1543,18 @@ pub async fn retry_chunk(
         ));
     }
     if session_record.status == "failed" {
-        return Err((
+        return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new(format!(
-                    "Upload session failed: {}",
-                    session_record
-                        .error_message
-                        .clone()
-                        .unwrap_or_else(|| "unknown".to_string())
-                ))
-                .with_code("UPLOAD_SESSION_FAILED"),
+            "UPLOAD_SESSION_FAILED",
+            format!(
+                "Upload session failed: {}",
+                session_record
+                    .error_message
+                    .clone()
+                    .unwrap_or_else(|| "unknown".to_string())
             ),
-        ));
+        )
+        .into());
     }
 
     let chunk_index = query.chunk_index;
@@ -1587,7 +1564,7 @@ pub async fn retry_chunk(
         .upload_session_manager
         .get_session(&session_id)
         .await
-        .map_err(|_| not_found("Upload session"))?;
+        .map_err(|_| ApiError::not_found("Upload session"))?;
 
     let total_chunks = expected_chunks(session.total_size, session.chunk_size);
     if chunk_index >= total_chunks {
@@ -1595,7 +1572,7 @@ pub async fn retry_chunk(
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
                 schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-                error: format!(
+                message: format!(
                     "Invalid chunk index {}. Expected 0-{} for {} total chunks",
                     chunk_index,
                     total_chunks - 1,
@@ -1604,6 +1581,8 @@ pub async fn retry_chunk(
                 code: "INVALID_CHUNK_INDEX".to_string(),
                 failure_code: None,
                 details: None,
+                hint: None,
+                request_id: None,
             }),
         ));
     }
@@ -1615,7 +1594,7 @@ pub async fn retry_chunk(
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
                 schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-                error: format!(
+                message: format!(
                     "Invalid chunk size {}. Expected {} bytes for chunk {}",
                     body.len(),
                     expected_size,
@@ -1624,6 +1603,8 @@ pub async fn retry_chunk(
                 code: "INVALID_CHUNK_SIZE".to_string(),
                 failure_code: None,
                 details: None,
+                hint: None,
+                request_id: None,
             }),
         ));
     }
@@ -1657,13 +1638,15 @@ pub async fn retry_chunk(
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse {
                     schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-                    error: format!(
+                    message: format!(
                         "Chunk hash mismatch. Expected {}, got {}",
                         exp_hash, chunk_hash
                     ),
                     code: "HASH_MISMATCH".to_string(),
                     failure_code: None,
                     details: None,
+                    hint: None,
+                    request_id: None,
                 }),
             ));
         }
@@ -1684,7 +1667,7 @@ pub async fn retry_chunk(
         .upload_session_manager
         .get_session(&session_id)
         .await
-        .map_err(internal_error)?;
+        .map_err(|e| ApiError::internal(e.to_string()))?;
 
     let chunks_received = updated_session.received_chunks.len();
     let is_complete = state

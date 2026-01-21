@@ -67,9 +67,6 @@ pub fn Training() -> impl IntoView {
         }
     });
 
-    // Store refetch in a signal for sharing
-    let refetch_signal = StoredValue::new(refetch_jobs);
-
     // Derive whether we need to poll (only when there are running or pending jobs)
     let should_poll = Signal::derive(move || {
         matches!(jobs.get(), LoadingState::Loaded(ref data) if data.jobs.iter().any(|job| {
@@ -80,7 +77,7 @@ pub fn Training() -> impl IntoView {
     // Conditional polling for live updates (every 5 seconds when jobs are active)
     // Return value (stop fn) intentionally ignored - polling runs until unmount or no active jobs
     let _ = use_conditional_polling(5000, should_poll, move || async move {
-        refetch_signal.with_value(|f| f());
+        refetch_jobs.run(());
     });
 
     let on_job_select = move |job_id: String| {
@@ -93,7 +90,7 @@ pub fn Training() -> impl IntoView {
 
     let on_job_created = move || {
         create_dialog_open.set(false);
-        refetch_signal.with_value(|f| f());
+        refetch_jobs.run(());
     };
 
     // Derive selection state for SplitPanel
@@ -157,7 +154,7 @@ pub fn Training() -> impl IntoView {
                                         view! {
                                             <ErrorDisplay
                                                 error=e
-                                                on_retry=Callback::new(move |_| refetch_signal.with_value(|f| f()))
+                                                on_retry=Callback::new(move |_| refetch_jobs.run(()))
                                             />
                                         }.into_any()
                                     }
@@ -173,7 +170,7 @@ pub fn Training() -> impl IntoView {
                         <TrainingJobDetail
                             job_id=job_id
                             on_close=on_close_detail
-                            on_cancelled=move || refetch_signal.with_value(|f| f())
+                            on_cancelled=move || refetch_jobs.run(())
                         />
                     }
                 }

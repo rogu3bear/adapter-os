@@ -4,6 +4,7 @@
 
 pub mod adapters;
 pub mod admin;
+pub mod agents;
 pub mod audit;
 pub mod chat;
 pub mod collections;
@@ -31,6 +32,7 @@ pub mod workers;
 
 pub use adapters::{AdapterDetail, Adapters};
 pub use admin::Admin;
+pub use agents::Agents;
 pub use audit::Audit;
 pub use chat::{Chat, ChatSession};
 pub use collections::{CollectionDetail, Collections};

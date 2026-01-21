@@ -239,6 +239,7 @@ fn test_inference_result_has_pinned_adapter_fields() {
         stop_policy_digest_b3: None,
         model_type: None,
         abstention: None,
+        pending_evidence_ids: Vec::new(),
     };
 
     // Verify fields are present and correct
@@ -294,6 +295,7 @@ fn test_inference_result_omits_none_pinned_fields() {
         stop_policy_digest_b3: None,
         model_type: None,
         abstention: None,
+        pending_evidence_ids: Vec::new(),
     };
 
     // Verify None fields are properly set
@@ -412,6 +414,7 @@ fn test_graceful_degradation_http_200_behavior() {
         stop_policy_digest_b3: None,
         model_type: None,
         abstention: None,
+        pending_evidence_ids: Vec::new(),
     };
 
     // Key assertions for graceful degradation compliance:

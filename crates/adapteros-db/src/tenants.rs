@@ -788,7 +788,43 @@ impl Db {
     }
 
     /// Get tenant usage statistics
+    ///
+    /// Storage is calculated from DB tables (adapters + documents file sizes).
+    /// For comprehensive metrics including filesystem artifacts, use
+    /// [`TenantMetricsService`](crate::tenant_metrics::TenantMetricsService) which
+    /// also walks tenant directories for complete storage accounting.
+    ///
+    /// # Example: Full metrics integration
+    /// ```ignore
+    /// use adapteros_db::tenant_metrics::TenantMetricsService;
+    ///
+    /// let metrics_service = TenantMetricsService::new(storage_paths);
+    /// let full_metrics = metrics_service.get_metrics(&db, tenant_id).await?;
+    ///
+    /// // Or pass system metrics to this function:
+    /// let usage = db.get_tenant_usage_with_metrics(
+    ///     tenant_id,
+    ///     Some((full_metrics.cpu_usage_pct, full_metrics.gpu_usage_pct,
+    ///           full_metrics.memory_used_gb, full_metrics.memory_total_gb)),
+    /// ).await?;
+    /// ```
     pub async fn get_tenant_usage(&self, tenant_id: &str) -> Result<TenantUsage> {
+        self.get_tenant_usage_with_metrics(tenant_id, None).await
+    }
+
+    /// Get tenant usage statistics with optional system metrics
+    ///
+    /// Combines DB-based stats with optional real-time system metrics.
+    ///
+    /// # Arguments
+    /// * `tenant_id` - The tenant to get usage for
+    /// * `system_metrics` - Optional tuple of (cpu_pct, gpu_pct, memory_used_gb, memory_total_gb)
+    ///   from [`TenantMetricsService::get_metrics()`](crate::tenant_metrics::TenantMetricsService::get_metrics)
+    pub async fn get_tenant_usage_with_metrics(
+        &self,
+        tenant_id: &str,
+        system_metrics: Option<(f64, f64, f64, f64)>,
+    ) -> Result<TenantUsage> {
         // Count active adapters
         let adapter_count =
             sqlx::query("SELECT COUNT(*) as cnt FROM adapters WHERE tenant_id = ? AND active = 1")
@@ -821,17 +857,55 @@ impl Db {
         .map(|row| row.get::<i32, _>(0))
         .unwrap_or(0);
 
+        // Calculate storage from adapters (file_size_bytes) + documents (file_size)
+        let storage_used_gb = self.calculate_tenant_storage(tenant_id).await?;
+
+        // Use provided system metrics or defaults
+        let (cpu_usage_pct, gpu_usage_pct, memory_used_gb, memory_total_gb) =
+            system_metrics.unwrap_or((0.0, 0.0, 0.0, 0.0));
+
         Ok(TenantUsage {
             tenant_id: tenant_id.to_string(),
             active_adapters_count: adapter_count,
             running_training_jobs: training_jobs_count,
             inference_count_24h: inference_count_24h as i64,
-            storage_used_gb: 0.0, // TODO: calculate from artifacts
-            cpu_usage_pct: 0.0,   // TODO: from system metrics
-            gpu_usage_pct: 0.0,   // TODO: from system metrics
-            memory_used_gb: 0.0,  // TODO: from system metrics
-            memory_total_gb: 0.0, // TODO: from system metrics
+            storage_used_gb,
+            cpu_usage_pct,
+            gpu_usage_pct,
+            memory_used_gb,
+            memory_total_gb,
         })
+    }
+
+    /// Calculate total storage used by a tenant in GB
+    ///
+    /// Sums:
+    /// - file_size_bytes from adapters table
+    /// - file_size from documents table
+    async fn calculate_tenant_storage(&self, tenant_id: &str) -> Result<f64> {
+        const BYTES_PER_GB: f64 = 1024.0 * 1024.0 * 1024.0;
+
+        // Sum adapter file sizes
+        let adapter_bytes: i64 = sqlx::query(
+            "SELECT COALESCE(SUM(file_size_bytes), 0) FROM adapters WHERE tenant_id = ?",
+        )
+        .bind(tenant_id)
+        .fetch_one(self.pool())
+        .await
+        .db_err("sum adapter storage")?
+        .get(0);
+
+        // Sum document file sizes
+        let document_bytes: i64 =
+            sqlx::query("SELECT COALESCE(SUM(file_size), 0) FROM documents WHERE tenant_id = ?")
+                .bind(tenant_id)
+                .fetch_one(self.pool())
+                .await
+                .db_err("sum document storage")?
+                .get(0);
+
+        let total_bytes = adapter_bytes + document_bytes;
+        Ok(total_bytes as f64 / BYTES_PER_GB)
     }
 
     pub async fn store_tenant_snapshot_hash(

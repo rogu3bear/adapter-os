@@ -524,7 +524,7 @@ impl DatasetDomain for DatasetDomainService {
             self.resolve_version_dir(&request.tenant_id, &request.dataset_id, &version_id)?;
         ensure_dirs([version_dir.as_path()])
             .await
-            .map_err(|(_, json)| AosError::Io(json.0.error.clone()))?;
+            .map_err(|(_, json)| AosError::Io(json.0.message.clone()))?;
 
         let storage = FsByteStorage::new(
             resolve_dataset_root(&self.state)?,

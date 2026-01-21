@@ -28,12 +28,12 @@ pub mod verification;
 
 pub use bundle::{ReplayBundle, ReplaySignatureMetadata};
 pub use reproducible::{
-    compare_receipt_digests, compare_receipt_digests_hex, AdapterAvailabilityChecker,
-    AdapterSpec, AvailabilityCheckResult, ComponentType, DivergenceDiagnostics, DivergenceType,
-    FieldMismatch, ModelAvailabilityChecker, ModelSpec, ReplayExecutionStats,
-    ReplayVerificationResult, ReproducibleReplayError, ReproducibleReplayExecutor,
-    ReproducibleReplayResult, ReproducibleReplaySpec, SamplingParams as ReproducibleSamplingParams,
-    UnavailableComponent, VerificationStatus,
+    compare_receipt_digests, compare_receipt_digests_hex, AdapterAvailabilityChecker, AdapterSpec,
+    AvailabilityCheckResult, ComponentType, DivergenceDiagnostics, DivergenceType, FieldMismatch,
+    ModelAvailabilityChecker, ModelSpec, ReplayExecutionStats, ReplayVerificationResult,
+    ReproducibleReplayError, ReproducibleReplayExecutor, ReproducibleReplayResult,
+    ReproducibleReplaySpec, SamplingParams as ReproducibleSamplingParams, UnavailableComponent,
+    VerificationStatus,
 };
 pub use session::{replay_trace, ExecutorState, ReplaySession, ReplayStats};
 pub use verification::{

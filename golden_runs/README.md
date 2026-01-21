@@ -65,12 +65,12 @@ Complete event trace from the inference run. Can be omitted to save space if onl
 ## Creating a Golden Run
 
 ```bash
-# Run inference and capture event bundle
-aosctl serve --plan-id <plan> --capture-events var/bundles/capture.ndjson
+# Run inference and capture event trace to directory
+aosctl serve --plan <plan> --capture-events var/bundles/capture_dir
 
-# Create golden run from bundle
+# Create golden run from capture directory (auto-detects bundle)
 aosctl golden create \
-  --bundle var/bundles/capture.ndjson \
+  --bundle var/bundles/capture_dir \
   --name baseline-001 \
   --sign
 
@@ -81,12 +81,12 @@ aosctl golden create \
 
 ```bash
 # Run inference and capture events
-aosctl serve --plan-id <plan> --capture-events var/bundles/new_run.ndjson
+aosctl serve --plan <plan> --capture-events var/bundles/new_run_dir
 
 # Verify against golden baseline
 aosctl golden verify \
   --golden golden_runs/baselines/baseline-001 \
-  --bundle var/bundles/new_run.ndjson
+  --bundle var/bundles/new_run_dir/bundle_000000.ndjson
 
 # Output:
 # ✓ Verification PASSED
@@ -108,7 +108,7 @@ Set strictness with `--strictness` flag:
 ```bash
 aosctl golden verify \
   --golden golden_runs/baselines/baseline-001 \
-  --bundle var/bundles/new_run.ndjson \
+  --bundle var/bundles/new_run_dir/bundle_000000.ndjson \
   --strictness bitwise
 ```
 

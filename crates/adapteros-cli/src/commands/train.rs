@@ -573,7 +573,7 @@ mod tests {
             "bool": "true"
         })
         .to_string();
-        let training_examples = vec![
+        let training_examples = [
             TrainingExample::new(
                 vec![1, 2, 3],
                 vec![4, 5, 6],

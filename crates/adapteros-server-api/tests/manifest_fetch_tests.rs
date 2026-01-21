@@ -59,6 +59,7 @@ async fn fetch_manifest_by_hash_returns_yaml_and_hash() {
         seed_mode: SeedMode::BestEffort,
         backend_profile: BackendKind::Auto,
         worker_id: 0,
+        rate_limit: None,
     }));
 
     let metrics_exporter = Arc::new(MetricsExporter::new(vec![0.1]).unwrap());

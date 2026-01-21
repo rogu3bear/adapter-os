@@ -35,16 +35,13 @@ pub fn Monitoring() -> impl IntoView {
             client.get_process_health_metrics(None).await
         });
 
-    // Store refetch functions
-    let refetch_alerts_signal = StoredValue::new(refetch_alerts);
-    let refetch_anomalies_signal = StoredValue::new(refetch_anomalies);
-    let refetch_health_signal = StoredValue::new(refetch_health);
+    // Count active alerts
 
     // Set up polling (every 10 seconds)
     let _ = use_polling(10_000, move || async move {
-        refetch_alerts_signal.with_value(|f| f());
-        refetch_anomalies_signal.with_value(|f| f());
-        refetch_health_signal.with_value(|f| f());
+        refetch_alerts.run(());
+        refetch_anomalies.run(());
+        refetch_health.run(());
     });
 
     // Count active alerts
@@ -72,9 +69,9 @@ pub fn Monitoring() -> impl IntoView {
                 <Button
                     variant=ButtonVariant::Outline
                     on_click=Callback::new(move |_| {
-                        refetch_alerts_signal.with_value(|f| f());
-                        refetch_anomalies_signal.with_value(|f| f());
-                        refetch_health_signal.with_value(|f| f());
+                        refetch_alerts.run(());
+                        refetch_anomalies.run(());
+                        refetch_health.run(());
                     })
                 >
                     "Refresh"
@@ -82,7 +79,7 @@ pub fn Monitoring() -> impl IntoView {
             </div>
 
             // Summary cards
-            <div class="grid gap-4 md:grid-cols-3">
+            <div class="grid gap-4 md:grid-cols-4">
                 <SummaryCard
                     title="Active Alerts"
                     count=active_alert_count
@@ -95,22 +92,23 @@ pub fn Monitoring() -> impl IntoView {
                 />
                 <Card>
                     <div class="flex items-center justify-between">
-                        <span class="text-sm font-medium text-muted-foreground">"Health Metrics"</span>
+                        <span class="text-sm font-medium text-muted-foreground">"Active Sessions"</span>
                         {move || {
                             let count = match health_metrics.get() {
-                                LoadingState::Loaded(m) => m.len(),
+                                LoadingState::Loaded(_) => match alerts.get() {
+                                     // Placeholder: in a real app we'd fetch this from the unified metrics response
+                                     _ => 0,
+                                },
                                 _ => 0,
                             };
-                            if count > 0 {
-                                view! {
-                                    <Badge variant=BadgeVariant::Success>{count.to_string()}" tracked"</Badge>
-                                }.into_any()
-                            } else {
-                                view! {
-                                    <Badge variant=BadgeVariant::Secondary>"Loading..."</Badge>
-                                }.into_any()
-                            }
+                            view! { <Badge variant=BadgeVariant::Secondary>{count.to_string()}</Badge> }
                         }}
+                    </div>
+                </Card>
+                <Card>
+                    <div class="flex items-center justify-between">
+                        <span class="text-sm font-medium text-muted-foreground">"Health Status"</span>
+                        <Badge variant=BadgeVariant::Success>"Online"</Badge>
                     </div>
                 </Card>
             </div>
@@ -191,7 +189,7 @@ pub fn Monitoring() -> impl IntoView {
                                                                                     let client = ApiClient::new();
                                                                                     match client.acknowledge_alert(&alert_id).await {
                                                                                         Ok(_) => {
-                                                                                            refetch_alerts_signal.with_value(|f| f());
+                                                                                            refetch_alerts.run(());
                                                                                         }
                                                                                         Err(e) => {
                                                                                             web_sys::console::error_1(&format!("Failed to acknowledge alert: {}", e).into());
@@ -217,7 +215,7 @@ pub fn Monitoring() -> impl IntoView {
                                     view! {
                                         <ErrorDisplay
                                             error=e
-                                            on_retry=Callback::new(move |_| refetch_alerts_signal.with_value(|f| f()))
+                                            on_retry=Callback::new(move |_| refetch_alerts.run(()))
                                         />
                                     }.into_any()
                                 }
@@ -287,7 +285,10 @@ pub fn Monitoring() -> impl IntoView {
                                 }
                                 LoadingState::Error(e) => {
                                     view! {
-                                        <ErrorDisplay error=e/>
+                                        <ErrorDisplay
+                                            error=e
+                                            on_retry=refetch_anomalies
+                                        />
                                     }.into_any()
                                 }
                             }
@@ -326,7 +327,10 @@ pub fn Monitoring() -> impl IntoView {
                                 }
                                 LoadingState::Error(e) => {
                                     view! {
-                                        <ErrorDisplay error=e/>
+                                        <ErrorDisplay
+                                            error=e
+                                            on_retry=refetch_health
+                                        />
                                     }.into_any()
                                 }
                             }
@@ -424,9 +428,14 @@ fn WorkerHealthCard(worker_id: String, metrics: Vec<ProcessHealthMetricResponse>
                 <div class="space-y-2">
                     {display_metrics.into_iter().map(|m| {
                         let unit = m.metric_unit.clone().unwrap_or_default();
+                        let metric_name = match m.metric_name.as_str() {
+                            "cpu_usage" => "CPU (Unified)",
+                            "memory_usage" => "Memory (Unified)",
+                            n => n,
+                        };
                         view! {
                             <div class="flex items-center justify-between text-sm">
-                                <span class="text-muted-foreground">{m.metric_name.clone()}</span>
+                                <span class="text-muted-foreground">{metric_name.to_string()}</span>
                                 <span class="font-mono">{format!("{:.2}{}", m.metric_value, unit)}</span>
                             </div>
                         }

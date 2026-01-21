@@ -300,7 +300,9 @@ impl RoutingRecord {
     /// This method produces identical hashes to `SqlTraceSink::hash_decision`
     /// when given the same inputs, enabling cross-system verification.
     pub fn compute_hash_canonical(&self, context_digest: &[u8; 32]) -> B3Hash {
-        use crate::receipt_digest::{encode_adapter_ids, encode_allowed_mask, encode_gates_q15, hash_token_decision};
+        use crate::receipt_digest::{
+            encode_adapter_ids, encode_allowed_mask, encode_gates_q15, hash_token_decision,
+        };
 
         // Encode fields to canonical blob format
         let adapter_ids_blob = encode_adapter_ids(&self.adapter_ids);
@@ -709,7 +711,8 @@ impl ReceiptGenerator {
     /// Records should be added in step order (0, 1, 2, ...).
     pub fn record_routing_decision(&mut self, record: RoutingRecord) {
         let context_digest = self.context_id.digest.as_bytes();
-        self.routing_digest.accumulate_canonical(&record, context_digest);
+        self.routing_digest
+            .accumulate_canonical(&record, context_digest);
     }
 
     /// Record a routing decision with direct parameters.
@@ -1121,50 +1124,53 @@ pub struct CancellationReceipt {
 /// Current schema version for cancellation receipts
 pub const CANCELLATION_RECEIPT_SCHEMA_VERSION: u8 = 1;
 
+/// Parameters for computing cancellation receipt digest.
+pub struct CancellationReceiptDigestParams<'a> {
+    pub trace_id: &'a str,
+    pub partial_output_digest: &'a B3Hash,
+    pub partial_output_count: u32,
+    pub stop_reason: &'a str,
+    pub cancellation_source: CancelSource,
+    pub cancelled_at_token: u32,
+    pub equipment_profile: Option<&'a EquipmentProfile>,
+    pub context_digest: Option<&'a B3Hash>,
+}
+
 impl CancellationReceipt {
     /// Compute the receipt digest from all bound fields.
-    fn compute_receipt_digest(
-        trace_id: &str,
-        partial_output_digest: &B3Hash,
-        partial_output_count: u32,
-        stop_reason: &str,
-        cancellation_source: CancelSource,
-        cancelled_at_token: u32,
-        equipment_profile: Option<&EquipmentProfile>,
-        context_digest: Option<&B3Hash>,
-    ) -> B3Hash {
+    fn compute_receipt_digest(params: CancellationReceiptDigestParams) -> B3Hash {
         let mut hasher = blake3::Hasher::new();
 
         // Schema version
         hasher.update(&[CANCELLATION_RECEIPT_SCHEMA_VERSION]);
 
         // Trace ID (length-prefixed)
-        let trace_bytes = trace_id.as_bytes();
+        let trace_bytes = params.trace_id.as_bytes();
         hasher.update(&(trace_bytes.len() as u32).to_le_bytes());
         hasher.update(trace_bytes);
 
         // Partial output digest
-        hasher.update(partial_output_digest.as_bytes());
+        hasher.update(params.partial_output_digest.as_bytes());
 
         // Partial output count
-        hasher.update(&partial_output_count.to_le_bytes());
+        hasher.update(&params.partial_output_count.to_le_bytes());
 
         // Stop reason (length-prefixed)
-        let reason_bytes = stop_reason.as_bytes();
+        let reason_bytes = params.stop_reason.as_bytes();
         hasher.update(&(reason_bytes.len() as u32).to_le_bytes());
         hasher.update(reason_bytes);
 
         // Cancellation source (as string, length-prefixed)
-        let source_str = cancellation_source.to_string();
+        let source_str = params.cancellation_source.to_string();
         let source_bytes = source_str.as_bytes();
         hasher.update(&(source_bytes.len() as u32).to_le_bytes());
         hasher.update(source_bytes);
 
         // Cancelled at token index
-        hasher.update(&cancelled_at_token.to_le_bytes());
+        hasher.update(&params.cancelled_at_token.to_le_bytes());
 
         // Equipment profile digest (with presence marker)
-        match equipment_profile {
+        match params.equipment_profile {
             Some(ep) => {
                 hasher.update(&[1u8]);
                 hasher.update(ep.digest.as_bytes());
@@ -1175,7 +1181,7 @@ impl CancellationReceipt {
         }
 
         // Context digest (with presence marker)
-        match context_digest {
+        match params.context_digest {
             Some(ctx) => {
                 hasher.update(&[1u8]);
                 hasher.update(ctx.as_bytes());
@@ -1190,16 +1196,16 @@ impl CancellationReceipt {
 
     /// Verify the receipt digest matches the bound fields.
     pub fn verify(&self) -> bool {
-        let expected = Self::compute_receipt_digest(
-            &self.trace_id,
-            &self.partial_output_digest,
-            self.partial_output_count,
-            &self.stop_reason,
-            self.cancellation_source,
-            self.cancelled_at_token,
-            self.equipment_profile.as_ref(),
-            self.context_digest.as_ref(),
-        );
+        let expected = Self::compute_receipt_digest(CancellationReceiptDigestParams {
+            trace_id: &self.trace_id,
+            partial_output_digest: &self.partial_output_digest,
+            partial_output_count: self.partial_output_count,
+            stop_reason: &self.stop_reason,
+            cancellation_source: self.cancellation_source,
+            cancelled_at_token: self.cancelled_at_token,
+            equipment_profile: self.equipment_profile.as_ref(),
+            context_digest: self.context_digest.as_ref(),
+        });
         self.receipt_digest == expected
     }
 
@@ -1277,7 +1283,11 @@ impl CancellationReceiptBuilder {
     /// * `trace_id` - Unique trace identifier
     /// * `cancellation_source` - Why the inference was cancelled
     /// * `cancelled_at_token` - Token index at cancellation
-    pub fn new(trace_id: String, cancellation_source: CancelSource, cancelled_at_token: u32) -> Self {
+    pub fn new(
+        trace_id: String,
+        cancellation_source: CancelSource,
+        cancelled_at_token: u32,
+    ) -> Self {
         Self {
             trace_id,
             partial_tokens: Vec::new(),
@@ -1322,16 +1332,17 @@ impl CancellationReceiptBuilder {
         let partial_output_count = self.partial_tokens.len() as u32;
         let stop_reason = "CANCELLED".to_string();
 
-        let receipt_digest = CancellationReceipt::compute_receipt_digest(
-            &self.trace_id,
-            &partial_output_digest,
-            partial_output_count,
-            &stop_reason,
-            self.cancellation_source,
-            self.cancelled_at_token,
-            self.equipment_profile.as_ref(),
-            self.context_digest.as_ref(),
-        );
+        let receipt_digest =
+            CancellationReceipt::compute_receipt_digest(CancellationReceiptDigestParams {
+                trace_id: &self.trace_id,
+                partial_output_digest: &partial_output_digest,
+                partial_output_count,
+                stop_reason: &stop_reason,
+                cancellation_source: self.cancellation_source,
+                cancelled_at_token: self.cancelled_at_token,
+                equipment_profile: self.equipment_profile.as_ref(),
+                context_digest: self.context_digest.as_ref(),
+            });
 
         CancellationReceipt {
             schema_version: CANCELLATION_RECEIPT_SCHEMA_VERSION,
@@ -1875,7 +1886,9 @@ mod tests {
     /// by `SqlTraceSink`, breaking offline verification.
     #[test]
     fn test_canonical_hash_parity_with_receipt_digest() {
-        use crate::receipt_digest::{encode_adapter_ids, encode_allowed_mask, encode_gates_q15, hash_token_decision};
+        use crate::receipt_digest::{
+            encode_adapter_ids, encode_allowed_mask, encode_gates_q15, hash_token_decision,
+        };
 
         let context_digest = [0x42u8; 32];
         let step = 5u32;
@@ -1889,7 +1902,7 @@ mod tests {
         // Create a RoutingRecord with these fields
         let record = RoutingRecord {
             step,
-            input_token_id: None, // Not included in canonical hash
+            input_token_id: None,        // Not included in canonical hash
             adapter_indices: vec![0, 1], // Not included in canonical hash
             adapter_ids: adapter_ids.clone(),
             gates_q15: gates_q15.clone(),
@@ -2050,7 +2063,10 @@ mod tests {
 
         // Receipt digests should be identical
         assert_eq!(receipt1.receipt_digest, receipt2.receipt_digest);
-        assert_eq!(receipt1.partial_output_digest, receipt2.partial_output_digest);
+        assert_eq!(
+            receipt1.partial_output_digest,
+            receipt2.partial_output_digest
+        );
     }
 
     #[test]
@@ -2079,25 +2095,22 @@ mod tests {
 
     #[test]
     fn test_cancellation_receipt_differs_with_different_tokens() {
-        let receipt1 = CancellationReceiptBuilder::new(
-            "trace-tok".to_string(),
-            CancelSource::ManualCancel,
-            3,
-        )
-        .with_partial_tokens(vec![1, 2, 3])
-        .finalize();
+        let receipt1 =
+            CancellationReceiptBuilder::new("trace-tok".to_string(), CancelSource::ManualCancel, 3)
+                .with_partial_tokens(vec![1, 2, 3])
+                .finalize();
 
-        let receipt2 = CancellationReceiptBuilder::new(
-            "trace-tok".to_string(),
-            CancelSource::ManualCancel,
-            4,
-        )
-        .with_partial_tokens(vec![1, 2, 3, 4])
-        .finalize();
+        let receipt2 =
+            CancellationReceiptBuilder::new("trace-tok".to_string(), CancelSource::ManualCancel, 4)
+                .with_partial_tokens(vec![1, 2, 3, 4])
+                .finalize();
 
         // Different partial tokens should produce different digests
         assert_ne!(receipt1.receipt_digest, receipt2.receipt_digest);
-        assert_ne!(receipt1.partial_output_digest, receipt2.partial_output_digest);
+        assert_ne!(
+            receipt1.partial_output_digest,
+            receipt2.partial_output_digest
+        );
     }
 
     #[test]
@@ -2114,7 +2127,10 @@ mod tests {
         .finalize();
 
         assert!(receipt.equipment_profile.is_some());
-        assert_eq!(receipt.equipment_profile.as_ref().unwrap().digest, profile.digest);
+        assert_eq!(
+            receipt.equipment_profile.as_ref().unwrap().digest,
+            profile.digest
+        );
     }
 
     #[test]

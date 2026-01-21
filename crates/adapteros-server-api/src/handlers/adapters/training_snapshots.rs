@@ -4,19 +4,19 @@
 // - Getting training snapshots (provenance) for adapters
 // - Exporting complete training provenance
 
+use crate::adapter_helpers::fetch_adapter_for_tenant;
+use crate::api_error::{ApiError, ApiResult};
 use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
-use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::*;
 use adapteros_db::AdapterTrainingSnapshot;
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
     response::Json,
     Extension,
 };
-use tracing::{error, info};
+use tracing::info;
 
 // ============================================================================
 // Handlers
@@ -45,64 +45,20 @@ pub async fn get_adapter_training_snapshot(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
-) -> Result<Json<AdapterTrainingSnapshot>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<AdapterTrainingSnapshot> {
     // Permission check
-    require_permission(&claims, Permission::AdapterView).map_err(|_e| {
-        (
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Permission denied").with_code("FORBIDDEN")),
-        )
-    })?;
+    require_permission(&claims, Permission::AdapterView)?;
 
-    // CRITICAL: Fetch adapter first to validate tenant isolation to prevent cross-tenant access
-    let adapter = state
-        .db
-        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("adapter not found").with_code("NOT_FOUND")),
-            )
-        })?;
-
-    // CRITICAL: Validate tenant isolation to prevent cross-tenant access
-    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
+    // CRITICAL: Fetch adapter with tenant isolation validation to prevent cross-tenant access
+    let _adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;
 
     // Get training snapshot from database
     let snapshot = state
         .db
         .get_adapter_training_snapshot(&adapter_id)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to get training snapshot")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(
-                    ErrorResponse::new("Training snapshot not found for this adapter")
-                        .with_code("NOT_FOUND"),
-                ),
-            )
-        })?;
+        .map_err(ApiError::db_error)?
+        .ok_or_else(|| ApiError::not_found_msg("Training snapshot not found for this adapter"))?;
 
     info!(
         adapter_id = %adapter_id,
@@ -142,69 +98,21 @@ pub async fn export_training_provenance(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
-) -> Result<Json<TrainingProvenanceExportResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<TrainingProvenanceExportResponse> {
     use blake3::Hasher;
 
     // Permission check
-    require_permission(&claims, Permission::AdapterView).map_err(|_e| {
-        (
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("Permission denied").with_code("FORBIDDEN")),
-        )
-    })?;
+    require_permission(&claims, Permission::AdapterView)?;
 
-    // Get adapter details
-    let adapter = state
-        .db
-        .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
-        .await
-        .map_err(|e| {
-            error!(
-                tenant_id = %claims.tenant_id,
-                adapter_id = %adapter_id,
-                error = %e,
-                "Failed to get adapter"
-            );
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to get adapter")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("Adapter not found").with_code("NOT_FOUND")),
-            )
-        })?;
-
-    // CRITICAL: Validate tenant isolation to prevent cross-tenant access
-    validate_tenant_isolation(&claims, &adapter.tenant_id)?;
+    // Get adapter details with tenant isolation validation
+    let adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;
 
     // Get training snapshot
     let snapshot = state
         .db
         .get_adapter_training_snapshot(&adapter_id)
         .await
-        .map_err(|e| {
-            error!(
-                tenant_id = %claims.tenant_id,
-                adapter_id = %adapter_id,
-                error = %e,
-                "Failed to get training snapshot"
-            );
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to get training snapshot")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+        .map_err(ApiError::db_error)?;
 
     // Build export data
     let mut training_jobs = Vec::new();

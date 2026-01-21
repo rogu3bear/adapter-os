@@ -5,12 +5,12 @@ use super::helpers::{
     map_validation_status,
 };
 use super::types::ListDatasetsQuery;
+use crate::api_error::ApiError;
 use crate::auth::Claims;
-use crate::error_helpers::{db_error, forbidden, not_found};
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
-use crate::types::{DatasetListResponse, DatasetResponse, ErrorResponse};
+use crate::types::{DatasetListResponse, DatasetResponse};
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -34,7 +34,7 @@ pub async fn list_datasets(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Query(params): Query<ListDatasetsQuery>,
-) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetList)?;
 
     let limit = params.limit.unwrap_or(50).min(100);
@@ -51,9 +51,9 @@ pub async fn list_datasets(
                 &claims.admin_tenants,
             )
             .await
-            .map_err(|e| db_error(format!("Failed to check workspace access: {}", e)))?;
+            .map_err(|e| ApiError::db_error(format!("Failed to check workspace access: {}", e)))?;
         if workspace_access.is_none() {
-            return Err(forbidden(
+            return Err(ApiError::forbidden(
                 "Access denied: you are not a member of this workspace",
             ));
         }
@@ -62,13 +62,13 @@ pub async fn list_datasets(
             .db
             .list_training_datasets_for_workspace(&claims.tenant_id, ws_id, limit)
             .await
-            .map_err(|e| db_error(format!("Failed to list datasets: {}", e)))?
+            .map_err(|e| ApiError::db_error(format!("Failed to list datasets: {}", e)))?
     } else {
         state
             .db
             .list_training_datasets_for_tenant(&claims.tenant_id, limit)
             .await
-            .map_err(|e| db_error(format!("Failed to list datasets: {}", e)))?
+            .map_err(|e| ApiError::db_error(format!("Failed to list datasets: {}", e)))?
     };
 
     // Tenant isolation enforced at database level via list_training_datasets_for_tenant
@@ -90,7 +90,7 @@ pub async fn list_datasets(
             .db
             .get_latest_trusted_dataset_version_for_dataset(&d.id)
             .await
-            .map_err(|e| db_error(format!("Failed to load dataset versions: {}", e)))?;
+            .map_err(|e| ApiError::db_error(format!("Failed to load dataset versions: {}", e)))?;
         let (dataset_version_id, trust_state) = latest_trusted
             .map(|(v, trust)| (Some(v.id), Some(trust)))
             .unwrap_or((None, None));
@@ -117,6 +117,7 @@ pub async fn list_datasets(
             created_by: d.created_by.unwrap_or_else(|| "system".to_string()),
             created_at: d.created_at,
             updated_at: d.updated_at,
+            dataset_type: d.dataset_type,
         });
     }
 
@@ -147,15 +148,15 @@ pub async fn get_dataset(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(dataset_id): Path<String>,
-) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetView)?;
 
     let dataset = state
         .db
         .get_training_dataset(&dataset_id)
         .await
-        .map_err(|e| db_error(format!("Failed to get dataset: {}", e)))?
-        .ok_or_else(|| not_found("Dataset"))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to get dataset: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Dataset"))?;
 
     if let Some(ref ws_id) = dataset.workspace_id {
         let access = state
@@ -167,9 +168,9 @@ pub async fn get_dataset(
                 &claims.admin_tenants,
             )
             .await
-            .map_err(|e| db_error(format!("Failed to check workspace access: {}", e)))?;
+            .map_err(|e| ApiError::db_error(format!("Failed to check workspace access: {}", e)))?;
         if access.is_none() {
-            return Err(forbidden(
+            return Err(ApiError::forbidden(
                 "Access denied: you are not a member of this workspace",
             ));
         }
@@ -180,7 +181,7 @@ pub async fn get_dataset(
         validate_tenant_isolation(&claims, dataset_tenant_id)?;
     } else if claims.role != "admin" {
         // Datasets without tenant_id are only accessible to admins
-        return Err(forbidden(
+        return Err(ApiError::forbidden(
             "Access denied: dataset has no tenant association",
         ));
     }
@@ -189,7 +190,7 @@ pub async fn get_dataset(
         .db
         .get_latest_trusted_dataset_version_for_dataset(&dataset.id)
         .await
-        .map_err(|e| db_error(format!("Failed to load dataset versions: {}", e)))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to load dataset versions: {}", e)))?;
     let (dataset_version_id, trust_state) = latest_trusted
         .map(|(v, trust)| (Some(v.id), Some(trust)))
         .unwrap_or((None, None));
@@ -215,6 +216,7 @@ pub async fn get_dataset(
         created_by: dataset.created_by.unwrap_or_else(|| "system".to_string()),
         created_at: dataset.created_at,
         updated_at: dataset.updated_at,
+        dataset_type: dataset.dataset_type,
     }))
 }
 
@@ -237,21 +239,21 @@ pub async fn delete_dataset(
     State(state): State<AppState>,
     Extension(claims): Extension<crate::auth::Claims>,
     Path(dataset_id): Path<String>,
-) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<impl IntoResponse, ApiError> {
     // Get dataset to find storage path
     let dataset = state
         .db
         .get_training_dataset(&dataset_id)
         .await
-        .map_err(|e| db_error(format!("Failed to get dataset: {}", e)))?
-        .ok_or_else(|| not_found("Dataset"))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to get dataset: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Dataset"))?;
 
     // CRITICAL: Validate tenant isolation before deletion - non-admin users can only delete their own tenant's datasets
     if let Some(ref dataset_tenant_id) = dataset.tenant_id {
         validate_tenant_isolation(&claims, dataset_tenant_id)?;
     } else if claims.role != "admin" {
         // Datasets without tenant_id can only be deleted by admins
-        return Err(forbidden(
+        return Err(ApiError::forbidden(
             "Access denied: dataset has no tenant association",
         ));
     }
@@ -261,14 +263,14 @@ pub async fn delete_dataset(
         .db
         .validate_dataset_deletion(&dataset_id)
         .await
-        .map_err(db_error)?;
+        .map_err(ApiError::db_error)?;
 
     // Delete from database (cascades to files and statistics)
     state
         .db
         .delete_training_dataset(&dataset_id)
         .await
-        .map_err(|e| db_error(format!("Failed to delete dataset: {}", e)))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to delete dataset: {}", e)))?;
 
     // Delete files from filesystem
     let storage_path = dataset.storage_path.trim();

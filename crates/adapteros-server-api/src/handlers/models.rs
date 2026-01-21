@@ -3,6 +3,7 @@
 //! These handlers provide basic API endpoints for model operations.
 //! Full implementation details are in the original models.rs file.
 
+use crate::api_error::{ApiError, ApiResult};
 use crate::audit_helper::{log_failure_or_warn, log_success_or_warn};
 use crate::auth::Claims;
 use crate::middleware::require_any_role;
@@ -279,17 +280,13 @@ pub async fn load_model(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(model_id): Path<String>,
-) -> Result<Json<ModelStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> ApiResult<ModelStatusResponse> {
     use tracing::{debug, error, info, warn};
 
     let request_id = crate::request_id::get_request_id().unwrap_or_else(|| "unknown".to_string());
 
-    require_any_role(&claims, &[Role::Admin, Role::Operator]).map_err(|_| {
-        (
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse::new("access denied").with_code("FORBIDDEN")),
-        )
-    })?;
+    require_any_role(&claims, &[Role::Admin, Role::Operator])
+        .map_err(|_| ApiError::forbidden("access denied"))?;
 
     let tenant_id = &claims.tenant_id;
     let now = chrono::Utc::now().to_rfc3339();
@@ -301,34 +298,17 @@ pub async fn load_model(
         .await
         .map_err(|e| {
             error!("Failed to fetch model {}: {}", model_id, e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
+            ApiError::db_error(e)
         })?
         .ok_or_else(|| {
             warn!("Model not found: {}", model_id);
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("model not found").with_code("NOT_FOUND")),
-            )
+            ApiError::not_found("model")
         })?;
 
     // Aggregate current status across tenants/nodes for this model
     let all_statuses = state.db.list_base_model_statuses().await.map_err(|e| {
         error!("Failed to fetch model statuses: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("database error")
-                    .with_code("DATABASE_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
+        ApiError::db_error(e)
     })?;
     let matching: Vec<_> = all_statuses
         .iter()
@@ -520,7 +500,8 @@ pub async fn load_model(
                         .with_code("INTERNAL_ERROR")
                         .with_string_details(err_msg),
                 ),
-            ));
+            )
+                .into());
         }
     };
     let canonical_path =
@@ -548,7 +529,8 @@ pub async fn load_model(
                             .with_code(code)
                             .with_string_details(err_msg),
                     ),
-                ));
+                )
+                    .into());
             }
         };
     let model_path = canonical_path.to_string_lossy().to_string();
@@ -563,7 +545,8 @@ pub async fn load_model(
                     .with_code("MODEL_COMPATIBILITY_FAILED")
                     .with_string_details(err_msg),
             ),
-        ));
+        )
+            .into());
     }
 
     // Call worker via UDS to actually load the model

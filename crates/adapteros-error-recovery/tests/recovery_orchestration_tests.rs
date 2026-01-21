@@ -255,7 +255,7 @@ mod backoff_timing {
             max_retry_attempts: 10,
             retry_delay: Duration::from_millis(10),
             max_retry_delay: Duration::from_millis(30), // Cap at 30ms
-            backoff_multiplier: 3.0, // 10 * 3^n grows quickly
+            backoff_multiplier: 3.0,                    // 10 * 3^n grows quickly
             ..ErrorRecoveryConfig::default()
         };
         let manager = RetryManager::new(&config)?;
@@ -553,7 +553,10 @@ mod recovery_priority {
         let permission_error = AosError::Authz("access denied".to_string());
         let result = manager.handle_error(permission_error, &test_file).await;
         // Permission errors should result in ManualRequired, which returns an error
-        assert!(result.is_err(), "Permission error should require manual intervention");
+        assert!(
+            result.is_err(),
+            "Permission error should require manual intervention"
+        );
 
         Ok(())
     }
@@ -755,10 +758,7 @@ mod cascading_failure_prevention {
 
         // Check statistics
         let stats = manager.get_recovery_statistics().await;
-        assert_eq!(
-            stats.total_recoveries, 1,
-            "Should have 1 recovery attempt"
-        );
+        assert_eq!(stats.total_recoveries, 1, "Should have 1 recovery attempt");
 
         Ok(())
     }

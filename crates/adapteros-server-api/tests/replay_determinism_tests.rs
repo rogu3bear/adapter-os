@@ -13,8 +13,8 @@ use adapteros_server_api::determinism_context::{from_replay_metadata, from_reque
 use adapteros_server_api::handlers::replay_inference::execute_replay;
 use adapteros_server_api::inference_core::InferenceCore;
 use adapteros_server_api::types::{
-    DivergenceDetails, ErrorResponse, InferenceRequestInternal, ReplayKey, ReplayMatchStatus,
-    ReplayRequest, ReplayStatus, SamplingParams, MAX_REPLAY_TEXT_SIZE, SAMPLING_ALGORITHM_VERSION,
+    DivergenceDetails, InferenceRequestInternal, ReplayKey, ReplayMatchStatus, ReplayRequest,
+    ReplayStatus, SamplingParams, MAX_REPLAY_TEXT_SIZE, SAMPLING_ALGORITHM_VERSION,
 };
 use axum::{extract::State, http::StatusCode, Extension, Json};
 
@@ -332,10 +332,9 @@ async fn replay_handler_rejects_seedless_metadata() {
         .await
         .expect_err("seedless replay should be rejected");
 
-    let (status, Json(body)): (StatusCode, Json<ErrorResponse>) = err;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert_eq!(body.code, "LEGACY_REPLAY_UNSUPPORTED");
-    assert!(body.error.contains("request_seed"));
+    assert_eq!(err.status, StatusCode::BAD_REQUEST);
+    assert_eq!(err.code, "LEGACY_REPLAY_UNSUPPORTED");
+    assert!(err.message.contains("request_seed"));
 }
 
 #[tokio::test]

@@ -56,7 +56,7 @@ pub use alerting::{
 };
 pub use bundle::BundleWriter;
 pub use bundle_parser::{
-    parse_bundle_events, parse_bundle_content, BundleEventFilter, BundleParseStats,
+    parse_bundle_content, parse_bundle_events, BundleEventFilter, BundleParseStats,
     TelemetryEvent as ParsedTelemetryEvent,
 };
 pub use bundle_store::{

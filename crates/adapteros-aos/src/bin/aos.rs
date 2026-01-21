@@ -26,14 +26,12 @@ use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, Env
 const VAR_DIR: &str = "var";
 const BACKEND_PID_FILE: &str = "var/backend.pid";
 const UI_PID_FILE: &str = "var/ui.pid";
-const MENUBAR_PID_FILE: &str = "var/menu-bar.pid";
 const STATUS_FILE: &str = "var/services.json";
 
 #[derive(Debug, Clone, ValueEnum)]
 enum ServiceKind {
     Backend,
     Ui,
-    Menubar,
 }
 
 #[derive(Subcommand, Debug)]
@@ -168,7 +166,6 @@ fn pid_file_for(service: &ServiceKind) -> Option<&'static str> {
     match service {
         ServiceKind::Backend => Some(BACKEND_PID_FILE),
         ServiceKind::Ui => Some(UI_PID_FILE),
-        ServiceKind::Menubar => Some(MENUBAR_PID_FILE),
     }
 }
 
@@ -198,7 +195,6 @@ fn service_name(service: &ServiceKind) -> &'static str {
     match service {
         ServiceKind::Backend => "backend",
         ServiceKind::Ui => "ui",
-        ServiceKind::Menubar => "menu-bar",
     }
 }
 
@@ -256,7 +252,6 @@ async fn start_service(service: ServiceKind, cli: &Cli) -> Result<()> {
     let result = match service {
         ServiceKind::Backend => start_backend(pid_file, cli).await,
         ServiceKind::Ui => start_ui(pid_file, cli).await,
-        ServiceKind::Menubar => start_menubar(pid_file, cli).await,
     };
 
     if result.is_ok() {
@@ -349,7 +344,7 @@ async fn restart_service(service: ServiceKind, cli: &Cli) -> Result<()> {
 }
 
 async fn status(cli: &Cli) -> Result<()> {
-    let services = vec![ServiceKind::Backend, ServiceKind::Ui, ServiceKind::Menubar];
+    let services = vec![ServiceKind::Backend, ServiceKind::Ui];
 
     let mut statuses = Vec::new();
 
@@ -427,7 +422,6 @@ async fn logs(service: ServiceKind, cli: &Cli) -> Result<()> {
     let log_path = match service {
         ServiceKind::Backend => Path::new("server.log"),
         ServiceKind::Ui => Path::new("ui-dev.log"),
-        ServiceKind::Menubar => Path::new("menu-bar.log"),
     };
 
     if !log_path.exists() {
@@ -648,98 +642,6 @@ async fn start_ui(pid_file: &str, cli: &Cli) -> Result<()> {
     }
 
     Ok(())
-}
-
-async fn start_menubar(pid_file: &str, cli: &Cli) -> Result<()> {
-    #[cfg(target_os = "macos")]
-    {
-        use std::process::Command as StdCommand;
-
-        // Build menu bar app if needed (mirrors previous bash behavior)
-        let binary_path = Path::new("menu-bar-app/.build/release/adapterOSMenu");
-        if !binary_path.exists() {
-            info!(
-                component = "aos",
-                service = "menu-bar",
-                action = "build",
-                result = "missing-binary",
-                "Building menu bar app with swift"
-            );
-
-            let status = StdCommand::new("swift")
-                .current_dir("menu-bar-app")
-                .arg("build")
-                .arg("-c")
-                .arg("release")
-                .status()
-                .map_err(|e| {
-                    AosError::Io(format!("Failed to run swift build for menu bar app: {}", e))
-                })?;
-
-            if !status.success() {
-                return Err(AosError::Config(
-                    "swift build -c release for menu bar app failed".to_string(),
-                ));
-            }
-        }
-
-        let log_file = "menu-bar.log";
-        let log = fs::File::create(log_file).map_err(|e| {
-            AosError::Io(format!(
-                "Failed to create menu bar log file {}: {}",
-                log_file, e
-            ))
-        })?;
-        let log_clone = log
-            .try_clone()
-            .map_err(|e| AosError::Io(format!("Failed to clone menu bar log file: {}", e)))?;
-
-        let mut cmd = Command::new(binary_path);
-        cmd.current_dir("menu-bar-app")
-            .stdout(Stdio::from(log))
-            .stderr(Stdio::from(log_clone));
-
-        let child = cmd.spawn().map_err(|e| {
-            AosError::Io(format!(
-                "Failed to spawn menu bar app ({}): {}",
-                binary_path.display(),
-                e
-            ))
-        })?;
-
-        let pid = child.id().unwrap_or(0);
-
-        fs::write(pid_file, pid.to_string())
-            .map_err(|e| AosError::Io(format!("Failed to write menu bar PID file: {}", e)))?;
-
-        info!(
-            component = "aos",
-            service = "menu-bar",
-            action = "start",
-            result = "started",
-            pid = pid,
-            "Menu bar app started"
-        );
-
-        if cli.json {
-            print_json_status(&ServiceStatus {
-                service: "menu-bar".to_string(),
-                status: "running".to_string(),
-                pid: Some(pid),
-            })?;
-        } else {
-            println!("Starting menu bar app (pid={})", pid);
-        }
-
-        Ok(())
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        Err(AosError::Config(
-            "Menu bar app is only available on macOS".to_string(),
-        ))
-    }
 }
 
 fn resolve_backend_binary() -> String {

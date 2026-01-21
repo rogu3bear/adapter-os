@@ -19,7 +19,6 @@ pub fn BackendReadinessPanel() -> impl IntoView {
     let (readiness, refetch) = use_api_resource(move |client: Arc<ApiClient>| async move {
         client.get_training_backend_readiness().await
     });
-    let refetch_signal = StoredValue::new(refetch);
     let card_title = "Backend readiness".to_string();
     let card_description =
         "Validate CoreML/Metal/MLX availability before launching training.".to_string();
@@ -38,7 +37,7 @@ pub fn BackendReadinessPanel() -> impl IntoView {
                 LoadingState::Error(error) => view! {
                     <BackendReadinessErrorFallback
                         error=error
-                        on_retry=Callback::new(move |_| refetch_signal.with_value(|f| f()))
+                        on_retry=Callback::new(move |_| refetch.run(()))
                     />
                 }.into_any(),
                 LoadingState::Loaded(data) => view! {
