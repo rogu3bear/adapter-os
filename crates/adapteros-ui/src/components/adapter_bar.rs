@@ -10,7 +10,7 @@ use leptos::prelude::*;
 use serde::{Deserialize, Serialize};
 
 /// Adapter state for visualization
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AdapterMagnet {
     pub adapter_id: String,
     pub heat: AdapterHeat,
@@ -53,7 +53,8 @@ impl AdapterHeat {
 #[component]
 pub fn AdapterBar(
     /// Current adapter states
-    adapters: ReadSignal<Vec<AdapterMagnet>>,
+    #[prop(into)]
+    adapters: Signal<Vec<AdapterMagnet>>,
 ) -> impl IntoView {
     view! {
         <div class="flex gap-3 p-4 border-b bg-gradient-to-r from-card/80 to-card/50 backdrop-blur-sm">

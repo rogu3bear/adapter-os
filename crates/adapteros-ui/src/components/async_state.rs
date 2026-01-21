@@ -581,9 +581,9 @@ pub fn AsyncBoundary<T, V, F>(
     children: F,
 ) -> impl IntoView
 where
-    T: Clone + 'static,
+    T: Clone + Send + Sync + 'static,
     V: IntoView + 'static,
-    F: Fn(T) -> V + Clone + 'static,
+    F: Fn(T) -> V + Clone + Send + 'static,
 {
     let children = children.clone();
 
@@ -592,17 +592,19 @@ where
             let children = children.clone();
             match state.get() {
                 crate::hooks::LoadingState::Idle | crate::hooks::LoadingState::Loading => {
-                    view! {
-                        <LoadingDisplay message=loading_message.clone() />
-                    }.into_any()
+                    match loading_message.clone() {
+                        Some(msg) => view! { <LoadingDisplay message=msg /> }.into_any(),
+                        None => view! { <LoadingDisplay /> }.into_any(),
+                    }
                 }
                 crate::hooks::LoadingState::Loaded(data) => {
                     children(data).into_any()
                 }
                 crate::hooks::LoadingState::Error(e) => {
-                    view! {
-                        <ErrorDisplay error=e on_retry=on_retry />
-                    }.into_any()
+                    match on_retry {
+                        Some(retry) => view! { <ErrorDisplay error=e on_retry=retry /> }.into_any(),
+                        None => view! { <ErrorDisplay error=e /> }.into_any(),
+                    }
                 }
             }
         }}
@@ -638,10 +640,10 @@ pub fn AsyncBoundaryWithEmpty<T, V, F, E>(
     children: F,
 ) -> impl IntoView
 where
-    T: Clone + 'static,
+    T: Clone + Send + Sync + 'static,
     V: IntoView + 'static,
-    F: Fn(T) -> V + Clone + 'static,
-    E: Fn(&T) -> bool + Clone + 'static,
+    F: Fn(T) -> V + Clone + Send + 'static,
+    E: Fn(&T) -> bool + Clone + Send + 'static,
 {
     let children = children.clone();
     let is_empty = is_empty.clone();
@@ -657,27 +659,37 @@ where
 
             match state.get() {
                 crate::hooks::LoadingState::Idle | crate::hooks::LoadingState::Loading => {
-                    view! {
-                        <LoadingDisplay message=loading_message.clone() />
-                    }.into_any()
+                    match loading_message.clone() {
+                        Some(msg) => view! { <LoadingDisplay message=msg /> }.into_any(),
+                        None => view! { <LoadingDisplay /> }.into_any(),
+                    }
                 }
                 crate::hooks::LoadingState::Loaded(data) => {
                     if is_empty(&data) {
-                        view! {
-                            <EmptyState
-                                title=empty_title
-                                description=empty_desc
-                                variant=empty_variant
-                            />
-                        }.into_any()
+                        match empty_desc {
+                            Some(desc) => view! {
+                                <EmptyState
+                                    title=empty_title
+                                    description=desc
+                                    variant=empty_variant
+                                />
+                            }.into_any(),
+                            None => view! {
+                                <EmptyState
+                                    title=empty_title
+                                    variant=empty_variant
+                                />
+                            }.into_any(),
+                        }
                     } else {
                         children(data).into_any()
                     }
                 }
                 crate::hooks::LoadingState::Error(e) => {
-                    view! {
-                        <ErrorDisplay error=e on_retry=on_retry />
-                    }.into_any()
+                    match on_retry {
+                        Some(retry) => view! { <ErrorDisplay error=e on_retry=retry /> }.into_any(),
+                        None => view! { <ErrorDisplay error=e /> }.into_any(),
+                    }
                 }
             }
         }}
