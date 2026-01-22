@@ -204,6 +204,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "adapteros-auth"
+version = "0.13.1"
+dependencies = [
+ "adapteros-config",
+ "adapteros-core",
+ "adapteros-crypto",
+ "anyhow",
+ "axum 0.8.8",
+ "blake3",
+ "chrono",
+ "jsonwebtoken 9.3.1",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "adapteros-base-llm"
 version = "0.13.1"
 dependencies = [
@@ -269,9 +289,11 @@ dependencies = [
  "blake3",
  "chrono",
  "ed25519-dalek",
+ "hex",
  "lru 0.16.2",
  "rand 0.8.5",
  "serde",
+ "serde_jcs",
  "serde_json",
  "tempfile",
  "thiserror 2.0.17",
@@ -1600,6 +1622,7 @@ version = "0.4.0"
 dependencies = [
  "adapteros-aos",
  "adapteros-api-types",
+ "adapteros-auth",
  "adapteros-boot",
  "adapteros-client",
  "adapteros-codegraph",
@@ -1661,7 +1684,7 @@ dependencies = [
  "hyper 1.8.1",
  "hyper-util",
  "insta",
- "jsonwebtoken",
+ "jsonwebtoken 10.2.0",
  "lru 0.16.2",
  "nix 0.29.0",
  "once_cell",
@@ -1726,7 +1749,7 @@ dependencies = [
  "ed25519-dalek",
  "futures",
  "hex",
- "jsonwebtoken",
+ "jsonwebtoken 10.2.0",
  "metrics 0.23.1",
  "metrics-exporter-prometheus",
  "nix 0.29.0",
@@ -6590,6 +6613,21 @@ dependencies = [
  "pest",
  "pest_derive",
  "serde",
+]
+
+[[package]]
+name = "jsonwebtoken"
+version = "9.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a87cc7a48537badeae96744432de36f4be2b4a34a05a5ef32e9dd8a1c169dde"
+dependencies = [
+ "base64 0.22.1",
+ "js-sys",
+ "pem",
+ "ring",
+ "serde",
+ "serde_json",
+ "simple_asn1",
 ]
 
 [[package]]

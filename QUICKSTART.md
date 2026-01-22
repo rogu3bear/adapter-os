@@ -92,9 +92,12 @@ ln -sf target/release/aosctl ./aosctl
 ./start               # backend + UI, health waits, drift checks
 ./start backend       # backend only (UI skipped), worker optional
 ./start status        # show status without starting
+./start --verify-chat # optional chat response verification (after /readyz)
 ```
 - Uses `scripts/service-manager.sh` under the hood; no parallel boot path
 - Worker starts only if binaries + manifest are present; otherwise skipped
+- If `AOS_SERVER_PORT` is unset, `./start` reads `server.port` from `configs/cp.toml` (or `AOS_CONFIG`/`AOS_CONFIG_PATH`)
+- Chat verification requires `AOS_AUTH_TOKEN`/`AOS_TOKEN` or dev bypass (`AOS_DEV_NO_AUTH=1` in debug builds)
 
 **Option B (Advanced / Manual — bypasses guardrails and health waits)**
 

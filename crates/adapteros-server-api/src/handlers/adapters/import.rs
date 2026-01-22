@@ -827,7 +827,21 @@ pub async fn import_adapter(
         .get("version")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
-        .expect("version already validated as present");
+        .ok_or_else(|| {
+            // This should never happen due to validation above, but handle gracefully
+            let temp_path_for_cleanup = temp_path.clone();
+            // Fire-and-forget cleanup - drop handle explicitly to satisfy clippy
+            drop(tokio::spawn(async move {
+                let _ = tokio::fs::remove_file(&temp_path_for_cleanup).await;
+            }));
+            (
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("version field missing from manifest")
+                        .with_code("VALIDATION_ERROR"),
+                ),
+            )
+        })?;
     let uploaded_file_name = filename.clone().unwrap_or_else(|| _name.clone());
 
     emit_adapter_progress(

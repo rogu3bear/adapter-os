@@ -573,7 +573,7 @@ pub async fn get_system_metrics(
 
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .expect("System time before UNIX epoch")
+        .unwrap_or_default()
         .as_secs();
 
     // Collect additional metrics for frontend compatibility

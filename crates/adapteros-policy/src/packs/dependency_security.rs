@@ -764,17 +764,31 @@ impl DependencySecurityPolicy {
                         .unwrap_or_else(|| osv_vuln.id.clone());
 
                     // Parse severity if available
-                    let severity = osv_vuln
-                        .severity
-                        .as_ref()
-                        .and_then(|s| match s.to_uppercase().as_str() {
-                            "CRITICAL" => Some(VulnerabilitySeverity::Critical),
-                            "HIGH" => Some(VulnerabilitySeverity::High),
-                            "MEDIUM" => Some(VulnerabilitySeverity::Medium),
-                            "LOW" => Some(VulnerabilitySeverity::Low),
-                            _ => None,
-                        })
-                        .unwrap_or(VulnerabilitySeverity::Medium);
+                    // SECURITY: Fail-closed - unknown/unparseable severity defaults to Critical
+                    let severity = osv_vuln.severity.as_ref().map_or_else(
+                        || {
+                            warn!(
+                                cve_id = %osv_vuln.id,
+                                "No severity provided, defaulting to Critical (fail-closed)"
+                            );
+                            VulnerabilitySeverity::Critical
+                        },
+                        |s| match s.to_uppercase().as_str() {
+                            "CRITICAL" => VulnerabilitySeverity::Critical,
+                            "HIGH" => VulnerabilitySeverity::High,
+                            "MEDIUM" => VulnerabilitySeverity::Medium,
+                            "LOW" => VulnerabilitySeverity::Low,
+                            "NONE" => VulnerabilitySeverity::None,
+                            unknown => {
+                                warn!(
+                                    cve_id = %osv_vuln.id,
+                                    severity = %unknown,
+                                    "Unknown severity value, defaulting to Critical (fail-closed)"
+                                );
+                                VulnerabilitySeverity::Critical
+                            }
+                        },
+                    );
 
                     // Estimate CVSS score from severity
                     let cvss_score = match severity {

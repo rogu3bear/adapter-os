@@ -11,6 +11,7 @@ resolver = "2"
 exclude = []  # adapteros-server temporarily included for building
 members = [
     "crates/adapteros-boot",  # Boot lifecycle management
+    "crates/adapteros-auth",  # Centralized authentication
     "crates/adapteros-core",
     "crates/adapteros-crypto",
     "crates/adapteros-platform",  # Platform utilities and path resolution

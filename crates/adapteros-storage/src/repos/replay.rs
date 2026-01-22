@@ -329,17 +329,34 @@ impl ReplayRepository {
     pub async fn delete_session(&self, session_id: &str) -> Result<bool, StorageError> {
         if let Some(session) = self.get_session_by_id(session_id).await? {
             let key = KeyBuilder::replay_session(&session.tenant_id, &session.id).build();
-            let deleted = self.backend.delete(&key).await.unwrap_or(false);
+            let deleted = self.backend.delete(&key).await?;
 
-            self.index_manager
+            // Clean up secondary indexes - log warnings on failure but don't fail the operation
+            // since the primary deletion has already succeeded
+            if let Err(e) = self
+                .index_manager
                 .remove_from_index(replay_indexes::SESSIONS_BY_TENANT, &session.tenant_id, &key)
                 .await
-                .ok();
+            {
+                tracing::warn!(
+                    session_id = %session.id,
+                    tenant_id = %session.tenant_id,
+                    error = %e,
+                    "Failed to remove session from tenant index during delete"
+                );
+            }
 
-            self.index_manager
+            if let Err(e) = self
+                .index_manager
                 .remove_from_index(replay_indexes::SESSIONS_BY_ID, &session.id, &key)
                 .await
-                .ok();
+            {
+                tracing::warn!(
+                    session_id = %session.id,
+                    error = %e,
+                    "Failed to remove session from ID index during delete"
+                );
+            }
 
             return Ok(deleted);
         }

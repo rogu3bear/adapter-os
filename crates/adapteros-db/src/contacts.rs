@@ -298,8 +298,7 @@ impl Db {
                 .name(contact_name)
                 .category("user")
                 .discovered_by(Some(trace_id))
-                .build()
-                .unwrap(); // Should not fail with valid inputs
+                .build()?;
             self.upsert_contact(contact_params).await?
         };
 

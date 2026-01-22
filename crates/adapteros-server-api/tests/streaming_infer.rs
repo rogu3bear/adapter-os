@@ -309,6 +309,7 @@ async fn streaming_infer_emits_structured_error_on_unavailable_resource() {
         session_id: None,
         effective_adapter_ids: None,
         stop_policy: None,
+        context: None,
     };
 
     let sse = streaming_infer(

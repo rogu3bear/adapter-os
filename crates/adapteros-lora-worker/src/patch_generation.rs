@@ -15,7 +15,7 @@ use adapteros_api_types::inference::RouterModelType;
 use adapteros_core::{AosError, FusionInterval, Result};
 use adapteros_lora_kernel_api::FusedKernels;
 use adapteros_policy::{PolicyEngine, RefusalResponse};
-use tracing::info;
+use tracing::{info, warn};
 
 /// Worker methods for patch generation
 impl<K: FusedKernels + crate::StrictnessControl + Send + Sync + 'static> Worker<K> {
@@ -88,11 +88,17 @@ impl<K: FusedKernels + crate::StrictnessControl + Send + Sync + 'static> Worker<
             router_decisions.as_deref(),
         );
 
-        let fusion_intervals = fusion_intervals_for_mode(
+        let fusion_intervals = match fusion_intervals_for_mode(
             fusion_interval,
             router_decisions.as_deref(),
             &self.manifest.base.model_hash,
-        );
+        ) {
+            Ok(intervals) => intervals,
+            Err(err) => {
+                warn!(error = %err, "Failed to compute fusion intervals");
+                None
+            }
+        };
 
         let model_type = Some(RouterModelType::Dense);
 

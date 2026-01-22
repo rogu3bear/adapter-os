@@ -222,7 +222,7 @@ fn TargetSelector() -> impl IntoView {
             });
 
             wasm_bindgen_futures::spawn_local(async move {
-                let client = crate::api::ApiClient::with_base_url(&crate::api::api_base_url());
+                let client = crate::api::ApiClient::with_base_url(crate::api::api_base_url());
 
                 // Fetch all in parallel
                 let models_fut = client.list_models();

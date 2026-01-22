@@ -7,17 +7,17 @@
 //! [`adapteros_core::AlgorithmVersionBundle::check_runtime_compatibility`]
 //! to validate dataset hash inputs before training.
 //!
-//! TODO: Integrate version compatibility checking when dataset_version_ids
-//! are provided. Query `dataset_hash_inputs` table for each version,
-//! construct `AlgorithmVersionBundle`, and call `check_runtime_compatibility()`.
-//! Log warnings for minor mismatches, fail for breaking mismatches.
+//! NOTE: Version compatibility checking is enforced when dataset_version_ids
+//! are provided. We query dataset_hash_inputs per version, construct an
+//! AlgorithmVersionBundle, and fail on breaking mismatches while logging
+//! warnings for non-breaking differences.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use adapteros_core::{AosError, Result};
+use adapteros_core::{AlgorithmVersionBundle, AosError, Result};
 use adapteros_deterministic_exec::spawn_deterministic;
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
@@ -362,6 +362,23 @@ impl TrainingService {
             ));
         }
 
+        let legacy_versions = AlgorithmVersionBundle::legacy();
+        let current_versions = AlgorithmVersionBundle::current();
+        let normalize_version = |value: Option<i64>,
+                                 fallback: u32,
+                                 field: &str,
+                                 dataset_version_id: &str|
+         -> Result<u32> {
+            let raw = value.unwrap_or(fallback as i64);
+            if raw < 0 {
+                return Err(AosError::Validation(format!(
+                    "dataset version {} has invalid {} version {}",
+                    dataset_version_id, field, raw
+                )));
+            }
+            Ok(raw as u32)
+        };
+
         let mut combined_inputs: Vec<(String, String, f32)> = Vec::new();
         if let (Some(ref db), Some(versions)) = (&self.db, dataset_version_ids.as_ref()) {
             for sel in versions.iter() {
@@ -430,6 +447,71 @@ impl TrainingService {
                     );
                 }
 
+                let (version_bundle, bundle_source) = match db
+                    .get_dataset_hash_inputs_by_content_hash(
+                        &ds_version.dataset_id,
+                        &ds_version.hash_b3,
+                    )
+                    .await
+                {
+                    Ok(Some(inputs)) => {
+                        let bundle = AlgorithmVersionBundle {
+                            hkdf_version: normalize_version(
+                                inputs.hkdf_version,
+                                legacy_versions.hkdf_version,
+                                "hkdf",
+                                &sel.dataset_version_id,
+                            )?,
+                            parser_version: normalize_version(
+                                inputs.parser_version,
+                                legacy_versions.parser_version,
+                                "parser",
+                                &sel.dataset_version_id,
+                            )?,
+                            path_normalization_version: normalize_version(
+                                inputs.path_normalization_version,
+                                legacy_versions.path_normalization_version,
+                                "path_normalization",
+                                &sel.dataset_version_id,
+                            )?,
+                            codegraph_version: inputs.codegraph_version.clone(),
+                            // dataset_hash_inputs does not track hash_algorithm_version
+                            hash_algorithm_version: current_versions.hash_algorithm_version,
+                        };
+                        (bundle, "dataset_hash_inputs")
+                    }
+                    Ok(None) => {
+                        warn!(
+                            dataset_version_id = %sel.dataset_version_id,
+                            "No dataset hash inputs found; using legacy algorithm versions for compatibility check"
+                        );
+                        (legacy_versions.clone(), "legacy")
+                    }
+                    Err(e) => {
+                        return Err(AosError::Database(format!(
+                            "Failed to load dataset hash inputs: {}",
+                            e
+                        )))
+                    }
+                };
+
+                let (compatible, warnings) = version_bundle.check_with_warnings();
+                if !compatible {
+                    return Err(AosError::Validation(format!(
+                        "Dataset version {} algorithm versions incompatible: {}",
+                        sel.dataset_version_id,
+                        warnings.join("; ")
+                    )));
+                }
+                for warning in warnings {
+                    warn!(
+                        dataset_version_id = %sel.dataset_version_id,
+                        source = %bundle_source,
+                        warning = %warning,
+                        "Dataset algorithm version mismatch"
+                    );
+                }
+
                 let weight = if sel.weight <= 0.0 { 1.0 } else { sel.weight };
                 combined_inputs.push((
                     sel.dataset_version_id.clone(),
@@ -461,7 +543,17 @@ impl TrainingService {
             epochs: config.epochs as usize,
             hidden_dim: 768,
         };
-        let config_hash = adapteros_db::training_jobs::compute_config_hash(&config_params).ok();
+        let config_hash = match adapteros_db::training_jobs::compute_config_hash(&config_params) {
+            Ok(hash) => Some(hash),
+            Err(e) => {
+                warn!(
+                    job_id = %job_id,
+                    error = %e,
+                    "Failed to compute config hash for reproducibility tracking (non-fatal)"
+                );
+                None
+            }
+        };
 
         // Get build ID from environment or use default
         let build_id = code_commit_sha
@@ -472,18 +564,37 @@ impl TrainingService {
 
         let correlation_id = if let Some(db) = self.db.as_ref() {
             if let Some(dataset_id) = dataset_id.as_deref() {
-                db.get_dataset_correlation_id(dataset_id)
-                    .await
-                    .ok()
-                    .flatten()
+                match db.get_dataset_correlation_id(dataset_id).await {
+                    Ok(cid) => cid,
+                    Err(e) => {
+                        warn!(
+                            job_id = %job_id,
+                            dataset_id = %dataset_id,
+                            error = %e,
+                            "Failed to get dataset correlation ID, generating new one"
+                        );
+                        None
+                    }
+                }
             } else if let Some(sel) = dataset_version_ids
                 .as_ref()
                 .and_then(|versions| versions.first())
             {
-                db.get_dataset_correlation_id_from_version(&sel.dataset_version_id)
+                match db
+                    .get_dataset_correlation_id_from_version(&sel.dataset_version_id)
                     .await
-                    .ok()
-                    .flatten()
+                {
+                    Ok(cid) => cid,
+                    Err(e) => {
+                        warn!(
+                            job_id = %job_id,
+                            dataset_version_id = %sel.dataset_version_id,
+                            error = %e,
+                            "Failed to get correlation ID from dataset version, generating new one"
+                        );
+                        None
+                    }
+                }
             } else {
                 None
             }
@@ -527,12 +638,19 @@ impl TrainingService {
         if let (Some(ref db), Some(versions)) = (&self.db, dataset_version_ids.as_ref()) {
             let mut trust_snapshots = Vec::new();
             for sel in versions.iter() {
-                let trust_state = db
-                    .get_effective_trust_state(&sel.dataset_version_id)
-                    .await
-                    .ok()
-                    .flatten()
-                    .map(|t| canonical_trust_state(&t));
+                let trust_state = match db.get_effective_trust_state(&sel.dataset_version_id).await
+                {
+                    Ok(state) => state.map(|t| canonical_trust_state(&t)),
+                    Err(e) => {
+                        warn!(
+                            job_id = %job_id,
+                            dataset_version_id = %sel.dataset_version_id,
+                            error = %e,
+                            "Failed to get effective trust state for dataset version snapshot"
+                        );
+                        None
+                    }
+                };
                 trust_snapshots.push(DatasetVersionTrustSnapshot {
                     dataset_version_id: sel.dataset_version_id.clone(),
                     trust_at_training_time: trust_state,

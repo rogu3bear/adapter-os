@@ -10,6 +10,7 @@ use crate::schema_version;
 #[serde(rename_all = "snake_case")]
 pub struct LoginRequest {
     pub username: Option<String>,
+    #[serde(default)]
     pub email: String,
     pub password: String,
     #[serde(skip_serializing_if = "Option::is_none")]

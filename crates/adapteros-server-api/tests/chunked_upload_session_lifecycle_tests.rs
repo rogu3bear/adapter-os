@@ -85,7 +85,7 @@ async fn chunked_complete_only_once() {
     let state = common::setup_state(None).await.expect("state");
     let app = create_app(state.clone());
 
-    let file_body = b"{\"prompt\":\"hi\",\"response\":\"there\"}\n";
+    let file_body = b"{\"prompt\":\"hi\",\"completion\":\"there\"}\n";
     let initiate_body = json!({
         "file_name": "once.jsonl",
         "total_size": file_body.len(),

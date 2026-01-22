@@ -199,7 +199,9 @@ impl IngestDocsArgs {
     ) -> Result<()> {
         info!("Indexing documents in RAG vector store");
 
-        let tenant_id = self.tenant.as_ref().unwrap();
+        let tenant_id = self.tenant.as_ref().ok_or_else(|| {
+            AosError::Validation("--tenant is required for RAG indexing".to_string())
+        })?;
 
         let embedding_resolution = adapteros_config::resolve_embedding_model_path_with_override(
             self.embedding_model.as_deref(),
@@ -339,7 +341,9 @@ impl IngestDocsArgs {
         let training_data = generate_training_data_from_documents(documents, tokenizer, &config)?;
 
         // Write to output file
-        let output_path = self.training_output.as_ref().unwrap();
+        let output_path = self.training_output.as_ref().ok_or_else(|| {
+            AosError::Validation("--training-output is required for training data generation".to_string())
+        })?;
         let json = serde_json::to_string_pretty(&training_data).map_err(AosError::Serialization)?;
 
         fs::write(output_path, json).map_err(|e| {

@@ -52,15 +52,22 @@ impl ReplayBundle {
         let signature = signing_key.sign(merkle_root.as_bytes());
 
         // Create signature metadata
+        let signed_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| {
+                AosError::Replay(format!(
+                    "System time before UNIX epoch (clock misconfigured): {}",
+                    e
+                ))
+            })?
+            .as_secs();
+
         let sig_metadata = ReplaySignatureMetadata {
             merkle_root: merkle_root.to_hex(),
             signature: hex::encode(signature.to_bytes()),
             public_key: hex::encode(signing_key.public_key().to_bytes()),
             bundle_path: self.bundle_path.to_string_lossy().to_string(),
-            signed_at: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("System time before UNIX epoch")
-                .as_secs(),
+            signed_at,
         };
 
         // Write signature file

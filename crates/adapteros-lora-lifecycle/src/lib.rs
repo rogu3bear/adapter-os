@@ -1479,7 +1479,7 @@ impl LifecycleManager {
         let start_time = Instant::now();
         let start_timestamp_us = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_micros() as u64;
 
         let mut k = self.current_k.write();
@@ -1522,7 +1522,7 @@ impl LifecycleManager {
                     adapteros_telemetry::events::KReductionEvaluationEvent {
                         timestamp_us: std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap()
+                            .unwrap_or_default()
                             .as_micros() as u64,
                         request_id: request_id.clone(),
                         evaluation_duration_us: eval_duration_us,
@@ -1552,7 +1552,7 @@ impl LifecycleManager {
                     adapteros_telemetry::events::KReductionExecutionEvent {
                         timestamp_us: std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap()
+                            .unwrap_or_default()
                             .as_micros() as u64,
                         request_id: request_id.clone(),
                         execution_duration_us: exec_duration_us,
@@ -1585,7 +1585,7 @@ impl LifecycleManager {
                     adapteros_telemetry::events::KReductionCompletionEvent {
                         timestamp_us: std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap()
+                            .unwrap_or_default()
                             .as_micros() as u64,
                         request_id: request_id.clone(),
                         total_duration_us,
@@ -1611,7 +1611,7 @@ impl LifecycleManager {
                     adapteros_telemetry::events::KReductionCompletionEvent {
                         timestamp_us: std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap()
+                            .unwrap_or_default()
                             .as_micros() as u64,
                         request_id: request_id.clone(),
                         total_duration_us,

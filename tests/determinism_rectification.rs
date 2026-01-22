@@ -20,11 +20,12 @@ fn test_generator_determinism_three_runs() {
     let mut all_sequences: Vec<Vec<u32>> = Vec::new();
 
     for _run in 0..num_runs {
-        let mut gen = Generator::new_deterministic(seed, "inference");
+        let mut gen = Generator::new_deterministic(seed, "inference")
+            .expect("generator creation should succeed");
         let mut tokens = Vec::new();
 
         for step in 0..num_steps {
-            gen.reseed_for_step(step);
+            gen.reseed_for_step(step).expect("reseed should succeed");
             let token = gen
                 .next_token(&logits)
                 .expect("Token generation should succeed");
@@ -51,19 +52,21 @@ fn test_generator_domain_separation() {
     let seed = b"rectification-test-seed-32bytes!";
     let logits = vec![1.0, 1.0, 1.0, 1.0, 1.0]; // Uniform to maximize variance
 
-    let mut gen_inference = Generator::new_deterministic(seed, "inference");
-    let mut gen_training = Generator::new_deterministic(seed, "training");
+    let mut gen_inference = Generator::new_deterministic(seed, "inference")
+        .expect("generator creation should succeed");
+    let mut gen_training = Generator::new_deterministic(seed, "training")
+        .expect("generator creation should succeed");
 
-    gen_inference.reseed_for_step(0);
-    gen_training.reseed_for_step(0);
+    gen_inference.reseed_for_step(0).expect("reseed should succeed");
+    gen_training.reseed_for_step(0).expect("reseed should succeed");
 
     // Collect multiple tokens to ensure statistical difference
     let mut inference_tokens = Vec::new();
     let mut training_tokens = Vec::new();
 
     for step in 0..10 {
-        gen_inference.reseed_for_step(step);
-        gen_training.reseed_for_step(step);
+        gen_inference.reseed_for_step(step).expect("reseed should succeed");
+        gen_training.reseed_for_step(step).expect("reseed should succeed");
 
         inference_tokens.push(
             gen_inference
@@ -207,7 +210,8 @@ fn test_full_pipeline_determinism() {
         let gen_seed = derive_seed(&manifest_hash, "generation");
 
         // Create generator
-        let mut generator = Generator::new(gen_seed);
+        let mut generator = Generator::new(gen_seed)
+            .expect("generator creation should succeed");
 
         // Simulate token generation
         let logits = vec![1.2, 0.8, 2.1, 1.5, 0.9, 1.8, 2.3, 1.1];
@@ -237,7 +241,8 @@ fn test_full_pipeline_determinism() {
 #[test]
 fn test_greedy_always_deterministic() {
     let logits = vec![0.1, 0.5, 0.3, 2.8, 0.2]; // Clear winner at index 3
-    let gen = Generator::new([0u8; 32]);
+    let gen = Generator::new([0u8; 32])
+        .expect("generator creation should succeed");
 
     // Greedy should always pick the highest logit
     for _ in 0..10 {
@@ -255,8 +260,10 @@ fn test_low_temperature_near_deterministic() {
     let mut results = Vec::new();
 
     for _ in 0..5 {
-        let mut gen = Generator::new_deterministic(seed, "low_temp").with_temperature(0.01); // Very low temperature
-        gen.reseed_for_step(0);
+        let mut gen = Generator::new_deterministic(seed, "low_temp")
+            .expect("generator creation should succeed")
+            .with_temperature(0.01); // Very low temperature
+        gen.reseed_for_step(0).expect("reseed should succeed");
 
         let token = gen
             .next_token(&logits)

@@ -247,7 +247,7 @@ impl LanguageDetector {
             .current_dir(&self.repo_path)
             .output();
 
-        Ok(output.is_ok() && output.unwrap().status.success())
+        Ok(output.map(|o| o.status.success()).unwrap_or(false))
     }
 
     /// Check if pytest is available
@@ -259,7 +259,7 @@ impl LanguageDetector {
             .current_dir(&self.repo_path)
             .output();
 
-        Ok(output.is_ok() && output.unwrap().status.success())
+        Ok(output.map(|o| o.status.success()).unwrap_or(false))
     }
 
     /// Check if Jest is available
@@ -272,7 +272,7 @@ impl LanguageDetector {
             .current_dir(&self.repo_path)
             .output();
 
-        Ok(output.is_ok() && output.unwrap().status.success())
+        Ok(output.map(|o| o.status.success()).unwrap_or(false))
     }
 
     /// Get file extensions for a language

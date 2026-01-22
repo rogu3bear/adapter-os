@@ -78,7 +78,7 @@ impl ConfirmConfig {
 }
 
 /// Active modal state
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct ModalState {
     /// Currently open modal, if any
     pub active: Option<ModalId>,
@@ -98,16 +98,6 @@ impl std::fmt::Debug for ModalState {
                 &self.confirm_callback.as_ref().map(|_| "<callback>"),
             )
             .finish()
-    }
-}
-
-impl Default for ModalState {
-    fn default() -> Self {
-        Self {
-            active: None,
-            confirm_config: None,
-            confirm_callback: None,
-        }
     }
 }
 

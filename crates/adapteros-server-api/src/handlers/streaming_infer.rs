@@ -383,7 +383,7 @@ async fn build_context_prefix(
 
     // Fetch recent audit logs (limited to 20 most recent)
     if context.include_recent_logs {
-        let logs_summary = collect_recent_logs(&state, &tenant_id).await;
+        let logs_summary = collect_recent_logs(state, tenant_id).await;
         prefix_parts.push(format!("## Recent Logs\n{}", logs_summary));
     }
 
@@ -2501,7 +2501,7 @@ mod tests {
     async fn stream_emits_heartbeat_then_resumes_with_tokens() {
         let state = build_test_state().await;
         let (token_tx, token_rx) = mpsc::channel(4);
-        let (_done_tx, done_rx) = oneshot::channel();
+        let (done_tx, done_rx) = oneshot::channel();
         let cancellation = CancellationToken::new();
         let run_id = "chatcmpl-heartbeat";
 
@@ -2546,6 +2546,7 @@ mod tests {
             Some(StreamEvent::Token(_))
         ));
 
+        drop(done_tx);
         drop(token_tx);
         let next = stream.next_event().await;
         assert!(
@@ -2629,7 +2630,8 @@ mod tests {
         let state = build_test_state().await;
         let (token_tx, token_rx) = mpsc::channel(1);
         drop(token_tx);
-        let (_done_tx, done_rx) = oneshot::channel();
+        let (done_tx, done_rx) = oneshot::channel();
+        drop(done_tx);
         let cancellation = CancellationToken::new();
         let request_id = "chatcmpl-err-123";
 
@@ -2684,7 +2686,8 @@ mod tests {
         let state = build_test_state().await;
         let (token_tx, token_rx) = mpsc::channel(1);
         drop(token_tx);
-        let (_done_tx, done_rx) = oneshot::channel();
+        let (done_tx, done_rx) = oneshot::channel();
+        drop(done_tx);
         let cancellation = CancellationToken::new();
         let request_id = "chatcmpl-error-once";
 
@@ -2848,6 +2851,7 @@ mod tests {
             effective_adapter_ids: None,
             reasoning_mode: false,
             stop_policy: None,
+            context: None,
         };
 
         // Create mock claims
@@ -2926,6 +2930,7 @@ mod tests {
             effective_adapter_ids: None,
             reasoning_mode: false,
             stop_policy: None,
+            context: None,
         };
 
         let claims = Claims {

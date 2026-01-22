@@ -336,13 +336,28 @@ impl BenchmarkRunner {
     fn collect_system_info(&self) -> SystemInfo {
         let system = sysinfo::System::new_all();
 
+        // Get CPU brand from first CPU in the list (more reliable than global_cpu_info
+        // which can return empty on some systems/configurations)
+        let cpu_brand = system
+            .cpus()
+            .first()
+            .map(|cpu| cpu.brand().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| {
+                eprintln!(
+                    "Warning: Could not detect CPU brand (cpus: {}), using fallback",
+                    system.cpus().len()
+                );
+                "Unknown CPU".to_string()
+            });
+
         SystemInfo {
             os: format!(
                 "{} {}",
                 sysinfo::System::name().unwrap_or_default(),
                 sysinfo::System::os_version().unwrap_or_default()
             ),
-            cpu: system.global_cpu_info().brand().to_string(),
+            cpu: cpu_brand,
             memory_gb: system.total_memory() as f64 / 1024.0 / 1024.0 / 1024.0,
             gpu: Some("Metal GPU".to_string()), // Would need more sophisticated detection
         }

@@ -1,13 +1,39 @@
 ---
 source: crates/adapteros-server-api/tests/contract_snapshots.rs
 assertion_line: 394
-expression: "json!({ \"status\": tenant_forbidden_status.as_u16(), \"body\": tenant_forbidden_body })"
+expression: "json!({\n    \"status\": tenant_forbidden_status.as_u16(), \"body\": tenant_forbidden_body\n})"
 ---
 {
   "body": {
-    "code": "FORBIDDEN",
-    "error": "required role: Admin",
-    "schema_version": "0.11.0"
+    "data": [
+      {
+        "created_at": "<timestamp>",
+        "default_stack_id": "stack-test",
+        "id": "tenant-test",
+        "itar_flag": false,
+        "name": "Test Tenant",
+        "rate_limit_rpm": 1000,
+        "schema_version": "1.0.0",
+        "status": "active",
+        "updated_at": "<timestamp>"
+      },
+      {
+        "created_at": "<timestamp>",
+        "default_stack_id": "stack-test-2",
+        "id": "tenant-test-2",
+        "itar_flag": false,
+        "name": "Test Tenant 2",
+        "rate_limit_rpm": 1000,
+        "schema_version": "1.0.0",
+        "status": "active",
+        "updated_at": "<timestamp>"
+      }
+    ],
+    "limit": 50,
+    "page": 1,
+    "pages": 1,
+    "schema_version": "1.0.0",
+    "total": 2
   },
-  "status": 403
+  "status": 200
 }

@@ -150,14 +150,14 @@ async fn run_inference_stream(
         table.inc_ref(name).await;
     }
 
-    let mut generator = Generator::new_deterministic(STREAM_SEED, generator_tag);
+    let mut generator = Generator::new_deterministic(STREAM_SEED, generator_tag)?;
     let logits = vec![0.3f32; 6];
     let mut tokens = Vec::with_capacity(STREAM_STEPS);
     let mut latencies = Vec::with_capacity(STREAM_STEPS);
 
     for step in 0..STREAM_STEPS {
         let start = Instant::now();
-        generator.reseed_for_step(step);
+        generator.reseed_for_step(step)?;
         tokens.push(generator.next_token(&logits)?);
         sleep(Duration::from_millis(STREAM_DELAY_MS)).await;
         latencies.push(start.elapsed());

@@ -324,7 +324,9 @@ impl VramTracker {
     pub fn clear(&mut self) {
         self.allocations.clear();
         self.fingerprints.clear();
-        self.baselines.write().unwrap().clear();
+        if let Ok(mut baselines) = self.baselines.write() {
+            baselines.clear();
+        }
     }
 
     // ===== GPU Integrity Verification Methods =====
@@ -339,12 +341,12 @@ impl VramTracker {
     pub fn store_fingerprint(&mut self, adapter_id: u32, fingerprint: GpuBufferFingerprint) {
         // Update baseline with new footprint
         let total_bytes = fingerprint.buffer_bytes;
-        self.baselines
-            .write()
-            .unwrap()
-            .entry(adapter_id)
-            .or_insert_with(|| MemoryFootprintBaseline::new(adapter_id, 10))
-            .add_sample(total_bytes);
+        if let Ok(mut baselines) = self.baselines.write() {
+            baselines
+                .entry(adapter_id)
+                .or_insert_with(|| MemoryFootprintBaseline::new(adapter_id, 10))
+                .add_sample(total_bytes);
+        }
 
         self.fingerprints.insert(adapter_id, fingerprint);
     }
@@ -386,7 +388,10 @@ impl VramTracker {
         adapter_id: u32,
         bytes: u64,
     ) -> (bool, f64, Option<(f64, f64, usize)>) {
-        let mut baselines = self.baselines.write().unwrap();
+        let Ok(mut baselines) = self.baselines.write() else {
+            // Lock poisoned - return safe defaults
+            return (true, 0.0, None);
+        };
         if let Some(baseline) = baselines.get_mut(&adapter_id) {
             let (within_tolerance, z_score) = baseline.check_footprint(bytes);
             let stats = baseline.stats();
@@ -419,9 +424,8 @@ impl VramTracker {
     pub fn get_baseline_stats(&mut self, adapter_id: u32) -> Option<(f64, f64, usize)> {
         self.baselines
             .write()
-            .unwrap()
-            .get_mut(&adapter_id)
-            .map(|b| b.stats())
+            .ok()
+            .and_then(|mut baselines| baselines.get_mut(&adapter_id).map(|b| b.stats()))
     }
 }
 

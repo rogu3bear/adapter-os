@@ -168,21 +168,26 @@ fn quantize_safetensors_file(
         write_all_bytes(&scales_path, bytemuck::cast_slice(&scales))?;
         write_all_bytes(&zps_path, bytemuck::cast_slice(&zero_points))?;
 
+        let packed_filename = packed_path
+            .file_name()
+            .map(|f| f.to_string_lossy().into_owned())
+            .unwrap_or_else(|| safe_name.clone() + ".q4.bin");
+        let scales_filename = scales_path
+            .file_name()
+            .map(|f| f.to_string_lossy().into_owned())
+            .unwrap_or_else(|| safe_name.clone() + ".scales.f32.bin");
+        let zps_filename = zps_path
+            .file_name()
+            .map(|f| f.to_string_lossy().into_owned())
+            .unwrap_or_else(|| safe_name.clone() + ".zps.i8.bin");
+
         manifest.tensors.insert(
             name.to_string(),
             QuantizedTensorInfo {
                 shape,
-                packed_path: packed_path
-                    .file_name()
-                    .unwrap()
-                    .to_string_lossy()
-                    .into_owned(),
-                scales_path: scales_path
-                    .file_name()
-                    .unwrap()
-                    .to_string_lossy()
-                    .into_owned(),
-                zero_points_path: zps_path.file_name().unwrap().to_string_lossy().into_owned(),
+                packed_path: packed_filename,
+                scales_path: scales_filename,
+                zero_points_path: zps_filename,
             },
         );
     }

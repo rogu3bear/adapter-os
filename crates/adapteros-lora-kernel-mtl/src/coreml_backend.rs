@@ -540,7 +540,10 @@ impl FusedKernels for CoreMLBackend {
 
         // Run prediction - need to get model reference in a way that allows metrics update
         let prediction_result = {
-            let model_state = self.model_state.as_ref().unwrap();
+            let model_state = self
+                .model_state
+                .as_ref()
+                .ok_or_else(|| AosError::CoreML("Model not loaded".to_string()))?;
             model_state.model.predict(&input_array, Some("input_ids"))
         };
 
@@ -988,12 +991,11 @@ fn extract_module_name(tensor_name: &str, lora_suffix: &str) -> String {
     // Extract the last meaningful component
     // e.g., "model.layers.0.self_attn.q_proj" -> "q_proj"
     name.split('.')
-        .filter(|s| {
+        .rfind(|s| {
             !s.is_empty()
                 && !s.chars().all(|c| c.is_ascii_digit())
                 && !["model", "base_model", "layers", "self_attn", "mlp"].contains(s)
         })
-        .next_back()
         .unwrap_or(&name)
         .to_string()
 }

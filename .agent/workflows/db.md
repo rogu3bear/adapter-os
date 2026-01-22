@@ -7,16 +7,19 @@ description: Database operations - migrations, status, health
 // turbo-all
 
 ## Apply Migrations
+
 ```bash
 ./aosctl db migrate
 ```
 
 ## Check Status
+
 ```bash
 ./aosctl db status
 ```
 
 ## Create New Migration
+
 ```bash
 touch migrations/V{number}__{description}.sql
 # Edit the file, then sign:
@@ -24,16 +27,19 @@ touch migrations/V{number}__{description}.sql
 ```
 
 ## Verify Signatures
+
 ```bash
 python scripts/verify_migration_signatures.py
 ```
 
 ## Check for Conflicts
+
 ```bash
 ./scripts/check_migration_conflicts.sh
 ```
 
 ## Database Health
+
 ```bash
 ./scripts/check-db.sh
 ```

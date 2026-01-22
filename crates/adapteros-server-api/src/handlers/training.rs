@@ -691,7 +691,14 @@ pub async fn list_training_jobs(
                 };
 
                 let config: TrainingConfig =
-                    serde_json::from_str(&record.training_config_json).unwrap_or_default();
+                    serde_json::from_str(&record.training_config_json).unwrap_or_else(|e| {
+                        warn!(
+                            job_id = %record.id,
+                            error = %e,
+                            "Failed to parse training_config_json, using defaults"
+                        );
+                        TrainingConfig::default()
+                    });
 
                 let data_lineage_mode = record.data_lineage_mode.as_deref().and_then(|s| {
                     match s.to_lowercase().as_str() {
@@ -1233,7 +1240,7 @@ fn build_training_error_response(error: &AosError) -> ApiError {
             _ => error_message.clone(),
         };
 
-        return ApiError::bad_request(&message);
+        return ApiError::new(StatusCode::BAD_REQUEST, "VALIDATION_ERROR", message);
     }
 
     ApiError::internal(format!("Failed to start training: {}", error))

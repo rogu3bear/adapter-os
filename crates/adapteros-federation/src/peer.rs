@@ -102,7 +102,7 @@ impl AttestationMetadata {
             tpm_available: false,
             attestation_timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_default()
                 .as_secs(),
             hardware_id: None,
         }
@@ -291,8 +291,16 @@ impl PeerRegistry {
         };
 
         {
-            let mut cache = self.cache.write().unwrap();
-            cache.insert(host_id.clone(), peer_info);
+            match self.cache.write() {
+                Ok(mut cache) => {
+                    cache.insert(host_id.clone(), peer_info);
+                }
+                Err(poisoned) => {
+                    warn!(host_id = %host_id, "Cache lock poisoned, recovering with new data");
+                    let mut cache = poisoned.into_inner();
+                    cache.insert(host_id.clone(), peer_info);
+                }
+            }
         }
 
         info!(host_id = %host_id, "Peer registered successfully with certificate validation");
@@ -356,7 +364,7 @@ impl PeerRegistry {
         // Check attestation timestamp is not in the future
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs();
 
         if attestation.attestation_timestamp > now + 300 {
@@ -461,7 +469,10 @@ impl PeerRegistry {
     pub async fn get_peer(&self, host_id: &str) -> Result<Option<PeerInfo>> {
         // Try cache first
         {
-            let cache = self.cache.read().unwrap();
+            let cache = self.cache.read().unwrap_or_else(|poisoned| {
+                warn!("Cache read lock poisoned, recovering");
+                poisoned.into_inner()
+            });
             if let Some(peer) = cache.get(host_id) {
                 return Ok(Some(peer.clone()));
             }
@@ -519,14 +530,17 @@ impl PeerRegistry {
             };
 
             let peer_info = PeerInfo {
-                host_id: row.try_get("host_id").unwrap(),
+                host_id: row.try_get("host_id")
+                    .map_err(|e| AosError::Database(format!("Failed to get host_id: {}", e)))?,
                 pubkey,
                 hostname: row.try_get("hostname").ok(),
-                registered_at: row.try_get("registered_at").unwrap(),
+                registered_at: row.try_get("registered_at")
+                    .map_err(|e| AosError::Database(format!("Failed to get registered_at: {}", e)))?,
                 last_seen_at: row.try_get("last_seen_at").ok(),
                 last_heartbeat_at: row.try_get("last_heartbeat_at").ok(),
                 attestation_metadata,
-                active: row.try_get::<i64, _>("active").unwrap() != 0,
+                active: row.try_get::<i64, _>("active")
+                    .map_err(|e| AosError::Database(format!("Failed to get active: {}", e)))? != 0,
                 health_status,
                 discovery_status,
                 failed_heartbeats: row.try_get::<i32, _>("failed_heartbeats").unwrap_or(0) as u32,
@@ -534,7 +548,10 @@ impl PeerRegistry {
 
             // Update cache
             {
-                let mut cache = self.cache.write().unwrap();
+                let mut cache = self.cache.write().unwrap_or_else(|poisoned| {
+                    warn!("Cache write lock poisoned, recovering");
+                    poisoned.into_inner()
+                });
                 cache.insert(host_id.to_string(), peer_info.clone());
             }
 
@@ -599,14 +616,17 @@ impl PeerRegistry {
             };
 
             peers.push(PeerInfo {
-                host_id: row.try_get("host_id").unwrap(),
+                host_id: row.try_get("host_id")
+                    .map_err(|e| AosError::Database(format!("Failed to get host_id: {}", e)))?,
                 pubkey,
                 hostname: row.try_get("hostname").ok(),
-                registered_at: row.try_get("registered_at").unwrap(),
+                registered_at: row.try_get("registered_at")
+                    .map_err(|e| AosError::Database(format!("Failed to get registered_at: {}", e)))?,
                 last_seen_at: row.try_get("last_seen_at").ok(),
                 last_heartbeat_at: row.try_get("last_heartbeat_at").ok(),
                 attestation_metadata,
-                active: row.try_get::<i64, _>("active").unwrap() != 0,
+                active: row.try_get::<i64, _>("active")
+                    .map_err(|e| AosError::Database(format!("Failed to get active: {}", e)))? != 0,
                 health_status,
                 discovery_status,
                 failed_heartbeats: row.try_get::<i32, _>("failed_heartbeats").unwrap_or(0) as u32,
@@ -708,7 +728,10 @@ impl PeerRegistry {
 
         // Remove from cache
         {
-            let mut cache = self.cache.write().unwrap();
+            let mut cache = self.cache.write().unwrap_or_else(|poisoned| {
+                warn!("Cache write lock poisoned during deactivate, recovering");
+                poisoned.into_inner()
+            });
             cache.remove(host_id);
         }
 
@@ -797,7 +820,10 @@ impl PeerRegistry {
             peer.health_status = final_status;
             peer.last_heartbeat_at = Some(now);
             peer.failed_heartbeats = new_failed_count;
-            let mut cache = self.cache.write().unwrap();
+            let mut cache = self.cache.write().unwrap_or_else(|poisoned| {
+                warn!("Cache write lock poisoned during health check, recovering");
+                poisoned.into_inner()
+            });
             cache.insert(host_id.to_string(), peer);
         }
 
@@ -1268,7 +1294,7 @@ impl PeerRegistry {
         // Check attestation age (must be < 24 hours)
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs();
         let age_hours = (now - attestation.attestation_timestamp) / 3600;
 
@@ -1297,7 +1323,7 @@ impl PeerRegistry {
 
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs();
 
         // Get all active peers
@@ -1398,7 +1424,10 @@ impl PeerRegistry {
 
         let peers = self.list_active_peers().await?;
 
-        let mut cache = self.cache.write().unwrap();
+        let mut cache = self.cache.write().unwrap_or_else(|poisoned| {
+            warn!("Cache write lock poisoned during load_cache, recovering");
+            poisoned.into_inner()
+        });
         cache.clear();
 
         for peer in peers {

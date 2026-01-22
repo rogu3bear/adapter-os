@@ -1,25 +1,31 @@
-//! Authentication handlers (dev-bypass mode)
+//! Authentication handlers.
 //!
-//! In dev-bypass mode, most auth endpoints are stubbed out.
-//! Only essential endpoints are active:
-//! - /auth/config - returns auth configuration
-//! - /auth/health - auth subsystem health
-//! - /auth/me - current user info (via middleware)
-//! - /auth/register - user self-registration (when enabled)
-//! - /auth/dev-bypass - dev bypass login (debug builds only)
+//! Full auth flows are enabled, with dev-bypass-only endpoints available in debug builds.
+//! Some endpoints (bootstrap, MFA, tenant switch) remain stubbed until implemented.
 
 mod config;
 #[cfg(all(feature = "dev-bypass", debug_assertions))]
 mod dev_bypass;
 mod health;
+mod login;
 mod register;
+mod refresh;
+mod sessions;
 mod stubs;
+mod tenants;
 mod types;
 
 // Active handlers
 pub use config::{__path_get_auth_config_handler, get_auth_config_handler};
 pub use health::{__path_auth_health_handler, auth_health_handler};
+pub use login::{__path_login_handler, login_handler};
 pub use register::{__path_register_handler, register_handler};
+pub use refresh::{__path_refresh_token_handler, refresh_token_handler};
+pub use sessions::{
+    __path_list_sessions_handler, __path_logout_handler, __path_revoke_session_handler,
+    list_sessions_handler, logout_handler, revoke_session_handler,
+};
+pub use tenants::{__path_list_user_tenants_handler, list_user_tenants_handler};
 
 #[cfg(all(feature = "dev-bypass", debug_assertions))]
 pub use dev_bypass::{
@@ -29,15 +35,12 @@ pub use dev_bypass::{
 
 // Stub handlers (return "use dev bypass" errors)
 pub use stubs::{
-    __path_bootstrap_admin_handler, __path_list_sessions_handler, __path_list_user_tenants_handler,
-    __path_login_handler, __path_logout_handler, __path_mfa_disable_handler,
-    __path_mfa_start_handler, __path_mfa_status_handler, __path_mfa_verify_handler,
-    __path_refresh_token_handler, __path_revoke_session_handler, __path_switch_tenant_handler,
+    __path_bootstrap_admin_handler, __path_mfa_disable_handler, __path_mfa_start_handler,
+    __path_mfa_status_handler, __path_mfa_verify_handler, __path_switch_tenant_handler,
 };
 pub use stubs::{
-    bootstrap_admin_handler, list_sessions_handler, list_user_tenants_handler, login_handler,
-    logout_handler, mfa_disable_handler, mfa_start_handler, mfa_status_handler, mfa_verify_handler,
-    refresh_token_handler, revoke_session_handler, switch_tenant_handler,
+    bootstrap_admin_handler, mfa_disable_handler, mfa_start_handler, mfa_status_handler,
+    mfa_verify_handler, switch_tenant_handler,
 };
 
 // Re-export types for OpenAPI schema

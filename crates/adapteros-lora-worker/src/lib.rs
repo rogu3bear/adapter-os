@@ -1179,7 +1179,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
 
         // Create generator with deterministic seed and step-level reproducibility
         let gen_seed = adapteros_core::derive_seed(&manifest.seeds.global, "generation");
-        let generator = Generator::new(gen_seed)
+        let generator = Generator::new(gen_seed)?
             .with_temperature(0.7)
             .with_top_p(0.9)
             .with_deterministic();
@@ -2369,14 +2369,14 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             .unwrap_or(FusionInterval::PerRequest);
 
         if let Some(seed_bytes) = request.request_seed {
-            self.generator.set_seed_bytes(seed_bytes);
+            self.generator.set_seed_bytes(seed_bytes)?;
             // Avoid overriding master request seed with low-entropy seed
             self.generator.apply_request_params(
                 request.temperature,
                 request.top_k,
                 request.top_p,
                 None,
-            );
+            )?;
         }
         if request.request_seed.is_none() {
             self.generator.apply_request_params(
@@ -2384,7 +2384,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 request.top_k,
                 request.top_p,
                 request.seed,
-            );
+            )?;
         }
 
         // Generate tokens using autoregressive loop
@@ -3735,7 +3735,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             }
 
             // Re-seed generator for step-level determinism (enables replay)
-            self.generator.reseed_for_step(step_with_free);
+            self.generator.reseed_for_step(step_with_free)?;
 
             // Sample next token
             let next_token = self.generator.next_token(&io_buffers.output_logits)?;
@@ -3799,7 +3799,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                         let (pause_token, ctx) =
                             review_detector.create_pause_token(&trigger, &request.cpid);
                         let pause_id = pause_token.pause_id.clone();
-                        let resume_rx = registry.register(pause_token);
+                        let resume_rx = registry.register(pause_token)?;
 
                         // Emit Paused event via stream to notify server
                         if let Some(ref tx) = stream_tx {

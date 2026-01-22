@@ -892,24 +892,35 @@ impl PolicyPackManager {
             "output" | "llm_output" => PolicyPackId::LlmOutput,
             "adapters" | "adapter_lifecycle" => PolicyPackId::AdapterLifecycle,
             // These 5 policies exist in AGENTS.md canonical 24 but don't have validators yet.
-            // Return a passing result with a warning until validators are implemented.
+            // Security principle: unimplemented policies must fail-closed, not fail-open.
             "deterministic_io" | "drift" | "mplora" | "naming" | "dependency_security" => {
+                warn!(
+                    policy_id = %policy_id,
+                    hook = %ctx.hook.name(),
+                    "Unimplemented policy pack requested - failing closed for security"
+                );
                 return Ok(PolicyValidationResult {
-                    valid: true,
-                    violations: vec![],
-                    warnings: vec![PolicyWarning {
-                        warning_id: format!("unimplemented-policy-{}", policy_id),
+                    valid: false,
+                    violations: vec![PolicyViolation {
+                        violation_id: Uuid::new_v4().to_string(),
                         policy_pack: policy_id.to_string(),
+                        severity: ViolationSeverity::High,
                         message: format!(
-                            "Policy pack '{}' is enabled but not yet implemented. Passing validation.",
+                            "Policy pack '{}' is not yet implemented. Enforcement pending - validation blocked.",
                             policy_id
                         ),
                         details: Some(serde_json::json!({
                             "status": "not_implemented",
                             "hook": ctx.hook.name(),
+                            "reason": "Unimplemented policies fail-closed for security",
                         })),
+                        remediation: Some(format!(
+                            "Remove '{}' from enabled policies until implementation is complete, or implement the policy validator.",
+                            policy_id
+                        )),
                         timestamp: Utc::now(),
                     }],
+                    warnings: vec![],
                     timestamp: Utc::now(),
                     duration_ms: 0,
                 });

@@ -106,7 +106,7 @@ async fn run_router_switch_sequence(
     let mut router = Router::new_with_weights(RouterWeights::default(), 1, 1.0, 1e-6);
     router.set_routing_determinism_mode(true);
 
-    let mut generator = Generator::new_deterministic(&ROUTER_SEED, "system-cert-router-switch");
+    let mut generator = Generator::new_deterministic(&ROUTER_SEED, "system-cert-router-switch")?;
     let mut output_tokens = Vec::with_capacity(steps);
     let mut run_head = B3Hash::zero();
     let context_digest = context_digest_bytes();
@@ -135,7 +135,7 @@ async fn run_router_switch_sequence(
         );
 
         let adapter_ids_for_token = vec![adapter_info[decision.indices[0] as usize].id.clone()];
-        generator.reseed_for_step(step);
+        generator.reseed_for_step(step)?;
         let logits = deterministic_logits(&adapter_ids_for_token[0], step);
         let token = generator.next_token(&logits)?;
         output_tokens.push(token);
@@ -346,12 +346,12 @@ async fn run_long_generation(
         table.inc_ref(id).await;
     }
 
-    let mut generator = Generator::new_deterministic(&HOTSWAP_SEED, "hotswap-churn");
+    let mut generator = Generator::new_deterministic(&HOTSWAP_SEED, "hotswap-churn")?;
     let mut tokens = Vec::with_capacity(steps);
     let mut max_latency = Duration::from_millis(0);
 
     for (step, adapter_id) in active_ids.iter().cycle().take(steps).enumerate() {
-        generator.reseed_for_step(step);
+        generator.reseed_for_step(step)?;
         let start = Instant::now();
         let logits = deterministic_logits(adapter_id, step);
         let token = generator.next_token(&logits)?;

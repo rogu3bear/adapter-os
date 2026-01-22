@@ -228,11 +228,10 @@ impl SecureEnclaveConnection {
     }
 }
 
-impl Default for SecureEnclaveConnection {
-    fn default() -> Self {
-        Self::new().expect("Failed to create Secure Enclave connection")
-    }
-}
+// NOTE: Intentionally no Default impl for SecureEnclaveConnection.
+// Security-critical components should fail explicitly at construction time,
+// not panic during default initialization. Use SecureEnclaveConnection::new()
+// directly and handle errors appropriately.
 
 /// Host identity manager
 pub struct HostIdentityManager {
@@ -275,12 +274,14 @@ impl HostIdentityManager {
 
     /// Attest host identity (returns hardware attestation)
     pub fn attest_host_identity(&self) -> Result<AttestationReport> {
+        use adapteros_core::AosError;
+
         let pubkey = self.get_host_public_key()?;
         let attestation_data = self.connection.attest_key(&self.key_alias)?;
 
         let timestamp_us = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .map_err(|e| AosError::Crypto(format!("system time before UNIX epoch: {}", e)))?
             .as_micros() as u64;
 
         let attestation_metadata = AttestationMetadata {
@@ -328,11 +329,13 @@ impl HostIdentity {
 
     /// Get attestation report
     pub fn attest(&self) -> Result<AttestationReport> {
+        use adapteros_core::AosError;
+
         let attestation_data = self.connection.attest_key(&self.key_alias)?;
 
         let timestamp_us = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .map_err(|e| AosError::Crypto(format!("system time before UNIX epoch: {}", e)))?
             .as_micros() as u64;
 
         let attestation_metadata = AttestationMetadata {

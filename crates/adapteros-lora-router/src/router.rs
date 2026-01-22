@@ -1202,7 +1202,19 @@ impl Router {
                     }
                 }
             }
-            let winner = best.expect("non-empty logits");
+            // SAFETY: `best` is always Some here because:
+            // 1. We check `logits.is_empty()` at the start and return early
+            // 2. The loop above always sets `best = Some(...)` on the first iteration
+            // Using unwrap_or_else with a uniform fallback as defensive coding,
+            // though this branch is unreachable in practice.
+            let winner = match best {
+                Some(w) => w,
+                None => {
+                    // Unreachable: logits was already confirmed non-empty
+                    debug_assert!(false, "best should always be Some for non-empty logits");
+                    return vec![1.0 / logits.len() as f32; logits.len()];
+                }
+            };
             return logits
                 .iter()
                 .map(|(idx, _)| if *idx == winner.0 { 1.0 } else { 0.0 })
@@ -1552,14 +1564,28 @@ impl Router {
         }
 
         // Prepare adaptive tie-breakers when adaptive routing is enabled
-        let tie_breakers: Vec<u64> = if self.adaptive_routing {
-            let seed = determinism
-                .expect("determinism context required for adaptive routing")
-                .router_tiebreak_seed();
+        // SAFETY: The guard at line 1477-1482 ensures `determinism.is_some()` when
+        // `self.adaptive_routing` is true. We extract the seed once here to avoid
+        // repeated Option unwrapping in debug paths below.
+        let (tie_breakers, adaptive_seed): (Vec<u64>, Option<[u8; 32]>) = if self.adaptive_routing {
+            // The earlier guard guarantees determinism.is_some() here.
+            // Use a match for explicit handling instead of expect.
+            let det_ctx = match determinism {
+                Some(ctx) => ctx,
+                None => {
+                    // This branch is unreachable due to the guard at line 1477-1482,
+                    // but we handle it defensively to avoid panics if code is refactored.
+                    return Err(adapteros_core::AosError::Config(
+                        "Internal error: adaptive routing requires determinism context".to_string(),
+                    ));
+                }
+            };
+            let seed = det_ctx.router_tiebreak_seed();
             let mut rng = ChaCha20Rng::from_seed(seed);
-            (0..adapter_info.len()).map(|_| rng.gen()).collect()
+            let breakers: Vec<u64> = (0..adapter_info.len()).map(|_| rng.gen()).collect();
+            (breakers, Some(seed))
         } else {
-            Vec::new()
+            (Vec::new(), None)
         };
         let log_ties = determinism_debug_enabled();
         let emit_diag_ties = self.router_diag.is_some();
@@ -1574,12 +1600,8 @@ impl Router {
                 adaptive_routing = self.adaptive_routing,
                 "Router scoring complete (AOS_DEBUG_DETERMINISM=1)"
             );
-            if self.adaptive_routing {
-                let seed_hash = B3Hash::hash(
-                    &determinism
-                        .expect("determinism context required for adaptive routing")
-                        .router_tiebreak_seed(),
-                );
+            if let Some(seed) = adaptive_seed {
+                let seed_hash = B3Hash::hash(&seed);
                 let seed_hex = seed_hash.to_hex();
                 tracing::info!(
                     target: "determinism",

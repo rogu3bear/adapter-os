@@ -291,8 +291,8 @@ impl RouterMonitoringMetrics {
             memory: MemoryMetrics::new(total_memory_bytes),
             last_updated: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
+                .map(|d| d.as_secs())
+                .unwrap_or(0),
         }
     }
 
@@ -307,8 +307,8 @@ impl RouterMonitoringMetrics {
     pub fn touch(&mut self) {
         self.last_updated = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
     }
 
     /// Check if any Ruleset #11 budgets are violated

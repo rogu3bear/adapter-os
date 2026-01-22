@@ -34,6 +34,7 @@ pub mod api_keys;
 pub mod auth;
 pub mod auth_enhanced;
 pub mod batch;
+pub mod boot_attestation;
 pub mod boot_progress;
 pub mod capacity;
 pub mod chat_sessions;

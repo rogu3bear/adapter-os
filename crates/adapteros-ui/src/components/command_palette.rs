@@ -420,7 +420,10 @@ fn set_timeout_simple<F: FnOnce() + 'static>(f: F, ms: i32) {
     use wasm_bindgen::JsCast;
 
     let closure = Closure::once_into_js(f);
-    let window = web_sys::window().expect("no window");
+    let Some(window) = web_sys::window() else {
+        tracing::error!("set_timeout_simple: no window object available");
+        return;
+    };
     let _ =
         window.set_timeout_with_callback_and_timeout_and_arguments_0(closure.unchecked_ref(), ms);
 }

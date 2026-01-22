@@ -654,7 +654,7 @@ pub async fn training_stream(
                 "type": "heartbeat",
                 "timestamp": std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
-                    .expect("System time before UNIX epoch")
+                    .unwrap_or_default()
                     .as_millis(),
                 "sequence": counter,
             });

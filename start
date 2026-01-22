@@ -36,13 +36,44 @@ export AOS_DEBUG_RUN_ID=$AOS_RUN_ID
 # Values can still be overridden by environment variables set before running ./start
 load_env_file ".env" --no-override || true
 
+# Resolve server port from config when env is not set
+read_server_port_from_config() {
+    local config_path="$1"
+    awk '
+        $0 ~ /^\[server\]/ { in_server = 1; next }
+        in_server && $0 ~ /^\[/ { in_server = 0 }
+        in_server && $0 ~ /^[[:space:]]*port[[:space:]]*=/ {
+            gsub(/#.*/, "", $0)
+            split($0, a, "=")
+            gsub(/[[:space:]]/, "", a[2])
+            print a[2]
+            exit
+        }
+    ' "$config_path"
+}
+
+if [ -z "${AOS_SERVER_PORT:-}" ]; then
+    config_for_port="${AOS_CONFIG_PATH:-${AOS_CONFIG:-$SCRIPT_DIR/configs/cp.toml}}"
+    if [ -f "$config_for_port" ]; then
+        port_from_config="$(read_server_port_from_config "$config_for_port")"
+        if [ -n "$port_from_config" ]; then
+            AOS_SERVER_PORT="$port_from_config"
+        fi
+    fi
+fi
+
 # Configuration (can be overridden via environment)
 : "${AOS_SERVER_PORT:=8080}"
 : "${AOS_VAR_DIR:=var}"
 : "${AOS_LOG_DIR:=$AOS_VAR_DIR/logs}"
 : "${SKIP_WORKER:=0}"
 : "${AOS_QUICK_BOOT:=0}"
+: "${AOS_VERIFY_CHAT:=0}"
 : "${AOS_LOG_PROFILE:=json}"
+
+# Align control plane URL for worker registration if not set
+: "${AOS_CP_URL:=http://127.0.0.1:$AOS_SERVER_PORT}"
+export AOS_CP_URL
 
 # Run quick validation (non-fatal, just warnings)
 validate_env_quick || true
@@ -200,6 +231,7 @@ init_boot_progress() {
         "worker_start:60"
         "worker_ready:75"
         "inference_check:90"
+        "chat_verify:95"
         "complete:100"
     )
 }
@@ -540,6 +572,22 @@ check_stale_artifacts() {
     fi
 }
 
+check_ui_assets() {
+    local static_dir="$SCRIPT_DIR/crates/adapteros-server/static"
+    if [ ! -d "$static_dir" ]; then
+        log_line WARN "ui:assets missing (dir=$static_dir). Build with: cd crates/adapteros-ui && trunk build --release"
+        return 1
+    fi
+    local wasm_count
+    wasm_count="$(ls "$static_dir"/*.wasm 2>/dev/null | wc -l | tr -d ' ')"
+    if [ ! -f "$static_dir/index.html" ] || [ "$wasm_count" -eq 0 ]; then
+        log_line WARN "ui:assets incomplete (index=$( [ -f "$static_dir/index.html" ] && echo yes || echo no ), wasm=$wasm_count)"
+        return 1
+    fi
+    log_line INFO "ui:assets ok (index.html, wasm=$wasm_count)"
+    return 0
+}
+
 show_help() {
     print_banner
     cat << 'EOF'
@@ -564,6 +612,7 @@ Worker options:
   --worker-backend <mlx|metal|coreml>   (or AOS_MODEL_BACKEND)
   --worker-model <path>                 (or AOS_MODEL_PATH)
   --skip-worker                         Skip worker startup
+  --verify-chat                         Verify chat response after /readyz
 
 EOF
 }
@@ -685,7 +734,23 @@ start_backend_animated() {
             # Wait for health check (configurable timeout) with progress
             local waited=0
             local health_timeout="${AOS_HEALTH_TIMEOUT:-15}"
+            local backend_pid
+            backend_pid=$(cat "$AOS_VAR_DIR/backend.pid" 2>/dev/null)
             while [ $waited -lt "$health_timeout" ]; do
+                # Early crash detection: check if process is still alive
+                if [ -n "$backend_pid" ] && ! kill -0 "$backend_pid" 2>/dev/null; then
+                    printf "\r"
+                    update_step "error" "Backend API     ${FG_RED}CRASHED${FG_RESET} (process died during startup)"
+                    log_line ERROR "backend:early_crash pid=$backend_pid"
+                    [ "${AOS_BOOT_VERBOSE:-0}" = "1" ] && tail -30 "$AOS_VAR_DIR/logs/backend.log" 2>/dev/null
+                    append_debug_log \
+                        "start_backend_animated:early_crash" \
+                        "backend crashed during health wait" \
+                        "H1" \
+                        "$(printf '{"pid":"%s"}' "$backend_pid")"
+                    if [ -n "$tail_pid" ]; then kill "$tail_pid" 2>/dev/null; fi
+                    return 1
+                fi
                 print_progress_animated $waited $health_timeout "Waiting for backend health..."
                 if curl -sf --max-time 2 "http://localhost:$AOS_SERVER_PORT/healthz" >/dev/null 2>&1; then
                     printf "\r"
@@ -791,6 +856,7 @@ start_backend() {
 }
 
 start_all() {
+    BOOT_IN_PROGRESS=1
     print_banner
 
     # Initialize boot progress tracking
@@ -855,6 +921,7 @@ start_all() {
     start_backend_animated && backend_ok=1
     if [ $backend_ok -eq 1 ]; then
         update_boot_progress "backend_health"
+        check_ui_assets || true
     fi
 
     # Seed model into database if AOS_MODEL_PATH is set
@@ -893,8 +960,28 @@ start_all() {
         # Wait for socket with progress animation
         local waited=0
         local worker_timeout=15
+        local worker_pid
+        worker_pid=$(cat "$AOS_VAR_DIR/worker.pid" 2>/dev/null)
         start_spinner "Waiting for worker socket..."
         while [ $waited -lt $worker_timeout ]; do
+            # Early crash detection: check if worker process is still alive
+            if [ -n "$worker_pid" ] && ! kill -0 "$worker_pid" 2>/dev/null; then
+                stop_spinner
+                printf "\r"
+                update_step "error" "Worker          ${FG_RED}CRASHED${FG_RESET} (process died during startup)"
+                log_line ERROR "worker:early_crash pid=$worker_pid"
+                [ "${AOS_BOOT_VERBOSE:-0}" = "1" ] && tail -30 "$AOS_VAR_DIR/logs/worker.log" 2>/dev/null
+                append_debug_log \
+                    "start_all:worker_early_crash" \
+                    "worker crashed during socket wait" \
+                    "H3" \
+                    "$(printf '{"pid":"%s"}' "$worker_pid")"
+                echo ""
+                echo -e "  ${FG_RED}Worker crashed during startup.${FG_RESET} Check logs:"
+                echo "    tail -50 $AOS_VAR_DIR/logs/worker.log"
+                echo ""
+                return 1
+            fi
             print_progress_animated $waited $worker_timeout "Worker starting..."
             if [ -S "$AOS_VAR_DIR/run/worker.sock" ]; then
                 stop_spinner
@@ -979,6 +1066,22 @@ start_all() {
         update_boot_progress "complete"
     fi
 
+    # Optional chat verification
+    if [ "${AOS_VERIFY_CHAT:-0}" = "1" ]; then
+        if [ $backend_ok -ne 1 ] || [ $worker_ok -ne 1 ]; then
+            update_step "error" "Chat verification requires backend + worker"
+            log_line ERROR "chat:verify blocked backend=$backend_ok worker=$worker_ok"
+            return 1
+        fi
+        update_boot_progress "chat_verify"
+        print_step "running" "Verifying chat response..."
+        if ! verify_chat; then
+            update_step "error" "Chat verification failed"
+            return 1
+        fi
+        update_step "success" "Chat verification passed"
+    fi
+
     echo ""
 
     # Only show full success if inference is ready (or readiness check was skipped)
@@ -994,6 +1097,8 @@ start_all() {
     fi
 
     if [ $backend_ok -eq 1 ] && [ $show_full_success -eq 1 ]; then
+        # Boot complete - clear the flag so cleanup won't kill services
+        BOOT_IN_PROGRESS=0
         # Show final progress bar completion
         print_progress_animated 100 100 "Complete!"
         echo ""
@@ -1028,6 +1133,60 @@ start_all() {
 
     # Offer aosctl installation
     check_aosctl_installation
+}
+
+verify_chat() {
+    local base_url="http://localhost:$AOS_SERVER_PORT"
+    local chat_url="${base_url}/v1/chat/completions"
+    local payload='{"messages":[{"role":"user","content":"Hello from boot verification."}],"max_tokens":16}'
+    local tmp
+    tmp=$(mktemp)
+
+    local auth_header=""
+    if [ -n "${AOS_AUTH_TOKEN:-}" ]; then
+        auth_header="Authorization: Bearer ${AOS_AUTH_TOKEN}"
+    elif [ -n "${AOS_TOKEN:-}" ]; then
+        auth_header="Authorization: Bearer ${AOS_TOKEN}"
+    fi
+
+    local status="000"
+    if [ -n "$auth_header" ]; then
+        status=$(curl -s -o "$tmp" -w "%{http_code}" --max-time 10 \
+            -H "Content-Type: application/json" -H "$auth_header" \
+            -d "$payload" "$chat_url" 2>/dev/null || echo "000")
+    else
+        status=$(curl -s -o "$tmp" -w "%{http_code}" --max-time 10 \
+            -H "Content-Type: application/json" \
+            -d "$payload" "$chat_url" 2>/dev/null || echo "000")
+    fi
+
+    local body=""
+    if [ -f "$tmp" ]; then
+        body="$(cat "$tmp")"
+        rm -f "$tmp"
+    fi
+
+    if [ "$status" != "200" ]; then
+        log_line ERROR "chat:verify failed status=$status"
+        echo ""
+        echo -e "  ${FG_RED}Chat verification failed.${FG_RESET} HTTP $status"
+        if [ -z "$auth_header" ]; then
+            echo "  Hint: set AOS_AUTH_TOKEN (or AOS_TOKEN) or run with AOS_DEV_NO_AUTH=1"
+        fi
+        echo ""
+        return 1
+    fi
+
+    if [ -z "$(printf '%s' "$body" | tr -d '[:space:]')" ]; then
+        log_line ERROR "chat:verify empty_response"
+        echo ""
+        echo -e "  ${FG_RED}Chat verification failed.${FG_RESET} Empty response body"
+        echo ""
+        return 1
+    fi
+
+    log_line INFO "chat:verify ok"
+    return 0
 }
 
 do_shutdown() {
@@ -1073,6 +1232,58 @@ do_shutdown() {
     echo -e "${FG_GREEN}${CHECK_MARK} Shutdown complete${FG_RESET}"
     echo ""
 }
+
+# =============================================================================
+# Signal Handling & Cleanup
+# =============================================================================
+
+# Track if we're in the middle of boot for cleanup
+BOOT_IN_PROGRESS=0
+CLEANUP_CALLED=0
+
+# Cleanup function for graceful shutdown on signals
+cleanup() {
+    # Prevent recursive cleanup calls
+    if [ "$CLEANUP_CALLED" -eq 1 ]; then
+        return
+    fi
+    CLEANUP_CALLED=1
+
+    echo ""
+    log_line WARN "signal:cleanup received interrupt signal"
+
+    # Stop spinner if running
+    stop_spinner
+
+    # Clear progress line
+    printf "\r\033[K"
+
+    if [ "$BOOT_IN_PROGRESS" -eq 1 ]; then
+        echo ""
+        echo -e "${FG_YELLOW}Boot interrupted. Cleaning up...${FG_RESET}"
+        echo ""
+
+        # Stop services gracefully
+        if [ -x scripts/service-manager.sh ]; then
+            print_step "running" "Stopping backend..."
+            scripts/service-manager.sh stop backend >/dev/null 2>&1 || true
+            update_step "success" "Backend stopped"
+
+            print_step "running" "Stopping worker..."
+            scripts/service-manager.sh stop worker >/dev/null 2>&1 || true
+            update_step "success" "Worker stopped"
+        fi
+
+        echo ""
+        echo -e "${FG_YELLOW}Cleanup complete. Exiting.${FG_RESET}"
+    fi
+
+    # Exit with error code indicating signal
+    exit 130
+}
+
+# Install signal handlers
+trap cleanup SIGINT SIGTERM
 
 # =============================================================================
 # Main
@@ -1124,6 +1335,9 @@ main() {
                 ;;
             --quick)
                 AOS_QUICK_BOOT=1
+                ;;
+            --verify-chat)
+                AOS_VERIFY_CHAT=1
                 ;;
             --verbose)
                 VERBOSE=1

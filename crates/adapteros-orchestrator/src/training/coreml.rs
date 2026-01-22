@@ -222,10 +222,20 @@ pub(crate) async fn run_coreml_export_flow(
 
 /// Resolve CoreML compute units from environment.
 pub(crate) fn resolve_coreml_compute_units() -> ComputeUnits {
-    let pref = std::env::var("AOS_COREML_COMPUTE_UNITS")
-        .ok()
-        .and_then(|v| CoreMLComputePreference::from_str(&v).ok())
-        .unwrap_or_default();
+    let pref = match std::env::var("AOS_COREML_COMPUTE_UNITS") {
+        Ok(value) => match CoreMLComputePreference::from_str(&value) {
+            Ok(pref) => pref,
+            Err(e) => {
+                warn!(
+                    value = %value,
+                    error = %e,
+                    "Invalid AOS_COREML_COMPUTE_UNITS value, using default"
+                );
+                CoreMLComputePreference::default()
+            }
+        },
+        Err(_) => CoreMLComputePreference::default(),
+    };
     match pref {
         CoreMLComputePreference::CpuOnly => ComputeUnits::CpuOnly,
         CoreMLComputePreference::CpuAndGpu => ComputeUnits::CpuAndGpu,

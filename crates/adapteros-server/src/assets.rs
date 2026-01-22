@@ -35,13 +35,15 @@ async fn spa_fallback(uri: Uri) -> impl IntoResponse {
     let path = uri.path().trim_start_matches('/');
     if let Some(content) = Assets::get(path) {
         let mime = mime_guess::from_path(path).first_or_octet_stream();
-        return Response::builder()
+        return match Response::builder()
             .status(StatusCode::OK)
             .header(header::CONTENT_TYPE, mime.as_ref())
             .header(header::CACHE_CONTROL, "public, max-age=31536000, immutable")
             .body(Body::from(content.data.into_owned()))
-            .expect("Failed to build response for static asset")
-            .into_response();
+        {
+            Ok(response) => response.into_response(),
+            Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Failed to build response").into_response(),
+        };
     }
 
     index_handler().await.into_response()
@@ -65,12 +67,15 @@ async fn static_handler(uri: Uri) -> impl IntoResponse {
         Some(content) => {
             let mime = mime_guess::from_path(path).first_or_octet_stream();
 
-            Response::builder()
+            match Response::builder()
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, mime.as_ref())
                 .header(header::CACHE_CONTROL, "public, max-age=31536000, immutable")
                 .body(Body::from(content.data.into_owned()))
-                .expect("Failed to build response for static asset")
+            {
+                Ok(response) => response.into_response(),
+                Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Failed to build response").into_response(),
+            }
         }
         None => not_found().await.into_response(),
     }

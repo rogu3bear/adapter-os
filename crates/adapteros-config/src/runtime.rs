@@ -417,10 +417,24 @@ impl RuntimeConfig {
     }
 
     /// Get storage backend mode
+    ///
+    /// Returns the configured storage backend, falling back to `StorageBackend::Sql` (default)
+    /// if the value is not set or cannot be parsed. Invalid values are logged as warnings.
     pub fn storage_backend(&self) -> StorageBackend {
-        self.get_string("AOS_STORAGE_BACKEND")
-            .and_then(|s| StorageBackend::from_str(s).ok())
-            .unwrap_or(StorageBackend::Sql)
+        match self.get_string("AOS_STORAGE_BACKEND") {
+            Some(s) => match StorageBackend::from_str(s) {
+                Ok(backend) => backend,
+                Err(e) => {
+                    tracing::warn!(
+                        value = %s,
+                        error = %e,
+                        "Invalid AOS_STORAGE_BACKEND value, falling back to sql_only"
+                    );
+                    StorageBackend::Sql
+                }
+            },
+            None => StorageBackend::Sql,
+        }
     }
 
     /// Get KV database path

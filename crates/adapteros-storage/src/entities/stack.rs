@@ -193,16 +193,32 @@ impl AdapterStackKv {
         let lifecycle_state = LifecycleState::parse_state(&lifecycle_state)
             .ok_or_else(|| format!("Invalid lifecycle state: {}", lifecycle_state))?;
 
-        // Parse timestamps
-        let created_at = NaiveDateTime::parse_from_str(&created_at, "%Y-%m-%d %H:%M:%S")
-            .ok()
-            .map(|dt| DateTime::<Utc>::from_naive_utc_and_offset(dt, Utc))
-            .unwrap_or_else(Utc::now);
+        // Parse timestamps with fallback to current time if parsing fails
+        let created_at = match NaiveDateTime::parse_from_str(&created_at, "%Y-%m-%d %H:%M:%S") {
+            Ok(dt) => DateTime::<Utc>::from_naive_utc_and_offset(dt, Utc),
+            Err(e) => {
+                tracing::warn!(
+                    stack_id = %id,
+                    raw_value = %created_at,
+                    error = %e,
+                    "Failed to parse created_at timestamp, using current time"
+                );
+                Utc::now()
+            }
+        };
 
-        let updated_at = NaiveDateTime::parse_from_str(&updated_at, "%Y-%m-%d %H:%M:%S")
-            .ok()
-            .map(|dt| DateTime::<Utc>::from_naive_utc_and_offset(dt, Utc))
-            .unwrap_or_else(Utc::now);
+        let updated_at = match NaiveDateTime::parse_from_str(&updated_at, "%Y-%m-%d %H:%M:%S") {
+            Ok(dt) => DateTime::<Utc>::from_naive_utc_and_offset(dt, Utc),
+            Err(e) => {
+                tracing::warn!(
+                    stack_id = %id,
+                    raw_value = %updated_at,
+                    error = %e,
+                    "Failed to parse updated_at timestamp, using current time"
+                );
+                Utc::now()
+            }
+        };
 
         let routing_determinism_mode = None;
 

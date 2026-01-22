@@ -99,10 +99,13 @@ async fn drain_timeout_is_respected_when_requests_dont_complete() {
     // Transition to Ready state first
     boot_state.start().await;
     boot_state.db_connecting().await;
+    boot_state.migrating().await;
+    boot_state.seeding().await;
     boot_state.load_policies().await;
     boot_state.start_backend().await;
     boot_state.load_base_models().await;
     boot_state.load_adapters().await;
+    boot_state.worker_discovery().await;
     boot_state.ready().await;
     assert_eq!(boot_state.current_state(), BootState::Ready);
 
@@ -157,10 +160,13 @@ async fn drain_completes_successfully_when_all_requests_finish() {
     // Transition to Ready state
     boot_state.start().await;
     boot_state.db_connecting().await;
+    boot_state.migrating().await;
+    boot_state.seeding().await;
     boot_state.load_policies().await;
     boot_state.start_backend().await;
     boot_state.load_base_models().await;
     boot_state.load_adapters().await;
+    boot_state.worker_discovery().await;
     boot_state.ready().await;
 
     // Simulate shutdown signal
@@ -266,10 +272,13 @@ async fn drain_handles_zero_in_flight_requests_immediately() {
     // Transition to Ready then Draining
     boot_state.start().await;
     boot_state.db_connecting().await;
+    boot_state.migrating().await;
+    boot_state.seeding().await;
     boot_state.load_policies().await;
     boot_state.start_backend().await;
     boot_state.load_base_models().await;
     boot_state.load_adapters().await;
+    boot_state.worker_discovery().await;
     boot_state.ready().await;
     boot_state.drain().await;
 
@@ -358,10 +367,13 @@ async fn boot_state_transitions_to_stopping_after_drain() {
     // Complete boot sequence
     boot_state.start().await;
     boot_state.db_connecting().await;
+    boot_state.migrating().await;
+    boot_state.seeding().await;
     boot_state.load_policies().await;
     boot_state.start_backend().await;
     boot_state.load_base_models().await;
     boot_state.load_adapters().await;
+    boot_state.worker_discovery().await;
     boot_state.ready().await;
     assert_eq!(boot_state.current_state(), BootState::Ready);
 
@@ -384,10 +396,13 @@ async fn drain_from_fully_ready_state_works() {
     // Complete full boot sequence including FullyReady
     boot_state.start().await;
     boot_state.db_connecting().await;
+    boot_state.migrating().await;
+    boot_state.seeding().await;
     boot_state.load_policies().await;
     boot_state.start_backend().await;
     boot_state.load_base_models().await;
     boot_state.load_adapters().await;
+    boot_state.worker_discovery().await;
     boot_state.ready().await;
     boot_state.fully_ready().await;
     assert_eq!(boot_state.current_state(), BootState::FullyReady);
@@ -404,10 +419,13 @@ async fn drain_from_maintenance_state_works() {
     // Boot to Ready then enter Maintenance
     boot_state.start().await;
     boot_state.db_connecting().await;
+    boot_state.migrating().await;
+    boot_state.seeding().await;
     boot_state.load_policies().await;
     boot_state.start_backend().await;
     boot_state.load_base_models().await;
     boot_state.load_adapters().await;
+    boot_state.worker_discovery().await;
     boot_state.ready().await;
     boot_state.maintenance("testing-maintenance").await;
     assert_eq!(boot_state.current_state(), BootState::Maintenance);

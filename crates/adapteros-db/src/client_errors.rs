@@ -636,7 +636,10 @@ impl Db {
         sample_error_ids: Option<&[String]>,
     ) -> Result<String> {
         let id = Uuid::now_v7().to_string();
-        let sample_ids_json = sample_error_ids.and_then(|ids| serde_json::to_string(ids).ok());
+        let sample_ids_json = sample_error_ids
+            .map(|ids| serde_json::to_string(ids))
+            .transpose()
+            .map_err(|e| AosError::Serialization(e))?;
 
         sqlx::query(
             r#"

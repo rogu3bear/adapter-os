@@ -31,7 +31,9 @@ impl Heartbeat {
     pub fn update(&self) -> io::Result<()> {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .expect("System time before UNIX epoch")
+            .map_err(|e| {
+                io::Error::other(format!("system time before UNIX epoch: {}", e))
+            })?
             .as_millis();
 
         let mut file = fs::File::create(&self.path)?;
@@ -85,7 +87,7 @@ pub fn time_since_heartbeat(path: impl AsRef<Path>) -> io::Result<u64> {
     let last_heartbeat_ms = read_heartbeat(path)?;
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .expect("System time before UNIX epoch")
+        .map_err(|e| io::Error::other(format!("system time before UNIX epoch: {}", e)))?
         .as_millis();
 
     let elapsed_ms = now_ms.saturating_sub(last_heartbeat_ms);

@@ -407,6 +407,13 @@ impl FusedQkvKernel {
         command_buffer.commit();
         command_buffer.wait_until_completed();
 
+        // Check for GPU execution errors
+        if command_buffer.status() == MTLCommandBufferStatus::Error {
+            return Err(AosError::Kernel(
+                "Fused QKV kernel execution failed: GPU command buffer error".to_string(),
+            ));
+        }
+
         Ok(())
     }
 
@@ -503,6 +510,13 @@ impl FlashAttentionKernel {
 
         command_buffer.commit();
         command_buffer.wait_until_completed();
+
+        // Check for GPU execution errors
+        if command_buffer.status() == MTLCommandBufferStatus::Error {
+            return Err(AosError::Kernel(
+                "Flash attention kernel execution failed: GPU command buffer error".to_string(),
+            ));
+        }
 
         Ok(())
     }

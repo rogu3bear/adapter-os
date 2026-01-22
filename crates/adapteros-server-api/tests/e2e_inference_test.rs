@@ -662,7 +662,7 @@ async fn test_e2e_inference_with_audit_trail() {
 /// Integration Test: Training job artifact wiring to inference adapter resolution.
 #[tokio::test]
 async fn test_training_job_adapter_infer_wiring() {
-    let manifest_hash = "wiring000000000000000000000000000000000000000000000000000000000000";
+    let manifest_hash = "e2e0000000000000000000000000000000000000000000000000000000000002";
     let backend_name = "mlx";
     let model_name = "wiring-model";
     let adapter_id = "adapter-wiring";
@@ -700,6 +700,12 @@ async fn test_training_job_adapter_infer_wiring() {
         .register_model(model_params)
         .await
         .expect("Failed to register model");
+    adapteros_db::sqlx::query("UPDATE models SET tenant_id = ? WHERE id = ?")
+        .bind(&claims.tenant_id)
+        .bind(&model_id)
+        .execute(state.db.pool())
+        .await
+        .expect("Failed to set model tenant");
     state
         .db
         .update_base_model_status(&claims.tenant_id, &model_id, "ready", None, Some(2048))
@@ -722,6 +728,22 @@ async fn test_training_job_adapter_infer_wiring() {
         .register_adapter(adapter_params)
         .await
         .expect("Failed to register adapter");
+
+    adapteros_db::sqlx::query(
+        "INSERT OR IGNORE INTO git_repositories (id, repo_id, path, branch, analysis_json, evidence_json, security_scan_json, status, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind("repo-1")
+    .bind("repo-1")
+    .bind("repos/repo-1")
+    .bind("main")
+    .bind("{}")
+    .bind("{}")
+    .bind("{}")
+    .bind("ready")
+    .bind(&claims.sub)
+    .execute(state.db.pool())
+    .await
+    .expect("Failed to register repo");
 
     state
         .db
@@ -857,7 +879,19 @@ async fn test_training_job_adapter_infer_wiring() {
             },
             token_count: 5,
             router_decisions: None,
-            router_decision_chain: None,
+            router_decision_chain: Some(vec![RouterDecisionChainEntry {
+                step: 0,
+                input_token_id: Some(1),
+                adapter_indices: vec![0],
+                adapter_ids: vec![adapter_id.to_string()],
+                gates_q15: vec![32767],
+                entropy: 0.0,
+                decision_hash: None,
+                previous_hash: None,
+                entry_hash: "wiring-entry-hash".to_string(),
+                policy_mask_digest_b3: None,
+                policy_overrides_applied: None,
+            }]),
             model_type: None,
         },
         run_receipt: None,
@@ -868,7 +902,7 @@ async fn test_training_job_adapter_infer_wiring() {
             billed_output_tokens: 5,
         }),
         backend_used: Some(backend_name.to_string()),
-        backend_version: Some("v-wiring".to_string()),
+        backend_version: Some(adapteros_core::version::VERSION.to_string()),
         fallback_triggered: false,
         coreml_compute_preference: None,
         coreml_compute_units: None,
@@ -897,8 +931,14 @@ async fn test_training_job_adapter_infer_wiring() {
         if let Ok((mut stream, _)) = listener.accept().await {
             let mut buf = vec![0u8; 4096];
             let _ = stream.read(&mut buf).await;
-            let response_json = serde_json::to_vec(&worker_response).expect("serialize response");
-            let _ = stream.write_all(&response_json).await;
+            let body = serde_json::to_string(&worker_response).expect("serialize response");
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = stream.write_all(response.as_bytes()).await;
+            let _ = stream.shutdown().await;
         }
     });
     let _ = ready_rx.await;
@@ -1203,12 +1243,38 @@ async fn test_e2e_inference_rejects_adapter_base_model_mismatch() {
         .register_model(model_params)
         .await
         .expect("Failed to register model");
+    adapteros_db::sqlx::query("UPDATE models SET tenant_id = ? WHERE id = ?")
+        .bind(&claims.tenant_id)
+        .bind(&model_id)
+        .execute(state.db.pool())
+        .await
+        .expect("Failed to set model tenant");
 
     state
         .db
         .update_base_model_status(&claims.tenant_id, &model_id, "ready", None, Some(2048))
         .await
         .expect("Failed to mark model ready");
+
+    let other_model_params = ModelRegistrationBuilder::new()
+        .name("Mismatch Base Model")
+        .hash_b3("mismatch-model-hash-b3")
+        .config_hash_b3("mismatch-config-hash-b3")
+        .tokenizer_hash_b3("mismatch-tokenizer-hash-b3")
+        .tokenizer_cfg_hash_b3("mismatch-tokenizer-cfg-hash-b3")
+        .build()
+        .expect("Failed to build mismatch model params");
+    let other_model_id = state
+        .db
+        .register_model(other_model_params)
+        .await
+        .expect("Failed to register mismatch model");
+    adapteros_db::sqlx::query("UPDATE models SET tenant_id = ? WHERE id = ?")
+        .bind(&claims.tenant_id)
+        .bind(&other_model_id)
+        .execute(state.db.pool())
+        .await
+        .expect("Failed to set mismatch model tenant");
 
     let adapter_params = AdapterRegistrationBuilder::new()
         .tenant_id(claims.tenant_id.clone())
@@ -1217,7 +1283,7 @@ async fn test_e2e_inference_rejects_adapter_base_model_mismatch() {
         .hash_b3("mismatch-adapter-hash")
         .rank(8)
         .targets_json(r#"["q_proj"]"#)
-        .base_model_id(Some("different-model"))
+        .base_model_id(Some(other_model_id.clone()))
         .build()
         .expect("Failed to build adapter params");
 
@@ -1263,7 +1329,7 @@ async fn test_e2e_inference_rejects_adapter_base_model_mismatch() {
                 details
                     .get("adapter_base_model_id")
                     .and_then(|v| v.as_str()),
-                Some("different-model")
+                Some(other_model_id.as_str())
             );
         }
         Ok(_) => {

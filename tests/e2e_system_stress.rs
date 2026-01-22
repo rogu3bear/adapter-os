@@ -210,10 +210,11 @@ async fn test_simultaneous_training_jobs() {
     );
 
     // NOTE: Foreign key constraints may cause failures if tenant/user setup is incomplete
-    // Relaxed assertion to allow partial success under FK constraint issues
-    assert!(
-        success_count >= 0 || error_count > 0,
-        "Training jobs test completed (FK constraint issues may cause failures)"
+    // Verify all jobs completed (success or error) - FK issues are acceptable
+    assert_eq!(
+        success_count + error_count,
+        10,
+        "All 10 training jobs should complete (success or error)"
     );
 
     println!(
@@ -302,10 +303,11 @@ async fn test_rapid_adapter_registration() {
     );
 
     // NOTE: Foreign key constraints may cause failures if tenant/user setup is incomplete
-    // Relaxed assertion to allow partial success under FK constraint issues
-    assert!(
-        success_count >= 0 || error_count > 0,
-        "Adapter registration test completed (FK constraint issues may cause failures)"
+    // Verify all registrations completed (success or error) - FK issues are acceptable
+    assert_eq!(
+        success_count + error_count,
+        50,
+        "All 50 adapter registrations should complete (success or error)"
     );
 
     println!(

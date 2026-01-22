@@ -7,7 +7,7 @@
 
 use crate::response_types::RouterSummary;
 use adapteros_api_types::inference::{FusionIntervalTrace, RouterDecision};
-use adapteros_core::{B3Hash, FusionInterval};
+use adapteros_core::{AosError, B3Hash, FusionInterval, Result};
 use serde::Serialize;
 
 /// Summarize router usage for telemetry and replay.
@@ -89,7 +89,7 @@ pub(crate) fn fused_hash_for_interval(
     base_model_hash: &B3Hash,
     interval_id: &str,
     decisions: &[RouterDecision],
-) -> B3Hash {
+) -> Result<B3Hash> {
     let material = FusionIntervalMaterial {
         base_model_hash: *base_model_hash,
         interval_id: interval_id.to_string(),
@@ -119,19 +119,21 @@ pub(crate) fn fused_hash_for_interval(
     };
 
     // Canonical JSON ensures platform-stable byte layout for replay hashing.
-    let canonical_bytes =
-        serde_jcs::to_vec(&material).expect("fusion interval hash serialization must succeed");
-    B3Hash::hash(&canonical_bytes)
+    let canonical_bytes = serde_jcs::to_vec(&material)
+        .map_err(|e| AosError::Worker(format!("fusion interval hash serialization failed: {}", e)))?;
+    Ok(B3Hash::hash(&canonical_bytes))
 }
 
 pub(crate) fn fusion_intervals_for_mode(
     mode: FusionInterval,
     router_decisions: Option<&[RouterDecision]>,
     base_model_hash: &B3Hash,
-) -> Option<Vec<FusionIntervalTrace>> {
-    let decisions = router_decisions?;
+) -> Result<Option<Vec<FusionIntervalTrace>>> {
+    let Some(decisions) = router_decisions else {
+        return Ok(None);
+    };
     if decisions.is_empty() {
-        return None;
+        return Ok(None);
     }
 
     let mut intervals = Vec::new();
@@ -141,11 +143,12 @@ pub(crate) fn fusion_intervals_for_mode(
         .clone()
         .unwrap_or_else(|| mode.interval_id_for_step(decisions[0].step));
 
-    let mut push_bucket = |interval_id: &str, bucket: &[RouterDecision]| {
+    // Helper to push a bucket - returns Result to propagate hash errors
+    let push_bucket = |intervals: &mut Vec<FusionIntervalTrace>, interval_id: &str, bucket: &[RouterDecision]| -> Result<()> {
         if bucket.is_empty() {
-            return;
+            return Ok(());
         }
-        let hash = fused_hash_for_interval(base_model_hash, interval_id, bucket);
+        let hash = fused_hash_for_interval(base_model_hash, interval_id, bucket)?;
         let start = bucket.first().map(|d| d.step).unwrap_or(0);
         let end = bucket.last().map(|d| d.step).unwrap_or(start);
         intervals.push(FusionIntervalTrace {
@@ -154,6 +157,7 @@ pub(crate) fn fusion_intervals_for_mode(
             end_token: end,
             fused_weight_hash: hash,
         });
+        Ok(())
     };
 
     for (idx, decision) in decisions.iter().enumerate().skip(1) {
@@ -163,15 +167,15 @@ pub(crate) fn fusion_intervals_for_mode(
             .unwrap_or_else(|| mode.interval_id_for_step(decision.step));
 
         if interval_id != current_interval {
-            push_bucket(&current_interval, &decisions[start_idx..idx]);
+            push_bucket(&mut intervals, &current_interval, &decisions[start_idx..idx])?;
             start_idx = idx;
             current_interval = interval_id;
         }
     }
 
-    push_bucket(&current_interval, &decisions[start_idx..]);
+    push_bucket(&mut intervals, &current_interval, &decisions[start_idx..])?;
 
-    Some(intervals)
+    Ok(Some(intervals))
 }
 
 #[cfg(test)]
@@ -238,7 +242,8 @@ mod fusion_interval_tests {
             Some(decisions.as_slice()),
             &base,
         )
-        .expect("intervals exist");
+        .expect("fusion intervals should succeed")
+        .expect("intervals should exist");
 
         assert_eq!(intervals.len(), 1);
         assert_eq!(intervals[0].interval_id, "request-0");
@@ -252,7 +257,8 @@ mod fusion_interval_tests {
         let decisions = sample_decisions();
         let intervals =
             fusion_intervals_for_mode(FusionInterval::PerToken, Some(decisions.as_slice()), &base)
-                .expect("intervals exist");
+                .expect("fusion intervals should succeed")
+                .expect("intervals should exist");
 
         assert_eq!(intervals.len(), decisions.len());
         assert_eq!(intervals[0].interval_id, "token-0");
@@ -268,13 +274,15 @@ mod fusion_interval_tests {
             Some(decisions.as_slice()),
             &base,
         )
-        .expect("intervals");
+        .expect("fusion intervals should succeed")
+        .expect("intervals should exist");
         let second = fusion_intervals_for_mode(
             FusionInterval::PerRequest,
             Some(decisions.as_slice()),
             &base,
         )
-        .expect("intervals");
+        .expect("fusion intervals should succeed")
+        .expect("intervals should exist");
 
         assert_eq!(
             first[0].fused_weight_hash, second[0].fused_weight_hash,
@@ -292,7 +300,8 @@ mod fusion_interval_tests {
 
         let intervals =
             fusion_intervals_for_mode(FusionInterval::PerToken, Some(decisions.as_slice()), &base)
-                .expect("intervals");
+                .expect("fusion intervals should succeed")
+                .expect("intervals should exist");
 
         assert_eq!(intervals.len(), 1, "custom interval ids control grouping");
         assert_eq!(intervals[0].interval_id, "segment-0");

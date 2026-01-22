@@ -2213,8 +2213,17 @@ impl CriticalComponentMetrics {
 }
 
 impl Default for CriticalComponentMetrics {
+    /// Creates CriticalComponentMetrics with default settings.
+    ///
+    /// # Panics
+    /// Panics if Prometheus metric registration fails. This indicates a configuration
+    /// or initialization issue (e.g., duplicate metric names). For fallible creation,
+    /// use `CriticalComponentMetrics::new()` instead.
     fn default() -> Self {
-        Self::new().expect("Failed to create default CriticalComponentMetrics")
+        Self::new().expect(
+            "CriticalComponentMetrics::new() failed during Default::default(); \
+             this indicates a Prometheus initialization error (e.g., duplicate metrics)"
+        )
     }
 }
 

@@ -228,12 +228,30 @@ pub async fn get_adapter_health(
     let mut storage_subcodes = Vec::new();
     let mut has_corrupt = false;
     for row in storage_rows {
-        let issue_type: String = row.try_get("issue_type").unwrap_or_default();
-        let severity: Option<String> = row.try_get("severity").ok();
-        let path: Option<String> = row.try_get("path").ok();
-        let expected_hash: Option<String> = row.try_get("expected_hash").ok();
-        let actual_hash: Option<String> = row.try_get("actual_hash").ok();
-        let detected_at: Option<String> = row.try_get("detected_at").ok();
+        let issue_type: String = row.try_get("issue_type").unwrap_or_else(|e| {
+            tracing::warn!("Failed to get issue_type from storage row: {}", e);
+            String::new()
+        });
+        let severity: Option<String> = row.try_get("severity").unwrap_or_else(|e| {
+            tracing::warn!("Failed to get severity from storage row: {}", e);
+            None
+        });
+        let path: Option<String> = row.try_get("path").unwrap_or_else(|e| {
+            tracing::warn!("Failed to get path from storage row: {}", e);
+            None
+        });
+        let expected_hash: Option<String> = row.try_get("expected_hash").unwrap_or_else(|e| {
+            tracing::warn!("Failed to get expected_hash from storage row: {}", e);
+            None
+        });
+        let actual_hash: Option<String> = row.try_get("actual_hash").unwrap_or_else(|e| {
+            tracing::warn!("Failed to get actual_hash from storage row: {}", e);
+            None
+        });
+        let detected_at: Option<String> = row.try_get("detected_at").unwrap_or_else(|e| {
+            tracing::warn!("Failed to get detected_at from storage row: {}", e);
+            None
+        });
 
         let is_corrupt_issue = matches!(
             issue_type.as_str(),

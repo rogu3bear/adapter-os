@@ -161,12 +161,9 @@ impl TrainBaseAdapterArgs {
             }
             _ => {
                 // Save adapter weights (JSON format for compatibility)
-                let weights_path = self
-                    .output_dir
-                    .join(&self.adapter_id)
-                    .join("lora_weights.json");
-                let adapter_dir = weights_path.parent().unwrap();
-                fs::create_dir_all(adapter_dir).map_err(|e| {
+                let adapter_dir = self.output_dir.join(&self.adapter_id);
+                let weights_path = adapter_dir.join("lora_weights.json");
+                fs::create_dir_all(&adapter_dir).map_err(|e| {
                     AosError::Io(format!("Failed to create adapter directory: {}", e))
                 })?;
 

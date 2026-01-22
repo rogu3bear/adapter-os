@@ -160,10 +160,20 @@ pub(crate) async fn run_training_job(
         let job_id = job_id_for_run;
 
         // Parse post-actions configuration (defaults if not provided or invalid)
-        let post_actions: PostActions = post_actions_json
-            .as_ref()
-            .and_then(|json| serde_json::from_str(json).ok())
-            .unwrap_or_default();
+        let post_actions: PostActions = match post_actions_json.as_ref() {
+            Some(json) => match serde_json::from_str(json) {
+                Ok(actions) => actions,
+                Err(e) => {
+                    warn!(
+                        job_id = %job_id,
+                        error = %e,
+                        "Failed to parse post_actions_json, using defaults"
+                    );
+                    PostActions::default()
+                }
+            },
+            None => PostActions::default(),
+        };
 
         // Determine adapters root using centralized path resolution (ENV > Config > Default)
         use adapteros_core::paths::AdapterPaths;
@@ -775,7 +785,7 @@ pub(crate) async fn run_training_job(
             .unwrap_or_else(|| B3Hash::hash(b"training"));
         let global_seed_hex = global_seed.to_hex();
         let seed_mode = SeedMode::default().as_str();
-        let determinism_config_json = serde_json::to_string(&serde_json::json!({
+        let determinism_config_json = match serde_json::to_string(&serde_json::json!({
             "seed_mode": seed_mode,
             "training_seed": trainer.training_seed(),
             "seed_override": determinism_seed_override,
@@ -784,8 +794,17 @@ pub(crate) async fn run_training_job(
             "data_spec_hash": data_spec_hash_for_training.as_deref(),
             "base_model_id": base_model_id.as_deref(),
             "job_id": job_id.as_str(),
-        }))
-        .ok();
+        })) {
+            Ok(json) => Some(json),
+            Err(e) => {
+                warn!(
+                    job_id = %job_id,
+                    error = %e,
+                    "Failed to serialize determinism config JSON (non-fatal)"
+                );
+                None
+            }
+        };
         let is_deterministic_run =
             worker_cfg.determinism.is_some() || cfg!(feature = "deterministic-only");
         if let Some(database) = &db {

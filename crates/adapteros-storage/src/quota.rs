@@ -72,13 +72,11 @@ impl QuotaManager {
         // Check if we can reserve this space
         self.check_space(file_size).await?;
 
-        let reservation_id = format!(
-            "reservation_{}",
-            SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        );
+        let timestamp_nanos = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let reservation_id = format!("reservation_{}", timestamp_nanos);
         let now = SystemTime::now();
         let expires_at = now + Duration::from_secs(3600); // 1 hour expiration
 
@@ -116,7 +114,9 @@ impl QuotaManager {
     fn get_current_usage(&self) -> Result<StorageUsage> {
         // Check cache first
         {
-            let cache = self.usage_cache.lock().unwrap();
+            let cache = self.usage_cache.lock().map_err(|e| {
+                AosError::Io(format!("Failed to acquire usage cache lock: {}", e))
+            })?;
             if let Some(ref usage) = *cache {
                 if usage.last_updated.elapsed().unwrap_or(Duration::MAX) < self.cache_ttl {
                     return Ok(usage.clone());
@@ -129,7 +129,10 @@ impl QuotaManager {
 
         // Update cache
         {
-            let mut cache = self.usage_cache.lock().unwrap();
+            let mut cache = self.usage_cache.lock().map_err(|e| {
+                warn!("Failed to acquire usage cache lock for update: {}", e);
+                AosError::Io(format!("Failed to acquire usage cache lock: {}", e))
+            })?;
             *cache = Some(usage.clone());
         }
 

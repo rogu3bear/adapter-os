@@ -585,9 +585,11 @@ impl TrainDocsArgs {
         // === Step 4: Register and Activate (optional) ===
         if self.register {
             info!("Step 4/4: Registering adapter...");
-            let ctx = registration_ctx
-                .as_ref()
-                .expect("registration context must be present when --register is set");
+            let ctx = registration_ctx.as_ref().ok_or_else(|| {
+                AosError::Internal(
+                    "Registration context must be present when --register is set".to_string(),
+                )
+            })?;
             let db = self.connect_db().await?;
 
             let register_request = crate::commands::register_adapter::RegisterAosRequest {

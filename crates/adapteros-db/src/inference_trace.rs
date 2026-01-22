@@ -1336,7 +1336,7 @@ pub async fn get_provenance_chain(db: &Db, trace_id: &str) -> Result<ProvenanceC
         let gate_normalized = avg_gate_q15 as f32 / 32767.0;
 
         // Try to get training lineage for this adapter
-        let lineage = sqlx::query(
+        let lineage = match sqlx::query(
             r#"
             SELECT training_job_id, dataset_version_id
             FROM adapter_training_lineage
@@ -1347,8 +1347,21 @@ pub async fn get_provenance_chain(db: &Db, trace_id: &str) -> Result<ProvenanceC
         .bind(&adapter_id)
         .fetch_optional(db.pool())
         .await
-        .ok()
-        .flatten();
+        {
+            Ok(row) => row,
+            Err(e) => {
+                tracing::warn!(
+                    adapter_id = %adapter_id,
+                    error = %e,
+                    "Failed to fetch training lineage"
+                );
+                chain.add_warning(format!(
+                    "Failed to fetch training lineage for adapter {}: {}",
+                    adapter_id, e
+                ));
+                None
+            }
+        };
 
         let (training_job_id, dataset_version_id) = if let Some(lin) = lineage {
             (
@@ -1373,39 +1386,57 @@ pub async fn get_provenance_chain(db: &Db, trace_id: &str) -> Result<ProvenanceC
     }
 
     // Try to get source documents from training dataset rows
+    // Collect dataset version IDs first to avoid borrow conflicts with chain
+    let dataset_version_ids: Vec<String> = chain
+        .adapters_used
+        .iter()
+        .filter_map(|a| a.dataset_version_id.clone())
+        .collect();
+
     let mut seen_sources: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-    for adapter in &chain.adapters_used {
-        if let Some(ref dsv_id) = adapter.dataset_version_id {
-            // Get training rows for this dataset version
-            let rows = sqlx::query(
-                r#"
-                SELECT DISTINCT source_file, content_hash_b3
-                FROM training_dataset_rows
-                WHERE dataset_version_id = ?
-                LIMIT 100
-                "#,
-            )
-            .bind(dsv_id)
-            .fetch_all(db.pool())
-            .await
-            .ok()
-            .unwrap_or_default();
+    for dsv_id in &dataset_version_ids {
+        // Get training rows for this dataset version
+        let rows = match sqlx::query(
+            r#"
+            SELECT DISTINCT source_file, content_hash_b3
+            FROM training_dataset_rows
+            WHERE dataset_version_id = ?
+            LIMIT 100
+            "#,
+        )
+        .bind(dsv_id)
+        .fetch_all(db.pool())
+        .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!(
+                    dataset_version_id = %dsv_id,
+                    error = %e,
+                    "Failed to fetch training dataset rows"
+                );
+                chain.add_warning(format!(
+                    "Failed to fetch source documents for dataset {}: {}",
+                    dsv_id, e
+                ));
+                continue;
+            }
+        };
 
-            for row in rows {
-                let source_file: Option<String> = row.try_get("source_file").ok().flatten();
-                let hash: Option<String> = row.try_get("content_hash_b3").ok().flatten();
+        for row in rows {
+            let source_file: Option<String> = row.try_get("source_file").ok().flatten();
+            let hash: Option<String> = row.try_get("content_hash_b3").ok().flatten();
 
-                if let Some(sf) = source_file {
-                    if seen_sources.insert(sf.clone()) {
-                        chain.source_documents.push(DocumentProvenance {
-                            source_file: sf,
-                            source_hash_b3: hash.unwrap_or_default(),
-                            line_start: None,
-                            line_end: None,
-                            relevance: None,
-                        });
-                    }
+            if let Some(sf) = source_file {
+                if seen_sources.insert(sf.clone()) {
+                    chain.source_documents.push(DocumentProvenance {
+                        source_file: sf,
+                        source_hash_b3: hash.unwrap_or_default(),
+                        line_start: None,
+                        line_end: None,
+                        relevance: None,
+                    });
                 }
             }
         }

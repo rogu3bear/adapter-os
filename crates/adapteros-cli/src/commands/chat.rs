@@ -280,7 +280,9 @@ async fn run_interactive_chat(
     loop {
         // Print prompt
         print!("You> ");
-        io::stdout().flush().unwrap();
+        if let Err(e) = io::stdout().flush() {
+            return Err(AosError::Io(format!("Failed to flush output: {}", e)));
+        }
 
         // Read input
         let mut input = String::new();
@@ -308,8 +310,8 @@ async fn run_interactive_chat(
                     // Clear screen (ANSI escape sequence)
                     print!("\x1B[2J\x1B[H");
                     continue;
-                } else if input.starts_with("/stack ") {
-                    let stack_id = input.strip_prefix("/stack ").unwrap().trim();
+                } else if let Some(stack_suffix) = input.strip_prefix("/stack ") {
+                    let stack_id = stack_suffix.trim();
                     if stack_id.is_empty() {
                         current_stack = None;
                         output.info("Switched to base model (no stack)");
@@ -386,7 +388,7 @@ async fn send_streaming_inference(
     // Print streaming response
     if should_print_stream {
         print!("Assistant> ");
-        io::stdout().flush().unwrap();
+        io::stdout().flush().map_err(|e| AosError::Io(format!("Failed to flush output: {}", e)))?;
     }
 
     let body = resp
@@ -398,8 +400,7 @@ async fn send_streaming_inference(
 
     // Parse SSE format (data: {...}\n\n)
     for line in body.lines() {
-        if line.starts_with("data: ") {
-            let json_str = line.strip_prefix("data: ").unwrap();
+        if let Some(json_str) = line.strip_prefix("data: ") {
 
             if json_str == "[DONE]" {
                 if should_print_stream {
@@ -415,7 +416,7 @@ async fn send_streaming_inference(
                         if let Some(ref content) = choice.delta.content {
                             if should_print_stream {
                                 print!("{}", content);
-                                io::stdout().flush().unwrap();
+                                let _ = io::stdout().flush(); // Best effort for streaming output
                             }
                             full_text.push_str(content);
                         }

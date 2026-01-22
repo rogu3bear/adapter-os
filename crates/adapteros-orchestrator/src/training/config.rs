@@ -89,8 +89,16 @@ pub(crate) fn map_preferred_backend(
                 // If the caller provided a CoreML fallback, keep it explicit; otherwise, do not
                 // silently redirect. Fallbacks are handled downstream with explicit telemetry.
                 if mapped == WorkerTrainingBackend::CoreML {
-                    fallback_backend = coreml_fallback
-                        .and_then(|fb| WorkerTrainingBackend::try_from(to_core_backend(fb)).ok());
+                    if let Some(fb) = coreml_fallback {
+                        match WorkerTrainingBackend::try_from(to_core_backend(fb)) {
+                            Ok(fb_mapped) => fallback_backend = Some(fb_mapped),
+                            Err(err) => warn!(
+                                backend = %fb.as_str(),
+                                error = %err,
+                                "CoreML fallback backend conversion failed; fallback disabled"
+                            ),
+                        }
+                    }
                 }
             }
             Err(err) => {

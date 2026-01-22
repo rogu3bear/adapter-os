@@ -9,7 +9,7 @@
 //!
 //! See PRD: PrefixKvCache v1
 
-use crate::B3Hash;
+use crate::{AosError, B3Hash, Result};
 
 /// Compute the cryptographic prefix KV cache key.
 ///
@@ -192,6 +192,53 @@ impl PrefixKvKeyBuilder {
         let model_cache_identity_bytes = self.model_cache_identity_bytes?;
 
         Some(compute_prefix_kv_key(
+            &context_digest,
+            &prefix_token_ids,
+            &tokenizer_manifest_hash,
+            &model_cache_identity_bytes,
+        ))
+    }
+
+    /// Build the prefix KV key, returning an error if any field is missing.
+    ///
+    /// This is the recommended method for production code as it provides
+    /// detailed error information about which field is missing.
+    ///
+    /// # Errors
+    /// Returns `AosError::Validation` if any required field is not set,
+    /// with a message indicating which field is missing.
+    ///
+    /// # Example
+    /// ```
+    /// use adapteros_core::prefix_kv_key::PrefixKvKeyBuilder;
+    /// use adapteros_core::B3Hash;
+    ///
+    /// let result = PrefixKvKeyBuilder::new()
+    ///     .context_digest(B3Hash::hash(b"ctx"))
+    ///     .prefix_tokens(vec![1, 2, 3])
+    ///     .tokenizer_manifest_hash(B3Hash::hash(b"tok"))
+    ///     .model_cache_identity_bytes(vec![1, 2, 3, 4])
+    ///     .build_result();
+    ///
+    /// assert!(result.is_ok());
+    /// ```
+    pub fn build_result(self) -> Result<B3Hash> {
+        let context_digest = self.context_digest.ok_or_else(|| {
+            AosError::Validation("context_digest is required for prefix KV key".to_string())
+        })?;
+        let prefix_token_ids = self.prefix_token_ids.ok_or_else(|| {
+            AosError::Validation("prefix_token_ids is required for prefix KV key".to_string())
+        })?;
+        let tokenizer_manifest_hash = self.tokenizer_manifest_hash.ok_or_else(|| {
+            AosError::Validation("tokenizer_manifest_hash is required for prefix KV key".to_string())
+        })?;
+        let model_cache_identity_bytes = self.model_cache_identity_bytes.ok_or_else(|| {
+            AosError::Validation(
+                "model_cache_identity_bytes is required for prefix KV key".to_string(),
+            )
+        })?;
+
+        Ok(compute_prefix_kv_key(
             &context_digest,
             &prefix_token_ids,
             &tokenizer_manifest_hash,
@@ -390,5 +437,90 @@ mod tests {
             .try_build();
 
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_builder_build_result_success() {
+        let context = B3Hash::hash(b"context");
+        let tokens = vec![1u32, 2, 3];
+        let manifest = B3Hash::hash(b"manifest");
+        let identity = vec![1u8];
+
+        let result = PrefixKvKeyBuilder::new()
+            .context_digest(context)
+            .prefix_tokens(tokens)
+            .tokenizer_manifest_hash(manifest)
+            .model_cache_identity_bytes(identity)
+            .build_result();
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_builder_build_result_missing_context() {
+        let tokens = vec![1u32, 2, 3];
+        let manifest = B3Hash::hash(b"manifest");
+        let identity = vec![1u8];
+
+        let result = PrefixKvKeyBuilder::new()
+            .prefix_tokens(tokens)
+            .tokenizer_manifest_hash(manifest)
+            .model_cache_identity_bytes(identity)
+            .build_result();
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("context_digest"));
+    }
+
+    #[test]
+    fn test_builder_build_result_missing_tokens() {
+        let context = B3Hash::hash(b"context");
+        let manifest = B3Hash::hash(b"manifest");
+        let identity = vec![1u8];
+
+        let result = PrefixKvKeyBuilder::new()
+            .context_digest(context)
+            .tokenizer_manifest_hash(manifest)
+            .model_cache_identity_bytes(identity)
+            .build_result();
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("prefix_token_ids"));
+    }
+
+    #[test]
+    fn test_builder_build_result_missing_tokenizer() {
+        let context = B3Hash::hash(b"context");
+        let tokens = vec![1u32, 2, 3];
+        let identity = vec![1u8];
+
+        let result = PrefixKvKeyBuilder::new()
+            .context_digest(context)
+            .prefix_tokens(tokens)
+            .model_cache_identity_bytes(identity)
+            .build_result();
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("tokenizer_manifest_hash"));
+    }
+
+    #[test]
+    fn test_builder_build_result_missing_identity() {
+        let context = B3Hash::hash(b"context");
+        let tokens = vec![1u32, 2, 3];
+        let manifest = B3Hash::hash(b"manifest");
+
+        let result = PrefixKvKeyBuilder::new()
+            .context_digest(context)
+            .prefix_tokens(tokens)
+            .tokenizer_manifest_hash(manifest)
+            .build_result();
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("model_cache_identity_bytes"));
     }
 }

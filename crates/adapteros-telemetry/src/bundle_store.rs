@@ -78,6 +78,20 @@ impl BundleStore {
         Ok(store)
     }
 
+    /// Create a disabled bundle store that gracefully fails all operations.
+    ///
+    /// This is used when the primary and fallback storage locations are unavailable.
+    /// Operations will return errors rather than panicking, allowing the server to
+    /// continue running with degraded telemetry functionality.
+    pub fn new_disabled() -> Self {
+        tracing::warn!("Creating disabled BundleStore - telemetry persistence unavailable");
+        Self {
+            root_dir: PathBuf::from("/dev/null/aos-disabled-bundle-store"),
+            index: HashMap::new(),
+            policy: RetentionPolicy::default(),
+        }
+    }
+
     /// Store a bundle with content-addressed naming
     pub fn store_bundle(&mut self, bundle_data: &[u8], metadata: BundleMetadata) -> Result<B3Hash> {
         // Compute bundle hash (content-addressed)
@@ -222,7 +236,11 @@ impl BundleStore {
         }
 
         // Update metadata file after releasing mutable borrow
-        let metadata = self.index.get(bundle_hash).unwrap();
+        // Safety: We just verified this key exists via get_mut above
+        let metadata = self
+            .index
+            .get(bundle_hash)
+            .expect("bundle_hash must exist; verified via get_mut above");
         self.update_metadata_file(bundle_hash, metadata)?;
 
         tracing::info!("Marked bundle {} as incident bundle", bundle_hash);
@@ -242,7 +260,11 @@ impl BundleStore {
         }
 
         // Update metadata file after releasing mutable borrow
-        let metadata = self.index.get(bundle_hash).unwrap();
+        // Safety: We just verified this key exists via get_mut above
+        let metadata = self
+            .index
+            .get(bundle_hash)
+            .expect("bundle_hash must exist; verified via get_mut above");
         self.update_metadata_file(bundle_hash, metadata)?;
 
         tracing::info!("Marked bundle {} as promotion bundle", bundle_hash);
@@ -270,14 +292,28 @@ impl BundleStore {
         // Apply retention policy per CPID
         for (_cpid, mut bundles) in bundles_by_cpid {
             // Sort by sequence number (oldest first)
-            bundles.sort_by_key(|hash| self.index.get(hash).unwrap().sequence_no);
+            // Safety: All hashes were collected from self.index above, so they must exist.
+            // Use filter_map to gracefully handle any unexpected missing entries.
+            bundles.sort_by_key(|hash| {
+                self.index
+                    .get(hash)
+                    .map(|m| m.sequence_no)
+                    .unwrap_or(None)
+            });
 
             // Determine which bundles to evict
             if bundles.len() > self.policy.keep_bundles_per_cpid {
                 let to_evict = bundles.len() - self.policy.keep_bundles_per_cpid;
 
                 for bundle_hash in bundles.iter().take(to_evict) {
-                    let metadata = self.index.get(bundle_hash).unwrap();
+                    // Skip if bundle was already removed (shouldn't happen but defensive)
+                    let Some(metadata) = self.index.get(bundle_hash) else {
+                        tracing::warn!(
+                            bundle_hash = %bundle_hash,
+                            "Bundle missing from index during GC, skipping"
+                        );
+                        continue;
+                    };
 
                     // Check if bundle is protected
                     if self.policy.keep_incident_bundles && metadata.is_incident_bundle {

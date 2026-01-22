@@ -1658,6 +1658,7 @@ pub fn default_schema() -> ConfigSchema {
             .config_type(ConfigType::Bool)
             .default_value("false")
             .description("Development/testing only: disable auth enforcement for local runs")
+            .config_key("security.dev_bypass")
             .category("SECURITY")
             .build(),
     );
@@ -1757,6 +1758,19 @@ pub fn default_schema() -> ConfigSchema {
             .build(),
     );
 
+    // =========================================================================
+    // BUILD - Compile-time build information (read-only)
+    // =========================================================================
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_BUILD_ID")
+            .config_type(ConfigType::String)
+            .description("Compile-time build identifier (read-only, set via env!(\"AOS_BUILD_ID\") at build time)")
+            .category("BUILD")
+            .config_key("build.id")
+            .build(),
+    );
+
     schema
 }
 
@@ -1788,6 +1802,7 @@ mod tests {
         assert!(categories.contains(&"STORAGE"));
         assert!(categories.contains(&"ADAPTER_GC"));
         assert!(categories.contains(&"SELF_HOSTING"));
+        assert!(categories.contains(&"BUILD"));
     }
 
     #[test]

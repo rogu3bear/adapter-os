@@ -51,7 +51,7 @@ impl ContextManifestV1 {
 
         encode_u32(
             &mut bytes,
-            u32::try_from(self.adapter_stack.len()).expect("adapter_stack length fits in u32"),
+            u32::try_from(self.adapter_stack.len()).unwrap_or(u32::MAX),
         );
         for adapter in &self.adapter_stack {
             adapter.encode_into(&mut bytes);
@@ -109,7 +109,7 @@ fn encode_hash(buf: &mut Vec<u8>, hash: &B3Hash) {
 
 fn encode_str(buf: &mut Vec<u8>, value: &str) {
     let bytes = value.as_bytes();
-    let len = u32::try_from(bytes.len()).expect("string length fits in u32");
+    let len = u32::try_from(bytes.len()).unwrap_or(u32::MAX);
     encode_u32(buf, len);
     buf.extend_from_slice(bytes);
 }

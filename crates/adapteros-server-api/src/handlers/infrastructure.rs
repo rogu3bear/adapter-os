@@ -1243,7 +1243,10 @@ pub async fn get_worker_health_summary(
             .db
             .get_recent_incident_count(&worker.id, 24)
             .await
-            .unwrap_or(0);
+            .unwrap_or_else(|e| {
+                tracing::warn!(worker_id = %worker.id, error = %e, "Failed to get recent incident count");
+                0
+            });
 
         health_records.push(serde_json::json!({
             "worker_id": worker.id,

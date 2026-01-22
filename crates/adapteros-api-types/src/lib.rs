@@ -300,6 +300,9 @@ pub struct HealthResponse {
     pub schema_version: String,
     pub status: String,
     pub version: String,
+    /// Build identifier (git hash + timestamp, e.g., "a6922d2-20260122153045")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub build_id: Option<String>,
     /// Model runtime health information
     pub models: Option<ModelRuntimeHealth>,
 }

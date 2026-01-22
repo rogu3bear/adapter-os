@@ -1405,15 +1405,24 @@ pub async fn run_determinism_check(
     ];
 
     // Determine seed (convert to u64 for API)
+    // Helper to safely convert first 8 bytes of a 32-byte hash to u64
+    fn hash_to_u64(hash: &B3Hash) -> u64 {
+        let bytes = hash.as_bytes();
+        // B3Hash is always 32 bytes, so this slice and conversion is safe
+        u64::from_le_bytes([
+            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+        ])
+    }
+
     let seed_u64 = if let Some(ref seed_hex) = seed {
         // Parse hex seed and convert to u64
         let base_seed = B3Hash::from_hex(seed_hex)
             .map_err(|e| AosError::Config(format!("Invalid seed hex: {}", e)))?;
-        u64::from_le_bytes(base_seed.as_bytes()[..8].try_into().unwrap())
+        hash_to_u64(&base_seed)
     } else {
         // Default: derive from fixed test seed
         let base_seed = B3Hash::hash(b"determinism-check-default-seed");
-        u64::from_le_bytes(base_seed.as_bytes()[..8].try_into().unwrap())
+        hash_to_u64(&base_seed)
     };
 
     info!("Using seed: {}", seed_u64);

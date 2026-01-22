@@ -743,13 +743,25 @@ pub(crate) async fn package_and_register_adapter(
         let adapter_metadata_json =
             if let (Some(tenant), Some(model_id)) = (tenant_id, base_model_id) {
                 match database.get_model_for_tenant(tenant, model_id).await {
-                    Ok(Some(model)) => serde_json::to_string(&serde_json::json!({
-                        "base_model_id": model_id,
-                        "base_model_hash_b3": model.hash_b3,
-                        "tokenizer_hash_b3": model.tokenizer_hash_b3,
-                        "tokenizer_cfg_hash_b3": model.tokenizer_cfg_hash_b3,
-                    }))
-                    .ok(),
+                    Ok(Some(model)) => {
+                        match serde_json::to_string(&serde_json::json!({
+                            "base_model_id": model_id,
+                            "base_model_hash_b3": model.hash_b3,
+                            "tokenizer_hash_b3": model.tokenizer_hash_b3,
+                            "tokenizer_cfg_hash_b3": model.tokenizer_cfg_hash_b3,
+                        })) {
+                            Ok(json) => Some(json),
+                            Err(e) => {
+                                warn!(
+                                    job_id = %job_id,
+                                    model_id = %model_id,
+                                    error = %e,
+                                    "Failed to serialize adapter metadata JSON"
+                                );
+                                None
+                            }
+                        }
+                    }
                     Ok(None) => None,
                     Err(e) => {
                         warn!(
@@ -782,7 +794,17 @@ pub(crate) async fn package_and_register_adapter(
             .content_hash_b3(Some(packaged.hash_b3.clone()))
             .aos_file_path(Some(final_aos_path_str.clone()))
             .aos_file_hash(Some(final_aos_hash.clone()))
-            .provenance_json(serde_json::to_string(&packaged.manifest.metadata).ok())
+            .provenance_json(match serde_json::to_string(&packaged.manifest.metadata) {
+                Ok(json) => Some(json),
+                Err(e) => {
+                    warn!(
+                        job_id = %job_id,
+                        error = %e,
+                        "Failed to serialize manifest metadata for provenance JSON"
+                    );
+                    None
+                }
+            })
             .metadata_json(adapter_metadata_json)
             .training_dataset_hash_b3(dataset_hash_for_metadata.clone())
             .build()
