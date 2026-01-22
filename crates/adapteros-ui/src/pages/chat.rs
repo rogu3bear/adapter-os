@@ -600,8 +600,7 @@ pub fn ChatSession() -> impl IntoView {
                                                             </p>
                                                         </div>
                                                         // Show trace button for assistant messages with trace info
-                                                        {if !is_user && !is_streaming && trace_id.is_some() {
-                                                            let tid = trace_id.clone().unwrap();
+                                                        {if let (false, false, Some(tid)) = (is_user, is_streaming, trace_id.clone()) {
                                                             let latency = latency_ms.unwrap_or(0);
                                                             Some(view! {
                                                                 <div class="flex items-center gap-2 pl-1">

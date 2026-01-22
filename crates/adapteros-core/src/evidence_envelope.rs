@@ -544,7 +544,7 @@ fn encode_i64(buf: &mut Vec<u8>, value: i64) {
 
 fn encode_str(buf: &mut Vec<u8>, value: &str) {
     let bytes = value.as_bytes();
-    let len = u32::try_from(bytes.len()).expect("string length fits in u32");
+    let len = u32::try_from(bytes.len()).unwrap_or(u32::MAX);
     encode_u32(buf, len);
     buf.extend_from_slice(bytes);
 }

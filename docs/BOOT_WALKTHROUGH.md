@@ -22,8 +22,7 @@ This document provides a narrative walkthrough of the adapterOS boot sequence, c
 │      │                  ├─→ LoadAdapters → WarmingModels → Ready            │
 │      │                  └─→ FullyReady   → [Serving]                        │
 │      │                                                                      │
-│      ├─→ scripts/service-manager.sh start ui                                │
-│      │      └─→ pnpm dev (port 3200, dev mode only)                        │
+│      ├─→ UI served by backend static/ (no separate process)                │
 │      │                                                                      │
 │      └─→ Health check loop (/readyz)                                        │
 │                                                                             │
@@ -46,11 +45,12 @@ The canonical entry point for adapterOS. It:
 Key environment variables:
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AOS_SERVER_PORT` | 8080 | Control plane HTTP port |
+| `AOS_SERVER_PORT` | 8080 | Control plane HTTP port (falls back to `server.port` in config) |
 | `AOS_UI_PORT` | 3200 | UI dev server port |
 | `AOS_HEALTH_TIMEOUT` | 120s | Max wait for `/healthz` |
 | `AOS_READYZ_TIMEOUT` | 300s | Max wait for `/readyz` |
 | `AOS_SKIP_PREFLIGHT` | false | Skip disk/memory checks |
+| `AOS_VERIFY_CHAT` | 0 | Verify chat response after `/readyz` (requires auth or dev bypass) |
 
 ```bash
 # Example startup

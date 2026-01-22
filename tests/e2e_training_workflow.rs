@@ -27,10 +27,7 @@ use std::time::Duration;
 use tokio::time::sleep;
 use tower::ServiceExt;
 
-// TODO: Investigate why dataset doesn't appear in list after creation
-// May be related to FK constraint or tenant isolation issues
 #[tokio::test]
-#[ignore = "Dataset listing issue investigation needed"]
 async fn test_complete_training_workflow() {
     let mut harness = ApiTestHarness::new()
         .await
@@ -69,12 +66,15 @@ async fn test_complete_training_workflow() {
         .await
         .unwrap();
     let datasets: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let items = datasets
+        .get("datasets")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
     assert!(
-        datasets
-            .as_array()
-            .unwrap()
+        items
             .iter()
-            .any(|d| d["id"] == "training-test-dataset"),
+            .any(|d| d["dataset_id"] == "training-test-dataset"),
         "Dataset should be in the list"
     );
 

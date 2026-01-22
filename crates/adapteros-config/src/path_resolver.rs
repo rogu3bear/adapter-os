@@ -363,7 +363,7 @@ pub fn resolve_database_url() -> Result<ResolvedPath> {
         return Ok(resolved);
     }
 
-    let path = PathBuf::from(DEFAULT_DB_PATH);
+    let path = rebase_default_var_path(DEFAULT_DB_PATH);
     reject_tmp_persistent_path(&path, "database-url")?;
     tracing::info!(
         database_url = %path.display(),
@@ -419,11 +419,8 @@ pub fn resolve_worker_socket_for_worker(
         });
     }
 
-    let prod_path = PathBuf::from(format!(
-        "{}/{}/worker.sock",
-        DEFAULT_WORKER_SOCKET_PROD_ROOT.trim_end_matches('/'),
-        tenant_id
-    ));
+    let prod_root = rebase_default_var_path(DEFAULT_WORKER_SOCKET_PROD_ROOT);
+    let prod_path = prod_root.join(tenant_id).join("worker.sock");
     reject_tmp_socket(&prod_path, "worker")?;
     if let Some(parent) = prod_path.parent() {
         if std::fs::create_dir_all(parent).is_ok() {
@@ -445,7 +442,7 @@ pub fn resolve_worker_socket_for_worker(
         }
     }
 
-    let dev_path = PathBuf::from(DEFAULT_WORKER_SOCKET_DEV);
+    let dev_path = rebase_default_var_path(DEFAULT_WORKER_SOCKET_DEV);
     reject_tmp_socket(&dev_path, "worker")?;
     if let Some(parent) = dev_path.parent() {
         let _ = std::fs::create_dir_all(parent);
@@ -485,7 +482,7 @@ pub fn resolve_worker_socket_for_cp() -> Result<ResolvedPath> {
         });
     }
 
-    let path = PathBuf::from(DEFAULT_CP_WORKER_SOCKET);
+    let path = rebase_default_var_path(DEFAULT_CP_WORKER_SOCKET);
     reject_tmp_socket(&path, "control-plane")?;
     tracing::info!(
         path = %path.display(),
@@ -851,7 +848,7 @@ fn resolve_env_or_default(
         }
     }
 
-    let path = PathBuf::from(default);
+    let path = rebase_default_var_path(default);
     tracing::info!(
         path = %path.display(),
         source = %PathSource::Default(label),
@@ -864,6 +861,33 @@ fn resolve_env_or_default(
         source: PathSource::Default(label),
         used_dev_fallback: false,
     }
+}
+
+fn rebase_default_var_path(default: &str) -> PathBuf {
+    let var_dir = std::env::var("AOS_VAR_DIR")
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty());
+    let Some(var_dir) = var_dir else {
+        return PathBuf::from(default);
+    };
+
+    let trimmed = default.trim_start_matches("./");
+    let stripped = if trimmed == "var" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("var/")
+    };
+
+    if let Some(rest) = stripped {
+        let mut rebased = PathBuf::from(var_dir);
+        if !rest.is_empty() {
+            rebased = rebased.join(rest);
+        }
+        return rebased;
+    }
+
+    PathBuf::from(default)
 }
 
 fn resolve_env_or_default_no_tmp(
@@ -1315,6 +1339,30 @@ mod tests {
         let resolved = resolve_embedding_model_path().unwrap();
         assert_eq!(resolved.path, PathBuf::from(DEFAULT_EMBEDDING_MODEL_PATH));
         assert_eq!(resolved.source, PathSource::Default("embedding-model"));
+    }
+
+    #[test]
+    fn status_path_rebases_under_var_dir() {
+        let _env = TestEnvGuard::new();
+        std::env::set_var("AOS_VAR_DIR", "./var/custom-root");
+        let resolved = resolve_status_path().unwrap();
+        assert_eq!(
+            resolved.path,
+            PathBuf::from("./var/custom-root/run/adapteros_status.json")
+        );
+        assert_eq!(resolved.source, PathSource::Default("status-path"));
+    }
+
+    #[test]
+    fn control_plane_socket_rebases_under_var_dir() {
+        let _env = TestEnvGuard::new();
+        std::env::set_var("AOS_VAR_DIR", "./var/custom-root");
+        let resolved = resolve_worker_socket_for_cp().unwrap();
+        assert_eq!(
+            resolved.path,
+            PathBuf::from("./var/custom-root/run/adapteros.sock")
+        );
+        assert_eq!(resolved.source, PathSource::Default("worker-socket-cp"));
     }
 
     #[test]

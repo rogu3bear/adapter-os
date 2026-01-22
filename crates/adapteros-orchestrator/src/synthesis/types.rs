@@ -162,8 +162,22 @@ impl ExampleProvenance {
     }
 
     /// Convert to canonical JSON string for storage
+    ///
+    /// Returns an empty string if serialization fails (should not happen
+    /// for valid ExampleProvenance instances). Logs a warning on failure.
     pub fn to_json(&self) -> String {
-        serde_json::to_string(self).unwrap_or_default()
+        match serde_json::to_string(self) {
+            Ok(json) => json,
+            Err(e) => {
+                tracing::warn!(
+                    source_file = %self.source_file,
+                    chunk_index = self.chunk_index,
+                    error = %e,
+                    "Failed to serialize ExampleProvenance to JSON"
+                );
+                String::new()
+            }
+        }
     }
 
     /// Parse from JSON string

@@ -64,11 +64,11 @@ fn derive_software_key_with_hardware_info(tenant_id: &str) -> Result<[u8; 32]> {
     use std::process::Command;
 
     // Get hardware UUID as additional entropy
-    let hardware_uuid = Command::new("ioreg")
+    let hardware_uuid = match Command::new("ioreg")
         .args(["-d2", "-c", "IOPlatformExpertDevice"])
         .output()
-        .ok()
-        .and_then(|output| {
+    {
+        Ok(output) => {
             let stdout = String::from_utf8_lossy(&output.stdout);
             // Extract IOPlatformUUID from output
             stdout
@@ -76,11 +76,23 @@ fn derive_software_key_with_hardware_info(tenant_id: &str) -> Result<[u8; 32]> {
                 .find(|line| line.contains("IOPlatformUUID"))
                 .and_then(|line| line.split('"').nth(3))
                 .map(|s| s.to_string())
-        })
-        .unwrap_or_else(|| {
-            tracing::warn!("Could not get hardware UUID, using fallback");
+                .unwrap_or_else(|| {
+                    tracing::warn!(
+                        tenant_id = %tenant_id,
+                        "IOPlatformUUID not found in ioreg output, using fallback"
+                    );
+                    "fallback_uuid".to_string()
+                })
+        }
+        Err(e) => {
+            tracing::warn!(
+                tenant_id = %tenant_id,
+                error = %e,
+                "Failed to execute ioreg command for hardware UUID, using fallback"
+            );
             "fallback_uuid".to_string()
-        });
+        }
+    };
 
     // Combine tenant ID with hardware UUID for hardware-bound key
     let seed_material = format!("tenant_kek_{}_{}", tenant_id, hardware_uuid);

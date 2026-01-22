@@ -45,6 +45,8 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::get_status,
         handlers::health::get_invariant_status,
         handlers::system_status::get_system_status,
+        handlers::boot_attestation::get_boot_attestation,
+        handlers::boot_attestation::verify_boot_attestation,
         handlers::admin_lifecycle::request_shutdown,
         handlers::admin_lifecycle::request_maintenance,
         handlers::admin_lifecycle::safe_restart,
@@ -1555,6 +1557,14 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/system/integrity",
             get(handlers::system::get_system_integrity),
+        )
+        .route(
+            "/v1/system/boot-attestation",
+            get(handlers::boot_attestation::get_boot_attestation),
+        )
+        .route(
+            "/v1/system/verify-boot-attestation",
+            post(handlers::boot_attestation::verify_boot_attestation),
         )
         .route(
             "/v1/system/status",

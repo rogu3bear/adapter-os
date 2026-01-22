@@ -5,6 +5,7 @@ adapterOS CLI/tooling surface. Each script name here satisfies the
 `script_inventory_guard` test so new scripts don't bypass documentation.
 
 ## Scripts
+
 - alert_tenant_query_performance.sh
 - aos.sh
 - audit_api_endpoints.sh

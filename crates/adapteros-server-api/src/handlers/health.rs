@@ -73,6 +73,7 @@ pub async fn health(State(state): State<AppState>) -> impl IntoResponse {
             schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
             status: status_str,
             version: env!("CARGO_PKG_VERSION").to_string(),
+            build_id: option_env!("AOS_BUILD_ID").map(|s| s.to_string()),
             models: None,
         }),
     )

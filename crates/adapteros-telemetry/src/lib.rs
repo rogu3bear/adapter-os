@@ -354,9 +354,10 @@ impl TelemetryWriter {
         violation_type: &str,
         details: &str,
     ) -> Result<()> {
+        // Use unwrap_or_default to avoid panic if system clock is misconfigured
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .expect("System time before UNIX epoch")
+            .unwrap_or_default()
             .as_secs();
         let event = SecurityEvent::PolicyViolation {
             policy: policy.to_string(),
@@ -369,9 +370,10 @@ impl TelemetryWriter {
 
     /// Log an egress attempt (always logged at 100% sampling)
     pub fn log_egress_attempt(&self, destination: &str, blocked: bool) -> Result<()> {
+        // Use unwrap_or_default to avoid panic if system clock is misconfigured
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .expect("System time before UNIX epoch")
+            .unwrap_or_default()
             .as_secs();
         let event = SecurityEvent::EgressAttempt {
             destination: destination.to_string(),
@@ -383,9 +385,10 @@ impl TelemetryWriter {
 
     /// Log an isolation violation (always logged at 100% sampling)
     pub fn log_isolation_violation(&self, tenant_id: &str, details: &str) -> Result<()> {
+        // Use unwrap_or_default to avoid panic if system clock is misconfigured
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .expect("System time before UNIX epoch")
+            .unwrap_or_default()
             .as_secs();
         let event = SecurityEvent::IsolationViolation {
             tenant_id: tenant_id.to_string(),

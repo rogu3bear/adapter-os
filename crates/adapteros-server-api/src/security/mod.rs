@@ -416,7 +416,7 @@ pub async fn track_auth_attempt(
 
         // IP+user rate limiting
         let window_cutoff = (now - Duration::minutes(LOCKOUT_WINDOW_MINUTES)).to_rfc3339();
-        let ip_failures: i64 = sqlx::query_scalar(
+        let ip_failures: i64 = match sqlx::query_scalar(
             "SELECT COUNT(*) FROM auth_attempts
              WHERE email = ? AND ip_address = ? AND success = 0 AND attempted_at > ?",
         )
@@ -425,7 +425,13 @@ pub async fn track_auth_attempt(
         .bind(&window_cutoff)
         .fetch_one(db.pool())
         .await
-        .unwrap_or(0);
+        {
+            Ok(count) => count,
+            Err(e) => {
+                warn!(email = %email, ip_address = %ip_address, error = %e, "Failed to query IP auth attempts during tracking, defaulting to 0");
+                0
+            }
+        };
 
         if ip_failures >= LOCKOUT_THRESHOLD {
             let candidate = now + Duration::minutes(LOCKOUT_COOLDOWN_MINUTES);
@@ -509,7 +515,7 @@ pub async fn check_login_lockout(
     }
 
     let window_cutoff = (now - Duration::minutes(LOCKOUT_WINDOW_MINUTES)).to_rfc3339();
-    let ip_failures: i64 = sqlx::query_scalar(
+    let ip_failures: i64 = match sqlx::query_scalar(
         "SELECT COUNT(*) FROM auth_attempts
          WHERE email = ?
            AND ip_address = ?
@@ -521,7 +527,13 @@ pub async fn check_login_lockout(
     .bind(&window_cutoff)
     .fetch_one(db.pool())
     .await
-    .unwrap_or(0);
+    {
+        Ok(count) => count,
+        Err(e) => {
+            warn!(email = %email, ip_address = %ip_address, error = %e, "Failed to query IP auth attempts, defaulting to 0");
+            0
+        }
+    };
 
     if ip_failures >= LOCKOUT_THRESHOLD {
         let until = now + Duration::minutes(LOCKOUT_COOLDOWN_MINUTES);

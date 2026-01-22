@@ -38,7 +38,7 @@ impl ApiTestHarness {
 
         use adapteros_lora_worker::memory::UmaPressureMonitor;
         use adapteros_server_api::config::PathsConfig;
-        use adapteros_server_api::state::{ApiConfig, MetricsConfig};
+        use adapteros_server_api::state::{ApiConfig, MetricsConfig, SecurityConfigApi};
 
         // Connect to database (in-memory or file-based)
         let db = Db::connect(db_url).await?;
@@ -76,6 +76,7 @@ impl ApiTestHarness {
             synthesis_model_path: None,
         };
 
+        let dev_bypass_enabled = dev_no_auth_enabled();
         let api_config = Arc::new(std::sync::RwLock::new(ApiConfig {
             metrics: MetricsConfig {
                 enabled: true,
@@ -86,7 +87,10 @@ impl ApiTestHarness {
             capacity_limits: Default::default(),
             general: None,
             server: Default::default(),
-            security: Default::default(),
+            security: SecurityConfigApi {
+                dev_bypass: dev_bypass_enabled,
+                ..Default::default()
+            },
             auth: Default::default(),
             performance: Default::default(),
             streaming: Default::default(),

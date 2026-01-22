@@ -200,10 +200,18 @@ impl DatasetCleanupManager {
     fn scan_dataset_directory(&self) -> Result<Vec<(PathBuf, u64)>> {
         let mut files = Vec::new();
 
-        for entry in WalkDir::new(&self.config.dataset_storage_path)
-            .into_iter()
-            .filter_map(|e| e.ok())
-        {
+        for entry_result in WalkDir::new(&self.config.dataset_storage_path) {
+            let entry = match entry_result {
+                Ok(e) => e,
+                Err(e) => {
+                    warn!(
+                        path = %self.config.dataset_storage_path.display(),
+                        error = %e,
+                        "Failed to read directory entry while scanning dataset storage"
+                    );
+                    continue;
+                }
+            };
             if entry.path().is_file() {
                 match entry.metadata() {
                     Ok(metadata) => {
@@ -211,9 +219,9 @@ impl DatasetCleanupManager {
                     }
                     Err(e) => {
                         warn!(
-                            "Failed to get metadata for {}: {}",
-                            entry.path().display(),
-                            e
+                            path = %entry.path().display(),
+                            error = %e,
+                            "Failed to get file metadata while scanning dataset storage"
                         );
                     }
                 }

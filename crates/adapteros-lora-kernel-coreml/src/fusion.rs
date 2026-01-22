@@ -1046,7 +1046,13 @@ pub struct FusedModelCache {
 impl FusedModelCache {
     /// Create a new cache in the specified directory
     pub fn new(cache_dir: PathBuf, max_cache_size_gb: f64) -> Self {
-        std::fs::create_dir_all(&cache_dir).ok();
+        if let Err(e) = std::fs::create_dir_all(&cache_dir) {
+            tracing::warn!(
+                cache_dir = %cache_dir.display(),
+                error = %e,
+                "Failed to create fused model cache directory"
+            );
+        }
         Self {
             cache_dir,
             max_cache_size_gb,

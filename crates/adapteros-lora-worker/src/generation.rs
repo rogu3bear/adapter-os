@@ -21,10 +21,13 @@ pub struct Generator {
 
 impl Generator {
     /// Create a new generator with seed
-    pub fn new(seed: [u8; 32]) -> Self {
-        Self {
+    ///
+    /// # Errors
+    /// Returns an error if the deterministic RNG cannot be created from the seed.
+    pub fn new(seed: [u8; 32]) -> Result<Self> {
+        Ok(Self {
             rng: DeterministicRng::new(&seed, "sampling")
-                .expect("Failed to create deterministic RNG"),
+                .map_err(|e| AosError::Worker(format!("failed to create deterministic RNG: {}", e)))?,
             temperature: 1.0,
             top_k: None,
             top_p: None,
@@ -32,7 +35,7 @@ impl Generator {
             step_counter: 0,
             // Default constructor is non-deterministic; use new_deterministic for replayable mode.
             deterministic_mode: false,
-        }
+        })
     }
 
     /// Create a new generator with deterministic HKDF-derived seed
@@ -43,7 +46,10 @@ impl Generator {
     ///
     /// # Returns
     /// Generator with deterministically derived seed
-    pub fn new_deterministic(seed_global: &[u8], context: &str) -> Self {
+    ///
+    /// # Errors
+    /// Returns an error if the deterministic RNG cannot be created from the derived seed.
+    pub fn new_deterministic(seed_global: &[u8], context: &str) -> Result<Self> {
         let global = if seed_global.len() == 32 {
             let mut bytes = [0u8; 32];
             bytes.copy_from_slice(seed_global);
@@ -53,16 +59,16 @@ impl Generator {
         };
         let seed = derive_seed(&global, context);
 
-        Self {
+        Ok(Self {
             rng: DeterministicRng::new(&seed, "sampling")
-                .expect("Failed to create deterministic RNG"),
+                .map_err(|e| AosError::Worker(format!("failed to create deterministic RNG: {}", e)))?,
             temperature: 1.0,
             top_k: None,
             top_p: None,
             base_seed: seed,
             step_counter: 0,
             deterministic_mode: true,
-        }
+        })
     }
 
     /// Derive a step-specific seed using HKDF-SHA256 with label `sample:<step>`.
@@ -83,13 +89,17 @@ impl Generator {
     ///
     /// In deterministic mode, this ensures each step produces
     /// reproducible outputs regardless of prior operations.
-    pub fn reseed_for_step(&mut self, step: usize) {
+    ///
+    /// # Errors
+    /// Returns an error if the deterministic RNG cannot be reseeded.
+    pub fn reseed_for_step(&mut self, step: usize) -> Result<()> {
         if self.deterministic_mode {
             let step_seed = self.derive_step_seed(step);
             self.rng = DeterministicRng::new(&step_seed, "sampling")
-                .expect("Failed to create deterministic RNG");
+                .map_err(|e| AosError::Worker(format!("failed to reseed RNG for step {}: {}", step, e)))?;
             self.step_counter = step;
         }
+        Ok(())
     }
 
     /// Get the current step counter
@@ -158,36 +168,48 @@ impl Generator {
     ///
     /// # Arguments
     /// * `seed` - 64-bit seed value (will be expanded to 32 bytes)
-    pub fn set_seed(&mut self, seed: u64) {
+    ///
+    /// # Errors
+    /// Returns an error if the deterministic RNG cannot be created from the new seed.
+    pub fn set_seed(&mut self, seed: u64) -> Result<()> {
         // Expand u64 seed to [u8; 32] deterministically (legacy replay compatibility).
         let seed_bytes = expand_u64_seed(seed);
 
         self.base_seed = seed_bytes;
         self.rng = DeterministicRng::new(&seed_bytes, "sampling")
-            .expect("Failed to create deterministic RNG");
+            .map_err(|e| AosError::Worker(format!("failed to set seed: {}", e)))?;
         self.step_counter = 0;
         self.deterministic_mode = true;
+        Ok(())
     }
 
     /// Apply sampling parameters from an inference request (PRD-02)
     ///
     /// Updates temperature, top_k, top_p, and seed if provided in the request.
     /// This enables deterministic replay when the same parameters are used.
-    pub fn set_seed_bytes(&mut self, seed: [u8; 32]) {
+    ///
+    /// # Errors
+    /// Returns an error if the deterministic RNG cannot be created from the seed bytes.
+    pub fn set_seed_bytes(&mut self, seed: [u8; 32]) -> Result<()> {
         self.base_seed = seed;
-        self.rng =
-            DeterministicRng::new(&seed, "sampling").expect("Failed to create deterministic RNG");
+        self.rng = DeterministicRng::new(&seed, "sampling")
+            .map_err(|e| AosError::Worker(format!("failed to set seed bytes: {}", e)))?;
         self.step_counter = 0;
         self.deterministic_mode = true;
+        Ok(())
     }
 
+    /// Apply request parameters to the generator.
+    ///
+    /// # Errors
+    /// Returns an error if setting the seed fails.
     pub fn apply_request_params(
         &mut self,
         temperature: Option<f32>,
         top_k: Option<usize>,
         top_p: Option<f32>,
         seed: Option<u64>,
-    ) {
+    ) -> Result<()> {
         if let Some(t) = temperature {
             self.set_temperature(t);
         }
@@ -198,8 +220,9 @@ impl Generator {
             self.set_top_p(top_p);
         }
         if let Some(s) = seed {
-            self.set_seed(s);
+            self.set_seed(s)?;
         }
+        Ok(())
     }
 
     /// Generate tokens autoregressively
@@ -246,7 +269,7 @@ impl Generator {
 
         for step in 0..max_tokens {
             // Re-seed RNG for deterministic step-level reproducibility
-            self.reseed_for_step(step);
+            self.reseed_for_step(step)?;
 
             // Set input to last token
             let last_token = tokens.last().ok_or_else(|| {
@@ -472,7 +495,8 @@ mod tests {
 
     #[test]
     fn test_greedy_sampling() {
-        let generator = Generator::new([0u8; 32]);
+        let generator = Generator::new([0u8; 32])
+            .expect("Test generator creation should succeed");
         let logits = vec![0.1, 0.5, 0.3, 0.8, 0.2];
         let token = generator
             .greedy(&logits)
@@ -482,7 +506,8 @@ mod tests {
 
     #[test]
     fn test_softmax() {
-        let generator = Generator::new([0u8; 32]);
+        let generator = Generator::new([0u8; 32])
+            .expect("Test generator creation should succeed");
         let logits = vec![1.0, 2.0, 3.0];
         let probs = generator.softmax(&logits);
 
@@ -497,8 +522,10 @@ mod tests {
 
     #[test]
     fn test_deterministic_with_seed() {
-        let mut gen1 = Generator::new([42u8; 32]);
-        let mut gen2 = Generator::new([42u8; 32]);
+        let mut gen1 = Generator::new([42u8; 32])
+            .expect("Test generator creation should succeed");
+        let mut gen2 = Generator::new([42u8; 32])
+            .expect("Test generator creation should succeed");
 
         let logits = vec![1.0, 2.0, 3.0, 4.0, 5.0];
 
@@ -518,16 +545,20 @@ mod tests {
         let logits = vec![1.0, 2.0, 3.0, 4.0, 5.0];
 
         // Create two generators with same base seed
-        let mut gen1 = Generator::new_deterministic(seed, "inference");
-        let mut gen2 = Generator::new_deterministic(seed, "inference");
+        let mut gen1 = Generator::new_deterministic(seed, "inference")
+            .expect("Test generator creation should succeed");
+        let mut gen2 = Generator::new_deterministic(seed, "inference")
+            .expect("Test generator creation should succeed");
 
         assert!(gen1.is_deterministic());
         assert!(gen2.is_deterministic());
 
         // Simulate generation loop - each step should produce same result
         for step in 0..5 {
-            gen1.reseed_for_step(step);
-            gen2.reseed_for_step(step);
+            gen1.reseed_for_step(step)
+                .expect("Test reseed should succeed");
+            gen2.reseed_for_step(step)
+                .expect("Test reseed should succeed");
 
             let token1 = gen1
                 .next_token(&logits)
@@ -549,12 +580,14 @@ mod tests {
         let seed = b"test-deterministic-generation!!";
         let logits = vec![1.0, 1.0, 1.0, 1.0, 1.0]; // Uniform to ensure sampling variety
 
-        let mut gen = Generator::new_deterministic(seed, "inference");
+        let mut gen = Generator::new_deterministic(seed, "inference")
+            .expect("Test generator creation should succeed");
 
         // Collect tokens from different steps
         let mut tokens = Vec::new();
         for step in 0..10 {
-            gen.reseed_for_step(step);
+            gen.reseed_for_step(step)
+                .expect("Test reseed should succeed");
             let token = gen
                 .next_token(&logits)
                 .expect("Test token generation should succeed");
@@ -573,7 +606,8 @@ mod tests {
 
     #[test]
     fn test_non_deterministic_mode_skips_reseeding() {
-        let mut gen = Generator::new([42u8; 32]);
+        let mut gen = Generator::new([42u8; 32])
+            .expect("Test generator creation should succeed");
         assert!(!gen.is_deterministic());
 
         let logits = vec![1.0, 2.0, 3.0, 4.0, 5.0];
@@ -582,7 +616,8 @@ mod tests {
         let token1 = gen
             .next_token(&logits)
             .expect("Test token generation should succeed");
-        gen.reseed_for_step(0);
+        gen.reseed_for_step(0)
+            .expect("Test reseed should succeed");
         let token2 = gen
             .next_token(&logits)
             .expect("Test token generation should succeed");

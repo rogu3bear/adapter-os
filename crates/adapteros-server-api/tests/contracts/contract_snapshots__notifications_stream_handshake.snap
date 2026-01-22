@@ -1,9 +1,11 @@
 ---
 source: crates/adapteros-server-api/tests/contract_snapshots.rs
-assertion_line: 299
+assertion_line: 355
 expression: "json!({ \"status\": stream_status.as_u16(), \"headers\": headers })"
 ---
 {
-  "headers": {},
+  "headers": {
+    "content-type": "text/event-stream"
+  },
   "status": 200
 }

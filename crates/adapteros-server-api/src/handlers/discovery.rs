@@ -151,12 +151,16 @@ pub async fn discovery_stream(
         let mgr = mgr_for_heartbeat.clone();
         async move {
             tokio::time::sleep(Duration::from_secs(30)).await;
+            let timestamp_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis())
+                .unwrap_or_else(|e| {
+                    tracing::error!("System time before UNIX epoch: {}", e);
+                    0
+                });
             let event_data = serde_json::json!({
                 "type": "heartbeat",
-                "timestamp": std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .expect("System time before UNIX epoch")
-                    .as_millis(),
+                "timestamp": timestamp_ms,
                 "sequence": counter,
             });
 
@@ -279,12 +283,16 @@ pub async fn contacts_stream(
         let mgr = mgr_for_heartbeat.clone();
         async move {
             tokio::time::sleep(Duration::from_secs(30)).await;
+            let timestamp_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis())
+                .unwrap_or_else(|e| {
+                    tracing::error!("System time before UNIX epoch: {}", e);
+                    0
+                });
             let event_data = serde_json::json!({
                 "type": "heartbeat",
-                "timestamp": std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .expect("System time before UNIX epoch")
-                    .as_millis(),
+                "timestamp": timestamp_ms,
                 "sequence": counter,
             });
 

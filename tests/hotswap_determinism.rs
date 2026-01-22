@@ -152,11 +152,12 @@ async fn run_stream(
         let _ = tx.send(());
     }
 
-    let mut generator = Generator::new_deterministic(seed, "hotswap-determinism");
+    let mut generator = Generator::new_deterministic(seed, "hotswap-determinism")
+        .expect("generator creation should succeed");
     let logits = vec![0.25_f32; 4];
     let mut tokens = Vec::new();
     for step in 0..steps {
-        generator.reseed_for_step(step);
+        generator.reseed_for_step(step).expect("reseed should succeed");
         tokens.push(
             generator
                 .next_token(&logits)

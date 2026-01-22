@@ -12,7 +12,7 @@ use adapteros_lora_worker::training::{
 use adapteros_platform::common::PlatformUtils;
 use adapteros_secure_fs::path_policy::{canonicalize_strict, canonicalize_strict_in_allowed_roots};
 use std::path::Path;
-use tracing::info;
+use tracing::{info, warn};
 use walkdir::WalkDir;
 
 /// Configuration for building a directory dataset
@@ -65,14 +65,32 @@ pub fn build_from_directory(
     // Treat each file as a self-modification (old == new) to seed examples
     // via sliding windows. This yields deterministic pairs without diffs.
     let mut patches: Vec<FilePatch> = Vec::new();
-    for entry in WalkDir::new(&analysis.path).into_iter().filter_map(|e| e.ok()) {
+    for entry_result in WalkDir::new(&analysis.path) {
+        let entry = match entry_result {
+            Ok(e) => e,
+            Err(e) => {
+                warn!(
+                    path = %analysis.path.display(),
+                    error = %e,
+                    "Failed to read directory entry while building dataset"
+                );
+                continue;
+            }
+        };
         if !entry.file_type().is_file() {
             continue;
         }
         let path_abs = entry.path().to_path_buf();
         let content = match std::fs::read_to_string(&path_abs) {
             Ok(c) => c,
-            Err(_) => continue,
+            Err(e) => {
+                warn!(
+                    path = %path_abs.display(),
+                    error = %e,
+                    "Failed to read file content while building dataset"
+                );
+                continue;
+            }
         };
         let rel_path = path_abs
             .strip_prefix(&canonical_root)

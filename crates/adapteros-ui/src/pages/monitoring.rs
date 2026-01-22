@@ -95,9 +95,12 @@ pub fn Monitoring() -> impl IntoView {
                         <span class="text-sm font-medium text-muted-foreground">"Active Sessions"</span>
                         {move || {
                             let count = match health_metrics.get() {
-                                LoadingState::Loaded(_) => match alerts.get() {
+                                LoadingState::Loaded(_) => {
                                      // Placeholder: in a real app we'd fetch this from the unified metrics response
-                                     _ => 0,
+                                     // Touch alerts to track dependencies
+                                     #[allow(clippy::let_unit_value)]
+                                     let _ = alerts.get();
+                                     0
                                 },
                                 _ => 0,
                             };

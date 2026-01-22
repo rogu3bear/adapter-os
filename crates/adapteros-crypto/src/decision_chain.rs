@@ -99,8 +99,29 @@ impl RouterEventDigest {
     }
 
     /// Compute the canonical bytes for this event using JCS.
+    ///
+    /// # Errors
+    /// Returns an error if serialization fails (should not happen for valid data).
+    pub fn try_canonical_bytes(&self) -> Result<Vec<u8>> {
+        serde_jcs::to_vec(self).map_err(|e| {
+            tracing::error!(
+                target: "security.crypto",
+                error = %e,
+                step = self.step,
+                "RouterEventDigest serialization failed - potential data corruption"
+            );
+            AosError::Crypto(format!("RouterEventDigest serialization failed: {}", e))
+        })
+    }
+
+    /// Compute the canonical bytes for this event using JCS.
+    ///
+    /// # Panics
+    /// This method panics if serialization fails. For fallible operation,
+    /// use `try_canonical_bytes()` instead.
     pub fn canonical_bytes(&self) -> Vec<u8> {
-        serde_jcs::to_vec(self).expect("RouterEventDigest should always serialize")
+        self.try_canonical_bytes()
+            .expect("RouterEventDigest should always serialize - this indicates a bug")
     }
 
     /// Compute the BLAKE3 hash of this event.
@@ -334,8 +355,29 @@ impl EnvironmentIdentity {
     }
 
     /// Compute the canonical bytes for this identity using JCS.
+    ///
+    /// # Errors
+    /// Returns an error if serialization fails (should not happen for valid data).
+    pub fn try_canonical_bytes(&self) -> Result<Vec<u8>> {
+        serde_jcs::to_vec(self).map_err(|e| {
+            tracing::error!(
+                target: "security.crypto",
+                error = %e,
+                backend = %self.backend_identity,
+                "EnvironmentIdentity serialization failed - potential data corruption"
+            );
+            AosError::Crypto(format!("EnvironmentIdentity serialization failed: {}", e))
+        })
+    }
+
+    /// Compute the canonical bytes for this identity using JCS.
+    ///
+    /// # Panics
+    /// This method panics if serialization fails. For fallible operation,
+    /// use `try_canonical_bytes()` instead.
     pub fn canonical_bytes(&self) -> Vec<u8> {
-        serde_jcs::to_vec(self).expect("EnvironmentIdentity should always serialize")
+        self.try_canonical_bytes()
+            .expect("EnvironmentIdentity should always serialize - this indicates a bug")
     }
 
     /// Compute the BLAKE3 hash of this environment identity.
@@ -421,8 +463,29 @@ impl MerkleBundleCommits {
     }
 
     /// Compute the canonical bytes for bundle commits using JCS.
+    ///
+    /// # Errors
+    /// Returns an error if serialization fails (should not happen for valid data).
+    pub fn try_canonical_bytes(&self) -> Result<Vec<u8>> {
+        serde_jcs::to_vec(self).map_err(|e| {
+            tracing::error!(
+                target: "security.crypto",
+                error = %e,
+                request_hash = %self.request_hash.to_hex(),
+                "MerkleBundleCommits serialization failed - potential data corruption"
+            );
+            AosError::Crypto(format!("MerkleBundleCommits serialization failed: {}", e))
+        })
+    }
+
+    /// Compute the canonical bytes for bundle commits using JCS.
+    ///
+    /// # Panics
+    /// This method panics if serialization fails. For fallible operation,
+    /// use `try_canonical_bytes()` instead.
     pub fn canonical_bytes(&self) -> Vec<u8> {
-        serde_jcs::to_vec(self).expect("MerkleBundleCommits should always serialize")
+        self.try_canonical_bytes()
+            .expect("MerkleBundleCommits should always serialize - this indicates a bug")
     }
 
     /// Compute the combined BLAKE3 hash of all commits.

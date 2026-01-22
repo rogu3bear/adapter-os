@@ -121,7 +121,9 @@ async fn directory_upsert(
         .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?;
 
     if output.is_json() {
-        output.result(serde_json::to_string_pretty(&value).unwrap());
+        let json_str = serde_json::to_string_pretty(&value)
+            .unwrap_or_else(|_| format!("{:?}", value));
+        output.result(json_str);
     } else if let Some(adapter_id) = value.get("adapter_id").and_then(|v| v.as_str()) {
         output.success(format!("Adapter upserted: {}", adapter_id));
     } else {
@@ -1549,7 +1551,9 @@ async fn load_sealed_adapter_cmd(
                         "lora_rank": adapter.bundle.metadata.lora_rank,
                     }
                 });
-                output.result(serde_json::to_string_pretty(&json_output).unwrap());
+                let json_str = serde_json::to_string_pretty(&json_output)
+                    .unwrap_or_else(|_| format!("{:?}", json_output));
+                output.result(json_str);
             } else {
                 output.success("Sealed adapter verified successfully");
                 output.kv("Adapter ID", adapter.adapter_id());
@@ -1584,7 +1588,9 @@ async fn load_sealed_adapter_cmd(
                     "expected_hash": expected.map(|h| h.to_hex()),
                     "actual_hash": actual.map(|h| h.to_hex()),
                 });
-                output.result(serde_json::to_string_pretty(&json_output).unwrap());
+                let json_str = serde_json::to_string_pretty(&json_output)
+                    .unwrap_or_else(|_| format!("{:?}", json_output));
+                output.result(json_str);
             } else {
                 output.error(format!(
                     "Sealed adapter verification failed: {}",
@@ -1811,7 +1817,8 @@ async fn list_adapters(
     let socket_path = get_worker_socket_path(tenant.as_deref());
     let json_mode = json || output.mode().is_json();
 
-    if !socket_path.exists() || !socket_path.parent().unwrap().exists() {
+    let parent_exists = socket_path.parent().map(|p| p.exists()).unwrap_or(false);
+    if !socket_path.exists() || !parent_exists {
         if json_mode {
             let mock_data = serde_json::json!([
                 {
@@ -1957,15 +1964,11 @@ async fn list_adapters(
                 let pinned = if adapter.pinned { "yes" } else { "no" };
                 let last_active = adapter
                     .last_activation
-                    .map(|ts| {
-                        format!(
-                            "{}s ago",
-                            (std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap()
-                                .as_secs()
-                                - ts)
-                        )
+                    .and_then(|ts| {
+                        std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .ok()
+                            .map(|now| format!("{}s ago", now.as_secs().saturating_sub(ts)))
                     })
                     .unwrap_or_else(|| "never".to_string());
 
@@ -3007,7 +3010,9 @@ async fn register_adapter(
         .map_err(|e| AosError::Http(e.to_string()))?;
 
     if output.is_json() {
-        output.result(serde_json::to_string_pretty(&value).unwrap());
+        let json_str = serde_json::to_string_pretty(&value)
+            .unwrap_or_else(|_| format!("{:?}", value));
+        output.result(json_str);
     } else {
         output.success(format!("Adapter registered: {}", adapter_id));
     }
@@ -3179,7 +3184,9 @@ async fn import_adapter_cmd(
         .unwrap_or("unknown");
 
     if output.is_json() {
-        output.result(serde_json::to_string_pretty(&value).unwrap());
+        let json_str = serde_json::to_string_pretty(&value)
+            .unwrap_or_else(|_| format!("{:?}", value));
+        output.result(json_str);
     } else {
         if deduplicated {
             output.success(format!(
@@ -3226,7 +3233,9 @@ async fn list_adapter_versions(
 
     let parsed: Value = serde_json::from_str(&text).unwrap_or(Value::String(text.clone()));
     if json {
-        output.result(serde_json::to_string_pretty(&parsed).unwrap());
+        let json_str = serde_json::to_string_pretty(&parsed)
+            .unwrap_or_else(|_| format!("{:?}", parsed));
+        output.result(json_str);
         return Ok(());
     }
 
@@ -3300,7 +3309,9 @@ async fn promote_adapter_version(
 
     let parsed: Value = serde_json::from_str(&text).unwrap_or(Value::String(text.clone()));
     if json {
-        output.result(serde_json::to_string_pretty(&parsed).unwrap());
+        let json_str = serde_json::to_string_pretty(&parsed)
+            .unwrap_or_else(|_| format!("{:?}", parsed));
+        output.result(json_str);
     } else {
         output.success(format!(
             "Promoted version {} for repo {}",
@@ -3347,7 +3358,9 @@ async fn rollback_adapter_version(
 
     let parsed: Value = serde_json::from_str(&text).unwrap_or(Value::String(text.clone()));
     if json {
-        output.result(serde_json::to_string_pretty(&parsed).unwrap());
+        let json_str = serde_json::to_string_pretty(&parsed)
+            .unwrap_or_else(|_| format!("{:?}", parsed));
+        output.result(json_str);
     } else {
         output.success(format!(
             "Rolled back repo {} branch {} to version {}",

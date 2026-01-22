@@ -53,21 +53,24 @@ pub async fn run(
     match std::fs::read_to_string(heartbeat_file) {
         Ok(content) => {
             if let Ok(last_heartbeat_ms) = content.trim().parse::<u128>() {
-                let now_ms = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .expect("System time before UNIX epoch")
-                    .as_millis();
+                match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+                    Ok(now) => {
+                        let now_ms = now.as_millis();
+                        let elapsed_ms = now_ms.saturating_sub(last_heartbeat_ms);
+                        let elapsed_secs = (elapsed_ms / 1000) as u64;
 
-                let elapsed_ms = now_ms.saturating_sub(last_heartbeat_ms);
-                let elapsed_secs = (elapsed_ms / 1000) as u64;
-
-                if elapsed_secs < 30 {
-                    println!("✓ Heartbeat:     {} ago", format_seconds(elapsed_secs));
-                } else {
-                    println!(
-                        "⚠ Heartbeat:     {} ago (stale)",
-                        format_seconds(elapsed_secs)
-                    );
+                        if elapsed_secs < 30 {
+                            println!("✓ Heartbeat:     {} ago", format_seconds(elapsed_secs));
+                        } else {
+                            println!(
+                                "⚠ Heartbeat:     {} ago (stale)",
+                                format_seconds(elapsed_secs)
+                            );
+                        }
+                    }
+                    Err(_) => {
+                        println!("✗ Heartbeat:     unable to read system time");
+                    }
                 }
             } else {
                 println!("✗ Heartbeat:     invalid format");
@@ -83,7 +86,7 @@ pub async fn run(
         // Calculate current time once for all age calculations
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .expect("System time before UNIX epoch");
+            .context("System time is before UNIX epoch")?;
         let now_secs = now.as_secs() as i64;
 
         match adapteros_db::Db::connect(

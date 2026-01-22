@@ -22,8 +22,14 @@ pub fn use_keyboard_shortcut(key: &'static str, ctrl: bool, shift: bool) -> Read
     let (count, set_count) = signal(0u32);
 
     Effect::new(move || {
-        let window = web_sys::window().expect("window should exist");
-        let document = window.document().expect("document should exist");
+        let Some(window) = web_sys::window() else {
+            tracing::error!("use_keyboard_shortcut: no window object");
+            return;
+        };
+        let Some(document) = window.document() else {
+            tracing::error!("use_keyboard_shortcut: no document object");
+            return;
+        };
 
         let closure =
             Closure::<dyn Fn(web_sys::KeyboardEvent)>::new(move |event: web_sys::KeyboardEvent| {
@@ -37,9 +43,12 @@ pub fn use_keyboard_shortcut(key: &'static str, ctrl: bool, shift: bool) -> Read
                 }
             });
 
-        document
+        if let Err(e) = document
             .add_event_listener_with_callback("keydown", closure.as_ref().unchecked_ref())
-            .expect("failed to add keydown listener");
+        {
+            tracing::error!("use_keyboard_shortcut: failed to add keydown listener: {:?}", e);
+            return;
+        }
 
         // Store closure to prevent it from being dropped
         closure.forget();

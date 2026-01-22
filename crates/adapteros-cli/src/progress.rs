@@ -31,6 +31,9 @@ pub enum ProgressTemplate {
 
 impl ProgressTemplate {
     fn to_style(&self) -> ProgressStyle {
+        // Default fallback template if custom template is invalid
+        const FALLBACK_TEMPLATE: &str = "{spinner:.cyan} [{elapsed_precise}] {bar:40.cyan/blue} {pos}/{len} ({msg})";
+
         let template = match self {
             Self::Training => {
                 "{spinner:.cyan} [{elapsed_precise}] {bar:40.cyan/blue} {pos}/{len} epochs ({msg})"
@@ -47,8 +50,10 @@ impl ProgressTemplate {
             Self::Custom(t) => t.as_str(),
         };
 
+        // Try the requested template, fall back to default if invalid
         ProgressStyle::with_template(template)
-            .expect("valid progress template")
+            .or_else(|_| ProgressStyle::with_template(FALLBACK_TEMPLATE))
+            .unwrap_or_else(|_| ProgressStyle::default_bar())
             .progress_chars("=>-")
     }
 }
@@ -82,11 +87,10 @@ impl Spinner {
         }
 
         let pb = ProgressBar::new_spinner();
-        pb.set_style(
-            ProgressStyle::with_template("{spinner:.cyan} {msg}")
-                .expect("valid spinner template")
-                .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
-        );
+        let style = ProgressStyle::with_template("{spinner:.cyan} {msg}")
+            .unwrap_or_else(|_| ProgressStyle::default_spinner())
+            .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]);
+        pb.set_style(style);
         pb.set_message(message.into());
         pb.enable_steady_tick(Duration::from_millis(80));
 

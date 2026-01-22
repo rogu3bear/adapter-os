@@ -49,7 +49,6 @@ pub fn Input(
 
     // Character counter
     let char_count = move || value.get().len();
-    let show_counter = max_length.is_some();
 
     view! {
         <div class="grid w-full gap-1.5">
@@ -95,8 +94,7 @@ pub fn Input(
                     </span>
                 })}
             </div>
-            {show_counter.then(|| {
-                let max = max_length.unwrap();
+            {max_length.map(|max| {
                 view! {
                     <div class="flex justify-end">
                         <span class=move || {

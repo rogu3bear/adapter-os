@@ -224,16 +224,28 @@ pub async fn get_tenant_storage_usage(
         .db
         .sum_dataset_sizes_for_tenant(&tenant_id)
         .await
+        .map_err(|e| {
+            warn!(error = %e, tenant_id = %tenant_id, "Failed to sum dataset sizes");
+            e
+        })
         .unwrap_or(0) as u64;
     let dataset_versions = state
         .db
         .count_dataset_versions_for_tenant(&tenant_id)
         .await
+        .map_err(|e| {
+            warn!(error = %e, tenant_id = %tenant_id, "Failed to count dataset versions");
+            e
+        })
         .unwrap_or(0);
     let adapter_versions = state
         .db
         .count_adapter_versions_for_tenant(&tenant_id)
         .await
+        .map_err(|e| {
+            warn!(error = %e, tenant_id = %tenant_id, "Failed to count adapter versions");
+            e
+        })
         .unwrap_or(0);
 
     let adapters_root = {
@@ -357,7 +369,10 @@ async fn collect_sql_counts(
             )
         })?
         .try_get::<i64, _>("count")
-        .unwrap_or(0);
+        .unwrap_or_else(|e| {
+            warn!(error = %e, "Failed to extract adapters count column");
+            0
+        });
 
     // Count tenants
     let tenants = sqlx::query("SELECT COUNT(*) as count FROM tenants")
@@ -375,7 +390,10 @@ async fn collect_sql_counts(
             )
         })?
         .try_get::<i64, _>("count")
-        .unwrap_or(0);
+        .unwrap_or_else(|e| {
+            warn!(error = %e, "Failed to extract tenants count column");
+            0
+        });
 
     // Count users
     let users = sqlx::query("SELECT COUNT(*) as count FROM users")
@@ -393,7 +411,10 @@ async fn collect_sql_counts(
             )
         })?
         .try_get::<i64, _>("count")
-        .unwrap_or(0);
+        .unwrap_or_else(|e| {
+            warn!(error = %e, "Failed to extract users count column");
+            0
+        });
 
     // Count stacks
     let stacks = sqlx::query("SELECT COUNT(*) as count FROM adapter_stacks")
@@ -411,7 +432,10 @@ async fn collect_sql_counts(
             )
         })?
         .try_get::<i64, _>("count")
-        .unwrap_or(0);
+        .unwrap_or_else(|e| {
+            warn!(error = %e, "Failed to extract stacks count column");
+            0
+        });
 
     // Count datasets
     let datasets = sqlx::query("SELECT COUNT(*) as count FROM training_datasets")
@@ -429,7 +453,10 @@ async fn collect_sql_counts(
             )
         })?
         .try_get::<i64, _>("count")
-        .unwrap_or(0);
+        .unwrap_or_else(|e| {
+            warn!(error = %e, "Failed to extract datasets count column");
+            0
+        });
 
     // Count documents
     let documents = sqlx::query("SELECT COUNT(*) as count FROM documents")
@@ -447,7 +474,10 @@ async fn collect_sql_counts(
             )
         })?
         .try_get::<i64, _>("count")
-        .unwrap_or(0);
+        .unwrap_or_else(|e| {
+            warn!(error = %e, "Failed to extract documents count column");
+            0
+        });
 
     Ok(TableCounts {
         adapters,

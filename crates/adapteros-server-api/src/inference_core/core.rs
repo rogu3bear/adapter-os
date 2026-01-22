@@ -1113,10 +1113,19 @@ impl<'a> InferenceCore<'a> {
             let records_result: Result<Vec<adapteros_db::RoutingDecisionChainRecord>, _> = chain
                 .iter()
                 .map(|entry| {
-                    let hash_json = entry
-                        .decision_hash
-                        .as_ref()
-                        .and_then(|h| serde_json::to_string(h).ok());
+                    let hash_json = entry.decision_hash.as_ref().and_then(|h| {
+                        match serde_json::to_string(h) {
+                            Ok(json) => Some(json),
+                            Err(e) => {
+                                tracing::warn!(
+                                    request_id = %request.request_id,
+                                    error = %e,
+                                    "Failed to serialize decision_hash for routing chain audit"
+                                );
+                                None
+                            }
+                        }
+                    });
                     adapteros_db::make_chain_record_from_api(
                         &request.cpid,
                         &request.request_id,
@@ -2651,9 +2660,21 @@ impl<'a> InferenceCore<'a> {
                     {
                         Ok(Some(ws)) => Some(EvidenceModelContext {
                             base_model_id: ws.active_base_model_id,
-                            adapter_ids: ws
-                                .active_adapter_ids
-                                .and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok()),
+                            adapter_ids: ws.active_adapter_ids.and_then(|s| {
+                                match serde_json::from_str::<Vec<String>>(&s) {
+                                    Ok(ids) => Some(ids),
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            tenant_id = %request.cpid,
+                                            request_id = %request.request_id,
+                                            error = %e,
+                                            raw_value = %s,
+                                            "Failed to parse active_adapter_ids from workspace state"
+                                        );
+                                        None
+                                    }
+                                }
+                            }),
                             manifest_hash: ws.manifest_hash_b3,
                         }),
                         _ => None,
@@ -3121,10 +3142,19 @@ impl<'a> InferenceCore<'a> {
             Some(ids) if ids.is_empty()
         );
 
-        let stop_policy_json = request
-            .stop_policy
-            .as_ref()
-            .and_then(|sp| serde_json::to_string(sp).ok());
+        let stop_policy_json = request.stop_policy.as_ref().and_then(|sp| {
+            match serde_json::to_string(sp) {
+                Ok(json) => Some(json),
+                Err(e) => {
+                    tracing::warn!(
+                        request_id = %request.request_id,
+                        error = %e,
+                        "Failed to serialize stop_policy for replay metadata"
+                    );
+                    None
+                }
+            }
+        });
 
         CreateReplayMetadataParams {
             inference_id: request.request_id.clone(),
@@ -3420,10 +3450,19 @@ impl<'a> InferenceCore<'a> {
         let tokens_generated = tokens_generated.map(|value| value as i32);
 
         // Serialize stop_policy if present
-        let stop_policy_json = request
-            .stop_policy
-            .as_ref()
-            .and_then(|sp| serde_json::to_string(sp).ok());
+        let stop_policy_json = request.stop_policy.as_ref().and_then(|sp| {
+            match serde_json::to_string(sp) {
+                Ok(json) => Some(json),
+                Err(e) => {
+                    tracing::warn!(
+                        request_id = %request.request_id,
+                        error = %e,
+                        "Failed to serialize stop_policy for replay metadata"
+                    );
+                    None
+                }
+            }
+        });
 
         // Build params for DB storage
         let params = CreateReplayMetadataParams {

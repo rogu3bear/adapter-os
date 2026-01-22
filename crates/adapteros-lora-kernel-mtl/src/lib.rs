@@ -1200,6 +1200,10 @@ impl MetalKernels {
 
         // Execute Fused QKV Kernel with actual adapter weights
         if let Some(ref mut qkv_kernel) = self.qkv_kernel {
+            let ring_buffer = self
+                .ring_buffer
+                .as_ref()
+                .ok_or_else(|| AosError::Kernel("Ring buffer not initialized".to_string()))?;
             qkv_kernel.execute(
                 &intermediate_buffers.hidden_states,
                 &transformer_weights.q_weight,
@@ -1210,7 +1214,7 @@ impl MetalKernels {
                 &intermediate_buffers.v_output,
                 &adapter_weight_refs,
                 adapters,
-                self.ring_buffer.as_ref().unwrap(),
+                ring_buffer,
             )?;
         }
 
@@ -1524,13 +1528,22 @@ impl FusedKernels for MetalKernels {
         // Get manifest from verification
         let manifest_result = crate::verify_embedded_manifest(crate::METALLIB_BYTES, None);
 
-        let manifest = manifest_result.ok().map(|m| attestation::KernelManifest {
-            kernel_hash: m.kernel_hash,
-            xcrun_version: m.xcrun_version,
-            sdk_version: m.sdk_version,
-            rust_version: m.rust_version,
-            build_timestamp: m.build_timestamp,
-        });
+        let manifest = match manifest_result {
+            Ok(m) => Some(attestation::KernelManifest {
+                kernel_hash: m.kernel_hash,
+                xcrun_version: m.xcrun_version,
+                sdk_version: m.sdk_version,
+                rust_version: m.rust_version,
+                build_timestamp: m.build_timestamp,
+            }),
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    "Manifest verification failed during attestation"
+                );
+                None
+            }
+        };
 
         // Verify metallib hash at runtime (PR-006)
         let actual_hash = adapteros_core::B3Hash::hash(crate::METALLIB_BYTES);

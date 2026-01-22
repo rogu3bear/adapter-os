@@ -7,12 +7,15 @@ description: Operations - start, debug, diagnostics, setup
 // turbo-all
 
 ## Start Services
+
 ```bash
 ./start
 ```
+
 Web UI: http://localhost:8080
 
 ## System Health
+
 ```bash
 ./aosctl check
 ./aosctl status
@@ -20,21 +23,25 @@ Web UI: http://localhost:8080
 ```
 
 ## Debug Logging
+
 ```bash
 RUST_LOG=debug ./aosctl serve --plan default
 ```
 
 ## Diagnostics Bundle
+
 ```bash
 ./aosctl diag bundle --output diag_bundle.tar.gz
 ```
 
 ## Free Blocked Ports
+
 ```bash
 ./scripts/free-ports.sh
 ```
 
 ## Graceful Shutdown
+
 ```bash
 ./scripts/graceful-shutdown.sh
 ```
@@ -42,6 +49,7 @@ RUST_LOG=debug ./aosctl serve --plan default
 ---
 
 ## Initial Setup (new developers)
+
 ```bash
 cp .env.example .env
 cp .githooks/pre-commit-architectural .git/hooks/pre-commit

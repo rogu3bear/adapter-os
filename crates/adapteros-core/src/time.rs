@@ -18,7 +18,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub fn now_rfc3339() -> String {
     let duration = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .expect("System time before UNIX epoch");
+        .unwrap_or_default();
 
     let secs = duration.as_secs();
 

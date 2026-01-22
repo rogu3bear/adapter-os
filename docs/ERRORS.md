@@ -1,7 +1,7 @@
 # Error Handling in adapterOS
 
-**Version:** 0.12.0
-**Last Updated:** 2025-12-11
+**Version:** 0.13.1
+**Last Updated:** 2026-01-22
 
 This document provides a comprehensive guide to error handling in adapterOS, including error codes, patterns, helper utilities, and best practices.
 
@@ -467,6 +467,112 @@ loop {
 - `peak_in_flight`: Maximum simultaneous operations
 - `avg_in_flight`: Average operations during drain
 
+### Pattern 7: Fail-Closed Security Checks
+
+**Use When:** Any security validation where failure to check should deny access
+
+Security checks MUST fail-closed: if the check itself fails (database error, timeout, etc.), deny access rather than allowing it through.
+
+```rust
+// BEFORE (FAIL-OPEN - DANGEROUS):
+// If is_token_revoked() errors, unwrap_or(false) assumes token is valid!
+let is_revoked = is_token_revoked(&token).unwrap_or(false);
+if is_revoked {
+    return Err(unauthorized("token revoked"));
+}
+
+// AFTER (FAIL-CLOSED - SAFE):
+// If check fails, assume the worst and deny access
+let is_revoked = is_token_revoked(&token).unwrap_or(true);
+if is_revoked {
+    return Err(unauthorized("token revoked or check failed"));
+}
+```
+
+**Common fail-closed patterns:**
+
+```rust
+// Auth session validation - fail-closed
+let is_valid = validate_session(&session_id)
+    .await
+    .unwrap_or(false);  // If validation fails, session is invalid
+
+// Lockout check - fail-closed
+let is_locked = check_account_lockout(&user_id)
+    .await
+    .unwrap_or(true);  // If check fails, assume locked out
+
+// CSRF validation - fail-closed
+let csrf_valid = validate_csrf_token(&token)
+    .unwrap_or(false);  // If validation fails, reject request
+
+// Egress policy - fail-closed
+let egress_allowed = check_egress_policy(&destination)
+    .unwrap_or(false);  // If check fails, block egress
+```
+
+**Security-critical crates requiring fail-closed:** `adapteros-auth`, `adapteros-boot`, `adapteros-crypto`, `adapteros-policy`, `adapteros-verify`
+
+### Pattern 8: Lock Poisoning Recovery in Critical Paths
+
+**Use When:** Crash journals, telemetry, panic handlers - places that MUST work during failures
+
+Standard lock poisoning handling propagates errors, but in crash handlers you need the lock contents even if poisoned:
+
+```rust
+// STANDARD (propagate error):
+let guard = lock.write().map_err(|e| {
+    error!("Lock poisoned: {}", e);
+    AosError::Internal("lock poisoned".into())
+})?;
+
+// RECOVERY (for crash handlers):
+// Extract inner value even from poisoned lock
+let guard = lock.write().unwrap_or_else(|poisoned| {
+    warn!("Lock poisoned, recovering inner value");
+    poisoned.into_inner()
+});
+```
+
+**Use recovery pattern in:**
+- Crash journal writes (`adapteros-telemetry/src/crash_journal.rs`)
+- Key ring access during boot failures (`adapteros-boot/src/key_ring.rs`)
+- Federation peer state during network partitions (`adapteros-federation/src/peer.rs`)
+
+### Pattern 9: WASM-Safe Error Handling
+
+**Use When:** Code in `adapteros-ui` or any WASM target
+
+WASM panics abort the entire runtime with no stack trace. Every potential panic is a silent app crash.
+
+```rust
+// BAD (panic in WASM = silent crash):
+let value = map.get("key").unwrap();
+let parsed: Config = serde_json::from_str(&text).unwrap();
+
+// GOOD (graceful degradation):
+let value = map.get("key").unwrap_or(&default_value);
+let parsed: Option<Config> = serde_json::from_str(&text).ok();
+
+// GOOD (with user feedback):
+let parsed = match serde_json::from_str::<Config>(&text) {
+    Ok(config) => config,
+    Err(e) => {
+        // Log to browser console, show user error
+        web_sys::console::error_1(&format!("Config parse failed: {}", e).into());
+        set_error_signal.set(Some("Invalid configuration".to_string()));
+        return;
+    }
+};
+```
+
+**WASM-specific rules:**
+- Never use `.unwrap()` or `.expect()` in non-test code
+- Always provide fallbacks with `.unwrap_or()` or `.unwrap_or_default()`
+- Use `Option<T>` liberally for potentially missing values
+- Log errors to `web_sys::console` for debugging
+- Surface errors to UI via signals/state
+
 ### Anti-Patterns to Avoid
 
 #### 1. Unwrap on Locks
@@ -534,6 +640,59 @@ let sig = match signal(SignalKind::hangup()) {
         return; // Exit gracefully
     }
 };
+```
+
+#### 5. Fail-Open Security Checks
+```rust
+// BAD (SECURITY VULNERABILITY):
+// If the revocation check fails, this assumes the token is valid!
+let is_revoked = check_token_revoked(&token).unwrap_or(false);
+
+// GOOD (fail-closed):
+// If the check fails, assume the token is revoked
+let is_revoked = check_token_revoked(&token).unwrap_or(true);
+```
+
+#### 6. Ignoring Futures Without Explicit Drop
+```rust
+// BAD (clippy error: let_underscore_future):
+let _ = tokio::spawn(async { cleanup().await });
+
+// GOOD (explicit intent):
+drop(tokio::spawn(async { cleanup().await }));
+
+// ALSO GOOD (if you need the handle later):
+let _handle = tokio::spawn(async { cleanup().await });
+```
+
+#### 7. Silent Defaults in Security Paths
+```rust
+// BAD (silently allows on parse failure):
+let max_attempts: u32 = config.get("max_login_attempts")
+    .and_then(|v| v.parse().ok())
+    .unwrap_or(0);  // 0 means unlimited!
+
+// GOOD (safe default + logging):
+let max_attempts: u32 = config.get("max_login_attempts")
+    .and_then(|v| v.parse().ok())
+    .unwrap_or_else(|| {
+        warn!("max_login_attempts not configured, using secure default");
+        5  // Secure default
+    });
+```
+
+#### 8. API Changes Without Test Updates
+```rust
+// When changing a function signature:
+// BEFORE: fn new(seed: [u8; 32]) -> Self
+// AFTER:  fn new(seed: [u8; 32]) -> Result<Self>
+
+// BAD: Only update the function, assume tests will catch it
+// Tests may be in different files/crates and won't compile
+
+// GOOD: grep for all usages first
+// $ grep -rn "Generator::new(" --include="*.rs" | wc -l
+// Then update ALL callsites before committing
 ```
 
 ### Configuration Values
@@ -1257,6 +1416,9 @@ mod tests {
 3. **Is it spawning a task? → Use Pattern 3**
 4. **Is it a background loop that could fail? → Use Pattern 4 or 5**
 5. **Is it draining operations on shutdown? → Use Pattern 6**
+6. **Is it a security check (auth, CSRF, permissions)? → Use Pattern 7 (fail-closed)**
+7. **Is it in a crash handler or panic path? → Use Pattern 8 (lock recovery)**
+8. **Is it WASM/UI code? → Use Pattern 9 (no panics)**
 
 **Which error helper should I use?**
 
@@ -1304,7 +1466,7 @@ cargo test -p adapteros-server
 
 ---
 
-**Document Version:** 1.0
+**Document Version:** 1.1
 **Compiled From:**
 - `docs/ERROR_REFERENCE.md`
 - `docs/ERROR_HANDLING_PATTERNS.md`
@@ -1312,3 +1474,31 @@ cargo test -p adapteros-server
 - `crates/adapteros-core/src/error.rs`
 - `crates/adapteros-core/src/error_helpers.rs`
 - `crates/adapteros-server-api/src/error_helpers.rs`
+
+---
+
+## Changelog
+
+### v1.1 (2026-01-22)
+
+**Added from Error Handling Marathon (Audit → Anchor → Rectify campaign):**
+
+Patterns added:
+- **Pattern 7: Fail-Closed Security Checks** - Security validations must deny on failure
+- **Pattern 8: Lock Poisoning Recovery** - For crash handlers that must work during failures
+- **Pattern 9: WASM-Safe Error Handling** - No panics in browser code
+
+Anti-patterns added:
+- **#5: Fail-Open Security Checks** - Critical security vulnerability pattern
+- **#6: Ignoring Futures Without Explicit Drop** - Clippy `let_underscore_future` lint
+- **#7: Silent Defaults in Security Paths** - Insecure defaults without logging
+- **#8: API Changes Without Test Updates** - Cascade failures from signature changes
+
+**Key learnings from the marathon:**
+1. Fail-closed > fail-open for all security checks (auth, CSRF, egress, lockout)
+2. Lock poisoning recovery is essential in panic handlers and crash journals
+3. WASM panics abort silently - treat every `.unwrap()` as a potential app crash
+4. API changes cascade through tests - grep for all usages before changing signatures
+5. Clippy gets stricter over time (`io::Error::other()`, `is_some_and()`, etc.)
+
+**Crates audited:** 72 crates, ~5,900 risk patterns identified and addressed.

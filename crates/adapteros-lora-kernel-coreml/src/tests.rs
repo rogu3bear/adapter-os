@@ -225,7 +225,7 @@ fn coreml_stub_hot_swap_sidecar_switches_and_restores() -> Result<()> {
     ring_b.set(&[9u16], &[32767]);
     let mut io_b = IoBuffers::new(6);
     io_b.input_ids = vec![1];
-    backend.run_step(&mut ring_b, &mut io_b)?;
+    backend.run_step(&ring_b, &mut io_b)?;
     assert_ne!(
         logits_a, io_b.output_logits,
         "Adapter switch should change logits in stub path"

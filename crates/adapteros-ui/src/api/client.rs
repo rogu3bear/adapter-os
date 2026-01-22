@@ -944,16 +944,22 @@ impl ApiClient {
 
         if !resp.ok() {
             let status = resp.status();
-            let text = JsFuture::from(resp.text().unwrap())
-                .await
-                .ok()
-                .and_then(|v| v.as_string())
-                .unwrap_or_default();
+            let text = match resp.text() {
+                Ok(promise) => JsFuture::from(promise)
+                    .await
+                    .ok()
+                    .and_then(|v| v.as_string())
+                    .unwrap_or_default(),
+                Err(_) => String::new(),
+            };
             return Err(ApiError::from_response(status, &text));
         }
 
         // Parse JSON response
-        let json = JsFuture::from(resp.json().unwrap())
+        let json_promise = resp
+            .json()
+            .map_err(|_| ApiError::Serialization("Failed to get JSON promise".into()))?;
+        let json = JsFuture::from(json_promise)
             .await
             .map_err(|_| ApiError::Serialization("Failed to parse JSON".into()))?;
         let result: DocumentResponse = serde_wasm_bindgen::from_value(json)
@@ -1197,11 +1203,14 @@ impl ApiClient {
 
         if !resp.ok() {
             let status = resp.status();
-            let text = JsFuture::from(resp.text().unwrap())
-                .await
-                .ok()
-                .and_then(|v| v.as_string())
-                .unwrap_or_default();
+            let text = match resp.text() {
+                Ok(promise) => JsFuture::from(promise)
+                    .await
+                    .ok()
+                    .and_then(|v| v.as_string())
+                    .unwrap_or_default(),
+                Err(_) => String::new(),
+            };
             return Err(ApiError::from_response(status, &text));
         }
 

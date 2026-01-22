@@ -386,8 +386,10 @@ pub async fn download_run_evidence(
     let options = FileOptions::default()
         .compression_method(CompressionMethod::Stored)
         .last_modified_time(
-            DateTime::from_date_and_time(1980, 1, 1, 0, 0, 0)
-                .unwrap_or_else(|_| DateTime::default()),
+            DateTime::from_date_and_time(1980, 1, 1, 0, 0, 0).unwrap_or_else(|e| {
+                tracing::warn!(error = ?e, "Failed to create deterministic DateTime, using default");
+                DateTime::default()
+            }),
         );
     let mut files: Vec<(String, Vec<u8>)> = Vec::new();
     files.push(("replay_metadata.json".to_string(), replay_metadata_json));
@@ -401,7 +403,10 @@ pub async fn download_run_evidence(
                 "missing": true,
                 "warning": "boot state manager not initialized"
             }))
-            .expect("boot state placeholder")
+            .unwrap_or_else(|e| {
+                tracing::warn!(error = %e, "Failed to serialize boot state placeholder");
+                b"{\"missing\":true}".to_vec()
+            })
         }),
     ));
     let run_id_for_placeholder = run_id.clone();
@@ -415,7 +420,10 @@ pub async fn download_run_evidence(
                 "missing": true,
                 "warnings": envelope_warnings_clone
             }))
-            .expect("envelope placeholder")
+            .unwrap_or_else(|e| {
+                tracing::warn!(error = %e, "Failed to serialize envelope placeholder");
+                b"{\"missing\":true}".to_vec()
+            })
         }),
     ));
     files.push(("README.txt".to_string(), readme_bytes));

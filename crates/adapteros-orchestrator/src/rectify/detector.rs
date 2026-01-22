@@ -213,12 +213,19 @@ pub async fn find_affected_adapters(
         )
         .bind(&adapter_id)
         .fetch_one(db.pool())
-        .await
-        .ok();
+        .await;
 
-        let total: i64 = total_result
-            .map(|r| r.get("total"))
-            .unwrap_or(example_count);
+        let total: i64 = match total_result {
+            Ok(r) => r.get("total"),
+            Err(e) => {
+                warn!(
+                    adapter_id = %adapter_id,
+                    error = %e,
+                    "Failed to query total examples for adapter; using affected count as fallback"
+                );
+                example_count
+            }
+        };
 
         let percentage = if total > 0 {
             example_count as f32 / total as f32

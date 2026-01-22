@@ -149,11 +149,29 @@ impl DeterministicConfig {
                 if let Some(rules) = &field_def.validation_rules {
                     for rule in rules {
                         if rule.starts_with("min_length:") {
-                            let min_len: usize = rule
-                                .split(':')
-                                .nth(1)
-                                .and_then(|s| s.parse().ok())
-                                .unwrap_or(0);
+                            // Parse min_length:N rule. If the rule is malformed, log and skip.
+                            // This allows the config system to be resilient to schema errors.
+                            let min_len: usize = match rule.split(':').nth(1) {
+                                Some(len_str) => match len_str.parse() {
+                                    Ok(len) => len,
+                                    Err(_) => {
+                                        tracing::warn!(
+                                            rule = %rule,
+                                            key = %key,
+                                            "Malformed min_length validation rule (non-numeric value), skipping"
+                                        );
+                                        continue;
+                                    }
+                                },
+                                None => {
+                                    tracing::warn!(
+                                        rule = %rule,
+                                        key = %key,
+                                        "Malformed min_length validation rule (missing value), skipping"
+                                    );
+                                    continue;
+                                }
+                            };
                             if value.len() < min_len {
                                 return Err(ConfigValidationError {
                                     key: key.to_string(),
@@ -221,9 +239,43 @@ impl DeterministicConfig {
                 if let Some(rules) = &field_def.validation_rules {
                     for rule in rules {
                         if let Some(range) = rule.strip_prefix("range:") {
+                            // Parse range:MIN-MAX rule. The format is "range:min-max".
+                            // If either bound cannot be parsed, log a warning and skip that bound.
                             let mut parts = range.splitn(2, '-');
-                            let min = parts.next().and_then(|s| s.parse::<i64>().ok());
-                            let max = parts.next().and_then(|s| s.parse::<i64>().ok());
+                            let min_str = parts.next();
+                            let max_str = parts.next();
+
+                            let min: Option<i64> = match min_str {
+                                Some(s) if !s.is_empty() => match s.parse() {
+                                    Ok(v) => Some(v),
+                                    Err(_) => {
+                                        tracing::warn!(
+                                            rule = %rule,
+                                            key = %key,
+                                            min_str = %s,
+                                            "Malformed range rule (invalid min), skipping min bound"
+                                        );
+                                        None
+                                    }
+                                },
+                                _ => None,
+                            };
+
+                            let max: Option<i64> = match max_str {
+                                Some(s) if !s.is_empty() => match s.parse() {
+                                    Ok(v) => Some(v),
+                                    Err(_) => {
+                                        tracing::warn!(
+                                            rule = %rule,
+                                            key = %key,
+                                            max_str = %s,
+                                            "Malformed range rule (invalid max), skipping max bound"
+                                        );
+                                        None
+                                    }
+                                },
+                                _ => None,
+                            };
 
                             if let Some(min) = min {
                                 if parsed < min {

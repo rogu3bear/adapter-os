@@ -233,6 +233,13 @@ impl FusedMlpKernel {
         command_buffer.commit();
         command_buffer.wait_until_completed();
 
+        // Check for GPU execution errors
+        if command_buffer.status() == MTLCommandBufferStatus::Error {
+            return Err(AosError::Kernel(
+                "Fused MLP kernel execution failed: GPU command buffer error".to_string(),
+            ));
+        }
+
         Ok(())
     }
 

@@ -119,7 +119,13 @@ pub fn initialize_config(
     // Lock environment access after initialization
     ConfigGuards::freeze()?;
 
-    Ok(CONFIG.get().unwrap())
+    // SAFETY: CONFIG.set() succeeded immediately above, so get() cannot return None.
+    // Using ok_or_else for defensive programming rather than unwrap().
+    CONFIG.get().ok_or_else(|| {
+        AosError::Config(
+            "BUG: CONFIG.get() returned None immediately after successful set()".to_string(),
+        )
+    })
 }
 
 /// Get the frozen global configuration

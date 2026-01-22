@@ -171,8 +171,18 @@ fn collect_siblings(
         return;
     }
 
-    let left = node.left.as_ref().unwrap();
-    let right = node.right.as_ref().unwrap();
+    // Tree construction guarantees that internal nodes have both children.
+    // If either is missing, this indicates a malformed tree (possibly from
+    // deserialization of corrupted data). Log and bail out gracefully.
+    let (Some(left), Some(right)) = (node.left.as_ref(), node.right.as_ref()) else {
+        tracing::error!(
+            node_hash = %node.hash,
+            has_left = node.left.is_some(),
+            has_right = node.right.is_some(),
+            "Malformed Merkle tree: internal node missing child"
+        );
+        return;
+    };
 
     let mid = total_leaves.div_ceil(2);
 

@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Tasteful Default: Existing Code First
+
+Agents should assume the code already exists; new code is only tasteful when you have proof it does not.
+
 ## Project Overview
 
 AdapterOS is a Rust-based deterministic ML inference platform for Apple Silicon. It provides K-sparse LoRA routing, Metal-optimized kernels, and policy enforcement for production environments. The system is designed for air-gapped deployments with zero network egress during serving.
@@ -30,6 +34,10 @@ AOS_DEV_NO_AUTH=1 cargo run -p adapteros-server -- --config configs/cp.toml
 # Build Metal shaders
 cd metal && bash build.sh
 ```
+
+## Repo Info Preference
+
+- Prefer using the `gh` CLI to fetch repository info and fill out repo metadata.
 
 ## Feature Flags
 
@@ -158,6 +166,34 @@ cargo test -p adapteros-ui --lib
 - `src/hooks/` - Custom hooks (use_api_resource, use_polling, etc.)
 - `src/contexts/` - Context providers (AuthProvider)
 - `src/validation.rs` - Form validation rules
+
+## Backend Understanding (Verified Snapshot)
+
+This section is a **verified snapshot** of backend behavior. **Update it only after an improvement has been proven** (tests, benchmarks, or merged code evidence). Do not update based on intent or plans.
+
+### Topology
+- Control plane: `adapteros-server` bootstraps and serves; `adapteros-server-api` owns routes, handlers, middleware, and `AppState`.
+- Workers: `aos-worker` processes handle inference/training; control plane ↔ workers communicate over HTTP/UDS.
+- Determinism substrate: `adapteros-core` + deterministic exec tick ledger; determinism modes and seed isolation are enforced.
+
+### Control Plane Boot Phases
+- Config -> security -> deterministic executor -> preflight -> invariants -> DB connect -> migrations -> post-DB invariants -> startup recovery -> router build -> federation -> metrics -> app state -> background tasks -> finalize -> bind.
+
+### API Route Tiers
+- Health (no middleware) -> public -> optional-auth -> internal (worker->CP) -> protected (auth+policy+audit).
+- Training routes move to optional-auth when dev bypass is enabled; otherwise protected.
+
+### Middleware Guarantees (Protected)
+- Ordered: auth -> tenant guard -> CSRF -> context -> policy -> audit.
+- Global layers: error-code enforcement, idempotency, rate limiting, request size limits, security headers, caching, versioning, trace context, request ID, seed isolation, lifecycle/drain gates, observability, compression.
+
+### Determinism & Replay
+- Seed isolation middleware + determinism context; strict mode rejects missing seeds.
+- Global tick ledger in control plane boot; determinism checks gate promotions/replay.
+- Replay endpoints and diagnostics are first-class.
+
+### AppState (Central Services)
+- DB + config + clock + metrics + policy + crypto + lifecycle manager + registry + telemetry buffers + SSE manager + idempotency store + load coordinator + optional federation daemon + tick ledger + boot attestation.
 
 ### Shared API Types
 

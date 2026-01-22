@@ -1298,7 +1298,7 @@ mod file_validation_tests {
         let tmp_root = std::path::PathBuf::from("var").join("tmp");
         std::fs::create_dir_all(&tmp_root).expect("create var/tmp");
         let dir = tempdir().unwrap();
-        let content = r#"{"row_id": "1", "prompt": "Hello", "response": "World"}"#;
+        let content = r#"{"prompt": "Hello", "completion": "World"}"#;
         let path = create_test_file(dir.path(), "test.jsonl", content).await;
 
         let config = ValidationConfig::for_training_jsonl();
@@ -1313,7 +1313,7 @@ mod file_validation_tests {
         let tmp_root = std::path::PathBuf::from("var").join("tmp");
         std::fs::create_dir_all(&tmp_root).expect("create var/tmp");
         let dir = tempdir().unwrap();
-        let content = r#"{"row_id": "1", "prompt": "Hello"}"#; // missing response
+        let content = r#"{"prompt": "Hello"}"#; // missing completion
         let path = create_test_file(dir.path(), "test.jsonl", content).await;
 
         let config = ValidationConfig::for_training_jsonl();
@@ -1324,7 +1324,7 @@ mod file_validation_tests {
         assert!(result
             .errors
             .iter()
-            .any(|e| e.code == "MISSING_FIELD" && e.field_name == Some("response".to_string())));
+            .any(|e| e.code == "JSONL_SCHEMA_ERROR"));
     }
 
     #[tokio::test]

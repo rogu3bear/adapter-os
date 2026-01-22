@@ -12,9 +12,10 @@ Golden runs serve as cryptographically signed reference baselines for determinis
 
 ## Directory Structure
 
-```
+```bash
 golden_runs/
 ├── baselines/          # Active golden run baselines
+
 │   ├── baseline-001/   # Individual baseline directory
 │   │   ├── manifest.json          # Run metadata (CPID, Plan, toolchain, adapters)
 │   │   ├── epsilon_stats.json     # Per-layer ε statistics
@@ -159,6 +160,7 @@ aosctl golden compare \
 ### Toolchain mismatch
 
 Golden run was created with different toolchain. Either:
+
 - Use matching toolchain version
 - Create new golden run with current toolchain
 - Use `--skip-toolchain-check` flag (not recommended for audit)

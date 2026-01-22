@@ -234,9 +234,18 @@ pub async fn get_federation_audit(
 
     for row in signatures {
         total_signatures += 1;
-        let host_id: String = row.try_get("host_id").unwrap_or_default();
-        let verified: bool = row.try_get("verified").unwrap_or(false);
-        let bundle_hash: String = row.try_get("bundle_hash").unwrap_or_default();
+        let host_id: String = row.try_get("host_id").unwrap_or_else(|e| {
+            tracing::warn!("Failed to get host_id from row: {}", e);
+            String::new()
+        });
+        let verified: bool = row.try_get("verified").unwrap_or_else(|e| {
+            tracing::warn!("Failed to get verified from row: {}", e);
+            false
+        });
+        let bundle_hash: String = row.try_get("bundle_hash").unwrap_or_else(|e| {
+            tracing::warn!("Failed to get bundle_hash from row: {}", e);
+            String::new()
+        });
 
         if verified {
             verified_signatures += 1;
@@ -269,7 +278,12 @@ pub async fn get_federation_audit(
     })?;
 
     let quarantined = quarantine_status.is_some();
-    let quarantine_reason = quarantine_status.and_then(|row| row.try_get("reason").ok());
+    let quarantine_reason = quarantine_status.and_then(|row| {
+        row.try_get("reason").unwrap_or_else(|e| {
+            tracing::warn!("Failed to get quarantine reason from row: {}", e);
+            None
+        })
+    });
 
     Ok(Json(FederationAuditResponse {
         total_hosts: host_chains.len(),
@@ -330,7 +344,10 @@ pub async fn get_compliance_audit(
         )
     })?;
 
-    let active_violations: i64 = violations.try_get("count").unwrap_or(0);
+    let active_violations: i64 = violations.try_get("count").unwrap_or_else(|e| {
+        tracing::warn!("Failed to get violations count from row: {}", e);
+        0
+    });
 
     // PRD-DATA-01: Check T1 adapter evidence compliance (cp-evidence-004)
     let t1_adapters_without_dataset = sqlx::query(
@@ -353,7 +370,10 @@ pub async fn get_compliance_audit(
             ),
         )
     })?;
-    let t1_without_dataset: i64 = t1_adapters_without_dataset.try_get("count").unwrap_or(0);
+    let t1_without_dataset: i64 = t1_adapters_without_dataset.try_get("count").unwrap_or_else(|e| {
+        tracing::warn!("Failed to get T1 adapters without dataset count: {}", e);
+        0
+    });
 
     let t1_adapters_without_evidence = sqlx::query(
         r#"
@@ -378,7 +398,10 @@ pub async fn get_compliance_audit(
             ),
         )
     })?;
-    let t1_without_evidence: i64 = t1_adapters_without_evidence.try_get("count").unwrap_or(0);
+    let t1_without_evidence: i64 = t1_adapters_without_evidence.try_get("count").unwrap_or_else(|e| {
+        tracing::warn!("Failed to get T1 adapters without evidence count: {}", e);
+        0
+    });
 
     // Generate compliance controls status
     let mut controls = vec![

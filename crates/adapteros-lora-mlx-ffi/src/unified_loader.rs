@@ -108,7 +108,13 @@ impl UnifiedSafeTensorsLoader {
                         .to_string_lossy()
                         .into_owned();
 
-                    let name_cstr = std::ffi::CString::new(name.as_bytes()).ok();
+                    let name_cstr = match std::ffi::CString::new(name.as_bytes()) {
+                        Ok(cstr) => Some(cstr),
+                        Err(_) => {
+                            tracing::trace!(tensor_name = %name, "Skipping tensor with invalid name (contains NUL byte)");
+                            None
+                        }
+                    };
                     if let Some(cstr) = name_cstr {
                         let tensor = crate::mlx_weights_get(weights, cstr.as_ptr());
                         if !tensor.is_null() {

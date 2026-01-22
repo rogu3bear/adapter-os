@@ -11,11 +11,12 @@ use crate::cmd_replay::{
 use crate::output::OutputWriter;
 
 fn default_fixture_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    // Navigate up from crates/adapteros-cli to workspace root
+    manifest_dir
         .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
+        .and_then(|p| p.parent())
+        .unwrap_or(manifest_dir)
         .join("test_data")
         .join("replay_fixtures")
 }

@@ -141,8 +141,14 @@ pub fn CreateJobDialog(
         move |ev: web_sys::Event| {
             use wasm_bindgen::JsCast;
 
-            let target = ev.target().unwrap();
-            let input: web_sys::HtmlInputElement = target.dyn_into().unwrap();
+            let Some(target) = ev.target() else {
+                tracing::error!("handle_file_upload: no event target");
+                return;
+            };
+            let Ok(input) = target.dyn_into::<web_sys::HtmlInputElement>() else {
+                tracing::error!("handle_file_upload: target is not an HtmlInputElement");
+                return;
+            };
 
             if let Some(files) = input.files() {
                 if let Some(file) = files.get(0) {

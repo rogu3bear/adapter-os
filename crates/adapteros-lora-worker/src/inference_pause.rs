@@ -117,15 +117,22 @@ impl InferencePauseRegistry {
     }
 
     /// Register a paused inference, returns receiver for the inference to wait on
-    pub fn register(&self, mut token: InferencePauseToken) -> oneshot::Receiver<Review> {
+    ///
+    /// # Errors
+    /// Returns an error if the token's sender or receiver has already been taken.
+    pub fn register(&self, mut token: InferencePauseToken) -> Result<oneshot::Receiver<Review>> {
         let pause_id = token.pause_id.clone();
         let inference_id = token.inference_id.clone();
         let reason = token.reason.clone();
         let paused_at = token.paused_at;
 
         // Take sender and receiver from token
-        let resume_tx = token.take_sender().expect("token sender already taken");
-        let resume_rx = token.take_receiver().expect("token receiver already taken");
+        let resume_tx = token.take_sender().ok_or_else(|| {
+            AosError::internal("InferencePauseToken sender already taken")
+        })?;
+        let resume_rx = token.take_receiver().ok_or_else(|| {
+            AosError::internal("InferencePauseToken receiver already taken")
+        })?;
 
         let entry = PausedEntry {
             inference_id,
@@ -135,7 +142,7 @@ impl InferencePauseRegistry {
         };
 
         self.paused.write().insert(pause_id, entry);
-        resume_rx
+        Ok(resume_rx)
     }
 
     /// Submit a review and resume the paused inference
@@ -324,7 +331,8 @@ mod tests {
         let pause_id = token.pause_id.clone();
 
         // Register and get receiver
-        let rx = registry.register(token);
+        let rx = registry.register(token)
+            .expect("Test register should succeed");
         let handle = InferencePauseHandle::new(rx, pause_id.clone(), context);
 
         // Verify it's paused
@@ -359,8 +367,10 @@ mod tests {
         let (token1, _) = pause_for_code_review("infer-1", "code1", "q1");
         let (token2, _) = pause_for_code_review("infer-2", "code2", "q2");
 
-        let _ = registry.register(token1);
-        let _ = registry.register(token2);
+        let _ = registry.register(token1)
+            .expect("Test register should succeed");
+        let _ = registry.register(token2)
+            .expect("Test register should succeed");
 
         let paused = registry.list_paused();
         assert_eq!(paused.len(), 2);

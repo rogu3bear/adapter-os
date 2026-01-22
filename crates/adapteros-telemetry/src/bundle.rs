@@ -180,9 +180,10 @@ impl BundleWriter {
 
     /// Create a new bundle file
     fn create_new_bundle(&mut self) -> Result<()> {
+        // Use unwrap_or_default to avoid panic if system clock is misconfigured
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .expect("System time before UNIX epoch")
+            .unwrap_or_default()
             .as_millis();
 
         let bundle_name = format!("bundle_{}.ndjson", timestamp);
@@ -390,8 +391,15 @@ impl BundleWriter {
 
 impl Drop for BundleWriter {
     fn drop(&mut self) {
-        // Best effort rotation on drop
-        let _ = self.flush();
+        // Best effort rotation on drop - log errors since we can't return them
+        if let Err(e) = self.flush() {
+            tracing::error!(
+                error = %e,
+                event_count = self.event_count,
+                output_dir = %self.output_dir.display(),
+                "BundleWriter flush failed on drop - telemetry events may be lost"
+            );
+        }
     }
 }
 

@@ -27,9 +27,19 @@ pub struct RouterPrior {
 // Similar for others...
 
 impl IndexSnapshot {
+    /// Compute a deterministic hash of this snapshot.
+    ///
+    /// Uses JSON serialization with BTreeMap for consistent key ordering.
+    /// Falls back to an empty hash if serialization fails (should never happen
+    /// for these simple types, but we avoid panicking in production).
     pub fn compute_hash(&self) -> B3Hash {
-        let json = serde_json::to_string(self).expect("Serialization failed"); // BTreeMap/Vectors sorted
-        B3Hash::hash(json.as_bytes())
+        match serde_json::to_string(self) {
+            Ok(json) => B3Hash::hash(json.as_bytes()),
+            Err(e) => {
+                tracing::error!(error = %e, "IndexSnapshot serialization failed, using empty hash");
+                B3Hash::hash(b"serialization_failed")
+            }
+        }
     }
 
     pub fn from_tenant_data(/* db query */) -> Self {

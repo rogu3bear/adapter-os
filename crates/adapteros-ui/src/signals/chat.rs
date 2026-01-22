@@ -1144,7 +1144,7 @@ async fn stream_inference_to_state(
     }
 
     // Explicitly release the reader lock to clean up resources
-    let _ = reader.release_lock();
+    reader.release_lock();
 
     Ok(trace_info)
 }

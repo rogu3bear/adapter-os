@@ -237,9 +237,7 @@ impl EnclaveManager {
     }
 }
 
-impl Default for EnclaveManager {
-    fn default() -> Self {
-        // Create with software fallback (safe for all platforms)
-        Self::new().expect("Failed to create software-fallback EnclaveManager")
-    }
-}
+// NOTE: Intentionally no Default impl for EnclaveManager.
+// Security-critical components should fail explicitly at construction time,
+// not panic during default initialization. Use EnclaveManager::new()
+// directly and handle errors appropriately.

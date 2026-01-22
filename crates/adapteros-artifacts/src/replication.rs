@@ -9,6 +9,7 @@
 use adapteros_core::{time, AosError, B3Hash, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use tracing;
 
 use crate::CasStore;
 
@@ -142,9 +143,38 @@ pub fn export_air_gap(
     // - SBOM files
 
     // For now, write manifest as JSON
-    let mut file = File::create(output_path)?;
-    let manifest_json = serde_json::to_string_pretty(&manifest)?;
-    file.write_all(manifest_json.as_bytes())?;
+    let mut file = File::create(output_path).map_err(|e| {
+        tracing::warn!(
+            path = %output_path.display(),
+            error = %e,
+            "failed to create air-gap export file"
+        );
+        AosError::Artifact(format!(
+            "failed to create air-gap export file '{}': {}",
+            output_path.display(),
+            e
+        ))
+    })?;
+    let manifest_json = serde_json::to_string_pretty(&manifest).map_err(|e| {
+        tracing::warn!(
+            session_id = %manifest.session_id,
+            error = %e,
+            "failed to serialize replication manifest"
+        );
+        AosError::Artifact(format!("failed to serialize replication manifest: {}", e))
+    })?;
+    file.write_all(manifest_json.as_bytes()).map_err(|e| {
+        tracing::warn!(
+            path = %output_path.display(),
+            error = %e,
+            "failed to write air-gap export manifest"
+        );
+        AosError::Artifact(format!(
+            "failed to write air-gap export manifest to '{}': {}",
+            output_path.display(),
+            e
+        ))
+    })?;
 
     Ok(output_path.to_path_buf())
 }
@@ -155,11 +185,44 @@ pub fn import_air_gap(_cas_store: &CasStore, bundle_path: &Path) -> Result<Repli
     use std::io::Read;
 
     // Load and verify bundle
-    let mut file = File::open(bundle_path)?;
+    let mut file = File::open(bundle_path).map_err(|e| {
+        tracing::warn!(
+            path = %bundle_path.display(),
+            error = %e,
+            "failed to open air-gap bundle for import"
+        );
+        AosError::Artifact(format!(
+            "failed to open air-gap bundle '{}': {}",
+            bundle_path.display(),
+            e
+        ))
+    })?;
     let mut manifest_json = String::new();
-    file.read_to_string(&mut manifest_json)?;
+    file.read_to_string(&mut manifest_json).map_err(|e| {
+        tracing::warn!(
+            path = %bundle_path.display(),
+            error = %e,
+            "failed to read air-gap bundle content"
+        );
+        AosError::Artifact(format!(
+            "failed to read air-gap bundle '{}': {}",
+            bundle_path.display(),
+            e
+        ))
+    })?;
 
-    let manifest: ReplicationManifest = serde_json::from_str(&manifest_json)?;
+    let manifest: ReplicationManifest = serde_json::from_str(&manifest_json).map_err(|e| {
+        tracing::warn!(
+            path = %bundle_path.display(),
+            error = %e,
+            "failed to parse air-gap bundle manifest"
+        );
+        AosError::Artifact(format!(
+            "failed to parse air-gap bundle manifest from '{}': {}",
+            bundle_path.display(),
+            e
+        ))
+    })?;
 
     // Verify signature (in production)
     // verify_signature(&manifest)?;

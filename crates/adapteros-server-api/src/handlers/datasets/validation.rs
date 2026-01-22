@@ -876,8 +876,10 @@ impl ValidationRule for JsonlFormatRule {
             };
 
             let keys: HashSet<&str> = obj.keys().map(|k| k.as_str()).collect();
-            let is_supervised =
-                keys.len() == 2 && keys.contains("prompt") && keys.contains("completion");
+            let is_supervised = !keys.is_empty()
+                && keys
+                    .iter()
+                    .all(|key| *key == "prompt" || *key == "completion");
             let is_raw = keys.len() == 1 && keys.contains("text");
             let line_schema = if is_supervised {
                 Some(TrainingJsonlSchema::Supervised)

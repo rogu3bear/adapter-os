@@ -1,3 +1,4 @@
+use adapteros_boot::BootAttestation;
 use adapteros_core::{BackendKind, Clock, DeterminismMode, SeedMode, SystemClock};
 use adapteros_crypto::Keypair;
 use adapteros_db::git::FileChangeEvent;
@@ -869,6 +870,8 @@ pub struct AppState {
     pub upload_session_manager: Arc<UploadSessionManager>,
     // Boot lifecycle state manager
     pub boot_state: Option<BootStateManager>,
+    // Boot attestation captured at startup (optional)
+    pub boot_attestation: Option<Arc<BootAttestation>>,
     // Runtime mode (dev/staging/prod)
     pub runtime_mode: Option<RuntimeMode>,
     // Strict mode (fail-closed on errors)
@@ -986,7 +989,10 @@ impl AppState {
         let mut ed25519_public_keys = vec![(primary_ed_kid.clone(), ed25519_public_key.clone())];
         if let Some(extra_keys) = config
             .read()
-            .unwrap()
+            .unwrap_or_else(|e| {
+                tracing::warn!("Config lock was poisoned reading ed25519 keys, recovering");
+                e.into_inner()
+            })
             .security
             .jwt_additional_ed25519_public_keys
             .clone()
@@ -1000,7 +1006,10 @@ impl AppState {
         let mut hmac_keys = vec![(derive_kid_from_bytes(&jwt_secret), jwt_secret.clone())];
         if let Some(extra_secrets) = config
             .read()
-            .unwrap()
+            .unwrap_or_else(|e| {
+                tracing::warn!("Config lock was poisoned reading hmac secrets, recovering");
+                e.into_inner()
+            })
             .security
             .jwt_additional_hmac_secrets
             .clone()
@@ -1017,7 +1026,10 @@ impl AppState {
 
         // Create rate limiter with shared clock
         let rate_limiter_config = {
-            let cfg = config.read().unwrap();
+            let cfg = config.read().unwrap_or_else(|e| {
+                tracing::warn!("Config lock was poisoned reading rate limit config, recovering");
+                e.into_inner()
+            });
             cfg.rate_limit.clone().unwrap_or_default()
         };
         let rate_limiter = Arc::new(RateLimiterState::new(rate_limiter_config, clock.clone()));
@@ -1074,6 +1086,7 @@ impl AppState {
             upload_session_manager: Arc::new(UploadSessionManager::new(1000)),
             // Boot state, runtime mode, and strict mode are set later via builder methods
             boot_state: None,
+            boot_attestation: None,
             runtime_mode: None,
             // Strict mode defaults to false, set via with_strict_mode
             strict_mode: false,

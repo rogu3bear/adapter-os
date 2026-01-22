@@ -156,7 +156,7 @@ async fn run_kaleidoscope(
     let mut router = Router::new_with_weights(RouterWeights::default(), 1, 1.0, 1e-6);
     router.set_routing_determinism_mode(true);
 
-    let mut generator = Generator::new_deterministic(&ROUTER_SEED, "kaleidoscope-router");
+    let mut generator = Generator::new_deterministic(&ROUTER_SEED, "kaleidoscope-router")?;
     let mut tokens = Vec::with_capacity(TOKEN_STEPS);
 
     for step in 0..TOKEN_STEPS {
@@ -183,7 +183,7 @@ async fn run_kaleidoscope(
             step, target, decision.indices[0]
         );
 
-        generator.reseed_for_step(step);
+        generator.reseed_for_step(step)?;
         let logits = deterministic_logits(&adapters[target].id, step);
         let token = generator.next_token(&logits)?;
         tokens.push(token);

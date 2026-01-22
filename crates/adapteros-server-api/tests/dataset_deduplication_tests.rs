@@ -14,6 +14,7 @@ use uuid::Uuid;
 async fn create_dataset_with_hash(
     state: &adapteros_server_api::state::AppState,
     tenant_id: &str,
+    created_by: &str,
     workspace_id: &str,
     dataset_hash: &str,
 ) -> String {
@@ -27,7 +28,7 @@ async fn create_dataset_with_hash(
             "jsonl",
             "file_hash",
             "var/datasets",
-            Some(tenant_id),
+            Some(created_by),
             Some(workspace_id),
             Some("ready"),
             Some(dataset_hash),
@@ -35,6 +36,13 @@ async fn create_dataset_with_hash(
         )
         .await
         .expect("dataset created");
+
+    adapteros_db::sqlx::query("UPDATE training_datasets SET tenant_id = ? WHERE id = ?")
+        .bind(tenant_id)
+        .bind(&dataset_id)
+        .execute(state.db.pool())
+        .await
+        .expect("set tenant_id");
     dataset_id
 }
 
@@ -49,8 +57,14 @@ async fn test_duplicate_lookup_same_workspace_returns_existing() {
 
     // Create first dataset with known hash
     let dataset_hash = "test_hash_for_dedup_same_workspace";
-    let first_dataset_id =
-        create_dataset_with_hash(&state, &claims.tenant_id, &workspace_id, dataset_hash).await;
+    let first_dataset_id = create_dataset_with_hash(
+        &state,
+        &claims.tenant_id,
+        &claims.sub,
+        &workspace_id,
+        dataset_hash,
+    )
+    .await;
 
     // Query for existing dataset with same hash + workspace
     let existing = state
@@ -92,12 +106,24 @@ async fn test_same_content_different_workspace_creates_new_dataset() {
     let dataset_hash = "identical_content_hash_cross_workspace";
 
     // Create dataset in workspace A
-    let dataset_id_a =
-        create_dataset_with_hash(&state, &claims.tenant_id, &workspace_a, dataset_hash).await;
+    let dataset_id_a = create_dataset_with_hash(
+        &state,
+        &claims.tenant_id,
+        &claims.sub,
+        &workspace_a,
+        dataset_hash,
+    )
+    .await;
 
     // Create dataset in workspace B with same hash
-    let dataset_id_b =
-        create_dataset_with_hash(&state, &claims.tenant_id, &workspace_b, dataset_hash).await;
+    let dataset_id_b = create_dataset_with_hash(
+        &state,
+        &claims.tenant_id,
+        &claims.sub,
+        &workspace_b,
+        dataset_hash,
+    )
+    .await;
 
     // Assertions
     assert_ne!(
@@ -157,8 +183,14 @@ async fn test_cross_workspace_visibility_isolated() {
 
     // Create dataset only in workspace A
     let dataset_hash = "unique_hash_for_isolation_test";
-    let _dataset_id_a =
-        create_dataset_with_hash(&state, &claims.tenant_id, &workspace_a, dataset_hash).await;
+    let _dataset_id_a = create_dataset_with_hash(
+        &state,
+        &claims.tenant_id,
+        &claims.sub,
+        &workspace_a,
+        dataset_hash,
+    )
+    .await;
 
     // Query from workspace B should NOT find the dataset
     let found_in_b = state
@@ -200,9 +232,30 @@ async fn test_list_datasets_respects_workspace_scope() {
         .expect("workspace B created");
 
     // Create datasets in each workspace
-    create_dataset_with_hash(&state, &claims.tenant_id, &workspace_a, "hash_a1").await;
-    create_dataset_with_hash(&state, &claims.tenant_id, &workspace_a, "hash_a2").await;
-    create_dataset_with_hash(&state, &claims.tenant_id, &workspace_b, "hash_b1").await;
+    create_dataset_with_hash(
+        &state,
+        &claims.tenant_id,
+        &claims.sub,
+        &workspace_a,
+        "hash_a1",
+    )
+    .await;
+    create_dataset_with_hash(
+        &state,
+        &claims.tenant_id,
+        &claims.sub,
+        &workspace_a,
+        "hash_a2",
+    )
+    .await;
+    create_dataset_with_hash(
+        &state,
+        &claims.tenant_id,
+        &claims.sub,
+        &workspace_b,
+        "hash_b1",
+    )
+    .await;
 
     // List datasets for workspace A
     let datasets_a = state

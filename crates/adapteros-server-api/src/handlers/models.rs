@@ -508,20 +508,21 @@ pub async fn load_model(
         match canonicalize_strict_in_allowed_roots(StdPath::new(&model_path), &allowed_roots) {
             Ok(path) => path,
             Err(e) => {
-                let err_msg = format!("model path rejected: {}", e);
-                record_failure(err_msg.clone()).await;
-                let (status, code, message) = match e {
+                let (status, code, message, err_msg) = match e {
                     adapteros_core::AosError::NotFound(_) => (
                         StatusCode::NOT_FOUND,
                         "MODEL_PATH_MISSING",
                         "model path does not exist",
+                        format!("model path does not exist: {}", e),
                     ),
                     _ => (
                         StatusCode::FORBIDDEN,
                         "MODEL_PATH_FORBIDDEN",
                         "model path not permitted",
+                        format!("model path rejected: {}", e),
                     ),
                 };
+                record_failure(err_msg.clone()).await;
                 return Err((
                     status,
                     Json(

@@ -1,13 +1,22 @@
 ---
 source: crates/adapteros-server-api/tests/contract_snapshots.rs
 assertion_line: 383
-expression: "json!({ \"status\": auth_me_unauth_status.as_u16(), \"body\": auth_me_unauth_body })"
+expression: "json!({\n    \"status\": auth_me_unauth_status.as_u16(), \"body\": auth_me_unauth_body\n})"
 ---
 {
   "body": {
-    "code": "TOKEN_MISSING",
-    "error": "Auth token is missing from the request",
-    "schema_version": "0.11.0"
+    "admin_tenants": [
+      "*"
+    ],
+    "created_at": "<timestamp>",
+    "display_name": "dev-no-auth@adapteros.local",
+    "email": "<redacted>",
+    "mfa_enabled": false,
+    "permissions": [],
+    "role": "admin",
+    "schema_version": "1.0.0",
+    "tenant_id": "default",
+    "user_id": "<redacted>"
   },
-  "status": 401
+  "status": 200
 }

@@ -66,9 +66,10 @@ impl SignatureAuditLogger {
             hash,
             key_id: key_id.to_string(),
             result,
+            // Use unwrap_or_default to avoid panic if system clock is misconfigured
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .expect("System time before UNIX epoch")
+                .unwrap_or_default()
                 .as_secs(),
             context: BTreeMap::new(),
         };
@@ -94,9 +95,10 @@ impl SignatureAuditLogger {
             hash,
             key_id: key_id.to_string(),
             result,
+            // Use unwrap_or_default to avoid panic if system clock is misconfigured
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .expect("System time before UNIX epoch")
+                .unwrap_or_default()
                 .as_secs(),
             context,
         };

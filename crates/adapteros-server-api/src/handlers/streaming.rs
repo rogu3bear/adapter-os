@@ -1014,10 +1014,15 @@ pub async fn notifications_stream(
                     "unread_count": notifications.len(),
                 });
 
+                let heartbeat_json = match serde_json::to_string(&heartbeat) {
+                    Ok(j) => j,
+                    Err(e) => {
+                        warn!(error = %e, "Failed to serialize notification heartbeat");
+                        "{}".to_string()
+                    }
+                };
                 Some((
-                    Ok(Event::default().event("heartbeat").data(
-                        serde_json::to_string(&heartbeat).unwrap_or_else(|_| "{}".to_string()),
-                    )),
+                    Ok(Event::default().event("heartbeat").data(heartbeat_json)),
                     (state, previous_ids, user_id, has_permission, false),
                 ))
             }
@@ -1283,10 +1288,15 @@ pub async fn messages_stream(
                     "timestamp": chrono::Utc::now().to_rfc3339(),
                 });
 
+                let heartbeat_json = match serde_json::to_string(&heartbeat) {
+                    Ok(j) => j,
+                    Err(e) => {
+                        warn!(error = %e, "Failed to serialize message heartbeat");
+                        "{}".to_string()
+                    }
+                };
                 Some((
-                    Ok(Event::default().event("heartbeat").data(
-                        serde_json::to_string(&heartbeat).unwrap_or_else(|_| "{}".to_string()),
-                    )),
+                    Ok(Event::default().event("heartbeat").data(heartbeat_json)),
                     (state, workspace_id, has_permission, error_sent, last_id, cb),
                 ))
             }
@@ -1544,10 +1554,15 @@ pub async fn activity_stream(
                     "timestamp": chrono::Utc::now().to_rfc3339(),
                 });
 
+                let heartbeat_json = match serde_json::to_string(&heartbeat) {
+                    Ok(j) => j,
+                    Err(e) => {
+                        warn!(error = %e, "Failed to serialize activity heartbeat");
+                        "{}".to_string()
+                    }
+                };
                 Some((
-                    Ok(Event::default().event("heartbeat").data(
-                        serde_json::to_string(&heartbeat).unwrap_or_else(|_| "{}".to_string()),
-                    )),
+                    Ok(Event::default().event("heartbeat").data(heartbeat_json)),
                     (
                         state,
                         workspace_id,

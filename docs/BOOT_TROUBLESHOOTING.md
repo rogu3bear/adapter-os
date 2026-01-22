@@ -79,12 +79,17 @@ cp configs/aos.example.toml configs/aos.toml
 
 ### 1.3 Base Model Path Invalid
 
-**Symptom:**
+**Symptom (production mode):**
 ```
-FATAL: Base model path missing or invalid: Path does not exist
+FATAL: Base model path missing: /path/to/model
 ```
 
-**Exit code:** 1
+**Symptom (development mode):**
+```
+WARNING: Base model path missing: /path/to/model. Set AOS_MODEL_CACHE_DIR/AOS_BASE_MODEL_ID or update config. Server will start without a base model.
+```
+
+**Exit code:** 1 (production mode)
 
 **Cause:** Model directory not found or not configured.
 

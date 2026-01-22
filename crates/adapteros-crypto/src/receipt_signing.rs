@@ -293,13 +293,28 @@ impl TenantBoundReceipt {
 }
 
 /// Compute HMAC-SHA256 for tenant binding.
+///
+/// # Panics
+/// This function will never panic as HMAC-SHA256 accepts keys of any size,
+/// and the 32-byte key is always valid.
 fn compute_tenant_binding_mac(digest: &B3Hash, tenant_id: &str, tenant_key: &[u8; 32]) -> [u8; 32] {
     use hmac::{Hmac, Mac};
     use sha2::Sha256;
 
     type HmacSha256 = Hmac<Sha256>;
 
-    let mut mac = HmacSha256::new_from_slice(tenant_key).expect("HMAC can take key of any size");
+    // HMAC-SHA256 accepts keys of any size; 32-byte keys are always valid.
+    // Using unwrap_or_else with an unreachable panic as documentation of invariant.
+    let mut mac = HmacSha256::new_from_slice(tenant_key).unwrap_or_else(|e| {
+        // This should never happen: HMAC-SHA256 accepts any key length
+        tracing::error!(
+            target: "security.crypto",
+            error = %e,
+            key_len = tenant_key.len(),
+            "HMAC key initialization failed - this should never happen"
+        );
+        unreachable!("HMAC-SHA256 should accept 32-byte keys: {}", e)
+    });
     mac.update(digest.as_bytes());
     mac.update(b"\x00"); // separator
     mac.update(tenant_id.as_bytes());
@@ -321,14 +336,26 @@ fn compute_tenant_binding_mac(digest: &B3Hash, tenant_id: &str, tenant_key: &[u8
 ///
 /// # Returns
 /// 32-byte tenant-specific key
+///
+/// # Panics
+/// This function will never panic as 32 bytes is a valid HKDF-SHA256 output length.
 pub fn derive_tenant_key(master_key: &[u8; 32], tenant_id: &str) -> [u8; 32] {
     use hkdf::Hkdf;
     use sha2::Sha256;
 
     let hkdf = Hkdf::<Sha256>::new(None, master_key);
     let mut tenant_key = [0u8; 32];
+    // 32 bytes is always valid for HKDF-SHA256 (max is 255 * hash_len = 255 * 32 = 8160 bytes)
     hkdf.expand(tenant_id.as_bytes(), &mut tenant_key)
-        .expect("32 bytes is valid HKDF output length");
+        .unwrap_or_else(|e| {
+            tracing::error!(
+                target: "security.crypto",
+                error = %e,
+                output_len = 32,
+                "HKDF expand failed - this should never happen for 32-byte output"
+            );
+            unreachable!("HKDF-SHA256 should support 32-byte output: {}", e)
+        });
     tenant_key
 }
 
@@ -341,6 +368,9 @@ pub fn derive_tenant_key(master_key: &[u8; 32], tenant_id: &str) -> [u8; 32] {
 ///
 /// # Returns
 /// 32-byte tenant-specific key for the given purpose
+///
+/// # Panics
+/// This function will never panic as 32 bytes is a valid HKDF-SHA256 output length.
 pub fn derive_tenant_key_with_purpose(
     master_key: &[u8; 32],
     tenant_id: &str,
@@ -354,8 +384,19 @@ pub fn derive_tenant_key_with_purpose(
 
     let hkdf = Hkdf::<Sha256>::new(None, master_key);
     let mut derived_key = [0u8; 32];
+    // 32 bytes is always valid for HKDF-SHA256 (max is 255 * hash_len = 255 * 32 = 8160 bytes)
     hkdf.expand(info.as_bytes(), &mut derived_key)
-        .expect("32 bytes is valid HKDF output length");
+        .unwrap_or_else(|e| {
+            tracing::error!(
+                target: "security.crypto",
+                error = %e,
+                output_len = 32,
+                tenant_id = %tenant_id,
+                purpose = %purpose,
+                "HKDF expand failed - this should never happen for 32-byte output"
+            );
+            unreachable!("HKDF-SHA256 should support 32-byte output: {}", e)
+        });
     derived_key
 }
 

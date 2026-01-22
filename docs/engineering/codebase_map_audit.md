@@ -3,10 +3,12 @@
 Purpose: Provide a code-level map of adapterOS components, their roles, and how they connect at runtime. This is a conceptual interaction map, not a compile-time dependency graph.
 
 Scope:
+
 - Control plane, workers, router, backends, storage, policy, telemetry, replay, CLI/UI, and tooling.
 - Sources: workspace members in `Cargo.toml` and existing architecture documentation.
 
 Non-goal:
+
 - Exact crate dependency edges. For build-graph accuracy, use `cargo metadata` or `cargo tree`.
 
 ---
@@ -36,22 +38,23 @@ Use `docs/GLOSSARY.md` for canonical definitions. This list is a quick orientati
 
 This table is representative, not exhaustive. See the inventory for the full list.
 
-| Layer | Role | Primary crates |
-| --- | --- | --- |
-| Clients | User entry points | `adapteros-cli`, `adapteros-tui`, `adapteros-ui` |
-| Control plane | HTTP API, auth, policy hooks, orchestration | `adapteros-server`, `adapteros-server-api`, `adapteros-orchestrator`, `adapteros-service-supervisor` |
-| Worker + routing | Inference/training execution and adapter routing | `adapteros-lora-worker`, `adapteros-lora-router`, `adapteros-lora-lifecycle`, `adapteros-lora-plan` |
-| Backends | Kernel implementations | `adapteros-lora-kernel-coreml`, `adapteros-lora-kernel-mtl`, `adapteros-lora-mlx-ffi`, `adapteros-lora-kernel-api`, `adapteros-lora-kernel-prof` |
-| Data + storage | Relational DB and content-addressed storage | `adapteros-db`, `adapteros-storage`, `adapteros-artifacts`, `adapteros-registry`, `adapteros-manifest` |
-| Observability + policy | Enforcement and audit trail | `adapteros-policy`, `adapteros-telemetry`, `adapteros-trace`, `adapteros-telemetry-verifier` |
-| Determinism + replay | Seed derivation, replay verification | `adapteros-core`, `adapteros-deterministic-exec`, `adapteros-replay` |
-| Tooling | Build/test/maintenance | `xtask`, `sign-migrations`, `fuzz` |
+| Layer                  | Role                                             | Primary crates                                                                                                                                   |
+| ---------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Clients                | User entry points                                | `adapteros-cli`, `adapteros-tui`, `adapteros-ui`                                                                                                 |
+| Control plane          | HTTP API, auth, policy hooks, orchestration      | `adapteros-server`, `adapteros-server-api`, `adapteros-orchestrator`, `adapteros-service-supervisor`                                             |
+| Worker + routing       | Inference/training execution and adapter routing | `adapteros-lora-worker`, `adapteros-lora-router`, `adapteros-lora-lifecycle`, `adapteros-lora-plan`                                              |
+| Backends               | Kernel implementations                           | `adapteros-lora-kernel-coreml`, `adapteros-lora-kernel-mtl`, `adapteros-lora-mlx-ffi`, `adapteros-lora-kernel-api`, `adapteros-lora-kernel-prof` |
+| Data + storage         | Relational DB and content-addressed storage      | `adapteros-db`, `adapteros-storage`, `adapteros-artifacts`, `adapteros-registry`, `adapteros-manifest`                                           |
+| Observability + policy | Enforcement and audit trail                      | `adapteros-policy`, `adapteros-telemetry`, `adapteros-trace`, `adapteros-telemetry-verifier`                                                     |
+| Determinism + replay   | Seed derivation, replay verification             | `adapteros-core`, `adapteros-deterministic-exec`, `adapteros-replay`                                                                             |
+| Tooling                | Build/test/maintenance                           | `xtask`, `sign-migrations`, `fuzz`                                                                                                               |
 
 ---
 
 ## Mermaid diagrams
 
 Legend:
+
 - Boxes are logical groups, not strict build graph boundaries.
 - Arrows show runtime interaction or data flow.
 

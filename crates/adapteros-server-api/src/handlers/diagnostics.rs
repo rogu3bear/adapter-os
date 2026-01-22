@@ -74,10 +74,22 @@ pub async fn get_determinism_status(
 
     match result {
         Ok(Some(row)) => {
-            let last_run: Option<String> = row.try_get("last_run").ok();
-            let result: Option<String> = row.try_get("result").ok();
-            let runs: Option<i64> = row.try_get("runs").ok();
-            let divergences: Option<i64> = row.try_get("divergences").ok();
+            let last_run: Option<String> = row.try_get("last_run").unwrap_or_else(|e| {
+                warn!("Failed to get last_run from determinism check row: {}", e);
+                None
+            });
+            let result: Option<String> = row.try_get("result").unwrap_or_else(|e| {
+                warn!("Failed to get result from determinism check row: {}", e);
+                None
+            });
+            let runs: Option<i64> = row.try_get("runs").unwrap_or_else(|e| {
+                warn!("Failed to get runs from determinism check row: {}", e);
+                None
+            });
+            let divergences: Option<i64> = row.try_get("divergences").unwrap_or_else(|e| {
+                warn!("Failed to get divergences from determinism check row: {}", e);
+                None
+            });
 
             Ok(Json(DeterminismStatusResponse {
                 last_run,
@@ -170,9 +182,18 @@ pub async fn get_quarantine_status(
     let mut quarantine_reason: Option<String> = None;
 
     for row in &quarantines {
-        let id: String = row.try_get("id").unwrap_or_default();
-        let reason: String = row.try_get("reason").unwrap_or_default();
-        let metadata: Option<String> = row.try_get("metadata").ok();
+        let id: String = row.try_get("id").unwrap_or_else(|e| {
+            warn!("Failed to get id from quarantine row: {}", e);
+            String::new()
+        });
+        let reason: String = row.try_get("reason").unwrap_or_else(|e| {
+            warn!("Failed to get reason from quarantine row: {}", e);
+            String::new()
+        });
+        let metadata: Option<String> = row.try_get("metadata").unwrap_or_else(|e| {
+            warn!("Failed to get metadata from quarantine row: {}", e);
+            None
+        });
 
         // Check if this is a system-wide quarantine (not adapter-specific)
         if reason.contains("policy hash") || reason.contains("system") || id == "system" {
@@ -237,8 +258,14 @@ pub async fn get_quarantine_status(
 
     let mut active_quarantined_adapters = Vec::new();
     for stack_row in &active_stacks {
-        let stack_id: String = stack_row.try_get("id").unwrap_or_default();
-        let adapter_ids_json: Option<String> = stack_row.try_get("adapter_ids_json").ok();
+        let stack_id: String = stack_row.try_get("id").unwrap_or_else(|e| {
+            warn!("Failed to get id from stack row: {}", e);
+            String::new()
+        });
+        let adapter_ids_json: Option<String> = stack_row.try_get("adapter_ids_json").unwrap_or_else(|e| {
+            warn!("Failed to get adapter_ids_json from stack row: {}", e);
+            None
+        });
 
         if let Some(ref json_str) = adapter_ids_json {
             if let Ok(adapter_ids) = serde_json::from_str::<Vec<String>>(json_str) {

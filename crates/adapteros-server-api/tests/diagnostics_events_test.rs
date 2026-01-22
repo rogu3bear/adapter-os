@@ -38,6 +38,7 @@ async fn test_stage_guard_success_flow() {
             &run_id,
             "test-tenant",
         );
+        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
         guard.complete();
     }
 

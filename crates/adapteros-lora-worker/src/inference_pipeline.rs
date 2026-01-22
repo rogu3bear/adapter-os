@@ -398,7 +398,7 @@ impl InferencePipeline {
             derive_seed(&B3Hash::hash(b"default_manifest"), "inference_generator")
         };
 
-        let generator = Generator::new(seed)
+        let generator = Generator::new(seed)?
             .with_temperature(config.temperature)
             .with_top_k(config.top_k.unwrap_or(50))
             .with_top_p(config.top_p.unwrap_or(0.9));
@@ -551,7 +551,7 @@ impl InferencePipeline {
             derive_seed(&B3Hash::hash(b"default_manifest"), "inference_generator")
         };
 
-        let generator = Generator::new(seed)
+        let generator = Generator::new(seed)?
             .with_temperature(config.temperature)
             .with_top_k(config.top_k.unwrap_or(50))
             .with_top_p(config.top_p.unwrap_or(0.9));
@@ -1261,7 +1261,7 @@ impl InferencePipeline {
 
                     let (pause_token, _ctx) =
                         review_detector.create_pause_token(&trigger, &request.cpid);
-                    let resume_rx = registry.register(pause_token);
+                    let resume_rx = registry.register(pause_token)?;
 
                     // Block until human submits review
                     match resume_rx.await {
@@ -2041,7 +2041,7 @@ impl InferencePipeline {
             evidence,
         );
 
-        let resume_rx = registry.register(pause_token);
+        let resume_rx = registry.register(pause_token)?;
 
         // Block until human submits review
         match resume_rx.await {

@@ -11,6 +11,7 @@ use crate::types::ErrorResponse;
 use axum::{extract::State, http::StatusCode, Extension, Json};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
+use tracing::warn;
 
 /// Inference metrics response
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -84,7 +85,10 @@ pub async fn get_inference_metrics_handler(
     .bind(&claims.tenant_id)
     .fetch_one(pool)
     .await
-    .unwrap_or(0);
+    .unwrap_or_else(|e| {
+        warn!(tenant_id = %claims.tenant_id, error = %e, "Failed to query total requests from routing_decisions");
+        0
+    });
 
     // Query failed requests (those with null or error status in request_log if available)
     let failed_requests: i64 = sqlx::query_scalar(
@@ -93,7 +97,10 @@ pub async fn get_inference_metrics_handler(
     .bind(&claims.tenant_id)
     .fetch_one(pool)
     .await
-    .unwrap_or(0);
+    .unwrap_or_else(|e| {
+        warn!(tenant_id = %claims.tenant_id, error = %e, "Failed to query failed requests from request_log");
+        0
+    });
 
     let successful_requests = (total_requests - failed_requests).max(0);
 
@@ -106,7 +113,10 @@ pub async fn get_inference_metrics_handler(
     .bind(&claims.tenant_id)
     .fetch_one(pool)
     .await
-    .unwrap_or(0);
+    .unwrap_or_else(|e| {
+        warn!(tenant_id = %claims.tenant_id, error = %e, "Failed to query total tokens from telemetry_events");
+        0
+    });
 
     // Calculate tokens per second from last 5 minutes
     let tokens_last_5min: i64 = sqlx::query_scalar(
@@ -118,7 +128,10 @@ pub async fn get_inference_metrics_handler(
     .bind(&claims.tenant_id)
     .fetch_one(pool)
     .await
-    .unwrap_or(0);
+    .unwrap_or_else(|e| {
+        warn!(tenant_id = %claims.tenant_id, error = %e, "Failed to query tokens from last 5 minutes");
+        0
+    });
 
     let tokens_per_second = (tokens_last_5min as f64) / 300.0;
 
@@ -131,7 +144,10 @@ pub async fn get_inference_metrics_handler(
     .bind(&claims.tenant_id)
     .fetch_all(pool)
     .await
-    .unwrap_or_default();
+    .unwrap_or_else(|e| {
+        warn!(tenant_id = %claims.tenant_id, error = %e, "Failed to query latency percentiles from routing_decisions");
+        Vec::new()
+    });
 
     let (latency_p50_ms, latency_p95_ms, latency_p99_ms, latency_mean_ms) = if latencies.is_empty() {
         (0, 0, 0, 0.0)
@@ -220,7 +236,10 @@ pub async fn get_adapter_metrics_handler(
     .bind(&claims.tenant_id)
     .fetch_one(state.db.pool())
     .await
-    .unwrap_or(0);
+    .unwrap_or_else(|e| {
+        warn!(tenant_id = %claims.tenant_id, error = %e, "Failed to query total inferences for adapter metrics");
+        0
+    });
 
     let mut adapter_metrics = Vec::new();
 
@@ -235,7 +254,10 @@ pub async fn get_adapter_metrics_handler(
             .db
             .get_adapter_stats(&claims.tenant_id, &adapter_id)
             .await
-            .unwrap_or((0, 0, 0.0));
+            .unwrap_or_else(|e| {
+                warn!(tenant_id = %claims.tenant_id, adapter_id = %adapter_id, error = %e, "Failed to get adapter stats");
+                (0, 0, 0.0)
+            });
 
         let selection_percentage = if total_inferences > 0 {
             (selected as f64 / total_inferences as f64) * 100.0

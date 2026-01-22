@@ -1486,7 +1486,7 @@ impl CoreMLBackend {
             tracing::info!(
                 model_path = %load_path.display(),
                 compiled_path = %compiled_path.display(),
-                hash = %self.model_hash.as_ref().unwrap().to_short_hex(),
+                hash = %self.model_hash.as_ref().map(|h| h.to_short_hex()).unwrap_or_else(|| "unknown".to_string()),
                 hash_source = %hash_path.display(),
                 "Loaded CoreML model"
             );

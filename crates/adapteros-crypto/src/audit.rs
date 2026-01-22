@@ -127,9 +127,18 @@ impl CryptoAuditEntry {
         error_message: Option<String>,
         metadata: serde_json::Value,
     ) -> Self {
+        // SystemTime::now() should always be after UNIX_EPOCH on any reasonable system.
+        // Use unwrap_or_default for safety; 0 timestamp indicates a system clock issue.
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_else(|e| {
+                tracing::warn!(
+                    target: "security.crypto",
+                    error = %e,
+                    "System clock is before UNIX epoch - using 0 timestamp for audit entry"
+                );
+                std::time::Duration::ZERO
+            })
             .as_secs();
 
         let id = format!(

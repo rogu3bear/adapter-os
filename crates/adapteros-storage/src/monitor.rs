@@ -170,6 +170,10 @@ impl StorageMonitor {
         alert_level: &AlertLevel,
         usage: &StorageUsage,
     ) -> Result<()> {
+        let timestamp = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
         let alert_data = serde_json::json!({
             "type": "storage_alert",
             "level": format!("{:?}", alert_level),
@@ -177,7 +181,7 @@ impl StorageMonitor {
             "used_bytes": usage.used_bytes,
             "available_bytes": usage.available_bytes,
             "file_count": usage.file_count,
-            "timestamp": SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs()
+            "timestamp": timestamp
         });
 
         telemetry
@@ -195,13 +199,17 @@ impl StorageMonitor {
 
     /// Send recovery alert
     async fn send_recovery_alert(telemetry: &TelemetryWriter, usage: &StorageUsage) -> Result<()> {
+        let timestamp = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
         let recovery_data = serde_json::json!({
             "type": "storage_recovery",
             "usage_pct": usage.usage_pct,
             "used_bytes": usage.used_bytes,
             "available_bytes": usage.available_bytes,
             "file_count": usage.file_count,
-            "timestamp": SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs()
+            "timestamp": timestamp
         });
 
         telemetry

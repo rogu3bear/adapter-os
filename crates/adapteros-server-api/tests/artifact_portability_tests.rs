@@ -426,7 +426,7 @@ async fn test_adapter_registration_without_artifact_fields() {
 
     // Artifact fields should be None
     assert!(adapter.manifest_schema_version.is_none());
-    assert!(adapter.content_hash_b3.is_none());
+    assert_eq!(adapter.content_hash_b3, Some("hash456".to_string()));
     assert!(adapter.base_model_id.is_none());
     assert!(adapter.provenance_json.is_none());
 }

@@ -123,10 +123,30 @@ impl CrashJournal {
         let thread_id = format!("{:?}", std::thread::current().id());
 
         // Get previous bundle hash and attestation
+        // CRITICAL: Must recover from mutex poisoning since we're in a panic handler.
+        // If a mutex is poisoned, we still want to capture as much crash info as possible.
         let (prev_hash, attestation, policy_hash) = {
-            let prev = self.prev_bundle_hash.lock().unwrap();
-            let att = self.provider_attestation.lock().unwrap();
-            let pol = self.policy_hash.lock().unwrap();
+            let prev = self
+                .prev_bundle_hash
+                .lock()
+                .unwrap_or_else(|poisoned| {
+                    tracing::warn!("prev_bundle_hash lock poisoned during crash, recovering");
+                    poisoned.into_inner()
+                });
+            let att = self
+                .provider_attestation
+                .lock()
+                .unwrap_or_else(|poisoned| {
+                    tracing::warn!("provider_attestation lock poisoned during crash, recovering");
+                    poisoned.into_inner()
+                });
+            let pol = self
+                .policy_hash
+                .lock()
+                .unwrap_or_else(|poisoned| {
+                    tracing::warn!("policy_hash lock poisoned during crash, recovering");
+                    poisoned.into_inner()
+                });
             (*prev, att.clone(), pol.clone())
         };
 

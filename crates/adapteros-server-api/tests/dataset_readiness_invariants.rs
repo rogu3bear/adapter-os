@@ -77,7 +77,7 @@ async fn multipart_jsonl_empty_marks_failed() {
         .await
         .expect("response body");
     let error: serde_json::Value = serde_json::from_slice(&body).expect("error response");
-    assert_eq!(error["code"].as_str(), Some("DATASET_EMPTY"));
+    assert_eq!(error["code"].as_str(), Some("DATASET_SCHEMA_INVALID"));
 
     let dataset = dataset_by_name(&state, "default", &dataset_name).await;
     assert_eq!(dataset.status, "failed");
@@ -92,7 +92,7 @@ async fn multipart_jsonl_valid_marks_ready_with_rows() {
     let dataset_name = format!("valid-multipart-{}", Uuid::new_v4());
     let boundary = "BOUNDARY-VALID";
     let file_body =
-        "{\"prompt\":\"hi\",\"response\":\"there\"}\n{\"prompt\":\"two\",\"response\":\"ok\"}\n";
+        "{\"prompt\":\"hi\",\"completion\":\"there\"}\n{\"prompt\":\"two\",\"completion\":\"ok\"}\n";
     let body = multipart_body(boundary, &dataset_name, "valid.jsonl", file_body);
 
     let response = app
@@ -201,7 +201,7 @@ async fn chunked_jsonl_empty_marks_failed() {
         .await
         .expect("complete body");
     let error: serde_json::Value = serde_json::from_slice(&body).expect("error response");
-    assert_eq!(error["code"].as_str(), Some("DATASET_EMPTY"));
+    assert_eq!(error["code"].as_str(), Some("DATASET_SCHEMA_INVALID"));
 
     let dataset = dataset_by_name(&state, "default", &dataset_name).await;
     assert_eq!(dataset.status, "failed");
@@ -215,7 +215,7 @@ async fn chunked_jsonl_valid_marks_ready_with_rows() {
 
     let dataset_name = format!("valid-chunked-{}", Uuid::new_v4());
     let file_body =
-        b"{\"prompt\":\"hi\",\"response\":\"there\"}\n{\"prompt\":\"two\",\"response\":\"ok\"}\n";
+        b"{\"prompt\":\"hi\",\"completion\":\"there\"}\n{\"prompt\":\"two\",\"completion\":\"ok\"}\n";
 
     let initiate_body = json!({
         "file_name": "valid.jsonl",

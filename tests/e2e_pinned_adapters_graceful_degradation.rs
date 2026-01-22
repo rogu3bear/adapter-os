@@ -22,15 +22,19 @@ use common::test_harness::ApiTestHarness;
 // Session Pinned Adapter API Tests
 // =============================================================================
 
-// TODO: Investigate foreign key constraint failure in chat_sessions table
-// The test fails with FOREIGN KEY constraint failed when creating a session
-// despite the tenant and user being created in the harness.
 #[tokio::test]
-#[ignore = "Foreign key constraint investigation needed - chat_sessions schema change"]
 async fn test_create_session_with_pinned_adapters() {
     let harness = ApiTestHarness::new()
         .await
         .expect("Failed to initialize test harness");
+
+    let user = harness
+        .state
+        .db
+        .get_user_by_email("testadmin@example.com")
+        .await
+        .expect("Failed to fetch user")
+        .expect("Test user missing");
 
     let pinned_adapters = vec!["adapter-a", "adapter-b", "adapter-c"];
 
@@ -42,8 +46,8 @@ async fn test_create_session_with_pinned_adapters() {
         .create_chat_session(CreateChatSessionParams {
             id: session_id.to_string(),
             tenant_id: "default".to_string(),
-            user_id: Some("testadmin@example.com".to_string()),
-            created_by: Some("testadmin@example.com".to_string()),
+            user_id: Some(user.id.clone()),
+            created_by: Some(user.id.clone()),
             stack_id: None,
             collection_id: None,
             document_id: None,
