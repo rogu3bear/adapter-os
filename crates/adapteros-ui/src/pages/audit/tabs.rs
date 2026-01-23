@@ -1,6 +1,6 @@
 //! Audit page tab components
 //!
-//! Individual tab views for timeline, hash chain, merkle tree, and compliance.
+//! Individual tab views for timeline, hash chain, merkle tree, compliance, and embeddings.
 
 use crate::api::{
     AuditChainEntry, AuditChainResponse, AuditLogEntry, AuditLogsResponse,
@@ -766,5 +766,229 @@ pub fn ComplianceTab(
                 }
             }}
         </Card>
+    }
+}
+
+// ============================================================================
+// Embeddings Tab
+// ============================================================================
+
+/// Mock embedding benchmark report for UI development
+/// Will be replaced with API types from adapteros-api-types
+#[derive(Debug, Clone)]
+pub struct EmbeddingBenchmarkReport {
+    pub report_id: String,
+    pub timestamp: String,
+    pub model_name: String,
+    pub model_hash: String,
+    pub is_finetuned: bool,
+    pub corpus_version: String,
+    pub num_chunks: usize,
+    pub recall_at_10: f64,
+    pub ndcg_at_10: f64,
+    pub mrr_at_10: f64,
+    pub determinism_pass: bool,
+    pub determinism_runs: usize,
+}
+
+/// Generate mock benchmark reports for UI development
+fn mock_benchmark_reports() -> Vec<EmbeddingBenchmarkReport> {
+    vec![
+        EmbeddingBenchmarkReport {
+            report_id: "bench-001".to_string(),
+            timestamp: "2026-01-23T10:30:00Z".to_string(),
+            model_name: "nomic-embed-text-v1.5".to_string(),
+            model_hash: "abc123def456".to_string(),
+            is_finetuned: false,
+            corpus_version: "v1.2.0".to_string(),
+            num_chunks: 1250,
+            recall_at_10: 0.847,
+            ndcg_at_10: 0.812,
+            mrr_at_10: 0.756,
+            determinism_pass: true,
+            determinism_runs: 100,
+        },
+        EmbeddingBenchmarkReport {
+            report_id: "bench-002".to_string(),
+            timestamp: "2026-01-22T14:15:00Z".to_string(),
+            model_name: "nomic-embed-text-v1.5-ft".to_string(),
+            model_hash: "789ghi012jkl".to_string(),
+            is_finetuned: true,
+            corpus_version: "v1.2.0".to_string(),
+            num_chunks: 1250,
+            recall_at_10: 0.891,
+            ndcg_at_10: 0.858,
+            mrr_at_10: 0.802,
+            determinism_pass: true,
+            determinism_runs: 100,
+        },
+        EmbeddingBenchmarkReport {
+            report_id: "bench-003".to_string(),
+            timestamp: "2026-01-21T09:45:00Z".to_string(),
+            model_name: "nomic-embed-text-v1.5".to_string(),
+            model_hash: "abc123def456".to_string(),
+            is_finetuned: false,
+            corpus_version: "v1.1.0".to_string(),
+            num_chunks: 980,
+            recall_at_10: 0.823,
+            ndcg_at_10: 0.789,
+            mrr_at_10: 0.734,
+            determinism_pass: true,
+            determinism_runs: 100,
+        },
+        EmbeddingBenchmarkReport {
+            report_id: "bench-004".to_string(),
+            timestamp: "2026-01-20T16:30:00Z".to_string(),
+            model_name: "all-MiniLM-L6-v2".to_string(),
+            model_hash: "mno345pqr678".to_string(),
+            is_finetuned: false,
+            corpus_version: "v1.1.0".to_string(),
+            num_chunks: 980,
+            recall_at_10: 0.756,
+            ndcg_at_10: 0.721,
+            mrr_at_10: 0.668,
+            determinism_pass: false,
+            determinism_runs: 100,
+        },
+    ]
+}
+
+#[component]
+pub fn EmbeddingsTab() -> impl IntoView {
+    // Mock data for now (will be replaced with API call)
+    let mock_reports = mock_benchmark_reports();
+
+    // Calculate latest metrics for summary cards
+    let latest = mock_reports.first().cloned();
+    let latest_recall = latest.as_ref().map(|r| r.recall_at_10).unwrap_or(0.0);
+    let latest_ndcg = latest.as_ref().map(|r| r.ndcg_at_10).unwrap_or(0.0);
+    let latest_mrr = latest.as_ref().map(|r| r.mrr_at_10).unwrap_or(0.0);
+    let determinism_ok = latest.as_ref().map(|r| r.determinism_pass).unwrap_or(false);
+
+    view! {
+        <div class="space-y-6">
+            // Summary cards row
+            <div class="grid gap-4 md:grid-cols-4">
+                <Card>
+                    <div class="p-4">
+                        <p class="text-sm text-muted-foreground">"Recall@10"</p>
+                        <p class="text-2xl font-bold">{format!("{:.1}%", latest_recall * 100.0)}</p>
+                        <p class="text-xs text-muted-foreground">"Latest benchmark"</p>
+                    </div>
+                </Card>
+                <Card>
+                    <div class="p-4">
+                        <p class="text-sm text-muted-foreground">"nDCG@10"</p>
+                        <p class="text-2xl font-bold">{format!("{:.1}%", latest_ndcg * 100.0)}</p>
+                        <p class="text-xs text-muted-foreground">"Normalized discounted gain"</p>
+                    </div>
+                </Card>
+                <Card>
+                    <div class="p-4">
+                        <p class="text-sm text-muted-foreground">"MRR@10"</p>
+                        <p class="text-2xl font-bold">{format!("{:.1}%", latest_mrr * 100.0)}</p>
+                        <p class="text-xs text-muted-foreground">"Mean reciprocal rank"</p>
+                    </div>
+                </Card>
+                <Card>
+                    <div class="p-4">
+                        <p class="text-sm text-muted-foreground">"Determinism"</p>
+                        <div class="flex items-center gap-2">
+                            {if determinism_ok {
+                                view! {
+                                    <Badge variant=BadgeVariant::Success>"PASS"</Badge>
+                                }.into_any()
+                            } else {
+                                view! {
+                                    <Badge variant=BadgeVariant::Destructive>"FAIL"</Badge>
+                                }.into_any()
+                            }}
+                        </div>
+                        <p class="text-xs text-muted-foreground mt-1">
+                            {format!("{} verification runs", latest.as_ref().map(|r| r.determinism_runs).unwrap_or(0))}
+                        </p>
+                    </div>
+                </Card>
+            </div>
+
+            // Reports table
+            <Card title="Benchmark History".to_string()>
+                <Table>
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead>"Timestamp"</TableHead>
+                            <TableHead>"Model"</TableHead>
+                            <TableHead>"Corpus"</TableHead>
+                            <TableHead>"Recall@10"</TableHead>
+                            <TableHead>"nDCG@10"</TableHead>
+                            <TableHead>"Determinism"</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {mock_reports
+                            .into_iter()
+                            .map(|report| {
+                                view! { <EmbeddingBenchmarkRow report=report/> }
+                            })
+                            .collect::<Vec<_>>()}
+                    </TableBody>
+                </Table>
+            </Card>
+        </div>
+    }
+}
+
+#[component]
+fn EmbeddingBenchmarkRow(report: EmbeddingBenchmarkReport) -> impl IntoView {
+    let model_display = if report.is_finetuned {
+        format!("{} (finetuned)", report.model_name)
+    } else {
+        report.model_name.clone()
+    };
+
+    let hash_short = if report.model_hash.len() > 8 {
+        format!("{}...", &report.model_hash[..8])
+    } else {
+        report.model_hash.clone()
+    };
+
+    let determinism_variant = if report.determinism_pass {
+        BadgeVariant::Success
+    } else {
+        BadgeVariant::Destructive
+    };
+
+    view! {
+        <TableRow>
+            <TableCell>
+                <div>
+                    <p class="text-sm font-mono">{report.timestamp.clone()}</p>
+                    <p class="text-xs text-muted-foreground font-mono">{report.report_id.clone()}</p>
+                </div>
+            </TableCell>
+            <TableCell>
+                <div>
+                    <p class="text-sm">{model_display}</p>
+                    <p class="text-xs text-muted-foreground font-mono">{hash_short}</p>
+                </div>
+            </TableCell>
+            <TableCell>
+                <div>
+                    <p class="text-sm">{report.corpus_version.clone()}</p>
+                    <p class="text-xs text-muted-foreground">{format!("{} chunks", report.num_chunks)}</p>
+                </div>
+            </TableCell>
+            <TableCell>
+                <span class="font-mono text-sm">{format!("{:.1}%", report.recall_at_10 * 100.0)}</span>
+            </TableCell>
+            <TableCell>
+                <span class="font-mono text-sm">{format!("{:.1}%", report.ndcg_at_10 * 100.0)}</span>
+            </TableCell>
+            <TableCell>
+                <Badge variant=determinism_variant>
+                    {if report.determinism_pass { "PASS" } else { "FAIL" }}
+                </Badge>
+            </TableCell>
+        </TableRow>
     }
 }

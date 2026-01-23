@@ -14,7 +14,7 @@ use leptos::prelude::*;
 use std::sync::Arc;
 
 use components::{ChainStatusSummary, FilterSection};
-use tabs::{ComplianceTab, HashChainTab, MerkleTreeTab, TimelineTab};
+use tabs::{ComplianceTab, EmbeddingsTab, HashChainTab, MerkleTreeTab, TimelineTab};
 
 // ============================================================================
 // Tab types
@@ -26,6 +26,7 @@ pub enum AuditTab {
     HashChain,
     MerkleTree,
     Compliance,
+    Embeddings,
 }
 
 #[component]
@@ -114,7 +115,7 @@ pub fn Audit() -> impl IntoView {
         use_api_resource(|client: Arc<ApiClient>| async move { client.verify_audit_chain().await });
 
     // Fetch compliance
-    let (compliance, _refetch_compliance) =
+    let (compliance, refetch_compliance) =
         use_api_resource(
             |client: Arc<ApiClient>| async move { client.get_compliance_audit().await },
         );
@@ -138,6 +139,7 @@ pub fn Audit() -> impl IntoView {
         refetch_logs.run(());
         refetch_chain.run(());
         refetch_verification.run(());
+        refetch_compliance.run(());
     };
 
     view! {
@@ -172,6 +174,7 @@ pub fn Audit() -> impl IntoView {
                         <TabButton label="Hash Chain" tab=AuditTab::HashChain active_tab=active_tab/>
                         <TabButton label="Merkle Tree" tab=AuditTab::MerkleTree active_tab=active_tab/>
                         <TabButton label="Compliance" tab=AuditTab::Compliance active_tab=active_tab/>
+                        <TabButton label="Embeddings" tab=AuditTab::Embeddings active_tab=active_tab/>
                     </nav>
                 </div>
 
@@ -197,6 +200,9 @@ pub fn Audit() -> impl IntoView {
                         }
                         AuditTab::Compliance => {
                             view! { <ComplianceTab compliance=compliance/> }.into_any()
+                        }
+                        AuditTab::Embeddings => {
+                            view! { <EmbeddingsTab/> }.into_any()
                         }
                     }
                 }}
