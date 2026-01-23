@@ -1,7 +1,10 @@
+use super::audit::{log_auth_event, AuthEvent};
 use crate::auth::Claims;
 use crate::auth_common::{clear_auth_cookies, AuthConfig};
+use crate::security::revoke_token;
 use crate::state::AppState;
 use crate::types::ErrorResponse;
+use chrono::{Duration, Utc};
 use adapteros_api_types::auth::SessionInfo;
 use adapteros_api_types::API_SCHEMA_VERSION;
 use axum::{
@@ -94,6 +97,7 @@ pub async fn revoke_session_handler(
         return Ok(StatusCode::OK);
     }
 
+    // Delete the session
     state
         .db
         .delete_auth_session(&session_id)
@@ -106,7 +110,33 @@ pub async fn revoke_session_handler(
             )
         })?;
 
-    info!(user_id = %claims.sub, session_id = %session_id, "Session revoked");
+    // Add to revoked tokens blacklist for defense-in-depth
+    // Use 8 hours as default token expiry if we don't have the actual value
+    let expires_at = (Utc::now() + Duration::hours(8)).to_rfc3339();
+    if let Err(e) = revoke_token(
+        &state.db,
+        &session_id,
+        &claims.sub,
+        &claims.tenant_id,
+        &expires_at,
+        Some(&claims.sub),
+        Some("session_revocation"),
+    )
+    .await
+    {
+        // Log but don't fail the operation
+        warn!(error = %e, session_id = %session_id, "Failed to add session to revocation blacklist");
+    }
+
+    log_auth_event(
+        AuthEvent::SessionRevoked,
+        Some(&claims.sub),
+        None,
+        Some(&claims.tenant_id),
+        None,
+        Some(&session_id),
+        None,
+    );
     Ok(StatusCode::OK)
 }
 
@@ -131,9 +161,33 @@ pub async fn logout_handler(
     // Revoke the JTI of the current token to prevent replay until expiry.
     // Use session_id if available, otherwise fallback to jti
     let sid = claims.session_id.as_deref().unwrap_or(&claims.jti);
+
+    // 1. Delete the session record
     if let Err(e) = state.db.delete_auth_session(sid).await {
         // Log but don't fail logout
         warn!(error = %e, session_id = %sid, "Failed to revoke session on logout");
+    }
+
+    // 2. Add token to revoked tokens blacklist for defense-in-depth
+    // This prevents token replay even if session deletion fails
+    let expires_at = chrono::DateTime::from_timestamp(claims.exp, 0)
+        .map(|dt| dt.with_timezone(&Utc))
+        .unwrap_or_else(|| Utc::now() + Duration::hours(8))
+        .to_rfc3339();
+
+    if let Err(e) = revoke_token(
+        &state.db,
+        &claims.jti,
+        &claims.sub,
+        &claims.tenant_id,
+        &expires_at,
+        Some(&claims.sub),
+        Some("logout"),
+    )
+    .await
+    {
+        // Log but don't fail logout
+        warn!(error = %e, jti = %claims.jti, "Failed to add token to revocation blacklist");
     }
 
     // Clear httpOnly cookies to fully log out browser clients
@@ -143,6 +197,14 @@ pub async fn logout_handler(
         // Non-fatal, session is already deleted
     }
 
-    info!(user_id = %claims.sub, "User logged out");
+    log_auth_event(
+        AuthEvent::LogoutSuccess,
+        Some(&claims.sub),
+        None,
+        Some(&claims.tenant_id),
+        None,
+        Some(sid),
+        None,
+    );
     Ok((headers, StatusCode::OK))
 }
