@@ -530,17 +530,21 @@ impl PeerRegistry {
             };
 
             let peer_info = PeerInfo {
-                host_id: row.try_get("host_id")
+                host_id: row
+                    .try_get("host_id")
                     .map_err(|e| AosError::Database(format!("Failed to get host_id: {}", e)))?,
                 pubkey,
                 hostname: row.try_get("hostname").ok(),
-                registered_at: row.try_get("registered_at")
-                    .map_err(|e| AosError::Database(format!("Failed to get registered_at: {}", e)))?,
+                registered_at: row.try_get("registered_at").map_err(|e| {
+                    AosError::Database(format!("Failed to get registered_at: {}", e))
+                })?,
                 last_seen_at: row.try_get("last_seen_at").ok(),
                 last_heartbeat_at: row.try_get("last_heartbeat_at").ok(),
                 attestation_metadata,
-                active: row.try_get::<i64, _>("active")
-                    .map_err(|e| AosError::Database(format!("Failed to get active: {}", e)))? != 0,
+                active: row
+                    .try_get::<i64, _>("active")
+                    .map_err(|e| AosError::Database(format!("Failed to get active: {}", e)))?
+                    != 0,
                 health_status,
                 discovery_status,
                 failed_heartbeats: row.try_get::<i32, _>("failed_heartbeats").unwrap_or(0) as u32,
@@ -616,17 +620,21 @@ impl PeerRegistry {
             };
 
             peers.push(PeerInfo {
-                host_id: row.try_get("host_id")
+                host_id: row
+                    .try_get("host_id")
                     .map_err(|e| AosError::Database(format!("Failed to get host_id: {}", e)))?,
                 pubkey,
                 hostname: row.try_get("hostname").ok(),
-                registered_at: row.try_get("registered_at")
-                    .map_err(|e| AosError::Database(format!("Failed to get registered_at: {}", e)))?,
+                registered_at: row.try_get("registered_at").map_err(|e| {
+                    AosError::Database(format!("Failed to get registered_at: {}", e))
+                })?,
                 last_seen_at: row.try_get("last_seen_at").ok(),
                 last_heartbeat_at: row.try_get("last_heartbeat_at").ok(),
                 attestation_metadata,
-                active: row.try_get::<i64, _>("active")
-                    .map_err(|e| AosError::Database(format!("Failed to get active: {}", e)))? != 0,
+                active: row
+                    .try_get::<i64, _>("active")
+                    .map_err(|e| AosError::Database(format!("Failed to get active: {}", e)))?
+                    != 0,
                 health_status,
                 discovery_status,
                 failed_heartbeats: row.try_get::<i32, _>("failed_heartbeats").unwrap_or(0) as u32,
