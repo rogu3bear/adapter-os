@@ -56,6 +56,33 @@ pub fn serde_err(e: serde_json::Error) -> AosError {
     AosError::Serialization(e)
 }
 
+/// Map any Display error to AosError::Database with context
+///
+/// Generic version of `db_err` that works with any error type implementing `Display`.
+/// Useful for KV storage backends, StorageError, and other non-sqlx error types.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// # use adapteros_db::query_helpers::kv_err;
+/// # async fn example() -> adapteros_core::Result<()> {
+/// # struct MockBackend;
+/// # impl MockBackend {
+/// #     async fn get(&self, _: &str) -> Result<Option<Vec<u8>>, String> { Ok(None) }
+/// # }
+/// # let backend = MockBackend;
+/// let result = backend.get("key")
+///     .await
+///     .map_err(kv_err("get user"))?;
+/// # Ok(())
+/// # }
+/// ```
+#[inline]
+pub fn kv_err<E: Display>(context: impl Into<String>) -> impl Fn(E) -> AosError {
+    let context = context.into();
+    move |e| AosError::Database(format!("Failed to {}: {}", context, e))
+}
+
 /// Batch operation result tracker
 ///
 /// Reduces duplication of the pattern:

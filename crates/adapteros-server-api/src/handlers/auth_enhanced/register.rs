@@ -3,14 +3,13 @@
 //! Allows users to self-register with email and password.
 //! Each registered user gets their own isolated tenant.
 
-use crate::auth::{
-    hash_password, issue_access_token_ed25519, issue_access_token_hmac,
-    issue_refresh_token_ed25519, issue_refresh_token_hmac, validate_refresh_token_ed25519,
-    validate_refresh_token_hmac,
+use crate::auth::{hash_password, validate_refresh_token_ed25519, validate_refresh_token_hmac};
+use crate::auth_common::{
+    attach_auth_cookie, attach_refresh_cookie, issue_access_token, issue_refresh_token,
+    AccessTokenParams, AuthConfig, RefreshTokenParams,
 };
-use crate::auth_common::{attach_auth_cookie, attach_refresh_cookie, AuthConfig};
 use crate::ip_extraction::ClientIp;
-use crate::security::upsert_user_session;
+use crate::security::{check_registration_rate_limit, track_registration_attempt, upsert_user_session};
 use crate::state::AppState;
 use crate::types::ErrorResponse;
 use adapteros_db::users::Role;
@@ -24,7 +23,9 @@ use chrono::{Duration, Utc};
 use tracing::{info, warn};
 use uuid::Uuid;
 
+use super::audit::{log_auth_event, log_rate_limit_event, AuthEvent};
 use super::types::{RegisterRequest, RegisterResponse};
+use super::validation::{is_valid_email, normalize_email};
 
 /// Minimum password length requirement
 const MIN_PASSWORD_LENGTH: usize = 12;
@@ -76,9 +77,34 @@ pub async fn register_handler(
         ));
     }
 
-    // Validate email format (basic check)
-    let email = req.email.trim().to_lowercase();
-    if !email.contains('@') || !email.contains('.') || email.len() < 5 {
+    // Check registration rate limit per IP
+    if check_registration_rate_limit(&state.db, &client_ip.0)
+        .await
+        .unwrap_or(false)
+    {
+        log_rate_limit_event("registration", Some(&client_ip.0), 0, 5);
+        log_auth_event(
+            AuthEvent::RateLimitExceeded,
+            None,
+            None,
+            None,
+            Some(&client_ip.0),
+            None,
+            Some("registration_rate_limit"),
+        );
+        return Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(
+                ErrorResponse::new("too many registration attempts")
+                    .with_code("RATE_LIMIT_EXCEEDED")
+                    .with_string_details("please wait before attempting to register again"),
+            ),
+        ));
+    }
+
+    // Normalize and validate email format (RFC 5322 compliant)
+    let email = normalize_email(&req.email);
+    if !is_valid_email(&email) {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(
@@ -252,74 +278,46 @@ pub async fn register_handler(
     let roles_vec = vec![role.clone()];
     let admin_tenants = vec![tenant_id.clone()];
 
-    let token = if state.use_ed25519 {
-        issue_access_token_ed25519(
-            &user_id,
-            &email,
-            &role,
-            &roles_vec,
-            &tenant_id,
-            &admin_tenants,
-            None,
-            &session_id,
-            None,
-            &state.ed25519_keypair,
-            Some(auth_cfg.access_ttl()),
-        )
-    } else {
-        issue_access_token_hmac(
-            &user_id,
-            &email,
-            &role,
-            &roles_vec,
-            &tenant_id,
-            &admin_tenants,
-            None,
-            &session_id,
-            None,
-            &state.jwt_secret,
-            Some(auth_cfg.access_ttl()),
-        )
-    }
-    .map_err(|e| {
-        warn!(error = %e, user_id = %user_id, "Failed to generate access token");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("token generation failed").with_code("INTERNAL_ERROR")),
-        )
-    })?;
+    let access_params = AccessTokenParams {
+        user_id: &user_id,
+        email: &email,
+        role: &role,
+        roles: &roles_vec,
+        tenant_id: &tenant_id,
+        admin_tenants: &admin_tenants,
+        device_id: None,
+        session_id: &session_id,
+        mfa_level: None,
+    };
+    let token = issue_access_token(&state, &access_params, Some(auth_cfg.access_ttl())).map_err(
+        |e| {
+            warn!(error = %e, user_id = %user_id, "Failed to generate access token");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("token generation failed").with_code("INTERNAL_ERROR")),
+            )
+        },
+    )?;
 
     let rot_id = format!("rot-{}", Uuid::now_v7());
-    let refresh_token = if state.use_ed25519 {
-        issue_refresh_token_ed25519(
-            &user_id,
-            &tenant_id,
-            &roles_vec,
-            None,
-            &session_id,
-            &rot_id,
-            &state.ed25519_keypair,
-            Some(auth_cfg.effective_ttl()),
-        )
-    } else {
-        issue_refresh_token_hmac(
-            &user_id,
-            &tenant_id,
-            &roles_vec,
-            None,
-            &session_id,
-            &rot_id,
-            &state.jwt_secret,
-            Some(auth_cfg.effective_ttl()),
-        )
-    }
-    .map_err(|e| {
-        warn!(error = %e, user_id = %user_id, "Failed to generate refresh token");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("token generation failed").with_code("INTERNAL_ERROR")),
-        )
-    })?;
+    let refresh_params = RefreshTokenParams {
+        user_id: &user_id,
+        tenant_id: &tenant_id,
+        roles: &roles_vec,
+        device_id: None,
+        session_id: &session_id,
+        rot_id: &rot_id,
+    };
+    let refresh_token =
+        issue_refresh_token(&state, &refresh_params, Some(auth_cfg.effective_ttl())).map_err(
+            |e| {
+                warn!(error = %e, user_id = %user_id, "Failed to generate refresh token");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse::new("token generation failed").with_code("INTERNAL_ERROR")),
+                )
+            },
+        )?;
 
     // Validate refresh token to get expiry
     let refresh_claims = if state.use_ed25519 {
@@ -388,12 +386,19 @@ pub async fn register_handler(
         )
     })?;
 
-    info!(
-        user_id = %user_id,
-        email = %email,
-        tenant_id = %tenant_id,
-        ip = %client_ip.0,
-        "User registration completed successfully"
+    // Track registration attempt for rate limiting
+    if let Err(e) = track_registration_attempt(&state.db, &client_ip.0).await {
+        warn!(error = %e, ip = %client_ip.0, "Failed to track registration attempt (non-fatal)");
+    }
+
+    log_auth_event(
+        AuthEvent::RegistrationSuccess,
+        Some(&user_id),
+        None, // Don't log email on success (privacy)
+        Some(&tenant_id),
+        Some(&client_ip.0),
+        Some(&session_id),
+        None,
     );
 
     Ok((

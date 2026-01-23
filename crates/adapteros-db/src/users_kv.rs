@@ -3,6 +3,7 @@
 //! This module provides KV storage operations for the User entity, enabling
 //! dual-write migration from SQL to KV storage.
 
+use crate::query_helpers::kv_err;
 use crate::users::User;
 // Use storage Role type for KV operations, local Role for SQL compatibility
 use adapteros_core::{AosError, Result};
@@ -190,7 +191,7 @@ impl<B: KvBackend> UserKvRepository<B> {
                 Ok(Some(user))
             }
             Ok(None) => Ok(None),
-            Err(e) => Err(AosError::Database(format!("Failed to get user: {}", e))),
+            Err(e) => Err(kv_err("get user")(e)),
         }
     }
 
@@ -201,7 +202,7 @@ impl<B: KvBackend> UserKvRepository<B> {
         match self.backend.get(&key).await {
             Ok(Some(bytes)) => Ok(Some(Self::deserialize_user(&bytes)?)),
             Ok(None) => Ok(None),
-            Err(e) => Err(AosError::Database(format!("Failed to get user: {}", e))),
+            Err(e) => Err(kv_err("get user")(e)),
         }
     }
 
@@ -212,7 +213,7 @@ impl<B: KvBackend> UserKvRepository<B> {
         self.backend
             .set(&key, bytes)
             .await
-            .map_err(|e| AosError::Database(format!("Failed to save user: {}", e)))
+            .map_err(kv_err("save user"))
     }
 
     /// Internal helper: update secondary indexes when creating/updating user
@@ -222,7 +223,7 @@ impl<B: KvBackend> UserKvRepository<B> {
         self.backend
             .set(&email_key, user.id.as_bytes().to_vec())
             .await
-            .map_err(|e| AosError::Database(format!("Failed to update email index: {}", e)))?;
+            .map_err(kv_err("update email index"))?;
 
         // Tenant users set - add to set
         let tenant_set_key = UserKeys::tenant_users_set(&user.tenant_id);
@@ -230,7 +231,7 @@ impl<B: KvBackend> UserKvRepository<B> {
         self.backend
             .set(&format!("{}::{}", tenant_set_key, user.id), vec![1])
             .await
-            .map_err(|e| AosError::Database(format!("Failed to update tenant index: {}", e)))?;
+            .map_err(kv_err("update tenant index"))?;
 
         // Role users set - add to new role, remove from old role if changed
         if let Some(old) = old_user {
@@ -252,7 +253,7 @@ impl<B: KvBackend> UserKvRepository<B> {
         self.backend
             .set(&format!("{}::{}", role_set_key, user.id), vec![1])
             .await
-            .map_err(|e| AosError::Database(format!("Failed to update role index: {}", e)))?;
+            .map_err(kv_err("update role index"))?;
 
         Ok(())
     }
@@ -334,7 +335,7 @@ impl<B: KvBackend> UserKvOps for UserKvRepository<B> {
         self.backend
             .set(&key, value)
             .await
-            .map_err(|e| AosError::Database(format!("Failed to create user: {}", e)))?;
+            .map_err(kv_err("create user"))?;
 
         // Update secondary indexes
         self.update_indexes(&user, None).await?;
@@ -354,18 +355,14 @@ impl<B: KvBackend> UserKvOps for UserKvRepository<B> {
 
         match self.backend.get(&email_key).await {
             Ok(Some(id_bytes)) => {
-                let id = String::from_utf8(id_bytes).map_err(|e| {
-                    AosError::Database(format!("Invalid user ID in email index: {}", e))
-                })?;
+                let id = String::from_utf8(id_bytes)
+                    .map_err(kv_err("decode user ID in email index"))?;
 
                 // Get user with password hash (needed for authentication)
                 self.get_user_with_pw_hash(&id).await
             }
             Ok(None) => Ok(None),
-            Err(e) => Err(AosError::Database(format!(
-                "Failed to lookup email index: {}",
-                e
-            ))),
+            Err(e) => Err(kv_err("lookup email index")(e)),
         }
     }
 
@@ -415,7 +412,7 @@ impl<B: KvBackend> UserKvOps for UserKvRepository<B> {
         self.backend
             .set(&key, value)
             .await
-            .map_err(|e| AosError::Database(format!("Failed to ensure user: {}", e)))?;
+            .map_err(kv_err("ensure user"))?;
 
         // Update secondary indexes
         self.update_indexes(&user, None).await?;
@@ -431,7 +428,7 @@ impl<B: KvBackend> UserKvOps for UserKvRepository<B> {
 
         match self.backend.scan_prefix(prefix).await {
             Ok(keys) => Ok(keys.len() as i64),
-            Err(e) => Err(AosError::Database(format!("Failed to count users: {}", e))),
+            Err(e) => Err(kv_err("count users")(e)),
         }
     }
 
@@ -441,7 +438,7 @@ impl<B: KvBackend> UserKvOps for UserKvRepository<B> {
             .backend
             .scan_prefix(prefix)
             .await
-            .map_err(|e| AosError::Database(format!("Failed to list users: {}", e)))?;
+            .map_err(kv_err("list users"))?;
 
         let mut users = Vec::new();
         for key in keys {
@@ -463,7 +460,7 @@ impl<B: KvBackend> UserKvOps for UserKvRepository<B> {
             .backend
             .scan_prefix(&prefix)
             .await
-            .map_err(|e| AosError::Database(format!("Failed to scan tenant users: {}", e)))?;
+            .map_err(kv_err("scan tenant users"))?;
 
         let mut users = Vec::new();
 
@@ -487,7 +484,7 @@ impl<B: KvBackend> UserKvOps for UserKvRepository<B> {
             .backend
             .scan_prefix(&prefix)
             .await
-            .map_err(|e| AosError::Database(format!("Failed to scan role users: {}", e)))?;
+            .map_err(kv_err("scan role users"))?;
 
         let mut users = Vec::new();
 
@@ -510,7 +507,7 @@ impl<B: KvBackend> UserKvOps for UserKvRepository<B> {
             .backend
             .get(&key)
             .await
-            .map_err(|e| AosError::Database(format!("Failed to get user: {}", e)))?
+            .map_err(kv_err("get user for role update"))?
             .ok_or_else(|| AosError::Database(format!("User not found: {}", id)))?;
 
         let old_user = Self::deserialize_user(&bytes)?;
@@ -522,7 +519,7 @@ impl<B: KvBackend> UserKvOps for UserKvRepository<B> {
         self.backend
             .set(&key, value)
             .await
-            .map_err(|e| AosError::Database(format!("Failed to update user role: {}", e)))?;
+            .map_err(kv_err("update user role"))?;
 
         // Update indexes (will handle role set changes)
         self.update_indexes(&updated_user, Some(&old_user)).await?;
@@ -539,7 +536,7 @@ impl<B: KvBackend> UserKvOps for UserKvRepository<B> {
             .backend
             .get(&key)
             .await
-            .map_err(|e| AosError::Database(format!("Failed to get user: {}", e)))?
+            .map_err(kv_err("get user for disabled update"))?
             .ok_or_else(|| AosError::Database(format!("User not found: {}", id)))?;
 
         let mut user = Self::deserialize_user(&bytes)?;
@@ -547,9 +544,10 @@ impl<B: KvBackend> UserKvOps for UserKvRepository<B> {
 
         // Update user entity
         let value = Self::serialize_user(&user)?;
-        self.backend.set(&key, value).await.map_err(|e| {
-            AosError::Database(format!("Failed to update user disabled status: {}", e))
-        })?;
+        self.backend
+            .set(&key, value)
+            .await
+            .map_err(kv_err("update user disabled status"))?;
 
         debug!(user_id = %id, disabled = %disabled, "Updated user disabled status in KV storage");
 
@@ -568,7 +566,7 @@ impl<B: KvBackend> UserKvOps for UserKvRepository<B> {
             .backend
             .get(&key)
             .await
-            .map_err(|e| AosError::Database(format!("Failed to get user: {}", e)))?
+            .map_err(kv_err("get user for password update"))?
             .ok_or_else(|| AosError::Database(format!("User not found: {}", id)))?;
 
         let mut user = Self::deserialize_user(&bytes)?;
@@ -581,7 +579,7 @@ impl<B: KvBackend> UserKvOps for UserKvRepository<B> {
         self.backend
             .set(&key, value)
             .await
-            .map_err(|e| AosError::Database(format!("Failed to update user password: {}", e)))?;
+            .map_err(kv_err("update user password"))?;
 
         debug!(user_id = %id, "Updated user password in KV storage");
 
@@ -704,7 +702,7 @@ impl<B: KvBackend> UserKvOps for UserKvRepository<B> {
         let bytes = match self.backend.get(&key).await {
             Ok(Some(b)) => b,
             Ok(None) => return Ok(false),
-            Err(e) => return Err(AosError::Database(format!("Failed to get user: {}", e))),
+            Err(e) => return Err(kv_err("get user for deletion")(e)),
         };
 
         let user = Self::deserialize_user(&bytes)?;
@@ -717,7 +715,7 @@ impl<B: KvBackend> UserKvOps for UserKvRepository<B> {
             .backend
             .delete(&key)
             .await
-            .map_err(|e| AosError::Database(format!("Failed to delete user: {}", e)))?;
+            .map_err(kv_err("delete user"))?;
 
         if deleted {
             debug!(user_id = %id, "Deleted user from KV storage");

@@ -1,3 +1,4 @@
+use crate::query_helpers::{db_err, FilterBuilder};
 use crate::Db;
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
@@ -221,7 +222,8 @@ impl Db {
     ) -> Result<Vec<ActivityEvent>> {
         let limit = limit.unwrap_or(50);
         let offset = offset.unwrap_or(0);
-        let mut query = String::from(
+
+        let mut builder = FilterBuilder::new(
             r#"
             SELECT id, workspace_id, user_id, tenant_id, event_type, target_type, target_id, metadata_json, created_at
             FROM activity_events
@@ -229,46 +231,24 @@ impl Db {
             "#,
         );
 
-        if workspace_id.is_some() {
-            query.push_str(" AND workspace_id = ?");
+        builder.add_filter("workspace_id", workspace_id);
+        builder.add_filter("user_id", user_id);
+        builder.add_filter("tenant_id", tenant_id);
+        builder.add_filter("event_type", event_type.as_ref().map(|e| e.to_string()));
+
+        builder.push_str(" ORDER BY created_at DESC LIMIT ? OFFSET ?");
+        builder.add_param(limit);
+        builder.add_param(offset);
+
+        let mut q = sqlx::query_as::<_, ActivityEvent>(builder.query());
+        for param in builder.params() {
+            q = q.bind(param);
         }
 
-        if user_id.is_some() {
-            query.push_str(" AND user_id = ?");
-        }
-
-        if tenant_id.is_some() {
-            query.push_str(" AND tenant_id = ?");
-        }
-
-        if event_type.is_some() {
-            query.push_str(" AND event_type = ?");
-        }
-
-        query.push_str(" ORDER BY created_at DESC LIMIT ? OFFSET ?");
-
-        let mut query_builder = sqlx::query_as::<_, ActivityEvent>(&query);
-
-        if let Some(ws_id) = workspace_id {
-            query_builder = query_builder.bind(ws_id);
-        }
-
-        if let Some(u_id) = user_id {
-            query_builder = query_builder.bind(u_id);
-        }
-
-        if let Some(t_id) = tenant_id {
-            query_builder = query_builder.bind(t_id);
-        }
-
-        if let Some(ref e_type) = event_type {
-            query_builder = query_builder.bind(e_type.to_string());
-        }
-
-        query_builder = query_builder.bind(limit).bind(offset);
-
-        let events = query_builder.fetch_all(self.pool()).await
-            .map_err(|e| AosError::Database(format!("failed to list activity events with filters (workspace_id: {:?}, user_id: {:?}, tenant_id: {:?}, event_type: {:?}): {}", workspace_id, user_id, tenant_id, event_type, e)))?;
+        let events = q
+            .fetch_all(self.pool())
+            .await
+            .map_err(db_err("list activity events"))?;
         Ok(events)
     }
 

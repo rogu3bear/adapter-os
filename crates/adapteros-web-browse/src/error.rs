@@ -169,8 +169,5 @@ impl From<reqwest::Error> for WebBrowseError {
     }
 }
 
-impl From<url::ParseError> for WebBrowseError {
-    fn from(err: url::ParseError) -> Self {
-        WebBrowseError::InvalidUrl(err.to_string())
-    }
-}
+// Using impl_error_from_for! macro for simple conversions
+adapteros_core::impl_error_from_for!(WebBrowseError: url::ParseError => InvalidUrl);

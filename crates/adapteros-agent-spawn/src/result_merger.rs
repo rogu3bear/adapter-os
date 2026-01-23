@@ -5,6 +5,7 @@
 
 use crate::error::{AgentSpawnError, Result};
 use crate::protocol::{FileModification, ModificationType, TaskProposal};
+use adapteros_core::serde_helpers;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -47,7 +48,7 @@ pub struct ProposalRef {
     pub agent_id: String,
 
     /// Task ID
-    #[serde(with = "hex_bytes")]
+    #[serde(with = "serde_helpers::hex_bytes")]
     pub task_id: [u8; 32],
 
     /// Confidence score
@@ -106,7 +107,7 @@ pub struct UnifiedPlan {
     pub confidence: f32,
 
     /// BLAKE3 hash of the entire plan
-    #[serde(with = "hex_bytes")]
+    #[serde(with = "serde_helpers::hex_bytes")]
     pub plan_hash: [u8; 32],
 
     /// Timestamp when plan was created
@@ -451,29 +452,6 @@ impl ResultMerger {
         }
 
         summary
-    }
-}
-
-// Hex serialization helper
-mod hex_bytes {
-    use serde::{Deserialize, Deserializer, Serializer};
-
-    pub fn serialize<S>(bytes: &[u8; 32], serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&hex::encode(bytes))
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        let bytes = hex::decode(&s).map_err(serde::de::Error::custom)?;
-        bytes
-            .try_into()
-            .map_err(|_| serde::de::Error::custom("expected 32 bytes"))
     }
 }
 
