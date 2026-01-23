@@ -208,7 +208,7 @@ pub async fn create_bundle_export(
         .get_pack_config(&adapteros_policy::PolicyPackId::Router)
         .and_then(|cfg| cfg.config.get("k_sparse"))
         .and_then(|v| v.as_u64())
-        .map(|v| v as usize);
+        .map(|v| v as u32);
 
     let config_snapshot = ConfigSnapshot {
         server_version: env!("CARGO_PKG_VERSION").to_string(),

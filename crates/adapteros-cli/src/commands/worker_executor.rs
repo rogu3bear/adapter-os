@@ -111,7 +111,7 @@ async fn analyze_files(files: &[PathBuf]) -> Result<Vec<FileModification>> {
                     original_content_hash: Some(*original_hash.as_bytes()),
                     new_content: None,
                     diff: Some(diff),
-                    line_range: Some((issue.line_number, issue.line_number)),
+                    line_range: Some((issue.line_number as u32, issue.line_number as u32)),
                     explanation: Some(issue.description.clone()),
                 };
 
@@ -267,7 +267,7 @@ fn generate_issue_diff(content: &str, issue: &FileIssue) -> String {
 /// Calculate confidence score based on file analysis
 ///
 /// Higher confidence when modifications have concrete diffs vs just analysis.
-fn calculate_confidence(modifications: &[FileModification]) -> f64 {
+fn calculate_confidence(modifications: &[FileModification]) -> f32 {
     if modifications.is_empty() {
         return 0.5;
     }
@@ -277,8 +277,8 @@ fn calculate_confidence(modifications: &[FileModification]) -> f64 {
     let with_explanation = modifications.iter().filter(|m| m.explanation.is_some()).count();
 
     // Higher weight for modifications with diffs
-    let diff_ratio = with_diff as f64 / modifications.len() as f64;
-    let explanation_ratio = with_explanation as f64 / modifications.len() as f64;
+    let diff_ratio = with_diff as f32 / modifications.len() as f32;
+    let explanation_ratio = with_explanation as f32 / modifications.len() as f32;
 
     let confidence = 0.3 + (diff_ratio * 0.4) + (explanation_ratio * 0.2);
     confidence.clamp(0.1, 0.9)
