@@ -251,12 +251,23 @@ pub struct Delta {
 /// Internal streaming event
 #[derive(Debug, Clone)]
 enum StreamEvent {
+    /// Stream lifecycle started - sent as first event with stream metadata
+    StreamStarted {
+        stream_id: String,
+        idempotency_key: Option<String>,
+    },
     /// First chunk with role
     Start,
     /// Token generated
     Token(String),
     /// Generation complete
     Done { finish_reason: String },
+    /// Stream lifecycle finished - sent as final event with summary
+    StreamFinished {
+        stream_id: String,
+        total_tokens: usize,
+        duration_ms: u64,
+    },
     /// Heartbeat to keep SSE connection alive
     Heartbeat,
     /// Error occurred
@@ -725,6 +736,7 @@ pub async fn streaming_infer(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Extension(_identity): Extension<IdentityEnvelope>,
+    headers: axum::http::HeaderMap,
     Json(req): Json<StreamingInferRequest>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<ErrorResponse>)> {
     // Role check: Operator, SRE, and Admin can execute inference
@@ -742,6 +754,13 @@ pub async fn streaming_infer(
     }
 
     check_uma_backpressure(&state)?;
+
+    // Extract idempotency key from headers for stream recovery
+    let idempotency_key = headers
+        .get("Idempotency-Key")
+        .or_else(|| headers.get("idempotency-key"))
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
 
     // Generate request ID
     let request_id = format!("chatcmpl-{}", uuid::Uuid::new_v4());
@@ -1129,6 +1148,7 @@ pub async fn streaming_infer(
                 Duration::from_secs(stream_config.inference_idle_timeout_secs),
                 Duration::from_secs(stream_config.inference_heartbeat_interval_secs),
                 pending_evidence_ids, // Pass evidence IDs for message binding
+                idempotency_key,      // Pass idempotency key for stream recovery
             ),
             Some(drop_guard), // Keep guard alive while stream is active
         ),
@@ -1564,9 +1584,16 @@ impl LoadingStreamState {
 
         // Wrap the actual load operation with LoadCoordinator
         // This ensures only one request actually triggers the load
+        // Use timeout from config to prevent indefinite hangs
+        let load_timeout = state
+            .config
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .timeouts
+            .adapter_load_timeout();
         let _handle = state
             .load_coordinator
-            .load_or_wait(&adapter_id, move || {
+            .load_or_wait_with_timeout(&adapter_id, load_timeout, move || {
                 let state = state_for_load.clone();
                 let tenant_id = tenant_id_for_load.clone();
                 let adapter_id = adapter_id_for_load.clone();
@@ -1614,14 +1641,37 @@ impl LoadingStreamState {
                 }
             })
             .await
-            .map_err(|e| format!("Load coordination failed: {}", e))?;
+            .map_err(|e| {
+                // Check if this is a timeout error and provide a clear message
+                let error_msg = e.to_string();
+                if error_msg.contains("Timeout") || matches!(e, adapteros_core::AosError::Timeout { .. }) {
+                    warn!(
+                        adapter_id = %adapter_id,
+                        timeout_secs = load_timeout.as_secs(),
+                        "Adapter load timed out - consider increasing AOS_ADAPTER_LOAD_TIMEOUT_SECS"
+                    );
+                    format!(
+                        "ADAPTER_LOAD_TIMEOUT: Adapter '{}' load timed out after {} seconds",
+                        adapter_id, load_timeout.as_secs()
+                    )
+                } else {
+                    format!("Load coordination failed: {}", e)
+                }
+            })?;
 
         Ok(())
     }
 
     async fn wait_for_ready(&self) -> Result<u64, String> {
         let start = std::time::Instant::now();
-        let timeout = Duration::from_secs(60);
+        // Use configured timeout from state, falling back to default
+        let timeout = self
+            .state
+            .config
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .timeouts
+            .adapter_load_timeout();
         let poll_interval = Duration::from_millis(500);
 
         // Poll adapter state until it becomes ready or timeout
@@ -1755,6 +1805,17 @@ struct StreamState {
     stop_policy_digest_b3: Option<String>,
     // Pending RAG evidence IDs for message binding
     pending_evidence_ids: Vec<String>,
+    // Stream lifecycle tracking for reliability
+    /// Unique stream ID for recovery (derived from request_id)
+    stream_id: String,
+    /// Optional idempotency key for stream recovery on reconnect
+    idempotency_key: Option<String>,
+    /// Token count for stream_finished event
+    token_count: usize,
+    /// Stream start time for duration calculation
+    stream_start: Instant,
+    /// Finish reason captured from Done event for stream_finished
+    captured_finish_reason: Option<String>,
 }
 
 /// Guard that cancels the stream when dropped (client disconnect detection)
@@ -1780,8 +1841,15 @@ impl Drop for StreamDropGuard {
 
 #[derive(Debug, Clone, PartialEq)]
 enum StreamPhase {
+    /// Initial lifecycle event - stream_started
+    StreamLifecycleStart,
+    /// First chunk with role
     Start,
+    /// Streaming tokens
     StreamingTokens,
+    /// Sending final lifecycle event - stream_finished
+    StreamLifecycleFinish,
+    /// Stream complete
     Done,
 }
 
@@ -1803,6 +1871,7 @@ impl StreamState {
         idle_timeout: Duration,
         heartbeat_interval: Duration,
         pending_evidence_ids: Vec<String>,
+        idempotency_key: Option<String>,
     ) -> Self {
         let canonical_request_id = run_envelope.run_id.clone();
         if request_id != canonical_request_id {
@@ -1813,12 +1882,15 @@ impl StreamState {
             );
         }
 
+        // Generate stream_id from request_id for recovery tracking
+        let stream_id = format!("stream_{}", canonical_request_id);
+
         Self {
             state,
             request_id: canonical_request_id,
             run_envelope,
             model_name,
-            phase: StreamPhase::Start,
+            phase: StreamPhase::StreamLifecycleStart,
             tenant_id,
             user_id,
             after_hook_fired: false,
@@ -1835,6 +1907,12 @@ impl StreamState {
             stop_reason_token_index: None,
             stop_policy_digest_b3: None,
             pending_evidence_ids,
+            // Stream lifecycle fields
+            stream_id,
+            idempotency_key,
+            token_count: 0,
+            stream_start: Instant::now(),
+            captured_finish_reason: None,
         }
     }
 
@@ -1890,6 +1968,20 @@ impl StreamState {
         }
 
         match self.phase {
+            StreamPhase::StreamLifecycleStart => {
+                // Send stream_started lifecycle event first
+                self.phase = StreamPhase::Start;
+                info!(
+                    request_id = %self.request_id,
+                    stream_id = %self.stream_id,
+                    idempotency_key = ?self.idempotency_key,
+                    "Stream lifecycle started"
+                );
+                Some(StreamEvent::StreamStarted {
+                    stream_id: self.stream_id.clone(),
+                    idempotency_key: self.idempotency_key.clone(),
+                })
+            }
             StreamPhase::Start => {
                 // Send initial role chunk
                 self.phase = StreamPhase::StreamingTokens;
@@ -1924,6 +2016,7 @@ impl StreamState {
                         match token {
                             Some(token) => {
                                 self.mark_token_activity();
+                                self.token_count += 1;
                                 return Some(StreamEvent::Token(token.text));
                             }
                             None => {
@@ -1939,7 +2032,10 @@ impl StreamState {
                                         self.stop_reason_code = result.stop_reason_code;
                                         self.stop_reason_token_index = result.stop_reason_token_index;
                                         self.stop_policy_digest_b3 = result.stop_policy_digest_b3.clone();
-                                        self.phase = StreamPhase::Done;
+                                        // Capture finish_reason for stream_finished event
+                                        self.captured_finish_reason = Some(result.finish_reason.clone());
+                                        // Transition to lifecycle finish phase instead of Done
+                                        self.phase = StreamPhase::StreamLifecycleFinish;
                                         return Some(StreamEvent::Done {
                                             finish_reason: result.finish_reason,
                                         });
@@ -1961,7 +2057,9 @@ impl StreamState {
                                                 error = %err,
                                                 "Dev echo mode (stream): returning mock token"
                                             );
-                                            self.phase = StreamPhase::Done;
+                                            self.token_count += 1;
+                                            self.captured_finish_reason = Some("dev_echo".to_string());
+                                            self.phase = StreamPhase::StreamLifecycleFinish;
                                             // Return echo text as a single token
                                             return Some(StreamEvent::Token(
                                                 "[DEV ECHO] No inference worker available. Start a worker to enable real inference.".to_string()
@@ -1991,6 +2089,23 @@ impl StreamState {
                     }
                 }
             },
+            StreamPhase::StreamLifecycleFinish => {
+                // Send stream_finished lifecycle event
+                let duration_ms = self.stream_start.elapsed().as_millis() as u64;
+                info!(
+                    request_id = %self.request_id,
+                    stream_id = %self.stream_id,
+                    token_count = self.token_count,
+                    duration_ms = duration_ms,
+                    "Stream lifecycle finished"
+                );
+                self.phase = StreamPhase::Done;
+                Some(StreamEvent::StreamFinished {
+                    stream_id: self.stream_id.clone(),
+                    total_tokens: self.token_count,
+                    duration_ms,
+                })
+            }
             StreamPhase::Done => None,
         }
     }
@@ -2006,6 +2121,26 @@ impl StreamState {
         );
 
         match event {
+            StreamEvent::StreamStarted {
+                stream_id,
+                idempotency_key,
+            } => {
+                // Lifecycle event: stream_started
+                // Sent as first event to enable client recovery tracking
+                let lifecycle_event = serde_json::json!({
+                    "type": "stream_started",
+                    "stream_id": stream_id,
+                    "request_id": self.request_id,
+                    "idempotency_key": idempotency_key,
+                    "timestamp_ms": std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_millis() as u64)
+                        .unwrap_or(0),
+                });
+                Event::default()
+                    .event("stream_started")
+                    .data(serialize_safe(&lifecycle_event, "stream_started"))
+            }
             StreamEvent::Start => {
                 let chunk = StreamingChunk {
                     id: self.request_id.clone(),
@@ -2135,6 +2270,29 @@ impl StreamState {
                 // Send final chunk followed by [DONE]
                 Event::default().data(format!("{}\n\ndata: [DONE]", chunk_json))
             }
+            StreamEvent::StreamFinished {
+                stream_id,
+                total_tokens,
+                duration_ms,
+            } => {
+                // Lifecycle event: stream_finished
+                // Sent as final event to confirm stream completion
+                let lifecycle_event = serde_json::json!({
+                    "type": "stream_finished",
+                    "stream_id": stream_id,
+                    "request_id": self.request_id,
+                    "total_tokens": total_tokens,
+                    "duration_ms": duration_ms,
+                    "finish_reason": self.captured_finish_reason,
+                    "timestamp_ms": std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_millis() as u64)
+                        .unwrap_or(0),
+                });
+                Event::default()
+                    .event("stream_finished")
+                    .data(serialize_safe(&lifecycle_event, "stream_finished"))
+            }
             StreamEvent::Error {
                 code,
                 message,
@@ -2224,6 +2382,7 @@ mod tests {
             seed_mode: SeedMode::BestEffort,
             backend_profile: BackendKind::Auto,
             worker_id: 0,
+            timeouts: Default::default(),
             rate_limit: None,
         }));
         let metrics_exporter =
@@ -2521,7 +2680,14 @@ mod tests {
             Duration::from_secs(5),
             Duration::from_millis(10),
             Vec::new(), // No pending evidence IDs in test
+            None,       // idempotency_key
         );
+
+        // First event is now StreamLifecycleStart -> StreamStarted
+        assert!(matches!(
+            stream.next_event().await,
+            Some(StreamEvent::StreamStarted { .. })
+        ));
 
         assert!(matches!(
             stream.next_event().await,
@@ -2578,6 +2744,7 @@ mod tests {
             Duration::from_secs(2),
             Duration::from_millis(25),
             Vec::new(), // No pending evidence IDs in test
+            None,       // idempotency_key
         );
 
         let producer = tokio::spawn(async move {
@@ -2594,6 +2761,12 @@ mod tests {
             Ok::<_, String>(())
         });
 
+        // First event is now StreamLifecycleStart -> StreamStarted
+        assert!(matches!(
+            stream.next_event().await,
+            Some(StreamEvent::StreamStarted { .. })
+        ));
+
         assert!(matches!(
             stream.next_event().await,
             Some(StreamEvent::Start)
@@ -2608,7 +2781,10 @@ mod tests {
                         tokio::time::sleep(Duration::from_millis(5)).await;
                     }
                     StreamEvent::Done { .. } | StreamEvent::Error { .. } => break,
-                    StreamEvent::Heartbeat | StreamEvent::Start => {}
+                    StreamEvent::Heartbeat
+                    | StreamEvent::Start
+                    | StreamEvent::StreamStarted { .. }
+                    | StreamEvent::StreamFinished { .. } => {}
                 }
             } else {
                 break;
@@ -2651,6 +2827,7 @@ mod tests {
             Duration::from_secs(5),
             Duration::from_secs(0),
             Vec::new(), // No pending evidence IDs in test
+            None,       // idempotency_key
         );
 
         let event = stream.format_event(StreamEvent::Error {
@@ -2707,7 +2884,14 @@ mod tests {
             Duration::from_secs(5),
             Duration::from_secs(0),
             Vec::new(), // No pending evidence IDs in test
+            None,       // idempotency_key
         );
+
+        // First event is now StreamLifecycleStart -> StreamStarted
+        assert!(matches!(
+            stream.next_event().await,
+            Some(StreamEvent::StreamStarted { .. })
+        ));
 
         assert!(matches!(
             stream.next_event().await,

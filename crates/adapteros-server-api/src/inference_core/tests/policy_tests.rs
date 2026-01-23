@@ -71,6 +71,7 @@ async fn build_test_state_with_general(
         seed_mode: SeedMode::BestEffort,
         backend_profile: BackendKind::Auto,
         worker_id: 0,
+        timeouts: Default::default(),
         rate_limit: None,
     }));
 

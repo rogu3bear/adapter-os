@@ -206,7 +206,7 @@ impl E2eHarness {
                 if resolve_manifest_path().is_none() {
                     return Ok(HarnessSetup::Skip {
                         reason: format!(
-                            "{} not set and manifests/demo.yaml missing",
+                            "{} not set and manifests/reference.yaml missing",
                             WORKER_MANIFEST_ENV
                         ),
                     });
@@ -275,7 +275,7 @@ impl E2eHarness {
 
         let manifest = resolve_manifest_path().ok_or_else(|| {
             anyhow!(
-                "Worker manifest missing. Set {} or place manifests/demo.yaml",
+                "Worker manifest missing. Set {} or place manifests/reference.yaml",
                 WORKER_MANIFEST_ENV
             )
         })?;
@@ -369,7 +369,7 @@ fn resolve_manifest_path() -> Option<PathBuf> {
             return Some(candidate);
         }
     }
-    let fallback = PathBuf::from("manifests/demo.yaml");
+    let fallback = PathBuf::from("manifests/reference.yaml");
     fallback.exists().then_some(fallback)
 }
 
@@ -447,6 +447,7 @@ async fn build_state(paths: &HarnessPaths) -> Result<AppState> {
         seed_mode: SeedMode::BestEffort,
         backend_profile: BackendKind::Auto,
         worker_id: 0,
+        timeouts: Default::default(),
         rate_limit: None,
     }));
 

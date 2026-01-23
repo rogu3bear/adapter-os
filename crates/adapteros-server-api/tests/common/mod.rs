@@ -205,6 +205,7 @@ pub async fn setup_state(_uds_path: Option<&PathBuf>) -> anyhow::Result<AppState
         seed_mode: SeedMode::BestEffort,
         backend_profile: BackendKind::Auto,
         worker_id: 0,
+        timeouts: Default::default(),
         rate_limit: None,
     }));
 

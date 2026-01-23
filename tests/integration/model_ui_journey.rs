@@ -44,6 +44,9 @@ async fn setup_test_env() -> anyhow::Result<(AppState, Claims)> {
         backend_profile: BackendKind::Auto,
         worker_id: 0,
         self_hosting: Default::default(),
+        streaming: Default::default(),
+        timeouts: Default::default(),
+        rate_limit: None,
     }));
     let metrics_exporter = Arc::new(MetricsExporter::new(vec![0.1, 0.5, 1.0])?);
     let metrics_collector = Arc::new(adapteros_telemetry::MetricsCollector::new()?);
