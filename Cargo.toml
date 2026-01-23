@@ -89,6 +89,8 @@ members = [
     "crates/adapteros-ui",  # Leptos UI frontend
     "crates/adapteros-telemetry-types",  # Shared telemetry metric types
     "crates/adapteros-diagnostics",  # Diagnostic event contract and producer API
+    "crates/adapteros-embeddings",  # Deterministic embedding generation
+    "crates/adapteros-retrieval",  # Deterministic retrieval with receipts and benchmarking
 ]
 
 [workspace.package]
