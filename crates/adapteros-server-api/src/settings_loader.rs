@@ -152,6 +152,7 @@ mod tests {
             seed_mode: SeedMode::BestEffort,
             backend_profile: BackendKind::default_inference_backend(),
             worker_id: 0,
+            timeouts: Default::default(),
             rate_limit: None,
         }));
 

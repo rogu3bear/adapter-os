@@ -2241,6 +2241,8 @@ mod safety_validation_tests {
             leak_status: "block".to_string(),
             anomaly_status: "unknown".to_string(),
             overall_safety: "block".to_string(),
+            synthetic_ratio_status: None,
+            synthetic_ratio: None,
         };
 
         assert_eq!(signals.pii_status, "clean");

@@ -274,6 +274,7 @@ async fn test_e2e_inference_with_audit_trail() {
         stop_reason_token_index: Some(10),
         stop_policy_digest_b3: None,
         tokenizer_digest_b3: None,
+        backend_raw: None,
     };
 
     // Start mock worker UDS server
@@ -919,6 +920,7 @@ async fn test_training_job_adapter_infer_wiring() {
         stop_reason_token_index: None,
         stop_policy_digest_b3: None,
         tokenizer_digest_b3: None,
+        backend_raw: None,
     };
 
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();

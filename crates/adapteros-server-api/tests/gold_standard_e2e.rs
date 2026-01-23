@@ -203,6 +203,7 @@ fn create_deterministic_worker_response(
         stop_reason_token_index: None,
         stop_policy_digest_b3: None,
         tokenizer_digest_b3: Some(hex::encode(derive_seed(&global_seed, "tokenizer"))),
+        backend_raw: None,
     }
 }
 

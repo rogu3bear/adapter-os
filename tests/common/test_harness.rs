@@ -100,6 +100,7 @@ impl ApiTestHarness {
             backend_profile: BackendKind::Auto,
             worker_id: 0,
             self_hosting: Default::default(),
+            timeouts: Default::default(),
             rate_limit: None,
         }));
 
