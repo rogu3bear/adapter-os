@@ -3,6 +3,7 @@
 //! Defines the request/response types exchanged between orchestrator and agents
 //! over Unix Domain Sockets.
 
+use adapteros_core::serde_helpers;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -47,7 +48,7 @@ pub enum AgentRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskAssignment {
     /// Unique task ID (BLAKE3 hash)
-    #[serde(with = "hex_bytes")]
+    #[serde(with = "serde_helpers::hex_bytes")]
     pub task_id: [u8; 32],
 
     /// Global sequence number for ordering
@@ -124,7 +125,7 @@ pub enum AgentResponse {
     /// Agent accepted task
     TaskAccepted {
         /// ID of the accepted task
-        #[serde(with = "hex_bytes")]
+        #[serde(with = "serde_helpers::hex_bytes")]
         task_id: [u8; 32],
     },
 
@@ -137,7 +138,7 @@ pub enum AgentResponse {
     /// Task failed
     TaskFailed {
         /// ID of the failed task
-        #[serde(with = "hex_bytes")]
+        #[serde(with = "serde_helpers::hex_bytes")]
         task_id: [u8; 32],
         /// Error message
         error: String,
@@ -176,7 +177,7 @@ pub enum AgentResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskProgress {
     /// ID of the task
-    #[serde(with = "hex_bytes")]
+    #[serde(with = "serde_helpers::hex_bytes")]
     pub task_id: [u8; 32],
 
     /// Progress percentage (0-100)
@@ -198,7 +199,7 @@ pub struct TaskProgress {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskProposal {
     /// Task this proposal relates to
-    #[serde(with = "hex_bytes")]
+    #[serde(with = "serde_helpers::hex_bytes")]
     pub task_id: [u8; 32],
 
     /// Agent that created this proposal
@@ -222,7 +223,7 @@ pub struct TaskProposal {
     pub conflicts_with: Vec<[u8; 32]>,
 
     /// BLAKE3 hash of proposal content for integrity
-    #[serde(with = "hex_bytes")]
+    #[serde(with = "serde_helpers::hex_bytes")]
     pub content_hash: [u8; 32],
 
     /// Timestamp when proposal was created
@@ -256,7 +257,7 @@ pub struct FileModification {
     pub modification_type: ModificationType,
 
     /// Hash of original content (for conflict detection)
-    #[serde(default, with = "option_hex_bytes")]
+    #[serde(default, with = "serde_helpers::option_hex_bytes")]
     pub original_content_hash: Option<[u8; 32]>,
 
     /// New content (for create/modify)
@@ -300,7 +301,7 @@ pub struct AgentStatus {
     pub state: AgentState,
 
     /// Current task (if any)
-    #[serde(default, with = "option_hex_bytes")]
+    #[serde(default, with = "serde_helpers::option_hex_bytes")]
     pub current_task: Option<[u8; 32]>,
 
     /// Tasks completed in this session
@@ -346,60 +347,6 @@ impl AgentState {
     /// Check if agent can accept new tasks
     pub fn can_accept_task(&self) -> bool {
         matches!(self, Self::Ready)
-    }
-}
-
-// Hex serialization helpers for [u8; 32]
-mod hex_bytes {
-    use serde::{Deserialize, Deserializer, Serializer};
-
-    pub fn serialize<S>(bytes: &[u8; 32], serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&hex::encode(bytes))
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        let bytes = hex::decode(&s).map_err(serde::de::Error::custom)?;
-        bytes
-            .try_into()
-            .map_err(|_| serde::de::Error::custom("expected 32 bytes"))
-    }
-}
-
-mod option_hex_bytes {
-    use serde::{Deserialize, Deserializer, Serializer};
-
-    pub fn serialize<S>(bytes: &Option<[u8; 32]>, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        match bytes {
-            Some(b) => serializer.serialize_some(&hex::encode(b)),
-            None => serializer.serialize_none(),
-        }
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<[u8; 32]>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let opt: Option<String> = Option::deserialize(deserializer)?;
-        match opt {
-            Some(s) => {
-                let bytes = hex::decode(&s).map_err(serde::de::Error::custom)?;
-                let arr: [u8; 32] = bytes
-                    .try_into()
-                    .map_err(|_| serde::de::Error::custom("expected 32 bytes"))?;
-                Ok(Some(arr))
-            }
-            None => Ok(None),
-        }
     }
 }
 

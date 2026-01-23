@@ -241,39 +241,38 @@ impl Db {
     ) -> Result<Vec<AuditLog>> {
         let limit = limit.clamp(1, 1000);
 
-        let mut query = String::from(
+        let mut builder = FilterBuilder::new(
             "SELECT id, timestamp, user_id, user_role, tenant_id, action, resource_type,
                     resource_id, status, error_message, ip_address, metadata_json
              FROM audit_logs
              WHERE tenant_id = ? AND resource_type = 'inference'",
         );
+        builder.add_param(tenant_id);
 
         if abstained_only {
-            query.push_str(" AND status = 'abstained'");
+            builder.push_str(" AND status = 'abstained'");
         }
-
-        if start_date.is_some() {
-            query.push_str(" AND timestamp >= ?");
-        }
-        if end_date.is_some() {
-            query.push_str(" AND timestamp <= ?");
-        }
-
-        query.push_str(" ORDER BY timestamp DESC LIMIT ?");
-
-        let mut q = sqlx::query_as::<_, AuditLog>(&query).bind(tenant_id);
 
         if let Some(start) = start_date {
-            q = q.bind(start);
+            builder.push_str(" AND timestamp >= ?");
+            builder.add_param(start);
         }
         if let Some(end) = end_date {
-            q = q.bind(end);
+            builder.push_str(" AND timestamp <= ?");
+            builder.add_param(end);
         }
-        q = q.bind(limit);
+
+        builder.push_str(" ORDER BY timestamp DESC LIMIT ?");
+        builder.add_param(limit);
+
+        let mut q = sqlx::query_as::<_, AuditLog>(builder.query());
+        for param in builder.params() {
+            q = q.bind(param);
+        }
 
         q.fetch_all(self.pool())
             .await
-            .map_err(|e| AosError::Database(e.to_string()))
+            .map_err(db_err("query inference decisions"))
     }
 
     /// Get inference abstention statistics for a tenant (AARA lifecycle)
@@ -283,7 +282,7 @@ impl Db {
         start_date: Option<&str>,
         end_date: Option<&str>,
     ) -> Result<InferenceAbstentionStats> {
-        let mut query = String::from(
+        let mut builder = FilterBuilder::new(
             "SELECT
                 COUNT(*) as total,
                 SUM(CASE WHEN status = 'abstained' THEN 1 ELSE 0 END) as abstained,
@@ -293,27 +292,26 @@ impl Db {
              FROM audit_logs
              WHERE tenant_id = ? AND resource_type = 'inference'",
         );
-
-        if start_date.is_some() {
-            query.push_str(" AND timestamp >= ?");
-        }
-        if end_date.is_some() {
-            query.push_str(" AND timestamp <= ?");
-        }
-
-        let mut q = sqlx::query(&query).bind(tenant_id);
+        builder.add_param(tenant_id);
 
         if let Some(start) = start_date {
-            q = q.bind(start);
+            builder.push_str(" AND timestamp >= ?");
+            builder.add_param(start);
         }
         if let Some(end) = end_date {
-            q = q.bind(end);
+            builder.push_str(" AND timestamp <= ?");
+            builder.add_param(end);
+        }
+
+        let mut q = sqlx::query(builder.query());
+        for param in builder.params() {
+            q = q.bind(param);
         }
 
         let row = q
             .fetch_one(self.pool())
             .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+            .map_err(db_err("get inference abstention stats"))?;
 
         use sqlx::Row;
         let total: i64 = row.try_get("total").unwrap_or(0);
@@ -362,48 +360,36 @@ impl Db {
         // Enforce maximum limit
         let limit = limit.min(1000);
 
-        let mut query = String::from(
+        let mut builder = FilterBuilder::new(
             "SELECT id, timestamp, user_id, user_role, tenant_id, action, resource_type,
                     resource_id, status, error_message, ip_address, metadata_json
              FROM audit_logs WHERE 1=1",
         );
-        let mut params: Vec<String> = Vec::new();
-
-        if let Some(uid) = user_id {
-            query.push_str(" AND user_id = ?");
-            params.push(uid.to_string());
-        }
-
-        if let Some(act) = action {
-            query.push_str(" AND action = ?");
-            params.push(act.to_string());
-        }
-
-        if let Some(rt) = resource_type {
-            query.push_str(" AND resource_type = ?");
-            params.push(rt.to_string());
-        }
+        builder.add_filter("user_id", user_id);
+        builder.add_filter("action", action);
+        builder.add_filter("resource_type", resource_type);
 
         if let Some(start) = start_date {
-            query.push_str(" AND timestamp >= ?");
-            params.push(start.to_string());
+            builder.push_str(" AND timestamp >= ?");
+            builder.add_param(start);
         }
-
         if let Some(end) = end_date {
-            query.push_str(" AND timestamp <= ?");
-            params.push(end.to_string());
+            builder.push_str(" AND timestamp <= ?");
+            builder.add_param(end);
         }
 
-        query.push_str(" ORDER BY timestamp DESC LIMIT ?");
-        params.push(limit.to_string());
+        builder.push_str(" ORDER BY timestamp DESC LIMIT ?");
+        builder.add_param(limit);
 
-        // Build query dynamically
-        let mut q = sqlx::query_as::<_, AuditLog>(&query);
-        for param in &params {
+        let mut q = sqlx::query_as::<_, AuditLog>(builder.query());
+        for param in builder.params() {
             q = q.bind(param);
         }
 
-        let logs = q.fetch_all(self.pool()).await.db_err("query audit logs")?;
+        let logs = q
+            .fetch_all(self.pool())
+            .await
+            .map_err(db_err("query audit logs"))?;
         Ok(logs)
     }
 
@@ -867,34 +853,32 @@ impl Db {
         start_date: Option<&str>,
         end_date: Option<&str>,
     ) -> Result<Vec<(String, i64)>> {
-        let mut query = String::from(
+        let mut builder = FilterBuilder::new(
             "SELECT action, COUNT(*) as count
              FROM audit_logs
              WHERE 1=1",
         );
-        let mut params: Vec<String> = Vec::new();
 
         if let Some(start) = start_date {
-            query.push_str(" AND timestamp >= ?");
-            params.push(start.to_string());
+            builder.push_str(" AND timestamp >= ?");
+            builder.add_param(start);
         }
-
         if let Some(end) = end_date {
-            query.push_str(" AND timestamp <= ?");
-            params.push(end.to_string());
+            builder.push_str(" AND timestamp <= ?");
+            builder.add_param(end);
         }
 
-        query.push_str(" GROUP BY action ORDER BY count DESC");
+        builder.push_str(" GROUP BY action ORDER BY count DESC");
 
-        let mut q = sqlx::query_as::<_, (String, i64)>(&query);
-        for param in &params {
+        let mut q = sqlx::query_as::<_, (String, i64)>(builder.query());
+        for param in builder.params() {
             q = q.bind(param);
         }
 
         let stats = q
             .fetch_all(self.pool())
             .await
-            .db_err("get audit stats by action")?;
+            .map_err(db_err("get audit stats by action"))?;
         Ok(stats)
     }
 }

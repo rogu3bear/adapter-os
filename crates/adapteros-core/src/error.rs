@@ -166,6 +166,9 @@ pub enum AosError {
     #[error("Isolation violation: {0}")]
     IsolationViolation(String),
 
+    #[error("Integrity violation: {0}")]
+    IntegrityViolation(String),
+
     #[error("Chat template error: {0}")]
     ChatTemplate(String),
 
@@ -827,6 +830,11 @@ impl AosError {
         AosError::PolicyViolation(msg.into())
     }
 
+    /// Integrity violation (tamper detection, hash mismatch)
+    pub fn integrity_violation(msg: impl Into<String>) -> Self {
+        AosError::IntegrityViolation(msg.into())
+    }
+
     /// Circuit breaker open
     pub fn circuit_breaker_open(service: impl Into<String>) -> Self {
         AosError::CircuitBreakerOpen {
@@ -1173,19 +1181,18 @@ impl From<anyhow::Error> for AosError {
     }
 }
 
+// ============================================================================
+// Error conversions using impl_error_from! macro
+// ============================================================================
+//
+// Simple error conversions use the impl_error_from! macro to reduce boilerplate.
+// The macro is defined in crates/adapteros-core/src/error_macros.rs
+
 // Conversion from rusqlite for aos-registry
-impl From<rusqlite::Error> for AosError {
-    fn from(err: rusqlite::Error) -> Self {
-        AosError::Sqlite(format_error_chain(&err))
-    }
-}
+crate::impl_error_from!(rusqlite::Error => Sqlite, chain);
 
 // Conversion from std::io::Error
-impl From<std::io::Error> for AosError {
-    fn from(err: std::io::Error) -> Self {
-        AosError::Io(format_error_chain(&err))
-    }
-}
+crate::impl_error_from!(std::io::Error => Io, chain);
 
 // Conversion from AosValidationError for validation-specific errors
 impl From<crate::errors::AosValidationError> for AosError {
@@ -1252,14 +1259,7 @@ impl From<sqlx::Error> for AosError {
 }
 
 // Conversion from ZipError for archive operations (zip v1.x)
-impl From<ZipError> for AosError {
-    fn from(err: ZipError) -> Self {
-        AosError::Io(format!(
-            "Zip operation failed: {}",
-            format_error_chain(&err)
-        ))
-    }
-}
+crate::impl_error_from!(ZipError => Io, prefix = "Zip operation failed", chain);
 
 // Note: DeterministicExecutorError conversion avoided to prevent circular dependency
 // Handle in calling code with manual mapping

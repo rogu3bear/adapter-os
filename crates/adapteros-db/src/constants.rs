@@ -111,6 +111,15 @@ pub const ADAPTER_TRAINING_LINEAGE_COLUMNS: &str =
      dataset_hash_b3_at_training, role, weight, ordinal, \
      tenant_id, created_at, created_by, metadata_json";
 
+/// Model table columns for SELECT queries
+///
+/// Used in get_model, get_model_by_name, get_model_by_hash, and list_models operations.
+pub const MODEL_COLUMNS: &str =
+    "id, name, hash_b3, license_hash_b3, config_hash_b3, tokenizer_hash_b3, \
+     tokenizer_cfg_hash_b3, metadata_json, created_at, model_type, model_path, config, \
+     routing_bias, status, tenant_id, updated_at, adapter_path, backend, quantization, last_error, \
+     size_bytes, format, capabilities, import_status, import_error, imported_at, imported_by";
+
 /// KV backend degradation event types
 ///
 /// Used for logging and monitoring degradation events in the KV backend.
@@ -137,6 +146,7 @@ mod tests {
         assert!(!COLLECTION_COLUMNS.is_empty());
         assert!(!TRAINING_JOB_DATASET_LINK_COLUMNS.is_empty());
         assert!(!ADAPTER_TRAINING_LINEAGE_COLUMNS.is_empty());
+        assert!(!MODEL_COLUMNS.is_empty());
         assert!(!DEGRADATION_EVENT_INIT_FAILED.is_empty());
         assert!(!DEGRADATION_EVENT_RUNTIME_FAILED.is_empty());
         assert!(!DEGRADATION_EVENT_RECOVERED.is_empty());
@@ -153,5 +163,6 @@ mod tests {
         assert!(!TRAINING_DATASET_ROW_COLUMNS.trim().ends_with(','));
         assert!(!TRAINING_JOB_DATASET_LINK_COLUMNS.trim().ends_with(','));
         assert!(!ADAPTER_TRAINING_LINEAGE_COLUMNS.trim().ends_with(','));
+        assert!(!MODEL_COLUMNS.trim().ends_with(','));
     }
 }

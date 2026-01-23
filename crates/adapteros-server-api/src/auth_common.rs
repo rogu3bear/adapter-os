@@ -1,6 +1,7 @@
 use crate::auth::{
     generate_token_ed25519_with_admin_tenants_mfa, generate_token_with_admin_tenants_mfa,
-    DEFAULT_SESSION_TTL_SECS,
+    issue_access_token_ed25519, issue_access_token_hmac, issue_refresh_token_ed25519,
+    issue_refresh_token_hmac, DEFAULT_SESSION_TTL_SECS,
 };
 use crate::permissions::{permissions_for_role, Permission};
 use crate::state::AppState;
@@ -206,6 +207,156 @@ pub fn build_auth_token(
     }
 }
 
+/// Parameters for access token issuance.
+///
+/// Encapsulates all inputs needed to issue an access token, allowing the
+/// ED25519/HMAC decision to be made internally by [`issue_access_token`].
+#[derive(Debug)]
+pub struct AccessTokenParams<'a> {
+    pub user_id: &'a str,
+    pub email: &'a str,
+    pub role: &'a str,
+    pub roles: &'a [String],
+    pub tenant_id: &'a str,
+    pub admin_tenants: &'a [String],
+    pub device_id: Option<&'a str>,
+    pub session_id: &'a str,
+    pub mfa_level: Option<&'a str>,
+}
+
+/// Parameters for refresh token issuance.
+///
+/// Encapsulates all inputs needed to issue a refresh token, allowing the
+/// ED25519/HMAC decision to be made internally by [`issue_refresh_token`].
+#[derive(Debug)]
+pub struct RefreshTokenParams<'a> {
+    pub user_id: &'a str,
+    pub tenant_id: &'a str,
+    pub roles: &'a [String],
+    pub device_id: Option<&'a str>,
+    pub session_id: &'a str,
+    pub rot_id: &'a str,
+}
+
+/// Issues an access token using the appropriate signing algorithm (ED25519 or HMAC).
+///
+/// This wrapper encapsulates the ED25519/HMAC dispatch decision, eliminating the
+/// need to repeat the conditional logic across handlers.
+///
+/// # Arguments
+///
+/// * `state` - Application state containing signing keys and algorithm preference
+/// * `params` - Token parameters (user info, session, etc.)
+/// * `ttl_seconds` - Optional TTL override; uses config default if None
+///
+/// # Returns
+///
+/// The signed JWT access token string.
+pub fn issue_access_token(
+    state: &AppState,
+    params: &AccessTokenParams<'_>,
+    ttl_seconds: Option<u64>,
+) -> Result<String, AuthError> {
+    if state.use_ed25519 {
+        issue_access_token_ed25519(
+            params.user_id,
+            params.email,
+            params.role,
+            params.roles,
+            params.tenant_id,
+            params.admin_tenants,
+            params.device_id,
+            params.session_id,
+            params.mfa_level,
+            &state.ed25519_keypair,
+            ttl_seconds,
+        )
+        .map_err(AuthError::Token)
+    } else {
+        issue_access_token_hmac(
+            params.user_id,
+            params.email,
+            params.role,
+            params.roles,
+            params.tenant_id,
+            params.admin_tenants,
+            params.device_id,
+            params.session_id,
+            params.mfa_level,
+            &state.jwt_secret,
+            ttl_seconds,
+        )
+        .map_err(AuthError::Token)
+    }
+}
+
+/// Issues a refresh token using the appropriate signing algorithm (ED25519 or HMAC).
+///
+/// This wrapper encapsulates the ED25519/HMAC dispatch decision, eliminating the
+/// need to repeat the conditional logic across handlers.
+///
+/// # Arguments
+///
+/// * `state` - Application state containing signing keys and algorithm preference
+/// * `params` - Token parameters (user info, session, rotation ID, etc.)
+/// * `ttl_seconds` - Optional TTL override; uses config default if None
+///
+/// # Returns
+///
+/// The signed JWT refresh token string.
+pub fn issue_refresh_token(
+    state: &AppState,
+    params: &RefreshTokenParams<'_>,
+    ttl_seconds: Option<u64>,
+) -> Result<String, AuthError> {
+    if state.use_ed25519 {
+        issue_refresh_token_ed25519(
+            params.user_id,
+            params.tenant_id,
+            params.roles,
+            params.device_id,
+            params.session_id,
+            params.rot_id,
+            &state.ed25519_keypair,
+            ttl_seconds,
+        )
+        .map_err(AuthError::Token)
+    } else {
+        issue_refresh_token_hmac(
+            params.user_id,
+            params.tenant_id,
+            params.roles,
+            params.device_id,
+            params.session_id,
+            params.rot_id,
+            &state.jwt_secret,
+            ttl_seconds,
+        )
+        .map_err(AuthError::Token)
+    }
+}
+
+/// Issues both access and refresh tokens in a single call.
+///
+/// This is a convenience wrapper that combines [`issue_access_token`] and
+/// [`issue_refresh_token`], useful when both tokens are needed together
+/// (e.g., login, registration, token refresh).
+///
+/// # Returns
+///
+/// A tuple of (access_token, refresh_token).
+pub fn issue_token_pair(
+    state: &AppState,
+    access_params: &AccessTokenParams<'_>,
+    refresh_params: &RefreshTokenParams<'_>,
+    access_ttl: Option<u64>,
+    refresh_ttl: Option<u64>,
+) -> Result<(String, String), AuthError> {
+    let access_token = issue_access_token(state, access_params, access_ttl)?;
+    let refresh_token = issue_refresh_token(state, refresh_params, refresh_ttl)?;
+    Ok((access_token, refresh_token))
+}
+
 /// Builds the canonical user info response used by the frontend.
 pub fn build_user_info(ctx: &AuthContext) -> UserInfoResponse {
     UserInfoResponse {
@@ -284,6 +435,24 @@ pub fn attach_csrf_cookie(
         domain = domain,
     );
     headers.append(header::SET_COOKIE, HeaderValue::from_str(&cookie_value)?);
+    Ok(())
+}
+
+/// Attaches all three auth cookies (access, refresh, and CSRF) in one call.
+///
+/// This is a convenience wrapper that consolidates the common pattern of attaching
+/// all authentication cookies during login, refresh, or tenant switch operations.
+pub fn attach_auth_cookies(
+    headers: &mut HeaderMap,
+    access_token: &str,
+    refresh_token: &str,
+    csrf_token: &str,
+    cfg: &AuthConfig,
+    session_ttl: u64,
+) -> Result<(), AuthError> {
+    attach_auth_cookie(headers, access_token, cfg)?;
+    attach_refresh_cookie(headers, refresh_token, cfg)?;
+    attach_csrf_cookie(headers, csrf_token, cfg, session_ttl)?;
     Ok(())
 }
 

@@ -22,7 +22,7 @@
 //! - `adapter_name()`: identifier format, 3-128 chars
 //! - `learning_rate()`: 1e-10 to 1.0
 //! - `password()`: minimum 8 chars
-//! - `email()`: RFC-like email pattern
+//! - `email()`: RFC 5322 email pattern (matches server validation)
 //!
 //! ## Usage Pattern
 //! ```rust
@@ -101,13 +101,20 @@ impl ValidationRule {
                 }
             }
             ValidationRule::Email => {
-                // Email validation - permissive pattern, server is authoritative
-                // Avoids false negatives while catching obvious errors
-                // Pattern rejects: empty local, empty domain, no TLD, whitespace
+                // RFC 5322-compliant email validation - matches server validation
+                // Pattern validates:
+                // - Local part: alphanumeric, dots, hyphens, underscores, plus signs
+                // - Domain: alphanumeric with hyphens, proper TLD structure
+                // - Rejects malformed addresses like "a@.b" or "test@domain"
                 if value.is_empty() {
                     return None; // Let Required rule handle empty
                 }
-                let email_pattern = r"^[^\s@]+@[^\s@]+\.[^\s@]{2,}$";
+                // RFC 5321 length limits: 3-254 characters
+                if value.len() < 3 || value.len() > 254 {
+                    return Some("Must be a valid email address".to_string());
+                }
+                // Case-insensitive RFC 5322 pattern (matches server validation.rs)
+                let email_pattern = r"(?i)^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$";
                 // Fail-closed: if regex compilation fails, validation fails
                 let re = regex_lite::Regex::new(email_pattern)
                     .expect("Email regex pattern is invalid - this is a bug");
@@ -351,16 +358,26 @@ mod tests {
     #[test]
     fn test_email_rule() {
         let rule = ValidationRule::Email;
-        // Invalid emails
+        // Invalid emails - RFC 5322 strict validation
         assert!(rule.validate("invalid").is_some());
         assert!(rule.validate("test@").is_some());
         assert!(rule.validate("@example.com").is_some());
         assert!(rule.validate("test@example").is_some()); // No TLD
         assert!(rule.validate("test @example.com").is_some()); // Whitespace
-                                                               // Valid emails
+        assert!(rule.validate("a@.b").is_some()); // Dot after @
+        assert!(rule.validate("user@.domain.com").is_some()); // Leading dot in domain
+        assert!(rule.validate("user@domain.").is_some()); // Trailing dot
+        assert!(rule.validate("ab").is_some()); // Too short
+        assert!(rule.validate("user name@example.com").is_some()); // Space in local
+
+        // Valid emails - RFC 5322 compliant
         assert!(rule.validate("test@example.com").is_none());
         assert!(rule.validate("user.name@example.co.uk").is_none());
         assert!(rule.validate("user+tag@example.com").is_none());
+        assert!(rule.validate("user@sub.domain.example.com").is_none());
+        assert!(rule.validate("user123@example123.com").is_none());
+        assert!(rule.validate("USER@EXAMPLE.COM").is_none()); // Case insensitive
+
         // Empty should pass (Required rule handles that)
         assert!(rule.validate("").is_none());
     }

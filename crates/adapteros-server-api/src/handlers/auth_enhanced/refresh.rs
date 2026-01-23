@@ -1,10 +1,10 @@
-use crate::auth::{
-    issue_access_token_ed25519, issue_access_token_hmac, validate_refresh_token_ed25519,
-    validate_refresh_token_hmac,
-};
+use super::audit::{log_auth_event, AuthEvent};
+use crate::auth::{validate_refresh_token_ed25519, validate_refresh_token_hmac};
 use crate::auth_common::{
-    attach_auth_cookie, attach_csrf_cookie, attach_refresh_cookie, AuthConfig,
+    attach_auth_cookies, issue_access_token, issue_refresh_token, AccessTokenParams, AuthConfig,
+    RefreshTokenParams,
 };
+use crate::security::update_session_rotation;
 use crate::state::AppState;
 use crate::types::ErrorResponse;
 use adapteros_api_types::auth::LoginResponse;
@@ -14,7 +14,8 @@ use axum::{
     http::{header, HeaderMap, StatusCode},
     Json,
 };
-use tracing::warn;
+use chrono::{Duration, Utc};
+use tracing::{info, warn};
 use uuid::Uuid;
 
 fn extract_cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
@@ -70,6 +71,15 @@ pub async fn refresh_token_handler(
     }
     .map_err(|e| {
         warn!(error = %e, "Refresh token validation failed");
+        log_auth_event(
+            AuthEvent::TokenRefreshFailed,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some("token_validation_failed"),
+        );
         (
             StatusCode::UNAUTHORIZED,
             Json(ErrorResponse::new("Invalid refresh token").with_code("INVALID_TOKEN")),
@@ -107,9 +117,20 @@ pub async fn refresh_token_handler(
                     token_rot_id = %claims.rot_id,
                     "Refresh token rotation id mismatch"
                 );
+                log_auth_event(
+                    AuthEvent::TokenRefreshRotationMismatch,
+                    Some(&claims.sub),
+                    None,
+                    Some(&claims.tenant_id),
+                    None,
+                    Some(session_id),
+                    Some("potential_token_replay"),
+                );
                 return Err((
                     StatusCode::UNAUTHORIZED,
-                    Json(ErrorResponse::new("Invalid refresh token").with_code("ROTATION_MISMATCH")),
+                    Json(
+                        ErrorResponse::new("Invalid refresh token").with_code("ROTATION_MISMATCH"),
+                    ),
                 ));
             }
         } else {
@@ -162,76 +183,97 @@ pub async fn refresh_token_handler(
         .unwrap_or_default();
 
     // We reuse the existing session_id
-    let new_access_token = if state.use_ed25519 {
-        issue_access_token_ed25519(
-            &user.id,
-            &user.email,
-            &user.role,
-            &roles_vec,
-            &user.tenant_id,
-            &admin_tenants,
-            claims.device_id.as_deref(),
-            session_id,
-            None,
-            &state.ed25519_keypair,
-            Some(token_ttl_seconds),
-        )
-    } else {
-        issue_access_token_hmac(
-            &user.id,
-            &user.email,
-            &user.role,
-            &roles_vec,
-            &user.tenant_id,
-            &admin_tenants,
-            claims.device_id.as_deref(),
-            session_id,
-            None,
-            &state.jwt_secret,
-            Some(token_ttl_seconds),
-        )
-    }
-    .map_err(|e| {
-        warn!(error = %e, user_id = %user.id, "Failed to generate new access token");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("Token generation failed").with_code("TOKEN_ERROR")),
-        )
-    })?;
+    let access_params = AccessTokenParams {
+        user_id: &user.id,
+        email: &user.email,
+        role: &user.role,
+        roles: &roles_vec,
+        tenant_id: &user.tenant_id,
+        admin_tenants: &admin_tenants,
+        device_id: claims.device_id.as_deref(),
+        session_id,
+        mfa_level: None,
+    };
+    let new_access_token =
+        issue_access_token(&state, &access_params, Some(token_ttl_seconds)).map_err(|e| {
+            warn!(error = %e, user_id = %user.id, "Failed to generate new access token");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("Token generation failed").with_code("TOKEN_ERROR")),
+            )
+        })?;
 
-    // 6. Update Activity/Extend Session?
-    // Usually we just update last_activity.
-    if let Err(e) = state.db.update_auth_session_activity(session_id).await {
-        warn!(error = %e, session_id = %session_id, "Failed to update session activity");
+    // 6. Rotate Refresh Token
+    // Generate new rot_id and issue new refresh token
+    let new_rot_id = Uuid::new_v4().to_string();
+    let refresh_ttl = auth_cfg.effective_ttl();
+    let refresh_expires_at = Utc::now() + Duration::seconds(refresh_ttl as i64);
+    let session_expires_at = refresh_expires_at.timestamp();
+
+    let refresh_params = RefreshTokenParams {
+        user_id: &user.id,
+        tenant_id: &user.tenant_id,
+        roles: &roles_vec,
+        device_id: claims.device_id.as_deref(),
+        session_id,
+        rot_id: &new_rot_id,
+    };
+    let new_refresh_token =
+        issue_refresh_token(&state, &refresh_params, Some(refresh_ttl)).map_err(|e| {
+            warn!(error = %e, user_id = %user.id, "Failed to generate new refresh token");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("Token generation failed").with_code("TOKEN_ERROR")),
+            )
+        })?;
+
+    // Hash new refresh token for storage
+    let new_refresh_hash = blake3::hash(new_refresh_token.as_bytes())
+        .to_hex()
+        .to_string();
+
+    // Update session with new rot_id
+    if let Err(e) = update_session_rotation(
+        &state.db,
+        session_id,
+        &new_rot_id,
+        Some(&new_refresh_hash),
+        &refresh_expires_at.to_rfc3339(),
+        session_expires_at,
+    )
+    .await
+    {
+        warn!(error = %e, session_id = %session_id, "Failed to update session rotation");
+        // Continue anyway - token is valid, just rotation tracking may be stale
     }
+
+    log_auth_event(
+        AuthEvent::TokenRefreshSuccess,
+        Some(&user.id),
+        None,
+        Some(&user.tenant_id),
+        None,
+        Some(session_id),
+        None,
+    );
 
     // 7. Prepare Response
     let mut headers = HeaderMap::new();
-    attach_auth_cookie(&mut headers, &new_access_token, &auth_cfg).map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("Failed to attach cookie").with_code("INTERNAL_ERROR")),
-        )
-    })?;
-    attach_refresh_cookie(&mut headers, &refresh_token, &auth_cfg).map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("Failed to attach cookie").with_code("INTERNAL_ERROR")),
-        )
-    })?;
     let csrf_token = Uuid::new_v4().to_string();
-    attach_csrf_cookie(&mut headers, &csrf_token, &auth_cfg, auth_cfg.effective_ttl()).map_err(
-        |_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new("Failed to attach cookie").with_code("INTERNAL_ERROR")),
-            )
-        },
-    )?;
-
-    // We do NOT rotate refresh token here unless we implement full rotation.
-    // For now, keep the same refresh token until it expires.
-    // Ideally we SHOULD rotate it, but keeping it simple for now.
+    attach_auth_cookies(
+        &mut headers,
+        &new_access_token,
+        &new_refresh_token,
+        &csrf_token,
+        &auth_cfg,
+        auth_cfg.effective_ttl(),
+    )
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new("Failed to attach cookie").with_code("INTERNAL_ERROR")),
+        )
+    })?;
 
     // Calculate generic response fields
     // We don't return full tenant list on refresh usually.

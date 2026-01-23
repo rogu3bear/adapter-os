@@ -1,10 +1,9 @@
 use crate::auth::{
-    issue_access_token_ed25519, issue_access_token_hmac, issue_refresh_token_ed25519,
-    issue_refresh_token_hmac, validate_refresh_token_ed25519, validate_refresh_token_hmac,
-    verify_password,
+    validate_refresh_token_ed25519, validate_refresh_token_hmac, verify_password,
 };
 use crate::auth_common::{
-    attach_auth_cookie, attach_csrf_cookie, attach_refresh_cookie, AuthConfig,
+    attach_auth_cookies, issue_access_token, issue_refresh_token, AccessTokenParams, AuthConfig,
+    RefreshTokenParams,
 };
 use crate::ip_extraction::ClientIp;
 use crate::security::{check_login_lockout, track_auth_attempt, upsert_user_session};
@@ -15,12 +14,14 @@ use adapteros_api_types::API_SCHEMA_VERSION;
 use axum::{
     extract::State,
     http::{HeaderMap, StatusCode},
-    Extension,
-    Json,
+    Extension, Json,
 };
 use chrono::{Duration, Utc};
 use tracing::{info, warn};
 use uuid::Uuid;
+
+use super::audit::{log_auth_event, log_lockout_event, AuthEvent};
+use super::validation::normalize_email;
 
 /// Authenticate user via email/password
 ///
@@ -44,11 +45,11 @@ pub async fn login_handler(
     Json(req): Json<LoginRequest>,
 ) -> Result<(HeaderMap, Json<LoginResponse>), (StatusCode, Json<ErrorResponse>)> {
     let auth_cfg = AuthConfig::from_state(&state);
-    // 1. Resolve email (support username field for legacy/UI compat)
+    // 1. Resolve and normalize email (support username field for legacy/UI compat)
     let email = if !req.email.is_empty() {
-        &req.email
+        normalize_email(&req.email)
     } else if let Some(ref u) = req.username {
-        u
+        normalize_email(u)
     } else {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -67,14 +68,18 @@ pub async fn login_handler(
     let ip_address = client_ip.0.clone();
 
     // 2. Check for lockout/rate limiting (FAIL-CLOSED: deny on error)
-    match check_login_lockout(&state.db, email, &ip_address).await {
+    match check_login_lockout(&state.db, &email, &ip_address).await {
         Ok(Some(lockout)) => {
             // Log detailed reason internally, but return generic message to user
-            warn!(
-                email = %email,
-                ip = %ip_address,
-                reason = %lockout.reason,
-                "Login blocked due to lockout"
+            log_lockout_event(&email, &ip_address, lockout.reason, None);
+            log_auth_event(
+                AuthEvent::LoginBlockedLockout,
+                None,
+                Some(&email),
+                None,
+                Some(&ip_address),
+                None,
+                Some(lockout.reason),
             );
             return Err((
                 StatusCode::TOO_MANY_REQUESTS,
@@ -103,7 +108,7 @@ pub async fn login_handler(
     }
 
     // 3. Fetch user
-    let user = state.db.get_user_by_email(email).await.map_err(|e| {
+    let user = state.db.get_user_by_email(&email).await.map_err(|e| {
         // Log detailed error internally for debugging
         warn!(error = %e, email = %email, "Database error during login");
         (
@@ -120,7 +125,7 @@ pub async fn login_handler(
             let _ = verify_password(&req.password, "invalid");
             if let Err(e) = track_auth_attempt(
                 &state.db,
-                email,
+                &email,
                 &ip_address,
                 false,
                 Some("invalid_credentials"),
@@ -129,6 +134,15 @@ pub async fn login_handler(
             {
                 warn!(error = %e, email = %email, "Failed to record auth attempt");
             }
+            log_auth_event(
+                AuthEvent::LoginFailedInvalidCredentials,
+                None,
+                Some(&email),
+                None,
+                Some(&ip_address),
+                None,
+                Some("user_not_found"),
+            );
             return Err((
                 StatusCode::UNAUTHORIZED,
                 Json(ErrorResponse::new("Invalid credentials").with_code("INVALID_CREDENTIALS")),
@@ -157,7 +171,15 @@ pub async fn login_handler(
         {
             warn!(error = %e, user_id = %user.id, "Failed to record auth attempt");
         }
-        info!(user_id = %user.id, "Failed login attempt (invalid password)");
+        log_auth_event(
+            AuthEvent::LoginFailedInvalidCredentials,
+            Some(&user.id),
+            Some(&user.email),
+            Some(&user.tenant_id),
+            Some(&ip_address),
+            None,
+            Some("invalid_password"),
+        );
         return Err((
             StatusCode::UNAUTHORIZED,
             Json(ErrorResponse::new("Invalid credentials").with_code("INVALID_CREDENTIALS")),
@@ -177,7 +199,15 @@ pub async fn login_handler(
         {
             warn!(error = %e, user_id = %user.id, "Failed to record auth attempt");
         }
-        info!(user_id = %user.id, "Failed login attempt (account disabled)");
+        log_auth_event(
+            AuthEvent::LoginFailedAccountDisabled,
+            Some(&user.id),
+            Some(&user.email),
+            Some(&user.tenant_id),
+            Some(&ip_address),
+            None,
+            None,
+        );
         return Err((
             StatusCode::FORBIDDEN,
             Json(ErrorResponse::new("Account is disabled").with_code("ACCOUNT_DISABLED")),
@@ -198,36 +228,18 @@ pub async fn login_handler(
         .unwrap_or_default();
 
     // Generate access token
-    let token = if state.use_ed25519 {
-        issue_access_token_ed25519(
-            &user.id,
-            &user.email,
-            &user.role,
-            &roles_vec,
-            &user.tenant_id,
-            &admin_tenants,
-            None,
-            &session_id,
-            None,
-            &state.ed25519_keypair,
-            Some(token_ttl_seconds),
-        )
-    } else {
-        issue_access_token_hmac(
-            &user.id,
-            &user.email,
-            &user.role,
-            &roles_vec,
-            &user.tenant_id,
-            &admin_tenants,
-            None,
-            &session_id,
-            None,
-            &state.jwt_secret,
-            Some(token_ttl_seconds),
-        )
-    }
-    .map_err(|e| {
+    let access_params = AccessTokenParams {
+        user_id: &user.id,
+        email: &user.email,
+        role: &user.role,
+        roles: &roles_vec,
+        tenant_id: &user.tenant_id,
+        admin_tenants: &admin_tenants,
+        device_id: None,
+        session_id: &session_id,
+        mfa_level: None,
+    };
+    let token = issue_access_token(&state, &access_params, Some(token_ttl_seconds)).map_err(|e| {
         warn!(error = %e, user_id = %user.id, "Token generation failed");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -236,36 +248,24 @@ pub async fn login_handler(
     })?;
 
     // Generate refresh token
-    let refresh_token = if state.use_ed25519 {
-        issue_refresh_token_ed25519(
-            &user.id,
-            &user.tenant_id,
-            &roles_vec,
-            None,
-            &session_id,
-            &rot_id,
-            &state.ed25519_keypair,
-            Some(session_ttl_seconds),
-        )
-    } else {
-        issue_refresh_token_hmac(
-            &user.id,
-            &user.tenant_id,
-            &roles_vec,
-            None,
-            &session_id,
-            &rot_id,
-            &state.jwt_secret,
-            Some(session_ttl_seconds),
-        )
-    }
-    .map_err(|e| {
-        warn!(error = %e, user_id = %user.id, "Refresh token generation failed");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("Authentication failed").with_code("TOKEN_GENERATION_ERROR")),
-        )
-    })?;
+    let refresh_params = RefreshTokenParams {
+        user_id: &user.id,
+        tenant_id: &user.tenant_id,
+        roles: &roles_vec,
+        device_id: None,
+        session_id: &session_id,
+        rot_id: &rot_id,
+    };
+    let refresh_token =
+        issue_refresh_token(&state, &refresh_params, Some(session_ttl_seconds)).map_err(|e| {
+            warn!(error = %e, user_id = %user.id, "Refresh token generation failed");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Authentication failed").with_code("TOKEN_GENERATION_ERROR"),
+                ),
+            )
+        })?;
 
     let refresh_claims = if state.use_ed25519 {
         validate_refresh_token_ed25519(
@@ -315,9 +315,7 @@ pub async fn login_handler(
         )
     })?;
 
-    if let Err(e) =
-        track_auth_attempt(&state.db, &user.email, &ip_address, true, None).await
-    {
+    if let Err(e) = track_auth_attempt(&state.db, &user.email, &ip_address, true, None).await {
         warn!(error = %e, user_id = %user.id, "Failed to record auth attempt");
     }
 
@@ -334,7 +332,15 @@ pub async fn login_handler(
         // For now, we skip auto-rehash to keep it simple and safe.
     }
 
-    info!(user_id = %user.id, tenant_id = %user.tenant_id, "Login successful");
+    log_auth_event(
+        AuthEvent::LoginSuccess,
+        Some(&user.id),
+        None, // Don't log email on success (privacy)
+        Some(&user.tenant_id),
+        Some(&ip_address),
+        Some(&session_id),
+        None,
+    );
 
     // 10. Construct Response
     // We need to fetch accessible tenants for the response summary
@@ -363,30 +369,17 @@ pub async fn login_handler(
 
     // 11. Attach httpOnly cookies for browser auth
     let mut response_headers = HeaderMap::new();
-    attach_auth_cookie(&mut response_headers, &token, &auth_cfg).map_err(|e| {
-        warn!(error = %e, user_id = %user.id, "Failed to attach auth cookie");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("Authentication failed").with_code("COOKIE_ERROR")),
-        )
-    })?;
-    attach_refresh_cookie(&mut response_headers, &refresh_token, &auth_cfg).map_err(|e| {
-        warn!(error = %e, user_id = %user.id, "Failed to attach refresh cookie");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("Authentication failed").with_code("COOKIE_ERROR")),
-        )
-    })?;
-    // Generate and attach CSRF token for double-submit protection
     let csrf_token = Uuid::new_v4().to_string();
-    attach_csrf_cookie(
+    attach_auth_cookies(
         &mut response_headers,
+        &token,
+        &refresh_token,
         &csrf_token,
         &auth_cfg,
         session_ttl_seconds,
     )
     .map_err(|e| {
-        warn!(error = %e, user_id = %user.id, "Failed to attach CSRF cookie");
+        warn!(error = %e, user_id = %user.id, "Failed to attach auth cookies");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse::new("Authentication failed").with_code("COOKIE_ERROR")),
