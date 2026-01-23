@@ -136,18 +136,24 @@ impl OutputHashManager {
             let input_hash = B3Hash::from_hex(&input_hash_hex)?;
 
             records.push(OutputHashRecord {
-                id: Some(row.try_get("id")
-                    .map_err(|e| AosError::Database(format!("Failed to get id: {}", e)))?),
-                session_id: row.try_get("session_id")
+                id: Some(
+                    row.try_get("id")
+                        .map_err(|e| AosError::Database(format!("Failed to get id: {}", e)))?,
+                ),
+                session_id: row
+                    .try_get("session_id")
                     .map_err(|e| AosError::Database(format!("Failed to get session_id: {}", e)))?,
-                host_id: row.try_get("host_id")
+                host_id: row
+                    .try_get("host_id")
                     .map_err(|e| AosError::Database(format!("Failed to get host_id: {}", e)))?,
                 output_hash,
                 input_hash,
-                computed_at: row.try_get("computed_at")
+                computed_at: row
+                    .try_get("computed_at")
                     .map_err(|e| AosError::Database(format!("Failed to get computed_at: {}", e)))?,
-                deterministic: row.try_get::<i64, _>("deterministic")
-                    .map_err(|e| AosError::Database(format!("Failed to get deterministic: {}", e)))? != 0,
+                deterministic: row.try_get::<i64, _>("deterministic").map_err(|e| {
+                    AosError::Database(format!("Failed to get deterministic: {}", e))
+                })? != 0,
             });
         }
 
@@ -176,7 +182,9 @@ impl OutputHashManager {
 
         // For simplicity, take the first input hash
         // Safe: we already checked records is not empty above, so by_input has at least one entry
-        let (input_hash_hex, records) = by_input.into_iter().next()
+        let (input_hash_hex, records) = by_input
+            .into_iter()
+            .next()
             .ok_or_else(|| AosError::Validation("No input hash groups found".to_string()))?;
         let input_hash = B3Hash::from_hex(&input_hash_hex)?;
 
@@ -301,18 +309,24 @@ impl OutputHashManager {
             let input_hash = B3Hash::from_hex(&input_hash_hex)?;
 
             records.push(OutputHashRecord {
-                id: Some(row.try_get("id")
-                    .map_err(|e| AosError::Database(format!("Failed to get id: {}", e)))?),
-                session_id: row.try_get("session_id")
+                id: Some(
+                    row.try_get("id")
+                        .map_err(|e| AosError::Database(format!("Failed to get id: {}", e)))?,
+                ),
+                session_id: row
+                    .try_get("session_id")
                     .map_err(|e| AosError::Database(format!("Failed to get session_id: {}", e)))?,
-                host_id: row.try_get("host_id")
+                host_id: row
+                    .try_get("host_id")
                     .map_err(|e| AosError::Database(format!("Failed to get host_id: {}", e)))?,
                 output_hash,
                 input_hash,
-                computed_at: row.try_get("computed_at")
+                computed_at: row
+                    .try_get("computed_at")
                     .map_err(|e| AosError::Database(format!("Failed to get computed_at: {}", e)))?,
-                deterministic: row.try_get::<i64, _>("deterministic")
-                    .map_err(|e| AosError::Database(format!("Failed to get deterministic: {}", e)))? != 0,
+                deterministic: row.try_get::<i64, _>("deterministic").map_err(|e| {
+                    AosError::Database(format!("Failed to get deterministic: {}", e))
+                })? != 0,
             });
         }
 
