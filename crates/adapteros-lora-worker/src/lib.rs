@@ -611,6 +611,34 @@ fn declared_determinism_level(backend: BackendKind) -> DeterminismLevel {
     }
 }
 
+/// Normalize backend identifiers to canonical categories for telemetry and display.
+///
+/// Maps implementation-specific backend names to abstract categories:
+/// - "native": MLX-based backends (mlx, mlx-bridge) - primary inference path
+/// - "accelerated": Hardware-accelerated backends (coreml, metal) - ANE/GPU
+/// - "cpu": CPU-only execution
+/// - "unknown": Unrecognized backend identifiers
+///
+/// This normalization enables consistent telemetry aggregation and UI display
+/// across different backend implementations.
+pub fn normalize_backend_id(backend: &str) -> &'static str {
+    let normalized = backend.trim().to_ascii_lowercase();
+    let normalized = normalized.replace(['-', '_'], "");
+
+    match normalized.as_str() {
+        // MLX variants -> native
+        "mlx" | "mlxffi" | "mlxbridge" | "subprocess" => "native",
+        // Hardware-accelerated backends
+        "coreml" | "ane" | "metal" => "accelerated",
+        // CPU-only
+        "cpu" | "cpuonly" => "cpu",
+        // Auto delegates to runtime selection, categorize as native since MLX is default
+        "auto" | "autodev" | "default" => "native",
+        // Unknown backend
+        _ => "unknown",
+    }
+}
+
 fn is_determinism_downgrade(baseline: DeterminismLevel, candidate: DeterminismLevel) -> bool {
     candidate < baseline
 }
@@ -791,9 +819,24 @@ pub struct InferenceResponse {
     /// Stack version for telemetry correlation
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stack_version: Option<i64>,
-    /// Backend used to execute the request (e.g., metal, coreml, mlx)
+    /// Normalized backend identifier for deterministic responses.
+    ///
+    /// This field contains a canonical identifier that is consistent across
+    /// hardware configurations to enable deterministic replay/comparison:
+    /// - `"native"` for MLX variants (mlx, mlxbridge)
+    /// - `"accelerated"` for Apple hardware acceleration (coreml, metal)
+    /// - `"cpu"` for CPU-only execution
+    ///
+    /// Use `backend_raw` for observability/telemetry when the actual backend matters.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub backend_used: Option<String>,
+    /// Raw backend identifier for telemetry/observability.
+    ///
+    /// Contains the device-specific backend name (e.g., "mlx", "coreml", "metal")
+    /// for debugging and telemetry purposes. For deterministic comparison, use
+    /// the normalized `backend_used` field instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backend_raw: Option<String>,
     /// Backend version/build identifier (e.g., crate/FFI version)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub backend_version: Option<String>,
@@ -1020,6 +1063,68 @@ impl AvailableBackends {
             BackendLane::Primary
         }
     }
+
+    /// Check if CoreML with ANE is available in this worker.
+    ///
+    /// Returns true if either primary or fallback is CoreML and has ANE telemetry.
+    fn has_coreml_with_ane(&self) -> bool {
+        let coreml_available =
+            self.primary == BackendKind::CoreML || self.fallback == Some(BackendKind::CoreML);
+        let ane_available =
+            self.coreml_primary.is_some() || self.coreml_fallback.is_some();
+        coreml_available && ane_available
+    }
+
+    /// Check if MLX is available in this worker.
+    fn has_mlx(&self) -> bool {
+        self.primary == BackendKind::Mlx
+            || self.primary == BackendKind::MlxBridge
+            || self.fallback == Some(BackendKind::Mlx)
+            || self.fallback == Some(BackendKind::MlxBridge)
+    }
+
+    /// Check if Metal is available in this worker.
+    fn has_metal(&self) -> bool {
+        self.primary == BackendKind::Metal || self.fallback == Some(BackendKind::Metal)
+    }
+
+    /// Resolve backend based on reasoning mode.
+    ///
+    /// When reasoning_mode is enabled, prefers CoreML for ANE-accelerated determinism.
+    /// Otherwise, prefers MLX for streaming flexibility.
+    /// Falls through to the provided default if preferred backend unavailable.
+    ///
+    /// Returns (resolved_backend, reasoning_triggered, reason)
+    fn resolve_for_reasoning(
+        &self,
+        requested: Option<BackendKind>,
+        reasoning_mode: bool,
+    ) -> (BackendKind, bool, &'static str) {
+        // If explicit backend requested, honor it
+        if let Some(explicit) = requested {
+            return (explicit, false, "explicit_backend_requested");
+        }
+
+        // Reasoning mode: prefer CoreML for ANE determinism
+        if reasoning_mode && self.has_coreml_with_ane() {
+            return (BackendKind::CoreML, true, "reasoning_mode_coreml_preferred");
+        }
+
+        // Default: prefer MLX for streaming
+        if self.has_mlx() {
+            if self.primary == BackendKind::Mlx || self.primary == BackendKind::MlxBridge {
+                return (self.primary, false, "streaming_mode_mlx_default");
+            }
+            if let Some(fallback) = self.fallback {
+                if fallback == BackendKind::Mlx || fallback == BackendKind::MlxBridge {
+                    return (fallback, false, "streaming_mode_mlx_fallback");
+                }
+            }
+        }
+
+        // Fallback to primary
+        (self.primary, false, "primary_backend_default")
+    }
 }
 
 #[cfg(test)]
@@ -1038,6 +1143,108 @@ mod adapter_path_tests {
             paths.repo_root
         );
         std::env::remove_var("AOS_ADAPTERS_ROOT");
+    }
+}
+
+#[cfg(test)]
+mod available_backends_tests {
+    use super::{AvailableBackends, BackendKind, CoremlRuntimeTelemetry};
+
+    fn make_mlx_primary_with_coreml_fallback() -> AvailableBackends {
+        AvailableBackends {
+            primary: BackendKind::Mlx,
+            fallback: Some(BackendKind::CoreML),
+            coreml_primary: None,
+            coreml_fallback: Some(CoremlRuntimeTelemetry::default()),
+        }
+    }
+
+    fn make_coreml_primary() -> AvailableBackends {
+        AvailableBackends {
+            primary: BackendKind::CoreML,
+            fallback: Some(BackendKind::Metal),
+            coreml_primary: Some(CoremlRuntimeTelemetry::default()),
+            coreml_fallback: None,
+        }
+    }
+
+    fn make_mlx_only() -> AvailableBackends {
+        AvailableBackends {
+            primary: BackendKind::Mlx,
+            fallback: Some(BackendKind::Metal),
+            coreml_primary: None,
+            coreml_fallback: None,
+        }
+    }
+
+    #[test]
+    fn reasoning_mode_selects_coreml_when_available() {
+        let backends = make_mlx_primary_with_coreml_fallback();
+        let (resolved, triggered, reason) = backends.resolve_for_reasoning(None, true);
+
+        assert_eq!(resolved, BackendKind::CoreML);
+        assert!(triggered);
+        assert_eq!(reason, "reasoning_mode_coreml_preferred");
+    }
+
+    #[test]
+    fn non_reasoning_mode_prefers_mlx() {
+        let backends = make_mlx_primary_with_coreml_fallback();
+        let (resolved, triggered, reason) = backends.resolve_for_reasoning(None, false);
+
+        assert_eq!(resolved, BackendKind::Mlx);
+        assert!(!triggered);
+        assert_eq!(reason, "streaming_mode_mlx_default");
+    }
+
+    #[test]
+    fn explicit_backend_overrides_reasoning() {
+        let backends = make_mlx_primary_with_coreml_fallback();
+        let (resolved, triggered, reason) =
+            backends.resolve_for_reasoning(Some(BackendKind::Metal), true);
+
+        assert_eq!(resolved, BackendKind::Metal);
+        assert!(!triggered);
+        assert_eq!(reason, "explicit_backend_requested");
+    }
+
+    #[test]
+    fn reasoning_mode_falls_back_when_coreml_unavailable() {
+        let backends = make_mlx_only();
+        let (resolved, triggered, reason) = backends.resolve_for_reasoning(None, true);
+
+        // Should fall back to MLX since CoreML/ANE not available
+        assert_eq!(resolved, BackendKind::Mlx);
+        assert!(!triggered);
+        assert_eq!(reason, "streaming_mode_mlx_default");
+    }
+
+    #[test]
+    fn coreml_primary_honors_reasoning_mode() {
+        let backends = make_coreml_primary();
+        let (resolved, triggered, reason) = backends.resolve_for_reasoning(None, true);
+
+        assert_eq!(resolved, BackendKind::CoreML);
+        assert!(triggered);
+        assert_eq!(reason, "reasoning_mode_coreml_preferred");
+    }
+
+    #[test]
+    fn has_coreml_with_ane_checks_telemetry() {
+        let with_ane = make_mlx_primary_with_coreml_fallback();
+        let without_ane = make_mlx_only();
+
+        assert!(with_ane.has_coreml_with_ane());
+        assert!(!without_ane.has_coreml_with_ane());
+    }
+
+    #[test]
+    fn has_mlx_checks_variants() {
+        let mlx_primary = make_mlx_only();
+        let coreml_primary = make_coreml_primary();
+
+        assert!(mlx_primary.has_mlx());
+        assert!(!coreml_primary.has_mlx());
     }
 }
 
@@ -1205,11 +1412,12 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             }
         };
 
-        // Load embedding model - use dimensions from manifest
-        let embedding_model = Arc::new(EmbeddingModel::from_model_path(
+        // Load embedding model with tokenizer for proper text encoding
+        let embedding_model = Arc::new(EmbeddingModel::from_model_path_with_tokenizer(
             model_path,
             manifest.base.vocab_size as usize,
             manifest.base.hidden_dim as usize,
+            tokenizer.clone(),
         )?);
 
         // Initialize evidence retriever with real implementation if RAG is available
@@ -1736,6 +1944,41 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         (coreml, fallback_backend)
     }
 
+    /// Normalized backend identifier for deterministic responses.
+    ///
+    /// Returns the normalized backend identifier that is consistent across hardware
+    /// configurations, enabling deterministic replay/comparison. The normalization
+    /// mapping is defined in `BackendKind::normalized_id()`:
+    /// - MLX variants → "native"
+    /// - CoreML/Metal → "accelerated"
+    /// - CPU → "cpu"
+    fn backend_used_for_response(&self, fallback_triggered: bool) -> String {
+        let backend = if fallback_triggered {
+            self.available_backends
+                .fallback
+                .unwrap_or(self.available_backends.primary)
+        } else {
+            self.available_backends.primary
+        };
+        backend.normalized_id().to_string()
+    }
+
+    /// Raw backend identifier for telemetry/observability.
+    ///
+    /// Returns the device-specific backend name (e.g., "mlx", "coreml", "metal")
+    /// for debugging and telemetry purposes. For deterministic comparison, use
+    /// `backend_used_for_response()` instead.
+    fn backend_raw_for_response(&self, fallback_triggered: bool) -> String {
+        let backend = if fallback_triggered {
+            self.available_backends
+                .fallback
+                .unwrap_or(self.available_backends.primary)
+        } else {
+            self.available_backends.primary
+        };
+        backend.as_str().to_string()
+    }
+
     /// Compute the ModelCacheIdentityV2 digest for this worker (PRD-06)
     ///
     /// This digest uniquely identifies the cache configuration used for inference,
@@ -2107,25 +2350,54 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             })?;
         }
 
-        let base_only_request = matches!(
+        let explicit_base_only = matches!(
             request.effective_adapter_ids.as_ref(),
             Some(ids) if ids.is_empty()
         );
+        let allow_empty_stack = explicit_base_only || request.effective_adapter_ids.is_none();
 
         let strict_mode_active =
             strict_mode_enabled(request.strict_mode, &request.determinism_mode);
 
-        // Resolve backend lane for this request
+        // Resolve backend lane for this request with reasoning-aware routing
+        // UNIFIED INFERENCE ROUTER: reasoning_mode -> CoreML, else -> MLX streaming
         let requested_backend = request.backend_profile;
+        let reasoning_mode = request.reasoning_mode;
+
+        // Step 1: Apply reasoning-aware routing to get suggested backend
+        let (reasoning_suggested, reasoning_triggered, routing_reason) = self
+            .available_backends
+            .resolve_for_reasoning(requested_backend, reasoning_mode);
+
+        // Log reasoning-aware routing decision for observability
+        if reasoning_triggered {
+            info!(
+                target: "inference.backend.routing",
+                reasoning_mode = true,
+                suggested = %reasoning_suggested.as_str(),
+                reason = routing_reason,
+                "Reasoning-aware routing: CoreML selected for deterministic reasoning"
+            );
+        } else {
+            debug!(
+                target: "inference.backend.routing",
+                reasoning_mode,
+                suggested = %reasoning_suggested.as_str(),
+                reason = routing_reason,
+                "Backend routing decision"
+            );
+        }
+
+        // Step 2: Validate the suggested backend is available, with fallback
         let (resolved_backend, backend_lane, backend_overridden) = {
-            let requested = requested_backend.unwrap_or(self.available_backends.primary);
-            if self.available_backends.contains(requested) {
+            if self.available_backends.contains(reasoning_suggested) {
                 (
-                    requested,
-                    self.available_backends.lane_for(requested),
+                    reasoning_suggested,
+                    self.available_backends.lane_for(reasoning_suggested),
                     false,
                 )
             } else {
+                // Suggested backend unavailable, fall back
                 let fallback = self
                     .available_backends
                     .fallback
@@ -2136,8 +2408,10 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         if backend_overridden {
             warn!(
                 requested = ?requested_backend.map(|b| b.as_str().to_string()),
+                reasoning_suggested = %reasoning_suggested.as_str(),
                 selected = %resolved_backend.as_str(),
-                "Requested backend not available on this worker; falling back"
+                reasoning_mode,
+                "Requested/suggested backend not available on this worker; falling back"
             );
         }
         request.backend_profile = Some(resolved_backend);
@@ -2260,15 +2534,12 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 // Check evidence policy
                 if let Err(_e) = self.policy.check_evidence(evidence.len()) {
                     // Insufficient evidence, returning refusal
-                    let (backend_used, fallback_triggered) = {
+                    let fallback_triggered = {
                         let kernels = self.kernels.lock().await;
-                        (
-                            kernels
-                                .last_backend_used()
-                                .unwrap_or_else(|| kernels.device_name().to_string()),
-                            kernels.fallback_triggered(),
-                        )
+                        kernels.fallback_triggered()
                     };
+                    let backend_used = self.backend_used_for_response(fallback_triggered);
+                    let backend_raw = self.backend_raw_for_response(fallback_triggered);
                     let backend_version = adapteros_core::version::VERSION.to_string();
                     let (coreml_runtime, fallback_backend) =
                         self.runtime_metadata_for_response(fallback_triggered);
@@ -2300,6 +2571,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                         stack_id: request.stack_id.clone(),
                         stack_version: request.stack_version,
                         backend_used: Some(backend_used),
+                        backend_raw: Some(backend_raw),
                         backend_version: Some(backend_version),
                         fallback_triggered,
                         coreml_compute_preference: coreml_runtime
@@ -2481,10 +2753,12 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         if !free_tokens.is_empty() && max_tokens_remaining == 0 {
             self.check_cancelled_or_error(&request, cancel_token.as_deref(), free_tokens.len())?;
 
-            let (backend_used, fallback_triggered) = {
+            let fallback_triggered = {
                 let kernels = self.kernels.lock().await;
-                (kernels.device_name().to_string(), false)
+                kernels.fallback_triggered()
             };
+            let backend_used = self.backend_used_for_response(fallback_triggered);
+            let backend_raw = self.backend_raw_for_response(fallback_triggered);
             let logical_prompt_tokens: u32 = prompt_tokens.len().try_into().unwrap_or(u32::MAX);
             let logical_output_tokens: u32 = free_tokens.len().try_into().unwrap_or(u32::MAX);
             let prefix_cached_token_count: u32 = 0;
@@ -2521,6 +2795,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 stack_id: request.stack_id.clone(),
                 stack_version: request.stack_version,
                 backend_used: Some(backend_used),
+                backend_raw: Some(backend_raw),
                 backend_version: Some(adapteros_core::version::VERSION.to_string()),
                 fallback_triggered,
                 coreml_compute_preference: None,
@@ -2545,7 +2820,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
 
         // Snapshot current stack and pin adapters for this request
         let pinner = RequestPinner::new(self.hotswap.table().clone());
-        let pinned_request = if base_only_request {
+        let pinned_request = if allow_empty_stack {
             pinner.pin_allow_empty()
         } else {
             pinner.pin()
@@ -2553,6 +2828,8 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         .map_err(|e| AosError::Worker(format!("Failed to pin adapters: {}", e)))?;
         let stack_handle = pinned_request.stack().clone();
         let current_generation = pinned_request.generation();
+        let base_only_request = explicit_base_only
+            || (request.effective_adapter_ids.is_none() && stack_handle.active.is_empty());
 
         // Ensure KV cache coherence with current generation
         // This will reset cache if generation changed since last inference
@@ -3141,15 +3418,12 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             }
 
             // Build simplified response for text-generation mode
-            let (backend_used, fallback_triggered) = {
+            let fallback_triggered = {
                 let kernels = self.kernels.lock().await;
-                (
-                    kernels
-                        .last_backend_used()
-                        .unwrap_or_else(|| kernels.device_name().to_string()),
-                    kernels.fallback_triggered(),
-                )
+                kernels.fallback_triggered()
             };
+            let backend_used = self.backend_used_for_response(fallback_triggered);
+            let backend_raw = self.backend_raw_for_response(fallback_triggered);
             let backend_version = adapteros_core::version::VERSION.to_string();
             let (coreml_runtime, fallback_backend) =
                 self.runtime_metadata_for_response(fallback_triggered);
@@ -3326,6 +3600,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 stack_id: request.stack_id.clone(),
                 stack_version: request.stack_version,
                 backend_used: Some(backend_used),
+                backend_raw: Some(backend_raw),
                 backend_version: Some(backend_version),
                 fallback_triggered,
                 coreml_compute_preference: coreml_runtime
@@ -3912,11 +4187,8 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         let generated_text = self.tokenizer.decode(&generated_tokens)?;
 
         let include_attestation = trace_sink.is_some();
-        let (backend_used, fallback_triggered, determinism_attestation) = {
+        let (backend_used, backend_raw, fallback_triggered, determinism_attestation) = {
             let kernels = self.kernels.lock().await;
-            let backend_used = kernels
-                .last_backend_used()
-                .unwrap_or_else(|| kernels.device_name().to_string());
             let fallback_triggered = kernels.fallback_triggered();
             let attestation = if include_attestation {
                 Some(encode_determinism_attestation(
@@ -3925,7 +4197,9 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             } else {
                 None
             };
-            (backend_used, fallback_triggered, attestation)
+            let backend_used = self.backend_used_for_response(fallback_triggered);
+            let backend_raw = self.backend_raw_for_response(fallback_triggered);
+            (backend_used, backend_raw, fallback_triggered, attestation)
         };
         let backend_version = adapteros_core::version::VERSION.to_string();
         let (coreml_runtime, fallback_backend) =
@@ -4090,8 +4364,14 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 backend_used_normalized == expected || backend_used_normalized.contains("mock")
             } else {
                 // Allow match if backend name equals or starts with expected profile
-                // (e.g., "mlx ffi (apple silicon)" matches "mlx")
-                backend_used_normalized == expected || backend_used_normalized.starts_with(expected)
+                // (e.g., "mlx ffi (apple silicon)" matches "mlx"). For Metal, device
+                // names are vendor-specific; treat any non-mlx/coreml/cpu label as Metal.
+                backend_used_normalized == expected
+                    || backend_used_normalized.starts_with(expected)
+                    || (expected == "metal"
+                        && !backend_used_normalized.contains("mlx")
+                        && !backend_used_normalized.contains("coreml")
+                        && !backend_used_normalized.contains("cpu"))
             };
             if !backend_matches {
                 emit_observability_event(&determinism_violation_event(
@@ -4145,6 +4425,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             stack_id: request.stack_id.clone(),
             stack_version: request.stack_version,
             backend_used: Some(backend_used),
+            backend_raw: Some(backend_raw),
             backend_version: Some(backend_version),
             fallback_triggered,
             coreml_compute_preference: coreml_runtime
@@ -4402,5 +4683,69 @@ mod strict_mode_guard_tests {
         let mut mismatched = entry;
         mismatched.gates_q15 = vec![123];
         assert!(enforce_strict_router_chain(true, false, &[mismatched]).is_err());
+    }
+}
+
+#[cfg(test)]
+mod backend_normalization_tests {
+    use super::normalize_backend_id;
+
+    /// Regression test: verify backend identifier normalization returns canonical values.
+    ///
+    /// This ensures consistent telemetry aggregation and UI display across different
+    /// backend implementations and naming variations.
+    #[test]
+    fn test_backend_id_normalization() {
+        // MLX variants -> native
+        assert_eq!(normalize_backend_id("mlx"), "native");
+        assert_eq!(normalize_backend_id("mlx-bridge"), "native");
+        assert_eq!(normalize_backend_id("mlx_bridge"), "native");
+        assert_eq!(normalize_backend_id("mlxbridge"), "native");
+        assert_eq!(normalize_backend_id("mlx-ffi"), "native");
+        assert_eq!(normalize_backend_id("mlxffi"), "native");
+        assert_eq!(normalize_backend_id("subprocess"), "native");
+
+        // Hardware-accelerated backends -> accelerated
+        assert_eq!(normalize_backend_id("coreml"), "accelerated");
+        assert_eq!(normalize_backend_id("CoreML"), "accelerated");
+        assert_eq!(normalize_backend_id("COREML"), "accelerated");
+        assert_eq!(normalize_backend_id("metal"), "accelerated");
+        assert_eq!(normalize_backend_id("Metal"), "accelerated");
+        assert_eq!(normalize_backend_id("ane"), "accelerated");
+
+        // CPU -> cpu
+        assert_eq!(normalize_backend_id("cpu"), "cpu");
+        assert_eq!(normalize_backend_id("CPU"), "cpu");
+        assert_eq!(normalize_backend_id("cpu-only"), "cpu");
+        assert_eq!(normalize_backend_id("cpu_only"), "cpu");
+        assert_eq!(normalize_backend_id("cpuonly"), "cpu");
+
+        // Auto/default -> native (since MLX is the default inference backend)
+        assert_eq!(normalize_backend_id("auto"), "native");
+        assert_eq!(normalize_backend_id("Auto"), "native");
+        assert_eq!(normalize_backend_id("autodev"), "native");
+        assert_eq!(normalize_backend_id("default"), "native");
+
+        // Unknown backends
+        assert_eq!(normalize_backend_id("unknown-backend"), "unknown");
+        assert_eq!(normalize_backend_id("cuda"), "unknown");
+        assert_eq!(normalize_backend_id("rocm"), "unknown");
+        assert_eq!(normalize_backend_id(""), "unknown");
+        assert_eq!(normalize_backend_id("   "), "unknown");
+    }
+
+    #[test]
+    fn test_backend_id_normalization_handles_whitespace() {
+        assert_eq!(normalize_backend_id("  mlx  "), "native");
+        assert_eq!(normalize_backend_id("\tcoreml\n"), "accelerated");
+        assert_eq!(normalize_backend_id(" cpu "), "cpu");
+    }
+
+    #[test]
+    fn test_backend_id_normalization_handles_mixed_separators() {
+        assert_eq!(normalize_backend_id("mlx_bridge"), "native");
+        assert_eq!(normalize_backend_id("mlx-bridge"), "native");
+        assert_eq!(normalize_backend_id("cpu_only"), "cpu");
+        assert_eq!(normalize_backend_id("cpu-only"), "cpu");
     }
 }

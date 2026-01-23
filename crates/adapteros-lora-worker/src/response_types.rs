@@ -111,9 +111,24 @@ pub struct InferenceResponse {
     /// Stack version for telemetry correlation
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stack_version: Option<i64>,
-    /// Backend used to execute the request (e.g., metal, coreml, mlx)
+    /// Normalized backend identifier for deterministic responses.
+    ///
+    /// This field contains a canonical identifier that is consistent across
+    /// hardware configurations to enable deterministic replay/comparison:
+    /// - `"native"` for MLX variants (mlx, mlxbridge)
+    /// - `"accelerated"` for Apple hardware acceleration (coreml, metal)
+    /// - `"cpu"` for CPU-only execution
+    ///
+    /// Use `backend_raw` for observability/telemetry when the actual backend matters.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub backend_used: Option<String>,
+    /// Raw backend identifier for telemetry/observability.
+    ///
+    /// Contains the device-specific backend name (e.g., "mlx", "coreml", "metal")
+    /// for debugging and telemetry purposes. For deterministic comparison, use
+    /// the normalized `backend_used` field instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backend_raw: Option<String>,
     /// Backend version/build identifier (e.g., crate/FFI version)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub backend_version: Option<String>,

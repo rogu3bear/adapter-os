@@ -333,6 +333,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                     let worker_id = self.worker_id.clone();
                     let jti_cache = self.jti_cache.clone();
                     let worker_key_ring = self.worker_key_ring.clone();
+                    let drain_flag = Arc::clone(&self.drain_flag);
                     tokio::spawn(async move {
                         if let Err(e) = Self::handle_connection(
                             stream,
@@ -344,6 +345,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                             worker_id,
                             jti_cache,
                             worker_key_ring,
+                            drain_flag,
                         )
                         .await
                         {
@@ -549,6 +551,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
         worker_id: String,
         jti_cache: Option<Arc<Mutex<JtiCacheStore>>>,
         worker_key_ring: Option<Arc<RwLock<WorkerKeyRing>>>,
+        drain_flag: Arc<AtomicBool>,
     ) -> Result<()> {
         let start = std::time::Instant::now();
 
@@ -1113,6 +1116,53 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                     AosError::Worker(format!("Failed to serialize cancel response: {}", e))
                 })?;
                 Self::send_json_response(&mut stream, json_value).await?;
+            }
+            "/maintenance" => {
+                // Worker maintenance mode signal from control plane
+                // Sets the drain flag to begin graceful shutdown
+                #[derive(serde::Deserialize)]
+                struct MaintenanceRequest {
+                    #[serde(default)]
+                    mode: Option<String>, // "drain" or "maintenance"
+                    #[serde(default)]
+                    reason: Option<String>,
+                }
+
+                let maint_req: MaintenanceRequest = match parse_json_with_limit(&request.body) {
+                    Ok(req) => req,
+                    Err(e) => {
+                        error!(
+                            error = %e,
+                            body = %request.body,
+                            "Failed to parse maintenance request"
+                        );
+                        Self::send_error(&mut stream, 400, "Invalid maintenance request format")
+                            .await?;
+                        return Ok(());
+                    }
+                };
+
+                let mode = maint_req.mode.as_deref().unwrap_or("drain");
+                let reason = maint_req.reason.as_deref().unwrap_or("admin request");
+
+                info!(
+                    mode = %mode,
+                    reason = %reason,
+                    "Worker entering maintenance mode via control plane signal"
+                );
+
+                // Set the drain flag to signal the accept loop to exit gracefully
+                drain_flag.store(true, Ordering::Relaxed);
+
+                // Return acknowledgment with current status
+                let ack_response = serde_json::json!({
+                    "status": "accepted",
+                    "mode": mode,
+                    "reason": reason,
+                    "drain_flag_set": true,
+                    "timestamp": chrono::Utc::now().to_rfc3339()
+                });
+                Self::send_json_response(&mut stream, ack_response).await?;
             }
             "/fatal" => {
                 // Worker fatal error channel for panic reporting

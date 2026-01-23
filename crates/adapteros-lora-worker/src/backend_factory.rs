@@ -21,8 +21,9 @@ pub use cache::{
 };
 pub use capabilities::{
     auto_select_backend, describe_available_backends, detect_capabilities,
-    select_backend_from_execution_profile, BackendCapabilities, BackendSelection, BackendStrategy,
-    SelectionContext,
+    resolve_reasoning_aware_backend, select_backend_from_execution_profile,
+    should_use_reasoning_backend, BackendCapabilities, BackendSelection, BackendStrategy,
+    ReasoningBackendHint, SelectionContext,
 };
 pub use model_config::{resolve_base_model_pin_budget_bytes, resolve_base_model_pin_enabled};
 pub use model_io::load_model_bytes_verified;

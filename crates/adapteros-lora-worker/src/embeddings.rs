@@ -3,6 +3,7 @@
 //! Provides CPU-based embedding computation using averaged token embeddings.
 //! Future: Can be optimized with Metal-accelerated embedding model.
 
+use crate::tokenizer::QwenTokenizer;
 use adapteros_config::{resolve_embedding_model_path, PathSource};
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_lora_rag::EmbeddingModel as RagEmbeddingModel;
@@ -10,11 +11,16 @@ use memmap2::Mmap;
 use safetensors::SafeTensors;
 use std::fs::File;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 /// Embedding model for computing query vectors
 pub struct EmbeddingModel {
     model_type: EmbeddingType,
     dimension: usize,
+    /// Optional tokenizer for proper text encoding.
+    /// When present, encode_text uses BPE tokenization.
+    /// When absent, falls back to char codes (degraded accuracy).
+    tokenizer: Option<Arc<QwenTokenizer>>,
 }
 
 /// Embedding model type
@@ -30,20 +36,46 @@ enum EmbeddingType {
 }
 
 impl EmbeddingModel {
-    /// Load embedding model from path (currently uses token embeddings)
+    /// Load embedding model with tokenizer for proper text encoding.
+    ///
+    /// This is the preferred constructor - it enables accurate BPE tokenization
+    /// for RAG queries and semantic search.
+    pub fn from_model_path_with_tokenizer<P: AsRef<Path>>(
+        path: P,
+        vocab_size: usize,
+        hidden_dim: usize,
+        tokenizer: Arc<QwenTokenizer>,
+    ) -> Result<Self> {
+        let embedding_matrix = Self::load_embedding_matrix(path, vocab_size, hidden_dim)?;
+
+        Ok(Self {
+            model_type: EmbeddingType::TokenAverage { embedding_matrix },
+            dimension: hidden_dim,
+            tokenizer: Some(tokenizer),
+        })
+    }
+
+    /// Load embedding model from path without tokenizer (legacy).
+    ///
+    /// **Warning**: Without a tokenizer, `encode_text` falls back to using
+    /// character codes instead of proper BPE tokenization, resulting in
+    /// semantically invalid embeddings. Use `from_model_path_with_tokenizer`
+    /// when possible.
     pub fn from_model_path<P: AsRef<Path>>(
         path: P,
         vocab_size: usize,
         hidden_dim: usize,
     ) -> Result<Self> {
-        // For now, load embedding matrix from base model
-        // In production, this would load a dedicated embedding model
+        tracing::warn!(
+            "EmbeddingModel created without tokenizer - encode_text will use char codes (degraded accuracy)"
+        );
 
         let embedding_matrix = Self::load_embedding_matrix(path, vocab_size, hidden_dim)?;
 
         Ok(Self {
             model_type: EmbeddingType::TokenAverage { embedding_matrix },
             dimension: hidden_dim,
+            tokenizer: None,
         })
     }
 
@@ -370,18 +402,45 @@ impl EmbeddingModel {
 
 impl RagEmbeddingModel for EmbeddingModel {
     fn encode_text(&self, text: &str) -> Result<Vec<f32>> {
-        // For now, use a simple approach: tokenize and encode
-        // In a real implementation, this would use a proper tokenizer
-        let tokens = text.chars().map(|c| c as u32).collect::<Vec<u32>>();
+        let token_ids = match &self.tokenizer {
+            Some(tokenizer) => {
+                // Proper BPE tokenization using the model's tokenizer
+                tokenizer.encode(text)?
+            }
+            None => {
+                // Fallback: char codes (degraded accuracy, kept for backwards compat)
+                // This produces semantically invalid embeddings but allows startup
+                text.chars().map(|c| c as u32).collect()
+            }
+        };
 
-        self.encode_tokens(&tokens)
+        self.encode_tokens(&token_ids)
     }
 
     fn model_hash(&self) -> B3Hash {
-        // Return a fixed hash for this embedding model type
-        // In a real implementation, this would be computed from the model
-        B3Hash::from_hex("0000000000000000000000000000000000000000000000000000000000000000")
-            .unwrap()
+        // Compute hash from embedding matrix for determinism validation
+        match &self.model_type {
+            EmbeddingType::TokenAverage { embedding_matrix } => {
+                // Hash first 1MB of embedding data for fingerprint
+                let bytes_to_hash =
+                    std::cmp::min(embedding_matrix.len() * std::mem::size_of::<f32>(), 1024 * 1024);
+                let byte_slice = unsafe {
+                    std::slice::from_raw_parts(
+                        embedding_matrix.as_ptr() as *const u8,
+                        bytes_to_hash,
+                    )
+                };
+                let hash = blake3::hash(byte_slice);
+                B3Hash::from_bytes(*hash.as_bytes())
+            }
+            EmbeddingType::Dedicated => {
+                // Future: compute from dedicated model
+                B3Hash::from_hex(
+                    "0000000000000000000000000000000000000000000000000000000000000000",
+                )
+                .unwrap()
+            }
+        }
     }
 
     fn dimension(&self) -> usize {
@@ -400,6 +459,7 @@ mod tests {
                 embedding_matrix: vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], // 2 tokens, dim=3
             },
             dimension: 3,
+            tokenizer: None,
         };
 
         let embedding = model
@@ -418,6 +478,7 @@ mod tests {
                 embedding_matrix: vec![1.0, 0.0, 0.0, 0.0, 1.0, 0.0], // 2 tokens, dim=3
             },
             dimension: 3,
+            tokenizer: None,
         };
 
         let embedding = model
@@ -428,5 +489,66 @@ mod tests {
         assert!(embedding[0] > 0.6); // Roughly 1/sqrt(2)
         assert!(embedding[1] > 0.6); // Roughly 1/sqrt(2)
         assert!(embedding[2].abs() < 0.1);
+    }
+
+    #[test]
+    fn test_encode_text_without_tokenizer_uses_char_codes() {
+        // Create model with enough vocab to handle char codes
+        let vocab_size = 256;
+        let dim = 4;
+        let mut embedding_matrix = vec![0.0; vocab_size * dim];
+
+        // Set specific embeddings for 'a' (97) and 'b' (98)
+        let a_idx = 97 * dim;
+        embedding_matrix[a_idx] = 1.0;
+        embedding_matrix[a_idx + 1] = 0.0;
+        embedding_matrix[a_idx + 2] = 0.0;
+        embedding_matrix[a_idx + 3] = 0.0;
+
+        let b_idx = 98 * dim;
+        embedding_matrix[b_idx] = 0.0;
+        embedding_matrix[b_idx + 1] = 1.0;
+        embedding_matrix[b_idx + 2] = 0.0;
+        embedding_matrix[b_idx + 3] = 0.0;
+
+        let model = EmbeddingModel {
+            model_type: EmbeddingType::TokenAverage { embedding_matrix },
+            dimension: dim,
+            tokenizer: None,
+        };
+
+        // encode_text without tokenizer should use char codes
+        let embedding = model.encode_text("ab").expect("Encoding should succeed");
+
+        // Should be average of [1,0,0,0] and [0,1,0,0] = [0.5, 0.5, 0, 0], normalized
+        let norm: f32 = embedding.iter().map(|x| x * x).sum::<f32>().sqrt();
+        assert!((norm - 1.0).abs() < 1e-5, "Embedding should be L2 normalized");
+        assert!(embedding[0] > 0.6, "First component should be ~0.707");
+        assert!(embedding[1] > 0.6, "Second component should be ~0.707");
+    }
+
+    #[test]
+    fn test_model_hash_computes_blake3() {
+        let embedding_matrix = vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let model = EmbeddingModel {
+            model_type: EmbeddingType::TokenAverage {
+                embedding_matrix: embedding_matrix.clone(),
+            },
+            dimension: 3,
+            tokenizer: None,
+        };
+
+        let hash = model.model_hash();
+
+        // Hash should not be all zeros (that was the old broken behavior)
+        let zero_hash = B3Hash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        )
+        .unwrap();
+        assert_ne!(hash, zero_hash, "model_hash should compute real BLAKE3 hash");
+
+        // Same model should produce same hash (determinism)
+        let hash2 = model.model_hash();
+        assert_eq!(hash, hash2, "model_hash should be deterministic");
     }
 }
