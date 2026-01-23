@@ -20,7 +20,7 @@ pub fn FilterSection(
     status_filter: RwSignal<String>,
     resource_filter: RwSignal<String>,
 ) -> impl IntoView {
-    let show_filters = move || matches!(active_tab.get(), AuditTab::Timeline | AuditTab::HashChain);
+    let show_filters = move || matches!(active_tab.get(), AuditTab::Timeline);
 
     view! {
         <div class=move || {
