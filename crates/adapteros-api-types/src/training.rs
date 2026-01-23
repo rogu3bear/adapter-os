@@ -1993,6 +1993,15 @@ pub struct GenerateDatasetRequest {
     /// Optional description for the dataset
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Target number of examples to generate (0 = generate from all chunks)
+    #[serde(default)]
+    pub target_volume: usize,
+    /// Fixed seed for deterministic generation (optional)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub generation_seed: Option<u64>,
+    /// Seed prompts to guide generation (optional, one per line in UI)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub seed_prompts: Vec<String>,
 }
 
 /// A single generated sample for preview
@@ -2033,4 +2042,215 @@ pub struct GenerateDatasetResponse {
     /// BLAKE3 hash of the dataset
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dataset_hash_b3: Option<String>,
+    /// Provenance: indicates this dataset was synthetically generated
+    #[serde(default)]
+    pub is_synthetic: bool,
+    /// Provenance: BLAKE3 hash of the model used for generation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_model_hash: Option<String>,
+    /// Provenance: BLAKE3 digests of generation receipts (one per chunk)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub generation_receipt_digests: Vec<String>,
+    /// Seed used for deterministic generation (if provided)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub generation_seed: Option<u64>,
+}
+
+/// Provenance metadata for synthetic datasets
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct SyntheticProvenance {
+    /// Indicates this dataset was synthetically generated
+    pub is_synthetic: bool,
+    /// BLAKE3 hash of the model used for generation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_model_hash: Option<String>,
+    /// BLAKE3 digests of generation receipts (one per chunk)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub generation_receipt_digests: Vec<String>,
+    /// Generation strategy used
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strategy: Option<String>,
+    /// Seed used for deterministic generation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub generation_seed: Option<u64>,
+    /// Timestamp of generation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub generated_at: Option<String>,
+}
+
+// =============================================================================
+// Embedding Training Types
+// =============================================================================
+
+/// Training mode for embedding models.
+///
+/// Determines the loss function and training approach used for learning
+/// semantic embeddings.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case", tag = "type")]
+pub enum EmbeddingTrainingMode {
+    /// Triplet loss: learns to minimize distance between anchor-positive
+    /// while maximizing distance to negatives.
+    Triplet {
+        /// Margin between positive and negative distances (default: 0.5)
+        #[serde(default = "default_triplet_margin")]
+        margin: f32,
+    },
+    /// Contrastive loss with explicit similarity labels.
+    Contrastive {
+        /// Temperature scaling for similarity scores (default: 0.07)
+        #[serde(default = "default_temperature")]
+        temperature: f32,
+    },
+    /// InfoNCE / NT-Xent loss with in-batch negatives.
+    /// Efficient for large batch training.
+    InfoNce {
+        /// Temperature scaling (default: 0.07)
+        #[serde(default = "default_temperature")]
+        temperature: f32,
+    },
+}
+
+fn default_triplet_margin() -> f32 {
+    0.5
+}
+
+fn default_temperature() -> f32 {
+    0.07
+}
+
+impl Default for EmbeddingTrainingMode {
+    fn default() -> Self {
+        Self::InfoNce {
+            temperature: default_temperature(),
+        }
+    }
+}
+
+/// Pooling strategy for extracting sentence embeddings from token embeddings.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum PoolingStrategy {
+    /// Average all token embeddings (most common)
+    #[default]
+    Mean,
+    /// Use only the [CLS] token embedding (BERT-style)
+    Cls,
+    /// Max pooling across token dimension
+    Max,
+    /// Use the last token embedding (causal models)
+    Last,
+}
+
+/// Configuration for embedding model training.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct EmbeddingTrainingConfig {
+    /// Training mode (triplet, contrastive, info_nce)
+    #[serde(default)]
+    pub mode: EmbeddingTrainingMode,
+
+    /// Output embedding dimension (default: 384)
+    #[serde(default = "default_embedding_dim")]
+    pub embedding_dim: usize,
+
+    /// Pooling strategy for sentence embeddings
+    #[serde(default)]
+    pub pooling: PoolingStrategy,
+
+    /// Whether to L2 normalize output embeddings (default: true)
+    #[serde(default = "default_true")]
+    pub normalize: bool,
+
+    /// Learning rate (default: 2e-5)
+    #[serde(default = "default_embedding_lr")]
+    pub learning_rate: f32,
+
+    /// Batch size (default: 32)
+    #[serde(default = "default_embedding_batch")]
+    pub batch_size: usize,
+
+    /// Number of epochs (default: 3)
+    #[serde(default = "default_epochs")]
+    pub epochs: usize,
+
+    /// Warmup steps for learning rate schedule (default: 100)
+    #[serde(default = "default_warmup")]
+    pub warmup_steps: u32,
+
+    /// Maximum sequence length for inputs (default: 512)
+    #[serde(default = "default_max_seq")]
+    pub max_seq_length: usize,
+}
+
+fn default_embedding_dim() -> usize {
+    384
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_embedding_lr() -> f32 {
+    2e-5
+}
+
+fn default_embedding_batch() -> usize {
+    32
+}
+
+fn default_epochs() -> usize {
+    3
+}
+
+fn default_warmup() -> u32 {
+    100
+}
+
+fn default_max_seq() -> usize {
+    512
+}
+
+impl Default for EmbeddingTrainingConfig {
+    fn default() -> Self {
+        Self {
+            mode: EmbeddingTrainingMode::default(),
+            embedding_dim: default_embedding_dim(),
+            pooling: PoolingStrategy::default(),
+            normalize: true,
+            learning_rate: default_embedding_lr(),
+            batch_size: default_embedding_batch(),
+            epochs: default_epochs(),
+            warmup_steps: default_warmup(),
+            max_seq_length: default_max_seq(),
+        }
+    }
+}
+
+/// Training example for embedding models.
+///
+/// Supports both triplet format (anchor/positive/negative) and
+/// pair format (text_a/text_b with similarity score).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case", untagged)]
+pub enum EmbeddingExample {
+    /// Triplet: anchor text, positive (similar), negative (dissimilar)
+    Triplet {
+        anchor: String,
+        positive: String,
+        negative: String,
+    },
+    /// Pair with explicit similarity score (0.0 = dissimilar, 1.0 = identical)
+    Pair {
+        text_a: String,
+        text_b: String,
+        /// Similarity score between 0.0 and 1.0
+        score: f32,
+    },
 }

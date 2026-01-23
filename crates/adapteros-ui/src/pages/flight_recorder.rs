@@ -592,7 +592,9 @@ fn ReceiptsTab(export: DiagExportResponse) -> impl IntoView {
     let run_id = export.run.id.clone();
     let trace_id = export.run.trace_id.clone();
     let request_hash = export.run.request_hash.clone();
+    let request_hash_verified = export.run.request_hash_verified;
     let manifest_hash = export.run.manifest_hash.clone();
+    let manifest_hash_verified = export.run.manifest_hash_verified;
 
     let exported_at = export
         .metadata
@@ -642,14 +644,14 @@ fn ReceiptsTab(export: DiagExportResponse) -> impl IntoView {
                     <HashRow
                         label="Request Hash"
                         hash=request_hash
-                        verified=true
+                        verified=request_hash_verified
                     />
                     {manifest_hash.map(|hash| {
                         view! {
                             <HashRow
                                 label="Manifest Hash"
                                 hash=hash
-                                verified=true
+                                verified=manifest_hash_verified
                             />
                         }
                     })}
@@ -681,17 +683,27 @@ fn ReceiptsTab(export: DiagExportResponse) -> impl IntoView {
 }
 
 /// Hash row with verification badge
+///
+/// Displays hash verification status:
+/// - `Some(true)` - Verified (green badge)
+/// - `Some(false)` - Invalid (red badge)
+/// - `None` - Pending verification (secondary badge)
 #[component]
-fn HashRow(label: &'static str, hash: String, verified: bool) -> impl IntoView {
+fn HashRow(label: &'static str, hash: String, verified: Option<bool>) -> impl IntoView {
     let hash_display = truncate_hash(&hash);
+    let (variant, text) = match verified {
+        Some(true) => (BadgeVariant::Success, "Verified"),
+        Some(false) => (BadgeVariant::Destructive, "Invalid"),
+        None => (BadgeVariant::Secondary, "Pending"),
+    };
     view! {
         <div class="flex items-center justify-between">
             <div>
                 <p class="text-sm text-muted-foreground">{label}</p>
                 <p class="font-mono text-sm break-all">{hash_display}</p>
             </div>
-            <Badge variant=if verified { BadgeVariant::Success } else { BadgeVariant::Destructive }>
-                {if verified { "Verified" } else { "Invalid" }}
+            <Badge variant=variant>
+                {text}
             </Badge>
         </div>
     }
@@ -738,13 +750,15 @@ fn format_duration_us(us: Option<i64>) -> String {
     }
 }
 
-/// Format Unix timestamp in milliseconds
+/// Format Unix timestamp in milliseconds with both relative and absolute time
 fn format_timestamp_ms(ms: i64) -> String {
-    // Simple relative time - in production would use proper date formatting
     let now_ms = js_sys::Date::now() as i64;
     let diff_ms = now_ms - ms;
 
-    if diff_ms < 60_000 {
+    // Calculate relative time
+    let relative = if diff_ms < 0 {
+        "in the future".to_string()
+    } else if diff_ms < 60_000 {
         "just now".to_string()
     } else if diff_ms < 3_600_000 {
         format!("{}m ago", diff_ms / 60_000)
@@ -752,5 +766,44 @@ fn format_timestamp_ms(ms: i64) -> String {
         format!("{}h ago", diff_ms / 3_600_000)
     } else {
         format!("{}d ago", diff_ms / 86_400_000)
-    }
+    };
+
+    // Format absolute time using js_sys::Date
+    let date = js_sys::Date::new(&wasm_bindgen::JsValue::from_f64(ms as f64));
+    let hours = date.get_hours();
+    let minutes = date.get_minutes();
+    let month = date.get_month() + 1; // 0-indexed
+    let day = date.get_date();
+
+    // Format as "5m ago (Jan 23, 2:45 PM)"
+    let month_name = match month {
+        1 => "Jan",
+        2 => "Feb",
+        3 => "Mar",
+        4 => "Apr",
+        5 => "May",
+        6 => "Jun",
+        7 => "Jul",
+        8 => "Aug",
+        9 => "Sep",
+        10 => "Oct",
+        11 => "Nov",
+        12 => "Dec",
+        _ => "???",
+    };
+
+    let (hour12, ampm) = if hours == 0 {
+        (12, "AM")
+    } else if hours < 12 {
+        (hours, "AM")
+    } else if hours == 12 {
+        (12, "PM")
+    } else {
+        (hours - 12, "PM")
+    };
+
+    format!(
+        "{} ({} {}, {}:{:02} {})",
+        relative, month_name, day, hour12, minutes, ampm
+    )
 }

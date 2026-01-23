@@ -273,18 +273,22 @@ impl EgressPolicy {
     }
 
     /// Validate PF rules are active
+    ///
+    /// On macOS, this validates that the Packet Filter (PF) firewall is enabled
+    /// and has appropriate egress-blocking rules configured. On other platforms,
+    /// this returns an error indicating the platform is not supported.
+    ///
+    /// # Returns
+    /// - `Ok(())` if PF validation passes or `serve_requires_pf` is disabled
+    /// - `Err(AosError)` if PF validation fails or platform is unsupported
     pub fn validate_pf_rules(&self) -> Result<()> {
-        if self.config.serve_requires_pf {
-            // PF rule validation is not implemented yet
-            // Fail-closed: return error instead of silently passing
-            tracing::error!("PF rule validation not implemented but required by policy");
-            Err(AosError::PolicyViolation(
-                "PF rule validation not implemented - cannot verify packet filter enforcement"
-                    .to_string(),
-            ))
-        } else {
-            Ok(())
+        if !self.config.serve_requires_pf {
+            tracing::debug!("PF validation skipped: serve_requires_pf is disabled");
+            return Ok(());
         }
+
+        // Delegate to the crate-level egress validation
+        crate::egress::validate_pf_rules()
     }
 
     /// Validate no network sockets are open
@@ -623,5 +627,89 @@ mod tests {
         assert!(dev_policy
             .check_dns_policy_with_mode("example.com", Some(RuntimeMode::Dev))
             .is_ok());
+    }
+
+    #[test]
+    fn test_validate_pf_rules_disabled() {
+        // When serve_requires_pf is disabled, validation should pass
+        let mut config = EgressConfig::default();
+        config.serve_requires_pf = false;
+        let policy = EgressPolicy::new(config);
+
+        assert!(policy.validate_pf_rules().is_ok());
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_validate_pf_rules_macos() {
+        // On macOS, PF validation delegates to crate::egress::validate_pf_rules
+        // This test verifies the integration without requiring root privileges
+        // The actual validation may fail if PF isn't enabled, which is expected
+        let config = EgressConfig::default();
+        let policy = EgressPolicy::new(config);
+
+        // The result depends on system configuration:
+        // - If PF is disabled: returns error
+        // - If PF is enabled but no deny rules: returns error
+        // - If PF is enabled with deny rules: returns Ok
+        // We just verify it doesn't panic and returns a result
+        let result = policy.validate_pf_rules();
+        match result {
+            Ok(()) => {
+                tracing::info!("PF validation passed (PF enabled with egress blocking)");
+            }
+            Err(e) => {
+                // Expected on development machines without PF configured
+                tracing::info!(
+                    "PF validation returned error (expected without root): {}",
+                    e
+                );
+                // Verify it's an EgressViolation error as expected
+                let err_str = format!("{}", e);
+                assert!(
+                    err_str.contains("PF")
+                        || err_str.contains("egress")
+                        || err_str.contains("firewall"),
+                    "Expected PF-related error, got: {}",
+                    err_str
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[cfg(not(target_os = "macos"))]
+    fn test_validate_pf_rules_non_macos() {
+        // On non-macOS platforms, PF validation should return an error
+        let config = EgressConfig::default();
+        let policy = EgressPolicy::new(config);
+
+        let result = policy.validate_pf_rules();
+        assert!(result.is_err(), "PF validation should fail on non-macOS");
+
+        let err = result.unwrap_err();
+        let err_str = format!("{}", err);
+        assert!(
+            err_str.contains("macOS") || err_str.contains("supported"),
+            "Error should indicate platform limitation, got: {}",
+            err_str
+        );
+    }
+
+    #[test]
+    fn test_validate_pf_rules_config_respects_flag() {
+        // Verify that serve_requires_pf flag is respected
+        let mut config = EgressConfig::default();
+
+        // Default should require PF
+        assert!(config.serve_requires_pf);
+
+        // Disable PF requirement
+        config.serve_requires_pf = false;
+        let policy = EgressPolicy::new(config);
+
+        // Should skip validation entirely
+        let result = policy.validate_pf_rules();
+        assert!(result.is_ok(), "Should skip PF validation when disabled");
     }
 }

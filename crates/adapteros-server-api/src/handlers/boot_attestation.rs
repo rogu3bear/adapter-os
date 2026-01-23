@@ -279,9 +279,9 @@ pub async fn verify_boot_attestation(
     }
 
     // Parse public key
-    let public_key_array: [u8; 32] = public_key_bytes.try_into().map_err(|_| {
-        ApiError::bad_request("Public key must be exactly 32 bytes")
-    })?;
+    let public_key_array: [u8; 32] = public_key_bytes
+        .try_into()
+        .map_err(|_| ApiError::bad_request("Public key must be exactly 32 bytes"))?;
     let public_key = match ed25519_dalek::VerifyingKey::from_bytes(&public_key_array) {
         Ok(key) => key,
         Err(e) => {
@@ -293,9 +293,10 @@ pub async fn verify_boot_attestation(
     };
 
     // Log warning if public key is unrecognized (not matching server's boot attestation key)
-    let is_known_key = state.boot_attestation.as_ref().is_some_and(|attestation| {
-        attestation.public_key == request.public_key
-    });
+    let is_known_key = state
+        .boot_attestation
+        .as_ref()
+        .is_some_and(|attestation| attestation.public_key == request.public_key);
 
     if !is_known_key {
         tracing::warn!(
@@ -305,9 +306,9 @@ pub async fn verify_boot_attestation(
     }
 
     // Parse signature
-    let signature_array: [u8; 64] = signature_bytes.try_into().map_err(|_| {
-        ApiError::bad_request("Signature must be exactly 64 bytes")
-    })?;
+    let signature_array: [u8; 64] = signature_bytes
+        .try_into()
+        .map_err(|_| ApiError::bad_request("Signature must be exactly 64 bytes"))?;
     let signature = ed25519_dalek::Signature::from_bytes(&signature_array);
 
     // Verify signature over merkle root

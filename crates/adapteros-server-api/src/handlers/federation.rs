@@ -291,6 +291,9 @@ pub struct FederationSyncStatusResponse {
     pub timestamp: String,
 }
 
+/// Maximum number of peers to include in sync status response
+const MAX_PEERS_IN_RESPONSE: usize = 10;
+
 /// GET /v1/federation/sync-status
 ///
 /// Returns current federation synchronization status with peer details
@@ -312,30 +315,75 @@ pub async fn get_federation_sync_status(
 
     info!("Fetching federation sync status");
 
-    // Get peer details from database (limited)
-    // Note: Full peer sync status tracking not yet implemented
-    let peers: Vec<PeerSyncSummary> = Vec::new();
+    // Fetch peer sync status from database (limited to first 10 peers)
+    let peer_statuses = match state.db.get_peer_sync_status(MAX_PEERS_IN_RESPONSE).await {
+        Ok(statuses) => statuses,
+        Err(e) => {
+            warn!(error = %e, "Failed to fetch peer sync status from database");
+            Vec::new()
+        }
+    };
+
+    // Get total peer count (may be more than the limited response)
+    let total_peers = match state.db.get_active_peer_count().await {
+        Ok(count) => count,
+        Err(e) => {
+            warn!(error = %e, "Failed to fetch active peer count");
+            peer_statuses.len()
+        }
+    };
+
+    // Convert database peer statuses to API response format
+    let peers: Vec<PeerSyncSummary> = peer_statuses
+        .iter()
+        .map(|p| PeerSyncSummary {
+            peer_id: p.peer_id.clone(),
+            host: p.host.clone(),
+            in_sync: p.in_sync,
+            last_sync_at: p.last_sync_at.clone(),
+        })
+        .collect();
 
     // Derive counts from actual peer data to ensure consistency
-    // When peers is empty, all counts are 0 (no data available)
-    let peers_in_sync = peers.iter().filter(|p| p.in_sync).count();
-    let peers_out_of_sync = peers.len().saturating_sub(peers_in_sync);
-    let total_peers = peers.len();
+    let peers_in_sync = peer_statuses.iter().filter(|p| p.in_sync).count();
+    let peers_out_of_sync = total_peers.saturating_sub(peers_in_sync);
+
+    // Find the most recent sync timestamp from peers
+    let last_sync_at = peer_statuses
+        .iter()
+        .filter(|p| p.in_sync)
+        .filter_map(|p| p.last_sync_at.as_ref())
+        .max()
+        .cloned();
 
     // Determine sync status based on daemon availability and quarantine state
-    let (syncing, progress_pct, last_sync_at) = if let Some(daemon) = &state.federation_daemon {
-        // If not quarantined, assume sync is complete (100%)
-        // The daemon doesn't expose sync progress directly
+    let (syncing, progress_pct) = if let Some(daemon) = &state.federation_daemon {
         let is_quarantined = daemon.is_quarantined();
         if is_quarantined {
-            (false, 0.0, None)
+            // System is quarantined - not syncing
+            (false, 0.0)
+        } else if total_peers == 0 {
+            // No peers - considered fully synced (standalone mode)
+            (false, 100.0)
         } else {
-            // System is operational, assume synced
-            (false, 100.0, Some(chrono::Utc::now().to_rfc3339()))
+            // Calculate progress based on in-sync peer ratio
+            let progress = if total_peers > 0 {
+                (peers_in_sync as f32 / total_peers as f32) * 100.0
+            } else {
+                100.0
+            };
+            // If all peers are in sync, we're done syncing
+            let is_syncing = peers_in_sync < total_peers;
+            (is_syncing, progress)
         }
     } else {
-        // No daemon - report not syncing with 0% progress
-        (false, 0.0, None)
+        // No daemon - report not syncing with progress based on peer status
+        let progress = if total_peers > 0 {
+            (peers_in_sync as f32 / total_peers as f32) * 100.0
+        } else {
+            0.0
+        };
+        (false, progress)
     };
 
     let response = FederationSyncStatusResponse {
@@ -418,5 +466,140 @@ mod tests {
             serde_json::to_string(&response).expect("Failed to serialize federation response");
         assert!(json.contains("quarantined"));
         assert!(json.contains("Test reason"));
+    }
+
+    #[test]
+    fn test_peer_sync_summary_serialization() {
+        let peer = PeerSyncSummary {
+            peer_id: "peer-001".to_string(),
+            host: "host1.example.com".to_string(),
+            in_sync: true,
+            last_sync_at: Some("2025-01-01T12:00:00Z".to_string()),
+        };
+
+        let json = serde_json::to_string(&peer).expect("Failed to serialize peer summary");
+        assert!(json.contains("peer_id"));
+        assert!(json.contains("peer-001"));
+        assert!(json.contains("host1.example.com"));
+        assert!(json.contains("in_sync"));
+        assert!(json.contains("last_sync_at"));
+    }
+
+    #[test]
+    fn test_peer_sync_summary_without_last_sync() {
+        let peer = PeerSyncSummary {
+            peer_id: "peer-002".to_string(),
+            host: "host2.example.com".to_string(),
+            in_sync: false,
+            last_sync_at: None,
+        };
+
+        let json = serde_json::to_string(&peer).expect("Failed to serialize peer summary");
+        assert!(json.contains("peer-002"));
+        assert!(!json.contains("last_sync_at")); // Should be skipped when None
+    }
+
+    #[test]
+    fn test_federation_sync_status_response_serialization() {
+        let response = FederationSyncStatusResponse {
+            schema_version: "1.0.0".to_string(),
+            syncing: true,
+            progress_pct: 75.0,
+            peers_in_sync: 3,
+            peers_out_of_sync: 1,
+            total_peers: 4,
+            peers: vec![
+                PeerSyncSummary {
+                    peer_id: "peer-001".to_string(),
+                    host: "host1.example.com".to_string(),
+                    in_sync: true,
+                    last_sync_at: Some("2025-01-01T12:00:00Z".to_string()),
+                },
+                PeerSyncSummary {
+                    peer_id: "peer-002".to_string(),
+                    host: "host2.example.com".to_string(),
+                    in_sync: false,
+                    last_sync_at: None,
+                },
+            ],
+            last_sync_at: Some("2025-01-01T12:00:00Z".to_string()),
+            timestamp: "2025-01-01T12:30:00Z".to_string(),
+        };
+
+        let json =
+            serde_json::to_string(&response).expect("Failed to serialize sync status response");
+        assert!(json.contains("schema_version"));
+        assert!(json.contains("syncing"));
+        assert!(json.contains("progress_pct"));
+        assert!(json.contains("peers_in_sync"));
+        assert!(json.contains("peers_out_of_sync"));
+        assert!(json.contains("total_peers"));
+        assert!(json.contains("peers"));
+    }
+
+    #[test]
+    fn test_federation_sync_status_empty_peers() {
+        let response = FederationSyncStatusResponse {
+            schema_version: "1.0.0".to_string(),
+            syncing: false,
+            progress_pct: 100.0,
+            peers_in_sync: 0,
+            peers_out_of_sync: 0,
+            total_peers: 0,
+            peers: vec![],
+            last_sync_at: None,
+            timestamp: "2025-01-01T00:00:00Z".to_string(),
+        };
+
+        let json =
+            serde_json::to_string(&response).expect("Failed to serialize sync status response");
+        assert!(json.contains("\"peers\":[]"));
+        assert!(json.contains("\"total_peers\":0"));
+    }
+
+    #[test]
+    fn test_federation_sync_status_all_in_sync() {
+        let response = FederationSyncStatusResponse {
+            schema_version: "1.0.0".to_string(),
+            syncing: false,
+            progress_pct: 100.0,
+            peers_in_sync: 3,
+            peers_out_of_sync: 0,
+            total_peers: 3,
+            peers: vec![
+                PeerSyncSummary {
+                    peer_id: "peer-001".to_string(),
+                    host: "host1".to_string(),
+                    in_sync: true,
+                    last_sync_at: Some("2025-01-01T12:00:00Z".to_string()),
+                },
+                PeerSyncSummary {
+                    peer_id: "peer-002".to_string(),
+                    host: "host2".to_string(),
+                    in_sync: true,
+                    last_sync_at: Some("2025-01-01T12:05:00Z".to_string()),
+                },
+                PeerSyncSummary {
+                    peer_id: "peer-003".to_string(),
+                    host: "host3".to_string(),
+                    in_sync: true,
+                    last_sync_at: Some("2025-01-01T12:10:00Z".to_string()),
+                },
+            ],
+            last_sync_at: Some("2025-01-01T12:10:00Z".to_string()),
+            timestamp: "2025-01-01T12:30:00Z".to_string(),
+        };
+
+        // Verify progress is 100% when all peers in sync
+        assert!(!response.syncing);
+        assert!((response.progress_pct - 100.0).abs() < f32::EPSILON);
+        assert_eq!(response.peers_in_sync, response.total_peers);
+        assert_eq!(response.peers_out_of_sync, 0);
+    }
+
+    #[test]
+    fn test_max_peers_in_response_constant() {
+        // Verify the constant is set appropriately (10 peers max)
+        assert_eq!(MAX_PEERS_IN_RESPONSE, 10);
     }
 }

@@ -775,6 +775,11 @@ impl MetalKernels {
             "transformer.lm_head.weight",     // GPT-J
             "cls.predictions.decoder.weight", // BERT
             "output.weight",                  // Shortened form
+            // Tied-embedding fallbacks (use embedding matrix when lm_head is not separate)
+            "model.embed_tokens.weight", // Qwen/LLaMA (tied)
+            "tok_embeddings.weight",     // LLaMA (tied)
+            "model.tok_embeddings.weight",
+            "transformer.wte.weight",    // GPT-2 style
         ];
 
         // Find LM head tensor
@@ -1013,15 +1018,14 @@ impl MetalKernels {
             .device
             .new_buffer(buffer_size, MTLResourceOptions::StorageModeShared);
 
-        let k_output = self.device.new_buffer(
-            ((hidden_size / 8) * seq_len * std::mem::size_of::<f32>()) as u64, // GQA
-            MTLResourceOptions::StorageModeShared,
-        );
+        // Fused QKV kernel expects K/V outputs sized to match input hidden size.
+        let k_output = self
+            .device
+            .new_buffer(buffer_size, MTLResourceOptions::StorageModeShared);
 
-        let v_output = self.device.new_buffer(
-            ((hidden_size / 8) * seq_len * std::mem::size_of::<f32>()) as u64, // GQA
-            MTLResourceOptions::StorageModeShared,
-        );
+        let v_output = self
+            .device
+            .new_buffer(buffer_size, MTLResourceOptions::StorageModeShared);
 
         let attention_output = self
             .device

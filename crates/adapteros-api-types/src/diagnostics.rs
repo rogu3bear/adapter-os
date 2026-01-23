@@ -49,8 +49,14 @@ pub struct DiagRunResponse {
     pub completed_at_unix_ms: Option<i64>,
     /// Hash of the request (for correlation, no content)
     pub request_hash: String,
+    /// Whether the request hash has been cryptographically verified
+    #[serde(default)]
+    pub request_hash_verified: Option<bool>,
     /// Hash of the manifest used
     pub manifest_hash: Option<String>,
+    /// Whether the manifest hash has been cryptographically verified
+    #[serde(default)]
+    pub manifest_hash_verified: Option<bool>,
     /// Total number of events in this run
     pub total_events_count: i64,
     /// Number of events dropped due to buffer overflow

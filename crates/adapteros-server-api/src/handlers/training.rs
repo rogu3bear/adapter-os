@@ -690,8 +690,8 @@ pub async fn list_training_jobs(
                     _ => TrainingJobStatus::Pending,
                 };
 
-                let config: TrainingConfig =
-                    serde_json::from_str(&record.training_config_json).unwrap_or_else(|e| {
+                let config: TrainingConfig = serde_json::from_str(&record.training_config_json)
+                    .unwrap_or_else(|e| {
                         warn!(
                             job_id = %record.id,
                             error = %e,

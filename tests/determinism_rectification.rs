@@ -52,21 +52,29 @@ fn test_generator_domain_separation() {
     let seed = b"rectification-test-seed-32bytes!";
     let logits = vec![1.0, 1.0, 1.0, 1.0, 1.0]; // Uniform to maximize variance
 
-    let mut gen_inference = Generator::new_deterministic(seed, "inference")
-        .expect("generator creation should succeed");
-    let mut gen_training = Generator::new_deterministic(seed, "training")
-        .expect("generator creation should succeed");
+    let mut gen_inference =
+        Generator::new_deterministic(seed, "inference").expect("generator creation should succeed");
+    let mut gen_training =
+        Generator::new_deterministic(seed, "training").expect("generator creation should succeed");
 
-    gen_inference.reseed_for_step(0).expect("reseed should succeed");
-    gen_training.reseed_for_step(0).expect("reseed should succeed");
+    gen_inference
+        .reseed_for_step(0)
+        .expect("reseed should succeed");
+    gen_training
+        .reseed_for_step(0)
+        .expect("reseed should succeed");
 
     // Collect multiple tokens to ensure statistical difference
     let mut inference_tokens = Vec::new();
     let mut training_tokens = Vec::new();
 
     for step in 0..10 {
-        gen_inference.reseed_for_step(step).expect("reseed should succeed");
-        gen_training.reseed_for_step(step).expect("reseed should succeed");
+        gen_inference
+            .reseed_for_step(step)
+            .expect("reseed should succeed");
+        gen_training
+            .reseed_for_step(step)
+            .expect("reseed should succeed");
 
         inference_tokens.push(
             gen_inference
@@ -210,8 +218,7 @@ fn test_full_pipeline_determinism() {
         let gen_seed = derive_seed(&manifest_hash, "generation");
 
         // Create generator
-        let mut generator = Generator::new(gen_seed)
-            .expect("generator creation should succeed");
+        let mut generator = Generator::new(gen_seed).expect("generator creation should succeed");
 
         // Simulate token generation
         let logits = vec![1.2, 0.8, 2.1, 1.5, 0.9, 1.8, 2.3, 1.1];
@@ -241,8 +248,7 @@ fn test_full_pipeline_determinism() {
 #[test]
 fn test_greedy_always_deterministic() {
     let logits = vec![0.1, 0.5, 0.3, 2.8, 0.2]; // Clear winner at index 3
-    let gen = Generator::new([0u8; 32])
-        .expect("generator creation should succeed");
+    let gen = Generator::new([0u8; 32]).expect("generator creation should succeed");
 
     // Greedy should always pick the highest logit
     for _ in 0..10 {

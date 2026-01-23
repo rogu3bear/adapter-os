@@ -2,6 +2,9 @@
 //!
 //! Provides UI for managing adapter stacks - compositions of adapters
 //! that can be activated together for inference.
+//!
+//! Automatically refreshes when the global `RefetchTopic::Stacks` signal
+//! is triggered (e.g., after training job completion creates a new stack).
 
 mod detail;
 mod dialogs;
@@ -17,6 +20,7 @@ use crate::components::{
     Button, ButtonVariant, ErrorDisplay, LoadingDisplay, PageHeader, RefreshButton,
 };
 use crate::hooks::{use_api_resource, LoadingState};
+use crate::signals::refetch::{use_refetch_signal, RefetchTopic};
 use dialogs::CreateStackDialog;
 use leptos::prelude::*;
 use list::StacksList;
@@ -31,10 +35,22 @@ pub fn Stacks() -> impl IntoView {
     let show_create_dialog = RwSignal::new(false);
     let refetch_trigger = RwSignal::new(0u32);
 
-    // Call refetch when trigger changes
+    // Subscribe to global stacks refetch topic (triggered on training completion)
+    let stacks_refetch_counter = use_refetch_signal(RefetchTopic::Stacks);
+
+    // Call refetch when trigger changes OR global signal fires
     Effect::new(move |_| {
         let _ = refetch_trigger.get();
         refetch.run(());
+    });
+
+    // Respond to global refetch signal from training completion
+    Effect::new(move || {
+        let counter = stacks_refetch_counter.get();
+        // Skip initial effect run (counter starts at 0)
+        if counter > 0 {
+            refetch.run(());
+        }
     });
 
     let trigger_refresh = move || {

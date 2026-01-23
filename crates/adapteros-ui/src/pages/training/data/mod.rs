@@ -18,6 +18,9 @@ mod source_nav;
 pub mod state;
 mod upload_dialog;
 
+// Re-export upload types for external use
+pub use upload_dialog::{SafetyScanStatus, UploadResult};
+
 use crate::api::ApiClient;
 use crate::components::ErrorDisplay;
 use crate::hooks::{use_api_resource, LoadingState};
@@ -63,7 +66,13 @@ pub fn TrainingData() -> impl IntoView {
     });
 
     let cached_count = Signal::derive(move || {
-        // Preprocessed cache count not yet implemented - return 0 for Phase 1
+        // Preprocessed/CoreML feature cache count requires a server-side API endpoint
+        // that enumerates cached model artifacts. This is planned for Phase 2.
+        //
+        // Requirements for implementation:
+        // 1. Server API: GET /api/v1/training/preprocessed-cache/count
+        // 2. ApiClient method: list_preprocessed_cache() or get_preprocessed_cache_count()
+        // 3. Integration with CoreML feature extraction pipeline
         0usize
     });
 

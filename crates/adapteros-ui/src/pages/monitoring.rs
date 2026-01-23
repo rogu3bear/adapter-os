@@ -35,13 +35,18 @@ pub fn Monitoring() -> impl IntoView {
             client.get_process_health_metrics(None).await
         });
 
-    // Count active alerts
+    // Fetch system overview (includes active sessions count)
+    let (system_overview, refetch_overview) =
+        use_api_resource(move |client: Arc<ApiClient>| async move {
+            client.get_system_overview().await
+        });
 
     // Set up polling (every 10 seconds)
     let _ = use_polling(10_000, move || async move {
         refetch_alerts.run(());
         refetch_anomalies.run(());
         refetch_health.run(());
+        refetch_overview.run(());
     });
 
     // Count active alerts
@@ -72,6 +77,7 @@ pub fn Monitoring() -> impl IntoView {
                         refetch_alerts.run(());
                         refetch_anomalies.run(());
                         refetch_health.run(());
+                        refetch_overview.run(());
                     })
                 >
                     "Refresh"
@@ -94,14 +100,8 @@ pub fn Monitoring() -> impl IntoView {
                     <div class="flex items-center justify-between">
                         <span class="text-sm font-medium text-muted-foreground">"Active Sessions"</span>
                         {move || {
-                            let count = match health_metrics.get() {
-                                LoadingState::Loaded(_) => {
-                                     // Placeholder: in a real app we'd fetch this from the unified metrics response
-                                     // Touch alerts to track dependencies
-                                     #[allow(clippy::let_unit_value)]
-                                     let _ = alerts.get();
-                                     0
-                                },
+                            let count = match system_overview.get() {
+                                LoadingState::Loaded(ref overview) => overview.active_sessions,
                                 _ => 0,
                             };
                             view! { <Badge variant=BadgeVariant::Secondary>{count.to_string()}</Badge> }

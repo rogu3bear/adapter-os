@@ -3,6 +3,7 @@
 //! Headless-style components with Tailwind CSS styling.
 
 pub mod adapter_bar;
+pub mod adapter_detail_panel;
 pub mod async_state;
 pub mod auth;
 pub mod boot_sequence;
@@ -34,6 +35,7 @@ pub mod status;
 pub mod status_center;
 pub mod table;
 pub mod tabs;
+pub mod telemetry_overlay;
 pub mod toast;
 pub mod toggle;
 pub mod trace_viewer;
@@ -41,7 +43,11 @@ pub mod version_skew_banner;
 pub mod virtual_list;
 pub mod workspace;
 
-pub use adapter_bar::{AdapterBar, AdapterHeat, AdapterMagnet};
+pub use adapter_bar::{
+    AdapterBar, AdapterChipState, AdapterHeat, AdapterMagnet, SuggestedAdapterView,
+    SuggestedAdaptersBar,
+};
+pub use adapter_detail_panel::{AdapterDetailPanel, AdapterSuggestionContext};
 pub use async_state::{
     AsyncBoundary, AsyncBoundaryWithEmpty, Breadcrumb, DetailRow, EmptyState, EmptyStateVariant,
     ErrorDisplay, LoadingDisplay, PageHeader, RefreshButton,
@@ -109,6 +115,9 @@ pub use status_center::{
     StatusItemAvailability, StatusItemMemory, StatusItemSeverity, StatusLoadingState,
     StatusSection, StatusSectionBadgeVariant, StatusSectionLabel,
 };
+
+// Telemetry Overlay (Ctrl+Shift+T toggle)
+pub use telemetry_overlay::TelemetryOverlay;
 
 // Icon components (centralized SVG icons)
 pub use icons::{

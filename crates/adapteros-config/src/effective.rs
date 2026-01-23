@@ -843,7 +843,7 @@ impl EffectiveConfig {
             model_cache_dir: config
                 .get("model.cache.dir")
                 .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("var/model-cache")),
+                .unwrap_or_else(|| PathBuf::from("var/models")),
         })
     }
 

@@ -2,10 +2,10 @@
 //!
 //! Policy pack management with list view and detail panel.
 
-use crate::api::client::{ApiClient, PolicyPackResponse};
+use crate::api::client::{ApiClient, PolicyPackResponse, PolicyValidationResponse};
 use crate::components::{
-    Button, ButtonVariant, Card, ErrorDisplay, Spinner, SplitPanel, Table, TableBody, TableCell,
-    TableHead, TableHeader, TableRow,
+    Badge, BadgeVariant, Button, ButtonVariant, Card, ErrorDisplay, Spinner, SplitPanel, Table,
+    TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use leptos::prelude::*;
@@ -253,23 +253,30 @@ fn PolicyDetail(cpid: String, on_close: impl Fn() + Copy + 'static) -> impl Into
 /// Policy detail content
 #[component]
 fn PolicyDetailContent(policy: PolicyPackResponse) -> impl IntoView {
+    // Clone all fields upfront to avoid partial move issues
+    let cpid = policy.cpid.clone();
+    let hash_b3 = policy.hash_b3.clone();
+    let hash_b3_title = policy.hash_b3.clone();
+    let created_at = policy.created_at.clone();
+    let content = policy.content.clone();
+
     view! {
         // Metadata
         <Card title="Metadata".to_string()>
             <div class="grid gap-3 text-sm">
                 <div class="flex justify-between">
                     <span class="text-muted-foreground">"CPID"</span>
-                    <span class="font-mono text-xs">{policy.cpid.clone()}</span>
+                    <span class="font-mono text-xs">{cpid}</span>
                 </div>
                 <div class="flex justify-between">
                     <span class="text-muted-foreground">"Hash (BLAKE3)"</span>
-                    <span class="font-mono text-xs truncate max-w-truncate" title=policy.hash_b3.clone()>
-                        {policy.hash_b3.clone()}
+                    <span class="font-mono text-xs truncate max-w-truncate" title=hash_b3_title>
+                        {hash_b3}
                     </span>
                 </div>
                 <div class="flex justify-between">
                     <span class="text-muted-foreground">"Created"</span>
-                    <span>{format_date(&policy.created_at)}</span>
+                    <span>{format_date(&created_at)}</span>
                 </div>
             </div>
         </Card>
@@ -278,21 +285,127 @@ fn PolicyDetailContent(policy: PolicyPackResponse) -> impl IntoView {
         <Card title="Policy Content".to_string() class="mt-4".to_string()>
             <div class="bg-zinc-950 rounded-md p-4 overflow-auto max-h-96">
                 <pre class="text-xs text-status-success font-mono whitespace-pre-wrap">
-                    {policy.content.clone()}
+                    {content}
                 </pre>
             </div>
         </Card>
 
-        // Actions (will be role-gated in future)
+        // Actions (role-gated via backend)
+        <PolicyActionsCard policy=policy/>
+    }
+}
+
+/// Policy actions card with validation and apply functionality
+#[component]
+fn PolicyActionsCard(policy: PolicyPackResponse) -> impl IntoView {
+    let (validating, set_validating) = signal(false);
+    let (validation_result, set_validation_result) =
+        signal(None::<Result<PolicyValidationResponse, String>>);
+
+    let content = policy.content.clone();
+    let cpid = policy.cpid.clone();
+
+    // Validate handler
+    let on_validate = move |_| {
+        let content = content.clone();
+        set_validating.set(true);
+        set_validation_result.set(None);
+
+        wasm_bindgen_futures::spawn_local(async move {
+            let client = ApiClient::new();
+            let result = client.validate_policy(&content).await;
+            set_validation_result.set(Some(result.map_err(|e| e.to_string())));
+            set_validating.set(false);
+        });
+    };
+
+    // Apply handler (reapply with current content)
+    let content_for_apply = policy.content.clone();
+    let (applying, set_applying) = signal(false);
+    let (apply_result, set_apply_result) = signal(None::<Result<(), String>>);
+
+    let on_apply = move |_| {
+        let cpid = cpid.clone();
+        let content = content_for_apply.clone();
+        set_applying.set(true);
+        set_apply_result.set(None);
+
+        wasm_bindgen_futures::spawn_local(async move {
+            let client = ApiClient::new();
+            let result = client.apply_policy(&cpid, &content, None).await;
+            set_apply_result.set(Some(result.map(|_| ()).map_err(|e| e.to_string())));
+            set_applying.set(false);
+        });
+    };
+
+    view! {
         <Card title="Actions".to_string() class="mt-4".to_string()>
             <div class="flex gap-2">
-                <Button variant=ButtonVariant::Outline>
-                    "Validate"
+                <Button
+                    variant=ButtonVariant::Outline
+                    on_click=Callback::new(on_validate)
+                    disabled=Signal::derive(move || validating.get())
+                >
+                    {move || if validating.get() {
+                        view! { <Spinner/> }.into_any()
+                    } else {
+                        view! { "Validate" }.into_any()
+                    }}
                 </Button>
-                <Button variant=ButtonVariant::Primary>
-                    "Apply to Stack"
+                <Button
+                    variant=ButtonVariant::Primary
+                    on_click=Callback::new(on_apply)
+                    disabled=Signal::derive(move || applying.get())
+                >
+                    {move || if applying.get() {
+                        view! { <Spinner/> }.into_any()
+                    } else {
+                        view! { "Apply" }.into_any()
+                    }}
                 </Button>
             </div>
+
+            // Validation result
+            {move || validation_result.get().map(|result| {
+                match result {
+                    Ok(resp) if resp.valid => view! {
+                        <div class="mt-3 flex items-center gap-2">
+                            <Badge variant=BadgeVariant::Success>"Valid"</Badge>
+                            {resp.hash_b3.map(|hash| view! {
+                                <span class="text-xs font-mono text-muted-foreground">
+                                    {format!("Hash: {}...", &hash[..12.min(hash.len())])}
+                                </span>
+                            })}
+                        </div>
+                    }.into_any(),
+                    Ok(resp) => view! {
+                        <div class="mt-3">
+                            <Badge variant=BadgeVariant::Destructive>"Invalid"</Badge>
+                            <ul class="mt-2 text-xs text-destructive list-disc pl-4">
+                                {resp.errors.into_iter().map(|e| view! { <li>{e}</li> }).collect::<Vec<_>>()}
+                            </ul>
+                        </div>
+                    }.into_any(),
+                    Err(e) => view! {
+                        <div class="mt-3 text-xs text-destructive">{format!("Error: {}", e)}</div>
+                    }.into_any(),
+                }
+            })}
+
+            // Apply result
+            {move || apply_result.get().map(|result| {
+                match result {
+                    Ok(()) => view! {
+                        <div class="mt-3">
+                            <Badge variant=BadgeVariant::Success>"Applied"</Badge>
+                        </div>
+                    }.into_any(),
+                    Err(e) => view! {
+                        <div class="mt-3 text-xs text-destructive">{format!("Error: {}", e)}</div>
+                    }.into_any(),
+                }
+            })}
+
             <p class="text-xs text-muted-foreground mt-2">
                 "Validation and enforcement actions require appropriate permissions."
             </p>

@@ -16,6 +16,7 @@
 //!   when toggling CoreML checkboxes.
 
 mod components;
+pub mod config_presets;
 pub mod dataset_wizard;
 mod detail;
 mod dialogs;

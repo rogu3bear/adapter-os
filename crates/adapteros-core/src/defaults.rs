@@ -52,16 +52,16 @@ pub const PINNED_BOOST: f32 = 0.3;
 // =============================================================================
 
 /// Dev-only fixture path for the default local Qwen2.5-7B-Instruct-4bit model.
-pub const DEV_MODEL_PATH: &str = "./var/model-cache/models/qwen2.5-7b-mlx";
+pub const DEV_MODEL_PATH: &str = "var/models/qwen2.5-7b-mlx";
 
 /// Dev-only fixture path for the default local Qwen2.5-7B-Instruct-4bit manifest (config.json).
-pub const DEV_MANIFEST_PATH: &str = "./var/models/Qwen2.5-7B-Instruct-4bit/config.json";
+pub const DEV_MANIFEST_PATH: &str = "var/models/Qwen2.5-7B-Instruct-4bit/config.json";
 
 /// Default cache root for base models (can be overridden via AOS_MODEL_CACHE_DIR).
-pub const DEFAULT_MODEL_CACHE_ROOT: &str = "./var/model-cache/models";
+pub const DEFAULT_MODEL_CACHE_ROOT: &str = "var/models";
 
 /// Default embedding model path (can be overridden via AOS_EMBEDDING_MODEL_PATH).
-pub const DEFAULT_EMBEDDING_MODEL_PATH: &str = "./var/model-cache/models/bge-small-en-v1.5";
+pub const DEFAULT_EMBEDDING_MODEL_PATH: &str = "var/models/bge-small-en-v1.5";
 
 /// Default base model identifier (can be overridden via AOS_BASE_MODEL_ID).
 pub const DEFAULT_BASE_MODEL_ID: &str = "qwen2.5-7b-mlx";

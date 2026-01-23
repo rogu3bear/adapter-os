@@ -1,8 +1,16 @@
-//! Dataset generation wizard for creating training data from raw files.
+//! Synthetic dataset generation wizard for creating training data from raw files.
 //!
 //! This wizard allows users to upload a text file (e.g., README.md) and
 //! generate a training dataset using local adapterOS inference with
 //! configurable strategies (QA or Summary).
+//!
+//! ## Features
+//!
+//! - Choose generation strategy (QA pairs or summaries)
+//! - Configure target volume (number of examples)
+//! - Optional seed prompts to guide generation
+//! - Fixed seed for deterministic generation
+//! - Provenance tracking (source model hash, generation receipts)
 
 #[cfg(target_arch = "wasm32")]
 use crate::api::ApiClient;
@@ -19,6 +27,12 @@ pub struct GenerateDatasetOutcome {
     pub dataset_version_id: Option<String>,
     /// Number of samples generated
     pub sample_count: usize,
+    /// Indicates this is a synthetic dataset
+    pub is_synthetic: bool,
+    /// BLAKE3 hash of the source model (for provenance)
+    pub source_model_hash: Option<String>,
+    /// Number of generation receipts collected
+    pub receipt_count: usize,
 }
 
 /// Generation strategy selection
@@ -55,6 +69,10 @@ pub fn GenerateDatasetWizard(
     let strategy = RwSignal::new(GenerateStrategy::Qa);
     let chunk_size = RwSignal::new("2000".to_string());
     let max_tokens = RwSignal::new("512".to_string());
+    let target_volume = RwSignal::new(String::new()); // empty = all chunks
+    let generation_seed = RwSignal::new(String::new()); // empty = non-deterministic
+    let seed_prompts = RwSignal::new(String::new()); // newline-separated
+    let show_advanced = RwSignal::new(false);
 
     // Generation state
     let generating = RwSignal::new(false);
@@ -72,6 +90,10 @@ pub fn GenerateDatasetWizard(
             strategy.set(GenerateStrategy::Qa);
             chunk_size.set("2000".to_string());
             max_tokens.set("512".to_string());
+            target_volume.set(String::new());
+            generation_seed.set(String::new());
+            seed_prompts.set(String::new());
+            show_advanced.set(false);
             generating.set(false);
             error.set(None);
             preview.set(Vec::new());
@@ -108,6 +130,9 @@ pub fn GenerateDatasetWizard(
                     let strategy_val = strategy.get_untracked();
                     let chunk_size_val = chunk_size.get_untracked();
                     let max_tokens_val = max_tokens.get_untracked();
+                    let target_volume_val = target_volume.get_untracked();
+                    let generation_seed_val = generation_seed.get_untracked();
+                    let seed_prompts_val = seed_prompts.get_untracked();
 
                     wasm_bindgen_futures::spawn_local(async move {
                         let client = ApiClient::new();
@@ -134,6 +159,17 @@ pub fn GenerateDatasetWizard(
                         let _ = form_data.append_with_str("strategy", strategy_val.as_str());
                         let _ = form_data.append_with_str("chunk_size", &chunk_size_val);
                         let _ = form_data.append_with_str("max_tokens", &max_tokens_val);
+
+                        // Add new fields
+                        if !target_volume_val.is_empty() {
+                            let _ = form_data.append_with_str("target_volume", &target_volume_val);
+                        }
+                        if !generation_seed_val.is_empty() {
+                            let _ = form_data.append_with_str("generation_seed", &generation_seed_val);
+                        }
+                        if !seed_prompts_val.is_empty() {
+                            let _ = form_data.append_with_str("seed_prompts", &seed_prompts_val);
+                        }
 
                         match client.generate_dataset(&form_data).await {
                             Ok(resp) => {
@@ -166,6 +202,10 @@ pub fn GenerateDatasetWizard(
             strategy,
             chunk_size,
             max_tokens,
+            target_volume,
+            generation_seed,
+            seed_prompts,
+            show_advanced,
             on_generated,
         );
     };
@@ -278,6 +318,75 @@ pub fn GenerateDatasetWizard(
                                 />
                             </FormField>
                         </div>
+
+                        // Volume control
+                        <div class="grid grid-cols-2 gap-4">
+                            <FormField
+                                label="Target Volume"
+                                name="target_volume"
+                                help="Number of examples to generate (empty = all chunks)"
+                            >
+                                <Input
+                                    value=target_volume
+                                    input_type="number".to_string()
+                                    placeholder="All chunks".to_string()
+                                    disabled=generating.get()
+                                />
+                            </FormField>
+
+                            <FormField
+                                label="Generation Seed"
+                                name="generation_seed"
+                                help="Fixed seed for deterministic generation (optional)"
+                            >
+                                <Input
+                                    value=generation_seed
+                                    input_type="number".to_string()
+                                    placeholder="Random".to_string()
+                                    disabled=generating.get()
+                                />
+                            </FormField>
+                        </div>
+
+                        // Advanced: Seed prompts toggle
+                        <div class="space-y-2">
+                            <button
+                                type="button"
+                                class="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+                                disabled=move || generating.get()
+                                on:click=move |_| show_advanced.set(!show_advanced.get())
+                            >
+                                <svg
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    width="16"
+                                    height="16"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    stroke-width="2"
+                                    class=move || if show_advanced.get() { "rotate-90 transition-transform" } else { "transition-transform" }
+                                >
+                                    <path d="m9 18 6-6-6-6"/>
+                                </svg>
+                                "Seed Prompts (Advanced)"
+                            </button>
+
+                            <Show when=move || show_advanced.get()>
+                                <div class="space-y-2 pl-6">
+                                    <label class="text-sm font-medium">"Seed Prompts"</label>
+                                    <textarea
+                                        class="flex min-h-24 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                        placeholder="Enter seed prompts (one per line) to guide generation..."
+                                        disabled=move || generating.get()
+                                        prop:value=move || seed_prompts.get()
+                                        on:input=move |ev| seed_prompts.set(event_target_value(&ev))
+                                    />
+                                    <p class="text-xs text-muted-foreground">
+                                        "Each line provides context for one chunk's generation"
+                                    </p>
+                                </div>
+                            </Show>
+                        </div>
                     </div>
 
                     // File upload
@@ -347,24 +456,52 @@ pub fn GenerateDatasetWizard(
 
                     // Result summary
                     <Show when=move || result.get().is_some()>
-                        <div class="p-4 rounded-lg border border-green-600/50 bg-green-100/30 space-y-2">
-                            <p class="text-sm font-medium text-foreground">
-                                "Generated "
-                                <span class="font-bold">{move || result.get().map(|r| r.sample_count).unwrap_or(0)}</span>
-                                " samples using "
-                                <span class="font-bold">{move || result.get().map(|r| r.total_tokens_used).unwrap_or(0)}</span>
-                                " tokens"
-                            </p>
+                        <div class="p-4 rounded-lg border border-green-600/50 bg-green-100/30 space-y-3">
+                            <div class="flex items-center gap-2">
+                                <span class="inline-flex items-center rounded-md bg-purple-100 px-2 py-1 text-xs font-medium text-purple-700">
+                                    "Synthetic"
+                                </span>
+                                <p class="text-sm font-medium text-foreground">
+                                    "Generated "
+                                    <span class="font-bold">{move || result.get().map(|r| r.sample_count).unwrap_or(0)}</span>
+                                    " samples using "
+                                    <span class="font-bold">{move || result.get().map(|r| r.total_tokens_used).unwrap_or(0)}</span>
+                                    " tokens"
+                                </p>
+                            </div>
                             <Show when=move || result.get().map(|r| r.failed_chunks > 0).unwrap_or(false)>
                                 <p class="text-xs text-amber-600">
                                     {move || result.get().map(|r| r.failed_chunks).unwrap_or(0)}
                                     " chunks failed to generate"
                                 </p>
                             </Show>
-                            <p class="text-xs text-muted-foreground">
-                                "Dataset ID: "
-                                <code class="bg-muted px-1 rounded">{move || result.get().map(|r| r.dataset_id.clone()).unwrap_or_default()}</code>
-                            </p>
+                            <div class="text-xs text-muted-foreground space-y-1">
+                                <p>
+                                    "Dataset ID: "
+                                    <code class="bg-muted px-1 rounded">{move || result.get().map(|r| r.dataset_id.clone()).unwrap_or_default()}</code>
+                                </p>
+                                // Provenance info
+                                <Show when=move || result.get().and_then(|r| r.source_model_hash.clone()).is_some()>
+                                    <p>
+                                        "Source Model: "
+                                        <code class="bg-muted px-1 rounded">
+                                            {move || result.get().and_then(|r| r.source_model_hash.clone()).map(|h| format!("{}...", &h[..16])).unwrap_or_default()}
+                                        </code>
+                                    </p>
+                                </Show>
+                                <Show when=move || result.get().map(|r| !r.generation_receipt_digests.is_empty()).unwrap_or(false)>
+                                    <p>
+                                        "Receipts collected: "
+                                        <span class="font-medium">{move || result.get().map(|r| r.generation_receipt_digests.len()).unwrap_or(0)}</span>
+                                    </p>
+                                </Show>
+                                <Show when=move || result.get().and_then(|r| r.generation_seed).is_some()>
+                                    <p>
+                                        "Deterministic seed: "
+                                        <code class="bg-muted px-1 rounded">{move || result.get().and_then(|r| r.generation_seed).unwrap_or(0)}</code>
+                                    </p>
+                                </Show>
+                            </div>
                         </div>
                     </Show>
 
@@ -387,6 +524,9 @@ pub fn GenerateDatasetWizard(
                                                 dataset_id: r.dataset_id.clone(),
                                                 dataset_version_id: r.dataset_version_id.clone(),
                                                 sample_count: r.sample_count,
+                                                is_synthetic: r.is_synthetic,
+                                                source_model_hash: r.source_model_hash.clone(),
+                                                receipt_count: r.generation_receipt_digests.len(),
                                             });
                                             open.set(false);
                                         }

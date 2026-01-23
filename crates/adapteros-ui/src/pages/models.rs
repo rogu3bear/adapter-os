@@ -258,8 +258,9 @@ fn ModelDetail(model_id: String, on_close: impl Fn() + Copy + 'static) -> impl I
                         }.into_any()
                     }
                     LoadingState::Loaded(data) => {
+                        let model_id_clone = model_id.clone();
                         view! {
-                            <ModelDetailContent model=data/>
+                            <ModelDetailContent model=data model_id=model_id_clone on_update=refetch/>
                         }.into_any()
                     }
                     LoadingState::Error(e) => {
@@ -278,11 +279,58 @@ fn ModelDetail(model_id: String, on_close: impl Fn() + Copy + 'static) -> impl I
 
 /// Model detail content
 #[component]
-fn ModelDetailContent(model: ModelStatusResponse) -> impl IntoView {
+fn ModelDetailContent(
+    model: ModelStatusResponse,
+    model_id: String,
+    on_update: Callback<()>,
+) -> impl IntoView {
     let status_variant = if model.is_loaded {
         BadgeVariant::Success
     } else {
         BadgeVariant::Secondary
+    };
+
+    let is_loaded = model.is_loaded;
+    let model_id_load = model_id.clone();
+    let model_id_unload = model_id.clone();
+    let (loading, set_loading) = signal(false);
+
+    // Load model handler
+    let on_load = move |_| {
+        let id = model_id_load.clone();
+        let on_update = on_update.clone();
+        set_loading.set(true);
+        wasm_bindgen_futures::spawn_local(async move {
+            let client = ApiClient::new();
+            match client.load_model(&id).await {
+                Ok(_) => {
+                    on_update.run(());
+                }
+                Err(e) => {
+                    web_sys::console::error_1(&format!("Failed to load model: {:?}", e).into());
+                }
+            }
+            set_loading.set(false);
+        });
+    };
+
+    // Unload model handler
+    let on_unload = move |_| {
+        let id = model_id_unload.clone();
+        let on_update = on_update.clone();
+        set_loading.set(true);
+        wasm_bindgen_futures::spawn_local(async move {
+            let client = ApiClient::new();
+            match client.unload_model(&id).await {
+                Ok(_) => {
+                    on_update.run(());
+                }
+                Err(e) => {
+                    web_sys::console::error_1(&format!("Failed to unload model: {:?}", e).into());
+                }
+            }
+            set_loading.set(false);
+        });
     };
 
     view! {
@@ -293,7 +341,31 @@ fn ModelDetailContent(model: ModelStatusResponse) -> impl IntoView {
                     <Badge variant=status_variant>
                         {if model.is_loaded { "Loaded" } else { "Unloaded" }}
                     </Badge>
-                    // Load/Unload buttons would go here (role-gated in future)
+                    <div class="flex gap-2">
+                        {move || {
+                            if loading.get() {
+                                view! { <Spinner /> }.into_any()
+                            } else if is_loaded {
+                                view! {
+                                    <Button
+                                        variant=ButtonVariant::Outline
+                                        on_click=Callback::new(on_unload.clone())
+                                    >
+                                        "Unload"
+                                    </Button>
+                                }.into_any()
+                            } else {
+                                view! {
+                                    <Button
+                                        variant=ButtonVariant::Primary
+                                        on_click=Callback::new(on_load.clone())
+                                    >
+                                        "Load"
+                                    </Button>
+                                }.into_any()
+                            }
+                        }}
+                    </div>
                 </div>
 
                 {model.error_message.clone().map(|err| view! {

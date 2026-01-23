@@ -26,9 +26,16 @@ pub struct AdapterManifest {
     pub version: String,
     pub rank: usize,
     pub base_model: String,
+    /// BLAKE3 hash of the base model weights/config
     #[serde(default)]
     pub base_model_hash: Option<String>,
     pub training_config: TrainingConfig,
+    /// BLAKE3 hash of the training configuration for reproducibility verification
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub training_config_hash: Option<String>,
+    /// BLAKE3 hash of the tokenizer configuration
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tokenizer_hash: Option<String>,
     pub created_at: String,
     pub weights_hash: String,
     #[serde(default = "default_category")]
@@ -61,6 +68,12 @@ pub struct AdapterManifest {
     pub coreml_placement: Option<CoremlPlacementSpec>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub training_backend_details: Option<String>,
+    /// Primary dataset ID used for training
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dataset_id: Option<String>,
+    /// BLAKE3 hash of the primary dataset content
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dataset_hash: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dataset_version_ids: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -113,6 +126,11 @@ pub struct AdapterManifest {
     /// Stream mode enables real-time progress updates during the training pipeline.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stream_mode: Option<bool>,
+    /// Integrity hash covering all critical manifest fields.
+    /// BLAKE3(base_model_hash || training_config_hash || tokenizer_hash || dataset_hash || weights_hash)
+    /// Used for tamper detection and validation on load.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub integrity_hash: Option<String>,
     pub metadata: HashMap<String, String>,
 }
 
@@ -463,5 +481,74 @@ impl AdapterManifest {
         }
 
         Ok(())
+    }
+
+    /// Compute the integrity hash from critical manifest fields.
+    /// This covers: base_model_hash, training_config_hash, tokenizer_hash, dataset_hash, weights_hash.
+    pub fn compute_integrity_hash(&self) -> String {
+        use blake3::Hasher;
+        let mut hasher = Hasher::new();
+
+        // Order matters: fields are concatenated in deterministic order
+        if let Some(ref h) = self.base_model_hash {
+            hasher.update(b"base_model_hash:");
+            hasher.update(h.as_bytes());
+            hasher.update(b"|");
+        }
+        if let Some(ref h) = self.training_config_hash {
+            hasher.update(b"training_config_hash:");
+            hasher.update(h.as_bytes());
+            hasher.update(b"|");
+        }
+        if let Some(ref h) = self.tokenizer_hash {
+            hasher.update(b"tokenizer_hash:");
+            hasher.update(h.as_bytes());
+            hasher.update(b"|");
+        }
+        if let Some(ref h) = self.dataset_hash {
+            hasher.update(b"dataset_hash:");
+            hasher.update(h.as_bytes());
+            hasher.update(b"|");
+        }
+        hasher.update(b"weights_hash:");
+        hasher.update(self.weights_hash.as_bytes());
+
+        hasher.finalize().to_hex().to_string()
+    }
+
+    /// Verify the integrity hash matches the computed value.
+    /// Returns Ok(()) if valid or if no integrity_hash is set (backward compatibility).
+    /// Returns an error with actionable message if verification fails.
+    pub fn verify_integrity(&self) -> Result<()> {
+        let Some(ref stored_hash) = self.integrity_hash else {
+            // Backward compatibility: older .aos files may not have integrity_hash
+            debug!(
+                adapter_version = %self.version,
+                "No integrity_hash present in manifest (legacy .aos file)"
+            );
+            return Ok(());
+        };
+
+        let computed = self.compute_integrity_hash();
+        if stored_hash != &computed {
+            return Err(AosError::IntegrityViolation(format!(
+                "Adapter integrity verification failed: stored hash '{}' does not match computed '{}'. \
+                 This may indicate tampering or corruption. \
+                 Action: Re-export the adapter from the original training run, or verify the source .aos file.",
+                stored_hash, computed
+            )));
+        }
+
+        debug!(
+            integrity_hash = %stored_hash,
+            "Adapter integrity verification passed"
+        );
+        Ok(())
+    }
+
+    /// Seal the manifest by computing and storing the integrity hash.
+    /// Call this after all fields are set, before serializing to .aos.
+    pub fn seal_integrity(&mut self) {
+        self.integrity_hash = Some(self.compute_integrity_hash());
     }
 }

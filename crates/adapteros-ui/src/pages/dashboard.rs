@@ -171,18 +171,20 @@ pub fn Dashboard() -> impl IntoView {
         "/v1/stream/metrics",
         &["metrics"],
         move |metrics| {
+            let Some(last) = last_metrics_update.try_get_value() else {
+                return;
+            };
             let now = js_sys::Date::now() as u64;
-            let last = last_metrics_update.get_value();
             if now.saturating_sub(last) < 250 {
                 return;
             }
-            last_metrics_update.set_value(now);
+            let _ = last_metrics_update.try_set_value(now);
 
             // Store lightweight snapshot instead of full response
-            live_metrics.set(Some(MetricsSnapshot::from(&metrics)));
+            let _ = live_metrics.try_set(Some(MetricsSnapshot::from(&metrics)));
 
             // Add to history with timestamp
-            metrics_history.update(|h| h.push(&metrics, now));
+            let _ = metrics_history.try_update(|h| h.push(&metrics, now));
         },
     );
 
@@ -258,7 +260,7 @@ fn SseIndicator(state: RwSignal<SseState>) -> impl IntoView {
     view! {
         <div class="flex items-center gap-2">
             {move || {
-                let current_state = state.get();
+                let current_state = state.try_get().unwrap_or(SseState::Disconnected);
                 let (color, label) = match current_state {
                     SseState::Connected => (StatusColor::Green, "Live"),
                     SseState::Connecting => (StatusColor::Yellow, "Connecting"),

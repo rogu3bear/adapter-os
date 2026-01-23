@@ -1,11 +1,36 @@
 //! Client-side error reporting
 //!
 //! Reports UI errors to the server for persistent logging.
+//! Also provides toast-based error surfacing with diagnostic bundles.
 
-use super::{api_base_url, ApiError};
+use super::{api_base_url, ApiError, DiagnosticBundle};
 use crate::redact_sensitive_info;
+use crate::signals::notifications::try_use_notifications;
 use gloo_net::http::Request;
 use serde::Serialize;
+
+#[cfg(target_arch = "wasm32")]
+fn csrf_token_from_cookie() -> Option<String> {
+    use wasm_bindgen::JsCast;
+    web_sys::window()
+        .and_then(|w| w.document())
+        .and_then(|d| d.dyn_into::<web_sys::HtmlDocument>().ok())
+        .and_then(|d| d.cookie().ok())
+        .and_then(|cookies| {
+            for cookie in cookies.split(';') {
+                let cookie = cookie.trim();
+                if let Some(token) = cookie.strip_prefix("csrf_token=") {
+                    return Some(token.to_string());
+                }
+            }
+            None
+        })
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn csrf_token_from_cookie() -> Option<String> {
+    None
+}
 
 /// Client error report payload (matches server's ClientErrorReport)
 #[derive(Debug, Clone, Serialize)]
@@ -48,12 +73,86 @@ pub fn report_error(error: &ApiError, page: Option<&str>, is_authenticated: bool
         };
 
         // Send and ignore result - we don't want error reporting to cause more errors
-        let _ = Request::post(&endpoint)
-            .header("Content-Type", "application/json")
-            .json(&report)
-            .ok()
-            .map(|req| req.send());
+        let mut req = Request::post(&endpoint).header("Content-Type", "application/json");
+        if let Some(token) = csrf_token_from_cookie() {
+            req = req.header("X-CSRF-Token", &token);
+        }
+        let _ = req.json(&report).ok().map(|req| req.send());
     });
+}
+
+/// Report an API error to the server AND show a toast notification with diagnostic bundle.
+///
+/// This function:
+/// 1. Reports the error to the server for persistent logging
+/// 2. Shows an actionable error toast with the error details
+/// 3. Includes a copyable diagnostic bundle (JSON) for debugging
+///
+/// Use this instead of `report_error` when you want the user to see the error.
+///
+/// # Arguments
+/// * `error` - The API error to report
+/// * `title` - Toast title (e.g., "Failed to load adapters")
+/// * `page` - Optional current page/route path
+/// * `is_authenticated` - Whether the user is authenticated
+pub fn report_error_with_toast(
+    error: &ApiError,
+    title: &str,
+    page: Option<&str>,
+    is_authenticated: bool,
+) {
+    // Report to server (fire-and-forget)
+    report_error(error, page, is_authenticated);
+
+    // Show toast with diagnostic bundle
+    if let Some(notifications) = try_use_notifications() {
+        let bundle = DiagnosticBundle::from_error(error, page);
+        let details = bundle.to_json_string();
+
+        // Build a user-friendly message
+        let message = build_user_message(error);
+
+        notifications.error_with_details(title, &message, &details);
+    } else {
+        // Fallback: log to console if notification context not available
+        #[cfg(target_arch = "wasm32")]
+        {
+            let bundle = DiagnosticBundle::from_error(error, page);
+            web_sys::console::error_1(
+                &format!(
+                    "[Error] {}: {} | Diagnostic: {}",
+                    title,
+                    error,
+                    bundle.to_compact_string()
+                )
+                .into(),
+            );
+        }
+    }
+}
+
+/// Build a user-friendly error message from an ApiError.
+fn build_user_message(error: &ApiError) -> String {
+    match error {
+        ApiError::Aborted => "The request was cancelled.".to_string(),
+        ApiError::Network(msg) => format!("Network error: {}", msg),
+        ApiError::Http { status, message } => {
+            format!("HTTP {} error: {}", status, message)
+        }
+        ApiError::Unauthorized => "Your session has expired. Please log in again.".to_string(),
+        ApiError::Forbidden(msg) => format!("Access denied: {}", msg),
+        ApiError::NotFound(msg) => format!("Not found: {}", msg),
+        ApiError::Validation(msg) => format!("Validation error: {}", msg),
+        ApiError::Server(msg) => format!("Server error: {}", msg),
+        ApiError::Serialization(msg) => format!("Data format error: {}", msg),
+        ApiError::RateLimited { retry_after } => match retry_after {
+            Some(ms) => format!("Too many requests. Try again in {} seconds.", ms / 1000),
+            None => "Too many requests. Please wait a moment.".to_string(),
+        },
+        ApiError::Structured { error, code, .. } => {
+            format!("{} ({})", error, code)
+        }
+    }
 }
 
 /// Build a ClientErrorReport from an ApiError

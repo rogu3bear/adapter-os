@@ -7,6 +7,7 @@ use super::topbar::TopBar;
 use crate::components::chat_dock::{ChatDockPanel, MobileChatOverlay, NarrowChatDock};
 use crate::components::offline_banner::OfflineBanner;
 use crate::components::status_center::StatusCenterProvider;
+use crate::components::telemetry_overlay::TelemetryOverlay;
 use crate::components::version_skew_banner::VersionSkewBanner;
 use crate::components::workspace::Workspace;
 use crate::signals::{use_chat, use_search, DockState};
@@ -111,6 +112,9 @@ pub fn Shell(children: Children) -> impl IntoView {
 
                 // Mobile chat overlay
                 <MobileChatOverlay/>
+
+                // Telemetry overlay (Ctrl+Shift+T toggle, off by default)
+                <TelemetryOverlay/>
             </div>
         </StatusCenterProvider>
     }

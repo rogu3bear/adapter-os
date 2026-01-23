@@ -401,61 +401,109 @@ pub fn MerkleTreeTab(
                                 .merkle_root
                                 .clone()
                                 .unwrap_or_else(|| "Not Available".to_string());
+                            let merkle_root_short = if merkle_root.len() > 16 {
+                                format!("{}...{}", &merkle_root[..8], &merkle_root[merkle_root.len()-8..])
+                            } else {
+                                merkle_root.clone()
+                            };
                             let entry_count = data.total_entries;
+                            let tree_depth = if entry_count > 0 {
+                                ((entry_count as f64).log2().ceil() as usize).max(1)
+                            } else {
+                                0
+                            };
                             view! {
                                 <div class="space-y-4">
+                                    // Info note
+                                    <div class="text-xs text-muted-foreground bg-muted/50 rounded p-2">
+                                        "Simplified view. Full proof paths require backend support."
+                                    </div>
+
                                     // Root visualization
                                     <div class="flex flex-col items-center">
-                                        <div class="p-4 bg-primary/10 border-2 border-primary rounded-lg text-center">
+                                        <div class="p-4 bg-primary/10 border-2 border-primary rounded-lg text-center max-w-xs">
                                             <p class="text-xs text-muted-foreground mb-1">
-                                                "Merkle Root"
+                                                "Merkle Root (BLAKE3)"
                                             </p>
-                                            <p class="font-mono text-sm break-all">{merkle_root}</p>
+                                            <p class="font-mono text-xs break-all" title=merkle_root.clone()>
+                                                {merkle_root_short}
+                                            </p>
                                         </div>
 
-                                        // Tree branches (simplified visualization)
-                                        <div class="w-0.5 h-8 bg-border"></div>
+                                        // Tree branches
+                                        <div class="w-0.5 h-6 bg-border"></div>
 
                                         <div class="flex items-center gap-4">
-                                            <div class="w-12 h-0.5 bg-border"></div>
-                                            <div class="w-0.5 h-8 bg-border"></div>
-                                            <div class="w-12 h-0.5 bg-border"></div>
+                                            <div class="w-8 h-0.5 bg-border"></div>
+                                            <div class="w-0.5 h-6 bg-border"></div>
+                                            <div class="w-8 h-0.5 bg-border"></div>
                                         </div>
 
-                                        <div class="flex items-center gap-8 mt-2">
-                                            <div class="p-3 bg-status-info/10 border border-status-info rounded text-center">
+                                        <div class="flex items-center gap-6 mt-2">
+                                            <div class="p-2 bg-status-info/10 border border-status-info rounded text-center">
                                                 <p class="text-xs text-muted-foreground">
                                                     "Left Subtree"
                                                 </p>
-                                                <p class="text-sm font-mono">
-                                                    {format!("{} entries", entry_count / 2)}
+                                                <p class="text-xs font-mono">
+                                                    {format!("{}", entry_count / 2)}
                                                 </p>
                                             </div>
-                                            <div class="p-3 bg-status-info/10 border border-status-info rounded text-center">
+                                            <div class="p-2 bg-status-info/10 border border-status-info rounded text-center">
                                                 <p class="text-xs text-muted-foreground">
                                                     "Right Subtree"
                                                 </p>
-                                                <p class="text-sm font-mono">
-                                                    {format!("{} entries", entry_count - entry_count / 2)}
+                                                <p class="text-xs font-mono">
+                                                    {format!("{}", entry_count - entry_count / 2)}
                                                 </p>
+                                            </div>
+                                        </div>
+
+                                        // More levels indication
+                                        {(tree_depth > 2).then(|| view! {
+                                            <div class="mt-4 text-center">
+                                                <p class="text-xs text-muted-foreground">
+                                                    {format!("... {} more levels to leaf nodes ...", tree_depth - 2)}
+                                                </p>
+                                            </div>
+                                        })}
+
+                                        // Leaf count
+                                        <div class="mt-4 flex items-center gap-4">
+                                            <div class="p-2 bg-status-success/10 border border-status-success rounded text-center">
+                                                <p class="text-xs text-muted-foreground">"Leaf Nodes"</p>
+                                                <p class="text-sm font-mono font-bold">{entry_count.to_string()}</p>
                                             </div>
                                         </div>
                                     </div>
 
+                                    // Tree stats
+                                    <div class="grid grid-cols-3 gap-2 pt-4 border-t text-center">
+                                        <div>
+                                            <p class="text-xs text-muted-foreground">"Total Entries"</p>
+                                            <p class="text-sm font-mono">{entry_count.to_string()}</p>
+                                        </div>
+                                        <div>
+                                            <p class="text-xs text-muted-foreground">"Tree Depth"</p>
+                                            <p class="text-sm font-mono">{tree_depth.to_string()}</p>
+                                        </div>
+                                        <div>
+                                            <p class="text-xs text-muted-foreground">"Hash Algorithm"</p>
+                                            <p class="text-sm font-mono">"BLAKE3"</p>
+                                        </div>
+                                    </div>
+
                                     // Legend
-                                    <div class="flex items-center gap-4 justify-center pt-4 border-t">
-                                        <div class="flex items-center gap-2">
-                                            <div class="w-3 h-3 bg-primary rounded"></div>
+                                    <div class="flex items-center gap-4 justify-center pt-2">
+                                        <div class="flex items-center gap-1">
+                                            <div class="w-2 h-2 bg-primary rounded"></div>
                                             <span class="text-xs text-muted-foreground">"Root"</span>
                                         </div>
-                                        <div class="flex items-center gap-2">
-                                            <div class="w-3 h-3 bg-status-info rounded"></div>
-                                            <span class="text-xs text-muted-foreground">
-                                                "Internal"
-                                            </span>
+                                        <div class="flex items-center gap-1">
+                                            <div class="w-2 h-2 bg-status-info rounded"></div>
+                                            <span class="text-xs text-muted-foreground">"Internal"</span>
                                         </div>
-                                        <div class="flex items-center gap-2">
-                                            <div class="w-3 h-3 bg-status-success rounded"></div>
+                                        <div class="flex items-center gap-1">
+                                            <div class="w-2 h-2 bg-status-success rounded"></div>
                                             <span class="text-xs text-muted-foreground">"Leaf"</span>
                                         </div>
                                     </div>
@@ -855,7 +903,8 @@ fn mock_benchmark_reports() -> Vec<EmbeddingBenchmarkReport> {
 
 #[component]
 pub fn EmbeddingsTab() -> impl IntoView {
-    // Mock data for now (will be replaced with API call)
+    // Mock data for now (will be replaced with API call once backend endpoint is implemented)
+    // Backend needs: GET /api/embeddings/benchmarks endpoint with database storage
     let mock_reports = mock_benchmark_reports();
 
     // Calculate latest metrics for summary cards
@@ -867,6 +916,18 @@ pub fn EmbeddingsTab() -> impl IntoView {
 
     view! {
         <div class="space-y-6">
+            // Note about data source
+            <div class="bg-muted/50 border border-border rounded-md p-3 flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-muted-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"/>
+                    <path d="M12 16v-4"/>
+                    <path d="M12 8h.01"/>
+                </svg>
+                <span class="text-sm text-muted-foreground">
+                    "Displaying sample data. Benchmark history API endpoint is not yet implemented."
+                </span>
+            </div>
+
             // Summary cards row
             <div class="grid gap-4 md:grid-cols-4">
                 <Card>

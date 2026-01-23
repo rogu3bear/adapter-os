@@ -28,6 +28,29 @@ pub use adapteros_api_types::routing::{
 };
 pub use adapteros_api_types::workers::WorkerMetricsResponse;
 
+#[cfg(target_arch = "wasm32")]
+fn csrf_token_from_cookie() -> Option<String> {
+    use wasm_bindgen::JsCast;
+    web_sys::window()
+        .and_then(|w| w.document())
+        .and_then(|d| d.dyn_into::<web_sys::HtmlDocument>().ok())
+        .and_then(|d| d.cookie().ok())
+        .and_then(|cookies| {
+            for cookie in cookies.split(';') {
+                let cookie = cookie.trim();
+                if let Some(token) = cookie.strip_prefix("csrf_token=") {
+                    return Some(token.to_string());
+                }
+            }
+            None
+        })
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn csrf_token_from_cookie() -> Option<String> {
+    None
+}
+
 /// HTTP API client for adapterOS backend
 #[derive(Clone)]
 pub struct ApiClient {
@@ -120,7 +143,13 @@ impl ApiClient {
             _ => Request::get(&url),
         };
 
-        let req = req.header("Content-Type", "application/json");
+        let mut req = req.header("Content-Type", "application/json");
+
+        if matches!(method, "POST" | "PUT" | "PATCH" | "DELETE") {
+            if let Some(token) = csrf_token_from_cookie() {
+                req = req.header("X-CSRF-Token", &token);
+            }
+        }
 
         if let Some(token) = self.auth_token.read().ok().and_then(|t| t.clone()) {
             req.header("Authorization", &format!("Bearer {}", token))
@@ -171,6 +200,12 @@ impl ApiClient {
             let text = response.text().await.unwrap_or_default();
             Err(ApiError::from_response(status, &text))
         }
+    }
+
+    /// Perform a POST request without body, returning a response
+    pub async fn post_empty<T: DeserializeOwned>(&self, path: &str) -> ApiResult<T> {
+        let response = self.request("POST", path).send().await?;
+        self.handle_response(response).await
     }
 
     /// Perform a PUT request with JSON body
@@ -327,6 +362,11 @@ impl ApiClient {
         self.get("/v1/system/status").await
     }
 
+    /// Get system overview (includes active sessions, workers, resources)
+    pub async fn get_system_overview(&self) -> ApiResult<SystemOverviewResponse> {
+        self.get("/v1/system/overview").await
+    }
+
     // --- Workers ---
 
     /// List workers
@@ -457,6 +497,15 @@ impl ApiClient {
             .await
     }
 
+    /// Get training metrics time-series for a job
+    pub async fn get_training_metrics(
+        &self,
+        job_id: &str,
+    ) -> ApiResult<adapteros_api_types::TrainingMetricsListResponse> {
+        self.get(&format!("/v1/training/jobs/{}/metrics", job_id))
+            .await
+    }
+
     /// Get backend readiness for training (CoreML/Metal/MLX availability)
     pub async fn get_training_backend_readiness(
         &self,
@@ -484,6 +533,16 @@ impl ApiClient {
     /// Import a new model
     pub async fn seed_model(&self, request: &SeedModelRequest) -> ApiResult<SeedModelResponse> {
         self.post("/v1/models/import", request).await
+    }
+
+    /// Load a model into memory
+    pub async fn load_model(&self, id: &str) -> ApiResult<ModelStatusResponse> {
+        self.post_empty(&format!("/v1/models/{}/load", id)).await
+    }
+
+    /// Unload a model from memory
+    pub async fn unload_model(&self, id: &str) -> ApiResult<ModelStatusResponse> {
+        self.post_empty(&format!("/v1/models/{}/unload", id)).await
     }
 
     // --- Stacks ---
@@ -545,6 +604,39 @@ impl ApiClient {
         self.get(&format!("/v1/policies/{}", cpid)).await
     }
 
+    /// Validate a policy pack content
+    pub async fn validate_policy(
+        &self,
+        content: &str,
+    ) -> ApiResult<PolicyValidationResponse> {
+        self.post(
+            "/v1/policies/validate",
+            &ValidatePolicyRequest {
+                content: content.to_string(),
+            },
+        )
+        .await
+    }
+
+    /// Apply a policy pack (create or update)
+    pub async fn apply_policy(
+        &self,
+        cpid: &str,
+        content: &str,
+        description: Option<String>,
+    ) -> ApiResult<PolicyPackResponse> {
+        self.post(
+            "/v1/policies/apply",
+            &ApplyPolicyRequest {
+                cpid: cpid.to_string(),
+                content: content.to_string(),
+                description,
+                activate: Some(true),
+            },
+        )
+        .await
+    }
+
     // --- Settings ---
 
     /// Get system settings
@@ -582,6 +674,25 @@ impl ApiClient {
     /// Get inference stream URL for SSE
     pub fn infer_stream_url(&self) -> String {
         format!("{}/v1/infer/stream", self.base_url)
+    }
+
+    // --- Topology ---
+
+    /// Get topology graph with optional router preview
+    ///
+    /// When `preview_text` is provided, runs a dry-run of the router to predict
+    /// which adapters would be selected, returned in `predicted_path`.
+    pub async fn get_topology_preview(
+        &self,
+        preview_text: Option<&str>,
+    ) -> ApiResult<adapteros_api_types::TopologyGraph> {
+        let path = match preview_text {
+            Some(text) if !text.trim().is_empty() => {
+                format!("/v1/topology?preview_text={}", encode(text))
+            }
+            _ => "/v1/topology".to_string(),
+        };
+        self.get(&path).await
     }
 
     // --- Collections ---
@@ -1559,6 +1670,42 @@ impl ApiClient {
     pub async fn delete_routing_rule(&self, rule_id: &str) -> ApiResult<()> {
         self.delete(&format!("/v1/routing-rules/{}", rule_id)).await
     }
+
+    // --- Error Alerts ---
+
+    /// List error alert rules
+    pub async fn list_error_alert_rules(&self) -> ApiResult<ErrorAlertRulesListResponse> {
+        self.get("/v1/error-alerts/rules").await
+    }
+
+    /// Get a specific error alert rule
+    pub async fn get_error_alert_rule(&self, id: &str) -> ApiResult<ErrorAlertRuleResponse> {
+        self.get(&format!("/v1/error-alerts/rules/{}", id)).await
+    }
+
+    /// Create a new error alert rule
+    pub async fn create_error_alert_rule(
+        &self,
+        request: &CreateErrorAlertRuleRequest,
+    ) -> ApiResult<ErrorAlertRuleResponse> {
+        self.post("/v1/error-alerts/rules", request).await
+    }
+
+    /// Update an error alert rule
+    pub async fn update_error_alert_rule(
+        &self,
+        id: &str,
+        request: &UpdateErrorAlertRuleRequest,
+    ) -> ApiResult<ErrorAlertRuleResponse> {
+        self.put(&format!("/v1/error-alerts/rules/{}", id), request)
+            .await
+    }
+
+    /// Delete an error alert rule
+    pub async fn delete_error_alert_rule(&self, id: &str) -> ApiResult<()> {
+        self.delete(&format!("/v1/error-alerts/rules/{}", id))
+            .await
+    }
 }
 
 /// Simple inference request for chat
@@ -1576,6 +1723,151 @@ pub struct InferenceRequest {
 // ============================================================================
 // Local types for API responses not in adapteros-api-types (wasm feature)
 // ============================================================================
+
+/// System overview response with complete system state
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SystemOverviewResponse {
+    #[serde(default)]
+    pub schema_version: String,
+    pub uptime_seconds: u64,
+    pub process_count: usize,
+    pub load_average: LoadAverageInfo,
+    pub resource_usage: ResourceUsageInfo,
+    pub services: Vec<ServiceStatus>,
+    pub active_sessions: i32,
+    pub active_workers: i32,
+    pub adapter_count: i32,
+    pub timestamp: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub origin_node_id: Option<String>,
+}
+
+/// Load average information
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct LoadAverageInfo {
+    pub load_1min: f64,
+    pub load_5min: f64,
+    pub load_15min: f64,
+}
+
+/// Resource usage information
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ResourceUsageInfo {
+    pub cpu_usage_percent: f32,
+    pub memory_usage_percent: f32,
+    pub disk_usage_percent: f32,
+    pub network_rx_mbps: f32,
+    pub network_tx_mbps: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gpu_utilization_percent: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gpu_memory_used_gb: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gpu_memory_total_gb: Option<f32>,
+}
+
+/// Service status in system overview
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ServiceStatus {
+    pub name: String,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_check: Option<u64>,
+}
+
+/// Error alert rule response
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ErrorAlertRuleResponse {
+    pub id: String,
+    pub tenant_id: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_type_pattern: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub http_status_pattern: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page_pattern: Option<String>,
+    pub threshold_count: i32,
+    pub threshold_window_minutes: i32,
+    pub cooldown_minutes: i32,
+    pub severity: String,
+    pub is_active: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notification_channels: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_by: Option<String>,
+    pub created_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
+}
+
+/// Request to create an error alert rule
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CreateErrorAlertRuleRequest {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_type_pattern: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub http_status_pattern: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page_pattern: Option<String>,
+    pub threshold_count: i32,
+    pub threshold_window_minutes: i32,
+    #[serde(default = "default_cooldown_minutes")]
+    pub cooldown_minutes: i32,
+    #[serde(default = "default_severity")]
+    pub severity: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notification_channels: Option<serde_json::Value>,
+}
+
+fn default_cooldown_minutes() -> i32 {
+    15
+}
+
+fn default_severity() -> String {
+    "warning".to_string()
+}
+
+/// Request to update an error alert rule
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct UpdateErrorAlertRuleRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_type_pattern: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub http_status_pattern: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page_pattern: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub threshold_count: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub threshold_window_minutes: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cooldown_minutes: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub severity: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_active: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notification_channels: Option<serde_json::Value>,
+}
+
+/// List error alert rules response
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ErrorAlertRulesListResponse {
+    pub rules: Vec<ErrorAlertRuleResponse>,
+    pub total: usize,
+}
 
 /// Model architecture summary
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -1718,6 +2010,31 @@ pub struct PolicyPackResponse {
     pub content: String,
     pub hash_b3: String,
     pub created_at: String,
+}
+
+/// Validate policy request
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ValidatePolicyRequest {
+    pub content: String,
+}
+
+/// Policy validation response
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PolicyValidationResponse {
+    pub valid: bool,
+    pub errors: Vec<String>,
+    pub hash_b3: Option<String>,
+}
+
+/// Apply policy request
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ApplyPolicyRequest {
+    pub cpid: String,
+    pub content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub activate: Option<bool>,
 }
 
 /// Create training job request

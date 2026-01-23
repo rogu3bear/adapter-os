@@ -137,6 +137,24 @@ impl DbFactory {
 
     /// Create SQL connection pool
     async fn create_sql_pool(database_url: &str, pool_size: u32) -> Result<sqlx::SqlitePool> {
+        Self::create_sql_pool_with_acquire_timeout(database_url, pool_size, Duration::from_secs(30))
+            .await
+    }
+
+    /// Create SQL connection pool with configurable acquire timeout
+    ///
+    /// The acquire_timeout controls how long to wait for a connection from the pool.
+    /// This prevents hangs when the pool is exhausted under heavy load.
+    ///
+    /// # Arguments
+    /// * `database_url` - SQLite database path
+    /// * `pool_size` - Maximum pool connections
+    /// * `acquire_timeout` - Max time to wait for a connection from the pool
+    pub async fn create_sql_pool_with_acquire_timeout(
+        database_url: &str,
+        pool_size: u32,
+        acquire_timeout: Duration,
+    ) -> Result<sqlx::SqlitePool> {
         use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqliteSynchronous};
         use std::str::FromStr;
 
@@ -150,9 +168,23 @@ impl DbFactory {
 
         let pool = SqlitePoolOptions::new()
             .max_connections(pool_size)
+            .acquire_timeout(acquire_timeout)
             .connect_with(options)
             .await
             .map_err(|e| {
+                // Check for pool timeout errors and provide clear message
+                let error_str = e.to_string();
+                if error_str.contains("timed out") || error_str.contains("timeout") {
+                    tracing::warn!(
+                        database_url = %database_url,
+                        acquire_timeout_secs = acquire_timeout.as_secs(),
+                        "Database pool acquire timed out - consider increasing pool_size or AOS_DB_ACQUIRE_TIMEOUT_SECS"
+                    );
+                    return AosError::Database(format!(
+                        "DB_ACQUIRE_TIMEOUT: Connection pool exhausted after {} seconds",
+                        acquire_timeout.as_secs()
+                    ));
+                }
                 let storage_err =
                     sqlx_to_storage_error(e, DatabaseBackend::Sqlite, "connect to SQLite database");
                 AosError::Database(storage_err.to_string())

@@ -9,7 +9,7 @@ use tauri::command;
 #[command]
 pub async fn load_graph(db_path: String) -> Result<GraphData, String> {
     tracing::info!("Loading graph from: {}", db_path);
-    
+
     let path = Path::new(&db_path);
     if !path.exists() {
         return Err(format!("Database file not found: {}", db_path));
@@ -85,7 +85,7 @@ pub async fn load_graph(db_path: String) -> Result<GraphData, String> {
 #[command]
 pub async fn search_symbols(db_path: String, query: String) -> Result<Vec<SymbolMatch>, String> {
     tracing::debug!("Searching for: {}", query);
-    
+
     let path = Path::new(&db_path);
     let graph = CodeGraph::load_from_db(path)
         .await
@@ -97,7 +97,10 @@ pub async fn search_symbols(db_path: String, query: String) -> Result<Vec<Symbol
         .iter()
         .filter(|(_, symbol)| {
             symbol.name.to_lowercase().contains(&query_lower)
-                || symbol.qualified_name().to_lowercase().contains(&query_lower)
+                || symbol
+                    .qualified_name()
+                    .to_lowercase()
+                    .contains(&query_lower)
                 || symbol.file_path.to_lowercase().contains(&query_lower)
         })
         .take(100) // Limit results
@@ -133,8 +136,7 @@ pub async fn get_symbol_details(
         .await
         .map_err(|e| format!("Failed to load graph: {}", e))?;
 
-    let id = SymbolId::from_hex(&symbol_id)
-        .map_err(|e| format!("Invalid symbol ID: {}", e))?;
+    let id = SymbolId::from_hex(&symbol_id).map_err(|e| format!("Invalid symbol ID: {}", e))?;
 
     let symbol = graph
         .get_symbol(&id)
@@ -180,10 +182,7 @@ pub async fn get_symbol_details(
             byte_length: symbol.span.byte_length,
         },
         visibility: symbol.visibility.to_string(),
-        type_annotation: symbol
-            .type_annotation
-            .as_ref()
-            .map(|ta| ta.to_string()),
+        type_annotation: symbol.type_annotation.as_ref().map(|ta| ta.to_string()),
         signature: symbol.signature.clone(),
         docstring: symbol.docstring.clone(),
         is_recursive: symbol.is_recursive,
@@ -202,8 +201,7 @@ pub async fn get_neighbors(db_path: String, symbol_id: String) -> Result<Neighbo
         .await
         .map_err(|e| format!("Failed to load graph: {}", e))?;
 
-    let id = SymbolId::from_hex(&symbol_id)
-        .map_err(|e| format!("Invalid symbol ID: {}", e))?;
+    let id = SymbolId::from_hex(&symbol_id).map_err(|e| format!("Invalid symbol ID: {}", e))?;
 
     let callers: Vec<SymbolMatch> = graph
         .get_callers(&id)
@@ -256,7 +254,7 @@ pub async fn get_neighbors(db_path: String, symbol_id: String) -> Result<Neighbo
 #[command]
 pub async fn load_diff(db_path_a: String, db_path_b: String) -> Result<GraphDiffData, String> {
     tracing::info!("Computing diff between {} and {}", db_path_a, db_path_b);
-    
+
     let path_a = Path::new(&db_path_a);
     let path_b = Path::new(&db_path_b);
 
@@ -277,23 +275,56 @@ pub async fn load_diff(db_path_a: String, db_path_b: String) -> Result<GraphDiff
 #[command]
 pub async fn open_source_file(file_path: String, line: u32) -> Result<(), String> {
     tracing::info!("Opening file: {} at line {}", file_path, line);
-    
-    // Use system default editor
-    // On macOS, this will open in default editor
+
+    // Verify file exists before attempting to open
+    let path = Path::new(&file_path);
+    if !path.exists() {
+        return Err(format!("File not found: {}", file_path));
+    }
+
+    // Use platform-specific approach to open files
     #[cfg(target_os = "macos")]
     {
         use std::process::Command;
+        // On macOS, use 'open' to open in default editor
+        // Note: 'open' doesn't support line numbers directly, but editors like
+        // VS Code and Sublime Text can be configured to handle this
         Command::new("open")
             .arg(&file_path)
             .spawn()
             .map_err(|e| format!("Failed to open file: {}", e))?;
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    {
+        use std::process::Command;
+        // On Windows, use 'start' command via cmd.exe to open in default application
+        // The empty "" is for the window title parameter required by start
+        Command::new("cmd")
+            .args(["/C", "start", "", &file_path])
+            .spawn()
+            .map_err(|e| format!("Failed to open file: {}", e))?;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        use std::process::Command;
+        // On Linux, use 'xdg-open' which opens with the default application
+        Command::new("xdg-open")
+            .arg(&file_path)
+            .spawn()
+            .map_err(|e| format!("Failed to open file: {}", e))?;
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     {
         return Err("File opening not implemented for this platform".to_string());
     }
 
+    // Note: The 'line' parameter is logged but not used directly in the open command
+    // as most OS-level file open commands don't support jumping to a specific line.
+    // IDE integrations (VS Code, etc.) would need custom URI schemes for line support.
+    let _ = line; // Suppress unused warning
+
     Ok(())
 }
-

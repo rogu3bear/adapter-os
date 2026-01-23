@@ -6,6 +6,7 @@
 //! ## Features
 //! - Hardware-backed key generation in Secure Enclave
 //! - Attestation chain verification
+//! - Root CA verification against trusted Apple certificates
 //! - Graceful fallback on Intel Macs (no SEP available)
 //! - Automatic chip detection (M1/M2/M3/M4)
 //!
@@ -13,14 +14,23 @@
 //! - Private keys never leave the Secure Enclave
 //! - Attestation proves key was generated in hardware
 //! - Protection against key extraction and cloning
+//! - Certificate chains verified against Apple Root CA
 //!
 //! ## Platform Support
 //! - macOS 12+ on Apple Silicon (M-series): Full SEP support
 //! - macOS on Intel: Graceful fallback to keychain-backed keys
 //! - Other platforms: Returns error
+//!
+//! ## Root CA Configuration
+//! The root CA bundle path can be configured via:
+//! - `AOS_SEP_ROOT_CA_PATH` environment variable
+//! - Default: `/etc/adapteros/certs/apple-root-ca.pem`
 
+use ::pem::parse_many as pem_parse_many;
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use tracing::{debug, info, warn};
 
 /// SEP (Secure Enclave Processor) chip generation
@@ -77,6 +87,91 @@ pub struct SepAttestation {
     pub chip_generation: SepChipGeneration,
     /// Timestamp of attestation (Unix timestamp)
     pub timestamp: u64,
+}
+
+/// Default path for the Apple Root CA bundle
+pub const DEFAULT_ROOT_CA_PATH: &str = "/etc/adapteros/certs/apple-root-ca.pem";
+
+/// Environment variable for configuring Root CA path
+pub const ROOT_CA_PATH_ENV: &str = "AOS_SEP_ROOT_CA_PATH";
+
+/// Configuration for SEP Root CA verification
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RootCaConfig {
+    /// Path to the Root CA bundle (PEM or DER format)
+    pub bundle_path: PathBuf,
+    /// Whether to require Root CA verification (fail if bundle not found)
+    pub require_verification: bool,
+    /// Whether to allow self-signed certificates when Root CA bundle is unavailable
+    pub allow_self_signed_fallback: bool,
+}
+
+impl Default for RootCaConfig {
+    fn default() -> Self {
+        Self {
+            bundle_path: get_root_ca_path(),
+            require_verification: false,
+            allow_self_signed_fallback: true,
+        }
+    }
+}
+
+impl RootCaConfig {
+    /// Create a strict configuration that requires Root CA verification
+    pub fn strict(bundle_path: impl Into<PathBuf>) -> Self {
+        Self {
+            bundle_path: bundle_path.into(),
+            require_verification: true,
+            allow_self_signed_fallback: false,
+        }
+    }
+
+    /// Create a lenient configuration for development
+    pub fn development() -> Self {
+        Self {
+            bundle_path: get_root_ca_path(),
+            require_verification: false,
+            allow_self_signed_fallback: true,
+        }
+    }
+}
+
+/// Get the configured Root CA path from environment or default
+pub fn get_root_ca_path() -> PathBuf {
+    std::env::var(ROOT_CA_PATH_ENV)
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from(DEFAULT_ROOT_CA_PATH))
+}
+
+/// Result of Root CA verification
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RootCaVerificationResult {
+    /// Whether the root certificate was verified against a trusted CA
+    pub trusted_root_found: bool,
+    /// Subject of the root certificate in the chain
+    pub root_subject: Option<String>,
+    /// Subject of the matching trusted CA (if found)
+    pub trusted_ca_subject: Option<String>,
+    /// Reason if verification failed or was skipped
+    pub reason: Option<String>,
+}
+
+/// Cached trusted root certificates (loaded once)
+static TRUSTED_ROOTS_CACHE: OnceLock<Vec<TrustedRootCa>> = OnceLock::new();
+
+/// Representation of a trusted Root CA certificate
+#[derive(Clone, Debug)]
+pub struct TrustedRootCa {
+    /// Certificate subject (distinguished name)
+    pub subject: String,
+    /// Certificate issuer (distinguished name)
+    pub issuer: String,
+    /// Serial number (hex encoded)
+    pub serial_number: String,
+    /// DER-encoded certificate bytes
+    pub der_bytes: Vec<u8>,
+    /// SHA-256 fingerprint of the certificate
+    pub fingerprint_sha256: String,
 }
 
 /// Detect Apple Silicon chip generation
@@ -301,10 +396,65 @@ fn generate_fallback_attestation(
 /// * `Err` if any certificate fails to parse or signature verification fails
 ///
 /// # Note
-/// Full Apple SEP Root CA verification is deferred pending root certificate
-/// distribution mechanism. Current implementation validates signature chain
-/// integrity only.
+/// This function performs signature chain verification only. For full Root CA
+/// verification, use `verify_attestation_chain_with_root_ca`.
 pub fn verify_attestation_chain(attestation: &SepAttestation) -> Result<()> {
+    verify_attestation_chain_internal(attestation)
+}
+
+/// Verify attestation certificate chain with Root CA verification
+///
+/// Parses and validates the X.509 certificate chain from SEP attestation,
+/// and verifies that the root certificate is signed by a trusted Apple Root CA.
+///
+/// # Arguments
+/// * `attestation` - The SEP attestation containing the certificate chain
+/// * `config` - Configuration for Root CA verification
+///
+/// # Returns
+/// * `Ok(RootCaVerificationResult)` with verification details
+/// * `Err` if chain verification fails or Root CA verification fails (when required)
+///
+/// # Platform Support
+/// Root CA verification is primarily intended for macOS deployments.
+/// On other platforms, this function will skip Root CA verification
+/// unless `require_verification` is set to `true` in the config.
+#[cfg(target_os = "macos")]
+pub fn verify_attestation_chain_with_root_ca(
+    attestation: &SepAttestation,
+    config: &RootCaConfig,
+) -> Result<RootCaVerificationResult> {
+    // First, verify the signature chain
+    verify_attestation_chain_internal(attestation)?;
+
+    // Then verify against trusted Root CAs
+    verify_root_ca(attestation, config)
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn verify_attestation_chain_with_root_ca(
+    attestation: &SepAttestation,
+    config: &RootCaConfig,
+) -> Result<RootCaVerificationResult> {
+    // On non-macOS platforms, perform basic chain verification
+    verify_attestation_chain_internal(attestation)?;
+
+    if config.require_verification {
+        return Err(AosError::Crypto(
+            "Root CA verification only available on macOS".to_string(),
+        ));
+    }
+
+    Ok(RootCaVerificationResult {
+        trusted_root_found: false,
+        root_subject: None,
+        trusted_ca_subject: None,
+        reason: Some("Root CA verification skipped on non-macOS platform".to_string()),
+    })
+}
+
+/// Internal function for certificate chain verification
+fn verify_attestation_chain_internal(attestation: &SepAttestation) -> Result<()> {
     use x509_parser::prelude::*;
 
     if attestation.certificate_chain.is_empty() {
@@ -378,6 +528,237 @@ pub fn verify_attestation_chain(attestation: &SepAttestation) -> Result<()> {
     );
 
     Ok(())
+}
+
+/// Load trusted Root CA certificates from a PEM or DER bundle file
+///
+/// Supports both PEM-encoded certificate bundles (multiple certificates
+/// concatenated) and single DER-encoded certificates.
+///
+/// # Arguments
+/// * `path` - Path to the certificate bundle file
+///
+/// # Returns
+/// * `Ok(Vec<TrustedRootCa>)` - List of parsed trusted Root CAs
+/// * `Err` if file cannot be read or certificates cannot be parsed
+pub fn load_root_ca_bundle(path: &Path) -> Result<Vec<TrustedRootCa>> {
+    use sha2::{Digest, Sha256};
+    use x509_parser::prelude::*;
+
+    let contents = std::fs::read(path).map_err(|e| {
+        AosError::Crypto(format!(
+            "Failed to read Root CA bundle from {}: {}",
+            path.display(),
+            e
+        ))
+    })?;
+
+    let mut trusted_roots = Vec::new();
+
+    // Try to parse as PEM first (pem 3.0 API: parse_many returns Result<Vec<Pem>>)
+    if let Ok(pem_items) = pem_parse_many(&contents) {
+        for pem_item in pem_items {
+            if pem_item.tag() == "CERTIFICATE" {
+                let der_bytes = pem_item.into_contents();
+                if let Ok((_, cert)) = X509Certificate::from_der(&der_bytes) {
+                    let fingerprint = Sha256::digest(&der_bytes);
+                    trusted_roots.push(TrustedRootCa {
+                        subject: cert.subject().to_string(),
+                        issuer: cert.issuer().to_string(),
+                        serial_number: cert.raw_serial_as_string(),
+                        der_bytes,
+                        fingerprint_sha256: hex::encode(fingerprint),
+                    });
+                }
+            }
+        }
+    }
+
+    // If no PEM certificates found, try parsing as raw DER
+    if trusted_roots.is_empty() {
+        if let Ok((_, cert)) = X509Certificate::from_der(&contents) {
+            let fingerprint = Sha256::digest(&contents);
+            trusted_roots.push(TrustedRootCa {
+                subject: cert.subject().to_string(),
+                issuer: cert.issuer().to_string(),
+                serial_number: cert.raw_serial_as_string(),
+                der_bytes: contents,
+                fingerprint_sha256: hex::encode(fingerprint),
+            });
+        }
+    }
+
+    if trusted_roots.is_empty() {
+        return Err(AosError::Crypto(format!(
+            "No valid certificates found in Root CA bundle: {}",
+            path.display()
+        )));
+    }
+
+    info!(
+        path = %path.display(),
+        count = trusted_roots.len(),
+        "Loaded trusted Root CA certificates"
+    );
+
+    for root in &trusted_roots {
+        debug!(
+            subject = %root.subject,
+            fingerprint = %root.fingerprint_sha256,
+            "Loaded trusted Root CA"
+        );
+    }
+
+    Ok(trusted_roots)
+}
+
+/// Get or load cached trusted Root CA certificates
+///
+/// Certificates are loaded once and cached for the lifetime of the process.
+/// If the bundle file does not exist, returns an empty vector.
+pub fn get_cached_trusted_roots(config: &RootCaConfig) -> &'static [TrustedRootCa] {
+    TRUSTED_ROOTS_CACHE.get_or_init(|| match load_root_ca_bundle(&config.bundle_path) {
+        Ok(roots) => roots,
+        Err(e) => {
+            warn!(
+                path = %config.bundle_path.display(),
+                error = %e,
+                "Failed to load Root CA bundle, Root CA verification will be unavailable"
+            );
+            Vec::new()
+        }
+    })
+}
+
+/// Verify the attestation chain root certificate against trusted Root CAs
+fn verify_root_ca(
+    attestation: &SepAttestation,
+    config: &RootCaConfig,
+) -> Result<RootCaVerificationResult> {
+    use sha2::{Digest, Sha256};
+    use x509_parser::prelude::*;
+
+    if attestation.certificate_chain.is_empty() {
+        return Ok(RootCaVerificationResult {
+            trusted_root_found: false,
+            root_subject: None,
+            trusted_ca_subject: None,
+            reason: Some("No certificate chain present (fallback mode)".to_string()),
+        });
+    }
+
+    // Get the root certificate (last in chain)
+    let root_der = attestation.certificate_chain.last().unwrap();
+    let (_, root_cert) = X509Certificate::from_der(root_der)
+        .map_err(|e| AosError::Crypto(format!("Failed to parse root certificate: {:?}", e)))?;
+
+    let root_subject = root_cert.subject().to_string();
+    let root_fingerprint = hex::encode(Sha256::digest(root_der));
+
+    // Load trusted roots (may use cache)
+    let trusted_roots = if config.bundle_path.exists() {
+        get_cached_trusted_roots(config)
+    } else {
+        if config.require_verification {
+            return Err(AosError::Crypto(format!(
+                "Root CA bundle not found at {} and verification is required",
+                config.bundle_path.display()
+            )));
+        }
+        return Ok(RootCaVerificationResult {
+            trusted_root_found: false,
+            root_subject: Some(root_subject),
+            trusted_ca_subject: None,
+            reason: Some(format!(
+                "Root CA bundle not found at {}",
+                config.bundle_path.display()
+            )),
+        });
+    };
+
+    if trusted_roots.is_empty() {
+        if config.require_verification {
+            return Err(AosError::Crypto(
+                "No trusted Root CAs loaded and verification is required".to_string(),
+            ));
+        }
+        return Ok(RootCaVerificationResult {
+            trusted_root_found: false,
+            root_subject: Some(root_subject),
+            trusted_ca_subject: None,
+            reason: Some("No trusted Root CAs available".to_string()),
+        });
+    }
+
+    // Check if the root certificate matches any trusted CA by fingerprint
+    for trusted_ca in trusted_roots {
+        if trusted_ca.fingerprint_sha256 == root_fingerprint {
+            info!(
+                root_subject = %root_subject,
+                trusted_ca = %trusted_ca.subject,
+                fingerprint = %root_fingerprint,
+                "Root certificate verified against trusted CA"
+            );
+            return Ok(RootCaVerificationResult {
+                trusted_root_found: true,
+                root_subject: Some(root_subject),
+                trusted_ca_subject: Some(trusted_ca.subject.clone()),
+                reason: None,
+            });
+        }
+    }
+
+    // Check if root is signed by a trusted CA (for intermediate roots)
+    let root_public_key = root_cert.public_key();
+    for trusted_ca in trusted_roots {
+        if let Ok((_, trusted_cert)) = X509Certificate::from_der(&trusted_ca.der_bytes) {
+            let trusted_public_key = trusted_cert.public_key();
+            if root_cert.verify_signature(Some(trusted_public_key)).is_ok() {
+                info!(
+                    root_subject = %root_subject,
+                    trusted_ca = %trusted_ca.subject,
+                    "Root certificate signature verified by trusted CA"
+                );
+                return Ok(RootCaVerificationResult {
+                    trusted_root_found: true,
+                    root_subject: Some(root_subject),
+                    trusted_ca_subject: Some(trusted_ca.subject.clone()),
+                    reason: None,
+                });
+            }
+        }
+    }
+
+    // Root not found in trusted CAs
+    if config.require_verification {
+        return Err(AosError::Crypto(format!(
+            "Root certificate '{}' not found in trusted Root CAs",
+            root_subject
+        )));
+    }
+
+    // Check if self-signed is allowed as fallback
+    if config.allow_self_signed_fallback {
+        if root_cert.verify_signature(Some(root_public_key)).is_ok() {
+            warn!(
+                root_subject = %root_subject,
+                "Root certificate is self-signed and not in trusted CAs (allowed as fallback)"
+            );
+            return Ok(RootCaVerificationResult {
+                trusted_root_found: false,
+                root_subject: Some(root_subject),
+                trusted_ca_subject: None,
+                reason: Some("Root certificate is self-signed but not in trusted CAs".to_string()),
+            });
+        }
+    }
+
+    Ok(RootCaVerificationResult {
+        trusted_root_found: false,
+        root_subject: Some(root_subject),
+        trusted_ca_subject: None,
+        reason: Some("Root certificate not verified against trusted CAs".to_string()),
+    })
 }
 
 /// Verify that the attestation nonce is embedded in the leaf certificate

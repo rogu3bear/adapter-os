@@ -2222,7 +2222,7 @@ impl Default for CriticalComponentMetrics {
     fn default() -> Self {
         Self::new().expect(
             "CriticalComponentMetrics::new() failed during Default::default(); \
-             this indicates a Prometheus initialization error (e.g., duplicate metrics)"
+             this indicates a Prometheus initialization error (e.g., duplicate metrics)",
         )
     }
 }

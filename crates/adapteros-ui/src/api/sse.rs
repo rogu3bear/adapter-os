@@ -205,7 +205,8 @@ impl SseConnection {
         let event_type_for_event = event_type_owned.clone();
         let last_event_at = self.ctx.last_event_at;
         let callback = Closure::wrap(Box::new(move |event: MessageEvent| {
-            last_event_at.set(Some(Date::now()));
+            // Use try_set to avoid panic if signal is disposed during navigation
+            let _ = last_event_at.try_set(Some(Date::now()));
             let data = event.data().as_string().unwrap_or_default();
             let last_event_id = event.last_event_id();
             let last_event_id = if last_event_id.is_empty() {
@@ -252,7 +253,8 @@ impl SseConnection {
     pub fn reset_circuit(&self) {
         disconnect_inner(&self.ctx, true);
         *self.ctx.failure_count.borrow_mut() = 0;
-        self.ctx.last_event_at.set(None);
+        // Use try_set to avoid panic if signal is disposed during navigation
+        let _ = self.ctx.last_event_at.try_set(None);
     }
 
     /// Check if connected
@@ -305,7 +307,7 @@ fn connect_with_handler(
     handler: Rc<dyn Fn(SseEvent)>,
 ) -> Result<(), crate::api::ApiError> {
     if ctx.state.get_untracked() == SseState::CircuitOpen {
-        ctx.state.set(SseState::CircuitOpen);
+        let _ = ctx.state.try_set(SseState::CircuitOpen);
         return Err(crate::api::ApiError::Network(
             "Circuit breaker open".to_string(),
         ));
@@ -313,7 +315,7 @@ fn connect_with_handler(
 
     disconnect_inner(&ctx, false);
 
-    ctx.state.set(SseState::Connecting);
+    let _ = ctx.state.try_set(SseState::Connecting);
 
     let url = build_full_url(&ctx.endpoint, &ctx.config);
     let event_source = match create_event_source(&url, &ctx.config) {
@@ -326,10 +328,11 @@ fn connect_with_handler(
 
     let ctx_for_open = ctx.clone();
     let on_open = Closure::wrap(Box::new(move || {
-        ctx_for_open.state.set(SseState::Connected);
+        let _ = ctx_for_open.state.try_set(SseState::Connected);
         reset_failures(&ctx_for_open);
         clear_reconnect(&ctx_for_open);
-        ctx_for_open.last_event_at.set(Some(Date::now()));
+        // Use try_set to avoid panic if signal is disposed during navigation
+        let _ = ctx_for_open.last_event_at.try_set(Some(Date::now()));
     }) as Box<dyn FnMut()>);
     event_source.set_onopen(Some(on_open.as_ref().unchecked_ref()));
     ctx.event_closures.borrow_mut().push(on_open);
@@ -344,7 +347,8 @@ fn connect_with_handler(
     let ctx_for_message = ctx.clone();
     let handler_clone = handler.clone();
     let on_message = Closure::wrap(Box::new(move |event: MessageEvent| {
-        ctx_for_message.last_event_at.set(Some(Date::now()));
+        // Use try_set to avoid panic if signal is disposed during navigation
+        let _ = ctx_for_message.last_event_at.try_set(Some(Date::now()));
         let data = event.data().as_string().unwrap_or_default();
         let last_event_id = event.last_event_id();
         let last_event_id = if last_event_id.is_empty() {
@@ -391,7 +395,7 @@ fn disconnect_inner(ctx: &SseContext, update_state: bool) {
     }
 
     if update_state {
-        ctx.state.set(SseState::Disconnected);
+        let _ = ctx.state.try_set(SseState::Disconnected);
     }
 }
 
@@ -415,7 +419,7 @@ fn handle_failure(ctx: SseContext, reason: &str) {
     let failures = increment_failures(&ctx);
     let threshold = ctx.config.failure_threshold.max(1);
     if failures >= threshold {
-        ctx.state.set(SseState::CircuitOpen);
+        let _ = ctx.state.try_set(SseState::CircuitOpen);
         tracing::warn!(
             "SSE circuit open for {} after {} failures: {}",
             ctx.endpoint,
@@ -427,7 +431,7 @@ fn handle_failure(ctx: SseContext, reason: &str) {
         return;
     }
 
-    ctx.state.set(SseState::Error);
+    let _ = ctx.state.try_set(SseState::Error);
     tracing::warn!(
         "SSE error for {} (attempt {}): {}",
         ctx.endpoint,
@@ -455,7 +459,7 @@ fn probe_auth_and_stop_on_unauthorized(ctx: &SseContext) {
         if let Err(crate::api::ApiError::Unauthorized) = client.me().await {
             clear_reconnect(&ctx);
             clear_watchdog(&ctx);
-            ctx.state.set(SseState::CircuitOpen);
+            let _ = ctx.state.try_set(SseState::CircuitOpen);
             tracing::warn!(
                 "SSE halted for {} due to auth expiry; awaiting re-auth",
                 ctx.endpoint
@@ -486,7 +490,7 @@ fn schedule_reconnect(ctx: SseContext, failures: u32) {
 
     let ctx_for_timeout = ctx.clone();
     let timeout = Timeout::new(delay_ms, move || {
-        ctx_for_timeout.state.set(SseState::Connecting);
+        let _ = ctx_for_timeout.state.try_set(SseState::Connecting);
         let _ = connect_with_handler(ctx_for_timeout.clone(), handler.clone());
     });
 
@@ -504,7 +508,7 @@ fn schedule_circuit_reset(ctx: SseContext) {
     let ctx_for_timeout = ctx.clone();
     let timeout = Timeout::new(delay_ms, move || {
         reset_failures(&ctx_for_timeout);
-        ctx_for_timeout.state.set(SseState::Disconnected);
+        let _ = ctx_for_timeout.state.try_set(SseState::Disconnected);
         if let Some(handler) = handler.clone() {
             let _ = connect_with_handler(ctx_for_timeout.clone(), handler);
         }
@@ -760,4 +764,254 @@ where
             }
         }
     })
+}
+
+// =============================================================================
+// Streaming Inference with Lifecycle Events Support
+// =============================================================================
+
+/// Streaming lifecycle event types
+#[derive(Debug, Clone)]
+pub enum StreamLifecycleEvent {
+    /// Stream has started - contains stream_id and optional idempotency_key
+    Started {
+        stream_id: String,
+        request_id: String,
+        idempotency_key: Option<String>,
+    },
+    /// Stream has finished - contains summary information
+    Finished {
+        stream_id: String,
+        request_id: String,
+        total_tokens: usize,
+        duration_ms: u64,
+        finish_reason: Option<String>,
+    },
+}
+
+/// Callback type for stream lifecycle events
+pub type OnStreamLifecycle = Box<dyn Fn(StreamLifecycleEvent)>;
+
+/// Streaming inference event handler with lifecycle awareness
+///
+/// This handler processes SSE events from the inference stream and:
+/// 1. Detects stream_started events for recovery tracking
+/// 2. Accumulates tokens for incremental rendering
+/// 3. Detects stream_finished events for completion confirmation
+/// 4. Handles reconnection with idempotency key
+pub struct StreamingInferenceHandler {
+    /// Current stream ID (set on stream_started)
+    stream_id: Rc<RefCell<Option<String>>>,
+    /// Current request ID
+    request_id: Rc<RefCell<Option<String>>>,
+    /// Idempotency key for recovery
+    idempotency_key: Rc<RefCell<Option<String>>>,
+    /// Token callback
+    on_token: Rc<RefCell<Option<Box<dyn Fn(String)>>>>,
+    /// Lifecycle callback
+    on_lifecycle: Rc<RefCell<Option<OnStreamLifecycle>>>,
+    /// Done callback (finish_reason)
+    on_done: Rc<RefCell<Option<Box<dyn Fn(String)>>>>,
+    /// Error callback
+    on_error: Rc<RefCell<Option<Box<dyn Fn(String, bool)>>>>,
+}
+
+impl StreamingInferenceHandler {
+    /// Create a new streaming inference handler
+    pub fn new() -> Self {
+        Self {
+            stream_id: Rc::new(RefCell::new(None)),
+            request_id: Rc::new(RefCell::new(None)),
+            idempotency_key: Rc::new(RefCell::new(None)),
+            on_token: Rc::new(RefCell::new(None)),
+            on_lifecycle: Rc::new(RefCell::new(None)),
+            on_done: Rc::new(RefCell::new(None)),
+            on_error: Rc::new(RefCell::new(None)),
+        }
+    }
+
+    /// Set token callback
+    pub fn on_token<F>(self, callback: F) -> Self
+    where
+        F: Fn(String) + 'static,
+    {
+        *self.on_token.borrow_mut() = Some(Box::new(callback));
+        self
+    }
+
+    /// Set lifecycle callback
+    pub fn on_lifecycle<F>(self, callback: F) -> Self
+    where
+        F: Fn(StreamLifecycleEvent) + 'static,
+    {
+        *self.on_lifecycle.borrow_mut() = Some(Box::new(callback));
+        self
+    }
+
+    /// Set done callback
+    pub fn on_done<F>(self, callback: F) -> Self
+    where
+        F: Fn(String) + 'static,
+    {
+        *self.on_done.borrow_mut() = Some(Box::new(callback));
+        self
+    }
+
+    /// Set error callback (message, retryable)
+    pub fn on_error<F>(self, callback: F) -> Self
+    where
+        F: Fn(String, bool) + 'static,
+    {
+        *self.on_error.borrow_mut() = Some(Box::new(callback));
+        self
+    }
+
+    /// Get the current stream ID (if stream has started)
+    pub fn stream_id(&self) -> Option<String> {
+        self.stream_id.borrow().clone()
+    }
+
+    /// Get the current idempotency key (for recovery)
+    pub fn idempotency_key(&self) -> Option<String> {
+        self.idempotency_key.borrow().clone()
+    }
+
+    /// Process an SSE event from the inference stream
+    pub fn handle_event(&self, event: SseEvent) {
+        let data = event.data.trim();
+
+        // Handle stream_started lifecycle event
+        if event.event_type == "stream_started" {
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(data) {
+                let stream_id = parsed
+                    .get("stream_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let request_id = parsed
+                    .get("request_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let idempotency_key = parsed
+                    .get("idempotency_key")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+
+                *self.stream_id.borrow_mut() = Some(stream_id.clone());
+                *self.request_id.borrow_mut() = Some(request_id.clone());
+                *self.idempotency_key.borrow_mut() = idempotency_key.clone();
+
+                if let Some(ref callback) = *self.on_lifecycle.borrow() {
+                    callback(StreamLifecycleEvent::Started {
+                        stream_id,
+                        request_id,
+                        idempotency_key,
+                    });
+                }
+            }
+            return;
+        }
+
+        // Handle stream_finished lifecycle event
+        if event.event_type == "stream_finished" {
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(data) {
+                let stream_id = parsed
+                    .get("stream_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let request_id = parsed
+                    .get("request_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let total_tokens = parsed
+                    .get("total_tokens")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0) as usize;
+                let duration_ms = parsed
+                    .get("duration_ms")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                let finish_reason = parsed
+                    .get("finish_reason")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+
+                if let Some(ref callback) = *self.on_lifecycle.borrow() {
+                    callback(StreamLifecycleEvent::Finished {
+                        stream_id,
+                        request_id,
+                        total_tokens,
+                        duration_ms,
+                        finish_reason,
+                    });
+                }
+            }
+            return;
+        }
+
+        // Handle error event
+        if event.event_type == "error" {
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(data) {
+                let message = parsed
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Unknown error")
+                    .to_string();
+                let retryable = parsed
+                    .get("retryable")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+
+                if let Some(ref callback) = *self.on_error.borrow() {
+                    callback(message, retryable);
+                }
+            }
+            return;
+        }
+
+        // Handle standard SSE messages (OpenAI-compatible format)
+        if data.is_empty() || data == "[DONE]" {
+            return;
+        }
+
+        // Parse OpenAI-compatible streaming chunk
+        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(data) {
+            // Extract token content from delta
+            if let Some(choices) = parsed.get("choices").and_then(|v| v.as_array()) {
+                for choice in choices {
+                    // Check for finish_reason (done event)
+                    if let Some(finish_reason) = choice.get("finish_reason").and_then(|v| v.as_str())
+                    {
+                        if !finish_reason.is_empty() && finish_reason != "null" {
+                            if let Some(ref callback) = *self.on_done.borrow() {
+                                callback(finish_reason.to_string());
+                            }
+                        }
+                    }
+
+                    // Extract content token
+                    if let Some(content) = choice
+                        .get("delta")
+                        .and_then(|d| d.get("content"))
+                        .and_then(|c| c.as_str())
+                    {
+                        if !content.is_empty() {
+                            if let Some(ref callback) = *self.on_token.borrow() {
+                                callback(content.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl Default for StreamingInferenceHandler {
+    fn default() -> Self {
+        Self::new()
+    }
 }

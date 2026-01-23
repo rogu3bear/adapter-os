@@ -5010,19 +5010,50 @@ impl Db {
         Ok(adapters)
     }
 
-    /// List adapters by state
+    /// List adapters by state (tenant-scoped)
+    ///
+    /// Uses the tenant-scoped state index (BY_TENANT_STATE) in KV mode for efficient
+    /// O(1) lookups that avoid loading all adapters for a state across all tenants.
     pub async fn list_adapters_by_state(
         &self,
         tenant_id: &str,
         state: &str,
     ) -> Result<Vec<Adapter>> {
-        // Try KV first if enabled
-        let read_from_kv = self.storage_mode().read_from_kv();
-        if read_from_kv && self.storage_mode().sql_fallback_enabled() {
-            debug!(tenant_id = %tenant_id, state = %state, mode = "sql-required", "State lookup with tenant isolation, using SQL");
-        }
-        if read_from_kv {
-            // TODO: Add tenant-scoped state index to KV backend
+        // Try KV first if enabled - uses the tenant-scoped state index
+        if self.storage_mode().read_from_kv() {
+            if let Some(repo) = self.get_adapter_kv_repo(tenant_id) {
+                match repo.list_adapters_by_state_kv(tenant_id, state).await {
+                    Ok(adapters) if !adapters.is_empty() => {
+                        debug!(
+                            tenant_id = %tenant_id,
+                            state = %state,
+                            count = adapters.len(),
+                            mode = "kv-primary",
+                            "Retrieved adapters by state from KV (tenant-scoped index)"
+                        );
+                        return Ok(adapters);
+                    }
+                    Ok(_) => {
+                        // Empty result from KV, fall through to SQL
+                        debug!(
+                            tenant_id = %tenant_id,
+                            state = %state,
+                            mode = "kv-empty",
+                            "No adapters found in KV for state, checking SQL"
+                        );
+                    }
+                    Err(e) => {
+                        // KV read failed, fall through to SQL
+                        warn!(
+                            error = %e,
+                            tenant_id = %tenant_id,
+                            state = %state,
+                            mode = "kv-fallback",
+                            "KV state lookup failed, falling back to SQL"
+                        );
+                    }
+                }
+            }
         }
 
         // SQL fallback or primary read

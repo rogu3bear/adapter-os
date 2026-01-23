@@ -706,9 +706,7 @@ pub fn default_schema() -> ConfigSchema {
         ConfigVariable::new("AOS_MODEL_CACHE_DIR")
             .config_type(ConfigType::Path { must_exist: false })
             .default_value(DEFAULT_MODEL_CACHE_ROOT)
-            .description(
-                "Root directory for cached base models (default: ./var/model-cache/models)",
-            )
+            .description("Root directory for base models (default: var/models)")
             .category("MODEL")
             .config_key("base_model.cache_root")
             .build(),
@@ -1440,6 +1438,30 @@ pub fn default_schema() -> ConfigSchema {
             .build(),
     );
 
+    schema.add_variable(
+        ConfigVariable::new("AOS_SYNTHETIC_DATA_RATIO_CAP")
+            .config_type(ConfigType::Float {
+                min: Some(0.0),
+                max: Some(1.0),
+            })
+            .default_value("0.5")
+            .description(
+                "Maximum fraction of synthetic/generated data allowed in training datasets (0.0-1.0). \
+                 Datasets exceeding this ratio require explicit override.",
+            )
+            .category("TRAINING")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_SYNTHETIC_RATIO_GUARDRAIL_ENABLED")
+            .config_type(ConfigType::Bool)
+            .default_value("true")
+            .description("Enable synthetic data ratio guardrails for training safety")
+            .category("TRAINING")
+            .build(),
+    );
+
     // ========================================================================
     // FEDERATION Configuration
     // ========================================================================
@@ -1476,7 +1498,7 @@ pub fn default_schema() -> ConfigSchema {
     schema.add_variable(
         ConfigVariable::new("AOS_EMBEDDING_MODEL_PATH")
             .config_type(ConfigType::Path { must_exist: false })
-            .default_value("./var/model-cache/models/bge-small-en-v1.5")
+            .default_value("var/models/bge-small-en-v1.5")
             .description("Path to sentence-transformer embedding model for RAG")
             .category("EMBEDDINGS")
             .build(),

@@ -10,6 +10,9 @@ description = "System resource monitoring and metrics collection for adapterOS"
 [features]
 mlx = ["dep:adapteros-lora-mlx-ffi"]
 coreml = []
+# SMS notifications via external providers (Twilio, AWS SNS, etc.)
+# When enabled, requires configuration of SMS provider credentials
+sms = []
 
 [dependencies]
 # Internal crates

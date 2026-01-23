@@ -251,8 +251,8 @@ fn check_adapter_integrity() -> Result<Value, String> {
 }
 
 fn generate_tokens_once(seed: &[u8]) -> Result<Vec<u32>, String> {
-    let mut generator = Generator::new_deterministic(seed, "prod-gate")
-        .map_err(|e| e.to_string())?;
+    let mut generator =
+        Generator::new_deterministic(seed, "prod-gate").map_err(|e| e.to_string())?;
     let mut router = Router::new_with_weights(RouterWeights::default(), 2, 1.0, 0.0);
     let mut kernels = MockKernels::new();
     let initial_tokens = vec![1u32];
