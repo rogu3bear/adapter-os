@@ -26,8 +26,9 @@ impl Generator {
     /// Returns an error if the deterministic RNG cannot be created from the seed.
     pub fn new(seed: [u8; 32]) -> Result<Self> {
         Ok(Self {
-            rng: DeterministicRng::new(&seed, "sampling")
-                .map_err(|e| AosError::Worker(format!("failed to create deterministic RNG: {}", e)))?,
+            rng: DeterministicRng::new(&seed, "sampling").map_err(|e| {
+                AosError::Worker(format!("failed to create deterministic RNG: {}", e))
+            })?,
             temperature: 1.0,
             top_k: None,
             top_p: None,
@@ -60,8 +61,9 @@ impl Generator {
         let seed = derive_seed(&global, context);
 
         Ok(Self {
-            rng: DeterministicRng::new(&seed, "sampling")
-                .map_err(|e| AosError::Worker(format!("failed to create deterministic RNG: {}", e)))?,
+            rng: DeterministicRng::new(&seed, "sampling").map_err(|e| {
+                AosError::Worker(format!("failed to create deterministic RNG: {}", e))
+            })?,
             temperature: 1.0,
             top_k: None,
             top_p: None,
@@ -95,8 +97,9 @@ impl Generator {
     pub fn reseed_for_step(&mut self, step: usize) -> Result<()> {
         if self.deterministic_mode {
             let step_seed = self.derive_step_seed(step);
-            self.rng = DeterministicRng::new(&step_seed, "sampling")
-                .map_err(|e| AosError::Worker(format!("failed to reseed RNG for step {}: {}", step, e)))?;
+            self.rng = DeterministicRng::new(&step_seed, "sampling").map_err(|e| {
+                AosError::Worker(format!("failed to reseed RNG for step {}: {}", step, e))
+            })?;
             self.step_counter = step;
         }
         Ok(())
@@ -495,8 +498,7 @@ mod tests {
 
     #[test]
     fn test_greedy_sampling() {
-        let generator = Generator::new([0u8; 32])
-            .expect("Test generator creation should succeed");
+        let generator = Generator::new([0u8; 32]).expect("Test generator creation should succeed");
         let logits = vec![0.1, 0.5, 0.3, 0.8, 0.2];
         let token = generator
             .greedy(&logits)
@@ -506,8 +508,7 @@ mod tests {
 
     #[test]
     fn test_softmax() {
-        let generator = Generator::new([0u8; 32])
-            .expect("Test generator creation should succeed");
+        let generator = Generator::new([0u8; 32]).expect("Test generator creation should succeed");
         let logits = vec![1.0, 2.0, 3.0];
         let probs = generator.softmax(&logits);
 
@@ -522,10 +523,8 @@ mod tests {
 
     #[test]
     fn test_deterministic_with_seed() {
-        let mut gen1 = Generator::new([42u8; 32])
-            .expect("Test generator creation should succeed");
-        let mut gen2 = Generator::new([42u8; 32])
-            .expect("Test generator creation should succeed");
+        let mut gen1 = Generator::new([42u8; 32]).expect("Test generator creation should succeed");
+        let mut gen2 = Generator::new([42u8; 32]).expect("Test generator creation should succeed");
 
         let logits = vec![1.0, 2.0, 3.0, 4.0, 5.0];
 
@@ -606,8 +605,7 @@ mod tests {
 
     #[test]
     fn test_non_deterministic_mode_skips_reseeding() {
-        let mut gen = Generator::new([42u8; 32])
-            .expect("Test generator creation should succeed");
+        let mut gen = Generator::new([42u8; 32]).expect("Test generator creation should succeed");
         assert!(!gen.is_deterministic());
 
         let logits = vec![1.0, 2.0, 3.0, 4.0, 5.0];
@@ -616,8 +614,7 @@ mod tests {
         let token1 = gen
             .next_token(&logits)
             .expect("Test token generation should succeed");
-        gen.reseed_for_step(0)
-            .expect("Test reseed should succeed");
+        gen.reseed_for_step(0).expect("Test reseed should succeed");
         let token2 = gen
             .next_token(&logits)
             .expect("Test token generation should succeed");

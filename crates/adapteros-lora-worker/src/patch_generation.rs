@@ -410,7 +410,10 @@ impl<K: FusedKernels + crate::StrictnessControl + Send + Sync + 'static> Worker<
             patch_proposal,
             stack_id: request.stack_id.clone(),
             stack_version: request.stack_version,
-            backend_used: Some(self.kernels.lock().await.device_name().to_string()),
+            // Use normalized backend_used for deterministic responses;
+            // backend_raw contains the device-specific identifier for telemetry
+            backend_used: Some(self.backend_used_for_response(false)),
+            backend_raw: Some(self.backend_raw_for_response(false)),
             backend_version: Some(adapteros_core::version::VERSION.to_string()),
             fallback_triggered: false,
             coreml_compute_preference: None,

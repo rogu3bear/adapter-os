@@ -119,8 +119,9 @@ pub(crate) fn fused_hash_for_interval(
     };
 
     // Canonical JSON ensures platform-stable byte layout for replay hashing.
-    let canonical_bytes = serde_jcs::to_vec(&material)
-        .map_err(|e| AosError::Worker(format!("fusion interval hash serialization failed: {}", e)))?;
+    let canonical_bytes = serde_jcs::to_vec(&material).map_err(|e| {
+        AosError::Worker(format!("fusion interval hash serialization failed: {}", e))
+    })?;
     Ok(B3Hash::hash(&canonical_bytes))
 }
 
@@ -144,7 +145,10 @@ pub(crate) fn fusion_intervals_for_mode(
         .unwrap_or_else(|| mode.interval_id_for_step(decisions[0].step));
 
     // Helper to push a bucket - returns Result to propagate hash errors
-    let push_bucket = |intervals: &mut Vec<FusionIntervalTrace>, interval_id: &str, bucket: &[RouterDecision]| -> Result<()> {
+    let push_bucket = |intervals: &mut Vec<FusionIntervalTrace>,
+                       interval_id: &str,
+                       bucket: &[RouterDecision]|
+     -> Result<()> {
         if bucket.is_empty() {
             return Ok(());
         }
@@ -167,7 +171,11 @@ pub(crate) fn fusion_intervals_for_mode(
             .unwrap_or_else(|| mode.interval_id_for_step(decision.step));
 
         if interval_id != current_interval {
-            push_bucket(&mut intervals, &current_interval, &decisions[start_idx..idx])?;
+            push_bucket(
+                &mut intervals,
+                &current_interval,
+                &decisions[start_idx..idx],
+            )?;
             start_idx = idx;
             current_interval = interval_id;
         }

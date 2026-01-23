@@ -127,12 +127,12 @@ impl InferencePauseRegistry {
         let paused_at = token.paused_at;
 
         // Take sender and receiver from token
-        let resume_tx = token.take_sender().ok_or_else(|| {
-            AosError::internal("InferencePauseToken sender already taken")
-        })?;
-        let resume_rx = token.take_receiver().ok_or_else(|| {
-            AosError::internal("InferencePauseToken receiver already taken")
-        })?;
+        let resume_tx = token
+            .take_sender()
+            .ok_or_else(|| AosError::internal("InferencePauseToken sender already taken"))?;
+        let resume_rx = token
+            .take_receiver()
+            .ok_or_else(|| AosError::internal("InferencePauseToken receiver already taken"))?;
 
         let entry = PausedEntry {
             inference_id,
@@ -331,7 +331,8 @@ mod tests {
         let pause_id = token.pause_id.clone();
 
         // Register and get receiver
-        let rx = registry.register(token)
+        let rx = registry
+            .register(token)
             .expect("Test register should succeed");
         let handle = InferencePauseHandle::new(rx, pause_id.clone(), context);
 
@@ -367,9 +368,11 @@ mod tests {
         let (token1, _) = pause_for_code_review("infer-1", "code1", "q1");
         let (token2, _) = pause_for_code_review("infer-2", "code2", "q2");
 
-        let _ = registry.register(token1)
+        let _ = registry
+            .register(token1)
             .expect("Test register should succeed");
-        let _ = registry.register(token2)
+        let _ = registry
+            .register(token2)
             .expect("Test register should succeed");
 
         let paused = registry.list_paused();

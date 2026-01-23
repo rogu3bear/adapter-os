@@ -17,6 +17,8 @@ pub mod coreml_pipeline;
 pub mod dataset;
 pub mod determinism_harness;
 pub mod early_stopping;
+pub mod embedding_loss;
+pub mod embedding_trainer;
 pub mod formats;
 pub mod json_loader;
 pub mod learning_rate_schedule;
@@ -61,6 +63,13 @@ pub use packager::{
 };
 pub use perplexity::{compute_perplexity, loss_to_perplexity_curve, PerplexityImprovement};
 pub use quantizer::{LoRAQuantizer, QuantizedLoRAWeights};
+
+// Embedding training
+pub use embedding_loss::{
+    batch_triplet_loss, contrastive_loss, cosine_distance, cosine_similarity, info_nce_loss,
+    l2_distance, l2_normalize, l2_normalized, symmetric_info_nce_loss, triplet_loss,
+};
+pub use embedding_trainer::{EmbeddingTrainer, EmbeddingTrainingResult, ProjectionLayer};
 pub use trainer::{
     DatasetSubsample, DeterminismConfig, LoRAWeights, MicroLoRATrainer, PreprocessCompression,
     PreprocessOutputFeature, PreprocessingConfig, TrainingBackend, TrainingConfig, TrainingResult,
