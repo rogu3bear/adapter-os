@@ -3,6 +3,13 @@
 //! This module provides an endpoint that accepts a file upload (e.g., README.md),
 //! chunks the content, calls InferenceCore for each chunk with strategy-specific
 //! prompts (QA or Summary), and writes the generated samples to a JSONL dataset.
+//!
+//! ## Synthetic Provenance
+//!
+//! Generated datasets include provenance metadata:
+//! - `is_synthetic: true` - indicates the dataset was synthetically generated
+//! - `source_model_hash` - BLAKE3 hash of the model used for generation
+//! - `generation_receipt_digests` - BLAKE3 digests of per-chunk generation receipts
 
 use crate::auth::Claims;
 use crate::error_helpers::{bad_request, internal_error, payload_too_large};
@@ -10,7 +17,9 @@ use crate::inference_core::InferenceCore;
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use crate::types::{ErrorResponse, InferenceRequestInternal};
-use adapteros_api_types::training::{GenerateDatasetResponse, GeneratedSample, GenerationStrategy};
+use adapteros_api_types::training::{
+    GenerateDatasetResponse, GeneratedSample, GenerationStrategy, SyntheticProvenance,
+};
 use adapteros_db::training_datasets::CreateDatasetParams;
 use axum::{
     extract::{Multipart, State},
@@ -18,7 +27,7 @@ use axum::{
     response::IntoResponse,
     Extension, Json,
 };
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use super::fs_utils::ensure_dirs;
@@ -159,6 +168,9 @@ pub async fn generate_dataset_from_file(
     let mut chunk_size: usize = 2000;
     let mut max_tokens: u32 = 512;
     let mut description: Option<String> = None;
+    let mut target_volume: usize = 0;
+    let mut generation_seed: Option<u64> = None;
+    let mut seed_prompts: Vec<String> = Vec::new();
 
     while let Some(field) = multipart
         .next_field()
@@ -236,6 +248,39 @@ pub async fn generate_dataset_from_file(
                     description = Some(desc);
                 }
             }
+            "target_volume" => {
+                let vol_str = field
+                    .text()
+                    .await
+                    .map_err(|e| bad_request(format!("Failed to read target_volume: {}", e)))?;
+                target_volume = vol_str
+                    .parse()
+                    .map_err(|_| bad_request("target_volume must be a number"))?;
+            }
+            "generation_seed" => {
+                let seed_str = field
+                    .text()
+                    .await
+                    .map_err(|e| bad_request(format!("Failed to read generation_seed: {}", e)))?;
+                if !seed_str.trim().is_empty() {
+                    generation_seed = Some(
+                        seed_str
+                            .parse()
+                            .map_err(|_| bad_request("generation_seed must be a number"))?,
+                    );
+                }
+            }
+            "seed_prompts" => {
+                let prompts_str = field
+                    .text()
+                    .await
+                    .map_err(|e| bad_request(format!("Failed to read seed_prompts: {}", e)))?;
+                seed_prompts = prompts_str
+                    .lines()
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+            }
             _ => {
                 // Ignore unknown fields
             }
@@ -250,11 +295,16 @@ pub async fn generate_dataset_from_file(
     }
 
     // Chunk the content
-    let chunks = chunk_text(&content, chunk_size);
+    let mut chunks = chunk_text(&content, chunk_size);
     if chunks.is_empty() {
         return Err(bad_request(
             "File content too short to generate samples (minimum 50 characters per chunk)",
         ));
+    }
+
+    // Limit chunks if target_volume is specified
+    if target_volume > 0 && chunks.len() > target_volume {
+        chunks.truncate(target_volume);
     }
 
     info!(
@@ -263,7 +313,10 @@ pub async fn generate_dataset_from_file(
         strategy = %strategy,
         chunk_size,
         max_tokens,
-        "Generating dataset from file"
+        target_volume,
+        generation_seed = ?generation_seed,
+        seed_prompts_count = seed_prompts.len(),
+        "Generating synthetic dataset from file"
     );
 
     // Generate samples using InferenceCore
@@ -276,17 +329,36 @@ pub async fn generate_dataset_from_file(
     let mut samples: Vec<GeneratedSample> = Vec::new();
     let mut failed_chunks = 0usize;
     let mut total_tokens = 0u64;
+    let mut generation_receipt_digests: Vec<String> = Vec::new();
+    let mut source_model_hash: Option<String> = None;
+
+    // Use seed prompts if provided, otherwise use chunks directly
+    let use_seed_prompts = !seed_prompts.is_empty();
 
     for (chunk_idx, chunk_text) in &chunks {
-        let prompt = format!(
-            "{}\n\nPassage:\n{}\n\nGenerate the JSON output:",
-            system_prompt, chunk_text
-        );
+        // Build prompt with optional seed prompt context
+        let prompt = if use_seed_prompts && *chunk_idx < seed_prompts.len() {
+            format!(
+                "{}\n\nContext hint: {}\n\nPassage:\n{}\n\nGenerate the JSON output:",
+                system_prompt, seed_prompts[*chunk_idx], chunk_text
+            )
+        } else {
+            format!(
+                "{}\n\nPassage:\n{}\n\nGenerate the JSON output:",
+                system_prompt, chunk_text
+            )
+        };
 
         let mut internal_request = InferenceRequestInternal::new(claims.tenant_id.clone(), prompt);
         internal_request.max_tokens = max_tokens as usize;
-        internal_request.temperature = 0.7;
+        // Use deterministic temperature if seed is provided
+        internal_request.temperature = if generation_seed.is_some() { 0.0 } else { 0.7 };
         internal_request.stream = false;
+
+        // Apply generation seed if provided (for determinism)
+        if let Some(seed) = generation_seed {
+            internal_request.seed = Some(seed + *chunk_idx as u64);
+        }
 
         match core
             .route_and_infer(internal_request, None, None, None)
@@ -294,6 +366,17 @@ pub async fn generate_dataset_from_file(
         {
             Ok(result) => {
                 total_tokens += result.tokens_generated as u64;
+
+                // Collect provenance from run receipt
+                if let Some(ref receipt) = result.run_receipt {
+                    let digest_hex = receipt.receipt_digest.to_hex();
+                    generation_receipt_digests.push(digest_hex);
+                    debug!(
+                        chunk_idx,
+                        receipt_digest = %receipt.receipt_digest.to_hex(),
+                        "Collected generation receipt"
+                    );
+                }
 
                 if let Some((instruction, response)) = parse_generated_pair(&result.text, strategy)
                 {
@@ -315,6 +398,14 @@ pub async fn generate_dataset_from_file(
                 warn!(chunk_idx, error = %e, "Inference failed for chunk");
                 failed_chunks += 1;
             }
+        }
+    }
+
+    // Try to get source model hash from worker runtime info
+    for entry in state.worker_runtime.iter() {
+        if let Some(ref hash) = entry.value().model_hash {
+            source_model_hash = Some(hash.clone());
+            break;
         }
     }
 
@@ -366,21 +457,33 @@ pub async fn generate_dataset_from_file(
         .await
         .map_err(|e| internal_error(format!("Failed to write dataset: {}", e)))?;
 
-    // Write manifest
+    // Build synthetic provenance for manifest
+    let provenance = SyntheticProvenance {
+        is_synthetic: true,
+        source_model_hash: source_model_hash.clone(),
+        generation_receipt_digests: generation_receipt_digests.clone(),
+        strategy: Some(strategy.as_str().to_string()),
+        generation_seed,
+        generated_at: Some(chrono::Utc::now().to_rfc3339()),
+    };
+
+    // Write manifest with provenance
     let manifest_json = serde_json::json!({
         "name": name,
-        "description": description.as_deref().unwrap_or("Auto-generated dataset"),
+        "description": description.as_deref().unwrap_or("Auto-generated synthetic dataset"),
         "version": "1.0",
         "training_contract_version": "1.0",
         "generation_strategy": strategy.as_str(),
         "sample_count": samples.len(),
+        "is_synthetic": true,
+        "provenance": provenance,
         "entries": [
             {
                 "path": "data.jsonl",
                 "format": "jsonl",
                 "weight": 1.0,
                 "role": "training",
-                "notes": format!("Generated from {} using {} strategy", file_name, strategy)
+                "notes": format!("Synthetically generated from {} using {} strategy", file_name, strategy)
             }
         ]
     });
@@ -446,6 +549,10 @@ pub async fn generate_dataset_from_file(
         preview,
         failed_chunks,
         dataset_hash_b3: Some(dataset_hash),
+        is_synthetic: true,
+        source_model_hash,
+        generation_receipt_digests,
+        generation_seed,
     }))
 }
 
