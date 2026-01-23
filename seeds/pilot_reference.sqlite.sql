@@ -1,4 +1,4 @@
--- Deterministic Pilot Demo Seed (SQLite)
+-- Deterministic Pilot Reference Seed (SQLite)
 --
 -- Entity IDs (UUIDs)
 --   tenant_id:        00000000-0000-4000-8000-000000000001
@@ -34,7 +34,7 @@ INSERT OR IGNORE INTO tenants (
     default_pinned_adapter_ids
 ) VALUES (
     '00000000-0000-4000-8000-000000000001',
-    'pilot-demo',
+    'pilot-reference',
     0,
     'active',
     '2025-01-01T00:00:00Z',
@@ -57,8 +57,8 @@ INSERT OR IGNORE INTO users (
 ) VALUES (
     '00000000-0000-4000-8000-000000000002',
     '00000000-0000-4000-8000-000000000001',
-    'demo@example.com',
-    'Pilot Demo Admin',
+    'reference@example.com',
+    'Pilot Reference Admin',
     '$argon2id$v=19$m=65536,t=3,p=1$cGlsb3QtZGVtby1zYWx0IQ$gKkg46uD2KECmzp5uOW9hFxHBwbw6OhtgM8NnyFsgg8',
     'admin',
     0,
@@ -91,12 +91,12 @@ INSERT OR IGNORE INTO models (
     imported_by
 ) VALUES (
     '00000000-0000-4000-8000-000000000003',
-    'qwen2.5-7b-demo',
+    'qwen2.5-7b-reference',
     '804433d69235fb8f3eaffb970da94d40947626be1d8f3afddf53fdd2e8de338c',
     '80f422ee4a86b97aa5fbb0f8d8a85f3ffd5edabaa1a6ab1667c149b435981d88',
     'bd1e84a77b58b19df9c17358303523cc01bcfeb1186fcfadfa6e1bbbbeeebfe9',
     '60c3ecc97b9dd5ebd6c9e3865fcf62356927fb5cf2d1aa9a17e69c23fcb9f7da',
-    '{"size_bytes": 1024, "quant": "q4_0", "source": "seed-demo"}',
+    '{"size_bytes": 1024, "quant": "q4_0", "source": "seed-reference"}',
     '2025-01-01T00:00:00Z',
     'base_model',
     '00000000-0000-4000-8000-000000000001',
@@ -108,7 +108,7 @@ INSERT OR IGNORE INTO models (
     '["chat"]',
     'available',
     '2025-01-01T00:00:00Z',
-    'seed-demo'
+    'seed-reference'
 );
 
 -- ---------------------------------------------------------------------------
@@ -132,15 +132,15 @@ INSERT OR IGNORE INTO adapter_stacks (
 ) VALUES (
     '00000000-0000-4000-8000-000000000007',
     '00000000-0000-4000-8000-000000000001',
-    'stack.pilot-demo',
-    'Deterministic pilot demo stack',
+    'stack.pilot-reference',
+    'Deterministic pilot reference stack',
     '[]',
     'Parallel',
     '1.0.0',
     'active',
     'strict',
     'deterministic',
-    'seed-demo',
+    'seed-reference',
     '2025-01-01T00:00:00Z',
     '2025-01-01T00:00:00Z'
 );
@@ -162,13 +162,13 @@ INSERT OR IGNORE INTO adapter_repositories (
 ) VALUES (
     '00000000-0000-4000-8000-000000000004',
     '00000000-0000-4000-8000-000000000001',
-    'pilot-demo-repo',
+    'pilot-reference-repo',
     '00000000-0000-4000-8000-000000000003',
     'main',
     0,
     '00000000-0000-4000-8000-000000000002',
     '2025-01-01T00:00:00Z',
-    'Deterministic pilot demo adapter repository'
+    'Deterministic pilot reference adapter repository'
 );
 
 INSERT OR IGNORE INTO adapter_versions (
@@ -201,7 +201,7 @@ INSERT OR IGNORE INTO adapter_versions (
     0,
     'allowed',
     'ready',
-    'Seeded pilot demo adapter version',
+    'Seeded pilot reference adapter version',
     '2025-01-01T00:00:00Z'
 );
 
@@ -237,7 +237,7 @@ INSERT OR IGNORE INTO git_repositories (
 ) VALUES (
     '00000000-0000-4000-8000-000000000008',
     '00000000-0000-4000-8000-000000000004',
-    '/repos/pilot-demo',
+    '/repos/pilot-reference',
     'main',
     '{}',
     '{}',
@@ -278,7 +278,7 @@ INSERT OR IGNORE INTO repository_training_jobs (
     '00000000-0000-4000-8000-000000000003',
     '00000000-0000-4000-8000-000000000007',
     '00000000-0000-4000-8000-000000000005',
-    'pilot-demo-adapter'
+    'pilot-reference-adapter'
 );
 
 COMMIT;

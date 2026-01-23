@@ -1603,10 +1603,10 @@ mod tests {
 
     #[test]
     fn test_resolve_adapter_alias_short_alias() {
-        let alias = resolve_adapter_alias("codebase-demo").unwrap();
+        let alias = resolve_adapter_alias("codebase-reference").unwrap();
         assert_eq!(
             alias,
-            AdapterAliasKind::ShortAlias("codebase-demo".to_string())
+            AdapterAliasKind::ShortAlias("codebase-reference".to_string())
         );
     }
 

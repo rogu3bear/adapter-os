@@ -1,0 +1,124 @@
+# adapterOS Reference Configuration
+#
+# Purpose: Reproducible reference environment with proper authentication.
+# Unlike dev.toml, this does NOT use dev_bypass (auth is enforced).
+# Unlike cp.toml, this uses fixed seeds for deterministic reference output.
+#
+# Usage:
+#   cargo run -p adapteros-server -- --config configs/reference.toml
+#   AOS_CONFIG=configs/reference.toml ./start up
+#
+# Authentication: Use dev login endpoint to get a token:
+#   curl -X POST http://localhost:8080/v1/auth/dev-login \
+#        -H "Content-Type: application/json" \
+#        -d '{"username": "reference"}'
+#
+# This config is suitable for: live reviews, reproducible testing, screenshots.
+# This config is NOT suitable for: production, multi-user environments.
+
+[server]
+port = 8080
+bind = "127.0.0.1"
+production_mode = false
+# Skip worker check for standalone reference runs (control plane only)
+skip_worker_check = true
+
+[db]
+path = "sqlite://var/aos-reference.sqlite3"
+storage_mode = "sql_only"
+pool_size = 10
+kv_path = "var/aos-reference-kv.redb"
+kv_tantivy_path = "var/aos-reference-kv-index"
+
+[security]
+# ============================================================================
+# REFERENCE AUTH: Uses dev_login flow, NOT dev_bypass
+# ============================================================================
+# dev_bypass=false: Auth middleware is active (not skipped)
+# dev_login_enabled=true: Dev login endpoint available for reference tokens
+dev_bypass = false
+dev_login_enabled = true
+# PF rules not required for local reference runs (would need root)
+require_pf_deny = false
+mtls_required = false
+# HMAC mode with embedded reference secret (reproducible across local runs)
+jwt_mode = "hmac"
+jwt_secret = "adapteros-reference-jwt-secret-for-local-only"
+# ============================================================================
+# DETERMINISM: Fixed seed for reproducible reference output
+# ============================================================================
+# This 32-byte hex seed ensures identical inference results across runs.
+global_seed = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+# Allow user registration for reference accounts
+allow_registration = true
+
+[auth]
+# Session lifetime: 12 hours (sufficient for long review sessions)
+session_lifetime = 43200
+# Lenient lockout for local runs (mistakes happen during walkthroughs)
+lockout_threshold = 10
+lockout_cooldown = 60
+
+[paths]
+# All paths scoped to reference namespace to avoid polluting dev/prod data
+artifacts_root = "var/reference/artifacts"
+bundles_root = "var/reference/bundles"
+# Adapter discovery: use shared adapters repo (read-only for reference runs)
+adapters_root = "var/adapters"
+plan_dir = "plan"
+datasets_root = "var/reference/datasets"
+documents_root = "var/reference/documents"
+
+[model.cache]
+# Moderate cache for reference runs (8GB)
+max.mb = 8192
+
+[worker.safety]
+# Relaxed timeouts for walkthroughs (avoid timeout during explanations)
+inference_timeout_secs = 120
+evidence_timeout_secs = 15
+router_timeout_ms = 500
+policy_timeout_ms = 200
+# Higher thresholds for local stability
+circuit_breaker_threshold = 10
+circuit_breaker_timeout_secs = 30
+max_concurrent_requests = 5
+max_tokens_per_second = 20
+
+[rate_limits]
+# Generous rate limits for local testing
+requests_per_minute = 500
+burst_size = 50
+inference_per_minute = 100
+
+[metrics]
+# Metrics enabled for reference observability
+enabled = true
+bearer_token = "reference-metrics-token-not-for-production"
+include_histogram = true
+histogram_buckets = [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0]
+
+[alerting]
+# Alerting disabled for local runs (avoid noise)
+enabled = false
+
+[logging]
+# Info level with debug for adapteros modules
+level = "info,adapteros=debug"
+log_dir = "var/reference/logs"
+log_prefix = "aos-reference"
+json_format = false
+rotation = "daily"
+max_log_files = 7
+include_request_id = true
+capture_panics = true
+
+[diagnostics]
+# Diagnostics enabled for local troubleshooting
+enabled = true
+level = "stages"
+
+# Note: Determinism is controlled via:
+# - global_seed in [security] for HKDF base seed
+# - AOS_DEBUG_DETERMINISM=1 env var for seed tracing
+# - Policy packs for enforcement mode (see adapteros-policy)

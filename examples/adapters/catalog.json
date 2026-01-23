@@ -121,7 +121,7 @@
         "temperature_range": [0.7, 1.2],
         "creativity_level": "high",
         "synthetic": true,
-        "note": "Synthesized adapter for demo purposes"
+        "note": "Synthesized adapter for reference use"
       }
     }
   ],

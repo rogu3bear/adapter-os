@@ -167,7 +167,7 @@ Ok((headers, StatusCode::OK))
 
 ---
 
-### Critical Bug #3: Mock User Fallback on Network Error (Demo Mode Risk)
+### Critical Bug #3: Mock User Fallback on Network Error (Reference Mode Risk)
 
 **File:** `crates/adapteros-ui/src/signals/auth.rs:238-241`
 
@@ -182,7 +182,7 @@ Err(ApiError::Network(msg)) if self.allow_mock_on_failure => {
 
 **Trigger:** `allow_mock_on_failure = is_dev_localhost()` (line 260)
 
-**Impact:** In demo mode on localhost, if the server is slow or times out, the UI silently authenticates as a fake admin user. This is a demo-breaking security issue.
+**Impact:** In reference mode on localhost, if the server is slow or times out, the UI silently authenticates as a fake admin user. This is a reference-breaking security issue.
 
 ---
 
@@ -202,7 +202,7 @@ Err(ApiError::Unauthorized) => {
 }
 ```
 
-**Impact:** Expected for dev, but in demo this auto-login behavior is undesirable. Should be explicitly disabled in demo mode.
+**Impact:** Expected for dev, but in reference runs this auto-login behavior is undesirable. Should be explicitly disabled in reference mode.
 
 ---
 
@@ -235,6 +235,6 @@ Dev bypass (`/v1/auth/dev-bypass`) requires ALL of:
 
 1. **Fix login handler** to set cookies (Bug #1)
 2. **Fix logout handler** to clear cookies (Bug #2)
-3. **Add DEMO_MODE flag** to disable mock user fallback (Bug #3)
-4. **Disable auto dev bypass** in demo mode (Bug #4)
+3. **Add REFERENCE_MODE flag** to disable mock user fallback (Bug #3)
+4. **Disable auto dev bypass** in reference mode (Bug #4)
 5. **Add integration tests** for cookie-based auth flow

@@ -1,4 +1,4 @@
-# Pilot Demo Contract
+# Pilot Reference Contract
 
 ## URLs / Ports
 
@@ -28,5 +28,5 @@
 
 ## Schema Compatibility (Sessions)
 
-- Do **not** rename session tables for the demo (canonical tables stay as-is, e.g. `chat_sessions`, `chat_messages`).
+- Do **not** rename session tables for the reference flow (canonical tables stay as-is, e.g. `chat_sessions`, `chat_messages`).
 - If there is a mismatch, add an additive compatibility table or view (preferred: `VIEW`) instead of renaming (e.g. `CREATE VIEW expected_name AS SELECT * FROM canonical_name;`).

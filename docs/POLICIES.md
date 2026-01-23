@@ -705,8 +705,8 @@ Development bypass allows skipping authentication in development environments fo
 
 | Environment | Default | Notes |
 |-------------|---------|-------|
-| **Development** | ON (implicit via `import.meta.env.DEV`) | For local/demo flows only; banner shown |
-| **Staging** | OFF by default | May be turned ON temporarily for demos; ensure banner is visible |
+| **Development** | ON (implicit via `import.meta.env.DEV`) | For local/reference flows only; banner shown |
+| **Staging** | OFF by default | May be turned ON temporarily for reference runs; ensure banner is visible |
 | **Production** | OFF | Do not enable unless explicitly approved and time-bounded |
 
 ### Backend Configuration
@@ -739,7 +739,7 @@ if (devBypassEnabled) {
 2. **Banner Required:** Always show a visible banner when dev bypass is active
 3. **Time-Limited:** If enabled in staging, set shorter TTL (1-2 hours)
 4. **Audit Trail:** All dev bypass sessions logged to audit logs
-5. **Limited Scope:** Dev bypass limited to demo/admin use only
+5. **Limited Scope:** Dev bypass limited to reference/admin use only
 
 ### Usage
 
@@ -747,7 +747,7 @@ if (devBypassEnabled) {
 # Frontend: Login with dev bypass
 curl -X POST http://localhost:8080/v1/auth/login?dev=true \
   -H "Content-Type: application/json" \
-  -d '{"email": "demo@example.com", "password": "any"}'
+  -d '{"email": "reference@example.com", "password": "any"}'
 ```
 
 **Response includes banner flag:**

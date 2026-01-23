@@ -156,7 +156,7 @@ fn package_adapter(
             let shape = tensor.shape().to_vec();
             let dtype = tensor.dtype();
 
-            // For demo, we'll keep original format but mark as quantized
+            // For reference runs, keep original format but mark as quantized
             // Real implementation would convert to Q15
             quantized_tensors.insert(name.to_string(), tensor.data().to_vec());
         }

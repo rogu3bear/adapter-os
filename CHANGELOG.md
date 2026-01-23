@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Evidence envelopes with comprehensive test coverage
 - Training and worker metadata enhancements
-- Demo smoke script and e2e infrastructure
+- Reference smoke script and e2e infrastructure
 - Trace visualization components in UI
 - Evidence and Receipts UI components
 - CLI `db` commands and `verify-receipt`

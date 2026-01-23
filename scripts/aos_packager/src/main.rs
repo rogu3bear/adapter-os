@@ -264,7 +264,7 @@ fn package_adapter(
         fs::read(&weights_path)
             .with_context(|| format!("Failed to read weights from {:?}", weights_path))?
     } else {
-        // Create placeholder weights for demo
+        // Create placeholder weights for reference runs
         create_placeholder_weights(rank, hidden_dim)?
     };
 
@@ -452,7 +452,7 @@ fn package_adapter(
     Ok(())
 }
 
-/// Create placeholder SafeTensors weights for demo
+/// Create placeholder SafeTensors weights for reference runs
 fn create_placeholder_weights(rank: u32, hidden_dim: u32) -> Result<Vec<u8>> {
     // Create minimal SafeTensors structure
     let mut tensors = HashMap::new();

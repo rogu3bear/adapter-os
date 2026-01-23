@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
-# adapterOS MVP Demo Setup
-# One-command setup for demo-ready state
+# adapterOS MVP Reference Setup
+# One-command setup for reference-ready state
 # =============================================================================
 
 set -euo pipefail
@@ -130,7 +130,7 @@ setup_environment() {
     mkdir -p "${REPO_ROOT}/var/artifacts"
     mkdir -p "${REPO_ROOT}/var/bundles"
     mkdir -p "${REPO_ROOT}/var/alerts"
-    mkdir -p "${REPO_ROOT}/var/demo-data"
+    mkdir -p "${REPO_ROOT}/var/reference-data"
 
     # Check if .env exists, create from example if not
     if [ ! -f "${REPO_ROOT}/.env" ]; then
@@ -143,7 +143,7 @@ setup_environment() {
     # Ensure critical environment variables are set
     if ! grep -q "AOS_MODEL_CACHE_MAX_MB" "${REPO_ROOT}/.env" 2>/dev/null; then
         echo "" >> "${REPO_ROOT}/.env"
-        echo "# MVP Demo settings" >> "${REPO_ROOT}/.env"
+        echo "# MVP Reference settings" >> "${REPO_ROOT}/.env"
         echo "AOS_MODEL_CACHE_MAX_MB=8192" >> "${REPO_ROOT}/.env"
         log_success "Added AOS_MODEL_CACHE_MAX_MB to .env"
     fi
@@ -247,18 +247,18 @@ setup_database() {
 }
 
 # =============================================================================
-# Step 6: Create Demo Data
+# Step 6: Create Reference Data
 # =============================================================================
 
-create_demo_data() {
-    log_step "Creating demo data..."
+create_reference_data() {
+    log_step "Creating reference data..."
 
-    # Create demo training dataset
-    local demo_data_dir="${REPO_ROOT}/var/demo-data"
-    local demo_dataset="${demo_data_dir}/training-sample.jsonl"
+    # Create reference training dataset
+    local reference_data_dir="${REPO_ROOT}/var/reference-data"
+    local reference_dataset="${reference_data_dir}/training-sample.jsonl"
 
-    if [ ! -f "$demo_dataset" ]; then
-        cat > "$demo_dataset" << 'EOF'
+    if [ ! -f "$reference_dataset" ]; then
+        cat > "$reference_dataset" << 'EOF'
 {"prompt": "What is adapterOS?", "completion": "adapterOS is an ML inference platform with offline-capable, UMA-optimized orchestration for multi-LoRA systems on Apple Silicon. It provides deterministic inference, hot-swap adapters, and multi-tenant isolation."}
 {"prompt": "How do I train an adapter?", "completion": "To train an adapter: 1) Navigate to Training > Datasets, 2) Upload your training data in JSONL format, 3) Click 'Start Training' to create an adapter from your dataset, 4) Once complete, add the adapter to a stack for inference."}
 {"prompt": "What is deterministic inference?", "completion": "Deterministic inference ensures that given the same input, model, and configuration, you will always get the exact same output. adapterOS achieves this through fixed seeds, Q15 quantization, and reproducible routing decisions."}
@@ -270,12 +270,12 @@ create_demo_data() {
 {"prompt": "What is Q15 quantization?", "completion": "Q15 quantization uses 16-bit fixed-point representation with a denominator of 32767.0 (not 32768). This ensures deterministic gate values for adapter routing and reproducible inference results."}
 {"prompt": "How do I start the system?", "completion": "Run ./start from the repository root. This boots the backend API (port 8080), UI server (port 3200), and optionally the inference worker. Health checks verify each service is ready before proceeding."}
 EOF
-        log_success "Created demo training dataset at $demo_dataset"
+        log_success "Created reference training dataset at $reference_dataset"
     else
-        log_success "Demo training dataset already exists"
+        log_success "Reference training dataset already exists"
     fi
 
-    log_success "Demo data created"
+    log_success "Reference data created"
 }
 
 # =============================================================================
@@ -313,12 +313,12 @@ verify_setup() {
         log_error "Backend binary: NOT FOUND"
     fi
 
-    # Check demo data
-    if [ -f "${REPO_ROOT}/var/demo-data/training-sample.jsonl" ]; then
-        log_success "Demo data: OK"
+    # Check reference data
+    if [ -f "${REPO_ROOT}/var/reference-data/training-sample.jsonl" ]; then
+        log_success "Reference data: OK"
         ((checks_passed++))
     else
-        log_error "Demo data: NOT FOUND"
+        log_error "Reference data: NOT FOUND"
     fi
 
     echo ""
@@ -336,10 +336,10 @@ verify_setup() {
 print_instructions() {
     echo ""
     echo "=============================================="
-    echo -e "${GREEN}adapterOS MVP Demo Ready!${NC}"
+    echo -e "${GREEN}adapterOS MVP Reference Ready!${NC}"
     echo "=============================================="
     echo ""
-    echo "To start the demo:"
+    echo "To start the reference run:"
     echo ""
     echo "  1. Start services:"
     echo -e "     ${BLUE}./start${NC}"
@@ -347,7 +347,7 @@ print_instructions() {
     echo "  2. Open browser:"
     echo -e "     ${BLUE}http://localhost:\${AOS_UI_PORT:-3200}${NC}"
     echo ""
-    echo "Demo Flow:"
+    echo "Reference Flow:"
     echo "  /dashboard     - System overview"
     echo "  /adapters      - View registered adapters"
     echo "  /chat          - Chat with AI (select stack)"
@@ -357,8 +357,8 @@ print_instructions() {
     echo "  AOS_BOOT_VERBOSE=1    - Show logs on startup failures"
     echo "  AOS_HEALTH_TIMEOUT=30 - Increase health check timeout"
     echo ""
-    echo "Demo training data available at:"
-    echo "  var/demo-data/training-sample.jsonl"
+    echo "Reference training data available at:"
+    echo "  var/reference-data/training-sample.jsonl"
     echo ""
 }
 
@@ -369,7 +369,7 @@ print_instructions() {
 main() {
     echo ""
     echo "=============================================="
-    echo "adapterOS MVP Demo Setup"
+    echo "adapterOS MVP Reference Setup"
     echo "=============================================="
     echo ""
 
@@ -388,7 +388,7 @@ main() {
     setup_database
     echo ""
 
-    create_demo_data
+    create_reference_data
     echo ""
 
     verify_setup

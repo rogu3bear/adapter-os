@@ -126,9 +126,9 @@ WARNING: This command DELETES the database file and recreates it with all migrat
         json: bool,
     },
 
-    /// Verify seeded demo fixtures exist (development only)
+    /// Verify seeded reference fixtures exist (development only)
     #[command(after_help = r#"Examples:
-  # Verify default demo seed (tenant-test)
+  # Verify default reference seed (tenant-test)
   aosctl db verify-seed
 
   # Verify custom database
@@ -617,7 +617,7 @@ async fn run_seed_fixtures(
     const VERSION_BRANCH_CLASS: &str = "protected";
     const VERSION_HISTORY_ID: &str = "avh-e2e";
     const GIT_REPO_ROW_ID: &str = "git-repo-e2e";
-    const GIT_REPO_PATH: &str = "./var/demo_repos/e2e-repo";
+    const GIT_REPO_PATH: &str = "./var/reference_repos/e2e-repo";
     const TRAINING_JOB_ID: &str = "training-job-e2e";
     const CHAT_SESSION_ID: &str = "chat-session-test";
     const CHAT_MESSAGE_ID: &str = "chat-message-test";
@@ -989,7 +989,7 @@ async fn run_seed_fixtures(
 
     // Seed a deterministic git repository row (required FK for repository_training_jobs.repo_id)
     let git_analysis_json = json!({
-        "summary": "Seeded git repository for demo training jobs",
+        "summary": "Seeded git repository for reference training jobs",
         "languages": [{"name": "Rust", "files": 1, "lines": 42, "percentage": 100.0}],
         "frameworks": [],
     })

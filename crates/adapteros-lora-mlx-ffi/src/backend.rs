@@ -731,7 +731,7 @@ impl FusedKernels for MLXFFIBackend {
                         // Note: In production, this should be done through a proper process manager
                         // For now, just log the intent
                         tracing::warn!(
-                            "Failover command execution not implemented in demo: {}",
+                            "Failover command execution not implemented in reference mode: {}",
                             command
                         );
                     }

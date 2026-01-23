@@ -24,7 +24,7 @@ ensure_sqlx_compile_schema_db() {
     shopt -s nullglob
     for migration in "${migrations_dir}"/[0-9][0-9][0-9][0-9]_*.sql; do
       if [[ "${migration}" -nt "${schema_db}" ]]; then
-        echo "[seed-demo] sqlx compile-time schema db is stale; rebuilding" >&2
+        echo "[seed-reference] sqlx compile-time schema db is stale; rebuilding" >&2
         rm -f "${schema_db}"
         break
       fi
@@ -40,7 +40,7 @@ ensure_sqlx_compile_schema_db() {
   mkdir -p "$(dirname "${schema_db}")"
   rm -f "${schema_db}"
 
-  echo "[seed-demo] creating sqlx compile-time schema db: ${schema_db}" >&2
+  echo "[seed-reference] creating sqlx compile-time schema db: ${schema_db}" >&2
 
   shopt -s nullglob
   for migration in "${migrations_dir}"/[0-9][0-9][0-9][0-9]_*.sql; do
@@ -53,9 +53,9 @@ ensure_sqlx_compile_schema_db() {
 
 usage() {
   cat <<'USAGE'
-Usage: seed-demo.sh [--db-path PATH] [--skip-migrate]
+Usage: seed-reference.sh [--db-path PATH] [--skip-migrate]
 
-Seeds a deterministic pilot demo dataset into the adapterOS SQLite database.
+Seeds a deterministic pilot reference dataset into the adapterOS SQLite database.
 
 Defaults:
   - DB path: $DB_PATH, else $AOS_DATABASE_URL / $DATABASE_URL (sqlite:.../sqlite://.../path), else ./var/aos-cp.sqlite3
@@ -84,7 +84,7 @@ while [[ $# -gt 0 ]]; do
       exit 0
       ;;
     *)
-      echo "[seed-demo] Unknown arg: $1" >&2
+      echo "[seed-reference] Unknown arg: $1" >&2
       usage >&2
       exit 2
       ;;
@@ -94,47 +94,47 @@ done
 if [[ -z "${DB_PATH}" ]]; then
   if [[ -n "${AOS_DATABASE_URL:-}" ]]; then
     if ! DB_PATH="$(extract_sqlite_path "${AOS_DATABASE_URL}")"; then
-      echo "[seed-demo] AOS_DATABASE_URL is not a sqlite URL/path: ${AOS_DATABASE_URL}" >&2
-      echo "[seed-demo] Provide --db-path PATH or set AOS_DATABASE_URL to sqlite://..." >&2
+      echo "[seed-reference] AOS_DATABASE_URL is not a sqlite URL/path: ${AOS_DATABASE_URL}" >&2
+      echo "[seed-reference] Provide --db-path PATH or set AOS_DATABASE_URL to sqlite://..." >&2
       exit 2
     fi
   elif [[ -n "${DATABASE_URL:-}" ]]; then
     if ! DB_PATH="$(extract_sqlite_path "${DATABASE_URL}")"; then
-      echo "[seed-demo] DATABASE_URL is not a sqlite URL/path: ${DATABASE_URL}" >&2
-      echo "[seed-demo] Provide --db-path PATH or set DATABASE_URL to sqlite://..." >&2
+      echo "[seed-reference] DATABASE_URL is not a sqlite URL/path: ${DATABASE_URL}" >&2
+      echo "[seed-reference] Provide --db-path PATH or set DATABASE_URL to sqlite://..." >&2
       exit 2
     fi
   fi
 else
   DB_PATH_RAW="${DB_PATH}"
   if ! DB_PATH="$(extract_sqlite_path "${DB_PATH_RAW}")"; then
-    echo "[seed-demo] --db-path / DB_PATH must be a SQLite path (not a non-sqlite URL): ${DB_PATH_RAW}" >&2
+    echo "[seed-reference] --db-path / DB_PATH must be a SQLite path (not a non-sqlite URL): ${DB_PATH_RAW}" >&2
     exit 2
   fi
 fi
 
 if [[ -z "${DB_PATH}" ]]; then
-  DB_PATH="${REPO_ROOT}/var/aos-cp.sqlite3"
+  DB_PATH="${REPO_ROOT}/var/aos-reference.sqlite3"
 elif [[ "${DB_PATH}" != /* ]]; then
   DB_PATH="${REPO_ROOT}/${DB_PATH}"
 fi
 
-SEED_SQL="${REPO_ROOT}/seeds/pilot_demo.sqlite.sql"
+SEED_SQL="${REPO_ROOT}/seeds/pilot_reference.sqlite.sql"
 if [[ ! -f "${SEED_SQL}" ]]; then
-  echo "[seed-demo] Missing seed file: ${SEED_SQL}" >&2
+  echo "[seed-reference] Missing seed file: ${SEED_SQL}" >&2
   exit 1
 fi
 
-command -v sqlite3 >/dev/null 2>&1 || { echo "[seed-demo] Missing sqlite3" >&2; exit 1; }
+command -v sqlite3 >/dev/null 2>&1 || { echo "[seed-reference] Missing sqlite3" >&2; exit 1; }
 
 mkdir -p "$(dirname "${DB_PATH}")"
 
 cd "${REPO_ROOT}"
 
-echo "[seed-demo] db_path=${DB_PATH}"
+echo "[seed-reference] db_path=${DB_PATH}"
 
 if [[ "${SKIP_MIGRATE}" -eq 0 ]]; then
-  echo "[seed-demo] migrating schema via adapteros-cli..."
+  echo "[seed-reference] migrating schema via adapteros-cli..."
 
   if [[ -x "${REPO_ROOT}/aosctl" ]]; then
     "${REPO_ROOT}/aosctl" db migrate --db-path "${DB_PATH}"
@@ -150,7 +150,7 @@ if [[ "${SKIP_MIGRATE}" -eq 0 ]]; then
   fi
 fi
 
-echo "[seed-demo] applying deterministic seed SQL..."
+echo "[seed-reference] applying deterministic seed SQL..."
 sqlite3 -bail "${DB_PATH}" < "${SEED_SQL}"
 
-echo "[seed-demo] done"
+echo "[seed-reference] done"

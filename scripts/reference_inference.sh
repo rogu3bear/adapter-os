@@ -1,17 +1,17 @@
 #!/bin/bash
-# adapterOS Inference Demo Script
+# adapterOS Inference Walkthrough Script
 #
-# This script demonstrates the complete end-to-end inference pipeline:
+# This script runs the complete end-to-end inference pipeline:
 # 1. System health check
 # 2. Model and adapter status
 # 3. Text generation with adapters
-# 4. Hot-swap demonstration
+# 4. Hot-swap exercise
 #
-# Usage: ./scripts/demo_inference.sh
+# Usage: ./scripts/reference_inference.sh
 
 set -e
 
-echo "🎬 adapterOS Inference Demo"
+echo "🎬 adapterOS Inference Walkthrough"
 echo "======================================"
 echo ""
 
@@ -130,8 +130,8 @@ echo "Listing registered adapters..."
 cargo run --release --bin adapteros-cli -- list-adapters
 echo ""
 
-# Demo 1: Basic inference
-section "🎯 Demo 1: Basic Inference"
+# Step 1: Basic inference
+section "🎯 Step 1: Basic Inference"
 echo "Running inference without adapter..."
 echo "Prompt: 'Hello, how are you?'"
 echo ""
@@ -145,8 +145,8 @@ cargo run --release --bin adapteros-cli -- infer \
 echo ""
 echo "${GREEN}✅ Basic inference complete${NC}"
 
-# Demo 2: Inference with adapter
-section "🎯 Demo 2: Inference with Code Assistant Adapter"
+# Step 2: Inference with adapter
+section "🎯 Step 2: Inference with Code Assistant Adapter"
 echo "Running inference with code-assistant adapter..."
 echo "Prompt: 'Write a hello world function in Python'"
 echo ""
@@ -161,8 +161,8 @@ cargo run --release --bin adapteros-cli -- infer \
 echo ""
 echo "${GREEN}✅ Adapter inference complete${NC}"
 
-# Demo 3: Hot-swap demonstration
-section "🔄 Demo 3: Adapter Hot-Swap"
+# Step 3: Hot-swap exercise
+section "🔄 Step 3: Adapter Hot-Swap"
 echo "Swapping to creative-writer adapter..."
 echo ""
 
@@ -186,10 +186,10 @@ cargo run --release --bin adapteros-cli -- infer \
     --timeout 30000 || true
 
 echo ""
-echo "${GREEN}✅ Hot-swap demo complete${NC}"
+echo "${GREEN}✅ Hot-swap step complete${NC}"
 
-# Demo 4: Evidence-grounded inference (if RAG enabled)
-section "🎯 Demo 4: Evidence-Grounded Inference"
+# Step 4: Evidence-grounded inference (if RAG enabled)
+section "🎯 Step 4: Evidence-Grounded Inference"
 echo "Running inference with evidence requirement..."
 echo "Prompt: 'Explain how the router works'"
 echo ""
@@ -215,8 +215,8 @@ cargo run --release --bin adapteros-cli -- telemetry-list \
 echo ""
 
 # Final summary
-section "✅ Demo Complete"
-echo "All demonstrations completed successfully!"
+section "✅ Walkthrough Complete"
+echo "All walkthrough steps completed successfully!"
 echo ""
 echo "Key observations:"
 echo "  • Model loading: Working"

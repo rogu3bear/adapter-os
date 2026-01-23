@@ -1,6 +1,6 @@
-# adapterOS Demo API Curl Cookbook
+# adapterOS Reference API Curl Cookbook
 
-Copy/paste-friendly `curl` commands for the demo control plane API (default `http://localhost:8080`).
+Copy/paste-friendly `curl` commands for the reference control plane API (default `http://localhost:8080`).
 
 ## Setup
 
@@ -10,9 +10,9 @@ export AOS_BASE_URL="${AOS_BASE_URL:-http://localhost:8080}"
 # If auth is enabled, include this header on protected routes:
 #   -H "Authorization: Bearer $AOS_TOKEN"
 #
-# Demo mode often runs with auth bypass enabled (debug builds), in which case you can omit it.
+# Reference mode often runs with auth bypass enabled (debug builds), in which case you can omit it.
 
-# Deterministic seed IDs (from `seeds/pilot_demo.sqlite.sql`)
+# Deterministic seed IDs (from `seeds/pilot_reference.sqlite.sql`)
 export AOS_TENANT_ID="00000000-0000-4000-8000-000000000001"
 export AOS_MODEL_ID="00000000-0000-4000-8000-000000000003"
 export AOS_REPO_ID="00000000-0000-4000-8000-000000000004"
@@ -71,5 +71,5 @@ Route: `POST /v1/infer`
 ```bash
 curl -sS -X POST "$AOS_BASE_URL/v1/infer" \
   -H "Content-Type: application/json" \
-  -d "{\"prompt\":\"Hello from adapterOS demo\",\"stack_id\":\"$AOS_STACK_ID\",\"max_tokens\":32}"
+  -d "{\"prompt\":\"Hello from adapterOS reference\",\"stack_id\":\"$AOS_STACK_ID\",\"max_tokens\":32}"
 ```

@@ -8,7 +8,7 @@ usage() {
   cat <<'USAGE'
 Usage: verify-seed.sh [--db-path PATH]
 
-Verifies the deterministic pilot demo seed exists in the SQLite DB.
+Verifies the deterministic pilot reference seed exists in the SQLite DB.
 
 Options:
   --db-path PATH  SQLite DB file path (not a sqlite:// URL)
@@ -45,7 +45,7 @@ if [[ -z "${DB_PATH}" ]]; then
 fi
 
 if [[ -z "${DB_PATH}" ]]; then
-  DB_PATH="${REPO_ROOT}/var/aos-cp.sqlite3"
+  DB_PATH="${REPO_ROOT}/var/aos-reference.sqlite3"
 elif [[ "${DB_PATH}" != /* ]]; then
   DB_PATH="${REPO_ROOT}/${DB_PATH}"
 fi
@@ -54,7 +54,7 @@ command -v sqlite3 >/dev/null 2>&1 || { echo "[verify-seed] Missing sqlite3" >&2
 
 if [[ ! -f "${DB_PATH}" ]]; then
   echo "[verify-seed] DB file not found: ${DB_PATH}" >&2
-  echo "[verify-seed] Run: bash scripts/reset-demo.sh --force" >&2
+  echo "[verify-seed] Run: bash scripts/reset-reference.sh --force" >&2
   exit 1
 fi
 
@@ -75,7 +75,7 @@ expect_one() {
   got="$(sqlite3 "${DB_PATH}" "${sql}" | tr -d '\r' | head -n 1)"
   if [[ "${got}" != "1" ]]; then
     echo "[verify-seed] FAIL: ${label} (expected 1, got '${got:-<empty>}')" >&2
-    echo "[verify-seed] Hint: bash scripts/reset-demo.sh --force" >&2
+    echo "[verify-seed] Hint: bash scripts/reset-reference.sh --force" >&2
     exit 1
   fi
   echo "[verify-seed] OK: ${label}"
@@ -89,7 +89,7 @@ expect_min() {
   got="$(sqlite3 "${DB_PATH}" "${sql}" | tr -d '\r' | head -n 1)"
   if [[ -z "${got}" ]] || ! [[ "${got}" =~ ^[0-9]+$ ]] || [[ "${got}" -lt "${min}" ]]; then
     echo "[verify-seed] FAIL: ${label} (expected >=${min}, got '${got:-<empty>}')" >&2
-    echo "[verify-seed] Hint: bash scripts/reset-demo.sh --force" >&2
+    echo "[verify-seed] Hint: bash scripts/reset-reference.sh --force" >&2
     exit 1
   fi
   echo "[verify-seed] OK: ${label} (count=${got})"
@@ -113,9 +113,9 @@ expect_min ">=1 stack" \
   1
 
 expect_one "tenant exists (${tenant_id})" \
-  "SELECT COUNT(1) FROM tenants WHERE id='${tenant_id}' AND name='pilot-demo';"
+  "SELECT COUNT(1) FROM tenants WHERE id='${tenant_id}' AND name='pilot-reference';"
 expect_one "admin user exists (${admin_user_id})" \
-  "SELECT COUNT(1) FROM users WHERE id='${admin_user_id}' AND tenant_id='${tenant_id}' AND email='demo@example.com' AND role='admin';"
+  "SELECT COUNT(1) FROM users WHERE id='${admin_user_id}' AND tenant_id='${tenant_id}' AND email='reference@example.com' AND role='admin';"
 expect_one "base model exists (${base_model_id})" \
   "SELECT COUNT(1) FROM models WHERE id='${base_model_id}' AND tenant_id='${tenant_id}';"
 expect_one "adapter repository exists (${repo_id})" \

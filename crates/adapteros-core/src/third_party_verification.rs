@@ -802,7 +802,7 @@ mod tests {
 
     fn sample_config() -> ClaimedConfig {
         ClaimedConfig {
-            tenant_namespace: "tenant-demo".to_string(),
+            tenant_namespace: "tenant-reference".to_string(),
             stack_hash: B3Hash::hash(b"stack-hash-123"),
             prompt_tokens: vec![11, 22, 33],
             ..Default::default()

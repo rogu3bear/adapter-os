@@ -1,12 +1,12 @@
 # 🎯 adapterOS TUI - What's Actually Working
 
-## 🚀 **Live Demo**
+## 🚀 **Live Preview**
 
 Run this to see it in action:
 ```bash
 cargo run -p adapteros-tui
-# OR for the alignment demo:
-cargo run --example aligned_demo
+# OR for the alignment example:
+cargo run --example aligned_example
 ```
 
 ---
@@ -249,8 +249,8 @@ crates/adapteros-tui/
 │   ├── NAVIGATION_AUDIT.md      # Route logic audit
 │   └── WHATS_WORKING.md         # This file!
 ├── examples/
-│   ├── aligned_demo.rs          # Visual alignment demo
-│   └── demo.rs                  # Original demo
+│   ├── aligned_example.rs       # Visual alignment example
+│   └── example.rs               # Original example
 └── src/
     ├── main.rs                  # Entry point (128 lines)
     ├── lib.rs                   # Public API
@@ -327,7 +327,7 @@ crates/adapteros-tui/
 
 ### See Perfect Alignment
 ```bash
-cargo run --example aligned_demo
+cargo run --example aligned_example
 ```
 
 ### Run in Different Modes

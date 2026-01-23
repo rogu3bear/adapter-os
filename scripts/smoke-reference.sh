@@ -26,10 +26,10 @@ cd "$ROOT_DIR"
 # Output helpers
 # -----------------------------------------------------------------------------
 
-log() { printf "[smoke-demo] %s\n" "$*"; }
-ok() { printf "[smoke-demo] ✅ %s\n" "$*"; }
-warn() { printf "[smoke-demo] ⚠️  %s\n" "$*" >&2; }
-err() { printf "[smoke-demo] ❌ %s\n" "$*" >&2; }
+log() { printf "[smoke-reference] %s\n" "$*"; }
+ok() { printf "[smoke-reference] ✅ %s\n" "$*"; }
+warn() { printf "[smoke-reference] ⚠️  %s\n" "$*" >&2; }
+err() { printf "[smoke-reference] ❌ %s\n" "$*" >&2; }
 die() { err "$*"; exit 1; }
 
 require_cmd() {

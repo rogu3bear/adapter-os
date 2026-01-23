@@ -1038,7 +1038,7 @@ mod tests {
         let prompt_tokens = vec![11u32, 22u32, 33u32];
         let stack_hash = B3Hash::hash(b"stack-123").to_hex();
         let context = ReceiptContext {
-            tenant_namespace: "tenant-demo".to_string(),
+            tenant_namespace: "tenant-reference".to_string(),
             stack_hash_hex: stack_hash,
             prompt_tokens: prompt_tokens.clone(),
             policy_mask_digest_hex: None,
@@ -1108,8 +1108,8 @@ mod tests {
 
         let mut bundle = ReceiptBundle {
             version: Some("aos-receipt-v1".to_string()),
-            trace_id: "trace-demo".to_string(),
-            tenant_id: "tenant-demo".to_string(),
+            trace_id: "trace-reference".to_string(),
+            tenant_id: "tenant-reference".to_string(),
             request_id: Some("req-123".to_string()),
             context_digest_hex: Some(context_digest.to_hex()),
             context,

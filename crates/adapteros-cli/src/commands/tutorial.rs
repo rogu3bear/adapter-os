@@ -45,7 +45,7 @@ pub async fn run_tutorial(mut out: OutputWriter, args: TutorialArgs) -> Result<(
             &[
                 "adapter-register",
                 "--path",
-                "./examples/adapters/demo-a.lora",
+                "./examples/adapters/code-assistant.aos",
             ],
         )
     })?;

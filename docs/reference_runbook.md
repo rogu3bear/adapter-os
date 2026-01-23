@@ -1,6 +1,6 @@
-# Pilot Demo Runbook (local dev) — brutally step-by-step
+# Pilot Reference Runbook (local dev) — brutally step-by-step
 
-**Goal**: Run a clean local demo (UI + API), show the key screens, and have a 60-second fallback if live inference/worker is unhappy.
+**Goal**: Run a clean local reference stack (UI + API), show the key screens, and have a 60-second fallback if live inference/worker is unhappy.
 
 ## Copy/paste commands (run in repo root)
 
@@ -20,7 +20,7 @@
 ./start
 ```
 
-**smoke-demo**
+**smoke-check**
 ```bash
 ./aosctl check startup --server-url http://127.0.0.1:8080/api --timeout 10
 ```
@@ -34,7 +34,7 @@ cargo build --release -p adapteros-cli --features tui
 ln -sf target/release/aosctl ./aosctl
 ```
 
-### 1) Reset + seed the demo DB (Terminal B)
+### 1) Reset + seed the reference DB (Terminal B)
 1. Stop any running dev server first (Terminal A: hit `Ctrl+C`).
 2. Reset the DB:
    ```bash
@@ -67,7 +67,7 @@ Expected: a table of checks with passes (health, meta, auth responding).
 
 ## Browser walkthrough (exact URLs + what you should see)
 
-### A) API sanity (optional, but good when demoing)
+### A) API sanity (optional, but good when presenting)
 - `http://127.0.0.1:8080/readyz`
   - Expect HTTP `200` and JSON with `"status":"ready"` or `"status":"fully-ready"`.
 - `http://127.0.0.1:8080/api/swagger-ui`
@@ -77,7 +77,7 @@ Expected: a table of checks with passes (health, meta, auth responding).
 - `http://127.0.0.1:8080/login`
   - Expect a login form.
   - Use `test@example.com` / `password`.
-  - If you see a dev-bypass option, it's safe to use for demos.
+  - If you see a dev-bypass option, it's safe to use for local walkthroughs.
 
 ### C) Confirm seeded org + stack
 - `http://127.0.0.1:8080/admin/tenants`
@@ -89,7 +89,7 @@ Expected: a table of checks with passes (health, meta, auth responding).
 - `http://127.0.0.1:8080/adapters`
   - Expect an adapter list containing `adapter-test` / "Test Adapter".
 
-### E) Live inference demo (primary path)
+### E) Live inference run (primary path)
 - `http://127.0.0.1:8080/inference`
   1. Confirm you’re on the “Inference” page (prompt box + Run button).
   2. Select:
@@ -107,7 +107,7 @@ Expected: a table of checks with passes (health, meta, auth responding).
 
 ## 60-second fallback (if worker/inference fails)
 
-This path avoids the worker entirely and still lets you demo traces + evidence in the UI.
+This path avoids the worker entirely and still lets you review traces + evidence in the UI.
 
 **Precondition**: backend is running with dev bypass enabled (enables `/api/testkit/*`).
 
@@ -133,9 +133,9 @@ If you need a “model output” line to say out loud, use the stub output (Term
 ```bash
 curl -fsS -X POST http://127.0.0.1:8080/api/testkit/inference_stub \
   -H 'Content-Type: application/json' \
-  -d '{"prompt":"demo"}'
+  -d '{"prompt":"reference"}'
 ```
-Expected: JSON with `"text":"Echo: demo"` and a `run_receipt` block.
+Expected: JSON with `"text":"Echo: reference"` and a `run_receipt` block.
 
 ## “If X happens, do Y” (common failures)
 

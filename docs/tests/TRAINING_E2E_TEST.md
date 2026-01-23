@@ -19,7 +19,7 @@ Set the following test-only variables before running the harness-driven tests:
 
 Optional helpers:
 
-- `AOS_TEST_WORKER_MANIFEST` – manifest file for the spawned worker (falls back to `manifests/demo.yaml`).
+- `AOS_TEST_WORKER_MANIFEST` – manifest file for the spawned worker (falls back to `manifests/reference.yaml`).
 - `AOS_TEST_WORKER_BIN` – explicit path to the `aos_worker` binary (otherwise tries `CARGO_BIN_EXE_aos_worker`, `target/debug`, then `target/release`).
 - `AOS_MODEL_CACHE_MAX_MB` – cache budget for the spawned worker (defaults to `1024` if unset).
 

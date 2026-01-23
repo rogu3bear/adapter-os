@@ -972,8 +972,8 @@ fn deterministic_image_results(query: &str, max_results: u32) -> Vec<ImageSearch
             label = label
         );
 
-        let source_url = format!("https://local.demo/images/{}", &hex[..16]);
-        let domain = extract_domain(&source_url).unwrap_or_else(|| "local.demo".to_string());
+        let source_url = format!("https://local.reference/images/{}", &hex[..16]);
+        let domain = extract_domain(&source_url).unwrap_or_else(|| "local.reference".to_string());
 
         results.push(ImageSearchResult {
             url: svg_data_uri(&svg),

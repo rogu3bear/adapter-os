@@ -1,4 +1,4 @@
-// Demo showing the aligned TUI layout
+// Example showing the aligned TUI layout
 
 fn main() {
     println!("╔══════════════════════════════════════════════════════════════════════════════╗");

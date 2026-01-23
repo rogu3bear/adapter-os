@@ -440,7 +440,7 @@ mod tests {
         readiness.base_model = Some(adapteros_api_types::TrainingBaseModelReadiness {
             status: ModelLoadStatus::Error,
             model_id: Some("model-1".to_string()),
-            model_name: Some("Demo".to_string()),
+            model_name: Some("Reference".to_string()),
             error_message: Some("load failed".to_string()),
             retry_exhausted: true,
             max_retries: 3,
