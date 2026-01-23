@@ -1427,9 +1427,19 @@ pub(crate) async fn run_training_job(
 
                 let report_root =
                     artifacts_root.unwrap_or_else(|| PathBuf::from("var/artifacts"));
+                let pipeline_id_for_report = pipeline
+                    .pipeline_id()
+                    .unwrap_or_else(|| {
+                        warn!(
+                            job_id = %job_id,
+                            "Training pipeline id missing; falling back to job id for report"
+                        );
+                        &job_id
+                    })
+                    .to_string();
                 match write_training_report(
                     &report_root,
-                    &job_id,
+                    &pipeline_id_for_report,
                     &report_dataset_id,
                     &dataset_hash_b3,
                     &split_summary.split_hash_b3,

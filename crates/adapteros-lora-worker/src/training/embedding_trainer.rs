@@ -156,6 +156,11 @@ pub struct EmbeddingTrainer {
     tokenizer: Arc<QwenTokenizer>,
     /// Base model hidden dimension
     hidden_dim: usize,
+    /// Base model for extracting real hidden states during training.
+    #[cfg(feature = "multi-backend")]
+    base_model: Option<Arc<adapteros_lora_mlx_ffi::MLXFFIModel>>,
+    /// Which hidden state layer to extract (e.g., "layer_31_output")
+    hidden_state_key: String,
 }
 
 impl EmbeddingTrainer {
@@ -177,7 +182,78 @@ impl EmbeddingTrainer {
             projection,
             tokenizer,
             hidden_dim,
+            #[cfg(feature = "multi-backend")]
+            base_model: None,
+            hidden_state_key: String::new(), // Will be set by load_base_model
         }
+    }
+
+    /// Load a base model for extracting real hidden states during encoding.
+    ///
+    /// When a base model is loaded, `encode_text` will use the model's hidden states
+    /// instead of relying on a placeholder embedding matrix.
+    ///
+    /// # Arguments
+    /// * `model_path` - Path to the model directory (containing safetensors files)
+    ///
+    /// # Errors
+    /// Returns an error if the model cannot be loaded or if dimensions don't match.
+    #[cfg(feature = "multi-backend")]
+    pub fn load_base_model(&mut self, model_path: &Path) -> Result<()> {
+        use adapteros_lora_mlx_ffi::MLXFFIModel;
+
+        info!(
+            model_path = %model_path.display(),
+            "Loading base model for embedding training"
+        );
+
+        let model = MLXFFIModel::load(model_path).map_err(|e| {
+            AosError::Training(format!(
+                "Failed to load base model from '{}': {}",
+                model_path.display(),
+                e
+            ))
+        })?;
+
+        // Extract values from config before moving model into Arc
+        let model_config = model.config();
+        let hidden_size = model_config.hidden_size;
+        let num_hidden_layers = model_config.num_hidden_layers;
+
+        // Validate hidden dimension matches configuration
+        if hidden_size != self.hidden_dim {
+            return Err(AosError::Training(format!(
+                "Model hidden_size ({}) != configured hidden_dim ({}). \
+                 Update hidden_dim to match the model.",
+                hidden_size, self.hidden_dim
+            )));
+        }
+
+        // Use the last transformer layer by default
+        let last_layer = num_hidden_layers.saturating_sub(1);
+        self.hidden_state_key = format!("layer_{}_output", last_layer);
+        self.base_model = Some(Arc::new(model));
+
+        info!(
+            hidden_state_key = %self.hidden_state_key,
+            hidden_dim = self.hidden_dim,
+            num_layers = num_hidden_layers,
+            "Loaded base model for embedding training"
+        );
+
+        Ok(())
+    }
+
+    /// Check if a base model is loaded for real hidden state extraction.
+    #[cfg(feature = "multi-backend")]
+    pub fn has_base_model(&self) -> bool {
+        self.base_model.is_some()
+    }
+
+    /// Check if a base model is loaded (always false without multi-backend).
+    #[cfg(not(feature = "multi-backend"))]
+    pub fn has_base_model(&self) -> bool {
+        false
     }
 
     /// Pool hidden states based on configured strategy.
@@ -248,15 +324,56 @@ impl EmbeddingTrainer {
 
     /// Encode text to embedding using the projection layer.
     ///
-    /// NOTE: This is a placeholder that uses token embeddings.
-    /// Full implementation would extract hidden states from the base model.
-    pub fn encode_text(&self, text: &str, embedding_matrix: &[f32]) -> Result<Vec<f32>> {
+    /// When a base model is loaded (via `load_base_model`), this extracts real hidden states
+    /// from the model. Otherwise, falls back to using the provided embedding_matrix.
+    ///
+    /// # Arguments
+    /// * `text` - Input text to encode
+    /// * `embedding_matrix` - Optional fallback embedding matrix (required if no base model)
+    pub fn encode_text(&self, text: &str, embedding_matrix: Option<&[f32]>) -> Result<Vec<f32>> {
         // Tokenize
         let token_ids = self.tokenizer.encode(text)?;
 
         if token_ids.is_empty() {
             return Ok(vec![0.0; self.config.embedding_dim]);
         }
+
+        // Try to use base model for real hidden states
+        #[cfg(feature = "multi-backend")]
+        if let Some(ref model) = self.base_model {
+            // Use real hidden states from base model
+            let (_logits, hidden_states) = model.forward_with_hidden_states(&token_ids)?;
+
+            let hidden = hidden_states.get(&self.hidden_state_key).ok_or_else(|| {
+                AosError::Training(format!(
+                    "Hidden state key '{}' not found in model output. Available keys: {:?}",
+                    self.hidden_state_key,
+                    hidden_states.keys().collect::<Vec<_>>()
+                ))
+            })?;
+
+            // Convert flat hidden states to per-token vectors for pooling
+            let attention_mask: Vec<u32> = vec![1; token_ids.len()];
+            let hidden_vecs: Vec<Vec<f32>> = hidden
+                .chunks(self.hidden_dim)
+                .map(|chunk| chunk.to_vec())
+                .collect();
+
+            let pooled = self.pool(&hidden_vecs, &attention_mask);
+            let mut embedding = self.projection.forward(&pooled);
+
+            if self.config.normalize {
+                l2_normalize(&mut embedding);
+            }
+            return Ok(embedding);
+        }
+
+        // Fallback: use embedding_matrix placeholder
+        let embedding_matrix = embedding_matrix.ok_or_else(|| {
+            AosError::Training(
+                "Base model or embedding_matrix required for encode_text".to_string(),
+            )
+        })?;
 
         // Get token embeddings and average (placeholder for real hidden states)
         let mut hidden = vec![0.0; self.hidden_dim];

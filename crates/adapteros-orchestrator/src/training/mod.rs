@@ -1,7 +1,7 @@
 //! # Training Job Orchestration and Management
 //!
 //! Handles scheduling, executing, and monitoring adapter training jobs.
-//! Integrates with MLX backend for actual training operations.
+//! Integrates with worker backends (CoreML/MLX/Metal/CPU) for actual training operations.
 //!
 //! ## State Management Architecture (Triple State)
 //!
@@ -83,10 +83,11 @@
 //!
 //! ## Known Limitations
 //!
-//! 1. **No startup recovery**: Jobs in "running" state after restart are orphaned
-//! 2. **Non-transactional**: In-memory and DB updates are not atomic
-//! 3. **Cancel latency**: Up to 1 epoch delay for cancellation to take effect
-//! 4. **No distributed locking**: Single-node assumption for job management
+//! 1. **Non-transactional**: In-memory and DB updates are not atomic
+//! 2. **Cancel latency**: Up to 1 epoch delay for cancellation to take effect
+//! 3. **No distributed locking**: Single-node assumption for job management
+//! 4. **Recovery semantics**: Startup recovery and background cleanup handle orphaned jobs,
+//!    but in-memory state is still lost on restart and DB may lag behind live progress.
 
 mod config;
 mod coreml;

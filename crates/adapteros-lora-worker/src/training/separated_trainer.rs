@@ -2,6 +2,10 @@
 //!
 //! Trains separate LoRA weight sets for positive and negative examples,
 //! enabling better control over reinforcement learning and adversarial training.
+//!
+//! This trainer uses MLX-based cross-entropy loss computation when the `multi-backend`
+//! feature is enabled, providing GPU-accelerated training. Without the feature,
+//! it falls back to a CPU-based reference cross-entropy implementation.
 
 use super::trainer::{LoRAWeights, TrainingConfig};
 use adapteros_config::resolve_telemetry_dir;
@@ -15,7 +19,7 @@ use adapteros_types::training::{sample_role_from_metadata, TrainingExampleV1 as 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Instant;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 /// Separated LoRA trainer that trains positive and negative weight groups independently
 pub struct SeparatedLoRATrainer {
@@ -62,14 +66,10 @@ impl WeightGroupResult {
 
 impl SeparatedLoRATrainer {
     /// Create a new separated LoRA trainer
+    ///
+    /// Uses MLX-based cross-entropy loss when `multi-backend` feature is enabled,
+    /// otherwise falls back to CPU-based reference cross-entropy implementation.
     pub fn new(config: TrainingConfig) -> Result<Self> {
-        if !cfg!(test) {
-            return Err(AosError::Training(
-                "SeparatedLoRATrainer uses deprecated CPU loss and is disabled in production"
-                    .to_string(),
-            ));
-        }
-
         // Create a base hash for seed derivation (using config hash as base)
         let config_bytes = format!("{:?}", config).into_bytes();
         let base_hash = B3Hash::hash(&config_bytes);
@@ -159,8 +159,8 @@ impl SeparatedLoRATrainer {
     /// Separate examples into positive and negative groups.
     ///
     /// Classification is based on explicit `sample_role` metadata:
-    /// - "abstention" or "negative" → negative group
-    /// - All other values (including missing) → positive group
+    /// - "abstention" or "negative" -> negative group
+    /// - All other values (including missing) -> positive group
     fn separate_examples(
         &self,
         examples: &[TrainingExample],
@@ -253,7 +253,7 @@ impl SeparatedLoRATrainer {
             // Forward pass
             let (output, hidden) = self.forward(weights, &example.input_tokens)?;
 
-            // Compute loss
+            // Compute loss using cross-entropy
             let loss = self.compute_loss(&output, &example.target_tokens);
             total_loss += loss;
             example_count += 1;
@@ -335,60 +335,206 @@ impl SeparatedLoRATrainer {
         output
     }
 
-    /// Compute loss (simplified cross-entropy)
-    fn compute_loss(&self, output: &[f32], target: &[u32]) -> f32 {
-        let n = output.len().min(target.len());
-        if n == 0 {
+    /// Compute cross-entropy loss using MLX GPU acceleration when available.
+    ///
+    /// This replaces the deprecated MSE-based loss computation with proper
+    /// cross-entropy loss that matches MicroLoRATrainer's behavior.
+    #[cfg(feature = "multi-backend")]
+    fn compute_loss(&self, logits: &[f32], target: &[u32]) -> f32 {
+        use adapteros_lora_mlx_ffi::{training::mlx_cross_entropy_loss_gpu, MLXFFITensor};
+
+        if logits.is_empty() || target.is_empty() {
             return 0.0;
         }
 
-        let mut loss = 0.0;
-        for i in 0..n {
-            let target_val = (target[i] as f32) / 1000.0;
-            let diff = output[i] - target_val;
-            loss += diff * diff;
+        // Build logits tensor [seq_len, vocab_size] - for simplified case, we treat
+        // the output as [1, hidden_dim] logits over a "vocabulary" of hidden_dim
+        let vocab_size = self.config.vocab_size.max(logits.len());
+        let mut padded_logits = vec![0.0f32; vocab_size];
+        for (i, &v) in logits.iter().enumerate() {
+            if i < vocab_size {
+                padded_logits[i] = v;
+            }
         }
 
-        loss / n as f32
+        let logits_tensor = match MLXFFITensor::from_data(&padded_logits, vec![1, vocab_size]) {
+            Ok(t) => t,
+            Err(e) => {
+                warn!("Failed to create logits tensor: {}", e);
+                return self.compute_loss_cpu_reference(logits, target);
+            }
+        };
+
+        // Build targets tensor [1, seq_len] as i32 for indexing
+        let targets_i32: Vec<i32> = target.iter().take(1).map(|&t| t as i32).collect();
+        let targets_tensor = match MLXFFITensor::from_ints(&targets_i32, vec![1, 1]) {
+            Ok(t) => t,
+            Err(e) => {
+                warn!("Failed to create targets tensor: {}", e);
+                return self.compute_loss_cpu_reference(logits, target);
+            }
+        };
+
+        // Compute cross-entropy loss on GPU
+        match mlx_cross_entropy_loss_gpu(&logits_tensor, &targets_tensor, self.config.ignore_index)
+        {
+            Ok(loss_tensor) => match loss_tensor.to_float_vec() {
+                Ok(loss_vec) => loss_vec.first().copied().unwrap_or(0.0),
+                Err(e) => {
+                    warn!("Failed to extract loss value: {}", e);
+                    self.compute_loss_cpu_reference(logits, target)
+                }
+            },
+            Err(e) => {
+                warn!("MLX cross-entropy loss failed, falling back to CPU: {}", e);
+                self.compute_loss_cpu_reference(logits, target)
+            }
+        }
     }
 
-    /// Backward pass and weight update
+    /// Compute cross-entropy loss using CPU reference implementation.
+    ///
+    /// Used when multi-backend feature is disabled or as fallback on MLX errors.
+    #[cfg(not(feature = "multi-backend"))]
+    fn compute_loss(&self, logits: &[f32], target: &[u32]) -> f32 {
+        self.compute_loss_cpu_reference(logits, target)
+    }
+
+    /// CPU reference implementation of cross-entropy loss.
+    ///
+    /// This implements the standard cross-entropy loss formula:
+    /// CE = -sum(y_i * log(softmax(x)_i)) / N
+    ///
+    /// For numerical stability, uses the log-sum-exp trick.
+    fn compute_loss_cpu_reference(&self, logits: &[f32], target: &[u32]) -> f32 {
+        if logits.is_empty() || target.is_empty() {
+            return 0.0;
+        }
+
+        let ignore_index = self.config.ignore_index;
+        let mut total_loss = 0.0f32;
+        let mut valid_count = 0usize;
+
+        // For each target token, compute cross-entropy
+        for &target_id in target.iter().take(1) {
+            // Skip ignored indices
+            if ignore_index >= 0 && target_id as i32 == ignore_index {
+                continue;
+            }
+
+            let target_idx = target_id as usize;
+            if target_idx >= logits.len() {
+                // Target out of range - skip
+                continue;
+            }
+
+            // Compute log-softmax for numerical stability
+            // log_softmax(x)_i = x_i - log(sum(exp(x_j)))
+            let max_logit = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+            let sum_exp: f32 = logits.iter().map(|&x| (x - max_logit).exp()).sum();
+            let log_sum_exp = sum_exp.ln() + max_logit;
+
+            // Cross-entropy for this position: -log(softmax(logits)[target])
+            let log_prob = logits[target_idx] - log_sum_exp;
+            total_loss -= log_prob;
+            valid_count += 1;
+        }
+
+        if valid_count == 0 {
+            0.0
+        } else {
+            total_loss / valid_count as f32
+        }
+    }
+
+    /// Backward pass and weight update using cross-entropy gradients.
+    ///
+    /// Computes gradients of cross-entropy loss with respect to LoRA weights
+    /// and applies SGD update.
     fn backward_and_update(
         &self,
         weights: &mut LoRAWeights,
         hidden: &[f32],
-        output: &[f32],
+        logits: &[f32],
         target: &[u32],
-        loss: f32,
+        _loss: f32,
     ) -> Result<()> {
-        let n = output.len().min(target.len());
         let learning_rate = self.config.learning_rate;
+        let ignore_index = self.config.ignore_index;
 
-        // Compute gradient (simplified)
-        let mut grad_output = vec![0.0; output.len()];
-        for i in 0..n {
-            let target_val = (target[i] as f32) / 1000.0;
-            grad_output[i] = 2.0 * (output[i] - target_val) / n as f32;
+        // Compute softmax probabilities for gradient computation
+        let max_logit = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        let exp_logits: Vec<f32> = logits.iter().map(|&x| (x - max_logit).exp()).collect();
+        let sum_exp: f32 = exp_logits.iter().sum();
+        let softmax: Vec<f32> = exp_logits.iter().map(|&e| e / sum_exp).collect();
+
+        // Compute gradient of cross-entropy: d_loss/d_logits = softmax - one_hot(target)
+        let mut grad_logits = softmax;
+        let mut valid_targets = 0usize;
+        for &target_id in target.iter().take(1) {
+            if ignore_index >= 0 && target_id as i32 == ignore_index {
+                continue;
+            }
+            let target_idx = target_id as usize;
+            if target_idx < grad_logits.len() {
+                grad_logits[target_idx] -= 1.0;
+                valid_targets += 1;
+            }
         }
 
-        // Update LoRA_A
+        // Normalize gradient by number of valid targets
+        if valid_targets > 0 {
+            let scale = 1.0 / valid_targets as f32;
+            for g in &mut grad_logits {
+                *g *= scale;
+            }
+        }
+
+        // Chain rule: gradient flows through LoRA transformation
+        // output = hidden + (hidden @ A^T @ B^T) * (alpha / rank)
+        // d_loss/d_A and d_loss/d_B computed via chain rule
+        let lora_scale = self.config.alpha / self.config.rank as f32;
+
+        // Gradient for LoRA_B: d_loss/d_B = grad_logits^T @ intermediate
+        // where intermediate = hidden @ A^T
+        let mut intermediate = vec![0.0; self.config.rank];
         for r in 0..self.config.rank {
-            for h_idx in 0..self.config.hidden_dim.min(hidden.len()) {
+            for (h_idx, &h_val) in hidden.iter().enumerate() {
                 if h_idx < weights.lora_a[r].len() {
-                    let grad = grad_output[h_idx] * hidden[h_idx] * loss;
-                    weights.lora_a[r][h_idx] -= learning_rate * grad;
+                    intermediate[r] += h_val * weights.lora_a[r][h_idx];
                 }
             }
         }
 
-        // Update LoRA_B
-        for h_idx in 0..self.config.hidden_dim {
+        // Update LoRA_B: gradient = grad_logits (outer product) intermediate
+        for h_idx in 0..self.config.hidden_dim.min(grad_logits.len()) {
             if h_idx < weights.lora_b.len() {
                 for r in 0..self.config.rank {
                     if r < weights.lora_b[h_idx].len() {
-                        let grad = grad_output[h_idx] * hidden[h_idx] * loss;
+                        let grad = grad_logits[h_idx] * intermediate[r] * lora_scale;
                         weights.lora_b[h_idx][r] -= learning_rate * grad;
                     }
+                }
+            }
+        }
+
+        // Gradient for LoRA_A: d_loss/d_A = B^T @ grad_logits^T @ hidden
+        // First compute B^T @ grad_logits
+        let mut grad_intermediate = vec![0.0; self.config.rank];
+        for r in 0..self.config.rank {
+            for h_idx in 0..self.config.hidden_dim.min(grad_logits.len()) {
+                if h_idx < weights.lora_b.len() && r < weights.lora_b[h_idx].len() {
+                    grad_intermediate[r] += weights.lora_b[h_idx][r] * grad_logits[h_idx];
+                }
+            }
+        }
+
+        // Update LoRA_A: gradient = grad_intermediate (outer product) hidden
+        for r in 0..self.config.rank {
+            for h_idx in 0..self.config.hidden_dim.min(hidden.len()) {
+                if h_idx < weights.lora_a[r].len() {
+                    let grad = grad_intermediate[r] * hidden[h_idx] * lora_scale;
+                    weights.lora_a[r][h_idx] -= learning_rate * grad;
                 }
             }
         }
@@ -407,7 +553,7 @@ impl SeparatedLoRATrainer {
         let mut lora_a = Vec::new();
         let mut lora_b = Vec::new();
 
-        // Initialize LoRA_A (rank × hidden_dim)
+        // Initialize LoRA_A (rank x hidden_dim)
         for _ in 0..self.config.rank {
             let mut row = Vec::new();
             for _ in 0..self.config.hidden_dim {
@@ -416,7 +562,7 @@ impl SeparatedLoRATrainer {
             lora_a.push(row);
         }
 
-        // Initialize LoRA_B (hidden_dim × rank)
+        // Initialize LoRA_B (hidden_dim x rank)
         for _ in 0..self.config.hidden_dim {
             let mut row = Vec::new();
             for _ in 0..self.config.rank {
@@ -548,6 +694,72 @@ mod tests {
         assert!(
             result.total_training_time_ms > 0,
             "training time should be positive"
+        );
+    }
+
+    #[test]
+    fn test_cross_entropy_loss_computation() {
+        let config = TrainingConfig {
+            rank: 4,
+            alpha: 16.0,
+            learning_rate: 1e-4,
+            batch_size: 2,
+            epochs: 1,
+            hidden_dim: 8,
+            vocab_size: 10,
+            training_contract_version: TRAINING_DATA_CONTRACT_VERSION.to_string(),
+            pad_token_id: 0,
+            ignore_index: -1,
+            coreml_placement: None,
+            preferred_backend: None,
+            backend_policy: None,
+            coreml_fallback_backend: None,
+            require_gpu: false,
+            max_gpu_memory_mb: 0,
+            max_tokens_per_batch: None,
+            device_policy: None,
+            checkpoint_interval: None,
+            warmup_steps: None,
+            max_seq_length: None,
+            gradient_accumulation_steps: None,
+            early_stopping: None,
+            patience: None,
+            min_delta: None,
+            determinism: None,
+            moe_config: None,
+            use_gpu_backward: false,
+            optimizer_config: Default::default(),
+            base_model_path: None,
+            hidden_state_layer: None,
+            validation_split: 0.0,
+            preprocessing: None,
+            targets: Vec::new(),
+            multi_module_training: false,
+            lora_layer_indices: Vec::new(),
+        };
+
+        let trainer = SeparatedLoRATrainer::new(config).unwrap();
+
+        // Test with uniform logits - should give ln(vocab_size) loss
+        let logits = vec![0.0f32; 10];
+        let target = vec![3u32];
+        let loss = trainer.compute_loss_cpu_reference(&logits, &target);
+        let expected = (10.0f32).ln(); // ln(10) for uniform distribution
+        assert!(
+            (loss - expected).abs() < 1e-5,
+            "Expected loss ~{}, got {}",
+            expected,
+            loss
+        );
+
+        // Test with peaked logits at target - should give low loss
+        let mut peaked_logits = vec![-10.0f32; 10];
+        peaked_logits[3] = 10.0; // High probability for target=3
+        let loss = trainer.compute_loss_cpu_reference(&peaked_logits, &target);
+        assert!(
+            loss < 0.1,
+            "Expected low loss for peaked distribution, got {}",
+            loss
         );
     }
 }
