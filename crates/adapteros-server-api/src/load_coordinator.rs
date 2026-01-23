@@ -103,6 +103,45 @@ impl LoadCoordinator {
             .map_err(AosError::Lifecycle)
     }
 
+    /// Load model or wait for in-progress load, with configurable timeout.
+    ///
+    /// Use this for reference/production scenarios where unbounded waits are unacceptable.
+    /// Falls back to `load_or_wait` if timeout is None.
+    ///
+    /// ## Parameters
+    ///
+    /// - `model_id`: Unique identifier for the model/adapter
+    /// - `timeout`: Maximum time to wait for load completion
+    /// - `load_fn`: Async function that performs the actual load operation
+    ///
+    /// ## Returns
+    ///
+    /// - `Ok(AdapterHandle)`: Successfully loaded or retrieved from concurrent load
+    /// - `Err(AosError::Timeout)`: Load timed out
+    /// - `Err(AosError)`: Load failed for other reasons
+    pub async fn load_or_wait_with_timeout<F, Fut>(
+        &self,
+        model_id: &str,
+        timeout: std::time::Duration,
+        load_fn: F,
+    ) -> Result<AdapterHandle, AosError>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Result<AdapterHandle, AosError>>,
+    {
+        match tokio::time::timeout(timeout, self.load_or_wait(model_id, load_fn)).await {
+            Ok(result) => result,
+            Err(_) => {
+                tracing::warn!(
+                    adapter_id = %model_id,
+                    timeout_secs = timeout.as_secs(),
+                    "Adapter load timed out"
+                );
+                Err(AosError::Timeout { duration: timeout })
+            }
+        }
+    }
+
     /// Load model or wait for in-progress load, with archive/purge safety check
     ///
     /// First verifies the adapter is loadable (not archived/purged), then

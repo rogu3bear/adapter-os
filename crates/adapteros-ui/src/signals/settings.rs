@@ -111,6 +111,9 @@ pub struct UserSettings {
     pub default_page: DefaultPage,
     /// Custom API endpoint (if overridden)
     pub api_endpoint: Option<String>,
+    /// Show telemetry overlay in corner (off by default for clean UI)
+    #[serde(default)]
+    pub show_telemetry_overlay: bool,
 }
 
 impl Default for UserSettings {
@@ -121,6 +124,7 @@ impl Default for UserSettings {
             show_timestamps: true,
             default_page: DefaultPage::Dashboard,
             api_endpoint: None,
+            show_telemetry_overlay: false,
         }
     }
 }
