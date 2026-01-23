@@ -320,7 +320,7 @@ async fn import_air_gap(file: &Path) -> Result<()> {
         }
 
         // Store in CAS
-        cas_store.store("adapter", &computed_hash, &data)?;
+        let _stored_hash = cas_store.store("adapter", &data)?;
         println!("  ✓ {} ({} bytes)", artifact.adapter_id, data.len());
         imported += 1;
     }
