@@ -41,6 +41,7 @@ pub mod diag_bundle;
 pub mod diag_health;
 pub mod doctor;
 pub mod drift_check;
+pub mod embed;
 pub mod explain;
 #[cfg(feature = "codegraph")]
 pub mod export_callgraph;
@@ -53,6 +54,9 @@ pub mod ingest_docs;
 pub mod init;
 pub mod init_tenant;
 pub mod list_adapters;
+pub mod log_digest;
+pub mod log_prompt;
+pub mod log_triage;
 pub mod maintenance;
 pub mod manual;
 pub mod metrics; // Now uses adapteros_db::SystemMetricsDbOps
@@ -110,6 +114,7 @@ pub mod train;
 pub mod train_base_adapter;
 pub mod train_cli;
 pub mod train_docs;
+pub mod train_embeddings;
 pub mod train_from_code;
 pub mod training_common;
 
