@@ -195,10 +195,14 @@ async fn run_seed(
             name, format, backend
         ));
 
-        match db
-            .import_model_from_path(&name, path_str, &format, &backend, "system", "system")
-            .await
-        {
+        let result = if force {
+            db.upsert_model_from_path(&name, path_str, &format, &backend, "system", "system")
+                .await
+        } else {
+            db.import_model_from_path(&name, path_str, &format, &backend, "system", "system")
+                .await
+        };
+        match result {
             Ok(model_id) => {
                 if let Err(e) = db
                     .update_model_import_status(&model_id, "available", None)

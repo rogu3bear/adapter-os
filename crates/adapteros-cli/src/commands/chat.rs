@@ -388,7 +388,9 @@ async fn send_streaming_inference(
     // Print streaming response
     if should_print_stream {
         print!("Assistant> ");
-        io::stdout().flush().map_err(|e| AosError::Io(format!("Failed to flush output: {}", e)))?;
+        io::stdout()
+            .flush()
+            .map_err(|e| AosError::Io(format!("Failed to flush output: {}", e)))?;
     }
 
     let body = resp
@@ -401,7 +403,6 @@ async fn send_streaming_inference(
     // Parse SSE format (data: {...}\n\n)
     for line in body.lines() {
         if let Some(json_str) = line.strip_prefix("data: ") {
-
             if json_str == "[DONE]" {
                 if should_print_stream {
                     println!(); // Newline after streaming

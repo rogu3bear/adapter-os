@@ -596,9 +596,20 @@ fn process_exists(pid: u32) -> Result<bool> {
         Ok(status.success())
     }
 
-    #[cfg(not(unix))]
+    #[cfg(target_os = "windows")]
     {
-        // Fallback for non-Unix systems
+        use sysinfo::{Pid, ProcessRefreshKind, System};
+
+        let mut sys = System::new();
+        sys.refresh_processes_specifics(ProcessRefreshKind::new());
+
+        let sysinfo_pid = Pid::from_u32(pid);
+        Ok(sys.process(sysinfo_pid).is_some())
+    }
+
+    #[cfg(all(not(unix), not(target_os = "windows")))]
+    {
+        // Fallback for other systems
         warn!("Process check not implemented for this platform");
         Ok(true)
     }
@@ -616,9 +627,28 @@ fn stop_process(pid: u32) -> Result<bool> {
         Ok(status.success())
     }
 
-    #[cfg(not(unix))]
+    #[cfg(target_os = "windows")]
     {
-        // Fallback for non-Unix systems
+        use sysinfo::{Pid, ProcessRefreshKind, System};
+
+        let mut sys = System::new();
+        sys.refresh_processes_specifics(ProcessRefreshKind::new());
+
+        let sysinfo_pid = Pid::from_u32(pid);
+        if let Some(process) = sys.process(sysinfo_pid) {
+            // Try graceful termination (SIGTERM equivalent on Windows)
+            process.kill();
+            info!("Sent termination signal to process {}", pid);
+            Ok(true)
+        } else {
+            warn!("Process {} not found", pid);
+            Ok(false)
+        }
+    }
+
+    #[cfg(all(not(unix), not(target_os = "windows")))]
+    {
+        // Fallback for other systems
         warn!("Process termination not implemented for this platform");
         Err(AosError::Platform(
             "Process termination not supported on this platform".to_string(),
@@ -678,5 +708,101 @@ mod tests {
 
         assert_eq!(status.running, deserialized.running);
         assert_eq!(status.pid, deserialized.pid);
+    }
+
+    #[test]
+    fn test_process_exists_current_process() {
+        // Test that the current process exists (should always be true)
+        let current_pid = std::process::id();
+        let exists = process_exists(current_pid).expect("process_exists should not fail");
+        assert!(exists, "Current process should exist");
+    }
+
+    #[test]
+    fn test_process_exists_nonexistent() {
+        // Test with an extremely high PID that's unlikely to exist
+        // Using a PID of 4294967295 (max u32) which is almost certainly not in use
+        let nonexistent_pid = 4294967295u32;
+        let result = process_exists(nonexistent_pid);
+
+        // The function should not error, but return false for non-existent process
+        // Note: on some systems, very high PIDs might be valid, so we just check no error
+        assert!(
+            result.is_ok(),
+            "process_exists should not error on high PID"
+        );
+    }
+
+    #[test]
+    fn test_stop_process_nonexistent() {
+        // Test stopping a process that doesn't exist
+        let nonexistent_pid = 4294967295u32;
+        let result = stop_process(nonexistent_pid);
+
+        // On Unix, kill will fail for non-existent process
+        // On Windows, sysinfo will not find the process and return false
+        // Either way, we should get a result (not panic)
+        match result {
+            Ok(success) => {
+                // On Windows, we expect Ok(false) for non-existent process
+                #[cfg(target_os = "windows")]
+                assert!(
+                    !success,
+                    "Stopping non-existent process should return false"
+                );
+                // On Unix, we might get Ok(false) if kill fails
+                let _ = success;
+            }
+            Err(_) => {
+                // On Unix, this is expected for non-existent PIDs
+            }
+        }
+    }
+
+    #[test]
+    fn test_write_and_read_pid_file() {
+        let temp_dir = tempfile::TempDir::new().expect("Failed to create temp dir");
+        let pid_path = temp_dir.path().join("test.pid");
+        let pid_str = pid_path.to_string_lossy().to_string();
+
+        let test_pid = 12345u32;
+
+        // Write PID file
+        write_pid_file(&pid_str, test_pid).expect("write_pid_file should succeed");
+
+        // Read it back
+        let read_pid = read_pid_file(&pid_str).expect("read_pid_file should succeed");
+        assert_eq!(
+            read_pid,
+            Some(test_pid),
+            "Read PID should match written PID"
+        );
+    }
+
+    #[test]
+    fn test_read_pid_file_nonexistent() {
+        let result = read_pid_file("/nonexistent/path/to/pid.file");
+        assert!(
+            result.is_ok() && result.unwrap().is_none(),
+            "Reading non-existent PID file should return Ok(None)"
+        );
+    }
+
+    #[test]
+    fn test_tail_file() {
+        let temp_dir = tempfile::TempDir::new().expect("Failed to create temp dir");
+        let file_path = temp_dir.path().join("test.log");
+
+        // Write test content
+        let content = "line1\nline2\nline3\nline4\nline5";
+        std::fs::write(&file_path, content).expect("Failed to write test file");
+
+        // Test tailing last 3 lines
+        let result = tail_file(&file_path, 3).expect("tail_file should succeed");
+        let lines: Vec<&str> = result.lines().collect();
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[0], "line3");
+        assert_eq!(lines[1], "line4");
+        assert_eq!(lines[2], "line5");
     }
 }

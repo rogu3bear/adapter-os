@@ -121,8 +121,8 @@ async fn directory_upsert(
         .map_err(|e| adapteros_core::AosError::Http(e.to_string()))?;
 
     if output.is_json() {
-        let json_str = serde_json::to_string_pretty(&value)
-            .unwrap_or_else(|_| format!("{:?}", value));
+        let json_str =
+            serde_json::to_string_pretty(&value).unwrap_or_else(|_| format!("{:?}", value));
         output.result(json_str);
     } else if let Some(adapter_id) = value.get("adapter_id").and_then(|v| v.as_str()) {
         output.success(format!("Adapter upserted: {}", adapter_id));
@@ -3010,8 +3010,8 @@ async fn register_adapter(
         .map_err(|e| AosError::Http(e.to_string()))?;
 
     if output.is_json() {
-        let json_str = serde_json::to_string_pretty(&value)
-            .unwrap_or_else(|_| format!("{:?}", value));
+        let json_str =
+            serde_json::to_string_pretty(&value).unwrap_or_else(|_| format!("{:?}", value));
         output.result(json_str);
     } else {
         output.success(format!("Adapter registered: {}", adapter_id));
@@ -3184,8 +3184,8 @@ async fn import_adapter_cmd(
         .unwrap_or("unknown");
 
     if output.is_json() {
-        let json_str = serde_json::to_string_pretty(&value)
-            .unwrap_or_else(|_| format!("{:?}", value));
+        let json_str =
+            serde_json::to_string_pretty(&value).unwrap_or_else(|_| format!("{:?}", value));
         output.result(json_str);
     } else {
         if deduplicated {
@@ -3233,8 +3233,8 @@ async fn list_adapter_versions(
 
     let parsed: Value = serde_json::from_str(&text).unwrap_or(Value::String(text.clone()));
     if json {
-        let json_str = serde_json::to_string_pretty(&parsed)
-            .unwrap_or_else(|_| format!("{:?}", parsed));
+        let json_str =
+            serde_json::to_string_pretty(&parsed).unwrap_or_else(|_| format!("{:?}", parsed));
         output.result(json_str);
         return Ok(());
     }
@@ -3309,8 +3309,8 @@ async fn promote_adapter_version(
 
     let parsed: Value = serde_json::from_str(&text).unwrap_or(Value::String(text.clone()));
     if json {
-        let json_str = serde_json::to_string_pretty(&parsed)
-            .unwrap_or_else(|_| format!("{:?}", parsed));
+        let json_str =
+            serde_json::to_string_pretty(&parsed).unwrap_or_else(|_| format!("{:?}", parsed));
         output.result(json_str);
     } else {
         output.success(format!(
@@ -3358,8 +3358,8 @@ async fn rollback_adapter_version(
 
     let parsed: Value = serde_json::from_str(&text).unwrap_or(Value::String(text.clone()));
     if json {
-        let json_str = serde_json::to_string_pretty(&parsed)
-            .unwrap_or_else(|_| format!("{:?}", parsed));
+        let json_str =
+            serde_json::to_string_pretty(&parsed).unwrap_or_else(|_| format!("{:?}", parsed));
         output.result(json_str);
     } else {
         output.success(format!(

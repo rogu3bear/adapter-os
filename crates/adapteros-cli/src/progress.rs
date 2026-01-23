@@ -32,7 +32,8 @@ pub enum ProgressTemplate {
 impl ProgressTemplate {
     fn to_style(&self) -> ProgressStyle {
         // Default fallback template if custom template is invalid
-        const FALLBACK_TEMPLATE: &str = "{spinner:.cyan} [{elapsed_precise}] {bar:40.cyan/blue} {pos}/{len} ({msg})";
+        const FALLBACK_TEMPLATE: &str =
+            "{spinner:.cyan} [{elapsed_precise}] {bar:40.cyan/blue} {pos}/{len} ({msg})";
 
         let template = match self {
             Self::Training => {

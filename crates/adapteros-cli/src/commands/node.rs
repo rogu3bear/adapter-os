@@ -5,16 +5,20 @@
 //! - `aosctl node verify` - Verify cross-node determinism
 //! - `aosctl node sync` - Sync adapters across nodes
 
-use crate::commands::NOT_IMPLEMENTED_MESSAGE;
+use super::NOT_IMPLEMENTED_MESSAGE;
 use crate::formatting::{format_bytes, format_time_ago};
 use crate::output::OutputWriter;
-use adapteros_core::{AosError, B3Hash, Result};
+use adapteros_core::{time, AosError, B3Hash, Result};
 use adapteros_db::Db;
 use clap::Subcommand;
 use comfy_table::{presets::UTF8_FULL, Cell, Table};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fs::File;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use tracing::info;
+use tar::Builder;
+use tracing::{debug, info, warn};
 
 /// Node management subcommands
 #[derive(Debug, Subcommand, Clone)]
