@@ -133,6 +133,55 @@ Examples:
     },
 }
 
+/// Log analysis and diagnostics subcommands
+#[derive(Subcommand, Clone, Debug)]
+enum LogCommand {
+    /// Generate a log digest summarizing WARN/ERROR entries
+    #[command(after_help = "\
+Examples:
+  # Summarize logs from the last hour
+  aosctl log digest ./var/logs --since 1h
+
+  # Include INFO level, output as JSON
+  aosctl log digest ./var/logs --include-info --json
+
+  # Filter by component
+  aosctl log digest ./var/logs --component adapteros-server
+")]
+    Digest(commands::log_digest::LogDigestArgs),
+
+    /// Triage log entries with rule-based categorization and remediation hints
+    #[command(after_help = "\
+Examples:
+  # Basic triage
+  aosctl log triage ./var/logs
+
+  # With detailed remediation steps
+  aosctl log triage ./var/logs --detailed
+
+  # Use custom rules
+  aosctl log triage ./var/logs --rules ./custom_rules.json
+")]
+    Triage(commands::log_triage::LogTriageArgs),
+
+    /// Build an LLM prompt from triaged log entries
+    #[command(after_help = "\
+Examples:
+  # Generate markdown prompt
+  aosctl log prompt ./var/logs --format markdown
+
+  # Write to file
+  aosctl log prompt ./var/logs -o prompt.md
+
+  # Focus on memory issues
+  aosctl log prompt ./var/logs --focus memory
+
+  # Include system context
+  aosctl log prompt ./var/logs --include-system
+")]
+    Prompt(commands::log_prompt::LogPromptArgs),
+}
+
 #[derive(Subcommand)]
 enum Commands {
     // ============================================================
@@ -965,13 +1014,23 @@ Examples:
     #[command(subcommand)]
     Diag(diag::DiagCommand),
 
-    // NOTE: log_digest, log_triage, log_prompt modules not yet implemented
-    // /// Generate a log digest (WARN/ERROR summary)
-    // LogDigest(commands::log_digest::LogDigestCommand),
-    // /// Triage log digest with rule-based remediation hints
-    // LogTriage(commands::log_triage::LogTriageCommand),
-    // /// Build an LLM prompt from triage output
-    // LogPrompt(commands::log_prompt::LogPromptCommand),
+    /// Log analysis and diagnostics commands
+    #[command(
+        subcommand,
+        after_help = "\
+Examples:
+  # Generate a WARN/ERROR log digest
+  aosctl log digest ./var/logs --since 1h
+
+  # Triage logs with remediation hints
+  aosctl log triage ./var/logs --detailed
+
+  # Build an LLM prompt from logs
+  aosctl log prompt ./var/logs --format markdown -o prompt.md
+"
+    )]
+    Log(LogCommand),
+
     /// Targeted diagnostics for drift, health, and storage reconciler
     #[command(after_help = "\
 Examples:
@@ -1152,6 +1211,52 @@ Examples:
         #[command(flatten)]
         args: train_docs::TrainDocsArgs,
     },
+
+    /// Train a custom embedding model for RAG/semantic search
+    #[command(after_help = "\
+Examples:
+  # Train with triplet data (anchor, positive, negative)
+  aosctl train-embeddings --data triplets.jsonl --output var/embeddings/custom
+
+  # Train with info-nce loss (efficient in-batch negatives)
+  aosctl train-embeddings --data pairs.jsonl --mode info-nce --dim 384
+
+  # Train with custom hyperparameters
+  aosctl train-embeddings --data data.jsonl --epochs 5 --batch-size 16 --learning-rate 0.0001
+
+  # Dry run to preview configuration
+  aosctl train-embeddings --data data.jsonl --dry-run
+")]
+    TrainEmbeddings {
+        #[command(flatten)]
+        args: train_embeddings::TrainEmbeddingsArgs,
+    },
+
+    /// Embedding benchmark operations (corpus, index, search, bench, train, compare)
+    #[command(
+        subcommand,
+        after_help = "\
+Examples:
+  # Build corpus from documentation
+  aosctl embed corpus --docs-dir ./docs --output corpus.json
+
+  # Build search index
+  aosctl embed index --corpus corpus.json --output ./index
+
+  # Search for similar chunks
+  aosctl embed search \"how to configure\" --index ./index --top-k 5
+
+  # Run benchmark evaluation
+  aosctl embed bench --corpus corpus.json --queries queries.json --output report.json
+
+  # Train embedding adapter
+  aosctl embed train --corpus corpus.json --pairs pairs.json --output ./adapter
+
+  # Compare baseline vs fine-tuned
+  aosctl embed compare --baseline baseline.json --finetuned finetuned.json
+"
+    )]
+    Embed(commands::embed::EmbedCommand),
 
     /// Initialize AdapterOS system (Owner Home setup)
     #[command(after_help = "\
@@ -1882,10 +1987,19 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             diag::handle_diag_command(cmd.clone(), &output).await?;
         }
 
-        // NOTE: log_digest, log_triage, log_prompt modules not yet implemented
-        // Commands::LogDigest(cmd) => { ... }
-        // Commands::LogTriage(cmd) => { ... }
-        // Commands::LogPrompt(cmd) => { ... }
+        // Log analysis commands
+        Commands::Log(cmd) => match cmd {
+            LogCommand::Digest(args) => {
+                commands::log_digest::run(args.clone(), &output).await?;
+            }
+            LogCommand::Triage(args) => {
+                commands::log_triage::run(args.clone(), &output).await?;
+            }
+            LogCommand::Prompt(args) => {
+                commands::log_prompt::run(args.clone(), &output).await?;
+            }
+        },
+
         Commands::Health(cmd) => {
             commands::diag_health::run(cmd.clone(), &output).await?;
         }
@@ -1945,6 +2059,15 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
 
         Commands::TrainDocs { args } => {
             args.execute().await?;
+        }
+
+        Commands::TrainEmbeddings { args } => {
+            train_embeddings::run(args.clone()).await?;
+        }
+
+        // Embedding Benchmark Commands
+        Commands::Embed(cmd) => {
+            commands::embed::handle_embed_command(cmd.clone()).await?;
         }
 
         // Code Intelligence Commands
@@ -2290,7 +2413,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Completions { .. } => "completions",
         Commands::Config(_) => "config",
         Commands::Diag(_) => "diag",
-        // NOTE: log_digest, log_triage, log_prompt not yet implemented
+        Commands::Log(_) => "log",
         Commands::Health { .. } => "health",
         Commands::Determinism { .. } => "determinism",
         Commands::Quarantine { .. } => "quarantine",
@@ -2300,6 +2423,8 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Manual { .. } => "manual",
         Commands::Train(_) => "train",
         Commands::TrainDocs { .. } => "train-docs",
+        Commands::TrainEmbeddings { .. } => "train-embeddings",
+        Commands::Embed(_) => "embed",
         Commands::Code(_) => "code",
         Commands::BackendStatus(_) => "backend-status",
         Commands::Tui { .. } => "tui",
