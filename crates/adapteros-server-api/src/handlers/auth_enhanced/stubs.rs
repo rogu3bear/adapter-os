@@ -10,10 +10,8 @@ fn stub_not_implemented_error() -> (StatusCode, Json<ErrorResponse>) {
     (
         StatusCode::NOT_IMPLEMENTED,
         Json(
-            ErrorResponse::new(
-                "Endpoint not implemented in this build.",
-            )
-            .with_code("NOT_IMPLEMENTED"),
+            ErrorResponse::new("Endpoint not implemented in this build.")
+                .with_code("NOT_IMPLEMENTED"),
         ),
     )
 }
@@ -86,17 +84,5 @@ pub async fn mfa_verify_handler() -> (StatusCode, Json<ErrorResponse>) {
     tag = "auth"
 )]
 pub async fn mfa_disable_handler() -> (StatusCode, Json<ErrorResponse>) {
-    stub_not_implemented_error()
-}
-
-#[utoipa::path(
-    post,
-    path = "/v1/auth/tenants/switch",
-    responses(
-        (status = 501, description = "Auth disabled - use dev bypass")
-    ),
-    tag = "auth"
-)]
-pub async fn switch_tenant_handler() -> (StatusCode, Json<ErrorResponse>) {
     stub_not_implemented_error()
 }

@@ -43,6 +43,11 @@ const LOCKOUT_THRESHOLD: i64 = 5;
 const LOCKOUT_WINDOW_MINUTES: i64 = 15;
 const LOCKOUT_COOLDOWN_MINUTES: i64 = 15;
 
+// Registration rate limiting constants
+const REGISTRATION_RATE_LIMIT: i64 = 5;
+const REGISTRATION_WINDOW_MINUTES: i64 = 60;
+const REGISTRATION_MARKER_PREFIX: &str = "__registration__@";
+
 fn lockout_columns_missing(err: &sqlx::Error) -> bool {
     matches!(err, sqlx::Error::Database(db_err) if db_err.message().contains("failed_attempts"))
 }
@@ -549,6 +554,68 @@ pub async fn check_login_lockout(
 /// Check if account is locked due to too many failed attempts
 pub async fn is_account_locked(db: &Db, email: &str, ip_address: &str) -> Result<bool> {
     Ok(check_login_lockout(db, email, ip_address).await?.is_some())
+}
+
+/// Track a registration attempt for rate limiting purposes.
+///
+/// Uses the auth_attempts table with a marker email to track per-IP registration attempts.
+pub async fn track_registration_attempt(db: &Db, ip_address: &str) -> Result<()> {
+    if !db.storage_mode().read_from_sql() {
+        return Ok(());
+    }
+    let marker_email = format!("{}{}", REGISTRATION_MARKER_PREFIX, ip_address);
+    let id = Uuid::now_v7().to_string();
+    let attempted_at = Utc::now().to_rfc3339();
+
+    sqlx::query(
+        "INSERT INTO auth_attempts (id, email, ip_address, success, attempted_at, failure_reason)
+         VALUES (?, ?, ?, 1, ?, 'registration')",
+    )
+    .bind(&id)
+    .bind(&marker_email)
+    .bind(ip_address)
+    .bind(&attempted_at)
+    .execute(db.pool())
+    .await?;
+
+    info!(ip_address = %ip_address, "Registration attempt tracked");
+    Ok(())
+}
+
+/// Check if an IP address has exceeded the registration rate limit.
+///
+/// Returns `true` if the IP should be blocked from registering.
+pub async fn check_registration_rate_limit(db: &Db, ip_address: &str) -> Result<bool> {
+    if !db.storage_mode().read_from_sql() {
+        return Ok(false);
+    }
+    let marker_email = format!("{}{}", REGISTRATION_MARKER_PREFIX, ip_address);
+    let now = Utc::now();
+    let window_cutoff = (now - Duration::minutes(REGISTRATION_WINDOW_MINUTES)).to_rfc3339();
+
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM auth_attempts
+         WHERE email = ? AND ip_address = ? AND attempted_at > ?",
+    )
+    .bind(&marker_email)
+    .bind(ip_address)
+    .bind(&window_cutoff)
+    .fetch_one(db.pool())
+    .await
+    .unwrap_or(0);
+
+    if count >= REGISTRATION_RATE_LIMIT {
+        warn!(
+            ip_address = %ip_address,
+            count = count,
+            limit = REGISTRATION_RATE_LIMIT,
+            window_minutes = REGISTRATION_WINDOW_MINUTES,
+            "Registration rate limit exceeded"
+        );
+        return Ok(true);
+    }
+
+    Ok(false)
 }
 
 /// Get recent failed attempts for an account
