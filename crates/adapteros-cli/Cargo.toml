@@ -29,6 +29,8 @@ adapteros-api = { path = "../adapteros-api" }
 adapteros-api-types = { path = "../adapteros-api-types" }
 adapteros-lora-worker = { path = "../adapteros-lora-worker" }
 adapteros-lora-rag = { path = "../adapteros-lora-rag" }
+adapteros-retrieval = { path = "../adapteros-retrieval" }
+adapteros-embeddings = { path = "../adapteros-embeddings", features = ["training"] }
 adapteros-single-file-adapter = { path = "../adapteros-single-file-adapter" }
 adapteros-aos = { path = "../adapteros-aos" }  # Unified binary .aos format
 adapteros-lora-router = { path = "../adapteros-lora-router" }
@@ -68,6 +70,7 @@ serde_yaml = "0.9"
 toml = "0.8"
 tempfile = "3.8"
 glob = "0.3"
+regex = { workspace = true }
 walkdir = "2.4"
 chrono = "0.4"
 dirs = "5.0"

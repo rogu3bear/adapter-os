@@ -79,16 +79,48 @@ async fn get_provenance(db: &adapteros_db::Db, adapter_id: &str) -> Result<Optio
 }
 
 async fn get_provenance_sqlite(
-    _pool: &sqlx::SqlitePool,
-    _adapter_id: &str,
+    pool: &sqlx::SqlitePool,
+    adapter_id: &str,
 ) -> Result<Option<ProvenanceInfo>> {
-    // Temporarily disabled until migrations are run
-    // TODO: Re-enable after running database migrations
-    Ok(None)
+    // Query adapter_provenance table (migration 0007_adapter_provenance.sql)
+    let row = sqlx::query(
+        r#"
+        SELECT
+            ap.signer_key,
+            ap.registered_by,
+            ap.registered_uid,
+            ap.registered_at,
+            ap.bundle_b3
+        FROM adapter_provenance ap
+        WHERE ap.adapter_id = ?
+        "#,
+    )
+    .bind(adapter_id)
+    .fetch_optional(pool)
+    .await?;
+
+    match row {
+        Some(row) => {
+            use sqlx::Row;
+            let signer_key: String = row.get("signer_key");
+            let key_name = extract_key_name(&signer_key);
+
+            Ok(Some(ProvenanceInfo {
+                signer_key,
+                key_name,
+                registered_by: row.get("registered_by"),
+                registered_uid: row
+                    .get::<Option<i64>, _>("registered_uid")
+                    .map(|v| v as u32),
+                registered_at: row.get("registered_at"),
+                bundle_b3: row.get("bundle_b3"),
+            }))
+        }
+        None => Ok(None),
+    }
 }
 
 /// Extract key name from signer key string
-#[allow(dead_code)] // Reserved for future key registry integration
 fn extract_key_name(signer_key: &str) -> String {
     // For now, just return a mock key name
     // In production, this would query a key registry

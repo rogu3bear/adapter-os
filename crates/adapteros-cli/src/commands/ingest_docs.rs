@@ -342,7 +342,9 @@ impl IngestDocsArgs {
 
         // Write to output file
         let output_path = self.training_output.as_ref().ok_or_else(|| {
-            AosError::Validation("--training-output is required for training data generation".to_string())
+            AosError::Validation(
+                "--training-output is required for training data generation".to_string(),
+            )
         })?;
         let json = serde_json::to_string_pretty(&training_data).map_err(AosError::Serialization)?;
 
