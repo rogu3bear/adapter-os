@@ -87,7 +87,10 @@ pub async fn get_determinism_status(
                 None
             });
             let divergences: Option<i64> = row.try_get("divergences").unwrap_or_else(|e| {
-                warn!("Failed to get divergences from determinism check row: {}", e);
+                warn!(
+                    "Failed to get divergences from determinism check row: {}",
+                    e
+                );
                 None
             });
 
@@ -262,10 +265,11 @@ pub async fn get_quarantine_status(
             warn!("Failed to get id from stack row: {}", e);
             String::new()
         });
-        let adapter_ids_json: Option<String> = stack_row.try_get("adapter_ids_json").unwrap_or_else(|e| {
-            warn!("Failed to get adapter_ids_json from stack row: {}", e);
-            None
-        });
+        let adapter_ids_json: Option<String> =
+            stack_row.try_get("adapter_ids_json").unwrap_or_else(|e| {
+                warn!("Failed to get adapter_ids_json from stack row: {}", e);
+                None
+            });
 
         if let Some(ref json_str) = adapter_ids_json {
             if let Ok(adapter_ids) = serde_json::from_str::<Vec<String>>(json_str) {
@@ -304,7 +308,9 @@ fn run_record_to_response(record: &DiagRunRecord) -> DiagRunResponse {
         started_at_unix_ms: record.started_at_unix_ms,
         completed_at_unix_ms: record.completed_at_unix_ms,
         request_hash: record.request_hash.clone(),
+        request_hash_verified: None,
         manifest_hash: record.manifest_hash.clone(),
+        manifest_hash_verified: None,
         total_events_count: record.total_events_count,
         dropped_events_count: record.dropped_events_count,
         duration_ms,

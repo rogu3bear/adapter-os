@@ -66,6 +66,54 @@ pub const SAFE_TRUST_STATES: &[&str] = &["allowed", "allowed_with_warning"];
 /// Trust states that block training.
 pub const BLOCKED_TRUST_STATES: &[&str] = &["blocked", "needs_approval", "unknown"];
 
+/// Default maximum synthetic data ratio (50%).
+pub const DEFAULT_SYNTHETIC_RATIO_CAP: f64 = 0.5;
+
+/// Warning threshold for synthetic data ratio (approaching cap).
+pub const SYNTHETIC_RATIO_WARNING_THRESHOLD: f64 = 0.4;
+
+// ============================================================================
+// Synthetic Ratio Validation Types
+// ============================================================================
+
+/// Configuration for synthetic data ratio validation.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SyntheticRatioConfig {
+    /// Maximum allowed ratio of synthetic data (0.0-1.0).
+    pub ratio_cap: f64,
+    /// Whether the guardrail is enabled.
+    pub enabled: bool,
+    /// Whether to allow override (with explicit acknowledgment).
+    pub allow_override: bool,
+}
+
+impl Default for SyntheticRatioConfig {
+    fn default() -> Self {
+        Self {
+            ratio_cap: DEFAULT_SYNTHETIC_RATIO_CAP,
+            enabled: true,
+            allow_override: true,
+        }
+    }
+}
+
+/// Result of synthetic ratio validation.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SyntheticRatioValidationResult {
+    /// The computed synthetic ratio (0.0-1.0).
+    pub ratio: f64,
+    /// The configured cap.
+    pub cap: f64,
+    /// Safety status: clean, warn, or block.
+    pub status: String,
+    /// Whether an override was requested.
+    pub override_requested: bool,
+    /// Whether the override was accepted (allows exceeding cap with warning).
+    pub override_accepted: bool,
+    /// Human-readable message.
+    pub message: String,
+}
+
 /// Result of validating dataset safety status.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct SafetyStatusValidationResult {
@@ -106,6 +154,12 @@ pub struct SafetySignals {
     pub anomaly_status: String,
     /// Overall aggregated safety status.
     pub overall_safety: String,
+    /// Synthetic data ratio status (clean/warn/block/unknown).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub synthetic_ratio_status: Option<String>,
+    /// Actual synthetic data ratio (0.0-1.0) if computed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub synthetic_ratio: Option<f64>,
 }
 
 // ============================================================================
@@ -318,6 +372,182 @@ pub fn is_trust_state_blocked(trust_state: &str) -> bool {
     BLOCKED_TRUST_STATES.contains(&normalized.as_str())
 }
 
+// ============================================================================
+// Synthetic Ratio Validation Functions
+// ============================================================================
+
+/// Validate the synthetic data ratio against configured guardrails.
+///
+/// # Arguments
+/// * `synthetic_count` - Number of synthetic/generated samples
+/// * `total_count` - Total number of samples in the dataset
+/// * `config` - Synthetic ratio configuration (cap, enabled, allow_override)
+/// * `override_requested` - Whether the user explicitly requested to override the cap
+///
+/// # Returns
+/// A `SyntheticRatioValidationResult` indicating whether the ratio is acceptable.
+///
+/// # Behavior
+/// - If guardrails are disabled: returns "clean" status
+/// - If ratio <= warning threshold: returns "clean"
+/// - If ratio > warning threshold but <= cap: returns "warn" (approaching limit)
+/// - If ratio > cap without override: returns "block"
+/// - If ratio > cap with override accepted: returns "warn" with acknowledgment
+pub fn validate_synthetic_ratio(
+    synthetic_count: u64,
+    total_count: u64,
+    config: &SyntheticRatioConfig,
+    override_requested: bool,
+) -> SyntheticRatioValidationResult {
+    // Handle edge case: empty dataset
+    if total_count == 0 {
+        return SyntheticRatioValidationResult {
+            ratio: 0.0,
+            cap: config.ratio_cap,
+            status: "clean".to_string(),
+            override_requested,
+            override_accepted: false,
+            message: "Dataset is empty, synthetic ratio check skipped".to_string(),
+        };
+    }
+
+    let ratio = synthetic_count as f64 / total_count as f64;
+
+    // If guardrails are disabled, always clean
+    if !config.enabled {
+        return SyntheticRatioValidationResult {
+            ratio,
+            cap: config.ratio_cap,
+            status: "clean".to_string(),
+            override_requested,
+            override_accepted: false,
+            message: "Synthetic ratio guardrails are disabled".to_string(),
+        };
+    }
+
+    // Check ratio against thresholds
+    if ratio <= SYNTHETIC_RATIO_WARNING_THRESHOLD {
+        // Below warning threshold - clean
+        SyntheticRatioValidationResult {
+            ratio,
+            cap: config.ratio_cap,
+            status: "clean".to_string(),
+            override_requested,
+            override_accepted: false,
+            message: format!(
+                "Synthetic ratio {:.1}% is within safe limits (cap: {:.1}%)",
+                ratio * 100.0,
+                config.ratio_cap * 100.0
+            ),
+        }
+    } else if ratio <= config.ratio_cap {
+        // Between warning threshold and cap - warn (approaching limit)
+        SyntheticRatioValidationResult {
+            ratio,
+            cap: config.ratio_cap,
+            status: "warn".to_string(),
+            override_requested,
+            override_accepted: false,
+            message: format!(
+                "Synthetic ratio {:.1}% is approaching the cap of {:.1}%",
+                ratio * 100.0,
+                config.ratio_cap * 100.0
+            ),
+        }
+    } else if override_requested && config.allow_override {
+        // Exceeds cap but override requested and allowed - warn with acceptance
+        warn!(
+            synthetic_ratio = ratio,
+            cap = config.ratio_cap,
+            "Synthetic ratio exceeds cap but override accepted"
+        );
+        SyntheticRatioValidationResult {
+            ratio,
+            cap: config.ratio_cap,
+            status: "warn".to_string(),
+            override_requested,
+            override_accepted: true,
+            message: format!(
+                "OVERRIDE ACCEPTED: Synthetic ratio {:.1}% exceeds cap of {:.1}%. \
+                 Training will proceed with elevated synthetic data. \
+                 This may affect model quality and generalization.",
+                ratio * 100.0,
+                config.ratio_cap * 100.0
+            ),
+        }
+    } else {
+        // Exceeds cap without override - block
+        SyntheticRatioValidationResult {
+            ratio,
+            cap: config.ratio_cap,
+            status: "block".to_string(),
+            override_requested,
+            override_accepted: false,
+            message: format!(
+                "Synthetic ratio {:.1}% exceeds maximum allowed cap of {:.1}%. \
+                 Request an explicit override to proceed with training.",
+                ratio * 100.0,
+                config.ratio_cap * 100.0
+            ),
+        }
+    }
+}
+
+/// Calculate the synthetic data ratio from dataset metadata.
+///
+/// # Arguments
+/// * `source_type` - Dataset source type (e.g., "generated", "code_repo", "uploaded_files")
+/// * `synthetic_mode` - Whether the training is in synthetic mode
+/// * `metadata` - Optional dataset metadata JSON that may contain synthetic sample counts
+///
+/// # Returns
+/// A tuple of (synthetic_count, total_count) for ratio calculation.
+pub fn extract_synthetic_counts(
+    source_type: Option<&str>,
+    synthetic_mode: bool,
+    metadata: Option<&serde_json::Value>,
+) -> (u64, u64) {
+    // If in full synthetic mode, the entire dataset is synthetic
+    if synthetic_mode {
+        // Check metadata for sample count, default to 1 if not specified
+        let total = metadata
+            .and_then(|m| m.get("sample_count"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(1);
+        return (total, total);
+    }
+
+    // Check source type
+    let is_generated = source_type
+        .map(|s| s.eq_ignore_ascii_case("generated") || s.eq_ignore_ascii_case("synthetic"))
+        .unwrap_or(false);
+
+    if is_generated {
+        // Entire dataset is generated/synthetic
+        let total = metadata
+            .and_then(|m| m.get("sample_count"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(1);
+        return (total, total);
+    }
+
+    // Check metadata for explicit synthetic counts
+    if let Some(meta) = metadata {
+        let synthetic_count = meta
+            .get("synthetic_sample_count")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let total_count = meta
+            .get("sample_count")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(1);
+        return (synthetic_count, total_count);
+    }
+
+    // No synthetic data detected
+    (0, 1)
+}
+
 /// Derive the overall safety status from individual signals.
 ///
 /// Priority: block > warn > unknown > clean
@@ -435,6 +665,8 @@ pub fn evaluate_dataset_safety(
             leak_status: leak_status.to_string(),
             anomaly_status: anomaly_status.to_string(),
             overall_safety,
+            synthetic_ratio_status: None,
+            synthetic_ratio: None,
         },
         blocking_reasons,
         warnings,
@@ -1504,6 +1736,8 @@ pub async fn get_dataset_version_safety_history(
         leak_status: version.leak_status,
         anomaly_status: version.anomaly_status,
         overall_safety,
+        synthetic_ratio_status: None,
+        synthetic_ratio: None,
     };
 
     info!(
@@ -1648,6 +1882,8 @@ pub async fn get_dataset_safety_history(
         leak_status: version.leak_status,
         anomaly_status: version.anomaly_status,
         overall_safety,
+        synthetic_ratio_status: None,
+        synthetic_ratio: None,
     };
 
     info!(
@@ -2028,5 +2264,219 @@ mod safety_validation_tests {
         assert!(json.contains("is_safe"));
         assert!(json.contains("trust_state"));
         assert!(json.contains("safety_signals"));
+    }
+
+    // -------------------------------------------------------------------------
+    // Synthetic Ratio Validation Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_validate_synthetic_ratio_clean_below_warning_threshold() {
+        let config = SyntheticRatioConfig::default();
+        // 30% synthetic (below 40% warning threshold)
+        let result = validate_synthetic_ratio(30, 100, &config, false);
+
+        assert_eq!(result.status, "clean");
+        assert!(!result.override_accepted);
+        assert!((result.ratio - 0.3).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_validate_synthetic_ratio_warn_approaching_cap() {
+        let config = SyntheticRatioConfig::default();
+        // 45% synthetic (above 40% warning threshold, below 50% cap)
+        let result = validate_synthetic_ratio(45, 100, &config, false);
+
+        assert_eq!(result.status, "warn");
+        assert!(!result.override_accepted);
+        assert!(result.message.contains("approaching"));
+    }
+
+    #[test]
+    fn test_validate_synthetic_ratio_block_exceeds_cap() {
+        let config = SyntheticRatioConfig::default();
+        // 60% synthetic (above 50% cap)
+        let result = validate_synthetic_ratio(60, 100, &config, false);
+
+        assert_eq!(result.status, "block");
+        assert!(!result.override_accepted);
+        assert!(result.message.contains("exceeds"));
+    }
+
+    #[test]
+    fn test_validate_synthetic_ratio_override_accepted() {
+        let config = SyntheticRatioConfig::default();
+        // 60% synthetic (above 50% cap) with override requested
+        let result = validate_synthetic_ratio(60, 100, &config, true);
+
+        assert_eq!(result.status, "warn"); // Not block when override accepted
+        assert!(result.override_requested);
+        assert!(result.override_accepted);
+        assert!(result.message.contains("OVERRIDE ACCEPTED"));
+    }
+
+    #[test]
+    fn test_validate_synthetic_ratio_override_not_allowed() {
+        let config = SyntheticRatioConfig {
+            ratio_cap: 0.5,
+            enabled: true,
+            allow_override: false, // Override not allowed
+        };
+        // 60% synthetic with override requested but not allowed
+        let result = validate_synthetic_ratio(60, 100, &config, true);
+
+        assert_eq!(result.status, "block"); // Still blocked
+        assert!(result.override_requested);
+        assert!(!result.override_accepted);
+    }
+
+    #[test]
+    fn test_validate_synthetic_ratio_guardrail_disabled() {
+        let config = SyntheticRatioConfig {
+            ratio_cap: 0.5,
+            enabled: false, // Guardrail disabled
+            allow_override: true,
+        };
+        // 90% synthetic but guardrails disabled
+        let result = validate_synthetic_ratio(90, 100, &config, false);
+
+        assert_eq!(result.status, "clean");
+        assert!(result.message.contains("disabled"));
+    }
+
+    #[test]
+    fn test_validate_synthetic_ratio_empty_dataset() {
+        let config = SyntheticRatioConfig::default();
+        let result = validate_synthetic_ratio(0, 0, &config, false);
+
+        assert_eq!(result.status, "clean");
+        assert!((result.ratio - 0.0).abs() < f64::EPSILON);
+        assert!(result.message.contains("empty"));
+    }
+
+    #[test]
+    fn test_validate_synthetic_ratio_custom_cap() {
+        let config = SyntheticRatioConfig {
+            ratio_cap: 0.3, // 30% cap
+            enabled: true,
+            allow_override: true,
+        };
+        // 35% synthetic (above 30% cap)
+        let result = validate_synthetic_ratio(35, 100, &config, false);
+
+        assert_eq!(result.status, "block");
+        assert!((result.cap - 0.3).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_validate_synthetic_ratio_100_percent_synthetic() {
+        let config = SyntheticRatioConfig::default();
+        // 100% synthetic
+        let result = validate_synthetic_ratio(100, 100, &config, false);
+
+        assert_eq!(result.status, "block");
+        assert!((result.ratio - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_validate_synthetic_ratio_exactly_at_cap() {
+        let config = SyntheticRatioConfig::default();
+        // Exactly at 50% cap
+        let result = validate_synthetic_ratio(50, 100, &config, false);
+
+        // At cap should be warn (approaching limit), not block
+        assert_eq!(result.status, "warn");
+    }
+
+    #[test]
+    fn test_extract_synthetic_counts_synthetic_mode() {
+        let (synthetic, total) = extract_synthetic_counts(None, true, None);
+        assert_eq!(synthetic, 1);
+        assert_eq!(total, 1);
+
+        // With metadata containing sample count
+        let metadata = serde_json::json!({ "sample_count": 500 });
+        let (synthetic, total) = extract_synthetic_counts(None, true, Some(&metadata));
+        assert_eq!(synthetic, 500);
+        assert_eq!(total, 500);
+    }
+
+    #[test]
+    fn test_extract_synthetic_counts_generated_source_type() {
+        let (synthetic, total) = extract_synthetic_counts(Some("generated"), false, None);
+        assert_eq!(synthetic, 1);
+        assert_eq!(total, 1);
+
+        // Also test "synthetic" alias
+        let (synthetic, total) = extract_synthetic_counts(Some("synthetic"), false, None);
+        assert_eq!(synthetic, 1);
+        assert_eq!(total, 1);
+    }
+
+    #[test]
+    fn test_extract_synthetic_counts_explicit_metadata() {
+        let metadata = serde_json::json!({
+            "sample_count": 1000,
+            "synthetic_sample_count": 300
+        });
+        let (synthetic, total) =
+            extract_synthetic_counts(Some("uploaded_files"), false, Some(&metadata));
+
+        assert_eq!(synthetic, 300);
+        assert_eq!(total, 1000);
+    }
+
+    #[test]
+    fn test_extract_synthetic_counts_no_synthetic_data() {
+        let (synthetic, total) = extract_synthetic_counts(Some("code_repo"), false, None);
+        assert_eq!(synthetic, 0);
+        assert_eq!(total, 1);
+    }
+
+    #[test]
+    fn test_synthetic_ratio_config_default() {
+        let config = SyntheticRatioConfig::default();
+        assert!((config.ratio_cap - DEFAULT_SYNTHETIC_RATIO_CAP).abs() < f64::EPSILON);
+        assert!(config.enabled);
+        assert!(config.allow_override);
+    }
+
+    #[test]
+    fn test_synthetic_ratio_validation_result_serialization() {
+        let result = SyntheticRatioValidationResult {
+            ratio: 0.6,
+            cap: 0.5,
+            status: "block".to_string(),
+            override_requested: false,
+            override_accepted: false,
+            message: "Synthetic ratio 60.0% exceeds maximum allowed cap of 50.0%.".to_string(),
+        };
+
+        let json = serde_json::to_string(&result).expect("Should serialize");
+        assert!(json.contains("ratio"));
+        assert!(json.contains("cap"));
+        assert!(json.contains("status"));
+        assert!(json.contains("override_requested"));
+    }
+
+    #[test]
+    fn test_safety_signals_with_synthetic_ratio() {
+        let signals = SafetySignals {
+            pii_status: "clean".to_string(),
+            toxicity_status: "clean".to_string(),
+            leak_status: "clean".to_string(),
+            anomaly_status: "clean".to_string(),
+            overall_safety: "warn".to_string(),
+            synthetic_ratio_status: Some("warn".to_string()),
+            synthetic_ratio: Some(0.45),
+        };
+
+        assert_eq!(signals.synthetic_ratio_status, Some("warn".to_string()));
+        assert_eq!(signals.synthetic_ratio, Some(0.45));
+
+        // Test serialization includes new fields
+        let json = serde_json::to_string(&signals).expect("Should serialize");
+        assert!(json.contains("synthetic_ratio_status"));
+        assert!(json.contains("synthetic_ratio"));
     }
 }
