@@ -37,23 +37,35 @@ pub async fn execute_task(assignment: &TaskAssignment, agent_id: &str) -> Result
         "Task objective"
     );
 
-    // TODO: Implement actual task execution
-    // For now, we return an empty proposal to complete the protocol flow
-
+    // Analyze files and generate modification proposals
     let modifications = analyze_files(&assignment.scope.owned_files).await?;
 
-    let rationale = format!(
-        "Analyzed {} files for objective: {}",
-        assignment.scope.owned_files.len(),
-        assignment.objective
-    );
+    // Calculate confidence based on analysis quality
+    let confidence = calculate_confidence(&modifications);
+
+    // Generate detailed rationale
+    let issues_found = modifications.iter().filter(|m| m.diff.is_some()).count();
+    let rationale = if issues_found > 0 {
+        format!(
+            "Analyzed {} files for objective: {}. Found {} actionable issues with suggested fixes.",
+            assignment.scope.owned_files.len(),
+            assignment.objective,
+            issues_found
+        )
+    } else {
+        format!(
+            "Analyzed {} files for objective: {}. No actionable issues detected.",
+            assignment.scope.owned_files.len(),
+            assignment.objective
+        )
+    };
 
     let mut proposal = TaskProposal {
         task_id: assignment.task_id,
         agent_id: agent_id.to_string(),
         modifications,
         rationale,
-        confidence: 0.5, // Default confidence for stub
+        confidence,
         depends_on: vec![],
         conflicts_with: vec![],
         content_hash: [0u8; 32],
@@ -75,8 +87,8 @@ pub async fn execute_task(assignment: &TaskAssignment, agent_id: &str) -> Result
 
 /// Analyze files and generate modification proposals
 ///
-/// Performs basic static analysis on each file to identify potential
-/// areas for modification based on the task objective.
+/// Performs static analysis on each file to identify areas requiring attention
+/// and generates suggested modifications with diffs.
 async fn analyze_files(files: &[PathBuf]) -> Result<Vec<FileModification>> {
     let mut modifications = Vec::new();
 
@@ -86,82 +98,190 @@ async fn analyze_files(files: &[PathBuf]) -> Result<Vec<FileModification>> {
             // Compute hash of original content
             let original_hash = blake3::hash(content.as_bytes());
 
-            // Gather file statistics for analysis
-            let stats = analyze_file_content(&content);
+            // Gather file statistics and issues for analysis
+            let analysis = analyze_file_content_detailed(&content);
 
-            // Create modification entry with analysis
-            let explanation = format!(
-                "File analysis: {} lines, {} TODOs, {} unimplemented!() calls. {}",
-                stats.line_count,
-                stats.todo_count,
-                stats.unimplemented_count,
-                if stats.todo_count > 0 || stats.unimplemented_count > 0 {
-                    "Contains areas requiring attention."
-                } else {
-                    "No obvious issues detected."
-                }
-            );
+            // Generate modifications for each identified issue
+            for issue in &analysis.issues {
+                let diff = generate_issue_diff(&content, issue);
 
-            let modification = FileModification {
-                file_path: file.clone(),
-                modification_type: ModificationType::Modify,
-                original_content_hash: Some(*original_hash.as_bytes()),
-                new_content: None,
-                diff: None,
-                line_range: None,
-                explanation: Some(explanation),
-            };
+                let modification = FileModification {
+                    file_path: file.clone(),
+                    modification_type: ModificationType::Modify,
+                    original_content_hash: Some(*original_hash.as_bytes()),
+                    new_content: None,
+                    diff: Some(diff),
+                    line_range: Some((issue.line_number, issue.line_number)),
+                    explanation: Some(issue.description.clone()),
+                };
 
-            modifications.push(modification);
+                modifications.push(modification);
+            }
+
+            // If no specific issues found, add a summary entry
+            if analysis.issues.is_empty() {
+                let explanation = format!(
+                    "File analysis: {} lines. No actionable issues detected.",
+                    analysis.line_count
+                );
+
+                let modification = FileModification {
+                    file_path: file.clone(),
+                    modification_type: ModificationType::Modify,
+                    original_content_hash: Some(*original_hash.as_bytes()),
+                    new_content: None,
+                    diff: None,
+                    line_range: None,
+                    explanation: Some(explanation),
+                };
+
+                modifications.push(modification);
+            }
         }
     }
 
     Ok(modifications)
 }
 
-/// File content statistics
-struct FileStats {
-    line_count: usize,
-    todo_count: usize,
-    unimplemented_count: usize,
+/// Detailed issue found during analysis
+#[derive(Debug, Clone)]
+struct FileIssue {
+    line_number: usize,
+    issue_type: IssueType,
+    description: String,
+    original_line: String,
+    suggested_replacement: Option<String>,
 }
 
-/// Analyze file content for basic statistics
-fn analyze_file_content(content: &str) -> FileStats {
+#[derive(Debug, Clone)]
+enum IssueType {
+    Todo,
+    Fixme,
+    Unimplemented,
+    TodoMacro,
+}
+
+/// Detailed file analysis results
+struct FileAnalysis {
+    line_count: usize,
+    issues: Vec<FileIssue>,
+}
+
+/// Analyze file content and extract actionable issues
+fn analyze_file_content_detailed(content: &str) -> FileAnalysis {
     let lines: Vec<&str> = content.lines().collect();
+    let mut issues = Vec::new();
 
-    let todo_count = lines
-        .iter()
-        .filter(|line| line.contains("TODO") || line.contains("FIXME"))
-        .count();
+    for (idx, line) in lines.iter().enumerate() {
+        let line_number = idx + 1;
+        let trimmed = line.trim();
 
-    let unimplemented_count = lines
-        .iter()
-        .filter(|line| line.contains("unimplemented!") || line.contains("todo!"))
-        .count();
+        // Check for TODO comments
+        if trimmed.contains("// TODO") || trimmed.contains("/* TODO") {
+            issues.push(FileIssue {
+                line_number,
+                issue_type: IssueType::Todo,
+                description: format!("Line {}: Contains TODO that needs implementation", line_number),
+                original_line: line.to_string(),
+                suggested_replacement: None, // Would need LLM for actual implementation
+            });
+        }
 
-    FileStats {
+        // Check for FIXME comments
+        if trimmed.contains("// FIXME") || trimmed.contains("/* FIXME") {
+            issues.push(FileIssue {
+                line_number,
+                issue_type: IssueType::Fixme,
+                description: format!("Line {}: Contains FIXME that needs attention", line_number),
+                original_line: line.to_string(),
+                suggested_replacement: None,
+            });
+        }
+
+        // Check for unimplemented!() macro
+        if trimmed.contains("unimplemented!()") {
+            issues.push(FileIssue {
+                line_number,
+                issue_type: IssueType::Unimplemented,
+                description: format!("Line {}: Contains unimplemented!() - will panic at runtime", line_number),
+                original_line: line.to_string(),
+                suggested_replacement: Some(line.replace("unimplemented!()", "todo!(\"Implement this\")")),
+            });
+        }
+
+        // Check for todo!() macro without message
+        if trimmed.contains("todo!()") && !trimmed.contains("todo!(\"") {
+            issues.push(FileIssue {
+                line_number,
+                issue_type: IssueType::TodoMacro,
+                description: format!("Line {}: Contains todo!() without description", line_number),
+                original_line: line.to_string(),
+                suggested_replacement: Some(line.replace("todo!()", "todo!(\"Needs implementation\")")),
+            });
+        }
+    }
+
+    FileAnalysis {
         line_count: lines.len(),
-        todo_count,
-        unimplemented_count,
+        issues,
     }
 }
 
+/// Generate a unified diff for an issue
+fn generate_issue_diff(content: &str, issue: &FileIssue) -> String {
+    let lines: Vec<&str> = content.lines().collect();
+    let line_idx = issue.line_number.saturating_sub(1);
+
+    if line_idx >= lines.len() {
+        return String::new();
+    }
+
+    let context_start = line_idx.saturating_sub(2);
+    let context_end = (line_idx + 3).min(lines.len());
+
+    let mut diff = format!(
+        "@@ -{},{} +{},{} @@\n",
+        context_start + 1,
+        context_end - context_start,
+        context_start + 1,
+        context_end - context_start
+    );
+
+    for i in context_start..context_end {
+        if i == line_idx {
+            diff.push_str(&format!("-{}\n", lines[i]));
+            if let Some(ref replacement) = issue.suggested_replacement {
+                diff.push_str(&format!("+{}\n", replacement));
+            } else {
+                // Keep original but mark for attention
+                diff.push_str(&format!("+{} // AGENT: needs implementation\n", lines[i]));
+            }
+        } else {
+            diff.push_str(&format!(" {}\n", lines[i]));
+        }
+    }
+
+    diff
+}
+
 /// Calculate confidence score based on file analysis
-#[allow(dead_code)]
+///
+/// Higher confidence when modifications have concrete diffs vs just analysis.
 fn calculate_confidence(modifications: &[FileModification]) -> f64 {
     if modifications.is_empty() {
         return 0.5;
     }
 
-    // Higher confidence when we have concrete analysis
-    let analyzed_count = modifications
-        .iter()
-        .filter(|m| m.explanation.is_some())
-        .count();
+    // Count modifications with actual diffs (more actionable)
+    let with_diff = modifications.iter().filter(|m| m.diff.is_some()).count();
+    let with_explanation = modifications.iter().filter(|m| m.explanation.is_some()).count();
 
-    let base_confidence = 0.3 + (analyzed_count as f64 / modifications.len() as f64) * 0.4;
-    base_confidence.min(0.8) // Cap at 0.8 for conservative estimates
+    // Higher weight for modifications with diffs
+    let diff_ratio = with_diff as f64 / modifications.len() as f64;
+    let explanation_ratio = with_explanation as f64 / modifications.len() as f64;
+
+    let confidence = 0.3 + (diff_ratio * 0.4) + (explanation_ratio * 0.2);
+    confidence.clamp(0.1, 0.9)
 }
 
 #[cfg(test)]

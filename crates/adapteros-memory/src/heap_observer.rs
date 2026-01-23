@@ -573,11 +573,25 @@ impl MetalHeapObserver {
         };
 
         let internal_fragmentation = if total_allocated > 0 {
-            // TODO: Replace this hardcoded estimate with actual free-block tracking via memory allocator hooks
-            // Internal fragmentation: wasted space within allocations (alignment, padding)
-            // Estimate as 15% of allocated space (more realistic for GPU memory patterns with alignment requirements)
-            let estimated_waste = total_allocated as f32 * 0.15;
-            (estimated_waste / total_allocated as f32).clamp(0.0, 1.0)
+            // Estimate internal fragmentation based on allocation size distribution.
+            // Smaller allocations have proportionally higher alignment overhead.
+            // GPU/Metal allocations typically require 16KB or 64KB alignment.
+            let mut estimated_waste: u64 = 0;
+            for alloc in &sorted_allocations {
+                // Alignment overhead estimation based on typical GPU memory requirements:
+                // - Allocations < 4KB: ~50% overhead (minimum 4KB page)
+                // - Allocations 4KB-64KB: ~25% overhead (16KB/64KB alignment)
+                // - Allocations 64KB-1MB: ~10% overhead
+                // - Allocations > 1MB: ~2% overhead (mostly contiguous)
+                let overhead_rate = match alloc.size_bytes {
+                    0..=4095 => 0.50,           // Very small: high overhead
+                    4096..=65535 => 0.25,       // Small: moderate overhead
+                    65536..=1048575 => 0.10,    // Medium: low overhead
+                    _ => 0.02,                   // Large: minimal overhead
+                };
+                estimated_waste += (alloc.size_bytes as f64 * overhead_rate) as u64;
+            }
+            (estimated_waste as f32 / total_allocated as f32).clamp(0.0, 1.0)
         } else {
             0.0
         };
@@ -687,9 +701,18 @@ impl MetalHeapObserver {
         };
 
         let internal_fragmentation = if total_allocated > 0 {
-            // TODO: Replace this hardcoded estimate with actual free-block tracking via memory allocator hooks
-            // Estimate as 15% of allocated space (more realistic for GPU memory patterns with alignment requirements)
-            (total_allocated as f32 * 0.15 / total_allocated as f32).clamp(0.0, 1.0)
+            // Estimate based on allocation size distribution (see calculate_fragmentation for rationale)
+            let mut estimated_waste: u64 = 0;
+            for alloc in &sorted_allocations {
+                let overhead_rate = match alloc.size_bytes {
+                    0..=4095 => 0.50,
+                    4096..=65535 => 0.25,
+                    65536..=1048575 => 0.10,
+                    _ => 0.02,
+                };
+                estimated_waste += (alloc.size_bytes as f64 * overhead_rate) as u64;
+            }
+            (estimated_waste as f32 / total_allocated as f32).clamp(0.0, 1.0)
         } else {
             0.0
         };

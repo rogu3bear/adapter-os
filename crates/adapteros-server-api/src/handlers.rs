@@ -2596,9 +2596,14 @@ pub async fn get_system_metrics(
         }
     };
 
-    // Tokens per second would come from inference telemetry - use 0.0 as default
-    // TODO: Track actual tokens/sec from inference endpoints
-    let tokens_per_second: f32 = 0.0;
+    // Compute tokens/sec from recent inference trace receipts (last 1 minute)
+    let tokens_per_second: f32 = sqlx::query_scalar::<_, i64>(
+        "SELECT COALESCE(SUM(logical_output_tokens), 0) FROM inference_trace_receipts WHERE created_at > datetime('now', '-1 minute')",
+    )
+    .fetch_one(state.db.pool())
+    .await
+    .map(|tokens| tokens as f32 / 60.0)
+    .unwrap_or(0.0);
 
     // Calculate p95 latency
     let latency_p95_ms = sqlx::query_scalar::<_, Option<f64>>(
