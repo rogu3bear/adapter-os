@@ -3,6 +3,9 @@
 //! Ensures training jobs never get stuck in "Running" state on error by
 //! automatically transitioning to terminal states on drop.
 //!
+//! NOTE: This guard is not wired into the default training execution flow.
+//! Use it explicitly where DB state hardening is required.
+//!
 //! # Usage Pattern
 //!
 //! ```ignore

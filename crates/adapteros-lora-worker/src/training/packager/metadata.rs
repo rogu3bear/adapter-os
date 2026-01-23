@@ -43,6 +43,14 @@ pub(crate) struct ManifestFieldsExtract {
     pub recommended_for_moe: bool,
     pub stream_mode: Option<bool>,
     pub scope_meta: ScopeMetadataExtract,
+    /// BLAKE3 hash of the tokenizer.json file (from metadata).
+    pub tokenizer_hash: Option<String>,
+    /// Primary dataset identifier (from metadata).
+    pub dataset_id: Option<String>,
+    /// BLAKE3 hash of the primary dataset content (from metadata).
+    pub dataset_hash: Option<String>,
+    /// BLAKE3 hash of the training configuration (from metadata).
+    pub training_config_hash: Option<String>,
 }
 
 pub(crate) fn default_determinism_mode() -> String {
@@ -362,6 +370,12 @@ pub(crate) fn extract_manifest_fields(metadata: &HashMap<String, String>) -> Man
 
     let scope_meta = extract_scope_metadata(metadata);
 
+    // Extract integrity/provenance fields from metadata
+    let tokenizer_hash = metadata.get("tokenizer_hash_b3").cloned();
+    let dataset_id = metadata.get("dataset_id").cloned();
+    let dataset_hash = metadata.get("dataset_hash_b3").cloned();
+    let training_config_hash = metadata.get("training_config_hash").cloned();
+
     ManifestFieldsExtract {
         lora_tier,
         lora_strength,
@@ -376,6 +390,10 @@ pub(crate) fn extract_manifest_fields(metadata: &HashMap<String, String>) -> Man
         recommended_for_moe,
         stream_mode,
         scope_meta,
+        tokenizer_hash,
+        dataset_id,
+        dataset_hash,
+        training_config_hash,
     }
 }
 

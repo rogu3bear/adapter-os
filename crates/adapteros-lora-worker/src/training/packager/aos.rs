@@ -380,12 +380,12 @@ impl super::types::AdapterPackager {
             session_name: fields.scope_meta.session_name,
             session_tags: fields.scope_meta.session_tags,
             stream_mode: fields.stream_mode,
-            // New integrity fields for provenance tracking
-            training_config_hash: None, // TODO: Compute from training config when available
-            tokenizer_hash: None,       // TODO: Pass from caller when tokenizer is loaded
-            dataset_id: None,           // TODO: Pass from caller when dataset is known
-            dataset_hash: None,         // TODO: Pass from caller when dataset hash is computed
-            integrity_hash: None,       // Computed below via seal_integrity()
+            // Integrity fields for provenance tracking (extracted from metadata)
+            training_config_hash: fields.training_config_hash.clone(),
+            tokenizer_hash: fields.tokenizer_hash.clone(),
+            dataset_id: fields.dataset_id.clone(),
+            dataset_hash: fields.dataset_hash.clone(),
+            integrity_hash: None, // Computed below via seal_integrity()
             metadata,
         };
 
@@ -549,12 +549,12 @@ impl super::types::AdapterPackager {
             session_name: fields.scope_meta.session_name,
             session_tags: fields.scope_meta.session_tags,
             stream_mode: fields.stream_mode,
-            // New integrity fields for provenance tracking
-            training_config_hash: None, // TODO: Compute from training config when available
-            tokenizer_hash: None,       // TODO: Pass from caller when tokenizer is loaded
-            dataset_id: None,           // TODO: Pass from caller when dataset is known
-            dataset_hash: None,         // TODO: Pass from caller when dataset hash is computed
-            integrity_hash: None,       // Computed below via seal_integrity()
+            // Integrity fields for provenance tracking (extracted from metadata)
+            training_config_hash: fields.training_config_hash.clone(),
+            tokenizer_hash: fields.tokenizer_hash.clone(),
+            dataset_id: fields.dataset_id.clone(),
+            dataset_hash: fields.dataset_hash.clone(),
+            integrity_hash: None, // Computed below via seal_integrity()
             metadata,
         };
 

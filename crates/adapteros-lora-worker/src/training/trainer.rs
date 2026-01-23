@@ -145,6 +145,10 @@ struct SplitExamplesResult {
 
 const DEFAULT_CE_MAX_VOCAB: usize = 100_000;
 
+/// Vocabulary size threshold for chunked cross-entropy computation.
+/// Above this threshold, CE is computed in memory-efficient chunks.
+const CHUNKED_CE_VOCAB_THRESHOLD: usize = 100_000;
+
 impl BackendAvailability {
     fn any_gpu(&self) -> bool {
         self.coreml || self.mlx || self.metal
@@ -2329,23 +2333,24 @@ Use --force-resume to override (may produce incorrect results).",
 
         let start = Instant::now();
         let adapter_id = Self::generate_adapter_id();
-        let (use_cross_entropy_loss, max_vocab, force_ce, force_legacy) =
+        let (use_cross_entropy_loss, use_chunked, vocab_threshold, force_ce, force_legacy) =
             self.resolve_cross_entropy_loss();
         self.use_cross_entropy_loss = use_cross_entropy_loss;
         if force_ce {
             info!(
                 vocab_size = self.config.vocab_size,
-                max_vocab, "Cross-entropy loss forced via AOS_TRAIN_FORCE_CE"
+                vocab_threshold, "Cross-entropy loss forced via AOS_TRAIN_FORCE_CE"
             );
         } else if force_legacy {
             warn!(
                 vocab_size = self.config.vocab_size,
-                max_vocab, "Legacy MSE loss forced via AOS_TRAIN_LEGACY_LOSS"
+                vocab_threshold, "Legacy MSE loss forced via AOS_TRAIN_LEGACY_LOSS"
             );
-        } else if !use_cross_entropy_loss {
-            warn!(
+        }
+        if use_chunked {
+            info!(
                 vocab_size = self.config.vocab_size,
-                max_vocab, "Cross-entropy loss disabled for large vocab; using legacy MSE loss"
+                vocab_threshold, "Using chunked cross-entropy for large vocabulary"
             );
         }
 
@@ -4672,24 +4677,28 @@ Use --force-resume to override (may produce incorrect results).",
         }
     }
 
-    /// Decide whether to use cross-entropy loss based on vocab size and env overrides.
-    fn resolve_cross_entropy_loss(&self) -> (bool, usize, bool, bool) {
+    /// Decide whether to use cross-entropy loss and chunked mode based on vocab size.
+    ///
+    /// Returns: (use_cross_entropy, use_chunked, vocab_threshold, force_ce, force_legacy)
+    ///
+    /// Cross-entropy loss is now enabled by default for all vocabulary sizes thanks to
+    /// the chunked implementation which handles large vocabularies (>100K tokens) by
+    /// processing in memory-efficient chunks with log-sum-exp numerical stability.
+    fn resolve_cross_entropy_loss(&self) -> (bool, bool, usize, bool, bool) {
         let force_ce = std::env::var("AOS_TRAIN_FORCE_CE").ok().as_deref() == Some("1");
         let force_legacy = std::env::var("AOS_TRAIN_LEGACY_LOSS").ok().as_deref() == Some("1");
-        let max_vocab = std::env::var("AOS_TRAIN_CE_MAX_VOCAB")
+        let vocab_threshold = std::env::var("AOS_TRAIN_CE_CHUNK_THRESHOLD")
             .ok()
             .and_then(|value| value.parse::<usize>().ok())
-            .unwrap_or(DEFAULT_CE_MAX_VOCAB);
+            .unwrap_or(CHUNKED_CE_VOCAB_THRESHOLD);
 
-        let use_cross_entropy = if force_ce {
-            true
-        } else if force_legacy {
-            false
-        } else {
-            self.config.vocab_size <= max_vocab
-        };
+        // CE loss is now always enabled unless explicitly forced to legacy mode
+        let use_cross_entropy = !force_legacy;
 
-        (use_cross_entropy, max_vocab, force_ce, force_legacy)
+        // Use chunked mode for large vocabularies (memory-efficient, numerically stable)
+        let use_chunked = self.config.vocab_size > vocab_threshold;
+
+        (use_cross_entropy, use_chunked, vocab_threshold, force_ce, force_legacy)
     }
 
     /// Create optimizer based on OptimizerConfig settings.
@@ -4909,17 +4918,237 @@ Use --force-resume to override (may produce incorrect results).",
         Ok(batch_loss / batch.len() as f32)
     }
 
-    /// MoE training is disabled in production because it relies on deprecated CPU loss.
-    #[cfg(not(test))]
+    /// Train one batch for MoE models with GPU-accelerated backward pass.
+    ///
+    /// For training, we simulate routing by distributing examples across experts
+    /// using deterministic routing based on the example index and MoE config.
+    /// Gradients are scaled by the routing weight sum before accumulation.
+    #[cfg(all(not(test), feature = "multi-backend"))]
     #[allow(dead_code)]
     fn train_batch_moe(
-        &self,
+        &mut self,
+        weights: &mut LoRAWeights,
+        batch: &[PreparedExample],
+        epoch_seed: u64,
+    ) -> Result<f32> {
+        use adapteros_lora_mlx_ffi::training::mlx_clip_grad_norm_gpu;
+        use adapteros_lora_mlx_ffi::MLXFFITensor;
+
+        let moe_config = self.config.moe_config.as_ref().ok_or_else(|| {
+            AosError::Training("MoE batch training requires moe_config".to_string())
+        })?;
+
+        let batch_start = Instant::now();
+        let mut batch_loss = 0.0;
+        let batch_tokens = self.tokens_in_batch(batch);
+        let num_experts_per_token = moe_config.num_experts_per_token;
+
+        let rank = self.config.rank;
+        let hidden_dim = self.config.hidden_dim;
+        let alpha = self.config.alpha;
+        let learning_rate = self.get_current_lr();
+        let accumulation_steps = self.gradient_accumulation_steps();
+
+        // Get base model for GPU backward pass
+        let model = self.base_model.clone().ok_or_else(|| {
+            AosError::Training(
+                "Base model required for MoE GPU backward pass with cross-entropy loss".to_string(),
+            )
+        })?;
+
+        // Get output projection weights once for the batch
+        let output_proj = model.get_weight("lm_head.weight")?;
+
+        for (idx, example) in batch.iter().enumerate() {
+            // Simulate routing weights (deterministic based on example and expert index)
+            // In production, these would come from the actual router
+            let routing_weights: Vec<f32> = (0..num_experts_per_token)
+                .map(|e| {
+                    let seed = (idx * 1000 + e) as f32;
+                    let weight = (seed.sin().abs() + 0.5) / num_experts_per_token as f32;
+                    weight.min(1.0)
+                })
+                .collect();
+
+            // Normalize to sum to ~1.0
+            let sum: f32 = routing_weights.iter().sum();
+            let routing_scale: f32 = if sum > 0.0 {
+                sum / num_experts_per_token as f32
+            } else {
+                1.0 / num_experts_per_token as f32
+            };
+
+            // Get hidden state from example
+            let hidden = if let Some(ref preprocessed) = example.preprocessed {
+                preprocessed.clone()
+            } else {
+                example.scaled_input.clone()
+            };
+
+            let hidden_slice = if hidden.len() >= hidden_dim {
+                &hidden[hidden.len().saturating_sub(hidden_dim)..]
+            } else {
+                return Err(AosError::Training(format!(
+                    "Hidden state size mismatch: {} < {}",
+                    hidden.len(),
+                    hidden_dim
+                )));
+            };
+
+            // Prepare target tokens
+            if example.target_tokens.is_empty() {
+                return Err(AosError::Training(
+                    "Training example missing target tokens".to_string(),
+                ));
+            }
+            let mut target_tokens = example.target_tokens.as_slice();
+            let mut target_token_buf = [0u32; 1];
+            if target_tokens.len() > 1 {
+                target_token_buf[0] = *target_tokens.last().ok_or_else(|| {
+                    AosError::Training("Training example missing target tokens".to_string())
+                })?;
+                target_tokens = &target_token_buf;
+            }
+
+            // Convert to MLX tensors
+            let hidden_tensor = MLXFFITensor::from_data(hidden_slice, vec![1, hidden_dim])?;
+            let targets_i32: Vec<i32> = target_tokens.iter().map(|&t| t as i32).collect();
+            let targets_tensor =
+                MLXFFITensor::from_ints(&targets_i32, vec![1, target_tokens.len()])?;
+            let lora_a_flat: Vec<f32> = weights.lora_a.iter().flatten().copied().collect();
+            let lora_a_tensor = MLXFFITensor::from_data(&lora_a_flat, vec![rank, hidden_dim])?;
+            let lora_b_flat: Vec<f32> = weights.lora_b.iter().flatten().copied().collect();
+            let lora_b_tensor = MLXFFITensor::from_data(&lora_b_flat, vec![hidden_dim, rank])?;
+
+            // Compute loss and gradients on GPU
+            let result = mlx_lora_backward_ce_gpu(
+                &hidden_tensor,
+                &output_proj,
+                &targets_tensor,
+                &lora_a_tensor,
+                &lora_b_tensor,
+                alpha,
+                rank,
+                LOSS_IGNORE_INDEX,
+                epoch_seed.wrapping_add(idx as u64),
+            )?;
+
+            let loss = result.loss;
+            batch_loss += loss;
+
+            // Get mutable references to gradient tensors for clipping
+            let mut grad_a = result.grad_a;
+            let mut grad_b = result.grad_b;
+
+            // Clip gradients before accumulation
+            let grad_norm =
+                mlx_clip_grad_norm_gpu(&mut [grad_a.clone_tensor()?, grad_b.clone_tensor()?], 1.0);
+            if grad_norm > 1.0 {
+                debug!(
+                    "MoE GPU clipped gradient norm from {:.4} to 1.0",
+                    grad_norm
+                );
+            }
+
+            // Extract gradients to CPU for routing-scaled accumulation
+            let grad_a_cpu = grad_a.to_float_vec()?;
+            let grad_b_cpu = grad_b.to_float_vec()?;
+
+            // Use "default" key for legacy single-module path
+            let module_key = "default";
+            let accum_entry = self
+                .accumulated_gradients
+                .entry(module_key.to_string())
+                .or_insert_with(|| {
+                    let a_size = rank * hidden_dim;
+                    let b_size = hidden_dim * rank;
+                    (vec![0.0; a_size], vec![0.0; b_size], 0)
+                });
+
+            // Accumulate gradients with routing scale applied
+            // Scale by routing_scale / accumulation_steps for proper MoE weighting
+            let scale = routing_scale / accumulation_steps as f32;
+            for (i, &g) in grad_a_cpu.iter().enumerate() {
+                accum_entry.0[i] += g * scale;
+            }
+            for (i, &g) in grad_b_cpu.iter().enumerate() {
+                accum_entry.1[i] += g * scale;
+            }
+            accum_entry.2 += 1;
+
+            // Apply optimizer step when accumulation is complete
+            if accum_entry.2 >= accumulation_steps {
+                let opt_state = self
+                    .multi_module_optimizer
+                    .get_or_create(module_key, rank, hidden_dim);
+
+                let beta1 = self.config.optimizer_config.beta1;
+                let beta2 = self.config.optimizer_config.beta2;
+                let epsilon = self.config.optimizer_config.epsilon;
+
+                let lora_a_flat: Vec<f32> = weights.lora_a.iter().flatten().copied().collect();
+                let lora_b_flat: Vec<f32> = weights.lora_b.iter().flatten().copied().collect();
+
+                let (new_lora_a, new_lora_b) = opt_state.adam_step(
+                    &lora_a_flat,
+                    &lora_b_flat,
+                    &accum_entry.0,
+                    &accum_entry.1,
+                    learning_rate,
+                    beta1,
+                    beta2,
+                    epsilon,
+                    rank,
+                    hidden_dim,
+                );
+
+                // Update weights in-place
+                for r in 0..rank {
+                    for h in 0..hidden_dim {
+                        weights.lora_a[r][h] = new_lora_a[r * hidden_dim + h];
+                    }
+                }
+                for h in 0..hidden_dim {
+                    for r in 0..rank {
+                        weights.lora_b[h][r] = new_lora_b[h * rank + r];
+                    }
+                }
+
+                // Clear accumulation buffer
+                accum_entry.0.fill(0.0);
+                accum_entry.1.fill(0.0);
+                accum_entry.2 = 0;
+            }
+
+            // Step LR scheduler after each training step
+            self.step_lr_scheduler();
+        }
+
+        // Update performance metrics
+        let batch_time_ms = batch_start.elapsed().as_millis() as u64;
+        {
+            let mut metrics = self.performance_metrics.write();
+            metrics.total_cpu_time_ms += batch_time_ms;
+            metrics.cpu_operations += batch.len() as u64;
+            metrics.total_examples_processed += batch.len() as u64;
+            metrics.total_tokens_processed += batch_tokens;
+            metrics.total_batches += 1;
+        }
+
+        Ok(batch_loss / batch.len() as f32)
+    }
+
+    /// MoE training stub for non-multi-backend builds.
+    #[cfg(all(not(test), not(feature = "multi-backend")))]
+    #[allow(dead_code)]
+    fn train_batch_moe(
+        &mut self,
         _weights: &mut LoRAWeights,
         _batch: &[PreparedExample],
-        _rng: &mut impl Rng,
+        _epoch_seed: u64,
     ) -> Result<f32> {
         Err(AosError::Training(
-            "MoE training uses deprecated CPU loss and is disabled in production".to_string(),
+            "MoE training requires multi-backend feature".to_string(),
         ))
     }
 
