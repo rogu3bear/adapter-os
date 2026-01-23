@@ -146,10 +146,115 @@ async fn export_air_gap(file: &Path) -> Result<()> {
     println!("   File: {}", file.display());
     println!();
 
-    // Use replication module to create export bundle
-    println!("⚠ Air-gap export not yet implemented");
-    println!("   {}", NOT_IMPLEMENTED_MESSAGE);
-    Err(anyhow::anyhow!(NOT_IMPLEMENTED_MESSAGE))
+    // Connect to database and get all adapters
+    let db = adapteros_db::Db::connect_env().await?;
+    let adapters = db.list_all_adapters_system().await?;
+
+    if adapters.is_empty() {
+        println!("No adapters found to export");
+        return Ok(());
+    }
+
+    println!("Found {} adapters to export", adapters.len());
+
+    // Initialize CAS store
+    let cas_store = adapteros_artifacts::CasStore::new("./var/cas")?;
+
+    // Build manifest with actual artifact data
+    let mut artifacts: Vec<ArtifactInfo> = Vec::new();
+    let mut artifact_data: Vec<(String, Vec<u8>)> = Vec::new();
+
+    for adapter in &adapters {
+        let hash = B3Hash::hash(adapter.id.as_bytes());
+
+        // Try to load artifact from CAS
+        match cas_store.load("adapter", &hash) {
+            Ok(data) => {
+                println!("  ✓ {} ({} bytes)", adapter.id, data.len());
+                artifacts.push(ArtifactInfo {
+                    adapter_id: adapter.id.clone(),
+                    hash: hash.to_hex(),
+                    size_bytes: data.len() as u64,
+                });
+                artifact_data.push((adapter.id.clone(), data));
+            }
+            Err(_) => {
+                println!("  - {} (not in CAS, skipping)", adapter.id);
+            }
+        }
+    }
+
+    if artifacts.is_empty() {
+        println!("\nNo artifacts found in CAS store");
+        return Ok(());
+    }
+
+    // Create manifest
+    let session_id = uuid::Uuid::new_v4().to_string();
+    let manifest_content = serde_json::json!({
+        "session_id": session_id,
+        "artifacts": artifacts,
+        "created_at": chrono::Utc::now().to_rfc3339(),
+        "version": "1.0",
+    });
+    let manifest_bytes = serde_json::to_vec_pretty(&manifest_content)?;
+
+    // Sign manifest
+    let signature = {
+        let keypair = adapteros_crypto::Keypair::generate();
+        let sig = keypair.sign(&manifest_bytes);
+        hex::encode(sig.to_bytes())
+    };
+
+    let manifest = ReplicationManifest {
+        session_id,
+        artifacts,
+        signature,
+    };
+
+    // Create tar.zst archive
+    println!("\nCreating archive...");
+    let output_file = std::fs::File::create(file)?;
+    let encoder = zstd::stream::Encoder::new(output_file, 3)?;
+    let mut tar_builder = tar::Builder::new(encoder);
+
+    // Add manifest
+    let manifest_json = serde_json::to_vec_pretty(&manifest)?;
+    let mut header = tar::Header::new_gnu();
+    header.set_path("manifest.json")?;
+    header.set_size(manifest_json.len() as u64);
+    header.set_mode(0o644);
+    header.set_mtime(std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs());
+    header.set_cksum();
+    tar_builder.append(&header, manifest_json.as_slice())?;
+
+    // Add artifacts
+    for (adapter_id, data) in &artifact_data {
+        let path = format!("artifacts/{}.bin", adapter_id);
+        let mut header = tar::Header::new_gnu();
+        header.set_path(&path)?;
+        header.set_size(data.len() as u64);
+        header.set_mode(0o644);
+        header.set_mtime(std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs());
+        header.set_cksum();
+        tar_builder.append(&header, data.as_slice())?;
+    }
+
+    // Finalize archive
+    let encoder = tar_builder.into_inner()?;
+    encoder.finish()?;
+
+    let file_size = std::fs::metadata(file)?.len();
+    println!("\n✓ Export complete: {} ({} bytes)", file.display(), file_size);
+    println!("  Artifacts: {}", artifact_data.len());
+
+    Ok(())
 }
 
 /// Import adapters from air-gap bundle
@@ -163,9 +268,71 @@ async fn import_air_gap(file: &Path) -> Result<()> {
         return Err(anyhow::anyhow!("Bundle file not found: {}", file.display()));
     }
 
-    println!("⚠ Air-gap import not yet implemented");
-    println!("   {}", NOT_IMPLEMENTED_MESSAGE);
-    Err(anyhow::anyhow!(NOT_IMPLEMENTED_MESSAGE))
+    // Open and decompress archive
+    println!("Reading archive...");
+    let input_file = std::fs::File::open(file)?;
+    let decoder = zstd::stream::Decoder::new(input_file)?;
+    let mut archive = tar::Archive::new(decoder);
+
+    // Extract to temp directory
+    let temp_dir = tempfile::tempdir()?;
+    archive.unpack(temp_dir.path())?;
+
+    // Read manifest
+    let manifest_path = temp_dir.path().join("manifest.json");
+    if !manifest_path.exists() {
+        return Err(anyhow::anyhow!("Invalid bundle: manifest.json not found"));
+    }
+
+    let manifest_data = std::fs::read_to_string(&manifest_path)?;
+    let manifest: ReplicationManifest = serde_json::from_str(&manifest_data)
+        .context("Failed to parse manifest")?;
+
+    println!("Bundle contains {} artifacts", manifest.artifacts.len());
+
+    // Initialize CAS store
+    let cas_store = adapteros_artifacts::CasStore::new("./var/cas")?;
+
+    // Import artifacts
+    let artifacts_dir = temp_dir.path().join("artifacts");
+    let mut imported = 0;
+    let mut skipped = 0;
+
+    for artifact in &manifest.artifacts {
+        let artifact_path = artifacts_dir.join(format!("{}.bin", artifact.adapter_id));
+
+        if !artifact_path.exists() {
+            println!("  - {} (missing from archive)", artifact.adapter_id);
+            skipped += 1;
+            continue;
+        }
+
+        let data = std::fs::read(&artifact_path)?;
+
+        // Verify hash
+        let computed_hash = B3Hash::hash(&data);
+        let expected_hash = B3Hash::from_hex(&artifact.hash)?;
+
+        if computed_hash != expected_hash {
+            println!("  ✗ {} (hash mismatch)", artifact.adapter_id);
+            skipped += 1;
+            continue;
+        }
+
+        // Store in CAS
+        cas_store.store("adapter", &computed_hash, &data)?;
+        println!("  ✓ {} ({} bytes)", artifact.adapter_id, data.len());
+        imported += 1;
+    }
+
+    println!();
+    println!("✓ Import complete");
+    println!("  Imported: {}", imported);
+    if skipped > 0 {
+        println!("  Skipped: {}", skipped);
+    }
+
+    Ok(())
 }
 
 // Helper types and functions

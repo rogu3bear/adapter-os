@@ -193,12 +193,29 @@ pub async fn create_bundle_export(
     })?;
 
     // 3. Config snapshot
+    // Get active policy packs from policy manager
+    let active_policy_packs: Vec<String> = state
+        .policy_manager
+        .get_all_configs()
+        .iter()
+        .filter(|(_, cfg)| cfg.enabled)
+        .map(|(id, _)| id.name().to_string())
+        .collect();
+
+    // Get k_sparse from router policy pack config
+    let k_sparse_value = state
+        .policy_manager
+        .get_pack_config(&adapteros_policy::PolicyPackId::Router)
+        .and_then(|cfg| cfg.config.get("k_sparse"))
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize);
+
     let config_snapshot = ConfigSnapshot {
         server_version: env!("CARGO_PKG_VERSION").to_string(),
         api_schema_version: API_SCHEMA_VERSION.to_string(),
-        active_policy_packs: vec![], // TODO: Get from state if available
+        active_policy_packs,
         router_config: RouterConfigSnapshot {
-            k_sparse_value: None, // TODO: Get from config
+            k_sparse_value,
             determinism_mode: "strict".to_string(),
             tie_break_policy: "score_desc_index_asc".to_string(),
         },
