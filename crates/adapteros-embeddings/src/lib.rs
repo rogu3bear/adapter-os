@@ -16,6 +16,20 @@ pub mod training;
 
 pub use model::{Embedding, EmbeddingModel, EmbeddingProvider};
 
+// Re-export config types
+pub use config::{
+    ConfigValidationError, EmbeddingConfig, EmbeddingConfigBuilder, PoolingStrategy,
+};
+
+// Re-export determinism verification types
+pub use determinism::{
+    verify_determinism, verify_determinism_with_tolerance, DeterminismFailure, DeterminismReport,
+    DeterminismVerifier,
+};
+
+/// Re-export B3Hash for convenience
+pub use adapteros_core::B3Hash;
+
 // Re-export from MLX FFI when available
 #[cfg(feature = "mlx")]
 pub use adapteros_lora_mlx_ffi::MLXEmbeddingModel;
