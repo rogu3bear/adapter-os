@@ -498,6 +498,8 @@ fn MessageItem(msg_id: String) -> impl IntoView {
 
     let content = Memo::new(move |_| message.get().map(|m| m.content).unwrap_or_default());
 
+    let backend_used = Memo::new(move |_| message.get().and_then(|m| m.backend_used));
+
     view! {
         {move || {
             message.get().map(|_| {
@@ -517,7 +519,7 @@ fn MessageItem(msg_id: String) -> impl IntoView {
                         )>
                             <p class="text-sm whitespace-pre-wrap break-words">{move || content.get()}</p>
                             <div class=format!(
-                                "mt-1 text-2xs {}",
+                                "mt-1 text-2xs flex items-center gap-1.5 {}",
                                 if user { "text-primary-foreground/70" } else { "text-muted-foreground" }
                             )>
                                 {move || formatted_time.get()}
@@ -526,6 +528,26 @@ fn MessageItem(msg_id: String) -> impl IntoView {
                                         view! { <span class="ml-1 animate-pulse">"..."</span> }.into_any()
                                     } else {
                                         view! {}.into_any()
+                                    }
+                                }}
+                                // Show backend indicator for assistant messages
+                                {move || {
+                                    if !user {
+                                        backend_used.get().map(|backend| {
+                                            let (label, class) = match backend.as_str() {
+                                                "coreml" => ("CoreML".to_string(), "bg-amber-500/20 text-amber-600 dark:text-amber-400"),
+                                                "mlx" => ("MLX".to_string(), "bg-blue-500/20 text-blue-600 dark:text-blue-400"),
+                                                "metal" => ("Metal".to_string(), "bg-purple-500/20 text-purple-600 dark:text-purple-400"),
+                                                _ => (backend.clone(), "bg-gray-500/20 text-gray-600 dark:text-gray-400"),
+                                            };
+                                            view! {
+                                                <span class=format!("px-1 py-0.5 rounded text-2xs font-medium {}", class)>
+                                                    {label}
+                                                </span>
+                                            }
+                                        })
+                                    } else {
+                                        None
                                     }
                                 }}
                             </div>
@@ -652,6 +674,11 @@ fn ContextTogglesBar() -> impl IntoView {
 
     view! {
         <div class="flex items-center gap-1 border-t px-4 py-2">
+            // Reasoning mode toggle (prominent, left side)
+            <ReasoningModeToggle/>
+
+            <div class="w-px h-4 bg-border mx-1"/>
+
             <span class="text-xs text-muted-foreground mr-2">"Context:"</span>
 
             <ContextToggleButton
@@ -680,6 +707,51 @@ fn ContextTogglesBar() -> impl IntoView {
             // Clear button
             <ClearButton/>
         </div>
+    }
+}
+
+/// Reasoning mode toggle button with label
+#[component]
+fn ReasoningModeToggle() -> impl IntoView {
+    let (chat_state, chat_action) = use_chat();
+
+    let on_click = {
+        let action = chat_action.clone();
+        move |_| {
+            action.toggle_context(ContextToggle::ReasoningMode);
+        }
+    };
+
+    view! {
+        <button
+            class=move || format!(
+                "flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-colors {}",
+                if chat_state.get().context.reasoning_mode {
+                    "bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30"
+                } else {
+                    "hover:bg-muted text-muted-foreground"
+                }
+            )
+            on:click=on_click
+            title="Enable reasoning mode (routes to CoreML backend)"
+        >
+            // Brain/lightbulb icon for reasoning
+            <svg
+                xmlns="http://www.w3.org/2000/svg"
+                class="h-3.5 w-3.5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                stroke-width="2"
+            >
+                <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
+                />
+            </svg>
+            <span>"Reasoning"</span>
+        </button>
     }
 }
 

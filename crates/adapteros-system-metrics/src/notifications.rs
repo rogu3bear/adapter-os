@@ -30,6 +30,8 @@ pub struct NotificationConfig {
     pub enable_slack: bool,
     pub enable_webhook: bool,
     pub enable_pagerduty: bool,
+    /// Enable SMS notifications (requires `sms` feature flag)
+    pub enable_sms: bool,
     pub retry_attempts: u32,
     pub retry_delay_secs: u64,
     pub timeout_secs: u64,
@@ -37,6 +39,8 @@ pub struct NotificationConfig {
     pub slack_config: Option<SlackConfig>,
     pub webhook_config: Option<WebhookConfig>,
     pub pagerduty_config: Option<PagerDutyConfig>,
+    /// SMS provider configuration (Twilio)
+    pub sms_config: Option<SmsConfig>,
 }
 
 #[derive(Debug, Clone)]
@@ -71,6 +75,36 @@ pub struct PagerDutyConfig {
     pub severity_mapping: HashMap<String, String>,
 }
 
+/// SMS notification configuration.
+///
+/// Requires the `sms` feature flag to be enabled.
+/// Currently supports Twilio as the reference provider.
+///
+/// # Configuration
+///
+/// Set the following environment variables:
+/// - `AOS_SMS_ACCOUNT_SID`: Twilio Account SID
+/// - `AOS_SMS_AUTH_TOKEN`: Twilio Auth Token
+/// - `AOS_SMS_FROM_NUMBER`: Sender phone number (E.164 format)
+///
+/// # Example
+///
+/// ```toml
+/// # In Cargo.toml
+/// adapteros-system-metrics = { path = "...", features = ["sms"] }
+/// ```
+#[derive(Debug, Clone)]
+pub struct SmsConfig {
+    /// Twilio Account SID
+    pub account_sid: String,
+    /// Twilio Auth Token
+    pub auth_token: String,
+    /// Sender phone number in E.164 format (e.g., "+15551234567")
+    pub from_number: String,
+    /// API endpoint (defaults to Twilio)
+    pub api_url: Option<String>,
+}
+
 impl Default for NotificationConfig {
     fn default() -> Self {
         Self {
@@ -78,6 +112,7 @@ impl Default for NotificationConfig {
             enable_slack: true,
             enable_webhook: true,
             enable_pagerduty: true,
+            enable_sms: false, // Requires `sms` feature and provider configuration
             retry_attempts: 3,
             retry_delay_secs: 5,
             timeout_secs: 30,
@@ -85,6 +120,7 @@ impl Default for NotificationConfig {
             slack_config: None,
             webhook_config: None,
             pagerduty_config: None,
+            sms_config: None,
         }
     }
 }
@@ -176,10 +212,15 @@ impl NotificationService {
                 }
             }
             NotificationType::Sms => {
-                // SMS not implemented yet
-                Err(adapteros_core::AosError::Validation(
-                    "SMS notifications not implemented".to_string(),
-                ))
+                if self.config.enable_sms {
+                    self.send_sms_notification(&notification).await
+                } else {
+                    Err(adapteros_core::AosError::Validation(
+                        "SMS notifications disabled. Enable with: enable_sms = true in config, \
+                         and compile with --features sms"
+                            .to_string(),
+                    ))
+                }
             }
         };
 
@@ -481,6 +522,104 @@ impl NotificationService {
         Ok(())
     }
 
+    /// Send SMS notification via Twilio.
+    ///
+    /// Requires the `sms` feature flag and valid Twilio credentials in `SmsConfig`.
+    /// The recipient should be a phone number in E.164 format (e.g., "+15551234567").
+    ///
+    /// # Feature Flag
+    ///
+    /// This method requires the `sms` feature flag to be enabled at compile time.
+    /// Without the feature flag, the method will return a configuration error.
+    ///
+    /// # Configuration
+    ///
+    /// ```toml
+    /// # In config file
+    /// [notifications.sms]
+    /// account_sid = "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    /// auth_token = "your_auth_token"
+    /// from_number = "+15551234567"
+    /// ```
+    async fn send_sms_notification(
+        &self,
+        notification: &crate::alerting::NotificationRequest,
+    ) -> Result<()> {
+        #[cfg(not(feature = "sms"))]
+        {
+            // Feature flag not enabled - return clear error message
+            let _ = notification; // Suppress unused warning
+            return Err(adapteros_core::AosError::Config(
+                "SMS notifications require the 'sms' feature flag. \
+                 Recompile with: cargo build --features sms"
+                    .to_string(),
+            ));
+        }
+
+        #[cfg(feature = "sms")]
+        {
+            let sms_config = self.config.sms_config.as_ref().ok_or_else(|| {
+                adapteros_core::AosError::Config(
+                    "SMS config not provided. Set sms_config in NotificationConfig with \
+                     account_sid, auth_token, and from_number"
+                        .to_string(),
+                )
+            })?;
+
+            // Twilio Messages API endpoint
+            let api_url = sms_config.api_url.clone().unwrap_or_else(|| {
+                format!(
+                    "https://api.twilio.com/2010-04-01/Accounts/{}/Messages.json",
+                    sms_config.account_sid
+                )
+            });
+
+            // Build the SMS message body
+            let sms_body = format!(
+                "[{}] {}: {}",
+                notification.severity.to_string().to_uppercase(),
+                notification.alert_id,
+                notification.message
+            );
+
+            // Use reqwest's form builder which handles URL encoding
+            let form_params = [
+                ("To", notification.recipient.as_str()),
+                ("From", sms_config.from_number.as_str()),
+                ("Body", sms_body.as_str()),
+            ];
+
+            let response = self
+                .http_client
+                .post(&api_url)
+                .basic_auth(&sms_config.account_sid, Some(&sms_config.auth_token))
+                .form(&form_params)
+                .send()
+                .await
+                .map_err(|e| {
+                    adapteros_core::AosError::Validation(format!(
+                        "Failed to send SMS notification: {}",
+                        e
+                    ))
+                })?;
+
+            if !response.status().is_success() {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                return Err(adapteros_core::AosError::Validation(format!(
+                    "Twilio API error {}: {}",
+                    status, body
+                )));
+            }
+
+            info!(
+                "SMS notification sent to {} for alert {}",
+                notification.recipient, notification.alert_id
+            );
+            Ok(())
+        }
+    }
+
     /// Get notification delivery status
     pub async fn get_notification_status(&self, alert_id: &str) -> Result<Vec<NotificationStatus>> {
         let rows = sqlx::query(
@@ -597,9 +736,40 @@ mod tests {
         assert!(config.enable_slack);
         assert!(config.enable_webhook);
         assert!(config.enable_pagerduty);
+        assert!(!config.enable_sms); // SMS disabled by default
         assert_eq!(config.retry_attempts, 3);
         assert_eq!(config.retry_delay_secs, 5);
         assert_eq!(config.timeout_secs, 30);
+        assert!(config.sms_config.is_none());
+    }
+
+    #[test]
+    fn test_sms_config_creation() {
+        let sms_config = SmsConfig {
+            account_sid: "AC123".to_string(),
+            auth_token: "token123".to_string(),
+            from_number: "+15551234567".to_string(),
+            api_url: None,
+        };
+
+        assert_eq!(sms_config.account_sid, "AC123");
+        assert_eq!(sms_config.from_number, "+15551234567");
+        assert!(sms_config.api_url.is_none());
+    }
+
+    #[test]
+    fn test_sms_config_with_custom_api_url() {
+        let sms_config = SmsConfig {
+            account_sid: "AC123".to_string(),
+            auth_token: "token123".to_string(),
+            from_number: "+15551234567".to_string(),
+            api_url: Some("https://custom.twilio.api/messages".to_string()),
+        };
+
+        assert_eq!(
+            sms_config.api_url,
+            Some("https://custom.twilio.api/messages".to_string())
+        );
     }
 
     #[tokio::test]

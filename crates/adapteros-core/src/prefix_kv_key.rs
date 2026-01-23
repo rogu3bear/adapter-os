@@ -230,7 +230,9 @@ impl PrefixKvKeyBuilder {
             AosError::Validation("prefix_token_ids is required for prefix KV key".to_string())
         })?;
         let tokenizer_manifest_hash = self.tokenizer_manifest_hash.ok_or_else(|| {
-            AosError::Validation("tokenizer_manifest_hash is required for prefix KV key".to_string())
+            AosError::Validation(
+                "tokenizer_manifest_hash is required for prefix KV key".to_string(),
+            )
         })?;
         let model_cache_identity_bytes = self.model_cache_identity_bytes.ok_or_else(|| {
             AosError::Validation(

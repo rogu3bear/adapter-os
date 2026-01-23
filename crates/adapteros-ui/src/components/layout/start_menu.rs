@@ -35,6 +35,7 @@ pub fn StartMenu(on_close: impl Fn() + Clone + 'static) -> impl IntoView {
             vec![
                 ("Training", "/training"),
                 ("Workers", "/workers"),
+                ("Agents", "/agents"),
                 ("Routing", "/routing"),
                 ("Runs", "/runs"),
             ],

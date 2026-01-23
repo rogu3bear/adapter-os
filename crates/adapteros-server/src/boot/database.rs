@@ -128,8 +128,20 @@ pub async fn initialize_database(
     )
     .await?;
 
-    // Note: Storage mode adjustment logging removed due to type mismatch
-    // TODO: Re-add proper logging when StorageMode implements Display
+    // Log effective storage mode (may differ from requested if KV backend unavailable)
+    let effective_mode = db.storage_mode();
+    if effective_mode.to_string() != cfg_backend.as_str() {
+        warn!(
+            requested_mode = %cfg_backend.as_str(),
+            effective_mode = %effective_mode,
+            "Storage mode adjusted from requested configuration (KV backend may be unavailable)"
+        );
+    } else {
+        info!(
+            storage_mode = %effective_mode,
+            "Storage backend initialized successfully"
+        );
+    }
 
     // Check atomic dual-write configuration and warn if strict mode is disabled
     {

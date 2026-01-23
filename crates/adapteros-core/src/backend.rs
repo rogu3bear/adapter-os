@@ -48,6 +48,26 @@ impl BackendKind {
         }
     }
 
+    /// Normalized backend identifier for deterministic responses.
+    ///
+    /// Maps device-specific backend names to canonical identifiers to ensure
+    /// deterministic replay/comparison across different hardware configurations.
+    /// The raw backend name should be preserved in telemetry via `backend_raw`.
+    ///
+    /// Normalization mapping:
+    /// - `mlx`, `mlxbridge` → `"native"` (MLX variants are the primary native backend)
+    /// - `coreml`, `metal` → `"accelerated"` (Apple hardware acceleration)
+    /// - `cpu` → `"cpu"` (explicit CPU execution)
+    /// - `auto` → `"auto"` (auto-selection, should resolve before response)
+    pub fn normalized_id(&self) -> &'static str {
+        match self {
+            BackendKind::Mlx | BackendKind::MlxBridge => "native",
+            BackendKind::CoreML | BackendKind::Metal => "accelerated",
+            BackendKind::CPU => "cpu",
+            BackendKind::Auto => "auto",
+        }
+    }
+
     /// List of canonical variants for error reporting.
     pub fn variants() -> &'static [&'static str] {
         &["auto", "coreml", "mlx", "mlxbridge", "metal", "cpu"]
@@ -299,5 +319,22 @@ mod tests {
             TrainingBackendKind::from(BackendKind::CPU),
             TrainingBackendKind::Cpu
         );
+    }
+
+    #[test]
+    fn normalized_id_determinism() {
+        // MLX variants normalize to "native"
+        assert_eq!(BackendKind::Mlx.normalized_id(), "native");
+        assert_eq!(BackendKind::MlxBridge.normalized_id(), "native");
+
+        // Hardware acceleration backends normalize to "accelerated"
+        assert_eq!(BackendKind::CoreML.normalized_id(), "accelerated");
+        assert_eq!(BackendKind::Metal.normalized_id(), "accelerated");
+
+        // CPU stays as "cpu"
+        assert_eq!(BackendKind::CPU.normalized_id(), "cpu");
+
+        // Auto stays as "auto" (should resolve before response)
+        assert_eq!(BackendKind::Auto.normalized_id(), "auto");
     }
 }

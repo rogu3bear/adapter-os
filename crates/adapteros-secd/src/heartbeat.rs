@@ -31,9 +31,7 @@ impl Heartbeat {
     pub fn update(&self) -> io::Result<()> {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map_err(|e| {
-                io::Error::other(format!("system time before UNIX epoch: {}", e))
-            })?
+            .map_err(|e| io::Error::other(format!("system time before UNIX epoch: {}", e)))?
             .as_millis();
 
         let mut file = fs::File::create(&self.path)?;

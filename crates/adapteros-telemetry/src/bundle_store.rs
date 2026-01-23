@@ -294,12 +294,7 @@ impl BundleStore {
             // Sort by sequence number (oldest first)
             // Safety: All hashes were collected from self.index above, so they must exist.
             // Use filter_map to gracefully handle any unexpected missing entries.
-            bundles.sort_by_key(|hash| {
-                self.index
-                    .get(hash)
-                    .map(|m| m.sequence_no)
-                    .unwrap_or(None)
-            });
+            bundles.sort_by_key(|hash| self.index.get(hash).map(|m| m.sequence_no).unwrap_or(None));
 
             // Determine which bundles to evict
             if bundles.len() > self.policy.keep_bundles_per_cpid {

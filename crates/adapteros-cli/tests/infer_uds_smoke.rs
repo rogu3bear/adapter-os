@@ -140,8 +140,8 @@ async fn infer_over_worker_uds_smoke() -> Result<()> {
         eprintln!("skipping: tokenizer path not found at {}", tokenizer_path);
         return Ok(());
     }
-    let manifest_path =
-        std::env::var("AOS_WORKER_MANIFEST").unwrap_or_else(|_| "manifests/demo.yaml".to_string());
+    let manifest_path = std::env::var("AOS_WORKER_MANIFEST")
+        .unwrap_or_else(|_| "manifests/reference.yaml".to_string());
     if !Path::new(&manifest_path).exists() {
         eprintln!("skipping: manifest path not found at {}", manifest_path);
         return Ok(());

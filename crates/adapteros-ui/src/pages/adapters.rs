@@ -1,23 +1,81 @@
 //! Adapters page
+//!
+//! Displays the list of registered adapters with an expand/collapse detail panel.
+//! Automatically refreshes when the global `RefetchTopic::Adapters` signal is
+//! triggered (e.g., after training job completion).
+//!
+//! ## Layout
+//!
+//! Uses a split panel layout:
+//! - Left: Paginated adapter list with click-to-select
+//! - Right: AdapterDetailPanel showing full details for selected adapter
+//!
+//! ## Drawer Behavior
+//!
+//! - Click adapter row to open detail panel
+//! - Click close button or press Escape to close
+//! - Mobile: Full-screen overlay with back button
 
 use crate::api::ApiClient;
 use crate::components::{
-    Badge, BadgeVariant, Card, ErrorDisplay, Spinner, Table, TableBody, TableCell, TableHead,
-    TableHeader, TableRow,
+    AdapterDetailPanel, Badge, BadgeVariant, Card, ErrorDisplay, SplitPanel, SplitRatio, Spinner,
+    Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState};
+use crate::signals::refetch::{use_refetch_signal, RefetchTopic};
 use adapteros_api_types::AdapterResponse;
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
 use std::sync::Arc;
 
-/// Adapters list page
+/// Adapters list page with split-panel detail drawer
 #[component]
 pub fn Adapters() -> impl IntoView {
+    // State: selected adapter ID (None = detail panel closed)
+    let selected_id = RwSignal::new(None::<String>);
+
     let (adapters, refetch) =
         use_api_resource(|client: Arc<ApiClient>| async move { client.list_adapters().await });
 
     let refetch_signal = StoredValue::new(refetch);
+
+    // Subscribe to global adapter refetch topic (triggered on training completion)
+    let adapter_refetch_counter = use_refetch_signal(RefetchTopic::Adapters);
+
+    // Refetch when the global counter increments
+    Effect::new(move || {
+        let _ = adapter_refetch_counter.get();
+        // Skip initial effect run (counter starts at 0)
+        if adapter_refetch_counter.get() > 0 {
+            refetch.run(());
+        }
+    });
+
+    // Derive selected adapter from list
+    let selected_adapter = Signal::derive(move || {
+        let id = selected_id.get()?;
+        match adapters.get() {
+            LoadingState::Loaded(data) => data.iter().find(|a| a.id == id).cloned(),
+            _ => None,
+        }
+    });
+
+    // Loading state
+    let is_loading = Signal::derive(move || {
+        matches!(adapters.get(), LoadingState::Idle | LoadingState::Loading)
+    });
+
+    // Has selection for split panel
+    let has_selection = Signal::derive(move || selected_id.get().is_some());
+
+    // Callbacks
+    let on_select = Callback::new(move |id: String| {
+        selected_id.set(Some(id));
+    });
+
+    let on_close_detail = Callback::new(move |_: ()| {
+        selected_id.set(None);
+    });
 
     view! {
         <div class="p-6 space-y-6">
@@ -41,7 +99,34 @@ pub fn Adapters() -> impl IntoView {
                         }.into_any()
                     }
                     LoadingState::Loaded(data) => {
-                        view! { <AdaptersList adapters=data/> }.into_any()
+                        let adapters_for_list = data.clone();
+                        view! {
+                            <SplitPanel
+                                has_selection=has_selection
+                                on_close=on_close_detail
+                                back_label="Back to Adapters"
+                                ratio=SplitRatio::TwoFifthsThreeFifths
+                                list_panel=move || {
+                                    let data = adapters_for_list.clone();
+                                    view! {
+                                        <AdaptersListInteractive
+                                            adapters=data
+                                            selected_id=selected_id
+                                            on_select=on_select
+                                        />
+                                    }
+                                }
+                                detail_panel=move || {
+                                    view! {
+                                        <AdapterDetailPanel
+                                            adapter=selected_adapter
+                                            loading=is_loading
+                                            on_close=on_close_detail
+                                        />
+                                    }
+                                }
+                            />
+                        }.into_any()
                     }
                     LoadingState::Error(e) => {
                         view! {
@@ -60,8 +145,13 @@ pub fn Adapters() -> impl IntoView {
 /// Page size for client-side pagination (reduces initial DOM nodes)
 const PAGE_SIZE: usize = 25;
 
+/// Interactive adapter list with selection support for split panel layout.
 #[component]
-fn AdaptersList(adapters: Vec<AdapterResponse>) -> impl IntoView {
+fn AdaptersListInteractive(
+    adapters: Vec<AdapterResponse>,
+    #[prop(into)] selected_id: RwSignal<Option<String>>,
+    on_select: Callback<String>,
+) -> impl IntoView {
     let total = adapters.len();
 
     if adapters.is_empty() {
@@ -88,42 +178,55 @@ fn AdaptersList(adapters: Vec<AdapterResponse>) -> impl IntoView {
                 <TableHeader>
                     <TableRow>
                         <TableHead>"Name"</TableHead>
-                        <TableHead>"Status"</TableHead>
-                        <TableHead>"Actions"</TableHead>
+                        <TableHead>"Lifecycle"</TableHead>
+                        <TableHead>"Tier"</TableHead>
                     </TableRow>
                 </TableHeader>
                 <TableBody>
                     {move || {
                         let count = visible_count.get();
+                        let current_selected = selected_id.get();
                         adapters.iter().take(count).map(|adapter| {
                             let id = adapter.id.clone();
-                            let id_link = id.clone();
-                            let id_view = id.clone();
+                            let id_for_click = id.clone();
                             let name = adapter.name.clone();
+                            let lifecycle = adapter.lifecycle_state.clone();
+                            let tier = adapter.tier.clone();
+                            let is_selected = current_selected.as_ref() == Some(&id);
+                            let on_select = on_select.clone();
+
+                            // Lifecycle badge variant
+                            let lifecycle_variant = match lifecycle.as_str() {
+                                "active" => BadgeVariant::Success,
+                                "deprecated" => BadgeVariant::Warning,
+                                "retired" => BadgeVariant::Destructive,
+                                _ => BadgeVariant::Secondary,
+                            };
+
                             view! {
-                                <TableRow>
+                                <tr
+                                    class=if is_selected {
+                                        "table-row cursor-pointer bg-accent/50 hover:bg-accent"
+                                    } else {
+                                        "table-row cursor-pointer hover:bg-accent/30"
+                                    }
+                                    data-state=if is_selected { "selected" } else { "" }
+                                    on:click=move |_| {
+                                        on_select.run(id_for_click.clone());
+                                    }
+                                >
                                     <TableCell>
-                                        <a
-                                            href=format!("/adapters/{}", id_link)
-                                            class="font-medium hover:underline"
-                                        >
-                                            {name}
-                                        </a>
+                                        <span class="font-medium">{name}</span>
                                     </TableCell>
                                     <TableCell>
-                                        <Badge variant=BadgeVariant::Success>
-                                            "Available"
+                                        <Badge variant=lifecycle_variant>
+                                            {lifecycle}
                                         </Badge>
                                     </TableCell>
                                     <TableCell>
-                                        <a
-                                            href=format!("/adapters/{}", id_view)
-                                            class="text-sm text-primary hover:underline"
-                                        >
-                                            "View"
-                                        </a>
+                                        <span class="text-sm text-muted-foreground">{tier}</span>
                                     </TableCell>
-                                </TableRow>
+                                </tr>
                             }
                         }).collect::<Vec<_>>()
                     }}

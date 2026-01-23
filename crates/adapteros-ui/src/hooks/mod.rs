@@ -83,7 +83,7 @@ where
             let set_state_result = set_state.clone();
             let fetch_version_check = Arc::clone(&fetch_version);
             gloo_timers::callback::Timeout::new(0, move || {
-                set_state_loading.set(LoadingState::Loading);
+                let _ = set_state_loading.try_set(LoadingState::Loading);
 
                 wasm_bindgen_futures::spawn_local(async move {
                     match fetch(client).await {
@@ -91,7 +91,7 @@ where
                             if fetch_version_check.load(std::sync::atomic::Ordering::SeqCst)
                                 == version
                             {
-                                set_state_result.set(LoadingState::Loaded(data));
+                                let _ = set_state_result.try_set(LoadingState::Loaded(data));
                             }
                         }
                         Err(e) => {
@@ -103,7 +103,7 @@ where
                             {
                                 let page = get_current_path();
                                 report_error(&e, page.as_deref(), is_authenticated);
-                                set_state_result.set(LoadingState::Error(e));
+                                let _ = set_state_result.try_set(LoadingState::Error(e));
                             }
                         }
                     }
@@ -113,12 +113,12 @@ where
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
-            set_state.set(LoadingState::Loading);
+            let _ = set_state.try_set(LoadingState::Loading);
             wasm_bindgen_futures::spawn_local(async move {
                 match fetch(client).await {
                     Ok(data) => {
                         if fetch_version.load(std::sync::atomic::Ordering::SeqCst) == version {
-                            set_state.set(LoadingState::Loaded(data));
+                            let _ = set_state.try_set(LoadingState::Loaded(data));
                         }
                     }
                     Err(e) => {
@@ -128,7 +128,7 @@ where
                         if fetch_version.load(std::sync::atomic::Ordering::SeqCst) == version {
                             let page = get_current_path();
                             report_error(&e, page.as_deref(), is_authenticated);
-                            set_state.set(LoadingState::Error(e));
+                            let _ = set_state.try_set(LoadingState::Error(e));
                         }
                     }
                 }

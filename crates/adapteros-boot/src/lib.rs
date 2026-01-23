@@ -68,8 +68,8 @@
 //! ```
 
 pub mod boot_report;
-pub mod evidence;
 pub mod error;
+pub mod evidence;
 pub mod invariant_metrics;
 pub mod jti_cache;
 pub mod key_ring;
@@ -82,8 +82,8 @@ pub mod worker_auth;
 
 // Re-export commonly used types at crate root
 pub use boot_report::{BootReport, BootReportBuilder, BuildInfo};
-pub use evidence::BootAttestation;
 pub use error::{BootError, BootResult, WorkerAuthError, WorkerAuthResult};
+pub use evidence::BootAttestation;
 pub use invariant_metrics::{
     boot_invariant_metrics, record_invariant_check, record_invariant_skipped,
     record_invariant_violation, BootInvariantMetrics,

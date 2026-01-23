@@ -327,6 +327,9 @@ pub struct ApiConfig {
     /// Rate limit configuration
     #[serde(default)]
     pub rate_limit: Option<RateLimiterConfig>,
+    /// Timeouts configuration for preventing hangs on blocking operations
+    #[serde(default)]
+    pub timeouts: TimeoutsConfig,
 }
 
 fn default_directory_analysis_timeout() -> u64 {
@@ -499,6 +502,77 @@ impl Default for StreamingConfig {
     }
 }
 
+/// Timeouts configuration for preventing hangs on known blocking operations.
+///
+/// These timeouts provide circuit-breaker behavior for operations that may hang
+/// indefinitely, ensuring clear error messages and recoverable states.
+///
+/// # Configuration Priority
+/// Environment variables override config file values. All timeouts are in seconds.
+///
+/// # Error Handling
+/// Timeout errors are surfaced with clear error codes and are logged for debugging:
+/// - `ADAPTER_LOAD_TIMEOUT`: LoadCoordinator adapter load timed out
+/// - `TRAINING_JOB_TIMEOUT`: Training job exceeded max duration
+/// - `STREAM_IDLE_TIMEOUT`: SSE stream idle for too long (see StreamingConfig)
+/// - `DB_ACQUIRE_TIMEOUT`: Database pool connection acquire timed out
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TimeoutsConfig {
+    /// Maximum time in seconds to wait for adapter load via LoadCoordinator.
+    /// Default: 60 seconds. Set via AOS_ADAPTER_LOAD_TIMEOUT_SECS.
+    #[serde(default = "default_adapter_load_timeout_secs")]
+    pub adapter_load_timeout_secs: u64,
+
+    /// Maximum duration in seconds for a single training job.
+    /// Default: 7200 seconds (2 hours). Set via AOS_TRAINING_JOB_TIMEOUT_SECS.
+    #[serde(default = "default_training_job_timeout_secs")]
+    pub training_job_timeout_secs: u64,
+
+    /// Database pool connection acquire timeout in seconds.
+    /// Default: 30 seconds. Set via AOS_DB_ACQUIRE_TIMEOUT_SECS.
+    #[serde(default = "default_db_acquire_timeout_secs")]
+    pub db_acquire_timeout_secs: u64,
+}
+
+fn default_adapter_load_timeout_secs() -> u64 {
+    60
+}
+
+fn default_training_job_timeout_secs() -> u64 {
+    7200 // 2 hours
+}
+
+fn default_db_acquire_timeout_secs() -> u64 {
+    30
+}
+
+impl Default for TimeoutsConfig {
+    fn default() -> Self {
+        Self {
+            adapter_load_timeout_secs: default_adapter_load_timeout_secs(),
+            training_job_timeout_secs: default_training_job_timeout_secs(),
+            db_acquire_timeout_secs: default_db_acquire_timeout_secs(),
+        }
+    }
+}
+
+impl TimeoutsConfig {
+    /// Get adapter load timeout as Duration
+    pub fn adapter_load_timeout(&self) -> Duration {
+        Duration::from_secs(self.adapter_load_timeout_secs)
+    }
+
+    /// Get training job timeout as Duration
+    pub fn training_job_timeout(&self) -> Duration {
+        Duration::from_secs(self.training_job_timeout_secs)
+    }
+
+    /// Get DB acquire timeout as Duration
+    pub fn db_acquire_timeout(&self) -> Duration {
+        Duration::from_secs(self.db_acquire_timeout_secs)
+    }
+}
+
 /// Chat context configuration for multi-turn conversations.
 ///
 /// Controls how chat history is loaded and formatted when building
@@ -573,6 +647,7 @@ impl Default for ApiConfig {
             backend_profile: BackendKind::default_inference_backend(),
             worker_id: 0,
             rate_limit: None,
+            timeouts: Default::default(),
         }
     }
 }

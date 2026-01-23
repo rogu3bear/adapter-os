@@ -74,6 +74,11 @@ impl SingleFileAdapterLoader {
         let manifest: AdapterManifest = serde_json::from_slice(aos_view.manifest_bytes)
             .map_err(|e| AosError::Parse(format!("Failed to parse manifest: {}", e)))?;
 
+        // Verify integrity hash if present (backward compatible with older .aos files)
+        if !options.skip_verification {
+            manifest.verify_integrity()?;
+        }
+
         // Find the canonical weights segment
         let weights_segment = aos_view
             .segments
@@ -119,8 +124,9 @@ impl SingleFileAdapterLoader {
             manifest.adapter_id
         );
 
-        // Skip verification for now - the AOS format already has hash verification in open_aos
-        let _ = options;
+        // Note: Integrity verification happens at manifest parse time above
+        // The AOS format also has segment hash verification in open_aos()
+        let _ = options; // consumed for skip_verification above
 
         Ok(adapter)
     }

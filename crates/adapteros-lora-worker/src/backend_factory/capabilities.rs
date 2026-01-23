@@ -551,6 +551,187 @@ pub fn get_available_backends() -> Vec<BackendCapability> {
     ]
 }
 
+// ============================================================================
+// REASONING-AWARE BACKEND ROUTING (UNIFIED INFERENCE ROUTER)
+// ============================================================================
+
+/// Hint for reasoning-aware backend selection.
+///
+/// When `reasoning_mode` is enabled in the request, this routing layer prefers
+/// CoreML (ANE) for deterministic reasoning workloads. Otherwise, MLX streaming
+/// is preferred as the default for its flexibility and HKDF-seeded determinism.
+///
+/// This routing layer extends (not replaces) the existing backend selection logic.
+#[derive(Debug, Clone)]
+pub struct ReasoningBackendHint {
+    /// The suggested backend based on reasoning mode
+    pub suggested: BackendChoice,
+    /// Whether reasoning mode triggered this selection
+    pub reasoning_triggered: bool,
+    /// Human-readable reason for observability
+    pub reason: &'static str,
+}
+
+impl ReasoningBackendHint {
+    /// Create a new hint for reasoning mode
+    pub fn for_reasoning(suggested: BackendChoice) -> Self {
+        Self {
+            suggested,
+            reasoning_triggered: true,
+            reason: "reasoning_mode_coreml_preferred",
+        }
+    }
+
+    /// Create a new hint for standard (non-reasoning) mode
+    pub fn for_streaming(suggested: BackendChoice) -> Self {
+        Self {
+            suggested,
+            reasoning_triggered: false,
+            reason: "streaming_mode_mlx_default",
+        }
+    }
+
+    /// Create hint when no routing override applies
+    pub fn passthrough(suggested: BackendChoice) -> Self {
+        Self {
+            suggested,
+            reasoning_triggered: false,
+            reason: "no_reasoning_override",
+        }
+    }
+}
+
+/// Resolve backend choice with reasoning-aware routing.
+///
+/// This function applies a routing layer that considers the `reasoning_mode` flag
+/// from the request metadata. When enabled, it prefers CoreML for ANE-accelerated
+/// deterministic reasoning. Otherwise, it prefers MLX for streaming flexibility.
+///
+/// # Arguments
+/// * `requested` - Explicitly requested backend from the request (if any)
+/// * `reasoning_mode` - Whether reasoning mode is enabled for this request
+/// * `capabilities` - Available backend capabilities on this worker
+///
+/// # Returns
+/// A `ReasoningBackendHint` containing the suggested backend and routing metadata
+/// for observability logging.
+///
+/// # Example
+/// ```ignore
+/// let hint = resolve_reasoning_aware_backend(
+///     request.backend_profile,
+///     request.reasoning_mode,
+///     &capabilities,
+/// );
+/// info!(
+///     suggested = %hint.suggested.as_str(),
+///     reasoning_triggered = hint.reasoning_triggered,
+///     reason = hint.reason,
+///     "Reasoning-aware backend routing"
+/// );
+/// ```
+pub fn resolve_reasoning_aware_backend(
+    requested: Option<BackendChoice>,
+    reasoning_mode: bool,
+    capabilities: &BackendCapabilities,
+) -> ReasoningBackendHint {
+    // If an explicit backend was requested, honor it (passthrough)
+    if let Some(explicit) = requested {
+        debug!(
+            explicit_backend = %explicit.as_str(),
+            reasoning_mode,
+            "Explicit backend requested, bypassing reasoning-aware routing"
+        );
+        return ReasoningBackendHint::passthrough(explicit);
+    }
+
+    // Reasoning mode routing: prefer CoreML for ANE determinism
+    if reasoning_mode {
+        // Check if CoreML is available with ANE
+        if capabilities.has_coreml && capabilities.has_ane {
+            info!(
+                target: "inference.backend.routing",
+                reasoning_mode = true,
+                selected = "coreml",
+                reason = "ane_deterministic_reasoning",
+                "Reasoning mode: routing to CoreML for ANE-accelerated determinism"
+            );
+            return ReasoningBackendHint::for_reasoning(BackendChoice::CoreML);
+        }
+
+        // Fallback: ANE not available, warn and continue to default
+        warn!(
+            target: "inference.backend.routing",
+            reasoning_mode = true,
+            has_coreml = capabilities.has_coreml,
+            has_ane = capabilities.has_ane,
+            "Reasoning mode requested but CoreML/ANE unavailable; falling back to default"
+        );
+    }
+
+    // Default routing: prefer MLX for streaming flexibility
+    if cfg!(feature = "multi-backend") && capabilities.has_mlx {
+        debug!(
+            target: "inference.backend.routing",
+            reasoning_mode,
+            selected = "mlx",
+            "Default routing: MLX for streaming"
+        );
+        return ReasoningBackendHint::for_streaming(BackendChoice::Mlx);
+    }
+
+    // Secondary fallback: CoreML if MLX unavailable
+    if capabilities.has_coreml && capabilities.has_ane {
+        debug!(
+            target: "inference.backend.routing",
+            reasoning_mode,
+            selected = "coreml",
+            "Fallback routing: CoreML (MLX unavailable)"
+        );
+        return ReasoningBackendHint::for_streaming(BackendChoice::CoreML);
+    }
+
+    // Tertiary fallback: Metal
+    if capabilities.has_metal {
+        debug!(
+            target: "inference.backend.routing",
+            reasoning_mode,
+            selected = "metal",
+            "Fallback routing: Metal (MLX/CoreML unavailable)"
+        );
+        return ReasoningBackendHint::for_streaming(BackendChoice::Metal);
+    }
+
+    // Last resort: Auto selection
+    debug!(
+        target: "inference.backend.routing",
+        reasoning_mode,
+        selected = "auto",
+        "No preferred backend available; using auto-selection"
+    );
+    ReasoningBackendHint::passthrough(BackendChoice::Auto)
+}
+
+/// Check if a request's metadata indicates reasoning mode should be used.
+///
+/// This is a convenience function that checks both explicit `reasoning_mode` flag
+/// and any `requires_reasoning` tag in request metadata (future extension point).
+pub fn should_use_reasoning_backend(reasoning_mode: bool, _metadata: Option<&serde_json::Value>) -> bool {
+    // Primary check: explicit reasoning_mode flag
+    if reasoning_mode {
+        return true;
+    }
+
+    // Future extension: check for requires_reasoning tag in metadata
+    // if let Some(meta) = metadata {
+    //     if let Some(requires) = meta.get("requires_reasoning") {
+    //         return requires.as_bool().unwrap_or(false);
+    //     }
+    // }
+
+    false
+}
+
 /// Log backend status report using structured tracing
 pub fn log_backend_status() {
     let backends = get_available_backends();
@@ -599,4 +780,106 @@ pub fn log_backend_status() {
         docs_reference = "docs/ADR_MULTI_BACKEND_STRATEGY.md",
         "Backend status report complete"
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_full_caps() -> BackendCapabilities {
+        BackendCapabilities {
+            has_metal: true,
+            metal_device_name: Some("Apple M1 Pro".to_string()),
+            has_ane: true,
+            has_coreml: true,
+            has_mlx: true,
+            has_mlx_bridge: false,
+            gpu_memory_bytes: Some(16 * 1024 * 1024 * 1024),
+        }
+    }
+
+    fn make_mlx_only_caps() -> BackendCapabilities {
+        BackendCapabilities {
+            has_metal: true,
+            metal_device_name: Some("Apple M1 Pro".to_string()),
+            has_ane: false,
+            has_coreml: false,
+            has_mlx: true,
+            has_mlx_bridge: false,
+            gpu_memory_bytes: Some(16 * 1024 * 1024 * 1024),
+        }
+    }
+
+    fn make_coreml_only_caps() -> BackendCapabilities {
+        BackendCapabilities {
+            has_metal: true,
+            metal_device_name: Some("Apple M1 Pro".to_string()),
+            has_ane: true,
+            has_coreml: true,
+            has_mlx: false,
+            has_mlx_bridge: false,
+            gpu_memory_bytes: Some(16 * 1024 * 1024 * 1024),
+        }
+    }
+
+    #[test]
+    fn reasoning_mode_prefers_coreml_when_available() {
+        let caps = make_full_caps();
+        let hint = resolve_reasoning_aware_backend(None, true, &caps);
+
+        assert_eq!(hint.suggested, BackendChoice::CoreML);
+        assert!(hint.reasoning_triggered);
+        assert_eq!(hint.reason, "reasoning_mode_coreml_preferred");
+    }
+
+    #[test]
+    fn reasoning_mode_falls_back_to_mlx_when_coreml_unavailable() {
+        let caps = make_mlx_only_caps();
+        let hint = resolve_reasoning_aware_backend(None, true, &caps);
+
+        // Should fall back to MLX when CoreML/ANE unavailable
+        if cfg!(feature = "multi-backend") {
+            assert_eq!(hint.suggested, BackendChoice::Mlx);
+            assert!(!hint.reasoning_triggered);
+            assert_eq!(hint.reason, "streaming_mode_mlx_default");
+        }
+    }
+
+    #[test]
+    fn non_reasoning_mode_prefers_mlx() {
+        let caps = make_full_caps();
+        let hint = resolve_reasoning_aware_backend(None, false, &caps);
+
+        if cfg!(feature = "multi-backend") {
+            assert_eq!(hint.suggested, BackendChoice::Mlx);
+            assert!(!hint.reasoning_triggered);
+            assert_eq!(hint.reason, "streaming_mode_mlx_default");
+        }
+    }
+
+    #[test]
+    fn explicit_backend_overrides_reasoning_mode() {
+        let caps = make_full_caps();
+        let hint = resolve_reasoning_aware_backend(Some(BackendChoice::Metal), true, &caps);
+
+        assert_eq!(hint.suggested, BackendChoice::Metal);
+        assert!(!hint.reasoning_triggered);
+        assert_eq!(hint.reason, "no_reasoning_override");
+    }
+
+    #[test]
+    fn should_use_reasoning_backend_checks_flag() {
+        assert!(should_use_reasoning_backend(true, None));
+        assert!(!should_use_reasoning_backend(false, None));
+    }
+
+    #[test]
+    fn coreml_fallback_when_no_mlx() {
+        let caps = make_coreml_only_caps();
+        let hint = resolve_reasoning_aware_backend(None, false, &caps);
+
+        // Without MLX, should fall back to CoreML (which has ANE)
+        assert_eq!(hint.suggested, BackendChoice::CoreML);
+        assert!(!hint.reasoning_triggered);
+    }
 }

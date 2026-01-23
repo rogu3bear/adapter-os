@@ -6,7 +6,8 @@
 
 use crate::components::{
     AdapterBar, AdapterHeat, AdapterMagnet, Badge, BadgeVariant, Button, Card, EmptyState,
-    EmptyStateVariant, Spinner, Textarea, TraceButton, TracePanel,
+    EmptyStateVariant, Spinner, SuggestedAdapterView, SuggestedAdaptersBar, Textarea, TraceButton,
+    TracePanel,
 };
 use crate::signals::{use_chat, ChatSessionMeta, ChatSessionsManager};
 use leptos::prelude::*;
@@ -216,15 +217,25 @@ fn QuickStartSuggestions() -> impl IntoView {
     let suggestions = [
         (
             "Explain adapters",
-            "How do LoRA adapters work in AdapterOS?",
+            "How do LoRA adapters work and when should I use them?",
         ),
-        ("System status", "What's the current system health?"),
-        ("Training help", "How do I train a new adapter?"),
+        (
+            "Write a function",
+            "Write a Python function to validate email addresses with tests",
+        ),
+        (
+            "Review code",
+            "Review this code for bugs: fn add(a: i32, b: i32) -> i32 { a - b }",
+        ),
+        (
+            "Training guide",
+            "Walk me through training a custom adapter from my documentation",
+        ),
     ];
 
     view! {
         <Card title="Quick Start".to_string() description="Try one of these prompts".to_string()>
-            <div class="grid gap-2 sm:grid-cols-3 p-4">
+            <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 p-4">
                 {suggestions.iter().map(|(title, prompt)| {
                     let title = title.to_string();
                     let prompt = prompt.to_string();
@@ -472,6 +483,60 @@ pub fn ChatSession() -> impl IntoView {
             .collect::<Vec<_>>()
     });
 
+    // Convert suggested_adapters for the SuggestedAdaptersBar
+    // Name is populated from topology; other fields remain optional
+    let suggested_adapters = Memo::new(move |_| {
+        chat_state
+            .get()
+            .suggested_adapters
+            .iter()
+            .map(|s| SuggestedAdapterView {
+                adapter_id: s.adapter_id.clone(),
+                confidence: s.confidence,
+                is_pinned: s.is_pinned,
+                // Use adapter name as description if available
+                disabled_reason: None,
+                description: s.name.clone(),
+                tags: None,
+            })
+            .collect::<Vec<_>>()
+    });
+
+    // Debounce version counter for preview calls
+    let preview_version = RwSignal::new(0u64);
+
+    // Debounced effect to preview adapters when input changes
+    {
+        let action = chat_action.clone();
+        Effect::new(move |_| {
+            let text = message.get();
+            // Update version to invalidate pending previews
+            preview_version.update(|v| *v += 1);
+            let current_version = preview_version.get_untracked();
+
+            // Debounce: 300ms delay before calling preview
+            let action = action.clone();
+            set_timeout_simple(
+                move || {
+                    // Only proceed if this is still the latest version
+                    if preview_version.get_untracked() != current_version {
+                        return;
+                    }
+                    action.preview_adapters(text);
+                },
+                300,
+            );
+        });
+    }
+
+    // Toggle pin callback
+    let on_toggle_pin = {
+        let action = chat_action.clone();
+        Callback::new(move |adapter_id: String| {
+            action.toggle_pin_adapter(&adapter_id);
+        })
+    };
+
     // Send message handler
     let do_send = {
         let action = chat_action.clone();
@@ -537,6 +602,12 @@ pub fn ChatSession() -> impl IntoView {
 
             // Adapter Bar - shows active adapters as colored magnets
             <AdapterBar adapters=adapter_magnets/>
+
+            // Suggested Adapters Bar - shows router preview suggestions with click-to-pin
+            <SuggestedAdaptersBar
+                suggestions=suggested_adapters
+                on_toggle_pin=on_toggle_pin
+            />
 
             // Messages
             <div
@@ -750,3 +821,24 @@ fn format_token_display(
         _ => format!("{} tokens", total),
     }
 }
+
+/// Simple setTimeout wrapper for debouncing
+#[cfg(target_arch = "wasm32")]
+fn set_timeout_simple<F: FnOnce() + 'static>(f: F, ms: i32) {
+    use wasm_bindgen::prelude::*;
+
+    if let Some(window) = web_sys::window() {
+        let closure = Closure::once(f);
+        let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
+            closure.as_ref().unchecked_ref(),
+            ms,
+        );
+        closure.forget();
+    } else {
+        tracing::error!("set_timeout_simple: no window object available");
+    }
+}
+
+/// Non-WASM stub (for tests)
+#[cfg(not(target_arch = "wasm32"))]
+fn set_timeout_simple<F: FnOnce() + 'static>(_f: F, _ms: i32) {}

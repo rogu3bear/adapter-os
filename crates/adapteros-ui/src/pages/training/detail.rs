@@ -1,13 +1,16 @@
 //! Training job detail panel
 //!
 //! Components for displaying training job details and metrics.
+//!
+//! When a training job completes, this component triggers a global refetch of
+//! adapters and stacks to ensure newly trained adapters appear in the UI.
 
 use crate::api::ApiClient;
 use crate::components::{
     Button, ButtonVariant, Card, ConfirmationDialog, ConfirmationSeverity, ErrorDisplay, Spinner,
 };
 use crate::hooks::{use_api_resource, use_polling, LoadingState};
-use crate::signals::use_notifications;
+use crate::signals::{use_notifications, use_refetch};
 use adapteros_api_types::TrainingJobResponse;
 use leptos::prelude::*;
 use std::sync::Arc;
@@ -25,11 +28,62 @@ pub fn TrainingJobDetail(
 ) -> impl IntoView {
     let job_id_for_fetch = job_id.clone();
 
+    // Global refetch context for triggering adapter/stack list refresh
+    let refetch_action = use_refetch();
+
+    // Track previous status to detect completion transition
+    let prev_status = RwSignal::new(String::new());
+
     // Fetch job details
     let (job, refetch) = use_api_resource(move |client: Arc<ApiClient>| {
         let id = job_id_for_fetch.clone();
         async move { client.get_training_job(&id).await }
     });
+
+    // Notifications for status changes
+    let notifications = use_notifications();
+
+    // Detect when job transitions to completed and trigger adapter/stack refresh
+    {
+        let notifications = notifications.clone();
+        Effect::new(move || {
+            if let LoadingState::Loaded(ref data) = job.get() {
+                let current_status = data.status.clone();
+                let previous = prev_status.get_untracked();
+
+                // Detect transition to completed from a non-completed state
+                if current_status == "completed" && previous != "completed" && !previous.is_empty()
+                {
+                    // Job just finished! Trigger global refetch of adapters and stacks
+                    tracing::info!(
+                        job_id = %data.id,
+                        adapter_id = ?data.adapter_id,
+                        "Training completed - triggering adapter and stack refresh"
+                    );
+                    refetch_action.adapters();
+                    refetch_action.stacks();
+
+                    // Show success notification
+                    let adapter_name = data.adapter_name.clone();
+                    let adapter_id_msg = data
+                        .adapter_id
+                        .as_ref()
+                        .map(|id| format!(" ({})", id))
+                        .unwrap_or_default();
+                    notifications.success(
+                        "Training Complete",
+                        &format!(
+                            "Adapter '{}'{} is now available for inference",
+                            adapter_name, adapter_id_msg
+                        ),
+                    );
+                }
+
+                // Update previous status for next comparison
+                prev_status.set(current_status);
+            }
+        });
+    }
 
     // Poll for updates on running jobs
     // Return value (stop fn) intentionally ignored - polling runs until unmount
@@ -41,7 +95,6 @@ pub fn TrainingJobDetail(
     let job_id_for_cancel = job_id.clone();
     let cancelling = RwSignal::new(false);
     let show_cancel_confirm = RwSignal::new(false);
-    let notifications = use_notifications();
 
     // Handle cancel dialog dismiss
     let on_cancel_dismiss = Callback::new(move |_| {
@@ -151,8 +204,9 @@ pub fn JobDetailContent(
     let status = job.status.clone();
     let status_for_badge = job.status.clone();
     let status_for_progress = job.status.clone();
-    let job_id = job.id.clone();
+    let job_id_for_detail = job.id.clone();
     let job_id_for_logs = job.id.clone();
+    let job_id_for_metrics = job.id.clone();
     let coreml_state_for_warning = CoremlState::from_job(&job);
     let coreml_state_for_export = coreml_state_for_warning.clone();
     let coreml_state_for_badges = coreml_state_for_warning.clone();
@@ -206,7 +260,7 @@ pub fn JobDetailContent(
         // Job metadata
         <Card title="Details".to_string() class="mt-4".to_string()>
             <div class="grid gap-3 text-sm">
-                <DetailRow label="Job ID" value=job_id/>
+                <DetailRow label="Job ID" value=job_id_for_detail/>
                 <DetailRow label="Adapter" value=job.adapter_name.clone()/>
                 {job.category.clone().map(|cat| view! {
                     <DetailRow label="Category" value=cat/>
@@ -359,7 +413,16 @@ pub fn JobDetailContent(
             </Card>
         })}
 
-        // Live logs placeholder (for running jobs)
+        // Training metrics chart (for running jobs)
+        {is_running.then(|| {
+            view! {
+                <Card title="Training Metrics".to_string() class="mt-4".to_string()>
+                    <MetricsChart job_id=job_id_for_metrics.clone()/>
+                </Card>
+            }
+        })}
+
+        // Live logs (for running jobs)
         {is_running.then(|| view! {
             <Card title="Live Logs".to_string() class="mt-4".to_string()>
                 <LogViewer job_id=job_id_for_logs/>
@@ -453,6 +516,158 @@ pub fn LogViewer(job_id: String) -> impl IntoView {
                             {logs.get().into_iter().map(|line| {
                                 view! { <div>{line}</div> }
                             }).collect::<Vec<_>>()}
+                        </div>
+                    }.into_any()
+                }
+            }}
+        </div>
+    }
+}
+
+/// Metrics chart component - displays training loss curve
+#[component]
+pub fn MetricsChart(job_id: String) -> impl IntoView {
+    use crate::api::ApiClient;
+    use crate::hooks::use_polling;
+    use adapteros_api_types::TrainingMetricEntry;
+
+    let metrics: RwSignal<Vec<TrainingMetricEntry>> = RwSignal::new(vec![]);
+    let loading = RwSignal::new(true);
+    let error: RwSignal<Option<String>> = RwSignal::new(None);
+
+    // Initial fetch
+    let job_id_clone = job_id.clone();
+    Effect::new(move || {
+        let job_id = job_id_clone.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            let client = ApiClient::new();
+            match client.get_training_metrics(&job_id).await {
+                Ok(response) => {
+                    metrics.set(response.metrics);
+                    error.set(None);
+                }
+                Err(e) => {
+                    error.set(Some(e.to_string()));
+                }
+            }
+            loading.set(false);
+        });
+    });
+
+    // Poll for updates every 3 seconds
+    let job_id_poll = job_id.clone();
+    let _ = use_polling(3_000, move || {
+        let job_id = job_id_poll.clone();
+        async move {
+            let client = ApiClient::new();
+            if let Ok(response) = client.get_training_metrics(&job_id).await {
+                metrics.set(response.metrics);
+            }
+        }
+    });
+
+    view! {
+        <div class="space-y-4">
+            {move || {
+                if loading.get() {
+                    view! {
+                        <div class="h-32 flex items-center justify-center text-muted-foreground">
+                            "Loading metrics..."
+                        </div>
+                    }.into_any()
+                } else if let Some(err) = error.get() {
+                    view! {
+                        <div class="h-32 flex items-center justify-center text-status-error text-sm">
+                            "Metrics unavailable: "{err}
+                        </div>
+                    }.into_any()
+                } else if metrics.get().is_empty() {
+                    view! {
+                        <div class="h-32 flex items-center justify-center text-muted-foreground">
+                            "No metrics data yet..."
+                        </div>
+                    }.into_any()
+                } else {
+                    let data = metrics.get();
+                    let latest = data.last();
+
+                    // Calculate min/max loss for scaling
+                    let losses: Vec<f64> = data.iter().map(|m| m.loss).collect();
+                    let min_loss = losses.iter().cloned().fold(f64::INFINITY, f64::min);
+                    let max_loss = losses.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                    let range = (max_loss - min_loss).max(0.001); // Prevent division by zero
+
+                    // Build SVG path for loss curve
+                    let points: Vec<String> = data.iter().enumerate().map(|(i, m)| {
+                        let x = if data.len() > 1 {
+                            (i as f64 / (data.len() - 1) as f64) * 100.0
+                        } else {
+                            50.0
+                        };
+                        let y = 100.0 - ((m.loss - min_loss) / range * 80.0 + 10.0); // 10% padding
+                        format!("{:.1},{:.1}", x, y)
+                    }).collect();
+
+                    let path_data = if points.len() > 1 {
+                        format!("M {} L {}", points[0], points[1..].join(" L "))
+                    } else if !points.is_empty() {
+                        format!("M {} L {}", points[0], points[0])
+                    } else {
+                        String::new()
+                    };
+
+                    view! {
+                        <div>
+                            // Summary stats
+                            <div class="grid grid-cols-4 gap-4 mb-4">
+                                <div class="text-center">
+                                    <p class="text-xs text-muted-foreground">"Steps"</p>
+                                    <p class="text-lg font-semibold">{data.len()}</p>
+                                </div>
+                                <div class="text-center">
+                                    <p class="text-xs text-muted-foreground">"Current Epoch"</p>
+                                    <p class="text-lg font-semibold">{latest.map(|m| m.epoch).unwrap_or(0)}</p>
+                                </div>
+                                <div class="text-center">
+                                    <p class="text-xs text-muted-foreground">"Latest Loss"</p>
+                                    <p class="text-lg font-semibold">{format!("{:.4}", latest.map(|m| m.loss).unwrap_or(0.0))}</p>
+                                </div>
+                                <div class="text-center">
+                                    <p class="text-xs text-muted-foreground">"Min Loss"</p>
+                                    <p class="text-lg font-semibold text-status-success">{format!("{:.4}", min_loss)}</p>
+                                </div>
+                            </div>
+
+                            // Loss curve visualization
+                            <div class="relative h-32 bg-muted/30 rounded-md p-2">
+                                <svg class="w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
+                                    // Grid lines
+                                    <line x1="0" y1="25" x2="100" y2="25" stroke="currentColor" stroke-opacity="0.1" stroke-width="0.5"/>
+                                    <line x1="0" y1="50" x2="100" y2="50" stroke="currentColor" stroke-opacity="0.1" stroke-width="0.5"/>
+                                    <line x1="0" y1="75" x2="100" y2="75" stroke="currentColor" stroke-opacity="0.1" stroke-width="0.5"/>
+
+                                    // Loss curve
+                                    <path
+                                        d=path_data
+                                        fill="none"
+                                        stroke="hsl(var(--primary))"
+                                        stroke-width="2"
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                        vector-effect="non-scaling-stroke"
+                                    />
+                                </svg>
+
+                                // Y-axis labels
+                                <div class="absolute left-0 top-0 h-full flex flex-col justify-between text-2xs text-muted-foreground py-1">
+                                    <span>{format!("{:.2}", max_loss)}</span>
+                                    <span>{format!("{:.2}", min_loss)}</span>
+                                </div>
+                            </div>
+
+                            <p class="text-xs text-muted-foreground text-center mt-2">
+                                "Loss over training steps"
+                            </p>
                         </div>
                     }.into_any()
                 }

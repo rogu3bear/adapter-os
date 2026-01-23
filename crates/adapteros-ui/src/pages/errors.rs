@@ -3,10 +3,13 @@
 //! Real-time error monitoring with live feed, history, analytics, and alerts.
 //! Uses SSE for real-time error streaming via `/v1/stream/client-errors`.
 
-use crate::api::{use_sse_json, ApiClient, SseState};
+use crate::api::{
+    use_sse_json, ApiClient, CreateErrorAlertRuleRequest, ErrorAlertRuleResponse, SseState,
+    UpdateErrorAlertRuleRequest,
+};
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonVariant, Card, ErrorDisplay, Spinner, Table, TableBody,
-    TableCell, TableHead, TableHeader, TableRow,
+    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ErrorDisplay, Spinner, Table,
+    TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use adapteros_api_types::telemetry::{ClientErrorItem, ClientErrorStatsResponse};
@@ -581,33 +584,422 @@ fn StatsDisplay(stats: ClientErrorStatsResponse) -> impl IntoView {
     }
 }
 
-/// Alerts section - placeholder for alert rules
+/// Alerts section - manages error alert rules
 #[component]
 fn AlertsSection() -> impl IntoView {
+    // State for alert rules
+    let (rules, refetch_rules) = use_api_resource(move |client: Arc<ApiClient>| async move {
+        client.list_error_alert_rules().await.map(|r| r.rules)
+    });
+
+    // State for create dialog
+    let show_create_dialog = RwSignal::new(false);
+
     view! {
-        <Card>
-            <div class="p-8 text-center">
-                <div class="rounded-full bg-muted p-3 mx-auto w-fit mb-4">
-                    <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        class="h-8 w-8 text-muted-foreground"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.5"
-                    >
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0"/>
-                    </svg>
+        <div class="space-y-4">
+            // Header with create button
+            <div class="flex items-center justify-between">
+                <div>
+                    <h3 class="text-lg font-semibold">"Alert Rules"</h3>
+                    <p class="text-sm text-muted-foreground">
+                        "Configure threshold-based alerts for error monitoring"
+                    </p>
                 </div>
-                <h3 class="text-lg font-semibold">"Alert Rules"</h3>
-                <p class="text-muted-foreground mt-2 max-w-md mx-auto">
-                    "Configure threshold-based alerts to be notified when error rates exceed defined limits."
-                </p>
-                <div class="mt-4">
-                    <Badge variant=BadgeVariant::Secondary>"Coming Soon"</Badge>
+                <div class="flex gap-2">
+                    <Button
+                        variant=ButtonVariant::Outline
+                        size=ButtonSize::Sm
+                        on_click=Callback::new(move |_| refetch_rules.run(()))
+                    >
+                        "Refresh"
+                    </Button>
+                    <Button
+                        variant=ButtonVariant::Primary
+                        size=ButtonSize::Sm
+                        on_click=Callback::new(move |_| show_create_dialog.set(true))
+                    >
+                        "+ New Rule"
+                    </Button>
                 </div>
             </div>
+
+            // Rules list
+            {move || match rules.get() {
+                LoadingState::Idle | LoadingState::Loading => {
+                    view! {
+                        <div class="flex items-center justify-center py-12">
+                            <Spinner/>
+                        </div>
+                    }.into_any()
+                }
+                LoadingState::Loaded(rules_list) => {
+                    if rules_list.is_empty() {
+                        view! {
+                            <Card>
+                                <div class="p-8 text-center">
+                                    <div class="rounded-full bg-muted p-3 mx-auto w-fit mb-4">
+                                        <svg
+                                            xmlns="http://www.w3.org/2000/svg"
+                                            class="h-8 w-8 text-muted-foreground"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            stroke-width="1.5"
+                                        >
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0"/>
+                                        </svg>
+                                    </div>
+                                    <p class="text-muted-foreground">
+                                        "No alert rules configured. Create your first rule to get notified when errors exceed thresholds."
+                                    </p>
+                                </div>
+                            </Card>
+                        }.into_any()
+                    } else {
+                        view! {
+                            <AlertRulesList rules=rules_list on_update=Callback::new(move |_| refetch_rules.run(()))/>
+                        }.into_any()
+                    }
+                }
+                LoadingState::Error(e) => {
+                    view! {
+                        <ErrorDisplay
+                            error=e
+                            on_retry=Callback::new(move |_| refetch_rules.run(()))
+                        />
+                    }.into_any()
+                }
+            }}
+
+            // Create dialog
+            {move || show_create_dialog.get().then(|| view! {
+                <CreateAlertRuleDialog
+                    on_close=Callback::new(move |_| show_create_dialog.set(false))
+                    on_created=Callback::new(move |_| {
+                        show_create_dialog.set(false);
+                        refetch_rules.run(());
+                    })
+                />
+            })}
+        </div>
+    }
+}
+
+/// Alert rules list component
+#[component]
+fn AlertRulesList(
+    rules: Vec<ErrorAlertRuleResponse>,
+    on_update: Callback<()>,
+) -> impl IntoView {
+    view! {
+        <Card>
+            <Table>
+                <TableHeader>
+                    <TableRow>
+                        <TableHead>"Name"</TableHead>
+                        <TableHead>"Pattern"</TableHead>
+                        <TableHead>"Threshold"</TableHead>
+                        <TableHead>"Severity"</TableHead>
+                        <TableHead>"Status"</TableHead>
+                        <TableHead class="text-right">"Actions"</TableHead>
+                    </TableRow>
+                </TableHeader>
+                <TableBody>
+                    {rules.into_iter().map(|rule| {
+                        view! {
+                            <AlertRuleRow rule=rule on_update=on_update/>
+                        }
+                    }).collect::<Vec<_>>()}
+                </TableBody>
+            </Table>
         </Card>
+    }
+}
+
+/// Single alert rule row
+#[component]
+fn AlertRuleRow(rule: ErrorAlertRuleResponse, on_update: Callback<()>) -> impl IntoView {
+    let rule_id_for_toggle = rule.id.clone();
+    let rule_id_for_delete = rule.id.clone();
+    let is_active = rule.is_active;
+
+    let (toggling, set_toggling) = signal(false);
+    let (deleting, set_deleting) = signal(false);
+
+    // Toggle active state
+    let on_toggle = move |_| {
+        let id = rule_id_for_toggle.clone();
+        set_toggling.set(true);
+        wasm_bindgen_futures::spawn_local(async move {
+            let client = ApiClient::new();
+            let request = UpdateErrorAlertRuleRequest {
+                is_active: Some(!is_active),
+                ..Default::default()
+            };
+            match client.update_error_alert_rule(&id, &request).await {
+                Ok(_) => on_update.run(()),
+                Err(e) => {
+                    web_sys::console::error_1(&format!("Failed to toggle rule: {}", e).into());
+                }
+            }
+            set_toggling.set(false);
+        });
+    };
+
+    // Delete rule
+    let on_delete = move |_| {
+        let id = rule_id_for_delete.clone();
+        set_deleting.set(true);
+        wasm_bindgen_futures::spawn_local(async move {
+            let client = ApiClient::new();
+            match client.delete_error_alert_rule(&id).await {
+                Ok(_) => on_update.run(()),
+                Err(e) => {
+                    web_sys::console::error_1(&format!("Failed to delete rule: {}", e).into());
+                }
+            }
+            set_deleting.set(false);
+        });
+    };
+
+    let severity_variant = match rule.severity.as_str() {
+        "critical" => BadgeVariant::Destructive,
+        "warning" => BadgeVariant::Warning,
+        _ => BadgeVariant::Secondary,
+    };
+
+    let pattern_display = rule
+        .error_type_pattern
+        .clone()
+        .or_else(|| rule.http_status_pattern.clone())
+        .or_else(|| rule.page_pattern.clone())
+        .unwrap_or_else(|| "Any".to_string());
+
+    view! {
+        <TableRow>
+            <TableCell>
+                <div>
+                    <p class="font-medium">{rule.name.clone()}</p>
+                    {rule.description.clone().map(|d| view! {
+                        <p class="text-xs text-muted-foreground">{d}</p>
+                    })}
+                </div>
+            </TableCell>
+            <TableCell>
+                <code class="text-xs bg-muted px-1 py-0.5 rounded">{pattern_display}</code>
+            </TableCell>
+            <TableCell>
+                <span class="text-sm">
+                    {format!("{} in {}m", rule.threshold_count, rule.threshold_window_minutes)}
+                </span>
+            </TableCell>
+            <TableCell>
+                <Badge variant=severity_variant>{rule.severity.clone()}</Badge>
+            </TableCell>
+            <TableCell>
+                <Badge variant=if rule.is_active { BadgeVariant::Success } else { BadgeVariant::Secondary }>
+                    {if rule.is_active { "Active" } else { "Inactive" }}
+                </Badge>
+            </TableCell>
+            <TableCell class="text-right">
+                <div class="flex justify-end gap-1">
+                    <Button
+                        variant=ButtonVariant::Ghost
+                        size=ButtonSize::Sm
+                        on_click=Callback::new(on_toggle)
+                        disabled=Signal::derive(move || toggling.get())
+                    >
+                        {move || if toggling.get() { "..." } else if is_active { "Disable" } else { "Enable" }}
+                    </Button>
+                    <Button
+                        variant=ButtonVariant::Ghost
+                        size=ButtonSize::Sm
+                        on_click=Callback::new(on_delete)
+                        disabled=Signal::derive(move || deleting.get())
+                    >
+                        {move || if deleting.get() { "..." } else { "Delete" }}
+                    </Button>
+                </div>
+            </TableCell>
+        </TableRow>
+    }
+}
+
+/// Create alert rule dialog
+#[component]
+fn CreateAlertRuleDialog(on_close: Callback<()>, on_created: Callback<()>) -> impl IntoView {
+    let (name, set_name) = signal(String::new());
+    let (description, set_description) = signal(String::new());
+    let (error_pattern, set_error_pattern) = signal(String::new());
+    let (threshold_count, set_threshold_count) = signal(5);
+    let (threshold_window, set_threshold_window) = signal(5);
+    let (severity, set_severity) = signal("warning".to_string());
+    let (submitting, set_submitting) = signal(false);
+    let (error, set_error) = signal(None::<String>);
+
+    let on_submit = move |_| {
+        let name_val = name.get();
+        if name_val.trim().is_empty() {
+            set_error.set(Some("Name is required".to_string()));
+            return;
+        }
+
+        set_submitting.set(true);
+        set_error.set(None);
+
+        let request = CreateErrorAlertRuleRequest {
+            name: name_val,
+            description: if description.get().is_empty() {
+                None
+            } else {
+                Some(description.get())
+            },
+            error_type_pattern: if error_pattern.get().is_empty() {
+                None
+            } else {
+                Some(error_pattern.get())
+            },
+            http_status_pattern: None,
+            page_pattern: None,
+            threshold_count: threshold_count.get(),
+            threshold_window_minutes: threshold_window.get(),
+            cooldown_minutes: 15,
+            severity: severity.get(),
+            notification_channels: None,
+        };
+
+        wasm_bindgen_futures::spawn_local(async move {
+            let client = ApiClient::new();
+            match client.create_error_alert_rule(&request).await {
+                Ok(_) => on_created.run(()),
+                Err(e) => {
+                    set_error.set(Some(e.to_string()));
+                    set_submitting.set(false);
+                }
+            }
+        });
+    };
+
+    view! {
+        <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <Card class="w-full max-w-lg mx-4">
+                <div class="p-6 space-y-4">
+                    <div class="flex items-center justify-between">
+                        <h2 class="text-lg font-semibold">"Create Alert Rule"</h2>
+                        <button
+                            type="button"
+                            class="text-muted-foreground hover:text-foreground"
+                            on:click=move |_| on_close.run(())
+                        >
+                            "✕"
+                        </button>
+                    </div>
+
+                    {move || error.get().map(|e| view! {
+                        <div class="p-3 text-sm text-destructive bg-destructive/10 rounded-md">
+                            {e}
+                        </div>
+                    })}
+
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium mb-1">"Name"</label>
+                            <input
+                                type="text"
+                                class="w-full px-3 py-2 border rounded-md bg-background"
+                                placeholder="High error rate alert"
+                                prop:value=move || name.get()
+                                on:input=move |ev| set_name.set(event_target_value(&ev))
+                            />
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-medium mb-1">"Description"</label>
+                            <input
+                                type="text"
+                                class="w-full px-3 py-2 border rounded-md bg-background"
+                                placeholder="Optional description"
+                                prop:value=move || description.get()
+                                on:input=move |ev| set_description.set(event_target_value(&ev))
+                            />
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-medium mb-1">"Error Type Pattern"</label>
+                            <input
+                                type="text"
+                                class="w-full px-3 py-2 border rounded-md bg-background"
+                                placeholder="e.g., NetworkError, *Timeout* (optional)"
+                                prop:value=move || error_pattern.get()
+                                on:input=move |ev| set_error_pattern.set(event_target_value(&ev))
+                            />
+                            <p class="text-xs text-muted-foreground mt-1">
+                                "Leave empty to match all error types"
+                            </p>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium mb-1">"Threshold Count"</label>
+                                <input
+                                    type="number"
+                                    min="1"
+                                    class="w-full px-3 py-2 border rounded-md bg-background"
+                                    prop:value=move || threshold_count.get()
+                                    on:input=move |ev| {
+                                        if let Ok(v) = event_target_value(&ev).parse::<i32>() {
+                                            set_threshold_count.set(v.max(1));
+                                        }
+                                    }
+                                />
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium mb-1">"Window (minutes)"</label>
+                                <input
+                                    type="number"
+                                    min="1"
+                                    class="w-full px-3 py-2 border rounded-md bg-background"
+                                    prop:value=move || threshold_window.get()
+                                    on:input=move |ev| {
+                                        if let Ok(v) = event_target_value(&ev).parse::<i32>() {
+                                            set_threshold_window.set(v.max(1));
+                                        }
+                                    }
+                                />
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-medium mb-1">"Severity"</label>
+                            <select
+                                class="w-full px-3 py-2 border rounded-md bg-background"
+                                on:change=move |ev| set_severity.set(event_target_value(&ev))
+                            >
+                                <option value="info" selected=move || severity.get() == "info">"Info"</option>
+                                <option value="warning" selected=move || severity.get() == "warning">"Warning"</option>
+                                <option value="critical" selected=move || severity.get() == "critical">"Critical"</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="flex justify-end gap-2 pt-4">
+                        <Button
+                            variant=ButtonVariant::Outline
+                            on_click=Callback::new(move |_| on_close.run(()))
+                        >
+                            "Cancel"
+                        </Button>
+                        <Button
+                            variant=ButtonVariant::Primary
+                            on_click=Callback::new(on_submit)
+                            disabled=Signal::derive(move || submitting.get())
+                        >
+                            {move || if submitting.get() { "Creating..." } else { "Create Rule" }}
+                        </Button>
+                    </div>
+                </div>
+            </Card>
+        </div>
     }
 }
 

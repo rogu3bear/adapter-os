@@ -35,8 +35,10 @@ pub use rotation_daemon::{
 pub use secret::{KeyMaterial, SecretKey, SensitiveData};
 pub use sep_attestation::{
     check_sep_availability, detect_chip_generation, generate_sep_key_with_attestation,
-    get_key_creation_date, verify_attestation_chain, verify_attestation_nonce, SepAttestation,
-    SepAvailability, SepChipGeneration,
+    get_cached_trusted_roots, get_key_creation_date, get_root_ca_path, load_root_ca_bundle,
+    verify_attestation_chain, verify_attestation_chain_with_root_ca, verify_attestation_nonce,
+    RootCaConfig, RootCaVerificationResult, SepAttestation, SepAvailability, SepChipGeneration,
+    TrustedRootCa, DEFAULT_ROOT_CA_PATH, ROOT_CA_PATH_ENV,
 };
 pub use signature::{sign_bytes, verify_signature, Keypair, PublicKey, Signature};
 

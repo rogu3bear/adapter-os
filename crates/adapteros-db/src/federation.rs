@@ -190,4 +190,119 @@ impl Db {
 
         Ok(())
     }
+
+    /// Get federation peer sync status
+    ///
+    /// Returns sync status for all active federation peers, including:
+    /// - Health status (healthy, degraded, unhealthy, isolated)
+    /// - Last seen timestamp
+    /// - Last heartbeat timestamp
+    ///
+    /// A peer is considered "in sync" if it is healthy and has a recent heartbeat.
+    pub async fn get_peer_sync_status(&self, limit: usize) -> Result<Vec<PeerSyncStatus>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT
+                host_id,
+                hostname,
+                health_status,
+                last_seen_at,
+                last_heartbeat_at,
+                active,
+                failed_heartbeats
+            FROM federation_peers
+            WHERE active = 1
+            ORDER BY last_heartbeat_at DESC NULLS LAST
+            LIMIT ?
+            "#,
+        )
+        .bind(limit as i64)
+        .fetch_all(self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to fetch peer sync status: {}", e)))?;
+
+        let mut peers = Vec::with_capacity(rows.len());
+        for row in rows {
+            let host_id: String = row.get("host_id");
+            let hostname: Option<String> = row.get("hostname");
+            let health_status: String = row.get("health_status");
+            let last_seen_at: Option<String> = row.get("last_seen_at");
+            let last_heartbeat_at: Option<String> = row.get("last_heartbeat_at");
+            let failed_heartbeats: i32 = row.try_get("failed_heartbeats").unwrap_or(0);
+
+            // Map health status to sync state
+            let sync_state = match health_status.as_str() {
+                "healthy" => PeerSyncState::Synced,
+                "degraded" => PeerSyncState::Syncing,
+                "unhealthy" | "isolated" => PeerSyncState::Failed,
+                _ => PeerSyncState::Syncing,
+            };
+
+            // A peer is in sync if healthy with no failed heartbeats
+            let in_sync = sync_state == PeerSyncState::Synced && failed_heartbeats == 0;
+
+            peers.push(PeerSyncStatus {
+                peer_id: host_id.clone(),
+                host: hostname.unwrap_or(host_id),
+                sync_state,
+                in_sync,
+                last_sync_at: last_heartbeat_at.clone(),
+                last_seen_at,
+                failed_heartbeats: failed_heartbeats as u32,
+            });
+        }
+
+        Ok(peers)
+    }
+
+    /// Get count of active federation peers
+    ///
+    /// Returns total count of active peers in the federation.
+    pub async fn get_active_peer_count(&self) -> Result<usize> {
+        let count = sqlx::query_scalar::<_, i64>(
+            r#"
+            SELECT COUNT(*)
+            FROM federation_peers
+            WHERE active = 1
+            "#,
+        )
+        .fetch_one(self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to count active peers: {}", e)))?;
+
+        Ok(count as usize)
+    }
+}
+
+/// Peer sync state enumeration
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+#[cfg_attr(feature = "utoipa", derive(ToSchema))]
+pub enum PeerSyncState {
+    /// Peer is fully synchronized
+    Synced,
+    /// Peer is currently syncing (degraded health)
+    Syncing,
+    /// Peer sync failed (unhealthy or isolated)
+    Failed,
+}
+
+/// Peer sync status record
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(ToSchema))]
+pub struct PeerSyncStatus {
+    /// Unique peer identifier
+    pub peer_id: String,
+    /// Hostname or display name
+    pub host: String,
+    /// Current sync state
+    pub sync_state: PeerSyncState,
+    /// Whether peer is considered in sync
+    pub in_sync: bool,
+    /// Timestamp of last successful sync (heartbeat)
+    pub last_sync_at: Option<String>,
+    /// Timestamp when peer was last seen
+    pub last_seen_at: Option<String>,
+    /// Number of consecutive failed heartbeats
+    pub failed_heartbeats: u32,
 }

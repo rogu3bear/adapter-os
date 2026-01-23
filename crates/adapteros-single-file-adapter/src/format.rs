@@ -169,9 +169,95 @@ pub struct AdapterManifest {
     /// Training backend
     #[serde(default)]
     pub training_backend: Option<String>,
-    /// Base model hash
+    /// Base model hash (BLAKE3)
     #[serde(default)]
     pub base_model_hash: Option<String>,
+    /// Training configuration hash (BLAKE3) for reproducibility verification
+    #[serde(default)]
+    pub training_config_hash: Option<String>,
+    /// Tokenizer hash (BLAKE3) for input processing verification
+    #[serde(default)]
+    pub tokenizer_hash: Option<String>,
+    /// Primary dataset ID used for training
+    #[serde(default)]
+    pub dataset_id: Option<String>,
+    /// Dataset content hash (BLAKE3)
+    #[serde(default)]
+    pub dataset_hash: Option<String>,
+    /// Integrity hash covering all critical fields for tamper detection.
+    /// BLAKE3(base_model_hash || training_config_hash || tokenizer_hash || dataset_hash || weights_hash)
+    #[serde(default)]
+    pub integrity_hash: Option<String>,
+}
+
+impl AdapterManifest {
+    /// Compute the integrity hash from critical manifest fields.
+    /// This covers: base_model_hash, training_config_hash, tokenizer_hash, dataset_hash, weights_hash.
+    pub fn compute_integrity_hash(&self) -> String {
+        // Build input buffer in deterministic order
+        let mut input = Vec::new();
+
+        if let Some(ref h) = self.base_model_hash {
+            input.extend_from_slice(b"base_model_hash:");
+            input.extend_from_slice(h.as_bytes());
+            input.push(b'|');
+        }
+        if let Some(ref h) = self.training_config_hash {
+            input.extend_from_slice(b"training_config_hash:");
+            input.extend_from_slice(h.as_bytes());
+            input.push(b'|');
+        }
+        if let Some(ref h) = self.tokenizer_hash {
+            input.extend_from_slice(b"tokenizer_hash:");
+            input.extend_from_slice(h.as_bytes());
+            input.push(b'|');
+        }
+        if let Some(ref h) = self.dataset_hash {
+            input.extend_from_slice(b"dataset_hash:");
+            input.extend_from_slice(h.as_bytes());
+            input.push(b'|');
+        }
+        input.extend_from_slice(b"weights_hash:");
+        input.extend_from_slice(self.weights_hash.as_bytes());
+
+        B3Hash::hash(&input).to_hex()
+    }
+
+    /// Verify the integrity hash matches the computed value.
+    /// Returns Ok(()) if valid or if no integrity_hash is set (backward compatibility).
+    /// Returns an error with actionable message if verification fails.
+    pub fn verify_integrity(&self) -> Result<()> {
+        let Some(ref stored_hash) = self.integrity_hash else {
+            // Backward compatibility: older .aos files may not have integrity_hash
+            tracing::debug!(
+                schema_version = %self.schema_version,
+                "No integrity_hash present in manifest (legacy .aos file)"
+            );
+            return Ok(());
+        };
+
+        let computed = self.compute_integrity_hash();
+        if stored_hash != &computed {
+            return Err(AosError::IntegrityViolation(format!(
+                "Adapter integrity verification failed: stored hash '{}' does not match computed '{}'. \
+                 This may indicate tampering or corruption. \
+                 Action: Re-export the adapter from the original training run, or verify the source .aos file.",
+                stored_hash, computed
+            )));
+        }
+
+        tracing::debug!(
+            integrity_hash = %stored_hash,
+            "Adapter integrity verification passed"
+        );
+        Ok(())
+    }
+
+    /// Seal the manifest by computing and storing the integrity hash.
+    /// Call this after all fields are set, before serializing to .aos.
+    pub fn seal_integrity(&mut self) {
+        self.integrity_hash = Some(self.compute_integrity_hash());
+    }
 }
 
 fn default_format_version() -> u8 {
@@ -435,6 +521,11 @@ impl SingleFileAdapter {
             kernel_version: None,
             training_backend: None,
             base_model_hash: None,
+            training_config_hash: None,
+            tokenizer_hash: None,
+            dataset_id: None,
+            dataset_hash: None,
+            integrity_hash: None,
         };
 
         let mut adapter = Self {

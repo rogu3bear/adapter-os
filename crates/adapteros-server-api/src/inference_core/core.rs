@@ -3142,19 +3142,21 @@ impl<'a> InferenceCore<'a> {
             Some(ids) if ids.is_empty()
         );
 
-        let stop_policy_json = request.stop_policy.as_ref().and_then(|sp| {
-            match serde_json::to_string(sp) {
-                Ok(json) => Some(json),
-                Err(e) => {
-                    tracing::warn!(
-                        request_id = %request.request_id,
-                        error = %e,
-                        "Failed to serialize stop_policy for replay metadata"
-                    );
-                    None
-                }
-            }
-        });
+        let stop_policy_json =
+            request
+                .stop_policy
+                .as_ref()
+                .and_then(|sp| match serde_json::to_string(sp) {
+                    Ok(json) => Some(json),
+                    Err(e) => {
+                        tracing::warn!(
+                            request_id = %request.request_id,
+                            error = %e,
+                            "Failed to serialize stop_policy for replay metadata"
+                        );
+                        None
+                    }
+                });
 
         CreateReplayMetadataParams {
             inference_id: request.request_id.clone(),
@@ -3450,19 +3452,21 @@ impl<'a> InferenceCore<'a> {
         let tokens_generated = tokens_generated.map(|value| value as i32);
 
         // Serialize stop_policy if present
-        let stop_policy_json = request.stop_policy.as_ref().and_then(|sp| {
-            match serde_json::to_string(sp) {
-                Ok(json) => Some(json),
-                Err(e) => {
-                    tracing::warn!(
-                        request_id = %request.request_id,
-                        error = %e,
-                        "Failed to serialize stop_policy for replay metadata"
-                    );
-                    None
-                }
-            }
-        });
+        let stop_policy_json =
+            request
+                .stop_policy
+                .as_ref()
+                .and_then(|sp| match serde_json::to_string(sp) {
+                    Ok(json) => Some(json),
+                    Err(e) => {
+                        tracing::warn!(
+                            request_id = %request.request_id,
+                            error = %e,
+                            "Failed to serialize stop_policy for replay metadata"
+                        );
+                        None
+                    }
+                });
 
         // Build params for DB storage
         let params = CreateReplayMetadataParams {

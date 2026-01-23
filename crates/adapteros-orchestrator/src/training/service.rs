@@ -16,11 +16,24 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use adapteros_core::{AlgorithmVersionBundle, AosError, Result};
 use adapteros_deterministic_exec::spawn_deterministic;
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
+
+/// Default training job timeout in seconds (2 hours)
+const DEFAULT_TRAINING_JOB_TIMEOUT_SECS: u64 = 7200;
+
+/// Get training job timeout from environment or use default
+fn training_job_timeout() -> Duration {
+    let secs = std::env::var("AOS_TRAINING_JOB_TIMEOUT_SECS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(DEFAULT_TRAINING_JOB_TIMEOUT_SECS);
+    Duration::from_secs(secs)
+}
 
 use crate::training::coreml::run_coreml_export_flow;
 use crate::training::execution::run_training_job;
@@ -809,9 +822,13 @@ impl TrainingService {
         let data_lineage_mode_for_run = data_lineage_mode;
         let cancel_token_for_run = cancel_token.clone();
         let cancel_tokens_for_det = cancel_tokens_ref.clone();
+        let job_timeout = training_job_timeout();
+        let job_id_for_timeout = job_id_for_run.clone();
+        let jobs_ref_for_timeout = jobs_ref.clone();
         if let Err(e) =
             spawn_deterministic(format!("training-job:{}", job_id_for_run), async move {
-                let result = run_training_job(
+                // Wrap training job with timeout to prevent indefinite hangs
+                let training_future = run_training_job(
                     jobs_ref_det.clone(),
                     job_id_det.clone(),
                     adapter_name_det,
@@ -826,9 +843,34 @@ impl TrainingService {
                     category_for_det,
                     post_actions_for_det,
                     base_model_id_for_det,
-                    cancel_token_for_run,
-                )
-                .await;
+                    cancel_token_for_run.clone(),
+                );
+
+                let result = match tokio::time::timeout(job_timeout, training_future).await {
+                    Ok(inner_result) => inner_result,
+                    Err(_elapsed) => {
+                        // Training job timed out - log and mark as failed
+                        warn!(
+                            job_id = %job_id_for_timeout,
+                            timeout_secs = job_timeout.as_secs(),
+                            "TRAINING_JOB_TIMEOUT: Training job exceeded maximum duration - consider increasing AOS_TRAINING_JOB_TIMEOUT_SECS"
+                        );
+                        // Signal cancellation so any in-progress work can clean up
+                        cancel_token_for_run.store(true, Ordering::SeqCst);
+                        // Update job status to failed with timeout reason
+                        {
+                            let mut jobs = jobs_ref_for_timeout.write().await;
+                            if let Some(job) = jobs.get_mut(&job_id_for_timeout) {
+                                job.status = TrainingJobStatus::Failed;
+                                job.error_message = Some(format!(
+                                    "TRAINING_JOB_TIMEOUT: Training job exceeded maximum duration of {} seconds",
+                                    job_timeout.as_secs()
+                                ));
+                            }
+                        }
+                        Err(AosError::Timeout { duration: job_timeout })
+                    }
+                };
 
                 {
                     let mut tokens = cancel_tokens_for_det.write().await;
@@ -848,8 +890,12 @@ impl TrainingService {
                 );
                 let cancel_tokens_for_fallback = cancel_tokens_ref.clone();
                 let cancel_token_for_fallback = cancel_token.clone();
+                let job_timeout_fallback = training_job_timeout();
+                let job_id_for_timeout_fallback = job_id.clone();
+                let jobs_ref_for_timeout_fallback = jobs_ref.clone();
                 tokio::spawn(async move {
-                    let result = run_training_job(
+                    // Wrap training job with timeout to prevent indefinite hangs
+                    let training_future = run_training_job(
                         jobs_ref_fallback.clone(),
                         job_id_for_fallback.clone(),
                         adapter_name_for_fallback.clone(),
@@ -864,9 +910,32 @@ impl TrainingService {
                         category_for_fallback,
                         post_actions_for_fallback,
                         base_model_id_for_fallback,
-                        cancel_token_for_fallback,
-                    )
-                    .await;
+                        cancel_token_for_fallback.clone(),
+                    );
+
+                    let result = match tokio::time::timeout(job_timeout_fallback, training_future).await {
+                        Ok(inner_result) => inner_result,
+                        Err(_elapsed) => {
+                            warn!(
+                                job_id = %job_id_for_timeout_fallback,
+                                timeout_secs = job_timeout_fallback.as_secs(),
+                                "TRAINING_JOB_TIMEOUT: Training job exceeded maximum duration (fallback path)"
+                            );
+                            cancel_token_for_fallback.store(true, Ordering::SeqCst);
+                            {
+                                let mut jobs = jobs_ref_for_timeout_fallback.write().await;
+                                if let Some(job) = jobs.get_mut(&job_id_for_timeout_fallback) {
+                                    job.status = TrainingJobStatus::Failed;
+                                    job.error_message = Some(format!(
+                                        "TRAINING_JOB_TIMEOUT: Training job exceeded maximum duration of {} seconds",
+                                        job_timeout_fallback.as_secs()
+                                    ));
+                                }
+                            }
+                            Err(AosError::Timeout { duration: job_timeout_fallback })
+                        }
+                    };
+
                     let mut tokens = cancel_tokens_for_fallback.write().await;
                     tokens.remove(&job_id_for_fallback);
                     if let Err(err) = result {

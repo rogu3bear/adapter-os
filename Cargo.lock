@@ -329,6 +329,7 @@ dependencies = [
  "adapteros-crypto",
  "adapteros-db",
  "adapteros-deterministic-exec",
+ "adapteros-embeddings",
  "adapteros-error-registry",
  "adapteros-ingest-docs",
  "adapteros-lora-kernel-api",
@@ -345,6 +346,7 @@ dependencies = [
  "adapteros-policy",
  "adapteros-registry",
  "adapteros-replay",
+ "adapteros-retrieval",
  "adapteros-sbom",
  "adapteros-scenarios",
  "adapteros-secd",
@@ -734,6 +736,7 @@ dependencies = [
  "thiserror 2.0.17",
  "tokenizers",
  "tokio",
+ "toml 0.8.23",
  "tracing",
 ]
 
@@ -1525,6 +1528,7 @@ dependencies = [
  "async-trait",
  "blake3",
  "chrono",
+ "regex",
  "serde",
  "serde_json",
  "tempfile",

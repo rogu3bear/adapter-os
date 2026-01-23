@@ -75,7 +75,7 @@ print_kv "rustc" "$(rustc --version)"
 print_kv "cargo" "$(cargo --version)"
 
 print_env_if_set "AOS_DEV_NO_AUTH"
-print_env_if_set "AOS_DEMO_MODE"
+print_env_if_set "AOS_REFERENCE_MODE"
 print_env_if_set "AOS_CONFIG"
 print_env_if_set "AOS_MODEL_CACHE_DIR"
 print_env_if_set "AOS_BASE_MODEL_ID"

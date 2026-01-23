@@ -2202,6 +2202,31 @@
     margin: 0;
 }
 
+.toast-copy-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 0.5rem;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--color-muted-foreground);
+    background-color: var(--color-background);
+    border: 1px solid var(--color-border);
+    border-radius: calc(var(--radius) - 0.125rem);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.toast-copy-btn:hover {
+    background-color: var(--color-accent);
+    color: var(--color-accent-foreground);
+}
+
+.toast-copy-btn:active {
+    transform: scale(0.98);
+}
+
 .toast-close {
     flex-shrink: 0;
     margin-left: auto;
@@ -3653,4 +3678,780 @@
 
 .trend-flat {
     color: var(--color-muted-foreground);
+}
+
+/* ===== Adapter Magnet Components ===== */
+/* PRD-UI-100: Liquid Glass compliant adapter chips for chat input */
+
+/*
+ * Adapter Magnet Bar
+ * Container for suggested adapter chips near chat input.
+ * Uses Tier 1 glass background per Liquid Glass spec.
+ */
+.adapter-magnet-bar {
+    display: flex;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    border-bottom: 1px dashed var(--color-border);
+    position: relative;
+}
+
+/* Glass theme integration - uses data-elevation from glass.css */
+.theme-glass .adapter-magnet-bar {
+    background: var(--glass-bg-1);
+    border-color: var(--glass-border);
+    box-shadow: var(--glass-shadow-sm);
+}
+
+@supports (backdrop-filter: blur(1px)) {
+    .theme-glass .adapter-magnet-bar {
+        backdrop-filter: blur(var(--glass-blur-1)) saturate(var(--glass-saturation));
+        -webkit-backdrop-filter: blur(var(--glass-blur-1)) saturate(var(--glass-saturation));
+    }
+}
+
+.adapter-magnet-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--color-muted-foreground);
+    flex-shrink: 0;
+}
+
+.adapter-magnet-chips {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    align-items: center;
+    flex: 1;
+}
+
+.adapter-magnet-empty {
+    font-size: 0.625rem;
+    color: var(--color-muted-foreground);
+    opacity: 0.7;
+    font-style: italic;
+}
+
+/*
+ * Adapter Chip Wrapper
+ * Positions tooltip relative to chip
+ */
+.adapter-chip-wrapper {
+    position: relative;
+    display: inline-flex;
+}
+
+/*
+ * Adapter Chip
+ * Interactive chip with state-based styling.
+ * Transitions are state-change-only per Liquid Glass motion rules.
+ */
+.adapter-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.25rem 0.625rem;
+    border-radius: 9999px;
+    font-size: 0.625rem;
+    font-weight: 500;
+    color: white;
+    border: none;
+    cursor: pointer;
+    /* State-change transitions only (200-300ms per spec) */
+    transition-property: background-color, transform, box-shadow, opacity;
+    transition-duration: 200ms;
+    transition-timing-function: ease;
+}
+
+.adapter-chip:focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
+}
+
+/* Confidence-based background colors */
+.adapter-chip-high {
+    background-color: hsl(142 76% 36% / 0.85);
+}
+
+.adapter-chip-high:hover:not(:disabled) {
+    background-color: hsl(142 76% 36%);
+}
+
+.adapter-chip-medium {
+    background-color: hsl(38 92% 50% / 0.85);
+}
+
+.adapter-chip-medium:hover:not(:disabled) {
+    background-color: hsl(38 92% 50%);
+}
+
+.adapter-chip-low {
+    background-color: hsl(215.4 16.3% 46.9% / 0.85);
+}
+
+.adapter-chip-low:hover:not(:disabled) {
+    background-color: hsl(215.4 16.3% 46.9%);
+}
+
+/* State-based styling (overrides confidence colors when active) */
+.adapter-chip-suggested {
+    opacity: 0.85;
+}
+
+.adapter-chip-suggested:hover:not(:disabled) {
+    opacity: 1;
+    transform: scale(1.02);
+}
+
+.adapter-chip-selected {
+    background-color: var(--color-primary) !important;
+    box-shadow: 0 0 0 2px var(--color-primary) inset, var(--glass-shadow-sm);
+}
+
+.adapter-chip-pinned {
+    background-color: var(--color-primary) !important;
+    box-shadow: 0 0 0 2px hsl(210 40% 98% / 0.3);
+}
+
+.adapter-chip-pinned:hover:not(:disabled) {
+    background-color: hsl(222.2 47.4% 15%) !important;
+}
+
+.dark .adapter-chip-pinned:hover:not(:disabled) {
+    background-color: hsl(210 40% 90%) !important;
+}
+
+.adapter-chip-disabled {
+    background-color: var(--color-disabled) !important;
+    color: var(--color-disabled-foreground);
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+/* Icon within chip */
+.adapter-chip-icon {
+    width: 0.75rem;
+    height: 0.75rem;
+    flex-shrink: 0;
+}
+
+.adapter-chip-icon-faded {
+    opacity: 0.5;
+}
+
+/* Text elements */
+.adapter-chip-id {
+    font-family: var(--font-mono);
+}
+
+.adapter-chip-confidence {
+    opacity: 0.7;
+}
+
+/* Tooltip - appears on hover for detailed info */
+.adapter-chip-tooltip {
+    position: absolute;
+    bottom: calc(100% + 0.5rem);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 50;
+    min-width: 12rem;
+    max-width: 16rem;
+    padding: 0.75rem;
+    border-radius: var(--radius);
+    background-color: var(--color-popover);
+    border: 1px solid var(--color-border);
+    box-shadow: var(--glass-shadow-md);
+    font-size: 0.75rem;
+    color: var(--color-popover-foreground);
+    /* Entry animation (state-change) */
+    animation: adapter-tooltip-enter 200ms ease;
+}
+
+/* Glass theme tooltip */
+.theme-glass .adapter-chip-tooltip {
+    background: var(--glass-bg-3);
+    border-color: var(--glass-border);
+    box-shadow: var(--glass-shadow-lg), var(--glass-glow);
+}
+
+@supports (backdrop-filter: blur(1px)) {
+    .theme-glass .adapter-chip-tooltip {
+        backdrop-filter: blur(var(--glass-blur-3)) saturate(var(--glass-saturation));
+        -webkit-backdrop-filter: blur(var(--glass-blur-3)) saturate(var(--glass-saturation));
+    }
+}
+
+/* Tooltip arrow */
+.adapter-chip-tooltip::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border-width: 6px;
+    border-style: solid;
+    border-color: var(--color-border) transparent transparent transparent;
+}
+
+.theme-glass .adapter-chip-tooltip::after {
+    border-top-color: var(--glass-border);
+}
+
+.adapter-chip-tooltip-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.375rem;
+}
+
+.adapter-chip-tooltip-id {
+    font-family: var(--font-mono);
+    font-weight: 600;
+}
+
+.adapter-chip-tooltip-confidence {
+    font-size: 0.625rem;
+    padding: 0.125rem 0.375rem;
+    border-radius: 9999px;
+    background-color: var(--color-muted);
+}
+
+.adapter-chip-tooltip-desc {
+    color: var(--color-muted-foreground);
+    line-height: 1.4;
+    margin: 0;
+}
+
+.adapter-chip-tooltip-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    margin-top: 0.5rem;
+}
+
+.adapter-chip-tooltip-tag {
+    font-size: 0.625rem;
+    padding: 0.125rem 0.375rem;
+    border-radius: calc(var(--radius) - 2px);
+    background-color: var(--color-secondary);
+    color: var(--color-secondary-foreground);
+}
+
+/* Tooltip entry animation (state-change only, no idle movement) */
+@keyframes adapter-tooltip-enter {
+    from {
+        opacity: 0;
+        transform: translateX(-50%) translateY(4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+    }
+}
+
+/* Text contrast for glass theme */
+.theme-glass .adapter-chip {
+    text-shadow: 0 0 2px var(--color-background);
+}
+
+.theme-glass .adapter-magnet-label {
+    text-shadow: 0 0 1px var(--color-background);
+}
+
+/* ===== Adapter Detail Panel ===== */
+/* PRD-UI-100: Liquid Glass Tier 2 detail panel for adapter information */
+
+/*
+ * Main container - slide-in panel from right edge.
+ * Uses Tier 2 glass background per Liquid Glass spec (78% alpha, 12px blur).
+ */
+.adapter-detail-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow-y: auto;
+    background: var(--glass-bg-2);
+    backdrop-filter: blur(var(--glass-blur-2));
+    -webkit-backdrop-filter: blur(var(--glass-blur-2));
+    border-left: 1px solid var(--glass-border);
+}
+
+.adapter-detail-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem;
+    min-height: 200px;
+}
+
+.adapter-detail-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem 2rem;
+    text-align: center;
+    gap: 1rem;
+    min-height: 300px;
+}
+
+.adapter-detail-empty-icon {
+    color: var(--color-muted-foreground);
+    opacity: 0.5;
+}
+
+.adapter-detail-empty-hint {
+    font-size: 0.875rem;
+    color: var(--color-muted-foreground);
+    max-width: 280px;
+    line-height: 1.5;
+}
+
+.adapter-detail-content {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    padding: 1.5rem;
+}
+
+/* Header */
+.adapter-detail-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.adapter-detail-header-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 0;
+    flex: 1;
+}
+
+.adapter-detail-title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    line-height: 1.2;
+    color: var(--color-foreground);
+    margin: 0;
+    word-break: break-word;
+}
+
+.adapter-detail-subtitle {
+    margin: 0;
+    word-break: break-all;
+}
+
+.adapter-detail-close {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--color-muted-foreground);
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: color 150ms, background-color 150ms;
+}
+
+.adapter-detail-close:hover {
+    color: var(--color-foreground);
+    background-color: var(--color-accent);
+}
+
+.adapter-detail-close:focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
+}
+
+/* Status badges row */
+.adapter-detail-status {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+/* Suggestion section */
+.adapter-detail-suggestion {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.adapter-detail-suggestion-reason {
+    font-size: 0.875rem;
+    color: var(--color-foreground);
+    margin: 0;
+}
+
+.adapter-detail-suggestion-metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+    gap: 0.75rem;
+}
+
+.adapter-detail-metric {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+}
+
+.adapter-detail-metric-label {
+    font-size: 0.75rem;
+    color: var(--color-muted-foreground);
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
+}
+
+.adapter-detail-metric-value {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--color-foreground);
+}
+
+/* Metadata definition list */
+.adapter-detail-metadata {
+    display: grid;
+    gap: 0.75rem;
+}
+
+.adapter-detail-metadata-item {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+    align-items: baseline;
+}
+
+.adapter-detail-metadata-item dt {
+    font-size: 0.875rem;
+    color: var(--color-muted-foreground);
+}
+
+.adapter-detail-metadata-item dd {
+    font-size: 0.875rem;
+    color: var(--color-foreground);
+    margin: 0;
+    text-align: right;
+    word-break: break-word;
+}
+
+/* Tags section */
+.adapter-detail-tags {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.adapter-detail-framework {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+}
+
+/* Actions */
+.adapter-detail-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+/* Glass theme overrides */
+.theme-glass .adapter-detail-panel {
+    box-shadow: var(--glass-shadow-md);
+}
+
+/* Ensure text contrast on glass backgrounds */
+.theme-glass .adapter-detail-title,
+.theme-glass .adapter-detail-subtitle,
+.theme-glass .adapter-detail-metric-value,
+.theme-glass .adapter-detail-metadata-item dd {
+    text-shadow: 0 0 1px var(--color-background);
+}
+
+/* ===== Upload Dropzone Component ===== */
+
+.upload-dropzone {
+    position: relative;
+    border: 2px dashed var(--color-border);
+    border-radius: var(--radius);
+    padding: 2rem;
+    text-align: center;
+    transition: all 200ms ease;
+    cursor: pointer;
+    background-color: var(--color-background);
+}
+
+.upload-dropzone:hover {
+    border-color: var(--color-primary);
+    background-color: hsl(var(--color-primary-hsl) / 0.05);
+}
+
+.upload-dropzone-active {
+    border-color: var(--color-primary);
+    border-style: solid;
+    background-color: hsl(var(--color-primary-hsl) / 0.1);
+}
+
+.upload-dropzone-has-file {
+    border-color: var(--color-success);
+    border-style: solid;
+    background-color: hsl(var(--color-success-hsl) / 0.05);
+}
+
+.upload-dropzone-uploading {
+    pointer-events: none;
+    opacity: 0.7;
+}
+
+.upload-dropzone-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+}
+
+.upload-dropzone-input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+}
+
+.upload-dropzone-input:disabled {
+    cursor: not-allowed;
+}
+
+.upload-dropzone-prompt {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.upload-dropzone-icon-large {
+    font-size: 3rem;
+    line-height: 1;
+    margin-bottom: 0.5rem;
+}
+
+.upload-dropzone-text {
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--color-foreground);
+    margin: 0;
+}
+
+.upload-dropzone-hint {
+    font-size: 0.875rem;
+    color: var(--color-muted-foreground);
+    margin: 0;
+}
+
+.upload-dropzone-file {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.upload-dropzone-icon {
+    font-size: 2rem;
+}
+
+.upload-dropzone-filename {
+    font-weight: 500;
+    color: var(--color-foreground);
+}
+
+.upload-dropzone-filesize {
+    font-size: 0.875rem;
+    color: var(--color-muted-foreground);
+}
+
+/* Upload Progress Bar */
+.upload-progress {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem 0;
+}
+
+.upload-progress-bar {
+    flex: 1;
+    height: 8px;
+    background-color: var(--color-muted);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.upload-progress-fill {
+    height: 100%;
+    background-color: var(--color-primary);
+    border-radius: 4px;
+    transition: width 200ms ease;
+}
+
+.upload-progress-text {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--color-foreground);
+    min-width: 4rem;
+    text-align: right;
+}
+
+/* Upload Result List */
+.upload-result-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin: 0;
+    padding: 0;
+}
+
+.upload-result-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.upload-result-item:last-child {
+    border-bottom: none;
+}
+
+.upload-result-label {
+    font-size: 0.875rem;
+    color: var(--color-muted-foreground);
+    font-weight: 500;
+}
+
+.upload-result-value {
+    font-size: 0.875rem;
+    color: var(--color-foreground);
+}
+
+/* Upload Error */
+.upload-error {
+    padding: 1rem;
+    margin-top: 1rem;
+    background-color: hsl(var(--color-destructive-hsl) / 0.1);
+    border: 1px solid var(--color-destructive);
+    border-radius: var(--radius);
+    color: var(--color-destructive);
+    font-size: 0.875rem;
+}
+
+/* Glass theme for upload components */
+.theme-glass .upload-dropzone {
+    background-color: var(--glass-bg);
+    border-color: var(--glass-border);
+}
+
+.theme-glass .upload-dropzone:hover {
+    background-color: hsl(var(--color-primary-hsl) / 0.1);
+}
+
+.theme-glass .upload-dropzone-active {
+    background-color: hsl(var(--color-primary-hsl) / 0.15);
+}
+
+.theme-glass .upload-progress-bar {
+    background-color: var(--glass-bg);
+}
+
+/* ===== Telemetry Overlay (Ctrl+Shift+T) ===== */
+/*
+ * Minimal corner badge for real-time system telemetry.
+ * Follows Liquid Glass Tier 1 design (blur: 9.6px, alpha: 70%).
+ * Positioned bottom-left to avoid conflict with chat dock.
+ */
+.telemetry-overlay {
+    position: fixed;
+    bottom: 4rem; /* Above taskbar */
+    left: 1rem;
+    z-index: 40; /* Below modals (50), above content */
+    min-width: 10rem;
+    padding: 0.75rem;
+    font-size: 0.75rem;
+    line-height: 1.25;
+    border-radius: var(--radius);
+    background: var(--glass-bg-1);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow-sm);
+    backdrop-filter: blur(var(--glass-blur-1)) saturate(var(--glass-saturation));
+    -webkit-backdrop-filter: blur(var(--glass-blur-1)) saturate(var(--glass-saturation));
+}
+
+/* Noise texture overlay for glass effect */
+.telemetry-overlay::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: var(--glass-noise-url);
+    opacity: var(--glass-noise-opacity);
+    pointer-events: none;
+}
+
+/* Highlight gradient for depth */
+.telemetry-overlay::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: var(--glass-highlight);
+    pointer-events: none;
+}
+
+.telemetry-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.25rem 0;
+}
+
+.telemetry-row:not(:last-child) {
+    border-bottom: 1px solid hsl(var(--color-border-hsl) / 0.3);
+}
+
+.telemetry-label {
+    color: var(--color-muted-foreground);
+    font-weight: 500;
+    text-transform: uppercase;
+    font-size: 0.625rem;
+    letter-spacing: 0.05em;
+}
+
+.telemetry-value {
+    color: var(--color-foreground);
+    text-align: right;
+}
+
+/* Responsive: hide on very small screens */
+@media (max-width: 480px) {
+    .telemetry-overlay {
+        display: none;
+    }
+}
+
+/* Dark mode adjustments */
+.dark .telemetry-overlay {
+    background: var(--glass-bg-1);
+    box-shadow: var(--glass-shadow-md);
 }

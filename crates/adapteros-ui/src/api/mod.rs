@@ -4,6 +4,7 @@
 //! with the adapterOS backend.
 
 pub mod client;
+pub mod diagnostic_bundle;
 pub mod error;
 pub mod error_reporter;
 pub mod reviews;
@@ -15,22 +16,26 @@ pub use client::{
     AuditLogsResponse, BaseModelStatusResponse, CanonicalRow, ChainVerificationResponse,
     CodePolicy, CollectionDetailResponse, CollectionDocumentInfo, CollectionListResponse,
     CollectionResponse, ComplianceAuditResponse, ComplianceControl, CreateApiKeyRequest,
-    CreateApiKeyResponse, CreateCollectionRequest, CreateStackRequest, DatasetFileResponse,
-    DatasetListResponse, DatasetManifest, DatasetResponse, DatasetStatisticsResponse,
-    DatasetVersionsResponse, FederationAuditResponse, FileValidationError, GetCodePolicyResponse,
-    HostChainSummary, InferenceRequest, ListUsersResponse, ModelArchitectureSummary,
-    ModelListResponse, ModelStatusResponse, ModelWithStatsResponse, ProcessAlertResponse,
-    ProcessAnomalyResponse, ProcessCrashDumpResponse, ProcessHealthMetricResponse,
-    ProcessLogResponse, ProcessMonitoringRuleResponse, PublishAdapterRequest,
-    RegisterRepositoryRequest, RepositoryAdapter, RepositoryDetailResponse, RepositoryListResponse,
-    RepositoryResponse, RepositoryVersion, RevokeApiKeyResponse, RoutingCandidateResponse,
-    RoutingDebugRequest, RoutingDebugResponse, RoutingDecisionResponse, RoutingDecisionsQuery,
-    RoutingDecisionsResponse, ScanStatusResponse, StackResponse, UpdateCodePolicyRequest,
-    UpdateStackRequest, UploadDatasetResponse, UserResponse, ValidateAllFilesResponse,
-    ValidateFileRequest, ValidateFileResponse, WorkerMetricsResponse, WorkflowType,
+    CreateApiKeyResponse, CreateCollectionRequest, CreateErrorAlertRuleRequest, CreateStackRequest,
+    DatasetFileResponse, DatasetListResponse, DatasetManifest, DatasetResponse,
+    DatasetStatisticsResponse, DatasetVersionsResponse, ErrorAlertRuleResponse,
+    ErrorAlertRulesListResponse, FederationAuditResponse, FileValidationError,
+    GetCodePolicyResponse, HostChainSummary, InferenceRequest, ListUsersResponse, LoadAverageInfo,
+    ModelArchitectureSummary, ModelListResponse, ModelStatusResponse, ModelWithStatsResponse,
+    ProcessAlertResponse, ProcessAnomalyResponse, ProcessCrashDumpResponse,
+    ProcessHealthMetricResponse, ProcessLogResponse, ProcessMonitoringRuleResponse,
+    PublishAdapterRequest, RegisterRepositoryRequest, RepositoryAdapter, RepositoryDetailResponse,
+    RepositoryListResponse, RepositoryResponse, RepositoryVersion, ResourceUsageInfo,
+    RevokeApiKeyResponse, RoutingCandidateResponse, RoutingDebugRequest, RoutingDebugResponse,
+    RoutingDecisionResponse, RoutingDecisionsQuery, RoutingDecisionsResponse, ScanStatusResponse,
+    ServiceStatus, StackResponse, SystemOverviewResponse, UpdateCodePolicyRequest,
+    UpdateErrorAlertRuleRequest, UpdateStackRequest, UploadDatasetResponse, UserResponse,
+    ValidateAllFilesResponse, ValidateFileRequest, ValidateFileResponse, WorkerMetricsResponse,
+    WorkflowType,
 };
+pub use diagnostic_bundle::DiagnosticBundle;
 pub use error::{ApiError, ApiResult};
-pub use error_reporter::report_error;
+pub use error_reporter::{report_error, report_error_with_toast};
 pub use sse::{
     use_sse, use_sse_json, use_sse_json_events, use_sse_json_with_config, use_sse_with_config,
     CircuitBreakerConfig, SseConnection, SseEvent, SseState,

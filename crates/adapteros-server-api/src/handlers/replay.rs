@@ -602,14 +602,17 @@ pub async fn execute_replay_session(
     };
 
     // Extract seed from session's RNG state for deterministic replay (PRD-02)
-    let seed = session.get_global_nonce().map_err(|e| {
-        warn!(
-            session_id = %session_id,
-            error = %e,
-            "Failed to extract global nonce from session for deterministic replay"
-        );
-        e
-    }).ok();
+    let seed = session
+        .get_global_nonce()
+        .map_err(|e| {
+            warn!(
+                session_id = %session_id,
+                error = %e,
+                "Failed to extract global nonce from session for deterministic replay"
+            );
+            e
+        })
+        .ok();
 
     // Use the session's global seed hash as the router seed for deterministic routing
     let router_seed =

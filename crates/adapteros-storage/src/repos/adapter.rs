@@ -207,23 +207,23 @@ impl AdapterRepository {
         self.load_adapters(&adapter_ids).await
     }
 
-    /// List adapters by state
+    /// List adapters by state (tenant-scoped)
+    ///
+    /// Uses the tenant-scoped state index (BY_TENANT_STATE) for efficient O(1) lookups.
+    /// This avoids loading all adapters for a given state and filtering by tenant.
     pub async fn list_by_state(
         &self,
         tenant_id: &str,
         state: &str,
     ) -> Result<Vec<AdapterKv>, StorageError> {
+        // Use tenant-scoped compound index for efficient lookup
+        let tenant_state_key = format!("{}:{}", tenant_id, state);
         let adapter_ids = self
             .index_manager
-            .query_index(adapter_indexes::BY_STATE, state)
+            .query_index(adapter_indexes::BY_TENANT_STATE, &tenant_state_key)
             .await?;
 
-        // Filter by tenant
-        let adapters = self.load_adapters(&adapter_ids).await?;
-        Ok(adapters
-            .into_iter()
-            .filter(|a| a.tenant_id == tenant_id)
-            .collect())
+        self.load_adapters(&adapter_ids).await
     }
 
     /// List adapters by tier
@@ -550,6 +550,20 @@ impl AdapterRepository {
             )
             .await?;
 
+        // Tenant-scoped state index (compound key: tenant_id:state)
+        // This enables efficient queries by both tenant and state without post-filtering
+        let tenant_state_key = format!("{}:{}", adapter.tenant_id, adapter.current_state);
+        let old_tenant_state_key =
+            old_adapter.map(|a| format!("{}:{}", a.tenant_id, a.current_state));
+        self.index_manager
+            .update_index(
+                adapter_indexes::BY_TENANT_STATE,
+                old_tenant_state_key.as_deref(),
+                &tenant_state_key,
+                &entity_id,
+            )
+            .await?;
+
         // Tier index
         let old_tier = old_adapter.map(|a| a.tier.as_str());
         self.index_manager
@@ -687,6 +701,16 @@ impl AdapterRepository {
                 .remove_from_index(
                     adapter_indexes::BY_STATE,
                     &adapter.current_state,
+                    &entity_id,
+                )
+                .await?;
+
+            // Remove tenant-scoped state index
+            let tenant_state_key = format!("{}:{}", adapter.tenant_id, adapter.current_state);
+            self.index_manager
+                .remove_from_index(
+                    adapter_indexes::BY_TENANT_STATE,
+                    &tenant_state_key,
                     &entity_id,
                 )
                 .await?;

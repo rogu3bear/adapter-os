@@ -1848,6 +1848,97 @@ impl UdsClient {
         serde_json::from_str(json_str)
             .map_err(|e| UdsClientError::SerializationError(e.to_string()))
     }
+
+    /// Send a maintenance mode signal to a worker via UDS
+    ///
+    /// This signals the worker to enter maintenance/drain mode. The worker will:
+    /// 1. Stop accepting new requests
+    /// 2. Complete any in-flight requests
+    /// 3. Gracefully shut down
+    ///
+    /// # Arguments
+    /// * `uds_path` - Path to the worker's Unix domain socket
+    /// * `mode` - Maintenance mode: "drain" (graceful) or "maintenance"
+    /// * `reason` - Optional reason for maintenance (for audit logging)
+    ///
+    /// # Returns
+    /// `Ok(MaintenanceSignalResponse)` on success, or an error if the signal failed
+    pub async fn signal_maintenance(
+        &self,
+        uds_path: &Path,
+        mode: &str,
+        reason: Option<&str>,
+    ) -> Result<MaintenanceSignalResponse, UdsClientError> {
+        let request = serde_json::json!({
+            "mode": mode,
+            "reason": reason,
+        });
+
+        let mut stream = tokio::time::timeout(self.timeout, UnixStream::connect(uds_path))
+            .await
+            .map_err(|_| UdsClientError::Timeout("Connection timed out".to_string()))?
+            .map_err(|e| UdsClientError::ConnectionFailed(e.to_string()))?;
+
+        let request_json = serde_json::to_string(&request)
+            .map_err(|e| UdsClientError::SerializationError(e.to_string()))?;
+
+        let http_request = format!(
+            "POST /maintenance HTTP/1.1\r\n\
+             Host: worker\r\n\
+             Content-Type: application/json\r\n\
+             Content-Length: {}\r\n\
+             \r\n\
+             {}",
+            request_json.len(),
+            request_json
+        );
+
+        // Send request
+        tokio::time::timeout(self.timeout, stream.write_all(http_request.as_bytes()))
+            .await
+            .map_err(|_| UdsClientError::Timeout("Write timed out".to_string()))?
+            .map_err(|e| UdsClientError::RequestFailed(e.to_string()))?;
+
+        // Read response
+        let mut response_buffer = Vec::new();
+        tokio::time::timeout(self.timeout, stream.read_to_end(&mut response_buffer))
+            .await
+            .map_err(|_| UdsClientError::Timeout("Read timed out".to_string()))?
+            .map_err(|e| UdsClientError::RequestFailed(e.to_string()))?;
+
+        // Parse HTTP response
+        let response_str = String::from_utf8_lossy(&response_buffer);
+        if !response_str.contains("200 OK") {
+            return Err(UdsClientError::RequestFailed(format!(
+                "Worker returned error: {}",
+                response_str.lines().next().unwrap_or("Unknown error")
+            )));
+        }
+
+        // Extract JSON body
+        let json_str = match response_str.find("\r\n\r\n") {
+            Some(pos) => response_str.get(pos + 4..).unwrap_or(""),
+            None => "",
+        };
+
+        serde_json::from_str(json_str)
+            .map_err(|e| UdsClientError::SerializationError(e.to_string()))
+    }
+}
+
+/// Response from maintenance signal operation
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MaintenanceSignalResponse {
+    /// Status of the operation: "accepted" or "error"
+    pub status: String,
+    /// Maintenance mode: "drain" or "maintenance"
+    pub mode: String,
+    /// Reason for maintenance
+    pub reason: String,
+    /// Whether the drain flag was set
+    pub drain_flag_set: bool,
+    /// Timestamp of when maintenance was signaled
+    pub timestamp: String,
 }
 
 /// Signal type for client consumption

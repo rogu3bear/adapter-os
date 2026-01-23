@@ -31,6 +31,7 @@
 #![allow(clippy::unwrap_or_default)]
 #![allow(clippy::implicit_saturating_sub)]
 
+pub mod allocator_stats;
 pub mod buffer_pool;
 pub mod buffer_relocation;
 pub mod cross_backend;
@@ -53,6 +54,10 @@ pub mod unified_memory;
 pub mod unified_tracker;
 pub mod watchdog;
 
+pub use allocator_stats::{
+    calculate_internal_fragmentation, get_allocator_stats, gpu_internal_fragmentation_estimate,
+    AllocatorStats,
+};
 pub use buffer_pool::{BufferPool, BufferPoolConfig, BufferPoolStats, TensorFormat};
 pub use buffer_relocation::BufferRelocationDetector;
 pub use cross_backend::{

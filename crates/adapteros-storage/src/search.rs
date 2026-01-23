@@ -161,39 +161,39 @@ impl SearchService {
         let id_field = schema
             .get_field("id")
             .map_err(|e| SearchError::IndexError(format!("Schema missing 'id' field: {}", e)))?;
-        let tenant_id_field = schema
-            .get_field("tenant_id")
-            .map_err(|e| SearchError::IndexError(format!("Schema missing 'tenant_id' field: {}", e)))?;
-        let document_type_field = schema
-            .get_field("document_type")
-            .map_err(|e| SearchError::IndexError(format!("Schema missing 'document_type' field: {}", e)))?;
-        let content_field = schema
-            .get_field("content")
-            .map_err(|e| SearchError::IndexError(format!("Schema missing 'content' field: {}", e)))?;
-        let document_id_field = schema
-            .get_field("document_id")
-            .map_err(|e| SearchError::IndexError(format!("Schema missing 'document_id' field: {}", e)))?;
-        let session_id_field = schema
-            .get_field("session_id")
-            .map_err(|e| SearchError::IndexError(format!("Schema missing 'session_id' field: {}", e)))?;
+        let tenant_id_field = schema.get_field("tenant_id").map_err(|e| {
+            SearchError::IndexError(format!("Schema missing 'tenant_id' field: {}", e))
+        })?;
+        let document_type_field = schema.get_field("document_type").map_err(|e| {
+            SearchError::IndexError(format!("Schema missing 'document_type' field: {}", e))
+        })?;
+        let content_field = schema.get_field("content").map_err(|e| {
+            SearchError::IndexError(format!("Schema missing 'content' field: {}", e))
+        })?;
+        let document_id_field = schema.get_field("document_id").map_err(|e| {
+            SearchError::IndexError(format!("Schema missing 'document_id' field: {}", e))
+        })?;
+        let session_id_field = schema.get_field("session_id").map_err(|e| {
+            SearchError::IndexError(format!("Schema missing 'session_id' field: {}", e))
+        })?;
         let role_field = schema
             .get_field("role")
             .map_err(|e| SearchError::IndexError(format!("Schema missing 'role' field: {}", e)))?;
-        let timestamp_field = schema
-            .get_field("timestamp")
-            .map_err(|e| SearchError::IndexError(format!("Schema missing 'timestamp' field: {}", e)))?;
-        let chunk_index_field = schema
-            .get_field("chunk_index")
-            .map_err(|e| SearchError::IndexError(format!("Schema missing 'chunk_index' field: {}", e)))?;
-        let page_number_field = schema
-            .get_field("page_number")
-            .map_err(|e| SearchError::IndexError(format!("Schema missing 'page_number' field: {}", e)))?;
-        let chunk_hash_field = schema
-            .get_field("chunk_hash")
-            .map_err(|e| SearchError::IndexError(format!("Schema missing 'chunk_hash' field: {}", e)))?;
-        let vector_field = schema
-            .get_field("vector")
-            .map_err(|e| SearchError::IndexError(format!("Schema missing 'vector' field: {}", e)))?;
+        let timestamp_field = schema.get_field("timestamp").map_err(|e| {
+            SearchError::IndexError(format!("Schema missing 'timestamp' field: {}", e))
+        })?;
+        let chunk_index_field = schema.get_field("chunk_index").map_err(|e| {
+            SearchError::IndexError(format!("Schema missing 'chunk_index' field: {}", e))
+        })?;
+        let page_number_field = schema.get_field("page_number").map_err(|e| {
+            SearchError::IndexError(format!("Schema missing 'page_number' field: {}", e))
+        })?;
+        let chunk_hash_field = schema.get_field("chunk_hash").map_err(|e| {
+            SearchError::IndexError(format!("Schema missing 'chunk_hash' field: {}", e))
+        })?;
+        let vector_field = schema.get_field("vector").map_err(|e| {
+            SearchError::IndexError(format!("Schema missing 'vector' field: {}", e))
+        })?;
 
         info!(path = ?path, "Opened Tantivy search index");
 
@@ -226,39 +226,39 @@ impl SearchService {
         let id_field = schema
             .get_field("id")
             .map_err(|e| SearchError::IndexError(format!("Schema missing 'id' field: {}", e)))?;
-        let tenant_id_field = schema
-            .get_field("tenant_id")
-            .map_err(|e| SearchError::IndexError(format!("Schema missing 'tenant_id' field: {}", e)))?;
-        let document_type_field = schema
-            .get_field("document_type")
-            .map_err(|e| SearchError::IndexError(format!("Schema missing 'document_type' field: {}", e)))?;
-        let content_field = schema
-            .get_field("content")
-            .map_err(|e| SearchError::IndexError(format!("Schema missing 'content' field: {}", e)))?;
-        let document_id_field = schema
-            .get_field("document_id")
-            .map_err(|e| SearchError::IndexError(format!("Schema missing 'document_id' field: {}", e)))?;
-        let session_id_field = schema
-            .get_field("session_id")
-            .map_err(|e| SearchError::IndexError(format!("Schema missing 'session_id' field: {}", e)))?;
+        let tenant_id_field = schema.get_field("tenant_id").map_err(|e| {
+            SearchError::IndexError(format!("Schema missing 'tenant_id' field: {}", e))
+        })?;
+        let document_type_field = schema.get_field("document_type").map_err(|e| {
+            SearchError::IndexError(format!("Schema missing 'document_type' field: {}", e))
+        })?;
+        let content_field = schema.get_field("content").map_err(|e| {
+            SearchError::IndexError(format!("Schema missing 'content' field: {}", e))
+        })?;
+        let document_id_field = schema.get_field("document_id").map_err(|e| {
+            SearchError::IndexError(format!("Schema missing 'document_id' field: {}", e))
+        })?;
+        let session_id_field = schema.get_field("session_id").map_err(|e| {
+            SearchError::IndexError(format!("Schema missing 'session_id' field: {}", e))
+        })?;
         let role_field = schema
             .get_field("role")
             .map_err(|e| SearchError::IndexError(format!("Schema missing 'role' field: {}", e)))?;
-        let timestamp_field = schema
-            .get_field("timestamp")
-            .map_err(|e| SearchError::IndexError(format!("Schema missing 'timestamp' field: {}", e)))?;
-        let chunk_index_field = schema
-            .get_field("chunk_index")
-            .map_err(|e| SearchError::IndexError(format!("Schema missing 'chunk_index' field: {}", e)))?;
-        let page_number_field = schema
-            .get_field("page_number")
-            .map_err(|e| SearchError::IndexError(format!("Schema missing 'page_number' field: {}", e)))?;
-        let chunk_hash_field = schema
-            .get_field("chunk_hash")
-            .map_err(|e| SearchError::IndexError(format!("Schema missing 'chunk_hash' field: {}", e)))?;
-        let vector_field = schema
-            .get_field("vector")
-            .map_err(|e| SearchError::IndexError(format!("Schema missing 'vector' field: {}", e)))?;
+        let timestamp_field = schema.get_field("timestamp").map_err(|e| {
+            SearchError::IndexError(format!("Schema missing 'timestamp' field: {}", e))
+        })?;
+        let chunk_index_field = schema.get_field("chunk_index").map_err(|e| {
+            SearchError::IndexError(format!("Schema missing 'chunk_index' field: {}", e))
+        })?;
+        let page_number_field = schema.get_field("page_number").map_err(|e| {
+            SearchError::IndexError(format!("Schema missing 'page_number' field: {}", e))
+        })?;
+        let chunk_hash_field = schema.get_field("chunk_hash").map_err(|e| {
+            SearchError::IndexError(format!("Schema missing 'chunk_hash' field: {}", e))
+        })?;
+        let vector_field = schema.get_field("vector").map_err(|e| {
+            SearchError::IndexError(format!("Schema missing 'vector' field: {}", e))
+        })?;
 
         info!("Created in-memory Tantivy search index");
 

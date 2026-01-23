@@ -107,6 +107,7 @@ hostname.workspace = true
 tokenizers = { workspace = true }
 async-trait = "0.1"
 hmac = "0.12"
+redis = { version = "0.27", features = ["tokio-comp", "connection-manager"], optional = true }
 sha1 = "0.10"
 hkdf = { workspace = true }
 
@@ -139,7 +140,7 @@ mlx-ffi-backend = ["adapteros-lora-mlx-ffi"]
 mlx = []
 coreml-backend = ["adapteros-lora-worker/coreml-backend", "adapteros-orchestrator/coreml-backend"]
 embeddings = ["adapteros-ingest-docs/multi-backend"]
-redis = []
+redis = ["dep:redis"]
 metrics = []
 dev-bypass = []
 

@@ -165,6 +165,25 @@ impl NotificationAction {
         self.push_simple(ToastSeverity::Error, title, message);
     }
 
+    /// Show an error toast with expandable details.
+    ///
+    /// Use this for surfacing errors where users may want to copy diagnostic info
+    /// (e.g., API errors, streaming failures, timeout details).
+    pub fn error_with_details(&self, title: &str, message: &str, details: &str) {
+        // Error toasts with details persist longer (15s) so users can expand and copy
+        self.push_toast(
+            Toast {
+                id: Uuid::new_v4().to_string(),
+                title: title.to_string(),
+                message: message.to_string(),
+                details: Some(details.to_string()),
+                severity: ToastSeverity::Error,
+                dismissible: true,
+            },
+            Some(15_000), // 15 seconds for detailed errors
+        );
+    }
+
     fn push_simple(&self, severity: ToastSeverity, title: &str, message: &str) {
         self.push_toast(
             Toast {

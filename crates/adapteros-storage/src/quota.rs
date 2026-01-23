@@ -114,9 +114,10 @@ impl QuotaManager {
     fn get_current_usage(&self) -> Result<StorageUsage> {
         // Check cache first
         {
-            let cache = self.usage_cache.lock().map_err(|e| {
-                AosError::Io(format!("Failed to acquire usage cache lock: {}", e))
-            })?;
+            let cache = self
+                .usage_cache
+                .lock()
+                .map_err(|e| AosError::Io(format!("Failed to acquire usage cache lock: {}", e)))?;
             if let Some(ref usage) = *cache {
                 if usage.last_updated.elapsed().unwrap_or(Duration::MAX) < self.cache_ttl {
                     return Ok(usage.clone());

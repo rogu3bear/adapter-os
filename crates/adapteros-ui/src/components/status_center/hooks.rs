@@ -43,10 +43,13 @@ pub fn use_keyboard_shortcut(key: &'static str, ctrl: bool, shift: bool) -> Read
                 }
             });
 
-        if let Err(e) = document
-            .add_event_listener_with_callback("keydown", closure.as_ref().unchecked_ref())
+        if let Err(e) =
+            document.add_event_listener_with_callback("keydown", closure.as_ref().unchecked_ref())
         {
-            tracing::error!("use_keyboard_shortcut: failed to add keydown listener: {:?}", e);
+            tracing::error!(
+                "use_keyboard_shortcut: failed to add keydown listener: {:?}",
+                e
+            );
             return;
         }
 

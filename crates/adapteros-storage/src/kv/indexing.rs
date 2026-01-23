@@ -146,6 +146,15 @@ pub mod adapter_indexes {
 
     /// Index name for querying adapters by external adapter_id
     pub const BY_ADAPTER_ID: &str = "adapters_by_adapter_id";
+
+    /// Index name for tenant-scoped state queries (compound: tenant_id:current_state)
+    ///
+    /// This index enables O(1) lookups for adapters by both tenant and state,
+    /// avoiding the need to load all adapters for a given state and filter
+    /// by tenant in application code. Critical for multi-tenant deployments.
+    ///
+    /// Index key format: `index:adapters_by_tenant_state:{tenant_id}:{state}:{entity_id}`
+    pub const BY_TENANT_STATE: &str = "adapters_by_tenant_state";
 }
 
 /// Index definitions for telemetry

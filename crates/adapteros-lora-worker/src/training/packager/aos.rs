@@ -338,7 +338,7 @@ impl super::types::AdapterPackager {
         )?;
 
         // Create manifest with consistent version format (semver)
-        let manifest = AdapterManifest {
+        let mut manifest = AdapterManifest {
             version: "1.0.0".to_string(),
             rank: config.rank,
             base_model: base_model.to_string(),
@@ -380,9 +380,17 @@ impl super::types::AdapterPackager {
             session_name: fields.scope_meta.session_name,
             session_tags: fields.scope_meta.session_tags,
             stream_mode: fields.stream_mode,
+            // New integrity fields for provenance tracking
+            training_config_hash: None, // TODO: Compute from training config when available
+            tokenizer_hash: None,       // TODO: Pass from caller when tokenizer is loaded
+            dataset_id: None,           // TODO: Pass from caller when dataset is known
+            dataset_hash: None,         // TODO: Pass from caller when dataset hash is computed
+            integrity_hash: None,       // Computed below via seal_integrity()
             metadata,
         };
 
+        // Seal manifest with integrity hash before validation and serialization
+        manifest.seal_integrity();
         manifest.validate()?;
 
         // Serialize manifest once for deterministic signing
@@ -499,7 +507,7 @@ impl super::types::AdapterPackager {
         )?;
 
         // Create manifest
-        let manifest = AdapterManifest {
+        let mut manifest = AdapterManifest {
             version: "2.0".to_string(), // AOS 2.0 format
             rank: config.rank,
             base_model: base_model.to_string(),
@@ -541,9 +549,17 @@ impl super::types::AdapterPackager {
             session_name: fields.scope_meta.session_name,
             session_tags: fields.scope_meta.session_tags,
             stream_mode: fields.stream_mode,
+            // New integrity fields for provenance tracking
+            training_config_hash: None, // TODO: Compute from training config when available
+            tokenizer_hash: None,       // TODO: Pass from caller when tokenizer is loaded
+            dataset_id: None,           // TODO: Pass from caller when dataset is known
+            dataset_hash: None,         // TODO: Pass from caller when dataset hash is computed
+            integrity_hash: None,       // Computed below via seal_integrity()
             metadata,
         };
 
+        // Seal manifest with integrity hash before validation and serialization
+        manifest.seal_integrity();
         manifest.validate()?;
 
         let manifest_bytes = serde_json::to_vec_pretty(&manifest)
@@ -1172,6 +1188,11 @@ mod tests {
             session_name: None,
             session_tags: None,
             stream_mode: None,
+            dataset_id: None,
+            dataset_hash: None,
+            integrity_hash: None,
+            training_config_hash: None,
+            tokenizer_hash: None,
             metadata: std::collections::HashMap::new(),
         };
 

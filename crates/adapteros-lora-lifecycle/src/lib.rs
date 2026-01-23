@@ -1564,17 +1564,6 @@ impl LifecycleManager {
                         timeout_occurred: false,
                     },
                 )?;
-
-                // DEPRECATED: Legacy event emission for backward compatibility
-                // TODO: Remove in future version once all consumers migrate to lifecycle events
-                telemetry.log(
-                    "k_reduced",
-                    KReductionEvent {
-                        old_k,
-                        new_k,
-                        reason: "memory_pressure".to_string(),
-                    },
-                )?;
             }
 
             // Phase 4: Completion - emit final completion event
@@ -3129,14 +3118,6 @@ pub struct GpuIntegrityReport {
     pub total_checked: usize,
     /// Verification timestamp
     pub timestamp: u64,
-}
-
-/// K reduction event for telemetry
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct KReductionEvent {
-    pub old_k: usize,
-    pub new_k: usize,
-    pub reason: String,
 }
 
 #[derive(Debug, Clone)]

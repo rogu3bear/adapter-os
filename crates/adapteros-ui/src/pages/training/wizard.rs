@@ -8,6 +8,7 @@
 
 use crate::api::ApiClient;
 use crate::components::{Button, ButtonVariant, Card, FormField, Input};
+use crate::pages::training::config_presets::{TrainingConfigPresets, TrainingPreset};
 use crate::pages::training::dataset_wizard::{DatasetUploadOutcome, DatasetUploadWizard};
 use crate::pages::training::generate_wizard::{GenerateDatasetOutcome, GenerateDatasetWizard};
 use crate::signals::use_notifications;
@@ -139,12 +140,18 @@ pub fn CreateJobWizard(
     let dataset_message = RwSignal::new(None::<String>);
     let category = RwSignal::new("code".to_string());
 
-    // Training parameters
+    // Training parameters with preset support
+    let training_preset = RwSignal::new("qa".to_string());
     let epochs = RwSignal::new("10".to_string());
     let learning_rate = RwSignal::new("0.0001".to_string());
+    let validation_split = RwSignal::new("0.15".to_string());
+    let early_stopping = RwSignal::new(true);
     let batch_size = RwSignal::new("4".to_string());
     let rank = RwSignal::new("8".to_string());
     let alpha = RwSignal::new("16".to_string());
+
+    // Dataset sample count for time estimation (updated when dataset is selected)
+    let dataset_sample_count = RwSignal::new(None::<usize>);
 
     // Backend selection (simplified - Auto by default)
     let show_advanced_backend = RwSignal::new(false);
@@ -166,8 +173,10 @@ pub fn CreateJobWizard(
     let on_dataset_uploaded = {
         let dataset_id = dataset_id.clone();
         let dataset_message = dataset_message.clone();
+        let dataset_sample_count = dataset_sample_count.clone();
         move |outcome: DatasetUploadOutcome| {
             dataset_id.set(outcome.dataset_id.clone());
+            dataset_sample_count.set(Some(outcome.sample_count));
             dataset_message.set(Some(format!(
                 "Dataset ready: {} ({} samples)",
                 outcome.dataset_id, outcome.sample_count
@@ -178,8 +187,10 @@ pub fn CreateJobWizard(
     let on_dataset_generated = {
         let dataset_id = dataset_id.clone();
         let dataset_message = dataset_message.clone();
+        let dataset_sample_count = dataset_sample_count.clone();
         move |outcome: GenerateDatasetOutcome| {
             dataset_id.set(outcome.dataset_id.clone());
+            dataset_sample_count.set(Some(outcome.sample_count));
             dataset_message.set(Some(format!(
                 "Generated dataset: {} ({} samples)",
                 outcome.dataset_id, outcome.sample_count
@@ -221,6 +232,7 @@ pub fn CreateJobWizard(
     let validate_config_step = {
         let epochs = epochs.clone();
         let learning_rate = learning_rate.clone();
+        let validation_split = validation_split.clone();
         let batch_size = batch_size.clone();
         let rank = rank.clone();
         let alpha = alpha.clone();
@@ -243,6 +255,19 @@ pub fn CreateJobWizard(
             if let Some(err) = validate_field(&learning_rate.get(), &rules::learning_rate()) {
                 form_errors.update(|e| e.set("learning_rate", err));
                 valid = false;
+            }
+
+            // Validate validation_split is in range [0.0, 0.5]
+            if let Ok(split) = validation_split.get().parse::<f32>() {
+                if !(0.0..=0.5).contains(&split) {
+                    form_errors.update(|e| {
+                        e.set(
+                            "validation_split",
+                            "Validation split must be between 0 and 0.5".to_string(),
+                        )
+                    });
+                    valid = false;
+                }
             }
 
             if let Some(err) = validate_field(
@@ -321,6 +346,8 @@ pub fn CreateJobWizard(
             let cat = category.get();
             let epochs_val: u32 = epochs.get().parse().unwrap_or(10);
             let lr_val: f32 = learning_rate.get().parse().unwrap_or(0.0001);
+            let val_split: f32 = validation_split.get().parse().unwrap_or(0.0);
+            let early_stop = early_stopping.get();
             let batch_val: u32 = batch_size.get().parse().unwrap_or(4);
             let rank_val: u32 = rank.get().parse().unwrap_or(8);
             let alpha_val: u32 = alpha.get().parse().unwrap_or(16);
@@ -344,6 +371,8 @@ pub fn CreateJobWizard(
                         "epochs": epochs_val,
                         "learning_rate": lr_val,
                         "batch_size": batch_val,
+                        "validation_split": if val_split > 0.0 { json!(val_split) } else { serde_json::Value::Null },
+                        "early_stopping": early_stop,
                         "preferred_backend": if backend_val == "auto" { serde_json::Value::Null } else { json!(backend_val) },
                         "backend_policy": if policy_val == "auto" { serde_json::Value::Null } else { json!(policy_val) },
                         "coreml_training_fallback": if backend_val == "coreml" || policy_val == "coreml_else_fallback" { json!(fallback_val) } else { serde_json::Value::Null },
@@ -384,8 +413,13 @@ pub fn CreateJobWizard(
         base_model_id.set(String::new());
         dataset_id.set(String::new());
         dataset_message.set(None);
+        dataset_sample_count.set(None);
+        // Reset to QA preset defaults
+        training_preset.set("qa".to_string());
         epochs.set("10".to_string());
         learning_rate.set("0.0001".to_string());
+        validation_split.set("0.15".to_string());
+        early_stopping.set(true);
         batch_size.set("4".to_string());
         rank.set("8".to_string());
         alpha.set("16".to_string());
@@ -459,8 +493,11 @@ pub fn CreateJobWizard(
                             }.into_any(),
                             WizardStep::Config => view! {
                                 <ConfigStepContent
+                                    training_preset=training_preset
                                     epochs=epochs
                                     learning_rate=learning_rate
+                                    validation_split=validation_split
+                                    early_stopping=early_stopping
                                     batch_size=batch_size
                                     rank=rank
                                     alpha=alpha
@@ -469,6 +506,7 @@ pub fn CreateJobWizard(
                                     backend_policy=backend_policy
                                     coreml_fallback=coreml_training_fallback
                                     form_errors=form_errors
+                                    sample_count=dataset_sample_count.get()
                                 />
                             }.into_any(),
                             WizardStep::Review => view! {
@@ -477,8 +515,11 @@ pub fn CreateJobWizard(
                                     base_model_id=base_model_id.get()
                                     dataset_id=dataset_id.get()
                                     category=category.get()
+                                    preset=training_preset.get()
                                     epochs=epochs.get()
                                     learning_rate=learning_rate.get()
+                                    validation_split=validation_split.get()
+                                    early_stopping=early_stopping.get()
                                     batch_size=batch_size.get()
                                     rank=rank.get()
                                     alpha=alpha.get()
@@ -686,11 +727,14 @@ fn ModelStepContent(
     }
 }
 
-/// Step 3: Training configuration
+/// Step 3: Training configuration with presets
 #[component]
 fn ConfigStepContent(
+    training_preset: RwSignal<String>,
     epochs: RwSignal<String>,
     learning_rate: RwSignal<String>,
+    validation_split: RwSignal<String>,
+    early_stopping: RwSignal<bool>,
     batch_size: RwSignal<String>,
     rank: RwSignal<String>,
     alpha: RwSignal<String>,
@@ -699,69 +743,38 @@ fn ConfigStepContent(
     backend_policy: RwSignal<String>,
     coreml_fallback: RwSignal<String>,
     form_errors: RwSignal<FormErrors>,
+    sample_count: Option<usize>,
 ) -> impl IntoView {
     view! {
         <div class="space-y-6">
-            <div>
-                <h3 class="text-sm font-medium mb-4">"Training Parameters"</h3>
-                <div class="grid gap-4 sm:grid-cols-2">
-                    <FormField
-                        label="Epochs"
-                        name="epochs"
-                        required=true
-                        help="Number of training iterations (1-1000)"
-                        error=Signal::derive(move || form_errors.get().get("epochs").cloned())
-                    >
-                        <Input value=epochs input_type="number".to_string()/>
-                    </FormField>
-                    <FormField
-                        label="Learning Rate"
-                        name="learning_rate"
-                        required=true
-                        help="Step size (0.0001-0.01 recommended)"
-                        error=Signal::derive(move || form_errors.get().get("learning_rate").cloned())
-                    >
-                        <Input value=learning_rate input_type="number".to_string()/>
-                    </FormField>
-                    <FormField
-                        label="Batch Size"
-                        name="batch_size"
-                        required=true
-                        help="Examples per step (1-256)"
-                        error=Signal::derive(move || form_errors.get().get("batch_size").cloned())
-                    >
-                        <Input value=batch_size input_type="number".to_string()/>
-                    </FormField>
-                </div>
-            </div>
+            // Training preset selection with core parameters
+            {if let Some(count) = sample_count {
+                view! {
+                    <TrainingConfigPresets
+                        preset=training_preset
+                        epochs=epochs
+                        learning_rate=learning_rate
+                        validation_split=validation_split
+                        early_stopping=early_stopping
+                        sample_count=count
+                    />
+                }.into_any()
+            } else {
+                view! {
+                    <TrainingConfigPresets
+                        preset=training_preset
+                        epochs=epochs
+                        learning_rate=learning_rate
+                        validation_split=validation_split
+                        early_stopping=early_stopping
+                    />
+                }.into_any()
+            }}
 
-            <div class="border-t pt-4">
-                <h3 class="text-sm font-medium mb-4">"LoRA Configuration"</h3>
-                <div class="grid gap-4 sm:grid-cols-2">
-                    <FormField
-                        label="Rank"
-                        name="rank"
-                        required=true
-                        help="Adapter dimension (4, 8, 16 typical)"
-                        error=Signal::derive(move || form_errors.get().get("rank").cloned())
-                    >
-                        <Input value=rank input_type="number".to_string()/>
-                    </FormField>
-                    <FormField
-                        label="Alpha"
-                        name="alpha"
-                        required=true
-                        help="Scaling factor (typically 2x rank)"
-                        error=Signal::derive(move || form_errors.get().get("alpha").cloned())
-                    >
-                        <Input value=alpha input_type="number".to_string()/>
-                    </FormField>
-                </div>
-            </div>
-
-            // Backend selection - collapsed by default
+            // Advanced options section
             <div class="border-t pt-4">
                 <button
+                    type="button"
                     class="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
                     on:click=move |_| show_advanced.update(|v| *v = !*v)
                 >
@@ -771,54 +784,92 @@ fn ConfigStepContent(
                     >
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
                     </svg>
-                    "Advanced: Backend Selection"
+                    "Advanced Options"
                 </button>
 
                 {move || show_advanced.get().then(|| view! {
-                    <div class="mt-4 space-y-4 pl-6">
-                        <p class="text-xs text-muted-foreground">
-                            "By default, the system automatically selects the best available backend (Auto)."
-                        </p>
-                        <div class="grid gap-4 sm:grid-cols-2">
-                            <div class="space-y-2">
-                                <label class="text-sm font-medium">"Preferred Backend"</label>
-                                <select
-                                    class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                                    prop:value=Signal::derive(move || preferred_backend.get())
-                                    on:change=move |ev| preferred_backend.set(event_target_value(&ev))
+                    <div class="mt-4 space-y-6 pl-6">
+                        // Batch size and LoRA config
+                        <div>
+                            <h4 class="text-sm font-medium mb-3">"LoRA & Batch Configuration"</h4>
+                            <div class="grid gap-4 sm:grid-cols-3">
+                                <FormField
+                                    label="Batch Size"
+                                    name="batch_size"
+                                    required=true
+                                    help="Examples per step (1-256)"
+                                    error=Signal::derive(move || form_errors.get().get("batch_size").cloned())
                                 >
-                                    <option value="auto">"Auto (recommended)"</option>
-                                    <option value="mlx">"MLX"</option>
-                                    <option value="coreml">"CoreML"</option>
-                                    <option value="metal">"Metal"</option>
-                                </select>
-                            </div>
-                            <div class="space-y-2">
-                                <label class="text-sm font-medium">"Backend Policy"</label>
-                                <select
-                                    class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                                    prop:value=Signal::derive(move || backend_policy.get())
-                                    on:change=move |ev| backend_policy.set(event_target_value(&ev))
+                                    <Input value=batch_size input_type="number".to_string()/>
+                                </FormField>
+                                <FormField
+                                    label="Rank"
+                                    name="rank"
+                                    required=true
+                                    help="Adapter dimension (4, 8, 16 typical)"
+                                    error=Signal::derive(move || form_errors.get().get("rank").cloned())
                                 >
-                                    <option value="auto">"Auto"</option>
-                                    <option value="coreml_only">"CoreML Only"</option>
-                                    <option value="coreml_else_fallback">"CoreML with Fallback"</option>
-                                </select>
+                                    <Input value=rank input_type="number".to_string()/>
+                                </FormField>
+                                <FormField
+                                    label="Alpha"
+                                    name="alpha"
+                                    required=true
+                                    help="Scaling factor (typically 2x rank)"
+                                    error=Signal::derive(move || form_errors.get().get("alpha").cloned())
+                                >
+                                    <Input value=alpha input_type="number".to_string()/>
+                                </FormField>
                             </div>
                         </div>
-                        {move || (preferred_backend.get() == "coreml" || backend_policy.get() == "coreml_else_fallback").then(|| view! {
-                            <div class="space-y-2">
-                                <label class="text-sm font-medium">"Fallback Backend"</label>
-                                <select
-                                    class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                                    prop:value=Signal::derive(move || coreml_fallback.get())
-                                    on:change=move |ev| coreml_fallback.set(event_target_value(&ev))
-                                >
-                                    <option value="mlx">"MLX"</option>
-                                    <option value="metal">"Metal"</option>
-                                </select>
+
+                        // Backend selection
+                        <div>
+                            <h4 class="text-sm font-medium mb-3">"Backend Selection"</h4>
+                            <p class="text-xs text-muted-foreground mb-3">
+                                "By default, the system automatically selects the best available backend."
+                            </p>
+                            <div class="grid gap-4 sm:grid-cols-2">
+                                <div class="space-y-2">
+                                    <label class="text-sm font-medium">"Preferred Backend"</label>
+                                    <select
+                                        class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                        prop:value=Signal::derive(move || preferred_backend.get())
+                                        on:change=move |ev| preferred_backend.set(event_target_value(&ev))
+                                    >
+                                        <option value="auto">"Auto (recommended)"</option>
+                                        <option value="mlx">"MLX"</option>
+                                        <option value="coreml">"CoreML"</option>
+                                        <option value="metal">"Metal"</option>
+                                    </select>
+                                </div>
+                                <div class="space-y-2">
+                                    <label class="text-sm font-medium">"Backend Policy"</label>
+                                    <select
+                                        class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                        prop:value=Signal::derive(move || backend_policy.get())
+                                        on:change=move |ev| backend_policy.set(event_target_value(&ev))
+                                    >
+                                        <option value="auto">"Auto"</option>
+                                        <option value="coreml_only">"CoreML Only"</option>
+                                        <option value="coreml_else_fallback">"CoreML with Fallback"</option>
+                                    </select>
+                                </div>
                             </div>
-                        })}
+                            {move || (preferred_backend.get() == "coreml" || backend_policy.get() == "coreml_else_fallback").then(|| view! {
+                                <div class="mt-4 space-y-2">
+                                    <label class="text-sm font-medium">"Fallback Backend"</label>
+                                    <select
+                                        class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                        prop:value=Signal::derive(move || coreml_fallback.get())
+                                        on:change=move |ev| coreml_fallback.set(event_target_value(&ev))
+                                    >
+                                        <option value="mlx">"MLX"</option>
+                                        <option value="metal">"Metal"</option>
+                                    </select>
+                                </div>
+                            })}
+                        </div>
                     </div>
                 })}
             </div>
@@ -833,13 +884,22 @@ fn ReviewStepContent(
     base_model_id: String,
     dataset_id: String,
     category: String,
+    preset: String,
     epochs: String,
     learning_rate: String,
+    validation_split: String,
+    early_stopping: bool,
     batch_size: String,
     rank: String,
     alpha: String,
     backend: String,
 ) -> impl IntoView {
+    let preset_label = TrainingPreset::from_str(&preset).label();
+    let val_split_display = validation_split
+        .parse::<f32>()
+        .map(|v| format!("{:.0}%", v * 100.0))
+        .unwrap_or_else(|_| validation_split.clone());
+
     view! {
         <div class="space-y-6">
             <div class="text-center py-2">
@@ -857,8 +917,14 @@ fn ReviewStepContent(
             </div>
 
             <div class="rounded-lg border bg-muted/30 divide-y">
+                <ReviewRow label="Preset" value=preset_label.to_string()/>
                 <ReviewRow label="Epochs" value=epochs/>
                 <ReviewRow label="Learning Rate" value=learning_rate/>
+                <ReviewRow label="Validation Split" value=val_split_display/>
+                <ReviewRow label="Early Stopping" value=if early_stopping { "Enabled".to_string() } else { "Disabled".to_string() }/>
+            </div>
+
+            <div class="rounded-lg border bg-muted/30 divide-y">
                 <ReviewRow label="Batch Size" value=batch_size/>
                 <ReviewRow label="LoRA Rank" value=rank/>
                 <ReviewRow label="LoRA Alpha" value=alpha/>

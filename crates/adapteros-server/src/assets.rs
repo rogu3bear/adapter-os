@@ -42,7 +42,11 @@ async fn spa_fallback(uri: Uri) -> impl IntoResponse {
             .body(Body::from(content.data.into_owned()))
         {
             Ok(response) => response.into_response(),
-            Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Failed to build response").into_response(),
+            Err(_) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to build response",
+            )
+                .into_response(),
         };
     }
 
@@ -74,7 +78,11 @@ async fn static_handler(uri: Uri) -> impl IntoResponse {
                 .body(Body::from(content.data.into_owned()))
             {
                 Ok(response) => response.into_response(),
-                Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Failed to build response").into_response(),
+                Err(_) => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Failed to build response",
+                )
+                    .into_response(),
             }
         }
         None => not_found().await.into_response(),

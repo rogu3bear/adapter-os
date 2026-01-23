@@ -1321,10 +1321,7 @@ mod file_validation_tests {
 
         assert!(!result.is_valid);
         assert!(result.error_count > 0);
-        assert!(result
-            .errors
-            .iter()
-            .any(|e| e.code == "JSONL_SCHEMA_ERROR"));
+        assert!(result.errors.iter().any(|e| e.code == "JSONL_SCHEMA_ERROR"));
     }
 
     #[tokio::test]
