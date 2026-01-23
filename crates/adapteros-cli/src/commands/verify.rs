@@ -26,10 +26,10 @@ pub enum VerifyCommand {
     /// Verify a packaged adapter directory
     #[command(after_help = r#"Examples:
   # Verify packaged adapter
-  aosctl verify adapter --adapters-root ./adapters --adapter-id demo_adapter
+  aosctl verify adapter --adapters-root ./adapters --adapter-id reference_adapter
 
   # JSON output
-  aosctl verify adapter --adapters-root ./adapters --adapter-id demo_adapter --json
+  aosctl verify adapter --adapters-root ./adapters --adapter-id reference_adapter --json
 "#)]
     Adapter {
         /// Adapters root directory

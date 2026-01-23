@@ -31,25 +31,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             vec![1, 2, 3, 4, 5],
             vec![6, 7, 8, 9, 10],
             0,
-            ExampleMetadataV1::new("demo", 1, "demo", "{}", created_at),
+            ExampleMetadataV1::new("reference", 1, "reference", "{}", created_at),
         ),
         TrainingExample::with_pad_token(
             vec![11, 12, 13, 14, 15],
             vec![16, 17, 18, 19, 20],
             0,
-            ExampleMetadataV1::new("demo", 2, "demo", "{}", created_at),
+            ExampleMetadataV1::new("reference", 2, "reference", "{}", created_at),
         ),
         TrainingExample::with_pad_token(
             vec![21, 22, 23, 24, 25],
             vec![26, 27, 28, 29, 30],
             0,
-            ExampleMetadataV1::new("demo", 3, "demo", "{}", created_at),
+            ExampleMetadataV1::new("reference", 3, "reference", "{}", created_at),
         ),
         TrainingExample::with_pad_token(
             vec![31, 32, 33, 34, 35],
             vec![36, 37, 38, 39, 40],
             0,
-            ExampleMetadataV1::new("demo", 4, "demo", "{}", created_at),
+            ExampleMetadataV1::new("reference", 4, "reference", "{}", created_at),
         ),
     ];
     println!("   Created {} training examples", examples.len());

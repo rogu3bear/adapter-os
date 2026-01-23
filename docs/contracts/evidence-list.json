@@ -1,11 +1,11 @@
 [
   {
     "id": "evidence_dev_001",
-    "dataset_id": "dataset_demo_01",
+    "dataset_id": "dataset_reference_01",
     "adapter_id": "adapter.router.guardrails.v1",
     "evidence_type": "audit",
     "reference": "b3:9f2c0a1fd0bf4e439c0830b1f7c6d123",
-    "description": "Receipt chain anchored for demo trace",
+    "description": "Receipt chain anchored for reference trace",
     "confidence": "high",
     "created_by": null,
     "created_at": "2025-01-02T12:00:00Z",

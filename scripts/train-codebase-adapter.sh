@@ -4,7 +4,7 @@ IFS=$'\n\t'
 
 usage() {
   cat <<'USAGE'
-Train a demo adapter from the current adapterOS codebase and run one inference.
+Train a reference adapter from the current adapterOS codebase and run one inference.
 
 Pipeline:
   1) Build local codebase dataset (scripts/build-codebase-dataset.sh)
@@ -30,7 +30,7 @@ Options:
   --base-url <url>        Control plane base URL (default: http://localhost:8080)
   --tenant <tenant>       Tenant ID (default: default)
   --token <token>         Bearer token (or set AOS_AUTH_TOKEN)
-  --repo-name <name>      Adapter repository name (default: codebase-demo)
+  --repo-name <name>      Adapter repository name (default: codebase-reference)
   --repo-id <id>          Use an existing adapter repo id (skips lookup/create)
   --branch <branch>       Target branch (default: main)
   --max-chunks <n>        Max codebase chunks to train on (default: 40; min: 10)
@@ -109,7 +109,7 @@ BASE_URL="${AOS_BASE_URL:-http://localhost:${AOS_SERVER_PORT:-8080}}"
 TENANT_ID="${AOS_TENANT_ID:-default}"
 AUTH_TOKEN="${AOS_AUTH_TOKEN:-}"
 
-REPO_NAME="${AOS_ADAPTER_REPO_NAME:-codebase-demo}"
+REPO_NAME="${AOS_ADAPTER_REPO_NAME:-codebase-reference}"
 REPO_ID="${AOS_ADAPTER_REPO_ID:-}"
 TARGET_BRANCH="${AOS_TARGET_BRANCH:-main}"
 
@@ -445,8 +445,8 @@ print(f"wrote {len(examples)} examples to {out_path}")
 PY
 
 step "Uploading dataset to control plane"
-DATASET_NAME="codebase-demo-$(date +%Y%m%d-%H%M%S)"
-DATASET_DESC="Demo: codebase chunks (prompt == response) from adapterOS repository"
+DATASET_NAME="codebase-reference-$(date +%Y%m%d-%H%M%S)"
+DATASET_DESC="Reference: codebase chunks (prompt == response) from adapterOS repository"
 DATASET_UPLOAD_RESP="$(api_multipart_upload_dataset "${TRAINING_JSONL}" "${DATASET_NAME}" "${DATASET_DESC}")"
 DATASET_ID="$(printf "%s" "$DATASET_UPLOAD_RESP" | jq -r '.dataset_id // empty')"
 [[ -n "${DATASET_ID}" ]] || die "dataset upload succeeded but no dataset_id found"
@@ -476,7 +476,7 @@ if [[ -z "${REPO_ID}" ]]; then
     CREATE_REPO_REQ="$(jq -n \
       --arg tenant_id "${TENANT_ID}" \
       --arg name "${REPO_NAME}" \
-      --arg desc "Demo repo for codebase adapter training" \
+      --arg desc "Reference repo for codebase adapter training" \
       --arg branch "${TARGET_BRANCH}" \
       '{tenant_id: $tenant_id, name: $name, description: $desc, default_branch: $branch}')"
     CREATE_REPO_RESP="$(api_json "POST" "/v1/adapter-repositories" "${CREATE_REPO_REQ}")"
@@ -491,8 +491,8 @@ else
 fi
 
 step "Starting training job"
-ADAPTER_NAME="codebase-demo-$(date +%Y%m%d-%H%M%S)"
-TRAIN_DESC="Demo: train adapter from codebase chunks dataset_id=${DATASET_ID}"
+ADAPTER_NAME="codebase-reference-$(date +%Y%m%d-%H%M%S)"
+TRAIN_DESC="Reference: train adapter from codebase chunks dataset_id=${DATASET_ID}"
 
 TRAIN_REQ="$(jq -n \
   --arg adapter_name "${ADAPTER_NAME}" \

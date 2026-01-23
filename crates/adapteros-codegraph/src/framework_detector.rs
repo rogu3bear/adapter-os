@@ -581,7 +581,7 @@ mod tests {
         write_file(
             dir.path(),
             "package.json",
-            r#"{"name":"demo","dependencies":{"react":"18.2.0","react-dom":"18.2.0"}}"#,
+            r#"{"name":"reference","dependencies":{"react":"18.2.0","react-dom":"18.2.0"}}"#,
         );
         write_file(
             dir.path(),

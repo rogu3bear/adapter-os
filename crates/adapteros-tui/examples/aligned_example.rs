@@ -1,4 +1,4 @@
-// Demo showing PERFECTLY aligned vertical lines across all rows
+// Example showing PERFECTLY aligned vertical lines across all rows
 
 fn main() {
     println!("╔══════════════════════════════════════════════════════════════════════════════╗");

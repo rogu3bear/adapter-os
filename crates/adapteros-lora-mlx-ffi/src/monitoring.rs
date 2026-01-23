@@ -463,7 +463,7 @@ impl MLXMonitor {
         };
 
         // In real implementation, would send to PagerDuty, Slack, etc.
-        // For demo, just log
+        // For now, just log
     }
 
     /// Get current alerts

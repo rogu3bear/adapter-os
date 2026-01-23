@@ -1,7 +1,7 @@
 {
   "schema": "adapteros.manifest.v3",
   "base": {
-    "model_id": "Demo-MLX-Stub",
+    "model_id": "Reference-MLX-Stub",
     "model_hash": "0000000000000000000000000000000000000000000000000000000000000000",
     "arch": "qwen2",
     "vocab_size": 32000,

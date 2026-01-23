@@ -1,6 +1,6 @@
 //! Example demonstrating LoadCoordinator usage for thundering herd protection
 //!
-//! Run with: cargo run --example load_coordinator_demo -p adapteros-server-api
+//! Run with: cargo run --example load_coordinator_example -p adapteros-server-api
 
 use adapteros_lora_lifecycle::loader::{AdapterHandle, AdapterMetadata};
 use adapteros_server_api::LoadCoordinator;
@@ -12,7 +12,7 @@ use std::sync::Arc;
 async fn main() {
     tracing_subscriber::fmt::init();
 
-    println!("=== LoadCoordinator Demo ===\n");
+    println!("=== LoadCoordinator Example ===\n");
 
     let coordinator = Arc::new(LoadCoordinator::new());
     let load_count = Arc::new(AtomicU32::new(0));

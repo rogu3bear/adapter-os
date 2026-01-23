@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 // use adapteros_config::ModelConfig;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("adapterOS Real Inference Demo");
+    println!("adapterOS Real Inference Example");
     println!("================================\n");
 
     // Load model configuration from environment

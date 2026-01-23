@@ -9,7 +9,7 @@
       "end_time": "2025-01-02T12:00:00.150Z",
       "attributes": {
         "tenant_id": "tenant_dev",
-        "stack_id": "stack_demo",
+        "stack_id": "stack_reference",
         "router_seed": "9f2c0a1fd0bf4e439c0830b1f7c6d123",
         "receipt_digest": "e7a8c4975a3f4dd497e1bafbeffc98b4"
       },

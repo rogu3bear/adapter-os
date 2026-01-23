@@ -64,7 +64,7 @@ No unified PRD documents the complete determinism architecture, acceptance crite
 | Security Auditor   | Detect tampering or drift               | Golden run comparison catches any regression  |
 | Defense Contractor | Air-gapped operation with offline proof | aosctl replay --verify passes without network |
 | MLOps/SRE          | Reproduce production bugs               | Same seed + manifest -> identical failure     |
-| Enterprise Sales   | Answer "Is your AI deterministic?"      | Demo golden run verification flow             |
+| Enterprise Sales   | Answer "Is your AI deterministic?"      | Reference golden run verification flow        |
 
 ---
 

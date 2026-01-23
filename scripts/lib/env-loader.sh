@@ -251,7 +251,7 @@ validate_env_config() {
             ((errors++))
         fi
         
-        if [ -z "${AOS_SECURITY_JWT_SECRET:-}" ] || [[ "${AOS_SECURITY_JWT_SECRET}" =~ ^(demo|test|secret|your-) ]]; then
+        if [ -z "${AOS_SECURITY_JWT_SECRET:-}" ] || [[ "${AOS_SECURITY_JWT_SECRET}" =~ ^(test|secret|your-|example) ]]; then
             echo "${FG_RED}✗${FG_RESET} Security: AOS_SECURITY_JWT_SECRET must be set to a secure value in production" >&2
             ((errors++))
         fi

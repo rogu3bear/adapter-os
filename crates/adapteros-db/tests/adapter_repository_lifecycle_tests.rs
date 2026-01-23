@@ -162,7 +162,7 @@ async fn repo_creation_defaults_and_empty_versions() -> Result<()> {
     let repo_id = db
         .create_adapter_repository(CreateRepositoryParams {
             tenant_id: &tenant_id,
-            name: "demo",
+            name: "reference",
             base_model_id: Some("base-x"),
             default_branch: None,
             created_by: None,

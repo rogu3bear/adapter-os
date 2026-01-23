@@ -84,4 +84,4 @@ match coordinator.load_or_wait("adapter", load_fn).await {
 
 - Full documentation: [docs/LOAD_COORDINATOR.md](../../../../docs/LOAD_COORDINATOR.md)
 - Tests: [tests/load_coordinator_standalone.rs](../../tests/load_coordinator_standalone.rs)
-- Example: [examples/load_coordinator_demo.rs](../../examples/load_coordinator_demo.rs)
+- Example: [examples/load_coordinator_example.rs](../../examples/load_coordinator_example.rs)

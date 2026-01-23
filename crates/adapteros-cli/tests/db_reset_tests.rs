@@ -5,7 +5,7 @@
 //! - `aosctl db reset` - Reset database (DEVELOPMENT ONLY)
 //! - `aosctl db seed-fixtures` - Reset and seed deterministic test fixtures
 //! - `aosctl db health` - Health check for migration signatures and DB integrity
-//! - `aosctl db verify-seed` - Verify seeded demo fixtures exist
+//! - `aosctl db verify-seed` - Verify seeded reference fixtures exist
 
 use std::process::Command;
 

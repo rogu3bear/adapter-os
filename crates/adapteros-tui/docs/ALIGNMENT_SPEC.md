@@ -108,7 +108,7 @@ Thick dividers: ╠ ═ ╣ ║ ╬
 ## Testing Alignment
 
 ### Visual Test
-Run `cargo run --example aligned_demo` to see perfect alignment examples.
+Run `cargo run --example aligned_example` to see perfect alignment examples.
 
 ### Alignment Checker
 ```rust

@@ -1728,7 +1728,7 @@ aosctl db health [OPTIONS]
 
 ### `db verify-seed`
 
-Verify seeded demo fixtures exist (development only)
+Verify seeded reference fixtures exist (development only)
 
 **Usage**:
 ```bash
@@ -1741,7 +1741,7 @@ aosctl db verify-seed [OPTIONS]
 
 **Examples**:
 ```bash
-# Verify default demo seed (tenant-test)
+# Verify default reference seed (tenant-test)
 aosctl db verify-seed
 
 # Verify custom database

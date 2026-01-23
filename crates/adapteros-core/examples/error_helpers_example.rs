@@ -3,7 +3,7 @@
 //! This example shows how to use the error helper traits to simplify
 //! error handling in adapterOS code.
 //!
-//! Run with: cargo run --example error_helpers_demo -p adapteros-core
+//! Run with: cargo run --example error_helpers_example -p adapteros-core
 
 use adapteros_core::error_helpers::{ConfigErrorExt, DbErrorExt, IoErrorExt, ValidationErrorExt};
 use adapteros_core::{AosError, Result};
@@ -69,7 +69,7 @@ fn load_and_validate_adapter(id: &str, path: &Path) -> Result<String> {
 }
 
 fn main() {
-    println!("adapterOS Error Helpers Demo\n");
+    println!("adapterOS Error Helpers Example\n");
 
     // Example 1: Database error
     println!("Example 1: Database error");

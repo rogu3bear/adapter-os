@@ -32,7 +32,7 @@ use uuid::Uuid;
 async fn golden_path_inference_over_uds() -> Result<(), Box<dyn std::error::Error>> {
     std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
 
-    let adapter_id = "demo-adapter";
+    let adapter_id = "reference-adapter";
     let manifest = build_test_manifest(adapter_id);
     let manifest_json = manifest.to_json()?;
     let manifest_hash = manifest.compute_hash()?.to_hex();

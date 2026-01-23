@@ -512,7 +512,7 @@ Inference Request → Equipment Profile → Citation ID → Merkle Root → Rece
 - `scripts/make_minimal_dataset.py` - Generates deterministic arithmetic training data
 - `scripts/start_minimal_training.sh` - Starts training with a dataset_version_id
 - `scripts/upload_minimal_dataset.sh` - Uploads dataset to server
-- `scripts/plan4_offline_demo.sh` - Offline PLAN_4 demo
+- `scripts/plan4_offline_reference.sh` - Offline PLAN_4 reference run
 - `scripts/golden_path_adapter_chat.sh` - End-to-end golden path
 
 **New benchmark files**:
@@ -547,6 +547,6 @@ The agent session was **extraordinarily productive**. What initially looked like
 4. **Orchestrator enforced** (training_dataset_integration.rs) - LoadedDatasetExamples struct
 5. **Trainer updated** (trainer.rs) - Cross-entropy loss, CPU proxy mode
 6. **Types updated** (example.rs) - source_hash field
-7. **Workflow scripts** - End-to-end PLAN_4 demo
+7. **Workflow scripts** - End-to-end PLAN_4 reference run
 
 The build break is a **single incomplete migration** in `training.rs` - one file wasn't updated to use the new struct API.

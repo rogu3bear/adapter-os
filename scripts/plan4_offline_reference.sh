@@ -120,7 +120,7 @@ echo "training running: supervised"
   --output "$TRAIN_DIR/out" \
   --base-model "$MODEL_DIR" >/dev/null
 
-ADAPTER_ID="plan4-demo-$(date +%s)"
+ADAPTER_ID="plan4-reference-$(date +%s)"
 ADAPTER_PATH="${TRAIN_DIR}/${ADAPTER_ID}.aos"
 
 "$AOSCTL" aos create \

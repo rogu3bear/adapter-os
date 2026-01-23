@@ -44,10 +44,10 @@ See [docs/ERRORS.md](../../../../docs/ERRORS.md) for comprehensive error handlin
 
 ## Examples
 
-Run the demo:
+Run the example:
 
 ```bash
-cargo run --example error_helpers_demo -p adapteros-core
+cargo run --example error_helpers_example -p adapteros-core
 ```
 
 ## Tests

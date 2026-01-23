@@ -5,7 +5,7 @@ use adapteros_lora_router::{Router, RouterWeights};
 use adapteros_policy::packs::router::RouterConfig;
 
 fn main() {
-    println!("=== Abstain Detection Demo ===\n");
+    println!("=== Abstain Detection Example ===\n");
 
     // Example 1: Creating router with abstain thresholds from policy
     println!("1. Creating router with policy-configured abstain thresholds:");

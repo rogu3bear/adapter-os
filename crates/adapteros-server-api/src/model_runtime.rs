@@ -1,7 +1,7 @@
 //! Model runtime for base model load/unload.
 //!
 //! When mlx-ffi-backend feature is enabled, actually loads models via MLX FFI.
-//! Otherwise returns a clear configuration error unless demo mode enables simulation.
+//! Otherwise returns a clear configuration error unless reference mode enables simulation.
 
 use parking_lot::RwLock;
 use std::collections::HashMap;
@@ -44,8 +44,8 @@ fn env_truthy(key: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn demo_simulation_enabled() -> bool {
-    env_truthy("AOS_DEMO_MODE")
+fn reference_simulation_enabled() -> bool {
+    env_truthy("AOS_REFERENCE_MODE")
 }
 
 /// Model loading specification
@@ -142,9 +142,9 @@ pub struct ModelRuntimeImpl {
     /// Model cache for lazy loading - stores recently used model paths
     #[cfg(feature = "mlx-ffi-backend")]
     model_cache: RwLock<lru::LruCache<ModelKey, ModelCacheEntry>>,
-    /// Simulated runtime state for demo mode when backend is unavailable
+    /// Simulated runtime state for reference mode when backend is unavailable
     simulated_models: RwLock<HashMap<ModelKey, ModelHandle>>,
-    /// Whether simulation is enabled (demo mode)
+    /// Whether simulation is enabled (reference mode)
     simulated_enabled: bool,
     /// Lazy loading enabled flag
     lazy_loading_enabled: bool,
@@ -185,7 +185,7 @@ impl ModelRuntimeImpl {
                 std::num::NonZeroUsize::new(3).expect("Invalid cache size"),
             )),
             simulated_models: RwLock::new(HashMap::new()),
-            simulated_enabled: demo_simulation_enabled(),
+            simulated_enabled: reference_simulation_enabled(),
             lazy_loading_enabled: false,
             max_cached_models: 3,
             cache_eviction_policy: "lru".to_string(),
@@ -214,7 +214,7 @@ impl ModelRuntimeImpl {
                 std::num::NonZeroUsize::new(3).expect("Invalid cache size"),
             )),
             simulated_models: RwLock::new(HashMap::new()),
-            simulated_enabled: demo_simulation_enabled(),
+            simulated_enabled: reference_simulation_enabled(),
             lazy_loading_enabled: false,
             max_cached_models: 3,
             cache_eviction_policy: "lru".to_string(),
@@ -514,13 +514,13 @@ impl ModelRuntimeImpl {
                     warn!(
                         tenant_id = %tenant_id,
                         model_id = %model_id,
-                        "Lazy loading requested in demo mode; model will be loaded on demand"
+                        "Lazy loading requested in reference mode; model will be loaded on demand"
                     );
                     return Ok(());
                 }
 
                 return Err(
-                    "MLX backend not available. Build with `mlx-ffi-backend` or enable AOS_DEMO_MODE=1 for simulated runtime."
+                    "MLX backend not available. Build with `mlx-ffi-backend` or enable AOS_REFERENCE_MODE=1 for simulated runtime."
                         .to_string(),
                 );
             }
@@ -646,12 +646,12 @@ impl ModelRuntimeImpl {
                 warn!(
                     tenant_id = %tenant_id,
                     model_id = %model_id,
-                    "Model runtime simulated load (demo mode)"
+                    "Model runtime simulated load (reference mode)"
                 );
                 Ok(())
             } else {
                 Err(
-                    "MLX backend not available. Build with `mlx-ffi-backend` or enable AOS_DEMO_MODE=1 for simulated runtime."
+                    "MLX backend not available. Build with `mlx-ffi-backend` or enable AOS_REFERENCE_MODE=1 for simulated runtime."
                         .to_string(),
                 )
             }
@@ -769,7 +769,7 @@ impl ModelRuntimeImpl {
                 };
                 let memory_usage_mb = ((metadata.len() / (1024 * 1024)) as i32).max(512);
 
-                progress_callback(50.0, "Simulating model load (demo mode)".to_string());
+                progress_callback(50.0, "Simulating model load (reference mode)".to_string());
                 self.simulated_models.write().insert(
                     key.clone(),
                     ModelHandle {
@@ -780,7 +780,7 @@ impl ModelRuntimeImpl {
                 progress_callback(80.0, "Model registered (simulated)".to_string());
             } else {
                 return Err(
-                    "MLX backend not available. Build with `mlx-ffi-backend` or enable AOS_DEMO_MODE=1 for simulated runtime."
+                    "MLX backend not available. Build with `mlx-ffi-backend` or enable AOS_REFERENCE_MODE=1 for simulated runtime."
                         .to_string(),
                 );
             }
@@ -981,14 +981,14 @@ impl ModelRuntimeImpl {
                 warn!(
                     tenant_id = %tenant_id,
                     model_id = %model_id,
-                    "Model runtime simulated unload (demo mode)"
+                    "Model runtime simulated unload (reference mode)"
                 );
             }
             if self.simulated_enabled {
                 Ok(())
             } else {
                 Err(
-                    "MLX backend not available. Build with `mlx-ffi-backend` or enable AOS_DEMO_MODE=1 for simulated runtime."
+                    "MLX backend not available. Build with `mlx-ffi-backend` or enable AOS_REFERENCE_MODE=1 for simulated runtime."
                         .to_string(),
                 )
             }
@@ -1093,14 +1093,14 @@ impl ModelRuntimeImpl {
                 warn!(
                     tenant_id = %tenant_id,
                     model_id = %model_id,
-                    "Model runtime simulated unload (demo mode)"
+                    "Model runtime simulated unload (reference mode)"
                 );
             }
             if self.simulated_enabled {
                 Ok(())
             } else {
                 Err(
-                    "MLX backend not available. Build with `mlx-ffi-backend` or enable AOS_DEMO_MODE=1 for simulated runtime."
+                    "MLX backend not available. Build with `mlx-ffi-backend` or enable AOS_REFERENCE_MODE=1 for simulated runtime."
                         .to_string(),
                 )
             }
@@ -1351,7 +1351,7 @@ impl ModelRuntime for ModelRuntimeImpl {
 
                 on_progress(ProgressEvent {
                     pct: 60.0,
-                    message: "Simulating model load (demo mode)".to_string(),
+                    message: "Simulating model load (reference mode)".to_string(),
                 });
 
                 let handle = ModelHandle {
@@ -1370,7 +1370,7 @@ impl ModelRuntime for ModelRuntimeImpl {
                 Ok(handle)
             } else {
                 Err(ModelLoadError::Backend(
-                    "MLX backend not available. Build with `mlx-ffi-backend` or enable AOS_DEMO_MODE=1 for simulated runtime."
+                    "MLX backend not available. Build with `mlx-ffi-backend` or enable AOS_REFERENCE_MODE=1 for simulated runtime."
                         .to_string(),
                 ))
             }
@@ -1413,7 +1413,7 @@ impl ModelRuntime for ModelRuntimeImpl {
                 }
             } else {
                 Err(ModelLoadError::Backend(
-                    "MLX backend not available. Build with `mlx-ffi-backend` or enable AOS_DEMO_MODE=1 for simulated runtime."
+                    "MLX backend not available. Build with `mlx-ffi-backend` or enable AOS_REFERENCE_MODE=1 for simulated runtime."
                         .to_string(),
                 ))
             }

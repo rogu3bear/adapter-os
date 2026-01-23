@@ -39,13 +39,13 @@ pub fn StyleAudit() -> impl IntoView {
         }
     });
 
-    // Dialog states for demos
+    // Dialog states for examples
     let show_dialog = RwSignal::new(false);
     let show_confirm_normal = RwSignal::new(false);
     let show_confirm_warning = RwSignal::new(false);
     let show_confirm_destructive = RwSignal::new(false);
 
-    // Form state for demos
+    // Form state for examples
     let input_value = RwSignal::new(String::new());
     let textarea_value = RwSignal::new(String::new());
     let toggle_checked = RwSignal::new(false);

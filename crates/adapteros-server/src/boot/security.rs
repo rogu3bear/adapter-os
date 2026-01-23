@@ -216,7 +216,7 @@ impl From<&Config> for RedactedConfig {
 /// Log the effective configuration at startup.
 ///
 /// This logs:
-/// - Effective config summary (ports, DB path, auth mode, demo mode)
+/// - Effective config summary (ports, DB path, auth mode, reference mode)
 /// - Server configuration (bind address, paths, timeouts)
 /// - Security configuration (PF requirements, mTLS, JWT settings)
 /// - Operational configuration (rate limits, metrics, alerting)

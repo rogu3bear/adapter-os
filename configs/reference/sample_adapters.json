@@ -1,0 +1,93 @@
+{
+  "description": "Sample adapter definitions for reference use. These are metadata/config only - actual weights would be created through training.",
+  "adapters": [
+    {
+      "adapter_id": "reference-math-tutor",
+      "name": "Math Tutor",
+      "purpose": "Explains mathematical concepts step-by-step",
+      "domain": "education",
+      "category": "math",
+      "tier": 1,
+      "config": {
+        "rank": 16,
+        "alpha": 32.0,
+        "lora_strength": 1.0,
+        "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj"]
+      },
+      "training_hints": {
+        "strategy": "qa",
+        "sample_prompts": [
+          "What is the quadratic formula?",
+          "Explain how to solve 2x + 5 = 13",
+          "What is the difference between mean and median?"
+        ]
+      }
+    },
+    {
+      "adapter_id": "reference-code-reviewer",
+      "name": "Code Reviewer",
+      "purpose": "Provides code review feedback and suggestions",
+      "domain": "engineering",
+      "category": "code-quality",
+      "tier": 1,
+      "config": {
+        "rank": 16,
+        "alpha": 32.0,
+        "lora_strength": 1.0,
+        "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj"]
+      },
+      "training_hints": {
+        "strategy": "qa",
+        "sample_prompts": [
+          "Review this function for edge cases",
+          "Is this error handling sufficient?",
+          "Suggest improvements for readability"
+        ]
+      }
+    },
+    {
+      "adapter_id": "reference-doc-qa",
+      "name": "Documentation Q&A",
+      "purpose": "Answers questions about technical documentation",
+      "domain": "technical-writing",
+      "category": "documentation",
+      "tier": 1,
+      "config": {
+        "rank": 16,
+        "alpha": 32.0,
+        "lora_strength": 1.0,
+        "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj"]
+      },
+      "training_hints": {
+        "strategy": "qa",
+        "sample_prompts": [
+          "How do I configure the API?",
+          "What are the required parameters?",
+          "Explain the authentication flow"
+        ]
+      }
+    },
+    {
+      "adapter_id": "reference-writing-assistant",
+      "name": "Writing Assistant",
+      "purpose": "Helps improve writing clarity and style",
+      "domain": "communication",
+      "category": "writing",
+      "tier": 2,
+      "config": {
+        "rank": 8,
+        "alpha": 16.0,
+        "lora_strength": 0.8,
+        "target_modules": ["q_proj", "v_proj"]
+      },
+      "training_hints": {
+        "strategy": "summary",
+        "sample_prompts": [
+          "Make this more concise",
+          "Improve the clarity of this paragraph",
+          "Suggest a better title"
+        ]
+      }
+    }
+  ]
+}

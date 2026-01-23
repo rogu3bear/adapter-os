@@ -999,10 +999,10 @@ pub fn default_schema() -> ConfigSchema {
     );
 
     schema.add_variable(
-        ConfigVariable::new("AOS_DEMO_MODE")
+        ConfigVariable::new("AOS_REFERENCE_MODE")
             .config_type(ConfigType::Bool)
             .default_value("false")
-            .description("Enable demo mode (service panel + demo-friendly defaults)")
+            .description("Enable reference mode (service panel + reference-friendly defaults)")
             .category("SERVER")
             .build(),
     );

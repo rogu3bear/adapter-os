@@ -106,7 +106,7 @@ mod tests {
         json!({
             "schema_version": "1.0.0",
             "id": "job-1",
-            "adapter_name": "demo",
+            "adapter_name": "reference",
             "synthetic_mode": false,
             "status": "running",
             "total_epochs": 1,

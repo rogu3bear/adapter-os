@@ -1495,7 +1495,7 @@ impl Db {
         .execute(self.pool())
         .await?;
 
-        // Create demo users with hashed passwords
+        // Create seed users with hashed passwords
         let salt = SaltString::generate(&mut OsRng);
         let argon2 = Argon2::default();
         let password_hash = argon2
@@ -2824,7 +2824,7 @@ pub mod system_stats;
 
 // Federation module
 pub mod federation;
-pub use federation::{QuarantineDetails, QuarantineRecord};
+pub use federation::{PeerSyncState, PeerSyncStatus, QuarantineDetails, QuarantineRecord};
 
 // Authentication sessions module
 pub mod auth_sessions;

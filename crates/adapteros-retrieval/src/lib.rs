@@ -14,7 +14,10 @@ pub mod index;
 pub mod query_gen;
 pub mod receipt;
 
-pub use benchmark::{BenchmarkConfig, BenchmarkHarness, BenchmarkReport};
-pub use corpus::{Chunk, ChunkType, Corpus};
-pub use index::{IndexBackend, IndexMetadata, SearchResult};
+pub use benchmark::{BenchmarkConfig, BenchmarkHarness, BenchmarkReport, DeterminismReport};
+pub use chunking::{chunk_code, chunk_document, chunk_file};
+pub use corpus::{Chunk, ChunkingConfig, ChunkType, Corpus};
+pub use index::{FlatIndex, IndexBackend, IndexMetadata, SearchResult};
+pub use eval::{mrr, ndcg_at_k, recall_at_k, EvalQuery, EvalResults, QuerySource};
+pub use query_gen::{generate_queries, QueryStrategy};
 pub use receipt::RetrievalReceipt;
