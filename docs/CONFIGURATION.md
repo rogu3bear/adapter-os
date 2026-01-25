@@ -1171,8 +1171,8 @@ let config = loader.load(cli_args, manifest_path)?;
 - [Configuration Guards](../crates/adapteros-config/src/guards.rs)
 - [Policy Registry](../crates/adapteros-policy/src/registry.rs)
 - [Quick Start Guide](QUICKSTART.md)
-- [MLX Integration Guide](MLX_INTEGRATION.md)
-- [CoreML Integration Guide](COREML_INTEGRATION.md)
+- [MLX Backend Guide](MLX_GUIDE.md)
+- [CoreML Backend Guide](COREML_BACKEND.md)
 
 ---
 

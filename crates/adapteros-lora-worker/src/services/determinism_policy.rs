@@ -242,31 +242,27 @@ pub fn derive_domain_seeds(
         .collect()
 }
 
-/// Validate backend attestation using BLAKE3 hash comparison
+/// Validate backend attestation (stub - use PolicyManager for full validation)
 ///
-/// This function is used to validate that the backend output matches
-/// the expected hash for the given backend type.
-pub fn validate_backend_attestation(backend: &str, output: &[u8]) -> Result<()> {
-    let expected_hash = B3Hash::hash(output);
-    let backend_hash = match backend {
-        "metal" => B3Hash::hash(b"metal"),
-        "mlx" => B3Hash::hash(b"mlx"),
-        "coreml" => B3Hash::hash(b"coreml"),
-        _ => {
-            return Err(AosError::DeterminismViolation(format!(
-                "Unknown backend: {}",
-                backend
-            )))
-        }
-    };
-    if expected_hash != backend_hash {
-        return Err(AosError::DeterminismViolation(format!(
-            "Attestation failed: expected {} but got {}",
-            &backend_hash.to_hex()[..16],
-            &expected_hash.to_hex()[..16]
-        )));
+/// This is a legacy stub that performs basic backend name validation only.
+/// For full attestation validation including metallib hashes, RNG seeding method,
+/// and compiler flags, use `adapteros_policy::PolicyManager::validate_backend_attestation`.
+///
+/// # Arguments
+/// * `backend` - Backend name ("metal", "mlx", or "coreml")
+/// * `_output` - Output bytes (unused in stub implementation)
+///
+/// # Returns
+/// * `Ok(())` if backend name is recognized
+/// * `Err(DeterminismViolation)` if backend name is unknown
+pub fn validate_backend_attestation(backend: &str, _output: &[u8]) -> Result<()> {
+    match backend {
+        "metal" | "mlx" | "coreml" => Ok(()),
+        _ => Err(AosError::DeterminismViolation(format!(
+            "Unknown backend: {}. Valid backends are: metal, mlx, coreml",
+            backend
+        ))),
     }
-    Ok(())
 }
 
 /// Policy enforcement for deterministic execution

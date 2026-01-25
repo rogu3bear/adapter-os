@@ -582,4 +582,4 @@ mail -s "adapterOS Memory Report ${REPORT_DATE}" sre-team@company.com < var/repo
 
 **Owner:** SRE Team
 **Last Incident:** [Link to most recent postmortem]
-**Related Runbooks:** [WORKER_CRASH.md](./WORKER_CRASH.md), [INFERENCE_LATENCY_SPIKE.md](./INFERENCE_LATENCY_SPIKE.md)
+**Related Runbooks:** [WORKER_CRASH.md](WORKER_CRASH.md), [INFERENCE_LATENCY_SPIKE.md](INFERENCE_LATENCY_SPIKE.md)

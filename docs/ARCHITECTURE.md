@@ -1491,10 +1491,10 @@ sequenceDiagram
 - **[DETERMINISM.md](DETERMINISM.md)** - Determinism and replay guarantees
 - **[VISUAL_GUIDES.md](VISUAL_GUIDES.md)** - Visual guides: comparisons, token flows, diagrams
 - **[replay_spec.md](replay_spec.md)** - Replay harness and verification
-- **[AOS_FORMAT.md](AOS_FORMAT.md)** - Adapter package format specification
-- **[TELEMETRY_EVENTS.md](TELEMETRY_EVENTS.md)** - Event catalog
+- **[LIFECYCLE.md](LIFECYCLE.md)** - Adapter package format specification
+- **[SECURITY.md](SECURITY.md)** - Event catalog and telemetry
 - **[AUTHENTICATION.md](AUTHENTICATION.md)** - Authentication details
-- **[UI_INTEGRATION.md](UI_INTEGRATION.md)** - Frontend integration guide
+- **[API_REFERENCE.md](API_REFERENCE.md)** - Frontend integration guide
 
 ---
 

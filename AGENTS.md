@@ -97,6 +97,7 @@ cargo clippy --workspace -- -D warnings
 /repositories
 /repositories/:id
 /reviews
+/agents
 /safe
 /style-audit
 ```
@@ -104,17 +105,17 @@ cargo clippy --workspace -- -D warnings
 - **Public routes:** `/login`, `/safe`, `/style-audit`.
 - **Protected + Shell-wrapped routes:** all others above.
 - **Fallback:** NotFound (router fallback view).
-- **Known gap:** `pages::Agents` exists but there is no `/agents` route registered.
 
 ### CodeGraph Viewer Routing
 
-- Single-page UI with no client router; UI states are driven by `App` (empty/loading/error/graph/diff/side panel).
+- Single-page UI with no client router. `App` shows: loading → error → empty (no graph data) → graph view. `DiffControls` is a toggleable panel (not its own route) that can appear alongside other states. `SidePanel` opens when `selectedDetails` is set. `SearchBar` only renders when graph data exists.
+- `DiffControls` can still render when no graph/diff data is loaded; this is intentional (diagnostic affordance).
 
 ## Determinism Rules
 
 - Seed derivation: HKDF-SHA256 with BLAKE3 global seed (`crates/adapteros-core/src/seed.rs`).
-- Router determinism: score DESC, index ASC tie-break; Q15 denominator is 32767.0 (`crates/adapteros-lora-router/src/constants.rs`).
-- No `-ffast-math` compiler flags (`Cargo.toml`).
+- Router determinism: score DESC, index ASC tie-break; Q15 denominator is 32767.0 (`crates/adapteros-lora-router/src/quantization.rs`).
+- No `-ffast-math` compiler flags (CI scans build artifacts and `Cargo.toml` via `scripts/check_fast_math_flags.sh`; keep the flag absent).
 - Set `AOS_DEBUG_DETERMINISM=1` to log seed inputs and router tie-break details.
 - CI determinism gate runs determinism tests and scans build artifacts for `-ffast-math`.
 - OpenAPI/TypeScript clients must stay in sync; CI regenerates and diffs `docs/api/openapi.json` and `ui/src/api/generated.ts`.
@@ -138,6 +139,7 @@ cargo clippy --workspace -- -D warnings
 ## Health Endpoints
 
 - Liveness: `/healthz`
+- Component health: `/healthz/all`, `/healthz/{component}` (router, loader, kernel, db, telemetry, system-metrics, kv, background-tasks).
 - Readiness: `/readyz` (canonical; no `/api/readyz` alias). `/system/ready` exposes system gate status.
 
 ## Backend Understanding (Verified Snapshot)

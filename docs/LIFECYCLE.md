@@ -1911,8 +1911,8 @@ Tests for lifecycle enforcement are in:
 - [API Reference](./API_REFERENCE.md) - REST API endpoints
 - [Training Guide](./TRAINING.md) - Adapter training workflow
 - [Troubleshooting Guide](./TROUBLESHOOTING.md) - Common issues
-- [PRD-RECT-001](./prds/rectification/PRD-RECT-001-tenant-isolation-adapter-lifecycle.md) - Tenant isolation for lifecycle
-- [PRD-RECT-002](./prds/rectification/PRD-RECT-002-worker-lifecycle-tenant-scoping.md) - Worker lifecycle scoping
+- See [TERMINOLOGY.md](TERMINOLOGY.md) for tenant isolation details
+- See [ARCHITECTURE.md](ARCHITECTURE.md) for worker lifecycle scoping
 
 ---
 

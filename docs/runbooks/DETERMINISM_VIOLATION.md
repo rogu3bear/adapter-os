@@ -685,6 +685,6 @@ echo "All replay tests passed"
 
 **Owner:** Security Team + SRE Team
 **Last Incident:** [Link to most recent postmortem]
-**Related Runbooks:** [WORKER_CRASH.md](./WORKER_CRASH.md)
+**Related Runbooks:** [WORKER_CRASH.md](WORKER_CRASH.md)
 
 **⚠️ REMEMBER: Determinism violations are NEVER acceptable. When in doubt, quarantine and escalate. ⚠️**

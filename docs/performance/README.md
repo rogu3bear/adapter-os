@@ -6,7 +6,7 @@ This directory contains performance baselines, benchmarks, and optimization guid
 
 ### K-sparse Router Baseline
 
-**[K_SPARSE_ROUTER_BASELINE.md](K_SPARSE_ROUTER_BASELINE.md)**
+**K-Sparse Router Baseline** - See [performance/K_SPARSE_ROUTER_BASELINE.md](K_SPARSE_ROUTER_BASELINE.md) if it exists, or see [ARCHITECTURE.md](../ARCHITECTURE.md) for router details
 
 Comprehensive performance baseline for the K-sparse adapter routing system.
 
@@ -24,7 +24,7 @@ cargo run --release --example perf_test -p adapteros-lora-router
 
 ### Location
 
-Full benchmark suite: `tests/benchmark/`
+Full benchmark suite: See `tests/benchmark/` directory in project root
 
 ### Available Benchmarks
 
@@ -275,8 +275,8 @@ For reliable benchmarks:
 
 ### Internal Documentation
 
-- [K-sparse Router Baseline](K_SPARSE_ROUTER_BASELINE.md)
-- [Benchmark README](../../tests/benchmark/README.md)
+- See [ARCHITECTURE.md](../ARCHITECTURE.md) for K-sparse router details
+- See `tests/benchmark/` directory in project root for benchmark suite
 - [Router Metrics](../../crates/adapteros-lora-router/src/metrics.rs)
 
 ### External References

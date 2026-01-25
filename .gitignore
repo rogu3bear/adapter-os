@@ -339,3 +339,9 @@ src/bin/test_*.rs
 # Harmony restoration artifacts
 .harmony/
 .venv-coreml311/
+
+# Orphaned root files (verified 2026-01-25 - directory audit cleanup)
+adapters_backup.rs
+fix_kms.py
+run_inference  # AdapterOS demo binary (479KB)
+

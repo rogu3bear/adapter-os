@@ -554,4 +554,4 @@ this document, CI will fail with instructions to regenerate.
 
 ---
 
-*See [docs/engineering/HANDLER_HYGIENE.md](../engineering/HANDLER_HYGIENE.md) for handler size audit.*
+*See [engineering/HANDLER_HYGIENE.md](../engineering/HANDLER_HYGIENE.md) for handler size audit.*

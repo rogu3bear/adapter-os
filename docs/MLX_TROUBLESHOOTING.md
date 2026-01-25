@@ -999,7 +999,7 @@ curl http://localhost:8080/v1/backends/mlx/status | jq > backend-status.json
 ## See Also
 
 - [MLX_GUIDE.md](./MLX_GUIDE.md) - Main MLX documentation
-- [ADR_MULTI_BACKEND_STRATEGY.md](./ADR_MULTI_BACKEND_STRATEGY.md) - Backend architecture
+- [BACKEND_ARCHITECTURE.md](BACKEND_ARCHITECTURE.md) - Backend architecture
 - [DETERMINISM.md](./DETERMINISM.md) - Determinism and replay details
 - [AGENTS.md](../AGENTS.md) - Build & development commands
 

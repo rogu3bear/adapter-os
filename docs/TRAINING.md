@@ -1626,7 +1626,7 @@ Subcode: trust_blocked
 
 - [AGENTS.md](../AGENTS.md) - Main developer guide
 - [TRAINING_METRICS.md](TRAINING_METRICS.md) - Detailed metrics system
-- [AOS_FORMAT.md](AOS_FORMAT.md) - .aos archive specification
+- See [LIFECYCLE.md](LIFECYCLE.md) for .aos archive specification
 - [DATABASE.md](DATABASE.md) - Complete schema
 - [ACCESS_CONTROL.md](ACCESS_CONTROL.md) - Permission requirements and RBAC
 

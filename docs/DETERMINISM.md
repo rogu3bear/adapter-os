@@ -1002,8 +1002,8 @@ clear_thread_seed_context(); // May never run!
 - **[replay_spec.md](replay_spec.md)** - Replay harness and verification
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** - System architecture and token accounting
 - **[POLICIES.md](POLICIES.md)** - Policy system architecture
-- **[POLICY_ENFORCEMENT.md](POLICY_ENFORCEMENT.md)** - Policy enforcement middleware
-- **[TELEMETRY_EVENTS.md](TELEMETRY_EVENTS.md)** - Audit event logging
+- **[POLICIES.md](POLICIES.md)** - Policy enforcement system
+- See [SECURITY.md](SECURITY.md) for audit event logging details
 - **[DATABASE.md](DATABASE.md)** - Database schema (inference_evidence, replay_metadata)
 
 ---

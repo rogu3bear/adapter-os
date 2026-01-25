@@ -562,4 +562,4 @@ panic_handler::register(|info| {
 
 **Owner:** SRE Team
 **Last Incident:** [Link to most recent postmortem]
-**Related Runbooks:** [MEMORY_PRESSURE.md](./MEMORY_PRESSURE.md), [DETERMINISM_VIOLATION.md](./DETERMINISM_VIOLATION.md)
+**Related Runbooks:** [MEMORY_PRESSURE.md](MEMORY_PRESSURE.md), [DETERMINISM_VIOLATION.md](DETERMINISM_VIOLATION.md)

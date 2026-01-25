@@ -370,10 +370,20 @@ pub(crate) fn extract_manifest_fields(metadata: &HashMap<String, String>) -> Man
 
     let scope_meta = extract_scope_metadata(metadata);
 
-    // Extract integrity/provenance fields from metadata
-    let tokenizer_hash = metadata.get("tokenizer_hash_b3").cloned();
-    let dataset_id = metadata.get("dataset_id").cloned();
-    let dataset_hash = metadata.get("dataset_hash_b3").cloned();
+    // Extract provenance hashes from metadata (passed from dataset builder or training pipeline)
+    let tokenizer_hash = normalize_optional_str(
+        metadata
+            .get("tokenizer_hash")
+            .or_else(|| metadata.get("tokenizer_hash_b3"))
+            .map(String::as_str),
+    );
+    let dataset_id = normalize_optional_str(metadata.get("dataset_id").map(String::as_str));
+    let dataset_hash = normalize_optional_str(
+        metadata
+            .get("dataset_hash")
+            .or_else(|| metadata.get("dataset_hash_b3"))
+            .map(String::as_str),
+    );
     let training_config_hash = metadata.get("training_config_hash").cloned();
 
     ManifestFieldsExtract {

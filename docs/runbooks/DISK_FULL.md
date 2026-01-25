@@ -613,4 +613,4 @@ disk_critical_threshold_pct = 95
 
 **Owner:** SRE Team
 **Last Incident:** [Link to most recent postmortem]
-**Related Runbooks:** [WORKER_CRASH.md](./WORKER_CRASH.md), [MEMORY_PRESSURE.md](./MEMORY_PRESSURE.md)
+**Related Runbooks:** [WORKER_CRASH.md](WORKER_CRASH.md), [MEMORY_PRESSURE.md](MEMORY_PRESSURE.md)

@@ -411,4 +411,4 @@ groups:
 
 **Owner:** SRE Team
 **Last Incident:** [Link to most recent postmortem]
-**Related Runbooks:** [MEMORY_PRESSURE.md](./MEMORY_PRESSURE.md), [WORKER_CRASH.md](./WORKER_CRASH.md)
+**Related Runbooks:** [MEMORY_PRESSURE.md](MEMORY_PRESSURE.md), [WORKER_CRASH.md](WORKER_CRASH.md)
