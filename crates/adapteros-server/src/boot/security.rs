@@ -11,7 +11,7 @@ use crate::cli::Cli;
 use crate::pid_lock::PidFileLock;
 use crate::security::PfGuard;
 use adapteros_boot::{derive_kid_from_verifying_key, load_or_generate_worker_keypair};
-use adapteros_core::AosError;
+use adapteros_core::{resolve_var_dir, AosError};
 use adapteros_server_api::config::Config;
 use anyhow::Result;
 use ed25519_dalek::SigningKey;
@@ -67,8 +67,8 @@ pub async fn initialize_security(
     info!("Loading worker authentication keypair (CSPRNG + filesystem I/O may be slow on some systems)");
     let keypair_start = std::time::Instant::now();
     let worker_keypair = {
-        let keys_dir = std::path::Path::new("var/keys");
-        std::fs::create_dir_all(keys_dir).map_err(|e| {
+        let keys_dir = resolve_var_dir().join("keys");
+        std::fs::create_dir_all(&keys_dir).map_err(|e| {
             anyhow::anyhow!(
                 "Failed to create worker keys directory at {}: {} (check permissions or disk space)",
                 keys_dir.display(),

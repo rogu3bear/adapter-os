@@ -5,13 +5,15 @@ use base64::Engine;
 use ed25519_dalek::{Signature, Signer, SigningKey};
 use std::env;
 use std::fs;
-use std::path::Path;
+use std::path::PathBuf;
 use std::sync::OnceLock;
 
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
-const PROMOTION_KEY_PATH: &str = "var/keys/promotion_signing.key";
+fn promotion_key_path() -> PathBuf {
+    adapteros_core::resolve_var_dir().join("keys/promotion_signing.key")
+}
 
 /// Cached key to avoid repeated file I/O
 static CACHED_KEY: OnceLock<String> = OnceLock::new();
@@ -35,15 +37,15 @@ fn get_or_create_promotion_key() -> Result<String> {
         return Ok(key);
     }
 
-    let key_path = Path::new(PROMOTION_KEY_PATH);
+    let key_path = promotion_key_path();
 
     // 2. Check for persisted key
     if key_path.exists() {
-        let key_hex = fs::read_to_string(key_path)
+        let key_hex = fs::read_to_string(&key_path)
             .map_err(|e| {
                 anyhow::anyhow!(
                     "Failed to read promotion key from {}: {}",
-                    PROMOTION_KEY_PATH,
+                    key_path.display(),
                     e
                 )
             })?
@@ -52,18 +54,24 @@ fn get_or_create_promotion_key() -> Result<String> {
 
         // Validate the key format
         if key_hex.len() == 64 && hex::decode(&key_hex).is_ok() {
-            tracing::debug!("Loaded promotion signing key from {}", PROMOTION_KEY_PATH);
+            tracing::debug!(
+                "Loaded promotion signing key from {}",
+                key_path.display()
+            );
             let _ = CACHED_KEY.set(key_hex.clone());
             return Ok(key_hex);
         } else {
-            tracing::warn!("Invalid key format in {}, regenerating", PROMOTION_KEY_PATH);
+            tracing::warn!(
+                "Invalid key format in {}, regenerating",
+                key_path.display()
+            );
         }
     }
 
     // 3. Generate new key and persist
     tracing::info!(
         "Generating new promotion signing key at {}",
-        PROMOTION_KEY_PATH
+        key_path.display()
     );
 
     // Ensure directory exists
@@ -79,16 +87,16 @@ fn get_or_create_promotion_key() -> Result<String> {
     let key_hex = hex::encode(key_bytes);
 
     // Write with restrictive permissions (0600)
-    fs::write(key_path, &key_hex)
+    fs::write(&key_path, &key_hex)
         .map_err(|e| anyhow::anyhow!("Failed to write promotion key: {}", e))?;
 
     #[cfg(unix)]
     {
-        let mut perms = fs::metadata(key_path)
+        let mut perms = fs::metadata(&key_path)
             .map_err(|e| anyhow::anyhow!("Failed to get key file metadata: {}", e))?
             .permissions();
         perms.set_mode(0o600);
-        fs::set_permissions(key_path, perms)
+        fs::set_permissions(&key_path, perms)
             .map_err(|e| anyhow::anyhow!("Failed to set key file permissions: {}", e))?;
     }
 

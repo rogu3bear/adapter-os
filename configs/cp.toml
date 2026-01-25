@@ -29,6 +29,7 @@ jwt_secret = "dev-secret-key-for-development-only-32-chars-min-at-least"
 jwt_mode = "hmac"
 dev_login_enabled = true
 dev_bypass = true
+allow_registration = true
 
 [paths]
 artifacts_root = "var/artifacts"

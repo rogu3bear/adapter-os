@@ -127,8 +127,10 @@ fn test_auth_config_defaults() {
 
 #[test]
 fn test_boot_invariant_dev_bypass_rejected_in_release() {
-    let mut config = AuthConfig::default();
-    config.dev_bypass_allowed = true;
+    let config = AuthConfig {
+        dev_bypass_allowed: true,
+        ..Default::default()
+    };
 
     // Simulating release build (is_release = true)
     let result = config.validate_boot_invariants(true);
@@ -143,8 +145,10 @@ fn test_boot_invariant_dev_bypass_rejected_in_release() {
 
 #[test]
 fn test_boot_invariant_dev_bypass_allowed_in_debug() {
-    let mut config = AuthConfig::default();
-    config.dev_bypass_allowed = true;
+    let mut config = AuthConfig {
+        dev_bypass_allowed: true,
+        ..Default::default()
+    };
     // Need some key material for validation to pass
     config.jwt.hmac_secret = Some(b"test-secret-for-debug".to_vec());
 
@@ -158,8 +162,13 @@ fn test_boot_invariant_dev_bypass_allowed_in_debug() {
 
 #[test]
 fn test_boot_invariant_eddsa_requires_key() {
-    let mut config = AuthConfig::default();
-    config.jwt.algorithm = JwtAlgorithm::EdDSA;
+    let config = AuthConfig {
+        jwt: adapteros_auth::JwtConfig {
+            algorithm: JwtAlgorithm::EdDSA,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
     // No key configured
 
     let result = config.validate_boot_invariants(true);
@@ -174,9 +183,14 @@ fn test_boot_invariant_eddsa_requires_key() {
 
 #[test]
 fn test_boot_invariant_eddsa_with_key_path() {
-    let mut config = AuthConfig::default();
-    config.jwt.algorithm = JwtAlgorithm::EdDSA;
-    config.jwt.ed25519_key_path = Some("/path/to/key".to_string());
+    let config = AuthConfig {
+        jwt: adapteros_auth::JwtConfig {
+            algorithm: JwtAlgorithm::EdDSA,
+            ed25519_key_path: Some("/path/to/key".to_string()),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
 
     // Should pass if key path is configured (actual file loading happens elsewhere)
     let result = config.validate_boot_invariants(false);
@@ -185,9 +199,14 @@ fn test_boot_invariant_eddsa_with_key_path() {
 
 #[test]
 fn test_boot_invariant_eddsa_with_public_key() {
-    let mut config = AuthConfig::default();
-    config.jwt.algorithm = JwtAlgorithm::EdDSA;
-    config.jwt.ed25519_public_key = Some("-----BEGIN PUBLIC KEY-----...".to_string());
+    let config = AuthConfig {
+        jwt: adapteros_auth::JwtConfig {
+            algorithm: JwtAlgorithm::EdDSA,
+            ed25519_public_key: Some("-----BEGIN PUBLIC KEY-----...".to_string()),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
 
     // Should pass if public key is configured
     let result = config.validate_boot_invariants(false);
@@ -196,10 +215,18 @@ fn test_boot_invariant_eddsa_with_public_key() {
 
 #[test]
 fn test_boot_invariant_cookie_security() {
-    let mut config = AuthConfig::default();
-    config.jwt.hmac_secret = Some(b"test-secret-at-least-32-bytes-long".to_vec());
-    config.cookie.same_site = "None".to_string();
-    config.cookie.secure = false; // Invalid: SameSite=None requires Secure
+    let config = AuthConfig {
+        jwt: adapteros_auth::JwtConfig {
+            hmac_secret: Some(b"test-secret-at-least-32-bytes-long".to_vec()),
+            ..Default::default()
+        },
+        cookie: adapteros_auth::CookieConfig {
+            same_site: "None".to_string(),
+            secure: false, // Invalid: SameSite=None requires Secure
+            ..Default::default()
+        },
+        ..Default::default()
+    };
 
     // Should fail in release mode
     let result = config.validate_boot_invariants(true);

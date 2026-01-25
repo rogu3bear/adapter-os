@@ -181,7 +181,10 @@ fn analyze_file_content_detailed(content: &str) -> FileAnalysis {
             issues.push(FileIssue {
                 line_number,
                 issue_type: IssueType::Todo,
-                description: format!("Line {}: Contains TODO that needs implementation", line_number),
+                description: format!(
+                    "Line {}: Contains TODO that needs implementation",
+                    line_number
+                ),
                 original_line: line.to_string(),
                 suggested_replacement: None, // Would need LLM for actual implementation
             });
@@ -203,9 +206,14 @@ fn analyze_file_content_detailed(content: &str) -> FileAnalysis {
             issues.push(FileIssue {
                 line_number,
                 issue_type: IssueType::Unimplemented,
-                description: format!("Line {}: Contains unimplemented!() - will panic at runtime", line_number),
+                description: format!(
+                    "Line {}: Contains unimplemented!() - will panic at runtime",
+                    line_number
+                ),
                 original_line: line.to_string(),
-                suggested_replacement: Some(line.replace("unimplemented!()", "todo!(\"Implement this\")")),
+                suggested_replacement: Some(
+                    line.replace("unimplemented!()", "todo!(\"Implement this\")"),
+                ),
             });
         }
 
@@ -216,7 +224,9 @@ fn analyze_file_content_detailed(content: &str) -> FileAnalysis {
                 issue_type: IssueType::TodoMacro,
                 description: format!("Line {}: Contains todo!() without description", line_number),
                 original_line: line.to_string(),
-                suggested_replacement: Some(line.replace("todo!()", "todo!(\"Needs implementation\")")),
+                suggested_replacement: Some(
+                    line.replace("todo!()", "todo!(\"Needs implementation\")"),
+                ),
             });
         }
     }
@@ -247,17 +257,18 @@ fn generate_issue_diff(content: &str, issue: &FileIssue) -> String {
         context_end - context_start
     );
 
-    for i in context_start..context_end {
+    for (offset, line) in lines[context_start..context_end].iter().enumerate() {
+        let i = context_start + offset;
         if i == line_idx {
-            diff.push_str(&format!("-{}\n", lines[i]));
+            diff.push_str(&format!("-{}\n", line));
             if let Some(ref replacement) = issue.suggested_replacement {
                 diff.push_str(&format!("+{}\n", replacement));
             } else {
                 // Keep original but mark for attention
-                diff.push_str(&format!("+{} // AGENT: needs implementation\n", lines[i]));
+                diff.push_str(&format!("+{} // AGENT: needs implementation\n", line));
             }
         } else {
-            diff.push_str(&format!(" {}\n", lines[i]));
+            diff.push_str(&format!(" {}\n", line));
         }
     }
 
@@ -274,7 +285,10 @@ fn calculate_confidence(modifications: &[FileModification]) -> f32 {
 
     // Count modifications with actual diffs (more actionable)
     let with_diff = modifications.iter().filter(|m| m.diff.is_some()).count();
-    let with_explanation = modifications.iter().filter(|m| m.explanation.is_some()).count();
+    let with_explanation = modifications
+        .iter()
+        .filter(|m| m.explanation.is_some())
+        .count();
 
     // Higher weight for modifications with diffs
     let diff_ratio = with_diff as f32 / modifications.len() as f32;

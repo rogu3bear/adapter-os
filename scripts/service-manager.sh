@@ -35,11 +35,11 @@ WORKER_LOG="$LOG_DIR/worker.log"
 SCRIPT_LOG="$LOG_DIR/service-manager.log"
 
 # Canonical dev model (single source of truth)
-DEFAULT_MODEL_DIR="$PROJECT_ROOT/var/models/Qwen2.5-7B-Instruct-4bit"
-DEFAULT_MANIFEST_PATH="$PROJECT_ROOT/manifests/qwen7b-4bit-mlx.yaml"
+DEFAULT_MODEL_DIR="$PROJECT_ROOT/var/models/mistral-7b-instruct-v0.3-4bit"
+DEFAULT_MANIFEST_PATH="$PROJECT_ROOT/manifests/mistral7b-4bit-mlx.yaml"
 # Must match DEFAULT_MANIFEST_HASH in adapteros-server/src/boot/app_state.rs for worker routing
-# This is the hash of qwen7b-4bit-mlx.yaml computed via ManifestV3::compute_hash()
-DEFAULT_MANIFEST_HASH="${DEFAULT_MANIFEST_HASH:-0a2fff3ce35338f46e052d505b5c9ace606f7fd86b1e0c7b9a1a1923d7a1ce4d}"
+# This is the hash of mistral7b-4bit-mlx.yaml computed via ManifestV3::compute_hash()
+DEFAULT_MANIFEST_HASH="${DEFAULT_MANIFEST_HASH:-07578bfa5014183755ff8fb1ae2d91cf3544a28903bf5c483f38292d6a0fadf7}"
 
 # Worker database tracking
 WORKER_ID_FILE="$PID_DIR/worker.id"
@@ -1105,6 +1105,11 @@ start_worker() {
     # Default to MLX; requires worker to be built with multi-backend/MLX features.
     # Override via AOS_MODEL_BACKEND=metal|coreml if MLX is unavailable.
     local backend="${AOS_MODEL_BACKEND:-mlx}"
+
+    if [ "$backend" = "mock" ]; then
+        error_msg "Mock backend is sunset (no stubs). Set AOS_MODEL_BACKEND=mlx|coreml|metal."
+        return 1
+    fi
     
     # Auto-detect tokenizer path if not set
     local tokenizer_path="${AOS_TOKENIZER_PATH:-}"

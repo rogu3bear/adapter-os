@@ -193,6 +193,13 @@ select_default_model_dir() {
     local name
     for path in "${candidates[@]}"; do
         name="$(lower "$(basename "$path")")"
+        if [[ "$name" == *"mistral"* && "$name" == *"7b"* ]]; then
+            echo "$path"
+            return 0
+        fi
+    done
+    for path in "${candidates[@]}"; do
+        name="$(lower "$(basename "$path")")"
         if [[ "$name" == *"0.5b"* || "$name" == *"0_5b"* ]]; then
             if [[ "$path" == *.mlpackage ]]; then
                 echo "$path"
@@ -278,6 +285,17 @@ select_manifest_path() {
         return 0
     fi
 
+    if [[ "$name" == *"mistral"* ]]; then
+        if [[ "$name" == *"7b"* && "$name" == *"4bit"* ]]; then
+            echo "$ROOT_DIR/manifests/mistral7b-4bit-mlx.yaml"
+            return 0
+        fi
+        if [[ "$name" == *"7b"* ]]; then
+            echo "$ROOT_DIR/manifests/mistral7b-4bit-mlx.yaml"
+            return 0
+        fi
+    fi
+
     if [[ "$name" == *"7b"* && "$name" == *"4bit"* ]]; then
         echo "$ROOT_DIR/manifests/qwen7b-4bit-mlx.yaml"
         return 0
@@ -332,13 +350,23 @@ if default_model_dir="$(select_default_model_dir "$ROOT_DIR/var/models")"; then
     DEFAULT_MODEL_DIR="$default_model_dir"
 fi
 if [ -z "$DEFAULT_MODEL_DIR" ]; then
-    DEFAULT_MODEL_DIR="$ROOT_DIR/var/models/Qwen2.5-7B-Instruct-4bit"
+    DEFAULT_MODEL_DIR="$ROOT_DIR/var/models/mistral-7b-instruct-v0.3-4bit"
+fi
+
+# Derive AOS_MODEL_PATH from canonical vars if not set
+if [ -z "${AOS_MODEL_PATH:-}" ]; then
+    if [ -n "${AOS_MODEL_CACHE_DIR:-}" ] && [ -n "${AOS_BASE_MODEL_ID:-}" ]; then
+        export AOS_MODEL_PATH="${AOS_MODEL_CACHE_DIR}/${AOS_BASE_MODEL_ID}"
+    fi
 fi
 
 model_path="${AOS_MODEL_PATH:-$DEFAULT_MODEL_DIR}"
 backend="${AOS_MODEL_BACKEND:-}"
 if [ -z "$backend" ]; then
     backend="$(infer_backend_for_model "$model_path")"
+fi
+if [ "$backend" = "mock" ]; then
+    die "Mock backend is sunset (no stubs). Set AOS_MODEL_BACKEND=mlx|coreml|metal."
 fi
 
 manifest_path="${AOS_WORKER_MANIFEST:-${AOS_MANIFEST_PATH:-}}"

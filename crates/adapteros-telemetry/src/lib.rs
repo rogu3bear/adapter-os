@@ -153,7 +153,7 @@ impl TelemetryWriter {
         let output_dir = output_dir.as_ref().to_path_buf();
 
         // Load or generate persistent signing key using adapteros-crypto
-        let key_path = PathBuf::from("var/keys/telemetry_signing.key");
+        let key_path = adapteros_core::resolve_var_dir().join("keys/telemetry_signing.key");
         let signing_keypair = if key_path.exists() {
             load_signing_key(&key_path)?
         } else {

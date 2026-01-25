@@ -894,7 +894,7 @@ fn ReviewStepContent(
     alpha: String,
     backend: String,
 ) -> impl IntoView {
-    let preset_label = TrainingPreset::from_str(&preset).label();
+    let preset_label = TrainingPreset::parse_str(&preset).label();
     let val_split_display = validation_split
         .parse::<f32>()
         .map(|v| format!("{:.0}%", v * 100.0))

@@ -9,8 +9,13 @@ use std::path::PathBuf;
 use sysinfo::System;
 use tracing::{debug, info, warn};
 
-const KEY_FILE_PATH: &str = "var/keys/fingerprint_key.bin";
-const DEVICE_FINGERPRINT_FILE: &str = "var/keys/device_fingerprint.json";
+fn fingerprint_key_path() -> PathBuf {
+    adapteros_core::resolve_var_dir().join("keys/fingerprint_key.bin")
+}
+
+fn device_fingerprint_path() -> PathBuf {
+    adapteros_core::resolve_var_dir().join("keys/device_fingerprint.json")
+}
 
 /// Hardware attributes used to generate device fingerprint
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -119,7 +124,7 @@ pub fn generate_device_id(attributes: &HardwareAttributes) -> String {
 /// Returns the current device's fingerprint, creating one if it doesn't exist.
 /// The fingerprint is stored locally and remains stable unless hardware changes.
 pub fn get_or_create_device_fingerprint() -> Result<DeviceFingerprint> {
-    let fingerprint_path = PathBuf::from(DEVICE_FINGERPRINT_FILE);
+    let fingerprint_path = device_fingerprint_path();
 
     if fingerprint_path.exists() {
         // Load existing fingerprint
@@ -154,7 +159,7 @@ pub fn get_or_create_device_fingerprint() -> Result<DeviceFingerprint> {
 
 /// Create and save a new device fingerprint
 fn create_and_save_fingerprint() -> Result<DeviceFingerprint> {
-    let fingerprint_path = PathBuf::from(DEVICE_FINGERPRINT_FILE);
+    let fingerprint_path = device_fingerprint_path();
 
     let attributes = collect_hardware_attributes()?;
     let device_id = generate_device_id(&attributes);
@@ -282,7 +287,7 @@ fn try_load_from_enclave() -> Result<Keypair> {
 
 /// Load or create file-based keypair (development/testing fallback)
 fn load_or_create_file_keypair() -> Result<Keypair> {
-    let key_path = PathBuf::from(KEY_FILE_PATH);
+    let key_path = fingerprint_key_path();
 
     if key_path.exists() {
         // Load existing key
@@ -368,7 +373,7 @@ mod tests {
         let temp_dir = new_test_tempdir();
         let _key_path = temp_dir.path().join("test_key.bin");
 
-        // Override KEY_FILE_PATH for testing (would need to be done differently in practice)
+        // Override fingerprint key path for testing (would need to be done differently in practice)
         // For now, just test the keypair generation directly
         let keypair = Keypair::generate();
         let key_bytes = keypair.to_bytes();

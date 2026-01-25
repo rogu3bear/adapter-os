@@ -738,19 +738,19 @@ fn verify_root_ca(
     }
 
     // Check if self-signed is allowed as fallback
-    if config.allow_self_signed_fallback {
-        if root_cert.verify_signature(Some(root_public_key)).is_ok() {
-            warn!(
-                root_subject = %root_subject,
-                "Root certificate is self-signed and not in trusted CAs (allowed as fallback)"
-            );
-            return Ok(RootCaVerificationResult {
-                trusted_root_found: false,
-                root_subject: Some(root_subject),
-                trusted_ca_subject: None,
-                reason: Some("Root certificate is self-signed but not in trusted CAs".to_string()),
-            });
-        }
+    if config.allow_self_signed_fallback
+        && root_cert.verify_signature(Some(root_public_key)).is_ok()
+    {
+        warn!(
+            root_subject = %root_subject,
+            "Root certificate is self-signed and not in trusted CAs (allowed as fallback)"
+        );
+        return Ok(RootCaVerificationResult {
+            trusted_root_found: false,
+            root_subject: Some(root_subject),
+            trusted_ca_subject: None,
+            reason: Some("Root certificate is self-signed but not in trusted CAs".to_string()),
+        });
     }
 
     Ok(RootCaVerificationResult {

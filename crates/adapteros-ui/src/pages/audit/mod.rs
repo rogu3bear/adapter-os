@@ -262,8 +262,8 @@ fn trigger_download(content: &str, filename: &str) -> Result<(), wasm_bindgen::J
     let blob_parts = js_sys::Array::new();
     blob_parts.push(&wasm_bindgen::JsValue::from_str(content));
 
-    let mut blob_options = web_sys::BlobPropertyBag::new();
-    blob_options.type_("application/x-ndjson");
+    let blob_options = web_sys::BlobPropertyBag::new();
+    blob_options.set_type("application/x-ndjson");
 
     let blob = web_sys::Blob::new_with_str_sequence_and_options(&blob_parts, &blob_options)?;
 

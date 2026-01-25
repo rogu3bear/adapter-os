@@ -146,7 +146,7 @@ impl Default for ServerConfig {
                 // Respect AOS_UI_PORT for CORS (supports port offset strategy)
                 let ui_port = std::env::var("AOS_UI_PORT").unwrap_or_else(|_| "3200".to_string());
                 let panel_port =
-                    std::env::var("AOS_PANEL_PORT").unwrap_or_else(|_| "3300".to_string());
+                    std::env::var("AOS_PANEL_PORT").unwrap_or_else(|_| "3301".to_string());
                 vec![
                     format!("http://localhost:{}", ui_port),
                     format!("http://localhost:{}", panel_port),

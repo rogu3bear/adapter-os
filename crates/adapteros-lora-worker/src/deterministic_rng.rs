@@ -14,8 +14,8 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use zeroize::Zeroize;
 
-/// Global nonce counter for ensuring unique RNG instances
-static NEXT_NONCE: AtomicU64 = AtomicU64::new(0);
+// Global nonce counter removed to ensure request-isolated determinism.
+// Use RngFactory or provide explicit nonces to preserve bit-determinism.
 
 /// Deterministic RNG derived from global seed using HKDF
 pub struct DeterministicRng {
@@ -159,7 +159,7 @@ impl DeterministicRng {
             seed: [0u8; 32], // Will be reconstructed from context
             label: self.label.clone(),
             step_count: self.step_count,
-            nonce: get_global_nonce(),
+            nonce: 0, // Request-isolated nonces handled by Factory
         }
     }
 
@@ -208,15 +208,7 @@ impl Drop for DeterministicRng {
     }
 }
 
-/// Get the global nonce counter value
-pub fn get_global_nonce() -> u64 {
-    NEXT_NONCE.load(Ordering::SeqCst)
-}
-
-/// Set the global nonce counter value (for replay)
-pub fn set_global_nonce(n: u64) {
-    NEXT_NONCE.store(n, Ordering::SeqCst);
-}
+// get_global_nonce and set_global_nonce removed in favor of Factory isolation.
 
 /// RNG factory for creating domain-specific RNGs with full entropy isolation
 pub struct RngFactory {
@@ -224,6 +216,7 @@ pub struct RngFactory {
     manifest_hash: B3Hash,
     adapter_dir: PathBuf,
     worker_id: u32,
+    nonce: u64,
 }
 
 impl RngFactory {
@@ -242,6 +235,7 @@ impl RngFactory {
             manifest_hash,
             adapter_dir,
             worker_id,
+            nonce: 0,
         }
     }
 
@@ -252,12 +246,14 @@ impl RngFactory {
             manifest_hash: B3Hash::hash(b"default_manifest"),
             adapter_dir: PathBuf::from("/adapters/default"),
             worker_id,
+            nonce: 0,
         }
     }
 
     /// Create an RNG for router operations with full entropy
-    pub fn router_rng(&self) -> Result<DeterministicRng> {
-        let n = NEXT_NONCE.fetch_add(1, Ordering::SeqCst);
+    pub fn router_rng(&mut self) -> Result<DeterministicRng> {
+        let n = self.nonce;
+        self.nonce += 1;
         let adapter_dir_hash = adapteros_core::hash_adapter_dir(&self.adapter_dir);
         let seed = adapteros_core::derive_seed_full(
             &B3Hash::new(self.seed_global),
@@ -279,8 +275,9 @@ impl RngFactory {
     }
 
     /// Create an RNG for dropout operations with full entropy
-    pub fn dropout_rng(&self) -> Result<DeterministicRng> {
-        let n = NEXT_NONCE.fetch_add(1, Ordering::SeqCst);
+    pub fn dropout_rng(&mut self) -> Result<DeterministicRng> {
+        let n = self.nonce;
+        self.nonce += 1;
         let adapter_dir_hash = adapteros_core::hash_adapter_dir(&self.adapter_dir);
         let seed = adapteros_core::derive_seed_full(
             &B3Hash::new(self.seed_global),
@@ -302,8 +299,9 @@ impl RngFactory {
     }
 
     /// Create an RNG for sampling operations with full entropy
-    pub fn sampling_rng(&self) -> Result<DeterministicRng> {
-        let n = NEXT_NONCE.fetch_add(1, Ordering::SeqCst);
+    pub fn sampling_rng(&mut self) -> Result<DeterministicRng> {
+        let n = self.nonce;
+        self.nonce += 1;
         let adapter_dir_hash = adapteros_core::hash_adapter_dir(&self.adapter_dir);
         let seed = adapteros_core::derive_seed_full(
             &B3Hash::new(self.seed_global),
@@ -325,8 +323,9 @@ impl RngFactory {
     }
 
     /// Create an RNG with custom label and full entropy
-    pub fn custom_rng(&self, label: &str) -> Result<DeterministicRng> {
-        let n = NEXT_NONCE.fetch_add(1, Ordering::SeqCst);
+    pub fn custom_rng(&mut self, label: &str) -> Result<DeterministicRng> {
+        let n = self.nonce;
+        self.nonce += 1;
         let adapter_dir_hash = adapteros_core::hash_adapter_dir(&self.adapter_dir);
         let seed = adapteros_core::derive_seed_full(
             &B3Hash::new(self.seed_global),
@@ -405,7 +404,7 @@ mod tests {
     #[test]
     fn test_rng_factory() {
         let seed = [42u8; 32];
-        let factory = RngFactory::from_global_seed(seed, 1);
+        let mut factory = RngFactory::from_global_seed(seed, 1);
 
         // Create different RNGs from factory
         let mut router_rng1 = factory
@@ -506,13 +505,5 @@ mod tests {
         let next2 = rng2.next_u64();
 
         assert_eq!(next1, next2, "Restored RNG should continue from same state");
-    }
-
-    #[test]
-    fn test_global_nonce_persistence() {
-        let initial = get_global_nonce();
-        set_global_nonce(12345);
-        assert_eq!(get_global_nonce(), 12345);
-        set_global_nonce(initial); // Restore for other tests
     }
 }

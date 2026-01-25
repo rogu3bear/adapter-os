@@ -11,10 +11,12 @@ use axum::{
     response::Response,
     Json,
 };
-use std::path::Path;
+use std::path::PathBuf;
 
 /// Path to the required boot report file
-const BOOT_REPORT_PATH: &str = "var/run/boot_report.json";
+fn boot_report_path() -> PathBuf {
+    adapteros_core::resolve_var_dir().join("run/boot_report.json")
+}
 
 /// Middleware that verifies boot evidence exists before serving requests.
 ///
@@ -40,9 +42,10 @@ pub async fn boot_evidence_middleware(
     }
 
     // Check boot evidence exists
-    if !Path::new(BOOT_REPORT_PATH).exists() {
+    let report_path = boot_report_path();
+    if !report_path.exists() {
         tracing::error!(
-            path = BOOT_REPORT_PATH,
+            path = %report_path.display(),
             "Boot evidence missing - refusing to serve requests without audit trail"
         );
         return Err((

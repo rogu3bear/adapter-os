@@ -828,11 +828,11 @@ fn compute_lora_delta(
     let mut delta = Vec::with_capacity(out_dim * in_dim);
 
     for (i, row_b) in lora_b.iter().enumerate().take(out_dim) {
-        for j in 0..in_dim {
+        for (j, row_a_col) in lora_a.iter().map(|row| row.iter()).enumerate() {
             let mut sum = 0.0f32;
-            for r in 0..actual_rank {
+            for (r, (b_val, a_row)) in row_b.iter().zip(lora_a.iter()).enumerate() {
                 // B[i, r] * A[r, j]
-                sum += row_b[r] * lora_a[r][j];
+                sum += b_val * a_row[j];
             }
             delta.push(scale * sum);
         }

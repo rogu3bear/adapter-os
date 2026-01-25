@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Download Qwen 2.5 7B Instruct model for adapterOS
+# Download Mistral 7B Instruct v0.3 model for adapterOS
 #
-# This script downloads the MLX-optimized Qwen 2.5 7B Instruct model from Hugging Face
+# This script downloads the MLX-optimized Mistral 7B Instruct v0.3 model from Hugging Face
 # and sets up the model directory structure required by adapterOS.
 #
 # Copyright: © 2025 JKCA / James KC Auchterlonie. All rights reserved.
@@ -18,12 +18,12 @@ NC='\033[0m' # No Color
 # Script directory (repo root)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-MODEL_DIR="$REPO_ROOT/var/model-cache/models"
-MODEL_NAME="qwen2.5-7b-mlx"
+MODEL_DIR="$REPO_ROOT/var/models"
+MODEL_NAME="mistral-7b-instruct-v0.3-4bit"
 MODEL_PATH="$MODEL_DIR/$MODEL_NAME"
 
 # Hugging Face model ID (4-bit quantized version - public, no auth required)
-HF_MODEL_ID="mlx-community/Qwen2.5-7B-Instruct-4bit"
+HF_MODEL_ID="mlx-community/Mistral-7B-Instruct-v0.3-4bit"
 
 echo -e "${BLUE}═══════════════════════════════════════════════════════════════${NC}"
 echo -e "${BLUE}  adapterOS Model Downloader${NC}"

@@ -1,5 +1,5 @@
 use adapteros_boot::BootAttestation;
-use adapteros_core::{BackendKind, Clock, DeterminismMode, SeedMode, SystemClock};
+use adapteros_core::{resolve_var_dir, BackendKind, Clock, DeterminismMode, SeedMode, SystemClock};
 use adapteros_crypto::Keypair;
 use adapteros_db::git::FileChangeEvent;
 use adapteros_db::{sqlx, Db, KvIsolationScanReport, ProtectedDb, WriteCapableDb};
@@ -660,14 +660,14 @@ pub struct CryptoState {
 
 impl CryptoState {
     pub fn new() -> Self {
-        Self::new_with_path("var/keys")
+        Self::new_with_path(resolve_var_dir().join("keys"))
     }
 
-    pub fn new_with_path(keys_dir: &str) -> Self {
+    pub fn new_with_path(keys_dir: impl AsRef<std::path::Path>) -> Self {
         use std::fs;
         use std::path::PathBuf;
 
-        let keys_path = PathBuf::from(keys_dir);
+        let keys_path = keys_dir.as_ref().to_path_buf();
         let jwt_key_path = keys_path.join("jwt_signing.key");
         let policy_key_path = keys_path.join("policy_signing.key");
 
@@ -1010,8 +1010,8 @@ impl AppState {
     ) -> Self {
         let db = ProtectedDb::new(db);
         let db_pool = db.pool().clone(); // Get the pool from the Db struct
-        let keys_dir = "var/keys".to_string();
-        let crypto_state = CryptoState::new_with_path(&keys_dir);
+        let keys_dir = resolve_var_dir().join("keys");
+        let crypto_state = CryptoState::new_with_path(keys_dir);
         let ed25519_keypair = crypto_state.jwt_keypair.clone();
         let ed25519_public_key =
             crate::auth::encode_ed25519_public_key_pem(&ed25519_keypair.public_key().to_bytes());

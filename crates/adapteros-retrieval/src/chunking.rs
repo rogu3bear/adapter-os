@@ -9,9 +9,7 @@ use crate::corpus::{Chunk, ChunkType, ChunkingConfig};
 use adapteros_core::error::Result;
 use std::path::Path;
 
-/// Approximate characters per token for estimation.
-/// This is a conservative estimate - actual tokenization varies by model.
-const CHARS_PER_TOKEN: usize = 4;
+// Token estimation constants removed; now using configurable config.chars_per_token
 
 /// Chunk a document into token-based chunks with overlap.
 ///
@@ -34,9 +32,9 @@ pub fn chunk_document(
         return Ok(vec![]);
     }
 
-    // Convert token counts to character counts
-    let chunk_chars = config.token_chunk_size * CHARS_PER_TOKEN;
-    let overlap_chars = config.token_overlap * CHARS_PER_TOKEN;
+    // Convert token counts to character counts using configurable heuristic
+    let chunk_chars = (config.token_chunk_size as f32 * config.chars_per_token).round() as usize;
+    let overlap_chars = (config.token_overlap as f32 * config.chars_per_token).round() as usize;
 
     // Ensure we have valid step size
     let step = chunk_chars.saturating_sub(overlap_chars).max(1);
@@ -48,9 +46,9 @@ pub fn chunk_document(
     while start < content_len {
         let end = (start + chunk_chars).min(content_len);
 
-        // Try to break at word boundary if not at end
+        // Try to break at the best semantic boundary if not at end
         let actual_end = if end < content_len {
-            find_word_boundary(content, end)
+            find_best_boundary(content, end)
         } else {
             end
         };
@@ -72,8 +70,8 @@ pub fn chunk_document(
         start += step;
 
         // Avoid creating tiny trailing chunks
-        if start + (chunk_chars / 4) >= content_len && start < content_len {
-            // Include remaining content in the last chunk if it's small
+        // If we have less than 1/8th of a chunk left, include it in the last one
+        if start + (chunk_chars / 8) >= content_len && start < content_len {
             break;
         }
     }
@@ -201,11 +199,7 @@ pub fn chunk_code(
 ///
 /// # Returns
 /// A vector of `Chunk` with appropriate types based on file extension
-pub fn chunk_file(
-    content: &str,
-    source_path: &str,
-    config: &ChunkingConfig,
-) -> Result<Vec<Chunk>> {
+pub fn chunk_file(content: &str, source_path: &str, config: &ChunkingConfig) -> Result<Vec<Chunk>> {
     let ext = Path::new(source_path)
         .extension()
         .and_then(|e| e.to_str())
@@ -227,27 +221,54 @@ pub fn chunk_file(
 // ============================================================================
 
 /// Find the nearest word boundary at or before the given position.
-fn find_word_boundary(content: &str, pos: usize) -> usize {
+/// Find the best semantic boundary at or before the given position.
+///
+/// Preference order:
+/// 1. Paragraph (double newline)
+/// 2. Code block boundaries or significant list items (newline)
+/// 3. Sentence boundaries (. ! ?)
+/// 4. Word boundaries (whitespace)
+fn find_best_boundary(content: &str, pos: usize) -> usize {
     if pos >= content.len() {
         return content.len();
     }
 
-    // Search backwards for whitespace
-    let search_start = pos.saturating_sub(50);
+    // Context look-back window size
+    let window = 120;
+    let search_start = pos.saturating_sub(window);
+    let search_area = &content[search_start..=pos];
+
+    // 1. Try paragraph boundary (\n\n)
+    if let Some(offset) = search_area.rfind("\n\n") {
+        return search_start + offset + 2;
+    }
+
+    // 2. Try single newline (at least preserves line context)
+    if let Some(offset) = search_area.rfind('\n') {
+        return search_start + offset + 1;
+    }
+
+    // 3. Try sentence endings (heuristic: punctuation followed by space)
+    for punc in [". ", "! ", "? "] {
+        if let Some(offset) = search_area.rfind(punc) {
+            return search_start + offset + 2;
+        }
+    }
+
+    // 4. Fallback to word boundary (space/tab)
     for i in (search_start..=pos).rev() {
         if content.is_char_boundary(i) {
             let c = content[i..].chars().next();
-            if matches!(c, Some(' ') | Some('\n') | Some('\t') | Some('\r')) {
+            if matches!(c, Some(' ') | Some('\t') | Some('\r')) {
                 return i + 1;
             }
         }
     }
 
-    // No good boundary found, use the original position if it's a char boundary
+    // 5. Hard fallback: ensure we are at a valid character boundary
     if content.is_char_boundary(pos) {
         pos
     } else {
-        // Find the next valid char boundary
         (pos..content.len())
             .find(|&i| content.is_char_boundary(i))
             .unwrap_or(content.len())
@@ -309,8 +330,14 @@ fn find_code_boundaries(content: &str, language: &str) -> Vec<CodeBoundary> {
             (r"(?m)^function\s+", "function"),
             (r"(?m)^async\s+function\s+", "function"),
             (r"(?m)^(export\s+)?(default\s+)?class\s+", "class"),
-            (r"(?m)^(export\s+)?(const|let|var)\s+\w+\s*=\s*(async\s+)?\(", "function"),
-            (r"(?m)^(export\s+)?(const|let|var)\s+\w+\s*=\s*(async\s+)?function", "function"),
+            (
+                r"(?m)^(export\s+)?(const|let|var)\s+\w+\s*=\s*(async\s+)?\(",
+                "function",
+            ),
+            (
+                r"(?m)^(export\s+)?(const|let|var)\s+\w+\s*=\s*(async\s+)?function",
+                "function",
+            ),
         ],
         "go" => vec![
             (r"(?m)^func\s+", "function"),
@@ -318,8 +345,14 @@ fn find_code_boundaries(content: &str, language: &str) -> Vec<CodeBoundary> {
             (r"(?m)^type\s+\w+\s+interface\s*\{", "interface"),
         ],
         "java" | "kt" | "scala" => vec![
-            (r"(?m)^\s*(public|private|protected)?\s*(static\s+)?(void|int|String|boolean|\w+)\s+\w+\s*\(", "method"),
-            (r"(?m)^(public\s+)?(abstract\s+)?(class|interface|enum)\s+", "class"),
+            (
+                r"(?m)^\s*(public|private|protected)?\s*(static\s+)?(void|int|String|boolean|\w+)\s+\w+\s*\(",
+                "method",
+            ),
+            (
+                r"(?m)^(public\s+)?(abstract\s+)?(class|interface|enum)\s+",
+                "class",
+            ),
         ],
         "rb" => vec![
             (r"(?m)^def\s+", "method"),
@@ -327,7 +360,10 @@ fn find_code_boundaries(content: &str, language: &str) -> Vec<CodeBoundary> {
             (r"(?m)^module\s+", "module"),
         ],
         "php" => vec![
-            (r"(?m)^(public|private|protected)?\s*(static\s+)?function\s+", "function"),
+            (
+                r"(?m)^(public|private|protected)?\s*(static\s+)?function\s+",
+                "function",
+            ),
             (r"(?m)^(abstract\s+)?class\s+", "class"),
             (r"(?m)^interface\s+", "interface"),
             (r"(?m)^trait\s+", "trait"),
@@ -503,15 +539,15 @@ fn merge_small_chunks(chunks: Vec<Chunk>, target_size: usize) -> Vec<Chunk> {
                             semantic_type: s2,
                         },
                     ) => l1 == l2 && s1 == s2,
-                    (
-                        ChunkType::Document { format: f1 },
-                        ChunkType::Document { format: f2 },
-                    ) => f1 == f2,
+                    (ChunkType::Document { format: f1 }, ChunkType::Document { format: f2 }) => {
+                        f1 == f2
+                    }
                     _ => false,
                 };
 
                 let combined_size = acc.content.len() + chunk.content.len();
-                let both_small = acc.content.len() < target_size && chunk.content.len() < target_size;
+                let both_small =
+                    acc.content.len() < target_size && chunk.content.len() < target_size;
 
                 if same_type && both_small && combined_size <= target_size * 2 {
                     // Merge chunks
@@ -527,7 +563,9 @@ fn merge_small_chunks(chunks: Vec<Chunk>, target_size: usize) -> Vec<Chunk> {
                     acc.content_hash = adapteros_core::B3Hash::hash(acc.content.as_bytes());
                 } else {
                     // Push accumulated chunk and start new accumulation
-                    merged.push(accumulator.take().unwrap());
+                    if let Some(acc) = accumulator.take() {
+                        merged.push(acc);
+                    }
                     accumulator = Some(chunk);
                 }
             }
@@ -619,7 +657,10 @@ pub struct MyStruct {
         assert!(!chunks.is_empty());
         for chunk in &chunks {
             match &chunk.chunk_type {
-                ChunkType::Code { language, semantic_type } => {
+                ChunkType::Code {
+                    language,
+                    semantic_type,
+                } => {
                     assert_eq!(language, "rs");
                     // Should detect functions and structs
                     assert!(
@@ -691,7 +732,10 @@ class Person:
 
         assert_eq!(chunks1.len(), chunks2.len());
         for (c1, c2) in chunks1.iter().zip(chunks2.iter()) {
-            assert_eq!(c1.chunk_id, c2.chunk_id, "Chunk IDs should be deterministic");
+            assert_eq!(
+                c1.chunk_id, c2.chunk_id,
+                "Chunk IDs should be deterministic"
+            );
             assert_eq!(
                 c1.content_hash, c2.content_hash,
                 "Content hashes should be deterministic"
@@ -724,13 +768,28 @@ class Person:
     }
 
     #[test]
-    fn test_word_boundary_detection() {
-        let content = "hello world this is a test";
+    fn test_semantic_boundary_detection() {
+        let content = "Paragraph 1.\n\nParagraph 2 consists of multiple sentences. Here is the second sentence.";
 
-        // Should find word boundary
-        let boundary = find_word_boundary(content, 8);
-        assert!(boundary <= 8);
-        assert!(content.is_char_boundary(boundary));
+        // Should prefer paragraph boundary (\n\n)
+        let boundary = find_best_boundary(content, 20);
+        assert_eq!(
+            &content[..boundary],
+            "Paragraph 1.\n\n",
+            "Expected paragraph boundary preference"
+        );
+
+        // Should prefer sentence boundary (. )
+        let boundary = find_best_boundary(content, 70);
+        assert!(
+            content[..boundary].ends_with(". "),
+            "Expected sentence boundary preference"
+        );
+
+        // Word boundary fallback
+        let simple_content = "hello world";
+        let boundary = find_best_boundary(simple_content, 8);
+        assert_eq!(boundary, 6, "Expected word boundary fallback");
     }
 
     #[test]

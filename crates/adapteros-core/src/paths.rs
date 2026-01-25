@@ -92,7 +92,8 @@ impl AdapterPaths {
         let adapters_root = std::env::var(AOS_ADAPTERS_ROOT_ENV)
             .or_else(|_| std::env::var(AOS_ADAPTERS_DIR_ENV))
             .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from(DEFAULT_ADAPTERS_DIR));
+            .map(crate::path_utils::rebase_var_path)
+            .unwrap_or_else(|_| crate::path_utils::rebase_var_path(DEFAULT_ADAPTERS_DIR));
 
         Self { adapters_root }
     }
@@ -106,14 +107,14 @@ impl AdapterPaths {
     pub fn from_config(config_value: Option<&str>) -> Self {
         // Check ENV first (highest priority)
         if let Ok(env_path) = std::env::var(AOS_ADAPTERS_ROOT_ENV) {
-            return Self::new(env_path);
+            return Self::new(crate::path_utils::rebase_var_path(env_path));
         }
         if let Ok(env_path) = std::env::var(AOS_ADAPTERS_DIR_ENV) {
-            return Self::new(env_path);
+            return Self::new(crate::path_utils::rebase_var_path(env_path));
         }
         // Fall back to config if provided
         if let Some(path) = config_value {
-            return Self::new(path);
+            return Self::new(crate::path_utils::rebase_var_path(path));
         }
         // Default fallback
         Self::from_env()
@@ -197,7 +198,8 @@ pub fn get_default_adapters_root() -> PathBuf {
     std::env::var(AOS_ADAPTERS_ROOT_ENV)
         .or_else(|_| std::env::var(AOS_ADAPTERS_DIR_ENV))
         .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from(DEFAULT_ADAPTERS_DIR))
+        .map(crate::path_utils::rebase_var_path)
+        .unwrap_or_else(|_| crate::path_utils::rebase_var_path(DEFAULT_ADAPTERS_DIR))
 }
 
 /// Get the full path for an adapter using default configuration
@@ -309,7 +311,7 @@ mod tests {
         std::env::remove_var(AOS_ADAPTERS_ROOT_ENV);
         std::env::remove_var(AOS_ADAPTERS_DIR_ENV);
         let paths = AdapterPaths::from_config(None);
-        assert_eq!(paths.root(), PathBuf::from(DEFAULT_ADAPTERS_DIR));
+        assert_eq!(paths.root(), crate::path_utils::rebase_var_path(DEFAULT_ADAPTERS_DIR));
     }
 
     #[test]
@@ -329,7 +331,7 @@ mod tests {
         std::env::remove_var(AOS_ADAPTERS_ROOT_ENV);
         std::env::remove_var(AOS_ADAPTERS_DIR_ENV);
         let root = get_default_adapters_root();
-        assert_eq!(root, PathBuf::from(DEFAULT_ADAPTERS_DIR));
+        assert_eq!(root, crate::path_utils::rebase_var_path(DEFAULT_ADAPTERS_DIR));
     }
 
     #[test]

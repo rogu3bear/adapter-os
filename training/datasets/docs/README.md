@@ -259,13 +259,13 @@ wc -l adapteros_identity/*.jsonl adapteros_qa/*.jsonl
 
 ## Integration with Document Ingestion Pipeline
 
-These datasets demonstrate the 5-step training pipeline from AGENTS.md:
+These datasets demonstrate the training pipeline used by the control plane:
 
-1. **Ingest** → `DocumentIngestor::ingest_markdown_path("AGENTS.md")`
-2. **Generate** → `generate_training_data(&doc, &tokenizer, &config)`
+1. **Ingest** → `DocumentIngestor::{ingest_markdown_path, ingest_pdf_path}()`
+2. **Chunk + Save** → document chunks saved as JSONL rows `{ "text": "..." }`
 3. **Dataset** → `TrainingDatasetManager::create_dataset_from_documents()`
-4. **Train** → `MicroLoRATrainer::train(examples, adapter_id)`
-5. **Package** → `AdapterPackager::package(weights, manifest)` → `.aos`
+4. **Train** → orchestrator `TrainingPipeline` phases (dataset_build → preprocess → split → training_loop → validation_early_stopping)
+5. **Package** → `package_and_register_adapter()` → `.aos`
 
 ---
 
@@ -273,7 +273,7 @@ These datasets demonstrate the 5-step training pipeline from AGENTS.md:
 
 - **Document Ingestion:** `crates/adapteros-ingest-docs/src/lib.rs`
 - **Training Generation:** `crates/adapteros-ingest-docs/src/training_gen.rs`
-- **Dataset Manager:** `crates/adapteros-orchestrator/training_dataset_integration.rs`
+- **Dataset Manager:** `crates/adapteros-orchestrator/src/training_dataset_integration.rs`
 - **Trainer:** `crates/adapteros-lora-worker/training/`
 - **Developer Guide:** `AGENTS.md` (source document)
 

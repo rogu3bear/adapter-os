@@ -13,8 +13,8 @@
 
 use crate::commands::log_digest::{LogDigest, LogEntry, LogLevel};
 use crate::output::OutputWriter;
-use adapteros_core::{AosError, Result};
-use clap::Args;
+use adapteros_core::{rebase_var_path, AosError, Result};
+use clap::{Args, Subcommand};
 use comfy_table::{presets::UTF8_FULL, Cell, Table};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -210,8 +210,9 @@ pub struct IssueCount {
 /// Run the log triage command
 pub async fn run(args: LogTriageArgs, output: &OutputWriter) -> Result<()> {
     // First, run log digest to get entries
+    let log_dir = rebase_var_path(&args.log_dir);
     let digest_args = super::log_digest::LogDigestArgs {
-        log_dir: args.log_dir.clone(),
+        log_dir,
         since: args.since.clone(),
         max_entries: args.max_entries,
         include_info: false, // Triage focuses on WARN/ERROR
@@ -244,7 +245,7 @@ async fn run_digest_internal(args: &super::log_digest::LogDigestArgs) -> Result<
     use std::fs::{self, File};
     use std::io::{BufRead, BufReader};
 
-    let log_dir = &args.log_dir;
+    let log_dir = rebase_var_path(&args.log_dir);
 
     if !log_dir.exists() {
         return Err(AosError::Io(format!(
@@ -265,7 +266,7 @@ async fn run_digest_internal(args: &super::log_digest::LogDigestArgs) -> Result<
     };
 
     // Collect log files
-    let log_files = collect_log_files_simple(log_dir)?;
+    let log_files = collect_log_files_simple(&log_dir)?;
 
     if log_files.is_empty() {
         return Ok(LogDigest {
@@ -435,7 +436,7 @@ fn try_parse_json(line: &str, source_file: &str, line_number: usize) -> Option<L
     let level = json
         .get("level")
         .and_then(|v| v.as_str())
-        .map(LogLevel::from_str)
+        .map(LogLevel::parse)
         .unwrap_or(LogLevel::Unknown);
 
     let message = json
@@ -778,7 +779,7 @@ fn triage_entries(digest: &LogDigest, rules: &[TriageRule]) -> TriageResult {
         *by_category.entry(category.name().to_string()).or_insert(0) += 1;
         *by_severity.entry(severity.name().to_string()).or_insert(0) += 1;
 
-        if let Some(ref r) = rule {
+        if let Some(r) = rule {
             *rule_counts.entry(r.id.clone()).or_insert(0) += 1;
             if !matched_rules.contains(&r.id) {
                 matched_rules.push(r.id.clone());
@@ -902,7 +903,7 @@ fn render_triage_text(result: &TriageResult, detailed: bool, output: &OutputWrit
             table.add_row(vec![
                 Cell::new(&issue.rule_name),
                 Cell::new(&issue.category),
-                Cell::new(&issue.count.to_string()),
+                Cell::new(issue.count),
                 Cell::new(&hint),
             ]);
         }
@@ -918,7 +919,7 @@ fn render_triage_text(result: &TriageResult, detailed: bool, output: &OutputWrit
                 if let Some(rule) = default_rules().iter().find(|r| r.id == issue.rule_id) {
                     output.kv(&rule.name, "");
                     for step in &rule.detailed_steps {
-                        output.print(&format!("  - {}", step));
+                        output.print(format!("  - {}", step));
                     }
                     output.blank();
                 }

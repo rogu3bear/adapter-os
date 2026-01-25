@@ -1,0 +1,126 @@
+{
+  "schema": "adapteros.manifest.v3",
+  "base": {
+    "model_id": "Mistral-7B-Instruct-v0.3-4bit-MLX",
+    "model_hash": "4de1643ef5ee7e48552a6f1d7f7a4acb412b183e908d21f356ce5d5fe96c532b",
+    "arch": "mistral",
+    "vocab_size": 32768,
+    "hidden_dim": 4096,
+    "n_layers": 32,
+    "n_heads": 32,
+    "routing_bias": 1.0,
+    "config_hash": "83bfafafae11c2e59b523520eaf33937b3b56300c5eca3c0c11b9f8224fd815b",
+    "tokenizer_hash": "d635275f37a20dc55a8dc4996c7a0c51f92113b584e517bca3fcd03af021bbed",
+    "tokenizer_cfg_hash": "bf42f0df3b033c3aa4479c449a753895a60a0d37f3634eecad5edb4363d7b4ea",
+    "license_hash": null,
+    "rope_scaling_override": null
+  },
+  "adapters": [],
+  "router": {
+    "k_sparse": 1,
+    "gate_quant": "q15",
+    "entropy_floor": 0.02,
+    "tau": 1.0,
+    "sample_tokens_full": 128,
+    "warmup": false,
+    "algorithm": "weighted",
+    "safe_mode": false,
+    "orthogonal_penalty": 0.1,
+    "shared_downsample": false,
+    "compression_ratio": 0.8,
+    "multi_path_enabled": false,
+    "diversity_threshold": 0.05,
+    "orthogonal_constraints": false
+  },
+  "telemetry": {
+    "schema_hash": "083ae5b5637881dfb4be2be4b1d227470a285221684cf0629ad94b3c22eddc0d",
+    "sampling": {
+      "token": 0.05,
+      "router": 1.0,
+      "inference": 1.0
+    },
+    "router_full_tokens": 128,
+    "bundle": {
+      "max_events": 500000,
+      "max_bytes": 268435456
+    }
+  },
+  "policies": {
+    "egress": {
+      "mode": "deny_all",
+      "serve_requires_pf": true,
+      "allow_tcp": false,
+      "allow_udp": false,
+      "uds_paths": ["./var/run/aos/<tenant>/*.sock"]
+    },
+    "determinism": {
+      "require_metallib_embed": true,
+      "require_kernel_hash_match": true,
+      "rng": "hkdf_seeded",
+      "retrieval_tie_break": ["score_desc", "doc_id_asc"]
+    },
+    "evidence": {
+      "require_open_book": true,
+      "min_spans": 1,
+      "prefer_latest_revision": true,
+      "warn_on_superseded": true
+    },
+    "refusal": {
+      "abstain_threshold": 0.55,
+      "missing_fields_templates": {}
+    },
+    "numeric": {
+      "canonical_units": {
+        "pressure": "psi",
+        "torque": "in_lbf"
+      },
+      "max_rounding_error": 0.5,
+      "require_units_in_trace": true
+    },
+    "rag": {
+      "index_scope": "per_tenant",
+      "doc_tags_required": ["doc_id", "rev", "effectivity", "source_type"],
+      "embedding_model_hash": "b3692bc6fa8359b74ac31380e81b2e44950502bae9937cc3f78b35c6a771fffc",
+      "topk": 5,
+      "order": ["score_desc", "doc_id_asc"]
+    },
+    "isolation": {
+      "process_model": "per_tenant",
+      "uds_root": "./var/run/aos/<tenant>",
+      "forbid_shm": true
+    },
+    "performance": {
+      "latency_p95_ms": 24,
+      "router_overhead_pct_max": 8,
+      "throughput_tokens_per_s_min": 40,
+      "max_tokens": 1000,
+      "cpu_threshold_pct": 90.0,
+      "memory_threshold_pct": 95.0,
+      "circuit_breaker_threshold": 5
+    },
+    "memory": {
+      "min_headroom_pct": 15,
+      "evict_order": ["ephemeral_ttl", "cold_lru", "warm_lru"],
+      "k_reduce_before_evict": true
+    },
+    "artifacts": {
+      "require_signature": true,
+      "require_sbom": true,
+      "cas_only": true
+    },
+    "drift": {
+      "os_build_tolerance": 0,
+      "gpu_driver_tolerance": 0,
+      "env_hash_tolerance": 0,
+      "allow_warnings": true,
+      "block_on_critical": true
+    }
+  },
+  "seeds": {
+    "global": "b3692bc6fa8359b74ac31380e81b2e44950502bae9937cc3f78b35c6a771fffc",
+    "manifest_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+    "parent_cpid": null
+  },
+  "coreml": null,
+  "fusion": null
+}

@@ -12,7 +12,7 @@
 
 use adapteros_boot::{ensure_runtime_dir, EXIT_CONFIG_ERROR};
 use adapteros_config::{path_resolver::PathSource, resolve_base_model_location};
-use adapteros_core::time;
+use adapteros_core::{resolve_var_dir, time};
 use adapteros_server_api::boot_state::BootStateManager;
 use adapteros_server_api::config::Config;
 use anyhow::Result;
@@ -71,7 +71,7 @@ pub async fn initialize_config(cli: &Cli) -> Result<ConfigContext> {
     boot_state.start_phase("config_load");
 
     // Ensure runtime directory is writable before any other boot steps
-    let preferred_var_dir = std::env::var("AOS_VAR_DIR").unwrap_or_else(|_| "./var".to_string());
+    let preferred_var_dir = resolve_var_dir();
     let runtime_dir = match ensure_runtime_dir(&preferred_var_dir, None) {
         Ok(dir) => dir,
         Err(e) => {
@@ -84,7 +84,7 @@ pub async fn initialize_config(cli: &Cli) -> Result<ConfigContext> {
     if runtime_dir.used_fallback {
         eprintln!(
             "WARNING: {} is not writable; using ephemeral runtime dir at {}",
-            preferred_var_dir,
+            preferred_var_dir.display(),
             runtime_dir.path.display()
         );
     }
@@ -189,19 +189,16 @@ pub async fn initialize_config(cli: &Cli) -> Result<ConfigContext> {
         Option<tracing_appender::non_blocking::WorkerGuard>,
         Option<otel::OtelGuard>,
     ) = {
-        let cfg = server_config
-            .read()
-            .map_err(|e| {
-                eprintln!("FATAL: Config lock poisoned: {}", e);
-                std::process::exit(1);
-            })
-            .unwrap();
+        let cfg = server_config.read().unwrap_or_else(|e| {
+            eprintln!("FATAL: Config lock poisoned: {}", e);
+            std::process::exit(1);
+        });
 
         logging::init_logging(&cfg.logging, &cfg.otel)
             .map_err(|e| anyhow::anyhow!("Failed to initialize logging: {}", e))?
     };
     info!(
-        aos_var_dir = %preferred_var_dir,
+        aos_var_dir = %preferred_var_dir.display(),
         effective_var_base = %effective_var_base.display(),
         "Runtime var base resolved"
     );

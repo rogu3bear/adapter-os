@@ -166,9 +166,11 @@ impl FromStr for BackendKind {
         let kind = match normalized.as_str() {
             "auto" | "autodev" | "default" => BackendKind::Auto,
             "coreml" | "ane" => BackendKind::CoreML,
-            "mlx" | "mlxffi" => BackendKind::Mlx,
+            // "native" is the normalized_id() for MLX variants (used in responses)
+            "mlx" | "mlxffi" | "native" => BackendKind::Mlx,
             "mlxbridge" | "subprocess" => BackendKind::MlxBridge,
-            "metal" => BackendKind::Metal,
+            // "accelerated" is the normalized_id() for CoreML/Metal (used in responses)
+            "metal" | "accelerated" => BackendKind::Metal,
             "cpu" | "cpuonly" => BackendKind::CPU,
             other => {
                 // Handle descriptive backend names like "MLX FFI (Apple Silicon)"

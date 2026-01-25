@@ -263,8 +263,8 @@ pub fn write_boot_report(
 }
 
 fn resolve_boot_report_path() -> Result<PathBuf> {
-    let var_base = std::env::var("AOS_VAR_DIR").unwrap_or_else(|_| "var".to_string());
-    let report_dir = PathBuf::from(&var_base).join("run");
+    let var_base = adapteros_core::resolve_var_dir();
+    let report_dir = var_base.join("run");
     let report_path = report_dir.join("boot_report.json");
 
     enforce_no_default_var_write(&report_path)?;
@@ -277,12 +277,40 @@ fn enforce_no_default_var_write(report_path: &Path) -> Result<()> {
         return Ok(());
     };
     let trimmed = env_val.trim();
-    if trimmed.is_empty() || trimmed == "var" || trimmed == "./var" {
+    if trimmed.is_empty() {
         return Ok(());
     }
 
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let default_var = cwd.join("var");
+
+    // Resolve the configured var dir path
+    let configured_var = if PathBuf::from(trimmed).is_absolute() {
+        PathBuf::from(trimmed)
+    } else {
+        cwd.join(trimmed)
+    };
+
+    // If the configured var dir resolves to the same location as default var/,
+    // treat it as if AOS_VAR_DIR wasn't set (backward compatibility)
+    if let (Ok(canonical_default), Ok(canonical_configured)) = (
+        default_var
+            .canonicalize()
+            .or_else(|_| Ok::<_, std::io::Error>(default_var.clone())),
+        configured_var
+            .canonicalize()
+            .or_else(|_| Ok::<_, std::io::Error>(configured_var.clone())),
+    ) {
+        if canonical_default == canonical_configured {
+            return Ok(());
+        }
+    }
+
+    // Also check string-based defaults for cases where paths don't exist yet
+    if trimmed == "var" || trimmed == "./var" {
+        return Ok(());
+    }
+
     let resolved = if report_path.is_absolute() {
         report_path.to_path_buf()
     } else {

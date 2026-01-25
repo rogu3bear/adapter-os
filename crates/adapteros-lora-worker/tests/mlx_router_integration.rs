@@ -631,6 +631,8 @@ mod e2e_mlx_tests {
             input_ids: vec![1, 2, 3],
             output_logits: vec![0.0; 32000], // Standard vocab size
             position: 0,
+            attention_entropy: None,
+            activations: None,
         };
 
         // Execute inference
@@ -669,6 +671,8 @@ mod e2e_mlx_tests {
             input_ids: vec![42, 100, 200],
             output_logits: vec![0.0; 32000],
             position: 0,
+            attention_entropy: None,
+            activations: None,
         };
 
         let result = backend.run_step(&ring, &mut io);
@@ -700,11 +704,15 @@ mod e2e_mlx_tests {
             input_ids: vec![1, 2, 3, 4, 5],
             output_logits: vec![0.0; 32000],
             position: 0,
+            attention_entropy: None,
+            activations: None,
         };
         let mut io2 = IoBuffers {
             input_ids: vec![1, 2, 3, 4, 5],
             output_logits: vec![0.0; 32000],
             position: 0,
+            attention_entropy: None,
+            activations: None,
         };
 
         // Run inference on both
@@ -770,6 +778,8 @@ mod e2e_mlx_tests {
             input_ids: vec![1, 2, 3],
             output_logits: vec![0.0; 32000],
             position: 0,
+            attention_entropy: None,
+            activations: None,
         };
 
         // Should succeed with base model output only
@@ -794,6 +804,8 @@ mod e2e_mlx_tests {
             input_ids: vec![1, 2, 3],
             output_logits: vec![0.0; 32000],
             position: 0,
+            attention_entropy: None,
+            activations: None,
         };
 
         // Should succeed but only use adapter 0
@@ -833,6 +845,8 @@ mod e2e_mlx_tests {
                 input_ids: vec![42],
                 output_logits: vec![0.0; 32000],
                 position: 0,
+                attention_entropy: None,
+                activations: None,
             };
             backend.run_step(ring, &mut io).unwrap();
             results.push(io.output_logits[0]); // Just track first logit
@@ -860,6 +874,8 @@ mod e2e_mlx_tests {
             input_ids: vec![1, 2, 3],
             output_logits: vec![0.0; 32000],
             position: 0,
+            attention_entropy: None,
+            activations: None,
         };
         backend.run_step(&ring, &mut io1).unwrap();
         let first_result = io1.output_logits[0];
@@ -874,6 +890,8 @@ mod e2e_mlx_tests {
             input_ids: vec![1, 2, 3],
             output_logits: vec![0.0; 32000],
             position: 0,
+            attention_entropy: None,
+            activations: None,
         };
         backend.run_step(&ring, &mut io2).unwrap();
         let second_result = io2.output_logits[0];
@@ -922,6 +940,8 @@ mod e2e_mlx_tests {
             input_ids: vec![1, 2, 3],
             output_logits: vec![0.0; 32000],
             position: 0,
+            attention_entropy: None,
+            activations: None,
         };
         backend.run_step(&ring, &mut io).unwrap();
     }
@@ -948,6 +968,8 @@ mod e2e_mlx_tests {
             input_ids: vec![1, 2, 3],
             output_logits: vec![0.0; 32000],
             position: 0,
+            attention_entropy: None,
+            activations: None,
         };
 
         // Should succeed - negative gate adapter is skipped internally
@@ -974,6 +996,8 @@ mod e2e_mlx_tests {
             input_ids: vec![1],
             output_logits: vec![0.0; 32000],
             position: 0,
+            attention_entropy: None,
+            activations: None,
         };
 
         // Run 5 sequential inference steps

@@ -61,6 +61,8 @@ mod resilience_tests {
             input_ids: vec![1, 2, 3, 4, 5],
             output_logits: vec![0.0; 32000],
             position: 0,
+            attention_entropy: None,
+            activations: None,
         }
     }
 

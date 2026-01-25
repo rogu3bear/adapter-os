@@ -274,6 +274,7 @@ fn generate_tokens_once(seed: &[u8]) -> Result<Vec<u32>, String> {
             &mut kernels,
             &mut router,
             &adapter_info,
+            &vec![0.0; 22],
             initial_tokens,
             6,
             vocab_size,

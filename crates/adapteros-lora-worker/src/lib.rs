@@ -3951,7 +3951,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             let mut io_buffers = IoBuffers {
                 input_ids: input_ids_slice.to_vec(),
                 output_logits: vec![0.0; self.manifest.base.vocab_size as usize],
-                position: step_with_free,
+                position: step_with_free, attention_entropy: None, activations: None,
             };
 
             if let Some(ref mut placement) = placement_state {
@@ -4360,18 +4360,26 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         if let Some(profile) = request.backend_profile {
             let expected = profile.as_str();
             let backend_used_normalized = backend_used.to_lowercase();
+            // Backend profile matching must account for normalized_id() mapping:
+            // - mlx, mlxbridge → "native"
+            // - coreml, metal → "accelerated"
+            // - cpu → "cpu"
             let backend_matches = if expected == "cpu" {
                 backend_used_normalized == expected || backend_used_normalized.contains("mock")
+            } else if expected == "mlx" || expected == "mlxbridge" {
+                // MLX variants normalize to "native"
+                backend_used_normalized == "native"
+                    || backend_used_normalized == expected
+                    || backend_used_normalized.starts_with(expected)
+            } else if expected == "coreml" || expected == "metal" {
+                // CoreML and Metal normalize to "accelerated"
+                backend_used_normalized == "accelerated"
+                    || backend_used_normalized == expected
+                    || backend_used_normalized.starts_with(expected)
             } else {
                 // Allow match if backend name equals or starts with expected profile
-                // (e.g., "mlx ffi (apple silicon)" matches "mlx"). For Metal, device
-                // names are vendor-specific; treat any non-mlx/coreml/cpu label as Metal.
                 backend_used_normalized == expected
                     || backend_used_normalized.starts_with(expected)
-                    || (expected == "metal"
-                        && !backend_used_normalized.contains("mlx")
-                        && !backend_used_normalized.contains("coreml")
-                        && !backend_used_normalized.contains("cpu"))
             };
             if !backend_matches {
                 emit_observability_event(&determinism_violation_event(

@@ -120,7 +120,7 @@ impl EmbeddingLoraAdapter {
                         // Deterministic pseudo-random initialization
                         // This creates a reproducible pattern based on indices
                         let idx = i * rank + j;
-                        let val = ((idx as f32 * 0.618033988749895) % 1.0 - 0.5) * 2.0;
+                        let val = ((idx as f32 * 0.618) % 1.0 - 0.5) * 2.0;
                         val * scale
                     })
                     .collect()
@@ -147,20 +147,12 @@ impl EmbeddingLoraAdapter {
         lora_b: Vec<Vec<f32>>,
     ) -> Self {
         assert!(input_dim > 0, "input_dim must be positive");
-        assert_eq!(
-            lora_a.len(),
-            input_dim,
-            "lora_a rows must match input_dim"
-        );
+        assert_eq!(lora_a.len(), input_dim, "lora_a rows must match input_dim");
         assert!(
             lora_a.iter().all(|row| row.len() == config.rank),
             "lora_a cols must match rank"
         );
-        assert_eq!(
-            lora_b.len(),
-            config.rank,
-            "lora_b rows must match rank"
-        );
+        assert_eq!(lora_b.len(), config.rank, "lora_b rows must match rank");
         assert!(
             lora_b.iter().all(|row| row.len() == input_dim),
             "lora_b cols must match input_dim"
@@ -194,17 +186,18 @@ impl EmbeddingLoraAdapter {
 
         // Step 1: input @ A (input_dim -> rank)
         let mut tmp = vec![0.0; rank];
-        for j in 0..rank {
-            for i in 0..self.input_dim {
-                tmp[j] += input[i] * self.lora_a[i][j];
+        for (i, row) in self.lora_a.iter().enumerate() {
+            let input_val = input[i];
+            for (j, &val) in row.iter().enumerate() {
+                tmp[j] += input_val * val;
             }
         }
 
         // Step 2: tmp @ B (rank -> input_dim)
         let mut lora_out = vec![0.0; self.input_dim];
-        for j in 0..self.input_dim {
-            for i in 0..rank {
-                lora_out[j] += tmp[i] * self.lora_b[i][j];
+        for (j, out_val) in lora_out.iter_mut().enumerate() {
+            for (i, &tmp_val) in tmp.iter().enumerate() {
+                *out_val += tmp_val * self.lora_b[i][j];
             }
         }
 
@@ -618,7 +611,7 @@ mod tests {
     fn test_with_weights_lora_a_wrong_cols() {
         let config = EmbeddingLoraConfig::new(2, 4.0);
         let lora_a = vec![
-            vec![1.0],     // Only 1 col, but rank is 2
+            vec![1.0], // Only 1 col, but rank is 2
             vec![0.0],
             vec![1.0],
         ];
@@ -630,11 +623,7 @@ mod tests {
     #[should_panic(expected = "lora_b rows must match rank")]
     fn test_with_weights_lora_b_wrong_rows() {
         let config = EmbeddingLoraConfig::new(2, 4.0);
-        let lora_a = vec![
-            vec![1.0, 0.0],
-            vec![0.0, 1.0],
-            vec![1.0, 1.0],
-        ];
+        let lora_a = vec![vec![1.0, 0.0], vec![0.0, 1.0], vec![1.0, 1.0]];
         let lora_b = vec![vec![1.0, 0.0, 0.0]]; // Only 1 row, but rank is 2
         EmbeddingLoraAdapter::with_weights(3, config, lora_a, lora_b);
     }
@@ -643,13 +632,9 @@ mod tests {
     #[should_panic(expected = "lora_b cols must match input_dim")]
     fn test_with_weights_lora_b_wrong_cols() {
         let config = EmbeddingLoraConfig::new(2, 4.0);
-        let lora_a = vec![
-            vec![1.0, 0.0],
-            vec![0.0, 1.0],
-            vec![1.0, 1.0],
-        ];
+        let lora_a = vec![vec![1.0, 0.0], vec![0.0, 1.0], vec![1.0, 1.0]];
         let lora_b = vec![
-            vec![1.0, 0.0],  // Only 2 cols, but input_dim is 3
+            vec![1.0, 0.0], // Only 2 cols, but input_dim is 3
             vec![0.0, 1.0],
         ];
         EmbeddingLoraAdapter::with_weights(3, config, lora_a, lora_b);

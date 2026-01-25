@@ -134,20 +134,7 @@ impl PlatformUtils {
     ///
     /// Respects `AOS_VAR_DIR` env var, defaults to `var/` relative to cwd.
     pub fn aos_var_dir() -> PathBuf {
-        let candidate = std::env::var("AOS_VAR_DIR")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from("var"));
-
-        if adapteros_core::is_forbidden_tmp_path(&candidate) {
-            tracing::warn!(
-                path = %candidate.display(),
-                env = %"AOS_VAR_DIR",
-                "Refusing to use forbidden temp directory for runtime state; falling back to default"
-            );
-            return PathBuf::from("var");
-        }
-
-        candidate
+        adapteros_core::resolve_var_dir()
     }
 
     /// Get the model cache directory
@@ -157,6 +144,7 @@ impl PlatformUtils {
     pub fn aos_model_cache_dir() -> PathBuf {
         let candidate = std::env::var("AOS_MODEL_CACHE_DIR")
             .map(PathBuf::from)
+            .map(adapteros_core::rebase_var_path)
             .unwrap_or_else(|_| Self::aos_var_dir().join("model-cache"));
 
         if adapteros_core::is_forbidden_tmp_path(&candidate) {
@@ -190,6 +178,7 @@ impl PlatformUtils {
     pub fn aos_artifacts_dir() -> PathBuf {
         let candidate = std::env::var("AOS_ARTIFACTS_DIR")
             .map(PathBuf::from)
+            .map(adapteros_core::rebase_var_path)
             .unwrap_or_else(|_| Self::aos_var_dir().join("artifacts"));
 
         if adapteros_core::is_forbidden_tmp_path(&candidate) {
@@ -544,16 +533,17 @@ mod tests {
     fn test_aos_var_directories() {
         // Test var directory defaults (relative paths)
         let var_dir = PlatformUtils::aos_var_dir();
-        assert_eq!(var_dir, PathBuf::from("var"));
+        let expected_var = adapteros_core::resolve_var_dir();
+        assert_eq!(var_dir, expected_var);
 
         let model_cache_dir = PlatformUtils::aos_model_cache_dir();
-        assert_eq!(model_cache_dir, PathBuf::from("var/model-cache"));
+        assert_eq!(model_cache_dir, expected_var.join("model-cache"));
 
         let adapters_dir = PlatformUtils::aos_adapters_dir();
-        assert_eq!(adapters_dir, PathBuf::from("var/adapters/repo"));
+        assert_eq!(adapters_dir, expected_var.join("adapters/repo"));
 
         let artifacts_dir = PlatformUtils::aos_artifacts_dir();
-        assert_eq!(artifacts_dir, PathBuf::from("var/artifacts"));
+        assert_eq!(artifacts_dir, expected_var.join("artifacts"));
     }
 
     #[test]

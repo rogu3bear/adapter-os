@@ -14,6 +14,7 @@
 use adapteros_config::{
     resolve_base_model_location, DEFAULT_BASE_MODEL_ID, DEFAULT_MODEL_CACHE_ROOT,
 };
+use adapteros_core::rebase_var_path;
 mod test_env;
 use std::path::PathBuf;
 use tempfile::TempDir;
@@ -55,7 +56,7 @@ fn test_default_model_path_resolution() {
 
     assert_eq!(
         result.cache_root,
-        PathBuf::from(DEFAULT_MODEL_CACHE_ROOT),
+        rebase_var_path(DEFAULT_MODEL_CACHE_ROOT),
         "Default cache root should be {}",
         DEFAULT_MODEL_CACHE_ROOT
     );
@@ -66,7 +67,7 @@ fn test_default_model_path_resolution() {
     );
     assert_eq!(
         result.full_path,
-        PathBuf::from(DEFAULT_MODEL_CACHE_ROOT).join(DEFAULT_BASE_MODEL_ID),
+        rebase_var_path(DEFAULT_MODEL_CACHE_ROOT).join(DEFAULT_BASE_MODEL_ID),
         "Full path should be cache_root/id"
     );
 }
@@ -216,7 +217,7 @@ fn test_env_var_only_model_id() {
 
     assert_eq!(
         result.cache_root,
-        PathBuf::from(DEFAULT_MODEL_CACHE_ROOT),
+        rebase_var_path(DEFAULT_MODEL_CACHE_ROOT),
         "Cache root should use default when not specified in env"
     );
     assert_eq!(
@@ -225,7 +226,7 @@ fn test_env_var_only_model_id() {
     );
     assert_eq!(
         result.full_path,
-        PathBuf::from(DEFAULT_MODEL_CACHE_ROOT).join("custom-model-id"),
+        rebase_var_path(DEFAULT_MODEL_CACHE_ROOT).join("custom-model-id"),
         "Full path should combine default cache_root with env ID"
     );
 }
@@ -339,7 +340,7 @@ fn test_precedence_order_all_sources() {
     let _guard2 = EnvGuard::new();
     let result3 = resolve_base_model_location(None, None, false).unwrap();
     assert_eq!(result3.id, DEFAULT_BASE_MODEL_ID);
-    assert_eq!(result3.cache_root, PathBuf::from(DEFAULT_MODEL_CACHE_ROOT));
+    assert_eq!(result3.cache_root, rebase_var_path(DEFAULT_MODEL_CACHE_ROOT));
 }
 
 #[test]
@@ -438,7 +439,7 @@ fn test_relative_and_absolute_cache_paths() {
     // Test relative path
     _guard.set(Some("./var/custom-cache"), Some("test-model"));
     let result1 = resolve_base_model_location(None, None, false).unwrap();
-    assert_eq!(result1.cache_root, PathBuf::from("./var/custom-cache"));
+    assert_eq!(result1.cache_root, rebase_var_path("./var/custom-cache"));
 
     drop(_guard);
 

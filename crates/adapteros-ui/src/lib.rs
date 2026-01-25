@@ -41,7 +41,10 @@ use leptos_router::path;
 
 use crate::api::ApiClient;
 use components::{AuthProvider, BootSequence, CommandPalette, ProtectedRoute, Shell};
-use signals::{provide_chat_context, provide_notifications_context, provide_search_context};
+use signals::{
+    provide_chat_context, provide_notifications_context, provide_refetch_context,
+    provide_search_context,
+};
 use std::sync::Arc;
 
 /// Pre-compiled regex patterns for sensitive data redaction.
@@ -171,8 +174,9 @@ pub fn App() -> impl IntoView {
                 <NotificationsProvider>
                     <SearchProvider>
                         <ChatProvider>
-                            <Router>
-                        <Routes fallback=|| view! { <pages::NotFound/> }>
+                            <RefetchProvider>
+                                <Router>
+                            <Routes fallback=|| view! { <pages::NotFound/> }>
                         <Route path=path!("/login") view=pages::Login/>
                         <Route path=path!("/") view=|| view! { <ProtectedRoute><Shell><pages::Dashboard/></Shell></ProtectedRoute> }/>
                         <Route path=path!("/dashboard") view=|| view! { <ProtectedRoute><Shell><pages::Dashboard/></Shell></ProtectedRoute> }/>
@@ -214,7 +218,8 @@ pub fn App() -> impl IntoView {
                     </Routes>
                             // Global Command Palette overlay
                             <CommandPalette/>
-                            </Router>
+                                </Router>
+                            </RefetchProvider>
                         </ChatProvider>
                     </SearchProvider>
                 </NotificationsProvider>
@@ -265,6 +270,12 @@ fn NotificationsProvider(children: Children) -> impl IntoView {
 fn SearchProvider(children: Children) -> impl IntoView {
     let client = Arc::new(ApiClient::new());
     provide_search_context(client);
+    children()
+}
+
+#[component]
+fn RefetchProvider(children: Children) -> impl IntoView {
+    provide_refetch_context();
     children()
 }
 

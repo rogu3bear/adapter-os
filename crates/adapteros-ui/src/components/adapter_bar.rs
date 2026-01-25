@@ -589,7 +589,7 @@ mod tests {
 
     #[test]
     fn test_deterministic_sort_by_confidence_desc() {
-        let mut adapters = vec![
+        let mut adapters: Vec<_> = [
             SuggestedAdapterView {
                 adapter_id: "low".to_string(),
                 confidence: 0.3,
@@ -614,7 +614,8 @@ mod tests {
                 description: None,
                 tags: None,
             },
-        ];
+        ]
+        .into();
 
         adapters.sort_by(sort_adapters_deterministic);
 
@@ -626,7 +627,7 @@ mod tests {
 
     #[test]
     fn test_deterministic_sort_tie_breaker_by_id_asc() {
-        let mut adapters = vec![
+        let mut adapters: Vec<_> = [
             SuggestedAdapterView {
                 adapter_id: "zebra".to_string(),
                 confidence: 0.5,
@@ -651,7 +652,8 @@ mod tests {
                 description: None,
                 tags: None,
             },
-        ];
+        ]
+        .into();
 
         adapters.sort_by(sort_adapters_deterministic);
 

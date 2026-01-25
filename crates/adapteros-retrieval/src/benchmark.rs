@@ -476,7 +476,7 @@ mod tests {
         let sorted: Vec<f64> = (1..=100).map(|x| x as f64).collect();
         // p99 of 1..100 should be close to 99
         let p99 = BenchmarkHarness::percentile(&sorted, 99.0);
-        assert!(p99 >= 98.0 && p99 <= 100.0);
+        assert!((98.0..=100.0).contains(&p99));
     }
 
     #[test]

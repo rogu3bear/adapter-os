@@ -1725,10 +1725,14 @@ mod tests {
         let auth_summary = summary
             .iter()
             .find(|(cat, _, _)| *cat == InvariantCategory::Authentication);
-        assert!(auth_summary.is_some());
-        let (_, count, fatal) = auth_summary.unwrap();
-        assert_eq!(*count, 2);
-        assert_eq!(*fatal, 1);
+        assert!(
+            auth_summary.is_some(),
+            "Auth category should be present in summary"
+        );
+        if let Some((_, count, fatal)) = auth_summary {
+            assert_eq!(*count, 2);
+            assert_eq!(*fatal, 1);
+        }
     }
 
     #[test]

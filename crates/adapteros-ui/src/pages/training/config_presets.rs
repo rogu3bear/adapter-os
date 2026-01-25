@@ -45,10 +45,10 @@ mod tests {
     }
 
     #[test]
-    fn test_preset_from_str_roundtrip() {
+    fn test_preset_parse_str_roundtrip() {
         for preset in [TrainingPreset::Identity, TrainingPreset::Qa, TrainingPreset::Custom] {
             let as_str = preset.as_str();
-            let back = TrainingPreset::from_str(as_str);
+            let back = TrainingPreset::parse_str(as_str);
             assert_eq!(preset, back, "Roundtrip failed for {:?}", preset);
         }
     }
@@ -116,7 +116,7 @@ impl TrainingPreset {
         }
     }
 
-    pub fn from_str(s: &str) -> Self {
+    pub fn parse_str(s: &str) -> Self {
         match s {
             "identity" => TrainingPreset::Identity,
             "qa" => TrainingPreset::Qa,
@@ -207,7 +207,7 @@ pub fn TrainingConfigPresets(
     sample_count: Option<usize>,
 ) -> impl IntoView {
     // Derive current preset from signal
-    let current_preset = Signal::derive(move || TrainingPreset::from_str(&preset.get()));
+    let current_preset = Signal::derive(move || TrainingPreset::parse_str(&preset.get()));
 
     // Apply preset when selection changes
     let apply_preset = move |new_preset: TrainingPreset| {

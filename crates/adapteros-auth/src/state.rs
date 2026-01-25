@@ -208,7 +208,6 @@ impl AuthState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::JwtConfig;
 
     #[test]
     fn test_auth_state_creation() {

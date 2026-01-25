@@ -965,6 +965,7 @@ impl InferencePipeline {
         let mut inspector =
             StreamInspector::new(initial_cluster, scorer, embedder, reasoning_config);
         let mut adapter_bias: Option<String> = None;
+        let mut last_kernel_entropy: Option<f32> = None;
         let mut rainbow_trace: Vec<Option<String>> = Vec::with_capacity(request.max_tokens);
         let mut reasoning_transitions: Vec<ThoughtTransition> = Vec::new();
 
@@ -992,7 +993,7 @@ impl InferencePipeline {
             let input_token_id = input_ids.last().copied();
 
             // 5. Router decision
-            let features = self.create_feature_vector(&current_tokens);
+            let features = self.create_feature_vector(&current_tokens, last_kernel_entropy);
             let mut priors = base_priors.clone();
             if let Some(ref target) = adapter_bias {
                 for (idx, info) in adapter_info.iter().enumerate() {
@@ -1123,6 +1124,8 @@ impl InferencePipeline {
                 input_ids: input_ids.to_vec(),
                 output_logits: vec![0.0; self.config.vocab_size],
                 position: current_tokens.len() - 1,
+                attention_entropy: None,
+                activations: None,
             };
             let mut router_ring = decision_to_router_ring(&decision, self.max_adapter_count)?;
             router_ring.position = step;
@@ -1133,6 +1136,7 @@ impl InferencePipeline {
 
             let kernel_start = Instant::now();
             self.kernels.run_step(&router_ring, &mut io_buffers)?;
+            last_kernel_entropy = io_buffers.attention_entropy;
             let kernel_latency = kernel_start.elapsed();
 
             self.budget_tracker
@@ -1483,6 +1487,7 @@ impl InferencePipeline {
             .unwrap_or("stay_on_current");
         let mut transition_count: usize = 0;
         let mut previous_decision: Option<adapteros_lora_router::Decision> = None;
+        let mut last_kernel_entropy: Option<f32> = None;
 
         // 4. Autoregressive generation loop
         for step in 0..request.max_tokens {
@@ -1501,7 +1506,7 @@ impl InferencePipeline {
 
             // 5. Router decision: select K adapters
             // Create feature vector from token embeddings (simplified for now)
-            let features = self.create_feature_vector(&current_tokens);
+            let features = self.create_feature_vector(&current_tokens, last_kernel_entropy);
 
             // Use configured adapters for routing (requires config.adapters to be set)
             if self.config.adapters.is_empty() {
@@ -1666,6 +1671,8 @@ impl InferencePipeline {
                 input_ids: input_ids.to_vec(),
                 output_logits: vec![0.0; self.config.vocab_size],
                 position: current_tokens.len() - 1,
+                attention_entropy: None,
+                activations: None,
             };
 
             // Convert router decision to RouterRing using explicit bridge (PRD-02)
@@ -1679,6 +1686,7 @@ impl InferencePipeline {
 
             let kernel_start = Instant::now();
             self.kernels.run_step(&router_ring, &mut io_buffers)?;
+            last_kernel_entropy = io_buffers.attention_entropy;
             let kernel_latency = kernel_start.elapsed();
 
             // Track kernel latency for p95 calculation
@@ -1870,7 +1878,7 @@ impl InferencePipeline {
     }
 
     /// Create feature vector for router from tokens
-    fn create_feature_vector(&self, tokens: &[u32]) -> Vec<f32> {
+    fn create_feature_vector(&self, tokens: &[u32], kernel_entropy: Option<f32>) -> Vec<f32> {
         // Simplified feature extraction
         // In production, this would use token embeddings and more sophisticated features
         let mut features = vec![0.0; 22]; // 22-dimensional feature vector
@@ -1891,7 +1899,7 @@ impl InferencePipeline {
         features[13] = 1.0; // Generic verb
 
         // Attention entropy (1 dim)
-        features[21] = self.calculate_token_entropy(tokens);
+        features[21] = kernel_entropy.unwrap_or_else(|| self.calculate_token_entropy(tokens));
 
         features
     }

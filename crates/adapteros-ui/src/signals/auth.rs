@@ -6,6 +6,7 @@ use crate::api::{ApiClient, ApiError};
 use crate::boot_log;
 use adapteros_api_types::UserInfoResponse;
 use leptos::prelude::*;
+use serde::Deserialize;
 use std::sync::Arc;
 
 /// Check if we're running in dev mode on localhost
@@ -17,6 +18,21 @@ fn is_dev_localhost() -> bool {
         .and_then(|w| w.location().hostname().ok())
         .map(|h| h == "localhost" || h == "127.0.0.1")
         .unwrap_or(false)
+}
+
+#[derive(Debug, Deserialize)]
+struct AuthConfigPublic {
+    dev_bypass_allowed: bool,
+}
+
+async fn dev_bypass_allowed(client: &ApiClient) -> bool {
+    match client.get::<AuthConfigPublic>("/v1/auth/config").await {
+        Ok(cfg) => cfg.dev_bypass_allowed,
+        Err(e) => {
+            boot_log("auth", &format!("dev bypass check failed: {}", e));
+            false
+        }
+    }
 }
 
 /// Create a mock user for dev bypass mode
@@ -212,14 +228,6 @@ pub fn provide_auth_context() {
     let state = RwSignal::new(AuthState::Unknown);
     let action = AuthAction::new(Arc::clone(&client), state);
 
-    // Dev bypass: skip auth check and use mock user on localhost
-    if is_dev_localhost() {
-        boot_log("auth", "dev bypass active (localhost)");
-        state.set(AuthState::Authenticated(Box::new(mock_dev_user())));
-        provide_context((state.read_only(), action));
-        return;
-    }
-
     // Normal auth check for production with timeout
     // Use a guard to ensure check_auth only runs once on initial mount
     let action_check = action.clone();
@@ -230,7 +238,14 @@ pub fn provide_auth_context() {
             has_checked.set_value(true);
             let action = action_check.clone();
             let state_timeout = state;
+            let client = Arc::clone(&client);
             wasm_bindgen_futures::spawn_local(async move {
+                if is_dev_localhost() && dev_bypass_allowed(&client).await {
+                    boot_log("auth", "dev bypass active (localhost + allowed)");
+                    state_timeout.set(AuthState::Authenticated(Box::new(mock_dev_user())));
+                    return;
+                }
+
                 // Race auth check against timeout
                 let auth_future = action.check_auth();
                 let timeout_future = gloo_timers::future::TimeoutFuture::new(AUTH_TIMEOUT_MS);

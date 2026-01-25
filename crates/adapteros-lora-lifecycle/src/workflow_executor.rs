@@ -600,7 +600,7 @@ impl RealBackendAdapterBackend {
             e
         })?;
 
-        let mut kernels = backend;
+        let kernels = backend;
 
         // Attest to determinism
         kernels.attest_determinism().map_err(|e| {
@@ -670,7 +670,7 @@ impl RealBackendAdapterBackend {
         })?;
 
         let backend = MLXFFIBackend::new(model);
-        let mut kernels = backend;
+        let kernels = backend;
 
         // Attest to determinism (note: MLX may be non-deterministic)
         if let Err(e) = kernels.attest_determinism() {

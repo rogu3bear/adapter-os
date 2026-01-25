@@ -142,7 +142,7 @@ fn test_blake3_whitespace_is_significant() {
     let token_trailing_space = "aos_test_token ";
     let token_internal_space = "aos_test token";
 
-    let hashes = vec![
+    let hashes = [
         hash_api_key(token_no_space),
         hash_api_key(token_leading_space),
         hash_api_key(token_trailing_space),
@@ -784,7 +784,7 @@ async fn test_very_long_token() -> Result<()> {
         .await?;
 
     // A very long token (1000 characters)
-    let long_token: String = std::iter::repeat('a').take(1000).collect();
+    let long_token: String = "a".repeat(1000);
     let hash = hash_api_key(&long_token);
 
     // Hash should still be 64 characters regardless of input length
@@ -867,8 +867,10 @@ fn test_api_key_config_defaults() {
 fn test_api_key_config_prefix() {
     use adapteros_auth::ApiKeyConfig;
 
-    let mut config = ApiKeyConfig::default();
-    config.prefix = Some("aos_".to_string());
+    let config = ApiKeyConfig {
+        prefix: Some("aos_".to_string()),
+        ..Default::default()
+    };
 
     assert_eq!(
         config.prefix.as_deref(),

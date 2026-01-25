@@ -491,7 +491,7 @@ pub fn get_model_path_with_fallback() -> Result<PathBuf> {
     // Try primary env var first
     if let Ok(path) = std::env::var("AOS_MODEL_PATH") {
         if !path.is_empty() {
-            let path = PathBuf::from(path);
+            let path = adapteros_core::rebase_var_path(PathBuf::from(path));
             crate::path_resolver::reject_tmp_persistent_path(&path, "model-path")?;
             return Ok(path);
         }
@@ -505,7 +505,7 @@ pub fn get_model_path_with_fallback() -> Result<PathBuf> {
                     legacy_var = %legacy_var,
                     "Using deprecated environment variable. Please migrate to AOS_MODEL_PATH"
                 );
-                let path = PathBuf::from(path);
+                let path = adapteros_core::rebase_var_path(PathBuf::from(path));
                 crate::path_resolver::reject_tmp_persistent_path(&path, "model-path")?;
                 return Ok(path);
             }
@@ -825,7 +825,7 @@ mod tests {
         std::env::remove_var("AOS_MODEL_BACKEND");
 
         let config = ModelConfig::from_env().unwrap();
-        assert_eq!(config.path, PathBuf::from(DEV_MODEL_PATH));
+        assert_eq!(config.path, adapteros_core::rebase_var_path(DEV_MODEL_PATH));
         assert_eq!(config.backend, BackendPreference::Auto);
     }
 
