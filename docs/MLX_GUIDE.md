@@ -1765,18 +1765,17 @@ let app = Router::new()
 
 ### Related Documentation
 
-- [ADR_MULTI_BACKEND_STRATEGY.md](./ADR_MULTI_BACKEND_STRATEGY.md) - Multi-backend architecture decision record
-- [COREML_BACKEND.md](./COREML_BACKEND.md) - CoreML backend guide, ANE optimization, Swift bridge
-- [ADDING_NEW_BACKEND.md](./ADDING_NEW_BACKEND.md) - Template for adding new backends
-- [OBJECTIVE_CPP_FFI_PATTERNS.md](./OBJECTIVE_CPP_FFI_PATTERNS.md) - FFI memory safety patterns
+- [BACKEND_ARCHITECTURE.md](BACKEND_ARCHITECTURE.md) - Multi-backend architecture
+- [COREML_BACKEND.md](COREML_BACKEND.md) - CoreML backend guide, ANE optimization, Swift bridge
+- [BACKEND_SELECTION.md](BACKEND_SELECTION.md) - Backend selection and configuration
 - [DETERMINISM.md](./DETERMINISM.md) - Global determinism and replay strategy
 - [AGENTS.md](../AGENTS.md) - Development standards and build commands
 
 ### Testing Documentation
 
-- [BENCHMARK_RESULTS.md](../BENCHMARK_RESULTS.md) - MLX FFI performance benchmarks
-- [crates/adapteros-lora-mlx-ffi/MLX_FFI_INTEGRATION_PROOF.md](../crates/adapteros-lora-mlx-ffi/MLX_FFI_INTEGRATION_PROOF.md) - MLX FFI integration verification
-- [crates/adapteros-lora-mlx-ffi/tests/INDEX.md](../crates/adapteros-lora-mlx-ffi/tests/INDEX.md) - MLX FFI test documentation index
+- See [performance/README.md](performance/README.md) for performance benchmarks
+- See `crates/adapteros-lora-mlx-ffi/` for MLX FFI integration code
+- See `crates/adapteros-lora-mlx-ffi/tests/` for MLX FFI test documentation
 
 ---
 

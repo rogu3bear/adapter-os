@@ -1137,7 +1137,7 @@ The promotion workflow enforces the following policies:
 - [AGENTS.md](../AGENTS.md) - Development guide
 - [ACCESS_CONTROL.md](ACCESS_CONTROL.md) - Access control (RBAC + tenant isolation)
 - [POLICIES.md](POLICIES.md) - Policy enforcement
-- [TELEMETRY_EVENTS.md](TELEMETRY_EVENTS.md) - Event tracking
+- See [SECURITY.md](SECURITY.md) for event tracking and telemetry
 
 ---
 

@@ -63,6 +63,9 @@ pub struct MicroLoRATrainer {
     pub config: TrainingConfig,
     /// Whether to use cross-entropy loss instead of legacy MSE.
     use_cross_entropy_loss: bool,
+    /// Whether to use chunked CE computation for large vocabularies.
+    /// When true, processes vocabulary in chunks to reduce peak memory usage.
+    use_chunked_ce: bool,
     /// GPU kernels for accelerated training
     kernels: Option<crate::backend_factory::KernelBox>,
     /// Selected backend for this training session
@@ -143,7 +146,12 @@ struct SplitExamplesResult {
     split_hash_b3: String,
 }
 
-const DEFAULT_CE_MAX_VOCAB: usize = 100_000;
+/// Maximum vocabulary size for standard cross-entropy loss computation.
+/// MLX uses lazy evaluation with unified memory, so large vocabularies are handled
+/// efficiently without materializing the full logits tensor in memory at once.
+/// Set to usize::MAX to effectively disable the MSE fallback since cross-entropy
+/// is the correct loss function for language model training.
+const DEFAULT_CE_MAX_VOCAB: usize = usize::MAX;
 
 /// Vocabulary size threshold for chunked cross-entropy computation.
 /// Above this threshold, CE is computed in memory-efficient chunks.
@@ -270,6 +278,7 @@ impl MicroLoRATrainer {
         let mut trainer = Self {
             config,
             use_cross_entropy_loss: true,
+            use_chunked_ce: false, // Will be set during train() based on vocab size
             kernels: None,
             selected_backend: None,
             backend_device: None,
@@ -374,6 +383,7 @@ impl MicroLoRATrainer {
         Ok(Self {
             config,
             use_cross_entropy_loss: true,
+            use_chunked_ce: false, // Will be set during train() based on vocab size
             kernels: None,
             selected_backend: None,
             backend_device: None,

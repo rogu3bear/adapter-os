@@ -32,7 +32,7 @@ A baseline adapter (like `adapteros.aos`) that serves as the delta base for code
 ### Control Plane
 The management system that coordinates everything in adapterOS. Includes the API server, job orchestration, telemetry indexing, and policy enforcement.
 
-**See also:** [Control Plane Documentation](CONTROL-PLANE.md)
+**See also:** [ARCHITECTURE.md](ARCHITECTURE.md) for control plane details
 
 ### Control Point (CP)
 Versioned configuration snapshot for promotion and rollback. Contains deterministic execution settings, gate-checked promotion rules, and audit trail with telemetry.
@@ -133,7 +133,7 @@ Using only K adapters at a time (K=3 by default). Instead of using all available
 ### Metal
 Apple's GPU programming framework for Mac. adapterOS uses Metal for high-performance GPU computation on Apple Silicon.
 
-**See also:** [Metal Kernels](metal/PHASE4-METAL-KERNELS.md)
+**See also:** [METAL_BACKEND.md](METAL_BACKEND.md) for Metal kernel details
 
 ### Deterministic Inference Runtime (DIR)
 **DIR** - The core inference engine that enables deterministic execution and token artifact reusability. DIR refers to the routing, adapter management, and execution system that treats inference outputs as persistent, reusable artifacts.
@@ -236,7 +236,7 @@ Transforms inference outputs into persistent, reusable artifacts that can be ref
 ### Worker
 A process that does the actual AI inference work. Workers run in isolated processes with unique UID/GID per tenant, communicating via UDS sockets.
 
-**See also:** [Control Plane](CONTROL-PLANE.md)
+**See also:** [ARCHITECTURE.md](ARCHITECTURE.md) for control plane details
 
 ---
 
@@ -267,10 +267,10 @@ A process that does the actual AI inference work. Workers run in isolated proces
 
 ## Related Documentation
 
-- [Getting Started Guide](GETTING_STARTED_WITH_DIAGRAMS.md) - Plain-language explanations
+- [Getting Started Guide](getting-started.md) - Plain-language explanations
 - [Policy Packs](POLICIES.md) - Complete policy documentation
 - [Architecture Overview](ARCHITECTURE.md) - System design and components
-- [Control Plane](CONTROL-PLANE.md) - Management system documentation
+- [ARCHITECTURE.md](ARCHITECTURE.md) - Management system documentation
 
 ---
 

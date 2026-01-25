@@ -154,8 +154,10 @@ open http://localhost:3200
 
 | Document | Description |
 |----------|-------------|
+| [**ARCHITECTURE.md**](ARCHITECTURE.md) | Complete system architecture and design |
 | [**LIFECYCLE.md**](LIFECYCLE.md) | Adapter lifecycle management and hot-swap |
-| [**Control Plane**](ARCHITECTURE.md#architecture-components) | Control plane architecture and APIs |
+| [**BOOT_PHASES.md**](BOOT_PHASES.md) | Boot sequence phases and initialization |
+| [**EXECUTION_CONTRACT.md**](EXECUTION_CONTRACT.md) | Determinism guarantees and execution contract |
 
 ### API & CLI
 
@@ -163,7 +165,9 @@ open http://localhost:3200
 |----------|-------------|
 | [**API_REFERENCE.md**](API_REFERENCE.md) | Complete REST API reference (189+ endpoints, LLM interface, examples) |
 | [**API_GUIDES.md**](API_GUIDES.md) | API workflow guides (versioning, tenant management, promotion workflow) |
+| [**ENDPOINTS_TRUTH_TABLE.md**](ENDPOINTS_TRUTH_TABLE.md) | Complete API endpoints truth table |
 | [**CLI_GUIDE.md**](CLI_GUIDE.md) | Command-line interface reference (`aosctl`) |
+| [**API_TYPE_GENERATION.md**](API_TYPE_GENERATION.md) | API type generation and codegen |
 
 ### Database
 
@@ -190,6 +194,7 @@ open http://localhost:3200
 | [**TROUBLESHOOTING.md**](TROUBLESHOOTING.md) | Main troubleshooting guide with common issues and quick diagnostics |
 | [**TROUBLESHOOTING_ENHANCED.md**](TROUBLESHOOTING_ENHANCED.md) | Error catalog, decision trees, and diagnostic commands |
 | [**BOOT_TROUBLESHOOTING.md**](BOOT_TROUBLESHOOTING.md) | Boot sequence failures and startup issues |
+| [**BOOT_READYZ_TRACE.md**](BOOT_READYZ_TRACE.md) | Boot readiness trace and diagnostics |
 | [**MLX_TROUBLESHOOTING.md**](MLX_TROUBLESHOOTING.md) | MLX backend specific troubleshooting |
 | [**ERRORS.md**](ERRORS.md) | Error handling patterns and error type reference |
 
@@ -218,6 +223,9 @@ open http://localhost:3200
 
 | Document | Description |
 |----------|-------------|
+| [**TESTING.md**](TESTING.md) | Testing guide and test organization |
+| [**NAMING_CONVENTIONS.md**](NAMING_CONVENTIONS.md) | Code naming conventions and standards |
+| [**DOCUMENTATION_DRIFT.md**](DOCUMENTATION_DRIFT.md) | Documentation validation framework |
 
 ### Error Handling
 
@@ -230,7 +238,6 @@ open http://localhost:3200
 | Document | Description |
 |----------|-------------|
 | [**DEPRECATIONS.md**](DEPRECATIONS.md) | Deprecated features and migration paths |
-| [**STUB_IMPLEMENTATIONS.md**](STUB_IMPLEMENTATIONS.md) | Stub implementations and placeholders |
 
 ---
 
@@ -241,38 +248,26 @@ open http://localhost:3200
 | Document | Description |
 |----------|-------------|
 | [**MLX_GUIDE.md**](MLX_GUIDE.md) | MLX backend integration guide |
-| [**MLX_BACKEND_DEPLOYMENT_GUIDE.md**](MLX_BACKEND_DEPLOYMENT_GUIDE.md) | MLX deployment and configuration |
-| [**MLX_INSTALLATION_GUIDE.md**](MLX_INSTALLATION_GUIDE.md) | MLX installation steps |
-| [**MLX_QUICK_REFERENCE.md**](MLX_QUICK_REFERENCE.md) | MLX quick reference |
 | [**MLX_TROUBLESHOOTING.md**](MLX_TROUBLESHOOTING.md) | MLX troubleshooting guide |
-| [**MLX_ROUTER_HOTSWAP_INTEGRATION.md**](MLX_ROUTER_HOTSWAP_INTEGRATION.md) | MLX hot-swap integration |
-| [**MLX_MIGRATION_GUIDE.md**](MLX_MIGRATION_GUIDE.md) | Migrating to MLX backend |
-| [**MLX_VS_COREML_GUIDE.md**](MLX_VS_COREML_GUIDE.md) | MLX vs CoreML comparison |
-| [**MLX_MEMORY.md**](MLX_MEMORY.md) | MLX memory management |
-| [**MLX_METAL_DEVICE_ACCESS.md**](MLX_METAL_DEVICE_ACCESS.md) | MLX Metal device access |
-| [**MLX_HKDF_SEEDING.md**](MLX_HKDF_SEEDING.md) | HKDF seeding in MLX backend |
+| [**BACKEND_PARITY.md**](BACKEND_PARITY.md) | Backend feature parity matrix |
 
 ### CoreML Backend
 
 | Document | Description |
 |----------|-------------|
 | [**COREML_BACKEND.md**](COREML_BACKEND.md) | CoreML backend with ANE acceleration |
-| [**COREML_ATTESTATION_DETAILS.md**](COREML_ATTESTATION_DETAILS.md) | CoreML attestation and verification |
-| [**coreml_training_backend.md**](coreml_training_backend.md) | CoreML training backend guide |
 
 ### Metal Backend
 
 | Document | Description |
 |----------|-------------|
-| [**METAL_BUILD_SYSTEM_INTEGRATION.md**](METAL_BUILD_SYSTEM_INTEGRATION.md) | Metal build system integration |
-| [**METAL_TOOLCHAIN_SETUP.md**](METAL_TOOLCHAIN_SETUP.md) | Metal toolchain setup guide |
+| [**METAL_BACKEND.md**](METAL_BACKEND.md) | Metal backend guide |
 
 ### FFI & Low-Level
 
 | Document | Description |
 |----------|-------------|
-| [**FFI_GUIDE.md**](FFI_GUIDE.md) | Complete FFI guide (Rust ↔ C++/ObjC++) |
-| [**OBJECTIVE_CPP_FFI_PATTERNS.md**](OBJECTIVE_CPP_FFI_PATTERNS.md) | Objective-C++ FFI patterns |
+| See [MLX_GUIDE.md](MLX_GUIDE.md) for FFI patterns |
 
 ---
 
@@ -283,23 +278,16 @@ open http://localhost:3200
 | Document | Description |
 |----------|-------------|
 | [**SECURITY.md**](SECURITY.md) | Security architecture and best practices |
-| [**CRYPTO.md**](CRYPTO.md) | Cryptography overview (BLAKE3, HKDF) |
-| [**CRYPTO_SECURITY_S6_S9.md**](CRYPTO_SECURITY_S6_S9.md) | Cryptographic security details |
 | [**ACCESS_CONTROL.md**](ACCESS_CONTROL.md) | Access control guide (RBAC + tenant isolation) |
-| [**SECURE_ENCLAVE_INTEGRATION_ENHANCED.md**](SECURE_ENCLAVE_INTEGRATION_ENHANCED.md) | Secure Enclave integration |
-| [**secure-enclave-integration.md**](secure-enclave-integration.md) | Secure Enclave basics |
-| [**keychain-integration.md**](keychain-integration.md) | macOS Keychain integration |
+| [**CRYPTO_RECEIPTS.md**](CRYPTO_RECEIPTS.md) | Cryptographic receipts and verification |
+| [**KERNEL_HASH_TRACE.md**](KERNEL_HASH_TRACE.md) | Metal kernel hash verification and attestation |
+| [**CRYPTO_RECEIPT_INTEGRATION.md**](CRYPTO_RECEIPT_INTEGRATION.md) | Crypto receipt integration details |
 
 ### Policy Enforcement
 
 | Document | Description |
 |----------|-------------|
 | [**POLICIES.md**](POLICIES.md) | Policy system overview (25 policy packs) |
-| [**POLICY_ENFORCEMENT.md**](POLICY_ENFORCEMENT.md) | Policy enforcement architecture |
-| [**POLICY_ENFORCEMENT_MIDDLEWARE.md**](POLICY_ENFORCEMENT_MIDDLEWARE.md) | Policy middleware implementation |
-| [**POLICY_ENFORCEMENT_MIDDLEWARE_IMPLEMENTATION_GUIDE.md**](POLICY_ENFORCEMENT_MIDDLEWARE_IMPLEMENTATION_GUIDE.md) | Middleware implementation guide |
-| [**policy-engine-outline.md**](policy-engine-outline.md) | Policy engine high-level outline |
-| [**DEV_BYPASS_POLICY.md**](DEV_BYPASS_POLICY.md) | Development bypass policy (debug only) |
 
 ---
 
@@ -311,17 +299,8 @@ open http://localhost:3200
 |----------|-------------|
 | [**TRAINING_PIPELINE.md**](TRAINING_PIPELINE.md) | Training pipeline architecture |
 | [**TRAINING_METRICS.md**](TRAINING_METRICS.md) | Training metrics and evaluation |
-| [**TRAINING_PROVENANCE.md**](TRAINING_PROVENANCE.md) | Training provenance tracking |
-| [**TRAINING_VERSIONING.md**](TRAINING_VERSIONING.md) | Training version management |
-| [**RUNBOOK_TRAINING_LINEAGE_TRUST.md**](RUNBOOK_TRAINING_LINEAGE_TRUST.md) | Training lineage trust runbook |
-
-### Dataset Management
-
-| Document | Description |
-|----------|-------------|
-| [**USER_GUIDE_DATASETS.md**](USER_GUIDE_DATASETS.md) | Dataset management user guide |
-| [**DATASET_TRAINING_INTEGRATION.md**](DATASET_TRAINING_INTEGRATION.md) | Dataset-training integration |
-| [**GPU_TRAINING_INTEGRATION.md**](GPU_TRAINING_INTEGRATION.md) | GPU training integration guide |
+| [**TRAINING.md**](TRAINING.md) | Training guide and workflows |
+| [**REVIEW_WORKFLOW.md**](REVIEW_WORKFLOW.md) | Human-in-the-loop review workflow |
 
 ---
 
@@ -333,7 +312,6 @@ open http://localhost:3200
 |----------|-------------|
 | [**TERMINOLOGY.md**](TERMINOLOGY.md) | Workspace vs. tenant naming map |
 | [**GLOSSARY.md**](GLOSSARY.md) | Terminology and definitions |
-| [**CONCEPTS.md**](CONCEPTS.md) | Core concepts deep dive |
 
 ### Determinism & Replay
 
@@ -347,13 +325,7 @@ open http://localhost:3200
 
 | Document | Description |
 |----------|-------------|
-| [**CONFIG_PRECEDENCE.md**](CONFIG_PRECEDENCE.md) | Configuration precedence rules |
-
-### User Flows
-
-| Document | Description |
-|----------|-------------|
-| [**USER_FLOW.md**](USER_FLOW.md) | End-to-end user workflows |
+| [**CONFIGURATION.md**](CONFIGURATION.md) | Configuration guide and precedence rules |
 
 ---
 
@@ -371,7 +343,7 @@ HTTP Request → Auth/Policy → InferenceCore → Router Decision (K-sparse, Q1
                             Response + Evidence + Telemetry
 ```
 
-**See**: [INFERENCE_FLOW.md](INFERENCE_FLOW.md)
+**See**: [ARCHITECTURE.md](ARCHITECTURE.md) for inference architecture details
 
 ### Training Flow
 
@@ -419,16 +391,16 @@ Upload → Validation → Storage (BLAKE3) → Registry → Loading
 2. [QUICKSTART.md](QUICKSTART.md) — Complete setup with UI (10 minutes)
 2. [CLI_GUIDE.md](CLI_GUIDE.md) — Master the `aosctl` CLI
 3. [API_REFERENCE.md](API_REFERENCE.md) — Browse all 225 API endpoints
-4. [CONCEPTS.md](CONCEPTS.md) — Understand core abstractions
-5. [INFERENCE_FLOW.md](INFERENCE_FLOW.md) — Follow the inference pipeline
+4. [ARCHITECTURE.md](ARCHITECTURE.md) — Understand system architecture
+5. [GLOSSARY.md](GLOSSARY.md) — Core concepts and terminology
 
 ### For Operators
 
 1. [DEPLOYMENT.md](DEPLOYMENT.md) — Production deployment guide
-2. [PRODUCTION_OPERATIONS.md](PRODUCTION_OPERATIONS.md) — Day-2 operations
-3. [PRODUCTION_MONITORING.md](PRODUCTION_MONITORING.md) — Setup monitoring
-4. [TROUBLESHOOTING.md](TROUBLESHOOTING.md) — Resolve common issues
-5. [PRODUCTION_BACKUP_RESTORE.md](PRODUCTION_BACKUP_RESTORE.md) — Disaster recovery
+2. [OPERATIONS.md](OPERATIONS.md) — Day-2 operations
+3. [TROUBLESHOOTING.md](TROUBLESHOOTING.md) — Resolve common issues
+4. [runbooks/README.md](runbooks/README.md) — Production incident response
+5. [DATABASE.md](DATABASE.md) — Database operations and backup
 
 ### For Researchers
 
@@ -436,14 +408,14 @@ Upload → Validation → Storage (BLAKE3) → Registry → Loading
 2. [COREML_BACKEND.md](COREML_BACKEND.md) — CoreML/ANE acceleration
 3. [TRAINING_PIPELINE.md](TRAINING_PIPELINE.md) — Training architecture
 4. [TRAINING_METRICS.md](TRAINING_METRICS.md) — Evaluation metrics
-5. [FFI_GUIDE.md](FFI_GUIDE.md) — Low-level FFI patterns
+5. [METAL_BACKEND.md](METAL_BACKEND.md) — Metal GPU kernels
 
 ### For Security Auditors
 
 1. [SECURITY.md](SECURITY.md) — Security architecture
 2. [POLICIES.md](POLICIES.md) — Policy enforcement system
 3. [ACCESS_CONTROL.md](ACCESS_CONTROL.md) — Access control (RBAC + tenant isolation)
-4. [CRYPTO.md](CRYPTO.md) — Cryptographic foundations
+4. [CRYPTO_RECEIPTS.md](CRYPTO_RECEIPTS.md) — Cryptographic receipts and verification
 
 ---
 
@@ -479,6 +451,103 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md) in the project root for general contri
 - **CLI Help**: Run `./aosctl --help` or see [CLI_GUIDE.md](CLI_GUIDE.md)
 - **Rust API Docs**: Run `cargo doc --no-deps --open`
 - **Examples**: See `examples/` and `tests/` directories in project root
+
+---
+
+## Internal Documentation
+
+### Engineering & Design
+
+| Document | Description |
+|----------|-------------|
+| [**engineering/E2E_TESTING_STRATEGY.md**](engineering/E2E_TESTING_STRATEGY.md) | End-to-end testing strategy |
+| [**engineering/HANDLER_HYGIENE.md**](engineering/HANDLER_HYGIENE.md) | Handler code quality standards |
+| [**engineering/codebase_map_audit.md**](engineering/codebase_map_audit.md) | Codebase mapping audit |
+| [**design/CRITICAL_FUNCTION_GLOSSARY.md**](design/CRITICAL_FUNCTION_GLOSSARY.md) | Critical function glossary |
+| [**diagrams/content_addressing_flow.md**](diagrams/content_addressing_flow.md) | Content addressing flow diagrams |
+
+### Security Hardening
+
+| Document | Description |
+|----------|-------------|
+| [**hardening/PR-001-PERIODIC-AUDIT-CHAIN-VERIFICATION.md**](hardening/PR-001-PERIODIC-AUDIT-CHAIN-VERIFICATION.md) | Periodic audit chain verification |
+| [**hardening/PR-002-RECEIPT-SCHEMA-V2-BACKEND-IDENTITY.md**](hardening/PR-002-RECEIPT-SCHEMA-V2-BACKEND-IDENTITY.md) | Receipt schema v2 with backend identity |
+| [**hardening/PR-003-SEED-FALLBACK-HARDENING.md**](hardening/PR-003-SEED-FALLBACK-HARDENING.md) | Seed fallback hardening |
+| [**hardening/PR-004-ROOT-SEED-DIGEST-IN-RECEIPT.md**](hardening/PR-004-ROOT-SEED-DIGEST-IN-RECEIPT.md) | Root seed digest in receipt |
+| [**hardening/PR-005-EVIDENCE-ENVELOPE-INGESTION-VALIDATION.md**](hardening/PR-005-EVIDENCE-ENVELOPE-INGESTION-VALIDATION.md) | Evidence envelope validation |
+| [**hardening/PR-006-METALLIB-HASH-ENFORCEMENT.md**](hardening/PR-006-METALLIB-HASH-ENFORCEMENT.md) | Metal library hash enforcement |
+| [**hardening/fusion_interval.md**](hardening/fusion_interval.md) | Fusion interval hardening |
+| [**hardening/observability.md**](hardening/observability.md) | Observability hardening |
+| [**hardening/privacy.md**](hardening/privacy.md) | Privacy hardening |
+| [**hardening/release.md**](hardening/release.md) | Release hardening |
+| [**hardening/replay.md**](hardening/replay.md) | Replay hardening |
+| [**KERNEL_HASH_TRACE.md**](KERNEL_HASH_TRACE.md) | Kernel hash trace and verification |
+| [**COREML_DETERMINISM_AUDIT_TRAILS.md**](COREML_DETERMINISM_AUDIT_TRAILS.md) | CoreML determinism audit trails |
+| [**CONTENT_ADDRESSING_INTEGRITY_VERIFICATION.md**](CONTENT_ADDRESSING_INTEGRITY_VERIFICATION.md) | Content addressing integrity verification |
+| [**security/THREAT_MODEL_RECEIPTS_AUDIT.md**](security/THREAT_MODEL_RECEIPTS_AUDIT.md) | Threat model and receipts audit |
+
+### Contracts & Specifications
+
+| Document | Description |
+|----------|-------------|
+| [**auth_contract.md**](auth_contract.md) | Authentication contract specification |
+| [**pilot_reference_contract.md**](pilot_reference_contract.md) | Pilot reference contract |
+| [**contracts/training-example.md**](contracts/training-example.md) | Training contract example |
+
+### Database & Performance
+
+| Document | Description |
+|----------|-------------|
+| [**db/DB_OPTIMIZATION_COORDINATION.md**](db/DB_OPTIMIZATION_COORDINATION.md) | Database optimization coordination |
+| [**engineering/db_performance_tenant_isolation.md**](engineering/db_performance_tenant_isolation.md) | Database performance and tenant isolation |
+
+### Architecture Decision Records
+
+| Document | Description |
+|----------|-------------|
+| [**adr/0023-cache-coherence-investigation.md**](adr/0023-cache-coherence-investigation.md) | Cache coherence investigation |
+
+### Planning & Design Documents
+
+| Document | Description |
+|----------|-------------|
+| [**design/BACKEND_STATUS_PAGE.md**](design/BACKEND_STATUS_PAGE.md) | Backend status page design |
+| [**design/MOE_FREE_TOKEN_EXPLORATION.md**](design/MOE_FREE_TOKEN_EXPLORATION.md) | MoE free token exploration |
+| [**design/RENAME_MAP_MOE_LORA.md**](design/RENAME_MAP_MOE_LORA.md) | MoE/LoRA naming map |
+| [**plans/PLAN_boot.md**](plans/PLAN_boot.md) | Boot sequence plan |
+| [**plans/PLAN_inference_loop.md**](plans/PLAN_inference_loop.md) | Inference loop plan |
+| [**plans/PLAN_operationalization.md**](plans/PLAN_operationalization.md) | Operationalization plan |
+| [**plans/cli-http-client.md**](plans/cli-http-client.md) | CLI HTTP client plan |
+| [**plans/pagination-consolidation.md**](plans/pagination-consolidation.md) | Pagination consolidation plan |
+| [**plans/2026-01-23-embedding-benchmark-design.md**](plans/2026-01-23-embedding-benchmark-design.md) | Embedding benchmark design |
+| [**plans/2026-01-23-embedding-benchmark-impl.md**](plans/2026-01-23-embedding-benchmark-impl.md) | Embedding benchmark implementation |
+| [**roadmap/DATABASE_PERFORMANCE_ROADMAP.md**](roadmap/DATABASE_PERFORMANCE_ROADMAP.md) | Database performance roadmap |
+
+### Testing & Stability
+
+| Document | Description |
+|----------|-------------|
+| [**stability/CHECKLIST.md**](stability/CHECKLIST.md) | Stability checklist |
+| [**stability/RECENT_ISSUES.md**](stability/RECENT_ISSUES.md) | Recent stability issues |
+| [**testing/IGNORED_TESTS_AUDIT.md**](testing/IGNORED_TESTS_AUDIT.md) | Ignored tests audit |
+| [**tests/TRAINING_E2E_TEST.md**](tests/TRAINING_E2E_TEST.md) | Training E2E test documentation |
+| [**engineering/println_eprintln_audit.md**](engineering/println_eprintln_audit.md) | Println/eprintln audit |
+
+### Training & Performance
+
+| Document | Description |
+|----------|-------------|
+| [**training/LOSS_SPEC.md**](training/LOSS_SPEC.md) | Training loss specification |
+| [**training/REPORTING.md**](training/REPORTING.md) | Training reporting |
+| [**training/TENANT_ISOLATION_PERFORMANCE.md**](training/TENANT_ISOLATION_PERFORMANCE.md) | Tenant isolation performance |
+| [**performance/K_SPARSE_ROUTER_BASELINE.md**](performance/K_SPARSE_ROUTER_BASELINE.md) | K-sparse router performance baseline |
+
+### Runbooks (Additional)
+
+| Document | Description |
+|----------|-------------|
+| [**runbooks/DB_OPTIMIZATION_ROLLOUT.md**](runbooks/DB_OPTIMIZATION_ROLLOUT.md) | Database optimization rollout |
+| [**runbooks/TENANT_QUERY_PERFORMANCE_INCIDENT.md**](runbooks/TENANT_QUERY_PERFORMANCE_INCIDENT.md) | Tenant query performance incident |
 
 ---
 

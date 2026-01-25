@@ -853,7 +853,7 @@ For detailed fusion API documentation, see:
 ## See Also
 
 - [crates/adapteros-lora-kernel-coreml/README.md](../crates/adapteros-lora-kernel-coreml/README.md) - LoRA fusion workflows and API
-- [docs/ADR_MULTI_BACKEND_STRATEGY.md](./ADR_MULTI_BACKEND_STRATEGY.md) - Multi-backend architecture decision record
+- [BACKEND_ARCHITECTURE.md](BACKEND_ARCHITECTURE.md) - Multi-backend architecture
 - [docs/MLX_GUIDE.md](./MLX_GUIDE.md) - MLX backend guide
 - [docs/METAL_BACKEND.md](./METAL_BACKEND.md) - Metal backend guide
 - [docs/DETERMINISM.md](./DETERMINISM.md) - Determinism and replay

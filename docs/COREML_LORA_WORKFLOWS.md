@@ -484,7 +484,7 @@ cargo test -p adapteros-lora-kernel-coreml test_adapter_cache
 - **[crates/adapteros-lora-kernel-coreml/src/backend.rs](../crates/adapteros-lora-kernel-coreml/src/backend.rs)** - Sidecar infrastructure (stub)
 
 ### Related Guides
-- **[docs/COREML_MOE_IMPLEMENTATION.md](./COREML_MOE_IMPLEMENTATION.md)** - MoE model support
+- See [COREML_BACKEND.md](COREML_BACKEND.md) for CoreML backend details
 - **[docs/DETERMINISM.md](./DETERMINISM.md)** - Determinism and replay
 - **[AGENTS.md](../AGENTS.md)** - Development guidelines
 

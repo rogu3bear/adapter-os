@@ -152,6 +152,6 @@ cargo check -p adapteros-ui --target wasm32-unknown-unknown
 
 ## Related Documentation
 
-- [Leptos UI](../crates/adapteros-ui/README.md)
-- [API Types Crate](../crates/adapteros-api-types/README.md)
+- See [crates/adapteros-ui/](../crates/adapteros-ui/) for Leptos UI code
+- See [crates/adapteros-api-types/](../crates/adapteros-api-types/) for API types code
 - [CLAUDE.md](../CLAUDE.md) - Development guide

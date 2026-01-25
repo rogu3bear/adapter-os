@@ -21,17 +21,17 @@ This directory contains actionable runbooks for adapterOS production operations.
 
 ### Critical Incidents
 
-1. **[Worker Crash](./WORKER_CRASH.md)** - Worker process failures, 503 errors, socket issues
-2. **[Determinism Violation](./DETERMINISM_VIOLATION.md)** - Hash mismatches, replay failures, audit violations
+1. **[Worker Crash](WORKER_CRASH.md)** - Worker process failures, 503 errors, socket issues
+2. **[Determinism Violation](DETERMINISM_VIOLATION.md)** - Hash mismatches, replay failures, audit violations
 
 ### Performance Issues
 
-3. **[Inference Latency Spike](./INFERENCE_LATENCY_SPIKE.md)** - P99 latency > 500ms, slow responses
-4. **[Memory Pressure](./MEMORY_PRESSURE.md)** - High memory usage, adapter eviction failures
+3. **[Inference Latency Spike](INFERENCE_LATENCY_SPIKE.md)** - P99 latency > 500ms, slow responses
+4. **[Memory Pressure](MEMORY_PRESSURE.md)** - High memory usage, adapter eviction failures
 
 ### Resource Issues
 
-5. **[Disk Full](./DISK_FULL.md)** - Database write failures, log rotation issues, WAL growth
+5. **[Disk Full](DISK_FULL.md)** - Database write failures, log rotation issues, WAL growth
 
 ---
 
@@ -80,11 +80,11 @@ du -sh var/logs var/aos-cp.sqlite3*
 
 | Alert | Runbook | Severity |
 |-------|---------|----------|
-| `WorkerCrashed` | [WORKER_CRASH.md](./WORKER_CRASH.md) | SEV-1 |
-| `DeterminismViolation` | [DETERMINISM_VIOLATION.md](./DETERMINISM_VIOLATION.md) | SEV-1 |
-| `InferenceLatencyHigh` | [INFERENCE_LATENCY_SPIKE.md](./INFERENCE_LATENCY_SPIKE.md) | SEV-2 |
-| `MemoryPressureCritical` | [MEMORY_PRESSURE.md](./MEMORY_PRESSURE.md) | SEV-2 |
-| `DiskUsageCritical` | [DISK_FULL.md](./DISK_FULL.md) | SEV-2 |
+| `WorkerCrashed` | [WORKER_CRASH.md](WORKER_CRASH.md) | SEV-1 |
+| `DeterminismViolation` | [DETERMINISM_VIOLATION.md](DETERMINISM_VIOLATION.md) | SEV-1 |
+| `InferenceLatencyHigh` | [INFERENCE_LATENCY_SPIKE.md](INFERENCE_LATENCY_SPIKE.md) | SEV-2 |
+| `MemoryPressureCritical` | [MEMORY_PRESSURE.md](MEMORY_PRESSURE.md) | SEV-2 |
+| `DiskUsageCritical` | [DISK_FULL.md](DISK_FULL.md) | SEV-2 |
 
 ---
 
