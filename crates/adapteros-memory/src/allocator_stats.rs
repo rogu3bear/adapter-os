@@ -132,8 +132,10 @@ mod macos {
 
     /// Query allocator statistics from the macOS malloc zone API
     pub fn get_zone_stats() -> AllocatorStats {
-        let mut total_stats = AllocatorStats::default();
-        total_stats.is_real_stats = true;
+        let mut total_stats = AllocatorStats {
+            is_real_stats: true,
+            ..Default::default()
+        };
 
         // Get default zone statistics
         let default_zone = unsafe { malloc_default_zone() };

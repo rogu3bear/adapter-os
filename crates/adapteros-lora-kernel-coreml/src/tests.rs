@@ -233,10 +233,10 @@ fn coreml_stub_hot_swap_sidecar_switches_and_restores() -> Result<()> {
 
     // Detach all adapters and confirm base-only logits restored
     backend.detach_adapter(9)?;
-    let mut clear_ring = RouterRing::new(0);
+    let clear_ring = RouterRing::new(0);
     let mut base_again = IoBuffers::new(6);
     base_again.input_ids = vec![1];
-    backend.run_step(&mut clear_ring, &mut base_again)?;
+    backend.run_step(&clear_ring, &mut base_again)?;
     assert_eq!(
         base_logits, base_again.output_logits,
         "Detaching should restore base-only behavior"

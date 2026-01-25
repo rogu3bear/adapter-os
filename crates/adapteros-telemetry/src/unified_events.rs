@@ -64,6 +64,21 @@ pub enum LogLevel {
     Critical,
 }
 
+impl std::str::FromStr for LogLevel {
+    type Err = AosError;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "debug" => Ok(LogLevel::Debug),
+            "info" => Ok(LogLevel::Info),
+            "warn" | "warning" => Ok(LogLevel::Warn),
+            "error" => Ok(LogLevel::Error),
+            "critical" => Ok(LogLevel::Critical),
+            _ => Err(AosError::Validation(format!("Invalid log level: {}", s))),
+        }
+    }
+}
+
 /// Unified event types across the system
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum EventType {

@@ -234,16 +234,14 @@ async fn run_corpus(args: &CorpusArgs) -> Result<()> {
     // Ensure parent directory exists
     if let Some(parent) = args.output.parent() {
         if !parent.as_os_str().is_empty() {
-            fs::create_dir_all(parent).map_err(|e| {
-                AosError::Io(format!("Failed to create directory: {}", e))
-            })?;
+            fs::create_dir_all(parent)
+                .map_err(|e| AosError::Io(format!("Failed to create directory: {}", e)))?;
         }
     }
 
     let json = serde_json::to_string_pretty(&corpus)?;
-    fs::write(&args.output, json).map_err(|e| {
-        AosError::Io(format!("Failed to write corpus: {}", e))
-    })?;
+    fs::write(&args.output, json)
+        .map_err(|e| AosError::Io(format!("Failed to write corpus: {}", e)))?;
 
     println!();
     println!("Built corpus with {} chunks", corpus.len());
@@ -463,9 +461,8 @@ async fn run_index(args: &IndexArgs) -> Result<()> {
             let build_time = start.elapsed();
 
             // Ensure output directory exists
-            fs::create_dir_all(&args.output).map_err(|e| {
-                AosError::Io(format!("Failed to create output directory: {}", e))
-            })?;
+            fs::create_dir_all(&args.output)
+                .map_err(|e| AosError::Io(format!("Failed to create output directory: {}", e)))?;
 
             // Save index
             let saved = SavedIndex {
@@ -474,9 +471,8 @@ async fn run_index(args: &IndexArgs) -> Result<()> {
             };
             let index_path = args.output.join("index.json");
             let json = serde_json::to_string_pretty(&saved)?;
-            fs::write(&index_path, json).map_err(|e| {
-                AosError::Io(format!("Failed to write index: {}", e))
-            })?;
+            fs::write(&index_path, json)
+                .map_err(|e| AosError::Io(format!("Failed to write index: {}", e)))?;
 
             println!();
             println!("Built {} index:", metadata.index_type);
@@ -495,9 +491,8 @@ async fn run_index(args: &IndexArgs) -> Result<()> {
             let metadata = index.build(&embeddings).await?;
             let build_time = start.elapsed();
 
-            fs::create_dir_all(&args.output).map_err(|e| {
-                AosError::Io(format!("Failed to create output directory: {}", e))
-            })?;
+            fs::create_dir_all(&args.output)
+                .map_err(|e| AosError::Io(format!("Failed to create output directory: {}", e)))?;
 
             let saved = SavedIndex {
                 metadata: metadata.clone(),
@@ -505,9 +500,8 @@ async fn run_index(args: &IndexArgs) -> Result<()> {
             };
             let index_path = args.output.join("index.json");
             let json = serde_json::to_string_pretty(&saved)?;
-            fs::write(&index_path, json).map_err(|e| {
-                AosError::Io(format!("Failed to write index: {}", e))
-            })?;
+            fs::write(&index_path, json)
+                .map_err(|e| AosError::Io(format!("Failed to write index: {}", e)))?;
 
             println!();
             println!("Built flat index (HNSW fallback):");
@@ -659,9 +653,8 @@ async fn run_bench(args: &BenchArgs) -> Result<()> {
     // Save report
     let json = serde_json::to_string_pretty(&report)
         .map_err(|e| AosError::Validation(format!("Failed to serialize report: {}", e)))?;
-    fs::write(&args.output, &json).map_err(|e| {
-        AosError::Io(format!("Failed to write report: {}", e))
-    })?;
+    fs::write(&args.output, &json)
+        .map_err(|e| AosError::Io(format!("Failed to write report: {}", e)))?;
 
     // Print results
     println!();
@@ -683,13 +676,12 @@ async fn run_bench(args: &BenchArgs) -> Result<()> {
 
 async fn run_train(args: &TrainArgs) -> Result<()> {
     // Load training pairs from JSONL file
-    let pairs_content = fs::read_to_string(&args.pairs).map_err(|e| {
-        AosError::Io(format!("Failed to read pairs file: {}", e))
-    })?;
+    let pairs_content = fs::read_to_string(&args.pairs)
+        .map_err(|e| AosError::Io(format!("Failed to read pairs file: {}", e)))?;
     let pairs: Vec<TrainingPair> = pairs_content
         .lines()
         .filter(|l| !l.is_empty())
-        .map(|l| serde_json::from_str(l))
+        .map(serde_json::from_str)
         .collect::<std::result::Result<Vec<_>, _>>()
         .map_err(|e| AosError::Validation(format!("Failed to parse pairs: {}", e)))?;
 
@@ -717,9 +709,9 @@ async fn run_train(args: &TrainArgs) -> Result<()> {
     fs::create_dir_all(&args.output)
         .map_err(|e| AosError::Io(format!("Failed to create output directory: {}", e)))?;
     let adapter_path = args.output.join("adapter.json");
-    adapter.save(&adapter_path).map_err(|e| {
-        AosError::Io(format!("Failed to save adapter: {}", e))
-    })?;
+    adapter
+        .save(&adapter_path)
+        .map_err(|e| AosError::Io(format!("Failed to save adapter: {}", e)))?;
 
     let hash = adapter.adapter_hash();
     println!("\nAdapter trained (mock - real training requires MLX)");
@@ -798,9 +790,8 @@ async fn run_compare(args: &CompareArgs) -> Result<()> {
 }
 
 fn load_json<T: serde::de::DeserializeOwned>(path: &PathBuf) -> Result<T> {
-    let content = fs::read_to_string(path).map_err(|e| {
-        AosError::Io(format!("Failed to read file {}: {}", path.display(), e))
-    })?;
+    let content = fs::read_to_string(path)
+        .map_err(|e| AosError::Io(format!("Failed to read file {}: {}", path.display(), e)))?;
     serde_json::from_str(&content)
         .map_err(|e| AosError::Validation(format!("Failed to parse JSON: {}", e)))
 }

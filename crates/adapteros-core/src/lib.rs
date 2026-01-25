@@ -64,6 +64,7 @@ pub mod lifecycle;
 pub mod naming;
 pub mod path_normalization;
 pub mod path_security;
+pub mod path_utils;
 pub mod paths;
 pub mod plugin_events;
 pub mod plugins;
@@ -178,6 +179,7 @@ pub use path_security::{
     is_forbidden_tmp_path, is_forbidden_tmp_path_str, reject_forbidden_tmp_path,
     reject_forbidden_tmp_path_like, FORBIDDEN_TMP_PREFIXES,
 };
+pub use path_utils::{absolutize_path, rebase_var_path, resolve_var_dir};
 pub use paths::{get_adapter_path, get_default_adapters_root, AdapterPaths};
 pub use plugin_events::{
     AdapterEvent, AuditEvent, InferenceEvent, MetricsTickEvent, PluginEvent, PolicyViolationEvent,

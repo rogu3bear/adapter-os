@@ -8,7 +8,7 @@
 use super::NOT_IMPLEMENTED_MESSAGE;
 use crate::formatting::{format_bytes, format_time_ago};
 use crate::output::OutputWriter;
-use adapteros_core::{time, AosError, B3Hash, Result};
+use adapteros_core::{rebase_var_path, time, AosError, B3Hash, Result};
 use adapteros_db::Db;
 use clap::Subcommand;
 use comfy_table::{presets::UTF8_FULL, Cell, Table};
@@ -630,7 +630,7 @@ async fn sync_push(to: &str, adapters: &[String], output: &OutputWriter) -> Resu
         .ok_or_else(|| AosError::NotFound(format!("Target node not found: {}", to)))?;
 
     // Use replication module to push
-    let cas_store = adapteros_artifacts::CasStore::new("./var/cas")?;
+    let cas_store = adapteros_artifacts::CasStore::new(rebase_var_path("./var/cas"))?;
 
     output.info("Creating replication manifest...");
     let manifest = create_replication_manifest(&cas_store, adapters).await?;
@@ -669,7 +669,7 @@ async fn sync_pull(from: &str, adapters: &[String], output: &OutputWriter) -> Re
     output.info(format!("Pulling {} artifacts...", manifest.artifacts.len()));
 
     // Download artifacts
-    let cas_store = adapteros_artifacts::CasStore::new("./var/cas")?;
+    let cas_store = adapteros_artifacts::CasStore::new(rebase_var_path("./var/cas"))?;
     pull_from_node(&from_node.agent_endpoint, &manifest, &cas_store).await?;
 
     output.blank();

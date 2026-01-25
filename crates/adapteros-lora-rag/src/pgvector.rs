@@ -260,10 +260,3 @@ fn compute_span_hash(doc_id: &str, text: &str, rev: &str) -> B3Hash {
 }
 
 // cosine_similarity is imported from adapteros_core::vector_math
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // cosine_similarity tests moved to adapteros_core::vector_math
-}

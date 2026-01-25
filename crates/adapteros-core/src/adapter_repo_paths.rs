@@ -186,12 +186,7 @@ impl RepoAdapterPaths {
 }
 
 fn absolutize(path: PathBuf) -> PathBuf {
-    if path.is_absolute() {
-        return path;
-    }
-    env::current_dir()
-        .unwrap_or_else(|_| Path::new("/").to_path_buf())
-        .join(path)
+    crate::path_utils::absolutize_path(path)
 }
 
 pub fn resolve_adapter_roots_from_strings(

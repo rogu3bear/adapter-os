@@ -51,11 +51,11 @@ pub const PINNED_BOOST: f32 = 0.3;
 // Path Defaults
 // =============================================================================
 
-/// Dev-only fixture path for the default local Qwen2.5-7B-Instruct-4bit model.
-pub const DEV_MODEL_PATH: &str = "var/models/qwen2.5-7b-mlx";
+/// Dev-only fixture path for the default local Mistral-7B-Instruct-v0.3-4bit model.
+pub const DEV_MODEL_PATH: &str = "var/models/mistral-7b-instruct-v0.3-4bit";
 
-/// Dev-only fixture path for the default local Qwen2.5-7B-Instruct-4bit manifest (config.json).
-pub const DEV_MANIFEST_PATH: &str = "var/models/Qwen2.5-7B-Instruct-4bit/config.json";
+/// Dev-only fixture path for the default local Mistral-7B-Instruct-v0.3-4bit manifest.
+pub const DEV_MANIFEST_PATH: &str = "manifests/mistral7b-4bit-mlx.yaml";
 
 /// Default cache root for base models (can be overridden via AOS_MODEL_CACHE_DIR).
 pub const DEFAULT_MODEL_CACHE_ROOT: &str = "var/models";
@@ -64,7 +64,7 @@ pub const DEFAULT_MODEL_CACHE_ROOT: &str = "var/models";
 pub const DEFAULT_EMBEDDING_MODEL_PATH: &str = "var/models/bge-small-en-v1.5";
 
 /// Default base model identifier (can be overridden via AOS_BASE_MODEL_ID).
-pub const DEFAULT_BASE_MODEL_ID: &str = "qwen2.5-7b-mlx";
+pub const DEFAULT_BASE_MODEL_ID: &str = "mistral-7b-instruct-v0.3-4bit";
 
 /// Default Qwen2.5 int4 manifest directory.
 pub const DEFAULT_QWEN_INT4_MANIFEST_DIR: &str = "artifacts/qwen2_5_7b_int4";

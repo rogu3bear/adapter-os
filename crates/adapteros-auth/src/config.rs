@@ -351,8 +351,10 @@ mod tests {
 
     #[test]
     fn test_validate_boot_invariants_dev_bypass_in_release() {
-        let mut config = AuthConfig::default();
-        config.dev_bypass_allowed = true;
+        let config = AuthConfig {
+            dev_bypass_allowed: true,
+            ..Default::default()
+        };
 
         // Should fail in release mode
         let result = config.validate_boot_invariants(true);

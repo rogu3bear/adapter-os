@@ -792,6 +792,15 @@ pub enum StreamLifecycleEvent {
 /// Callback type for stream lifecycle events
 pub type OnStreamLifecycle = Box<dyn Fn(StreamLifecycleEvent)>;
 
+/// Callback type for token events (receives token string)
+pub type OnTokenCallback = Box<dyn Fn(String)>;
+
+/// Callback type for done events (receives finish reason)
+pub type OnDoneCallback = Box<dyn Fn(String)>;
+
+/// Callback type for error events (receives error message and recoverable flag)
+pub type OnErrorCallback = Box<dyn Fn(String, bool)>;
+
 /// Streaming inference event handler with lifecycle awareness
 ///
 /// This handler processes SSE events from the inference stream and:
@@ -807,13 +816,13 @@ pub struct StreamingInferenceHandler {
     /// Idempotency key for recovery
     idempotency_key: Rc<RefCell<Option<String>>>,
     /// Token callback
-    on_token: Rc<RefCell<Option<Box<dyn Fn(String)>>>>,
+    on_token: Rc<RefCell<Option<OnTokenCallback>>>,
     /// Lifecycle callback
     on_lifecycle: Rc<RefCell<Option<OnStreamLifecycle>>>,
     /// Done callback (finish_reason)
-    on_done: Rc<RefCell<Option<Box<dyn Fn(String)>>>>,
+    on_done: Rc<RefCell<Option<OnDoneCallback>>>,
     /// Error callback
-    on_error: Rc<RefCell<Option<Box<dyn Fn(String, bool)>>>>,
+    on_error: Rc<RefCell<Option<OnErrorCallback>>>,
 }
 
 impl StreamingInferenceHandler {

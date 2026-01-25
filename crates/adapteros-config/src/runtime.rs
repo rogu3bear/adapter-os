@@ -378,21 +378,21 @@ impl RuntimeConfig {
     /// Get var directory
     pub fn var_dir(&self) -> PathBuf {
         self.get_path("AOS_VAR_DIR")
-            .map(|p| p.to_path_buf())
-            .unwrap_or_else(|| PathBuf::from("var"))
+            .map(adapteros_core::rebase_var_path)
+            .unwrap_or_else(|| adapteros_core::rebase_var_path("var"))
     }
 
     /// Get model cache directory
     pub fn model_cache_dir(&self) -> PathBuf {
         self.get_path("AOS_MODEL_CACHE_DIR")
-            .map(|p| p.to_path_buf())
+            .map(adapteros_core::rebase_var_path)
             .unwrap_or_else(|| self.var_dir().join("model-cache"))
     }
 
     /// Get adapters directory
     pub fn adapters_dir(&self) -> PathBuf {
         self.get_path("AOS_ADAPTERS_DIR")
-            .map(|p| p.to_path_buf())
+            .map(adapteros_core::rebase_var_path)
             .unwrap_or_else(|| self.var_dir().join("adapters"))
     }
 

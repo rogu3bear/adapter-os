@@ -185,12 +185,7 @@ impl ObjectStore for FsObjectStore {
 }
 
 fn absolutize(path: &Path) -> PathBuf {
-    if path.is_absolute() {
-        return path.to_path_buf();
-    }
-    std::env::current_dir()
-        .unwrap_or_else(|_| PathBuf::from("/"))
-        .join(path)
+    adapteros_core::absolutize_path(path)
 }
 
 #[cfg(test)]

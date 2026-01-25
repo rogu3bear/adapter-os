@@ -847,23 +847,26 @@ struct MLXModelWrapper {
         return output;
     }
 
-    // MLP forward pass
+    // MLP forward pass using SwiGLU (LLaMA/Qwen2 architecture)
+    // SwiGLU: down_proj(SiLU(gate_proj(x)) * up_proj(x))
     mx::array mlp_forward(const mx::array& input, const std::string& prefix,
                           int layer_idx = -1) {
         if (layer_idx >= 0 && is_moe_layer(layer_idx)) {
             return mlp_moe_forward(input, prefix);
         }
 
-        // Up projection
-        mx::array up = linear_projection(input, prefix + ".up_proj");
-        up = mlx_gelu_approx(up);
-
-        // Gate projection (simplified - would use silu activation)
+        // Gate projection with SiLU activation: SiLU(x) = x * sigmoid(x)
         mx::array gate = linear_projection(input, prefix + ".gate_proj");
-        up = mx::multiply(up, gate);  // Element-wise gating
+        mx::array gate_activated = mx::multiply(gate, mx::sigmoid(gate));  // SiLU
+
+        // Up projection (no activation)
+        mx::array up = linear_projection(input, prefix + ".up_proj");
+
+        // SwiGLU: element-wise multiply gate and up
+        mx::array combined = mx::multiply(gate_activated, up);
 
         // Down projection
-        return linear_projection(up, prefix + ".down_proj");
+        return linear_projection(combined, prefix + ".down_proj");
     }
 
     // Forward pass with hidden state capture

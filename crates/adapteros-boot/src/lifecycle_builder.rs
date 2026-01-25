@@ -25,6 +25,7 @@
 //! }
 //! ```
 
+use adapteros_core::resolve_var_dir;
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -64,8 +65,13 @@ impl Default for LifecycleConfig {
         Self {
             boot_timeout: Duration::from_secs(300),
             emit_boot_report: true,
-            boot_report_path: Some("var/run/boot_report.json".to_string()),
-            keys_dir: PathBuf::from("var/keys"),
+            boot_report_path: Some(
+                resolve_var_dir()
+                    .join("run/boot_report.json")
+                    .display()
+                    .to_string(),
+            ),
+            keys_dir: resolve_var_dir().join("keys"),
             bind_addr: "0.0.0.0".to_string(),
             port: 8080,
         }

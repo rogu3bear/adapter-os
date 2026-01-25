@@ -146,8 +146,8 @@ pub fn info_nce_loss(queries: &[Vec<f32>], positives: &[Vec<f32>], temperature: 
     for i in 0..batch_size {
         // Compute similarity between query_i and all positives
         let mut logits = Vec::with_capacity(batch_size);
-        for j in 0..batch_size {
-            let sim = cosine_similarity(&queries[i], &positives[j]);
+        for positive in positives.iter().take(batch_size) {
+            let sim = cosine_similarity(&queries[i], positive);
             logits.push(sim / temperature);
         }
 

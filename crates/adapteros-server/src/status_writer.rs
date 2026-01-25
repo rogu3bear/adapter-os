@@ -290,31 +290,34 @@ async fn write_status_file_local(status: &adapterOSStatus) -> Result<()> {
     let json = serde_json::to_string_pretty(status)?;
 
     // Use local var directory
-    let status_dir = Path::new("var");
-    tokio::fs::create_dir_all(status_dir)
+    let status_dir = adapteros_core::resolve_var_dir();
+    tokio::fs::create_dir_all(&status_dir)
         .await
         .context("Failed to create var/ directory")?;
 
-    let status_path = "var/adapteros_status.json";
-    let temp_path = "var/adapteros_status.json.tmp";
+    let status_path = status_dir.join("adapteros_status.json");
+    let temp_path = status_dir.join("adapteros_status.json.tmp");
 
     tracing::info!(
-        path = %status_path,
+        path = %status_path.display(),
         "Writing status file to local fallback path"
     );
 
-    tokio::fs::write(temp_path, json).await?;
-    tokio::fs::rename(temp_path, status_path).await?;
+    tokio::fs::write(&temp_path, json).await?;
+    tokio::fs::rename(&temp_path, &status_path).await?;
 
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut perms = tokio::fs::metadata(status_path).await?.permissions();
+        let mut perms = tokio::fs::metadata(&status_path).await?.permissions();
         perms.set_mode(0o644);
-        tokio::fs::set_permissions(status_path, perms).await?;
+        tokio::fs::set_permissions(&status_path, perms).await?;
     }
 
-    debug!("Status written to {} (local fallback)", status_path);
+    debug!(
+        "Status written to {} (local fallback)",
+        status_path.display()
+    );
     Ok(())
 }
 

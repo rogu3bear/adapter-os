@@ -90,8 +90,8 @@ impl ProjectionLayer {
         // Matrix-vector multiplication: output = W @ hidden + bias
         for i in 0..self.embedding_dim {
             let mut sum = 0.0;
-            for j in 0..self.hidden_dim {
-                sum += self.weights[i * self.hidden_dim + j] * hidden[j];
+            for (j, &h_val) in hidden.iter().enumerate().take(self.hidden_dim) {
+                sum += self.weights[i * self.hidden_dim + j] * h_val;
             }
             if let Some(ref bias) = self.bias {
                 sum += bias[i];

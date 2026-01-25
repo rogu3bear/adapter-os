@@ -133,7 +133,7 @@ mod tests {
         async fn embed(&self, text: &str) -> Result<Embedding> {
             Ok(Embedding {
                 vector: vec![0.0; self.dim],
-                model_hash: self.hash.clone(),
+                model_hash: self.hash,
                 input_hash: B3Hash::hash(text.as_bytes()),
             })
         }
@@ -184,7 +184,7 @@ mod tests {
         let hash = B3Hash::hash(b"mock");
         let model = MockModel {
             dim: 384,
-            hash: hash.clone(),
+            hash,
         };
         let provider = EmbeddingProvider::new(Box::new(model));
 
@@ -200,13 +200,13 @@ mod tests {
         let hash = B3Hash::hash(b"test");
         let e1 = Embedding {
             vector: vec![1.0, 0.0, 0.0],
-            model_hash: hash.clone(),
-            input_hash: hash.clone(),
+            model_hash: hash,
+            input_hash: hash,
         };
         let e2 = Embedding {
             vector: vec![1.0, 0.0, 0.0],
-            model_hash: hash.clone(),
-            input_hash: hash.clone(),
+            model_hash: hash,
+            input_hash: hash,
         };
         assert!((e1.cosine_similarity(&e2) - 1.0).abs() < 1e-6);
     }
@@ -214,8 +214,8 @@ mod tests {
     #[test]
     fn test_cosine_similarity_orthogonal() {
         let hash = B3Hash::hash(b"test");
-        let emb1 = Embedding::new(vec![1.0, 0.0, 0.0], hash.clone(), hash.clone());
-        let emb2 = Embedding::new(vec![0.0, 1.0, 0.0], hash.clone(), hash.clone());
+        let emb1 = Embedding::new(vec![1.0, 0.0, 0.0], hash, hash);
+        let emb2 = Embedding::new(vec![0.0, 1.0, 0.0], hash, hash);
         let similarity = emb1.cosine_similarity(&emb2);
         assert!(similarity.abs() < 1e-6);
     }
@@ -223,8 +223,8 @@ mod tests {
     #[test]
     fn test_cosine_similarity_opposite() {
         let hash = B3Hash::hash(b"test");
-        let emb1 = Embedding::new(vec![1.0, 0.0], hash.clone(), hash.clone());
-        let emb2 = Embedding::new(vec![-1.0, 0.0], hash.clone(), hash.clone());
+        let emb1 = Embedding::new(vec![1.0, 0.0], hash, hash);
+        let emb2 = Embedding::new(vec![-1.0, 0.0], hash, hash);
         let similarity = emb1.cosine_similarity(&emb2);
         assert!((similarity + 1.0).abs() < 1e-6);
     }
@@ -232,7 +232,7 @@ mod tests {
     #[test]
     fn test_vector_hash_deterministic() {
         let hash = B3Hash::hash(b"test");
-        let emb = Embedding::new(vec![1.0, 2.0, 3.0], hash.clone(), hash.clone());
+        let emb = Embedding::new(vec![1.0, 2.0, 3.0], hash, hash);
         let h1 = emb.vector_hash();
         let h2 = emb.vector_hash();
         assert_eq!(h1, h2);
@@ -241,8 +241,8 @@ mod tests {
     #[test]
     fn test_vector_hash_differs() {
         let hash = B3Hash::hash(b"test");
-        let emb1 = Embedding::new(vec![1.0, 2.0, 3.0], hash.clone(), hash.clone());
-        let emb2 = Embedding::new(vec![1.0, 2.0, 4.0], hash.clone(), hash.clone());
+        let emb1 = Embedding::new(vec![1.0, 2.0, 3.0], hash, hash);
+        let emb2 = Embedding::new(vec![1.0, 2.0, 4.0], hash, hash);
         assert_ne!(emb1.vector_hash(), emb2.vector_hash());
     }
 
@@ -250,7 +250,7 @@ mod tests {
     fn test_input_hash_tracked() {
         let model_hash = B3Hash::hash(b"model");
         let input_hash = B3Hash::hash(b"hello world");
-        let emb = Embedding::new(vec![0.5, 0.5], model_hash.clone(), input_hash.clone());
+        let emb = Embedding::new(vec![0.5, 0.5], model_hash, input_hash);
         assert_eq!(emb.input_hash, input_hash);
         assert_eq!(emb.model_hash, model_hash);
     }

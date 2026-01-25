@@ -12,7 +12,7 @@
 //! ```
 
 use crate::output::OutputWriter;
-use adapteros_core::{AosError, Result};
+use adapteros_core::{rebase_var_path, AosError, Result};
 use chrono::{DateTime, Duration, Utc};
 use clap::Args;
 use comfy_table::{presets::UTF8_FULL, Cell, Table};
@@ -83,7 +83,7 @@ pub enum LogLevel {
 
 impl LogLevel {
     /// Parse log level from string
-    pub fn from_str(s: &str) -> Self {
+    pub fn parse(s: &str) -> Self {
         match s.to_uppercase().as_str() {
             "DEBUG" | "TRACE" => LogLevel::Debug,
             "INFO" => LogLevel::Info,
@@ -115,6 +115,19 @@ impl LogLevel {
             LogLevel::Error => "ERROR",
             LogLevel::Critical => "CRITICAL",
             LogLevel::Unknown => "UNKNOWN",
+        }
+    }
+}
+
+impl std::str::FromStr for LogLevel {
+    type Err = AosError;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        let level = Self::parse(s);
+        if level == LogLevel::Unknown {
+            Err(AosError::Validation(format!("Invalid log level: {}", s)))
+        } else {
+            Ok(level)
         }
     }
 }
@@ -153,7 +166,7 @@ pub struct FilterCriteria {
 
 /// Run the log digest command
 pub async fn run(args: LogDigestArgs, output: &OutputWriter) -> Result<()> {
-    let log_dir = &args.log_dir;
+    let log_dir = rebase_var_path(&args.log_dir);
 
     if !log_dir.exists() {
         return Err(AosError::Io(format!(
@@ -174,7 +187,7 @@ pub async fn run(args: LogDigestArgs, output: &OutputWriter) -> Result<()> {
     };
 
     // Collect log files
-    let log_files = collect_log_files(log_dir)?;
+    let log_files = collect_log_files(&log_dir)?;
 
     if log_files.is_empty() {
         output.warning("No log files found in the specified directory");
@@ -405,7 +418,7 @@ fn try_parse_json_log(line: &str, source_file: &str, line_number: usize) -> Opti
     let level = json
         .get("level")
         .and_then(|v| v.as_str())
-        .map(LogLevel::from_str)
+        .map(LogLevel::parse)
         .unwrap_or(LogLevel::Unknown);
 
     let message = json
@@ -442,7 +455,7 @@ fn try_parse_json_log(line: &str, source_file: &str, line_number: usize) -> Opti
             obj.remove("component");
             obj.remove("module");
         }
-        if meta.as_object().map_or(true, |o| o.is_empty()) {
+        if meta.as_object().map(|o| o.is_empty()).unwrap_or(true) {
             None
         } else {
             Some(meta)
@@ -647,15 +660,15 @@ mod tests {
     }
 
     #[test]
-    fn test_log_level_from_str() {
-        assert_eq!(LogLevel::from_str("ERROR"), LogLevel::Error);
-        assert_eq!(LogLevel::from_str("error"), LogLevel::Error);
-        assert_eq!(LogLevel::from_str("WARN"), LogLevel::Warn);
-        assert_eq!(LogLevel::from_str("WARNING"), LogLevel::Warn);
-        assert_eq!(LogLevel::from_str("INFO"), LogLevel::Info);
-        assert_eq!(LogLevel::from_str("DEBUG"), LogLevel::Debug);
-        assert_eq!(LogLevel::from_str("CRITICAL"), LogLevel::Critical);
-        assert_eq!(LogLevel::from_str("unknown_level"), LogLevel::Unknown);
+    fn test_log_level_parse() {
+        assert_eq!(LogLevel::parse("ERROR"), LogLevel::Error);
+        assert_eq!(LogLevel::parse("error"), LogLevel::Error);
+        assert_eq!(LogLevel::parse("WARN"), LogLevel::Warn);
+        assert_eq!(LogLevel::parse("WARNING"), LogLevel::Warn);
+        assert_eq!(LogLevel::parse("INFO"), LogLevel::Info);
+        assert_eq!(LogLevel::parse("DEBUG"), LogLevel::Debug);
+        assert_eq!(LogLevel::parse("CRITICAL"), LogLevel::Critical);
+        assert_eq!(LogLevel::parse("unknown_level"), LogLevel::Unknown);
     }
 
     #[test]

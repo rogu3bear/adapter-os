@@ -255,6 +255,7 @@ impl Generator {
         backend: &mut dyn adapteros_lora_kernel_api::FusedKernels,
         router: &mut adapteros_lora_router::Router,
         adapter_info: &[AdapterInfo],
+        features: &[f32],
         initial_tokens: Vec<u32>,
         max_tokens: usize,
         vocab_size: usize,
@@ -283,12 +284,11 @@ impl Generator {
 
             // Get router decision using provided adapter info
             let num_adapters = adapter_info.len();
-            let features = vec![0.0f32; 16]; // Feature vector (simplified)
             let priors = vec![1.0f32 / num_adapters as f32; num_adapters]; // Uniform priors
             let adapter_ids: Vec<String> = adapter_info.iter().map(|a| a.id.clone()).collect();
             let policy_mask = PolicyMask::allow_all(&adapter_ids, None);
             let decision =
-                router.route_with_adapter_info(&features, &priors, adapter_info, &policy_mask)?;
+                router.route_with_adapter_info(features, &priors, adapter_info, &policy_mask)?;
 
             // Convert Decision to RouterRing
             let mut ring = adapteros_lora_kernel_api::RouterRing::from(&decision);

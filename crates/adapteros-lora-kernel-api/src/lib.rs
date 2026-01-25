@@ -221,6 +221,10 @@ pub struct IoBuffers {
     pub input_ids: Vec<u32>,
     pub output_logits: Vec<f32>,
     pub position: usize,
+    /// Model-reported attention entropy for dynamic routing adjustments.
+    pub attention_entropy: Option<f32>,
+    /// Optional hidden state activations (e.g. last layer) for feature-based routing.
+    pub activations: Option<Vec<f32>>,
 }
 
 impl IoBuffers {
@@ -229,6 +233,8 @@ impl IoBuffers {
             input_ids: Vec::new(),
             output_logits: vec![0.0; vocab_size],
             position: 0,
+            attention_entropy: None,
+            activations: None,
         }
     }
 }
@@ -733,6 +739,13 @@ impl FusedKernels for MockKernels {
         for (i, logit) in io.output_logits.iter_mut().enumerate() {
             *logit = (i as f32 * 0.001) % 1.0; // Deterministic pattern
         }
+
+        // Senior AI Rectification: Return model-derived signals
+        // We simulate a decaying attention entropy as the model gets more confident
+        io.attention_entropy = Some(0.8 / (io.position as f32 + 1.0).sqrt());
+
+        // Return dummy activations (mapping to the router's expected 22-dim space for POC)
+        io.activations = Some(vec![1.0; 22]);
 
         io.position += 1;
         Ok(())

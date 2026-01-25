@@ -13,13 +13,12 @@
 
 use crate::cli::normalize_jwt_mode;
 use crate::shutdown::ShutdownCoordinator;
-use adapteros_core::AosError;
+use adapteros_core::{rebase_var_path, AosError};
 use adapteros_lora_worker::memory::UmaPressureMonitor;
 use adapteros_metrics_exporter::MetricsExporter;
 use adapteros_server_api::config::Config;
 use adapteros_server_api::state::BackgroundTaskTracker;
 use anyhow::Result;
-use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tracing::{error, info};
@@ -63,7 +62,7 @@ pub async fn initialize_metrics(
     {
         info!("Initializing UDS metrics exporter");
 
-        let socket_path = PathBuf::from("var/run/metrics.sock");
+        let socket_path = rebase_var_path("var/run/metrics.sock");
 
         // Ensure directory exists
         if let Some(parent) = socket_path.parent() {
@@ -309,7 +308,8 @@ pub async fn initialize_metrics(
                 .key_file_path
                 .clone()
                 .unwrap_or_else(|| "var/keys".to_string());
-            let jwt_key_path = PathBuf::from(&keys_dir).join("jwt_signing.key");
+            let keys_dir = rebase_var_path(keys_dir);
+            let jwt_key_path = keys_dir.join("jwt_signing.key");
             if !jwt_key_path.exists() {
                 return Err(AosError::Config(format!(
                     "Ed25519 JWT key missing at {}",

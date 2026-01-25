@@ -85,23 +85,17 @@ normalize_env_paths() {
     
     # Normalize AOS_MODEL_PATH
     if [[ -n "${AOS_MODEL_PATH:-}" ]] && [[ ! "${AOS_MODEL_PATH}" =~ ^/ ]]; then
-        if [[ -e "$script_dir/$AOS_MODEL_PATH" ]]; then
-            export AOS_MODEL_PATH="$script_dir/$AOS_MODEL_PATH"
-        fi
+        export AOS_MODEL_PATH="$script_dir/$AOS_MODEL_PATH"
     fi
     
     # Normalize AOS_MANIFEST_PATH
     if [[ -n "${AOS_MANIFEST_PATH:-}" ]] && [[ ! "${AOS_MANIFEST_PATH}" =~ ^/ ]]; then
-        if [[ -e "$script_dir/$AOS_MANIFEST_PATH" ]]; then
-            export AOS_MANIFEST_PATH="$script_dir/$AOS_MANIFEST_PATH"
-        fi
+        export AOS_MANIFEST_PATH="$script_dir/$AOS_MANIFEST_PATH"
     fi
     
     # Normalize AOS_WORKER_MANIFEST
     if [[ -n "${AOS_WORKER_MANIFEST:-}" ]] && [[ ! "${AOS_WORKER_MANIFEST}" =~ ^/ ]]; then
-        if [[ -e "$script_dir/$AOS_WORKER_MANIFEST" ]]; then
-            export AOS_WORKER_MANIFEST="$script_dir/$AOS_WORKER_MANIFEST"
-        fi
+        export AOS_WORKER_MANIFEST="$script_dir/$AOS_WORKER_MANIFEST"
     fi
 }
 

@@ -83,6 +83,8 @@ pub struct ChunkingConfig {
     pub token_chunk_size: usize,
     /// Token overlap between adjacent chunks (default: 128)
     pub token_overlap: usize,
+    /// Average characters per token for heuristic estimation (default: 4.0)
+    pub chars_per_token: f32,
     /// Target size in characters for code chunks (default: 1000)
     pub code_target_size: usize,
     /// Maximum size in characters for code chunks (default: 2000)
@@ -94,6 +96,7 @@ impl Default for ChunkingConfig {
         Self {
             token_chunk_size: 512,
             token_overlap: 128,
+            chars_per_token: 4.0,
             code_target_size: 1000,
             code_max_size: 2000,
         }

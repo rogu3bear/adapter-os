@@ -80,6 +80,8 @@ fn simulate_failure(backend: &MLXFFIBackend, count: u32) {
             input_ids: vec![1, 2, 3],
             output_logits: vec![0.0; 32000],
             position: 0,
+            attention_entropy: None,
+            activations: None,
         };
         let ring = RouterRing::new(0);
 
@@ -102,6 +104,8 @@ fn simulate_failure_streak(backend: &MLXFFIBackend, streak_count: u32) {
             input_ids: vec![1, 2, 3],
             output_logits: vec![0.0; 32000],
             position: i as usize,
+            attention_entropy: None,
+            activations: None,
         };
         let ring = RouterRing::new(0);
 
@@ -177,6 +181,8 @@ fn create_test_io_buffers() -> IoBuffers {
         input_ids: vec![1, 2, 3, 4, 5],
         output_logits: vec![0.0; 32000],
         position: 0,
+        attention_entropy: None,
+        activations: None,
     }
 }
 
@@ -490,6 +496,8 @@ fn test_stub_fallback_inference() {
         input_ids: vec![100, 200, 300, 400, 500],
         output_logits: vec![0.0; 32000],
         position: 0,
+        attention_entropy: None,
+        activations: None,
     };
     let ring = create_test_router_ring();
 

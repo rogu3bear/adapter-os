@@ -6,9 +6,11 @@
 //! ## State Flow
 //!
 //! ```text
-//! stopped -> starting -> db-connecting -> migrating -> seeding -> loading-policies ->
-//! starting-backend -> loading-base-models -> loading-adapters -> worker-discovery ->
-//! ready -> fully-ready -> draining -> stopping
+//! stopped -> starting -> security-init -> executor-init -> preflight -> boot-invariants ->
+//! db-connecting -> migrating -> post-db-invariants -> startup-recovery -> seeding ->
+//! loading-policies -> starting-backend -> loading-base-models -> loading-adapters ->
+//! worker-discovery -> router-build -> finalize -> bind -> ready -> fully-ready ->
+//! draining -> stopping
 //!
 //! Any state can transition to:
 //!   - failed (critical failure)
@@ -33,10 +35,22 @@ pub enum BootPhase {
     Stopped,
     /// Initial process startup (PID lock, config load)
     Starting,
+    /// Security subsystem initialization
+    SecurityInit,
+    /// Deterministic executor setup
+    ExecutorInit,
+    /// Security preflight checks
+    Preflight,
+    /// Pre-database invariant validation
+    BootInvariants,
     /// Establishing database connection
     DbConnecting,
     /// Running database migrations
     Migrating,
+    /// Post-database invariant validation
+    PostDbInvariants,
+    /// Orphaned resource recovery
+    StartupRecovery,
     /// Seeding initial data (dev fixtures, model cache)
     Seeding,
     /// Policy verification (hash watcher, baseline load)
@@ -49,6 +63,12 @@ pub enum BootPhase {
     LoadingAdapters,
     /// Discovering and registering worker processes
     WorkerDiscovery,
+    /// API router construction
+    RouterBuild,
+    /// Final boot preparation
+    Finalize,
+    /// Server socket binding
+    Bind,
     /// Accepting requests (HTTP/UDS), models may still be loading
     Ready,
     /// All priority models loaded and health-checked
@@ -114,14 +134,23 @@ impl BootPhase {
         matches!(
             self,
             BootPhase::Starting
+                | BootPhase::SecurityInit
+                | BootPhase::ExecutorInit
+                | BootPhase::Preflight
+                | BootPhase::BootInvariants
                 | BootPhase::DbConnecting
                 | BootPhase::Migrating
+                | BootPhase::PostDbInvariants
+                | BootPhase::StartupRecovery
                 | BootPhase::Seeding
                 | BootPhase::LoadingPolicies
                 | BootPhase::StartingBackend
                 | BootPhase::LoadingBaseModels
                 | BootPhase::LoadingAdapters
                 | BootPhase::WorkerDiscovery
+                | BootPhase::RouterBuild
+                | BootPhase::Finalize
+                | BootPhase::Bind
         )
     }
 
@@ -130,14 +159,23 @@ impl BootPhase {
         match self {
             BootPhase::Stopped => "stopped",
             BootPhase::Starting => "starting",
+            BootPhase::SecurityInit => "security-init",
+            BootPhase::ExecutorInit => "executor-init",
+            BootPhase::Preflight => "preflight",
+            BootPhase::BootInvariants => "boot-invariants",
             BootPhase::DbConnecting => "db-connecting",
             BootPhase::Migrating => "migrating",
+            BootPhase::PostDbInvariants => "post-db-invariants",
+            BootPhase::StartupRecovery => "startup-recovery",
             BootPhase::Seeding => "seeding",
             BootPhase::LoadingPolicies => "loading-policies",
             BootPhase::StartingBackend => "starting-backend",
             BootPhase::LoadingBaseModels => "loading-base-models",
             BootPhase::LoadingAdapters => "loading-adapters",
             BootPhase::WorkerDiscovery => "worker-discovery",
+            BootPhase::RouterBuild => "router-build",
+            BootPhase::Finalize => "finalize",
+            BootPhase::Bind => "bind",
             BootPhase::Ready => "ready",
             BootPhase::FullyReady => "fully-ready",
             BootPhase::Degraded => "degraded",
@@ -231,17 +269,30 @@ impl PhaseTransitions {
         // Standard boot sequence transitions
         matches!(
             (from, to),
-            // Boot sequence: stopped -> ... -> ready
+            // Boot sequence: stopped -> starting -> security -> executor -> preflight -> invariants
             (BootPhase::Stopped, BootPhase::Starting)
-                | (BootPhase::Starting, BootPhase::DbConnecting)
+                | (BootPhase::Starting, BootPhase::SecurityInit)
+                | (BootPhase::SecurityInit, BootPhase::ExecutorInit)
+                | (BootPhase::ExecutorInit, BootPhase::Preflight)
+                | (BootPhase::Preflight, BootPhase::BootInvariants)
+                // Database initialization
+                | (BootPhase::BootInvariants, BootPhase::DbConnecting)
                 | (BootPhase::DbConnecting, BootPhase::Migrating)
-                | (BootPhase::Migrating, BootPhase::Seeding)
+                | (BootPhase::Migrating, BootPhase::PostDbInvariants)
+                | (BootPhase::PostDbInvariants, BootPhase::StartupRecovery)
+                // Data and policy loading
+                | (BootPhase::StartupRecovery, BootPhase::Seeding)
                 | (BootPhase::Seeding, BootPhase::LoadingPolicies)
+                // Backend initialization
                 | (BootPhase::LoadingPolicies, BootPhase::StartingBackend)
                 | (BootPhase::StartingBackend, BootPhase::LoadingBaseModels)
                 | (BootPhase::LoadingBaseModels, BootPhase::LoadingAdapters)
                 | (BootPhase::LoadingAdapters, BootPhase::WorkerDiscovery)
-                | (BootPhase::WorkerDiscovery, BootPhase::Ready)
+                // Server finalization
+                | (BootPhase::WorkerDiscovery, BootPhase::RouterBuild)
+                | (BootPhase::RouterBuild, BootPhase::Finalize)
+                | (BootPhase::Finalize, BootPhase::Bind)
+                | (BootPhase::Bind, BootPhase::Ready)
                 // Ready state transitions
                 | (BootPhase::Ready, BootPhase::FullyReady)
                 | (BootPhase::Ready, BootPhase::Maintenance)
@@ -253,8 +304,11 @@ impl PhaseTransitions {
                 | (BootPhase::Degraded, BootPhase::Draining)
                 | (BootPhase::Maintenance, BootPhase::Draining)
                 | (BootPhase::Draining, BootPhase::Stopping)
-                // Allow skipping WorkerDiscovery for backwards compatibility
+                // Backwards compatibility: allow skipping infrastructure phases
+                | (BootPhase::Starting, BootPhase::DbConnecting)
+                | (BootPhase::Migrating, BootPhase::Seeding)
                 | (BootPhase::LoadingAdapters, BootPhase::Ready)
+                | (BootPhase::WorkerDiscovery, BootPhase::Ready)
         )
     }
 
@@ -264,15 +318,24 @@ impl PhaseTransitions {
     pub fn next_boot_phase(current: BootPhase) -> Option<BootPhase> {
         match current {
             BootPhase::Stopped => Some(BootPhase::Starting),
-            BootPhase::Starting => Some(BootPhase::DbConnecting),
+            BootPhase::Starting => Some(BootPhase::SecurityInit),
+            BootPhase::SecurityInit => Some(BootPhase::ExecutorInit),
+            BootPhase::ExecutorInit => Some(BootPhase::Preflight),
+            BootPhase::Preflight => Some(BootPhase::BootInvariants),
+            BootPhase::BootInvariants => Some(BootPhase::DbConnecting),
             BootPhase::DbConnecting => Some(BootPhase::Migrating),
-            BootPhase::Migrating => Some(BootPhase::Seeding),
+            BootPhase::Migrating => Some(BootPhase::PostDbInvariants),
+            BootPhase::PostDbInvariants => Some(BootPhase::StartupRecovery),
+            BootPhase::StartupRecovery => Some(BootPhase::Seeding),
             BootPhase::Seeding => Some(BootPhase::LoadingPolicies),
             BootPhase::LoadingPolicies => Some(BootPhase::StartingBackend),
             BootPhase::StartingBackend => Some(BootPhase::LoadingBaseModels),
             BootPhase::LoadingBaseModels => Some(BootPhase::LoadingAdapters),
             BootPhase::LoadingAdapters => Some(BootPhase::WorkerDiscovery),
-            BootPhase::WorkerDiscovery => Some(BootPhase::Ready),
+            BootPhase::WorkerDiscovery => Some(BootPhase::RouterBuild),
+            BootPhase::RouterBuild => Some(BootPhase::Finalize),
+            BootPhase::Finalize => Some(BootPhase::Bind),
+            BootPhase::Bind => Some(BootPhase::Ready),
             BootPhase::Ready => Some(BootPhase::FullyReady),
             // FullyReady has no single next phase (could be Draining or Maintenance)
             _ => None,

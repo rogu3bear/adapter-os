@@ -338,3 +338,4 @@ src/bin/test_*.rs
 
 # Harmony restoration artifacts
 .harmony/
+.venv-coreml311/

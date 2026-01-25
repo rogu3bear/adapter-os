@@ -335,7 +335,7 @@ mod tests {
 
         // Partial match should have score ~0.707
         assert_eq!(results[1].chunk_id, "partial");
-        assert!((results[1].score - 0.7071068).abs() < 1e-5);
+        assert!((results[1].score - std::f32::consts::FRAC_1_SQRT_2).abs() < 1e-5);
 
         // Orthogonal should have score ~0.0
         assert_eq!(results[2].chunk_id, "orthogonal");

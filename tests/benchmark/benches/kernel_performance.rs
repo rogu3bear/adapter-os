@@ -28,6 +28,8 @@ fn bench_metal_kernels(c: &mut Criterion) {
             input_ids: input_ids.clone(),
             output_logits: vec![0.0f32; vocab_size],
             position: 0,
+            attention_entropy: None,
+            activations: None,
         };
 
         // Create router ring with sample adapters
@@ -41,6 +43,8 @@ fn bench_metal_kernels(c: &mut Criterion) {
                     input_ids: input_ids.clone(),
                     output_logits: vec![0.0f32; vocab_size],
                     position: 0,
+                    attention_entropy: None,
+                    activations: None,
                 };
                 kernels.run_step(&router_ring, &mut io_copy).unwrap();
                 black_box(());

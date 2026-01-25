@@ -202,7 +202,7 @@ fn extract_first_sentence(content: &str) -> Option<String> {
         }
 
         // Find sentence boundary (., !, ?)
-        let sentence = if let Some(pos) = trimmed.find(|c| c == '.' || c == '!' || c == '?') {
+        let sentence = if let Some(pos) = trimmed.find(['.', '!', '?']) {
             // Include the punctuation
             trimmed[..=pos].to_string()
         } else {

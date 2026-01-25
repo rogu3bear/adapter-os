@@ -415,41 +415,43 @@ fn AdapterDetailContent(
                     })}
 
                     // Load button (shown if unloaded/cold and callback provided)
-                    {(can_load && on_load.is_some()).then(|| {
-                        let callback = on_load.clone().unwrap();
-                        let id = adapter_id_for_load.clone();
-                        view! {
-                            <Button
-                                variant=ButtonVariant::Primary
-                                on_click=Callback::new(move |_| callback.run(id.clone()))
-                            >
-                                <span class="flex items-center gap-2">
-                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
-                                    </svg>
-                                    "Load Adapter"
-                                </span>
-                            </Button>
-                        }
+                    {on_load.clone().and_then(|callback| {
+                        can_load.then(|| {
+                            let id = adapter_id_for_load.clone();
+                            view! {
+                                <Button
+                                    variant=ButtonVariant::Primary
+                                    on_click=Callback::new(move |_| callback.run(id.clone()))
+                                >
+                                    <span class="flex items-center gap-2">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+                                        </svg>
+                                        "Load Adapter"
+                                    </span>
+                                </Button>
+                            }
+                        })
                     })}
 
                     // Unload button (shown if hot/warm/resident and callback provided)
-                    {(can_unload && on_unload.is_some()).then(|| {
-                        let callback = on_unload.clone().unwrap();
-                        let id = adapter_id_for_unload.clone();
-                        view! {
-                            <Button
-                                variant=ButtonVariant::Destructive
-                                on_click=Callback::new(move |_| callback.run(id.clone()))
-                            >
-                                <span class="flex items-center gap-2">
-                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-                                    </svg>
-                                    "Unload Adapter"
-                                </span>
-                            </Button>
-                        }
+                    {on_unload.clone().and_then(|callback| {
+                        can_unload.then(|| {
+                            let id = adapter_id_for_unload.clone();
+                            view! {
+                                <Button
+                                    variant=ButtonVariant::Destructive
+                                    on_click=Callback::new(move |_| callback.run(id.clone()))
+                                >
+                                    <span class="flex items-center gap-2">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                                        </svg>
+                                        "Unload Adapter"
+                                    </span>
+                                </Button>
+                            }
+                        })
                     })}
                 </div>
             </Card>

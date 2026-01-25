@@ -21,8 +21,8 @@ use adapteros_config::{
     resolve_worker_socket_for_worker,
 };
 use adapteros_core::{
-    constants::DEFAULT_ADAPTER_CACHE_SIZE, AosError, B3Hash, ExecutionProfile, Result, SeedMode,
-    WorkerStatus,
+    constants::DEFAULT_ADAPTER_CACHE_SIZE, resolve_var_dir, AosError, B3Hash, ExecutionProfile,
+    Result, SeedMode, WorkerStatus,
 };
 use adapteros_lora_kernel_api::MockKernels;
 use adapteros_lora_worker::{
@@ -46,7 +46,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-use std::{fs, path::PathBuf, time::Duration};
+use std::{fs, time::Duration};
 use tokio::signal;
 use tokio::sync::Mutex;
 use tracing::{error, info, info_span, warn};
@@ -815,8 +815,14 @@ pub async fn run_worker() -> Result<()> {
     {
         let mut guard = worker.lock().await;
         let telemetry_for_monitor = guard.telemetry().clone();
+        // Allow configuring max memory growth for large models (default 8GB for 4-bit quantized models)
+        let max_memory_growth = std::env::var("AOS_MAX_MEMORY_GROWTH_BYTES")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(8 * 1024 * 1024 * 1024); // 8GB default
         let config = HealthConfig {
             check_interval: std::time::Duration::from_secs(heartbeat_interval as u64),
+            max_memory_growth,
             ..Default::default()
         };
         guard.set_health_monitor(Arc::new(if let Some(t) = telemetry_for_monitor {
@@ -832,9 +838,14 @@ pub async fn run_worker() -> Result<()> {
     // In non-strict mode, we try once and fall back to no authentication if key is missing.
     const KEY_LOAD_DEADLINE: std::time::Duration = std::time::Duration::from_secs(120);
 
+    let keys_dir = resolve_var_dir().join("keys");
+    let keys_dir_str = keys_dir.to_string_lossy();
     let worker_verifying_key = if args.strict {
         // Strict mode: use retry with deadline, then fail with transient error code
-        match adapteros_boot::load_worker_public_key_with_retry("var/keys", KEY_LOAD_DEADLINE) {
+        match adapteros_boot::load_worker_public_key_with_retry(
+            keys_dir_str.as_ref(),
+            KEY_LOAD_DEADLINE,
+        ) {
             Ok(key) => {
                 info!("Worker public key loaded for CP->Worker authentication");
                 Some(key)
@@ -851,7 +862,7 @@ pub async fn run_worker() -> Result<()> {
         }
     } else {
         // Non-strict mode: try once, fall back to no auth if missing
-        match adapteros_boot::load_worker_public_key("var/keys") {
+        match adapteros_boot::load_worker_public_key(keys_dir_str.as_ref()) {
             Ok(key) => {
                 info!("Worker public key loaded for CP->Worker authentication");
                 Some(key)
@@ -869,7 +880,7 @@ pub async fn run_worker() -> Result<()> {
     // Initialize persistent JTI cache for replay defense (only when auth is enabled)
     // The cache is loaded from disk on startup and persisted on shutdown.
     let jti_cache = if worker_verifying_key.is_some() {
-        let jti_cache_path = PathBuf::from("var/keys/jti_cache.json");
+        let jti_cache_path = keys_dir.join("jti_cache.json");
         let cache = JtiCacheStore::load_or_new(jti_cache_path);
         info!(
             entries = cache.len(),

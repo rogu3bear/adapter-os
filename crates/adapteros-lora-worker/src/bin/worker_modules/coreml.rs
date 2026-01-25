@@ -420,7 +420,7 @@ pub fn run_coreml_boot_smoke(
         ));
     }
 
-    let mut ring = RouterRing::new(0);
+    let ring = RouterRing::new(0);
     let mut io = IoBuffers::new(vocab_size);
     io.input_ids = vec![0; input_len];
 

@@ -789,14 +789,23 @@ fn map_boot_state(state: &AppState) -> String {
             BootState::Stopped => "stopped",
             // All booting states (new granular states + legacy aliases)
             BootState::Starting
+            | BootState::SecurityInit
+            | BootState::ExecutorInit
+            | BootState::Preflight
+            | BootState::BootInvariants
             | BootState::DbConnecting
             | BootState::Migrating
+            | BootState::PostDbInvariants
+            | BootState::StartupRecovery
             | BootState::Seeding
             | BootState::LoadingPolicies
             | BootState::StartingBackend
             | BootState::LoadingBaseModels
             | BootState::LoadingAdapters
-            | BootState::WorkerDiscovery => "booting",
+            | BootState::WorkerDiscovery
+            | BootState::RouterBuild
+            | BootState::Finalize
+            | BootState::Bind => "booting",
             BootState::Ready | BootState::FullyReady => "ready",
             BootState::Degraded => "degraded",
             BootState::Failed => "failed",

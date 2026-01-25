@@ -9,7 +9,7 @@
 use std::path::PathBuf;
 
 use adapteros_agent_spawn::protocol::{
-    FileModification, ModificationType, TaskAssignment, TaskConstraints, TaskProposal, TaskScope,
+    ModificationType, TaskAssignment, TaskConstraints, TaskProposal, TaskScope,
 };
 
 // Re-export the worker_executor module functions for testing

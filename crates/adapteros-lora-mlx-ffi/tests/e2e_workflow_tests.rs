@@ -197,6 +197,8 @@ mod e2e_workflow_tests {
             input_ids: input_tokens.clone(),
             output_logits: vec![0.0; ctx.vocab_size],
             position: 0,
+            attention_entropy: None,
+            activations: None,
         };
 
         // Step 4: Run multiple inference steps
@@ -297,6 +299,8 @@ mod e2e_workflow_tests {
                 input_ids: vec![1, 2, 3],
                 output_logits: vec![0.0; ctx.vocab_size],
                 position: 0,
+                attention_entropy: None,
+                activations: None,
             };
 
             let result = ctx.backend.run_step(&ring, &mut io);
@@ -328,6 +332,8 @@ mod e2e_workflow_tests {
             input_ids: vec![100, 200, 300],
             output_logits: vec![0.0; ctx.vocab_size],
             position: 0,
+            attention_entropy: None,
+            activations: None,
         };
 
         let result = ctx.backend.run_step(&ring, &mut io);
@@ -362,6 +368,8 @@ mod e2e_workflow_tests {
             input_ids: vec![1, 2, 3, 4, 5],
             output_logits: vec![0.0; ctx.vocab_size],
             position: 0,
+            attention_entropy: None,
+            activations: None,
         };
 
         // Run a few steps with adapter A
@@ -421,6 +429,8 @@ mod e2e_workflow_tests {
             input_ids: vec![100, 200, 300],
             output_logits: vec![0.0; ctx.vocab_size],
             position: 0,
+            attention_entropy: None,
+            activations: None,
         };
 
         // Start with code adapter
@@ -471,6 +481,8 @@ mod e2e_workflow_tests {
             input_ids: vec![50, 100, 150],
             output_logits: vec![0.0; ctx.vocab_size],
             position: 0,
+            attention_entropy: None,
+            activations: None,
         };
 
         // Gradual transition: A=100%, A=75%/B=25%, A=50%/B=50%, A=25%/B=75%, B=100%
@@ -555,6 +567,8 @@ mod e2e_workflow_tests {
             input_ids: vec![1, 2, 3],
             output_logits: vec![0.0; ctx.vocab_size],
             position: 0,
+            attention_entropy: None,
+            activations: None,
         };
 
         let result = ctx.backend.run_step(&ring, &mut io);
@@ -631,6 +645,8 @@ mod e2e_workflow_tests {
                 input_ids: vec![1, 2, 3],
                 output_logits: vec![0.0; ctx.vocab_size],
                 position: 0,
+                attention_entropy: None,
+                activations: None,
             };
             ctx.backend.run_step(&ring, &mut io).unwrap();
 
@@ -688,6 +704,8 @@ mod e2e_workflow_tests {
                 input_ids: input_tokens,
                 output_logits: vec![0.0; ctx.vocab_size],
                 position: 0,
+                attention_entropy: None,
+                activations: None,
             };
 
             // Collect outputs for this run
@@ -743,6 +761,8 @@ mod e2e_workflow_tests {
                     input_ids: vec![1, 2, 3],
                     output_logits: vec![0.0; ctx.vocab_size],
                     position,
+                    attention_entropy: None,
+                    activations: None,
                 };
 
                 ctx.backend.run_step(&ring, &mut io).unwrap();
@@ -789,6 +809,8 @@ mod e2e_workflow_tests {
                 input_ids: vec![100, 200, 300],
                 output_logits: vec![0.0; ctx.vocab_size],
                 position: 0,
+                attention_entropy: None,
+                activations: None,
             };
 
             ctx.backend.run_step(&ring, &mut io).unwrap();
@@ -1078,6 +1100,8 @@ mod e2e_workflow_tests {
                 input_ids: vec![1, 2, 3, 4, 5],
                 output_logits: vec![0.0; ctx.vocab_size],
                 position: 0,
+                attention_entropy: None,
+                activations: None,
             };
 
             for step in 0..5 {
@@ -1097,6 +1121,8 @@ mod e2e_workflow_tests {
             input_ids: vec![100, 200, 300],
             output_logits: vec![0.0; ctx.vocab_size],
             position: 0,
+            attention_entropy: None,
+            activations: None,
         };
 
         ctx.backend.run_step(&ring, &mut io).unwrap();
@@ -1141,6 +1167,8 @@ mod e2e_workflow_tests {
             input_ids: vec![1, 2, 3],
             output_logits: vec![0.0; ctx.vocab_size],
             position: 0,
+            attention_entropy: None,
+            activations: None,
         };
 
         ctx.backend.run_step(&ring, &mut io).unwrap();

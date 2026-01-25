@@ -14,7 +14,7 @@
 use crate::commands::log_digest::{LogEntry, LogLevel};
 use crate::commands::log_triage::{IssueCategory, Severity, TriageResult, TriagedEntry};
 use crate::output::OutputWriter;
-use adapteros_core::{AosError, Result};
+use adapteros_core::{rebase_var_path, AosError, Result};
 use chrono::Utc;
 use clap::Args;
 use serde::{Deserialize, Serialize};
@@ -86,8 +86,9 @@ struct SystemContext {
 /// Run the log prompt command
 pub async fn run(args: LogPromptArgs, output: &OutputWriter) -> Result<()> {
     // Run triage to get categorized entries
+    let log_dir = rebase_var_path(&args.log_dir);
     let triage_args = super::log_triage::LogTriageArgs {
-        log_dir: args.log_dir.clone(),
+        log_dir,
         rules: None,
         since: args.since.clone(),
         max_entries: args.max_entries,
@@ -165,7 +166,7 @@ async fn run_triage_internal(args: &super::log_triage::LogTriageArgs) -> Result<
     use std::fs::File;
     use std::io::{BufRead, BufReader};
 
-    let log_dir = &args.log_dir;
+    let log_dir = rebase_var_path(&args.log_dir);
 
     if !log_dir.exists() {
         return Ok(TriageResult {
@@ -180,7 +181,7 @@ async fn run_triage_internal(args: &super::log_triage::LogTriageArgs) -> Result<
 
     // Collect entries
     let mut all_entries = Vec::new();
-    let log_files = collect_log_files_simple(log_dir)?;
+    let log_files = collect_log_files_simple(&log_dir)?;
 
     for log_file in &log_files {
         let file = match File::open(log_file) {
@@ -285,7 +286,7 @@ fn try_parse_json(line: &str, source_file: &str, line_number: usize) -> Option<L
     let level = json
         .get("level")
         .and_then(|v| v.as_str())
-        .map(LogLevel::from_str)
+        .map(LogLevel::parse)
         .unwrap_or(LogLevel::Unknown);
 
     let message = json

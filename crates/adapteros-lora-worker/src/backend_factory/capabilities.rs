@@ -716,7 +716,10 @@ pub fn resolve_reasoning_aware_backend(
 ///
 /// This is a convenience function that checks both explicit `reasoning_mode` flag
 /// and any `requires_reasoning` tag in request metadata (future extension point).
-pub fn should_use_reasoning_backend(reasoning_mode: bool, _metadata: Option<&serde_json::Value>) -> bool {
+pub fn should_use_reasoning_backend(
+    reasoning_mode: bool,
+    _metadata: Option<&serde_json::Value>,
+) -> bool {
     // Primary check: explicit reasoning_mode flag
     if reasoning_mode {
         return true;

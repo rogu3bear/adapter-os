@@ -7,7 +7,7 @@ pub use adapteros_core::defaults::{
     DEV_MANIFEST_PATH, DEV_MODEL_PATH,
 };
 use adapteros_core::paths::AOS_ADAPTERS_DIR_ENV;
-use adapteros_core::{AosError, Result};
+use adapteros_core::{rebase_var_path, AosError, Result};
 use std::path::{Path, PathBuf};
 
 /// Absolute prefixes that are forbidden for system/local sockets.
@@ -62,6 +62,11 @@ pub struct BaseModelLocation {
     pub full_path: PathBuf,
 }
 
+fn is_url_like(value: &str) -> bool {
+    let trimmed = value.trim();
+    trimmed.starts_with("sqlite:") || trimmed.starts_with("file:")
+}
+
 /// Resolve manifest path with precedence: env > CLI > config > dev fallback.
 ///
 /// In release builds (`debug_assertions` off), dev fallback is rejected and an error is returned
@@ -104,7 +109,7 @@ pub fn resolve_base_model_location(
     // Only use if no canonical env vars and no overrides are provided
     if !has_canonical_env && id_override.is_none() && cache_root_override.is_none() {
         if let Ok(legacy_path) = std::env::var("AOS_MODEL_PATH") {
-            let full_path = PathBuf::from(&legacy_path);
+            let full_path = rebase_var_path(PathBuf::from(&legacy_path));
             reject_tmp_persistent_path(&full_path, "model-path")?;
             tracing::warn!(
                 legacy_var = "AOS_MODEL_PATH",
@@ -122,7 +127,7 @@ pub fn resolve_base_model_location(
             let cache_root = full_path
                 .parent()
                 .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from(DEFAULT_MODEL_CACHE_ROOT));
+                .unwrap_or_else(|| rebase_var_path(DEFAULT_MODEL_CACHE_ROOT));
             reject_tmp_persistent_path(&cache_root, "model-cache-root")?;
 
             if require_existing && !full_path.exists() {
@@ -151,14 +156,15 @@ pub fn resolve_base_model_location(
         .unwrap_or_else(|| DEFAULT_BASE_MODEL_ID.to_string());
 
     let cache_root = cache_root_override
-        .map(PathBuf::from)
-        .or_else(|| std::env::var("AOS_MODEL_CACHE_DIR").ok().map(PathBuf::from))
+        .map(rebase_var_path)
+        .or_else(|| std::env::var("AOS_MODEL_CACHE_DIR").ok().map(rebase_var_path))
         .or_else(|| {
             effective
                 .and_then(|cfg| cfg.model.cache_root.as_ref())
                 .cloned()
         })
-        .unwrap_or_else(|| PathBuf::from(DEFAULT_MODEL_CACHE_ROOT));
+        .map(rebase_var_path)
+        .unwrap_or_else(|| rebase_var_path(DEFAULT_MODEL_CACHE_ROOT));
 
     reject_tmp_persistent_path(&cache_root, "model-cache-root")?;
     let full_path = cache_root.join(&id);
@@ -195,7 +201,7 @@ pub fn resolve_embedding_model_path_with_override(
     crate::model::load_dotenv();
 
     if let Some(path) = cli_override {
-        let path = path.to_path_buf();
+        let path = rebase_var_path(path);
         reject_tmp_persistent_path(&path, "embedding-model")?;
         tracing::info!(
             path = %path.display(),
@@ -226,7 +232,7 @@ pub fn resolve_qwen_int4_manifest_dir() -> Result<ResolvedPath> {
     crate::model::load_dotenv();
     if let Ok(val) = std::env::var("AOS_QWEN_INT4_DIR") {
         if !val.is_empty() {
-            let path = PathBuf::from(&val);
+            let path = rebase_var_path(PathBuf::from(&val));
             reject_tmp_persistent_path(&path, "qwen-int4-manifest-dir")?;
             tracing::info!(
                 path = %path.display(),
@@ -241,7 +247,7 @@ pub fn resolve_qwen_int4_manifest_dir() -> Result<ResolvedPath> {
         }
     }
 
-    let default_path = PathBuf::from(DEFAULT_QWEN_INT4_MANIFEST_DIR);
+    let default_path = rebase_var_path(DEFAULT_QWEN_INT4_MANIFEST_DIR);
     if default_path.exists() {
         reject_tmp_persistent_path(&default_path, "qwen-int4-manifest-dir")?;
         tracing::info!(
@@ -286,7 +292,7 @@ pub fn resolve_manifest_cache_dir() -> Result<ResolvedPath> {
 pub fn resolve_adapters_root() -> Result<ResolvedPath> {
     crate::model::load_dotenv();
     if let Ok(env_path) = std::env::var(AOS_ADAPTERS_ROOT_ENV) {
-        let path = PathBuf::from(&env_path);
+        let path = rebase_var_path(PathBuf::from(&env_path));
         reject_tmp_persistent_path(&path, "adapters-root")?;
         tracing::info!(
             path = %path.display(),
@@ -301,7 +307,7 @@ pub fn resolve_adapters_root() -> Result<ResolvedPath> {
     }
 
     if let Ok(env_path) = std::env::var(AOS_ADAPTERS_DIR_ENV) {
-        let path = PathBuf::from(&env_path);
+        let path = rebase_var_path(PathBuf::from(&env_path));
         reject_tmp_persistent_path(&path, "adapters-root")?;
         tracing::info!(
             path = %path.display(),
@@ -315,7 +321,7 @@ pub fn resolve_adapters_root() -> Result<ResolvedPath> {
         });
     }
 
-    let path = PathBuf::from(DEFAULT_ADAPTERS_ROOT);
+    let path = rebase_var_path(DEFAULT_ADAPTERS_ROOT);
     reject_tmp_persistent_path(&path, "adapters-root")?;
     tracing::info!(
         path = %path.display(),
@@ -391,21 +397,22 @@ pub fn resolve_worker_socket_for_worker(
 ) -> Result<ResolvedPath> {
     crate::model::load_dotenv();
     if let Some(path) = override_path {
-        reject_tmp_socket(path, "worker")?;
+        let path = rebase_var_path(path);
+        reject_tmp_socket(&path, "worker")?;
         tracing::info!(
             path = %path.display(),
             source = %PathSource::Cli,
             "Resolved worker socket from CLI/env override"
         );
         return Ok(ResolvedPath {
-            path: path.to_path_buf(),
+            path,
             source: PathSource::Cli,
             used_dev_fallback: false,
         });
     }
 
     if let Ok(env_path) = std::env::var("AOS_WORKER_SOCKET") {
-        let path = PathBuf::from(&env_path);
+        let path = rebase_var_path(PathBuf::from(&env_path));
         reject_tmp_socket(&path, "worker")?;
         tracing::info!(
             path = %path.display(),
@@ -468,7 +475,7 @@ pub fn resolve_worker_socket_for_worker(
 pub fn resolve_worker_socket_for_cp() -> Result<ResolvedPath> {
     crate::model::load_dotenv();
     if let Ok(env_path) = std::env::var("AOS_WORKER_SOCKET") {
-        let path = PathBuf::from(&env_path);
+        let path = rebase_var_path(PathBuf::from(&env_path));
         reject_tmp_socket(&path, "control-plane")?;
         tracing::info!(
             path = %path.display(),
@@ -735,7 +742,7 @@ fn resolve_path(
     // 1) Environment
     if let Ok(val) = std::env::var(env_var) {
         if !val.is_empty() {
-            let path = PathBuf::from(&val);
+            let path = rebase_var_path(PathBuf::from(&val));
             reject_tmp_persistent_path(&path, kind)?;
             validate_path_exists(&path, kind, env_var)?;
             tracing::info!(path = %path.display(), source = %PathSource::Env(env_var), kind, "Resolved {} path from environment", kind);
@@ -749,8 +756,9 @@ fn resolve_path(
 
     // 2) CLI override
     if let Some(path) = cli_override {
-        reject_tmp_persistent_path(path, kind)?;
-        validate_path_exists(path, kind, "CLI")?;
+        let path = rebase_var_path(path);
+        reject_tmp_persistent_path(&path, kind)?;
+        validate_path_exists(&path, kind, "CLI")?;
         tracing::info!(
             path = %path.display(),
             source = %PathSource::Cli,
@@ -759,7 +767,7 @@ fn resolve_path(
             kind
         );
         return Ok(ResolvedPath {
-            path: path.clone(),
+            path,
             source: PathSource::Cli,
             used_dev_fallback: false,
         });
@@ -767,8 +775,9 @@ fn resolve_path(
 
     // 3) Config file
     if let Some(path) = config_path {
-        reject_tmp_persistent_path(path, kind)?;
-        validate_path_exists(path, kind, "config")?;
+        let path = rebase_var_path(path);
+        reject_tmp_persistent_path(&path, kind)?;
+        validate_path_exists(&path, kind, "config")?;
         tracing::info!(
             path = %path.display(),
             source = %PathSource::Config("config-file"),
@@ -777,7 +786,7 @@ fn resolve_path(
             kind
         );
         return Ok(ResolvedPath {
-            path: path.clone(),
+            path,
             source: PathSource::Config("config-file"),
             used_dev_fallback: false,
         });
@@ -792,7 +801,7 @@ fn resolve_path(
             )));
         }
 
-        let path = PathBuf::from(fallback);
+        let path = rebase_var_path(fallback);
         reject_tmp_persistent_path(&path, kind)?;
         if !path.exists() {
             tracing::warn!(
@@ -832,7 +841,7 @@ fn resolve_env_or_default(
     crate::model::load_dotenv();
     if let Ok(val) = std::env::var(env_var) {
         if !val.is_empty() {
-            let path = PathBuf::from(&val);
+            let path = rebase_var_path(PathBuf::from(&val));
             tracing::info!(
                 path = %path.display(),
                 source = %PathSource::Env(env_var),
@@ -864,30 +873,10 @@ fn resolve_env_or_default(
 }
 
 fn rebase_default_var_path(default: &str) -> PathBuf {
-    let var_dir = std::env::var("AOS_VAR_DIR")
-        .ok()
-        .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty());
-    let Some(var_dir) = var_dir else {
+    if is_url_like(default) {
         return PathBuf::from(default);
-    };
-
-    let trimmed = default.trim_start_matches("./");
-    let stripped = if trimmed == "var" {
-        Some("")
-    } else {
-        trimmed.strip_prefix("var/")
-    };
-
-    if let Some(rest) = stripped {
-        let mut rebased = PathBuf::from(var_dir);
-        if !rest.is_empty() {
-            rebased = rebased.join(rest);
-        }
-        return rebased;
     }
-
-    PathBuf::from(default)
+    rebase_var_path(default)
 }
 
 fn resolve_env_or_default_no_tmp(
@@ -918,7 +907,7 @@ mod tests {
     use super::*;
     use crate::schema::default_schema;
     use crate::test_support::TestEnvGuard;
-    use adapteros_core::defaults as core_defaults;
+    use adapteros_core::{defaults as core_defaults, rebase_var_path, resolve_var_dir};
     use std::fs;
     use std::path::PathBuf;
     use tempfile::TempDir;
@@ -1076,7 +1065,10 @@ mod tests {
         let _env = TestEnvGuard::new();
         std::env::set_var("AOS_TELEMETRY_DIR", "./var/aos-telemetry-env");
         let resolved = resolve_telemetry_dir().unwrap();
-        assert_eq!(resolved.path, PathBuf::from("./var/aos-telemetry-env"));
+        assert_eq!(
+            resolved.path,
+            rebase_var_path("./var/aos-telemetry-env")
+        );
         assert_eq!(resolved.source, PathSource::Env("AOS_TELEMETRY_DIR"));
         std::env::remove_var("AOS_TELEMETRY_DIR");
     }
@@ -1239,7 +1231,7 @@ mod tests {
 
         let resolved =
             resolve_worker_socket_for_worker("tenant-x", Some(cli_path.as_path())).unwrap();
-        assert_eq!(resolved.path, cli_path);
+        assert_eq!(resolved.path, rebase_var_path(&cli_path));
         assert_eq!(resolved.source, PathSource::Cli);
 
         std::env::remove_var("AOS_WORKER_SOCKET");
@@ -1253,7 +1245,7 @@ mod tests {
         let resolved = resolve_worker_socket_for_worker("tenant-x", None).unwrap();
         assert_eq!(
             resolved.path,
-            PathBuf::from("./var/test-env-only.worker.sock")
+            rebase_var_path("./var/test-env-only.worker.sock")
         );
         assert_eq!(resolved.source, PathSource::Env("AOS_WORKER_SOCKET"));
 
@@ -1337,7 +1329,10 @@ mod tests {
         let _env = TestEnvGuard::new();
         std::env::remove_var("AOS_EMBEDDING_MODEL_PATH");
         let resolved = resolve_embedding_model_path().unwrap();
-        assert_eq!(resolved.path, PathBuf::from(DEFAULT_EMBEDDING_MODEL_PATH));
+        assert_eq!(
+            resolved.path,
+            rebase_var_path(DEFAULT_EMBEDDING_MODEL_PATH)
+        );
         assert_eq!(resolved.source, PathSource::Default("embedding-model"));
     }
 
@@ -1346,10 +1341,7 @@ mod tests {
         let _env = TestEnvGuard::new();
         std::env::set_var("AOS_VAR_DIR", "./var/custom-root");
         let resolved = resolve_status_path().unwrap();
-        assert_eq!(
-            resolved.path,
-            PathBuf::from("./var/custom-root/run/adapteros_status.json")
-        );
+        assert_eq!(resolved.path, resolve_var_dir().join("run/adapteros_status.json"));
         assert_eq!(resolved.source, PathSource::Default("status-path"));
     }
 
@@ -1358,10 +1350,7 @@ mod tests {
         let _env = TestEnvGuard::new();
         std::env::set_var("AOS_VAR_DIR", "./var/custom-root");
         let resolved = resolve_worker_socket_for_cp().unwrap();
-        assert_eq!(
-            resolved.path,
-            PathBuf::from("./var/custom-root/run/adapteros.sock")
-        );
+        assert_eq!(resolved.path, resolve_var_dir().join("run/adapteros.sock"));
         assert_eq!(resolved.source, PathSource::Default("worker-socket-cp"));
     }
 

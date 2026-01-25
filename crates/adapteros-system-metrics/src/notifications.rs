@@ -549,11 +549,11 @@ impl NotificationService {
         {
             // Feature flag not enabled - return clear error message
             let _ = notification; // Suppress unused warning
-            return Err(adapteros_core::AosError::Config(
+            Err(adapteros_core::AosError::Config(
                 "SMS notifications require the 'sms' feature flag. \
                  Recompile with: cargo build --features sms"
                     .to_string(),
-            ));
+            ))
         }
 
         #[cfg(feature = "sms")]

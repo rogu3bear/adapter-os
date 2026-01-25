@@ -498,20 +498,20 @@ impl SeparatedLoRATrainer {
         // Gradient for LoRA_B: d_loss/d_B = grad_logits^T @ intermediate
         // where intermediate = hidden @ A^T
         let mut intermediate = vec![0.0; self.config.rank];
-        for r in 0..self.config.rank {
+        for (r, inter_val) in intermediate.iter_mut().enumerate().take(self.config.rank) {
             for (h_idx, &h_val) in hidden.iter().enumerate() {
                 if h_idx < weights.lora_a[r].len() {
-                    intermediate[r] += h_val * weights.lora_a[r][h_idx];
+                    *inter_val += h_val * weights.lora_a[r][h_idx];
                 }
             }
         }
 
         // Update LoRA_B: gradient = grad_logits (outer product) intermediate
-        for h_idx in 0..self.config.hidden_dim.min(grad_logits.len()) {
+        for (h_idx, &grad_logit) in grad_logits.iter().enumerate().take(self.config.hidden_dim.min(grad_logits.len())) {
             if h_idx < weights.lora_b.len() {
-                for r in 0..self.config.rank {
+                for (r, &inter_val) in intermediate.iter().enumerate().take(self.config.rank) {
                     if r < weights.lora_b[h_idx].len() {
-                        let grad = grad_logits[h_idx] * intermediate[r] * lora_scale;
+                        let grad = grad_logit * inter_val * lora_scale;
                         weights.lora_b[h_idx][r] -= learning_rate * grad;
                     }
                 }
@@ -521,19 +521,19 @@ impl SeparatedLoRATrainer {
         // Gradient for LoRA_A: d_loss/d_A = B^T @ grad_logits^T @ hidden
         // First compute B^T @ grad_logits
         let mut grad_intermediate = vec![0.0; self.config.rank];
-        for r in 0..self.config.rank {
-            for h_idx in 0..self.config.hidden_dim.min(grad_logits.len()) {
+        for (r, grad_inter_val) in grad_intermediate.iter_mut().enumerate().take(self.config.rank) {
+            for (h_idx, &grad_logit) in grad_logits.iter().enumerate().take(self.config.hidden_dim.min(grad_logits.len())) {
                 if h_idx < weights.lora_b.len() && r < weights.lora_b[h_idx].len() {
-                    grad_intermediate[r] += weights.lora_b[h_idx][r] * grad_logits[h_idx];
+                    *grad_inter_val += weights.lora_b[h_idx][r] * grad_logit;
                 }
             }
         }
 
         // Update LoRA_A: gradient = grad_intermediate (outer product) hidden
-        for r in 0..self.config.rank {
-            for h_idx in 0..self.config.hidden_dim.min(hidden.len()) {
+        for (r, &grad_inter_val) in grad_intermediate.iter().enumerate().take(self.config.rank) {
+            for (h_idx, &h_val) in hidden.iter().enumerate().take(self.config.hidden_dim.min(hidden.len())) {
                 if h_idx < weights.lora_a[r].len() {
-                    let grad = grad_intermediate[r] * hidden[h_idx] * lora_scale;
+                    let grad = grad_inter_val * h_val * lora_scale;
                     weights.lora_a[r][h_idx] -= learning_rate * grad;
                 }
             }
