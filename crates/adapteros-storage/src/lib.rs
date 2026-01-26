@@ -316,3 +316,13 @@ impl StorageUsage {
         self.available_bytes.saturating_sub(self.used_bytes)
     }
 }
+
+// Secure filesystem abstractions
+pub mod secure_fs;
+// Platform-specific utilities
+pub mod platform;
+
+// Re-export secure filesystem types
+pub use secure_fs::{SecureFs, SecurePath, PathPolicy};
+// Re-export platform utilities
+pub use platform::{Platform, PlatformPaths};

@@ -10,9 +10,26 @@ adapteros-core = { path = "../adapteros-core" }
 adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-embeddings = { path = "../adapteros-embeddings" }
 adapteros-ingest-docs = { path = "../adapteros-ingest-docs" }
-adapteros-lora-rag = { path = "../adapteros-lora-rag" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
-
+# RAG dependencies
+hnsw_rs = { workspace = true }
+tantivy = { workspace = true }
+anyhow = { workspace = true }
+# Codegraph dependencies  
+tree-sitter = "0.26.3"
+tree-sitter-rust = "0.24.0"
+tree-sitter-python = "0.25.0"
+tree-sitter-typescript = "0.23.2"
+tree-sitter-javascript = "0.25.0"
+tree-sitter-go = "0.25.0"
+bincode = { workspace = true }
+git2 = "0.18"
+toml = "0.8"
+walkdir = { workspace = true }
+streaming-iterator = "0.1"
+env_logger = "0.11"
+clap = { version = "4.0", features = ["derive"] }
+# Shared dependencies
 async-trait = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -22,11 +39,16 @@ tracing = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
 regex = { workspace = true }
-
+sqlx = { workspace = true, features = ["runtime-tokio", "sqlite", "chrono"] }
+tokio = { workspace = true, features = ["fs"] }
 [features]
-default = []
+default = ["fts5"]
 hnsw = []
-
+fts5 = []
 [dev-dependencies]
-tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "full"] }
 tempfile = { workspace = true }
+tokio-test = "0.4"
+[[bin]]
+name = "codegraph"
+path = "src/codegraph/bin/codegraph.rs"
