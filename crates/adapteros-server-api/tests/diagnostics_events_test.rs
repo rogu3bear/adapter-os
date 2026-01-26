@@ -5,7 +5,7 @@
 #![allow(unused_imports)]
 
 use adapteros_telemetry::diagnostics::{
-    DiagEnvelope, DiagEvent, DiagRunId, DiagSeverity, DiagStage, DiagnosticsConfig,
+    DiagEnvelope, DiagEvent, DiagLevel, DiagRunId, DiagSeverity, DiagStage, DiagnosticsConfig,
     DiagnosticsService, StageGuard,
 };
 use adapteros_telemetry::tracing::TraceContext;
@@ -17,7 +17,7 @@ use tokio::sync::mpsc;
 async fn test_stage_guard_success_flow() {
     let config = DiagnosticsConfig {
         enabled: true,
-        level: adapteros_diagnostics::DiagLevel::Tokens,
+        level: DiagLevel::Tokens,
         channel_capacity: 100,
         ..Default::default()
     };
@@ -75,7 +75,7 @@ async fn test_stage_guard_success_flow() {
 async fn test_stage_guard_failure_flow() {
     let config = DiagnosticsConfig {
         enabled: true,
-        level: adapteros_diagnostics::DiagLevel::Tokens,
+        level: DiagLevel::Tokens,
         channel_capacity: 100,
         ..Default::default()
     };
@@ -124,7 +124,7 @@ async fn test_stage_guard_failure_flow() {
 async fn test_stage_guard_drop_without_complete() {
     let config = DiagnosticsConfig {
         enabled: true,
-        level: adapteros_diagnostics::DiagLevel::Tokens,
+        level: DiagLevel::Tokens,
         channel_capacity: 100,
         ..Default::default()
     };
@@ -179,7 +179,7 @@ async fn test_stage_guard_drop_without_complete() {
 async fn test_run_lifecycle_events() {
     let config = DiagnosticsConfig {
         enabled: true,
-        level: adapteros_diagnostics::DiagLevel::Tokens,
+        level: DiagLevel::Tokens,
         channel_capacity: 100,
         ..Default::default()
     };
@@ -251,7 +251,7 @@ async fn test_run_lifecycle_events() {
 async fn test_run_failed_event() {
     let config = DiagnosticsConfig {
         enabled: true,
-        level: adapteros_diagnostics::DiagLevel::Tokens,
+        level: DiagLevel::Tokens,
         channel_capacity: 100,
         ..Default::default()
     };
@@ -302,7 +302,7 @@ async fn test_run_failed_event() {
 async fn test_stream_closed_event() {
     let config = DiagnosticsConfig {
         enabled: true,
-        level: adapteros_diagnostics::DiagLevel::Tokens,
+        level: DiagLevel::Tokens,
         channel_capacity: 100,
         ..Default::default()
     };
@@ -344,7 +344,7 @@ async fn test_stream_closed_event() {
 async fn test_multiple_stages_sequence() {
     let config = DiagnosticsConfig {
         enabled: true,
-        level: adapteros_diagnostics::DiagLevel::Tokens,
+        level: DiagLevel::Tokens,
         channel_capacity: 100,
         ..Default::default()
     };

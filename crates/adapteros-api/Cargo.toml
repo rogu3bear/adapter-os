@@ -1,4 +1,5 @@
 [package]
+name = "adapteros-api"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -26,3 +27,6 @@ tracing = { workspace = true }
 futures = "0.3"
 uuid = { workspace = true, features = ["v4"] }
 chrono = { workspace = true }
+
+[dev-dependencies]
+adapteros-server-api = { path = "../adapteros-server-api" }
