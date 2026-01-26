@@ -12,7 +12,6 @@ adapteros-core = { path = "../adapteros-core" }
 adapteros-db = { path = "../adapteros-db" }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
 serde = { version = "1.0", features = ["derive"] }
-
 # Workspace dependencies
 anyhow.workspace = true
 thiserror.workspace = true
@@ -22,19 +21,15 @@ tracing.workspace = true
 parking_lot.workspace = true
 uuid.workspace = true
 chrono.workspace = true
-
 # Git operations
 git2.workspace = true
-
 # File watching
 notify = "6.1"
 crossbeam-channel = "0.5"
-
 # Async utilities
 tokio-stream = "0.1"
 futures-util.workspace = true
 async-trait.workspace = true
-
 [dev-dependencies]
 tempfile = "3.8"
 tokio-test = "0.4"

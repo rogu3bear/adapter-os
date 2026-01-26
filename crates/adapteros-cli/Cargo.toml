@@ -8,15 +8,11 @@ license.workspace = true
 [[bin]]
 name = "aosctl"
 path = "src/main.rs"
-
 [dependencies]
 adapteros-config = { path = "../adapteros-config" }
 adapteros-core = { path = "../adapteros-core" }
 adapteros-error-registry = { path = "../adapteros-error-registry" }
-adapteros-manifest = { path = "../adapteros-manifest" }
-adapteros-registry = { path = "../adapteros-registry" }
 adapteros-artifacts = { path = "../adapteros-artifacts" }
-adapteros-sbom = { path = "../adapteros-sbom" }
 adapteros-lora-plan = { path = "../adapteros-lora-plan" }
 adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
@@ -25,13 +21,10 @@ adapteros-db = { path = "../adapteros-db" }
 adapteros-client = { path = "../adapteros-client" }
 adapteros-types = { path = "../adapteros-types" }
 # adapteros-server = { path = "../adapteros-server" }  # Temporarily disabled
-adapteros-api = { path = "../adapteros-api" }
 adapteros-api-types = { path = "../adapteros-api-types" }
 adapteros-lora-worker = { path = "../adapteros-lora-worker" }
-adapteros-lora-rag = { path = "../adapteros-lora-rag" }
 adapteros-retrieval = { path = "../adapteros-retrieval" }
 adapteros-embeddings = { path = "../adapteros-embeddings", features = ["training"] }
-adapteros-single-file-adapter = { path = "../adapteros-single-file-adapter" }
 adapteros-aos = { path = "../adapteros-aos" }  # Unified binary .aos format
 adapteros-lora-router = { path = "../adapteros-lora-router" }
 adapteros-ingest-docs = { path = "../adapteros-ingest-docs" }
@@ -39,7 +32,6 @@ adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
 adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true, features = ["mlx"] }
 adapteros-secd = { path = "../adapteros-secd", optional = true }
 adapteros-tui = { path = "../adapteros-tui", optional = true }
-adapteros-scenarios = { path = "../adapteros-scenarios", optional = true }
 # adapteros-system-metrics = { path = "../adapteros-system-metrics" }  # Requires DATABASE_URL
 adapteros-replay = { path = "../adapteros-replay", optional = true }
 adapteros-trace = { path = "../adapteros-trace", optional = true }
@@ -47,8 +39,7 @@ adapteros-verify = { path = "../adapteros-verify", features = ["clap"] }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
 adapteros-agent-spawn = { path = "../adapteros-agent-spawn" }
 adapteros-lora-lifecycle = { path = "../adapteros-lora-lifecycle" }
-adapteros-platform = { path = "../adapteros-platform" }
-adapteros-codegraph = { path = "../adapteros-codegraph", optional = true }
+adapteros-retrieval = { path = "../adapteros-retrieval", optional = true }
 clap = { workspace = true }
 clap_complete = "4.4"
 clap_mangen = "0.2"
@@ -97,43 +88,30 @@ argon2 = "0.5"
 rand = { workspace = true }
 indicatif = "0.17"
 adapteros-orchestrator = { path = "../adapteros-orchestrator", optional = true }
-adapteros-normalization = { path = "../adapteros-normalization" }
 git2 = { workspace = true }
 parking_lot = { workspace = true }
-
-
-
-
 [target.'cfg(target_os = "macos")'.dependencies]
 # adapteros-lora-kernel-mtl = { path = "../adapteros-lora-kernel-mtl" }  # Disabled for stable compilation
-
 [features]
 # =============================================================================
 # CLI FEATURE FLAGS
-# =============================================================================
 # Default: includes replay, trace, scenarios, orchestrator for backwards compat
-default = ["replay", "trace", "scenarios", "orchestrator"]
-
+default = ["replay", "trace", "orchestrator"]
 # multi-backend: Enable MLX backend support in CLI commands
 multi-backend = ["dep:adapteros-lora-mlx-ffi", "adapteros-lora-worker/multi-backend"]
-codegraph = ["dep:adapteros-codegraph"]
+codegraph = ["dep:adapteros-retrieval"]
 secd-support = ["dep:adapteros-secd"]
 tui = ["dep:adapteros-tui"]
 replay = ["dep:adapteros-replay"]
 trace = ["dep:adapteros-trace"]
-scenarios = ["dep:adapteros-scenarios"]
 orchestrator = ["dep:adapteros-orchestrator"]
 extended-tests = []
 coreml-export = ["adapteros-lora-worker/coreml-backend"]
-
 # Full CLI with all optional features
-full = ["replay", "trace", "scenarios", "orchestrator", "codegraph", "tui"]
-
+full = ["replay", "trace", "orchestrator", "codegraph", "tui"]
 # Minimal CLI without optional features
 minimal = []
-
 [dev-dependencies]
 axum = { version = "0.8", features = ["macros", "json"] }
 serial_test = "3.1"
 tokenizers = { workspace = true }
-

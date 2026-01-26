@@ -5,7 +5,6 @@ edition = "2021"
 
 [lib]
 doctest = false
-
 [dependencies]
 adapteros-client = { path = "../adapteros-client" }
 adapteros-core = { path = "../adapteros-core", features = ["sqlx"] }
@@ -14,18 +13,15 @@ adapteros-db = { path = "../adapteros-db", features = ["utoipa"] }
 adapteros-api-types = { path = "../adapteros-api-types" }
 adapteros-aos = { path = "../adapteros-aos" }
 adapteros-boot = { path = "../adapteros-boot" }
-adapteros-codegraph = { path = "../adapteros-codegraph" }
+adapteros-retrieval = { path = "../adapteros-retrieval" }
 adapteros-git = { path = "../adapteros-git" }
-adapteros-manifest = { path = "../adapteros-manifest" }
 adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
 adapteros-lora-lifecycle = { path = "../adapteros-lora-lifecycle" }
 adapteros-lora-worker = { path = "../adapteros-lora-worker" }
 adapteros-model-hub = { path = "../adapteros-model-hub" }
 adapteros-orchestrator = { path = "../adapteros-orchestrator" }
 adapteros-policy = { path = "../adapteros-policy" }
-adapteros-registry = { path = "../adapteros-registry" }
 adapteros-storage = { path = "../adapteros-storage" }
-adapteros-secure-fs = { path = "../adapteros-secure-fs" }
 adapteros-lora-router = { path = "../adapteros-lora-router" }
 adapteros-metrics-exporter = { path = "../adapteros-metrics-exporter" }
 adapteros-system-metrics = { path = "../adapteros-system-metrics" }
@@ -33,7 +29,6 @@ adapteros-federation = { path = "../adapteros-federation" }
 adapteros-verify = { path = "../adapteros-verify" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
-adapteros-diagnostics = { path = "../adapteros-diagnostics" }
 adapteros-types = { path = "../adapteros-types" }
 dashmap = "5.5"
 parking_lot = "0.12"
@@ -42,6 +37,7 @@ scopeguard = "1.2"
 anyhow = "1.0"
 argon2 = "0.5"
 axum = { version = "0.8", features = ["macros", "multipart"] }
+dotenvy = "0.15"
 base64 = "0.22"
 bcrypt = "0.15"
 bytes = "1.6"
@@ -99,9 +95,7 @@ zstd = { workspace = true }
 serde_jcs = { workspace = true }
 zip = "0.6"
 adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true, features = ["mlx"] }
-adapteros-lora-rag = { path = "../adapteros-lora-rag" }
 adapteros-config = { path = "../adapteros-config" }
-adapteros-config-types = { path = "../adapteros-config-types" }
 adapteros-ingest-docs = { path = "../adapteros-ingest-docs", optional = true }
 hostname.workspace = true
 tokenizers = { workspace = true }
@@ -110,10 +104,8 @@ hmac = "0.12"
 redis = { version = "0.27", features = ["tokio-comp", "connection-manager"], optional = true }
 sha1 = "0.10"
 hkdf = { workspace = true }
-
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.29", features = ["signal"] }
-
 [dev-dependencies]
 criterion = { workspace = true }
 futures = "0.3"
@@ -121,17 +113,14 @@ axum-test = { version = "16" }
 adapteros-auth = { path = "../adapteros-auth" }
 adapteros-lora-kernel-coreml = { path = "../adapteros-lora-kernel-coreml" }
 insta = { version = "1.41.0", features = ["json"] }
-
 [lints.rust]
 # Enforce handler return type standards
 # Prevent tuple return types that cause Handler trait inference issues
 unused = "warn"
-
 [lints.clippy]
 # Warn on large error types (encourages consistent error handling)
 result_large_err = "warn"
 # Other clippy lints can be added here as needed
-
 [features]
 default = []
 # MLX backend support - enables MLX capability detection and reporting
@@ -143,7 +132,6 @@ embeddings = ["adapteros-ingest-docs/multi-backend"]
 redis = ["dep:redis"]
 metrics = []
 dev-bypass = []
-
 [[bin]]
 name = "export-openapi"
 path = "src/bin/export-openapi.rs"

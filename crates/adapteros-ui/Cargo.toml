@@ -7,7 +7,6 @@ description = "Leptos-based web UI for adapterOS control plane"
 [lib]
 crate-type = ["cdylib", "rlib"]
 doctest = false # UI docs rely on Leptos macros and are not runnable in wasm-bindgen doc tests
-
 [features]
 default = []
 # Hydration for client-side interactivity
@@ -16,30 +15,24 @@ hydrate = ["leptos/hydrate"]
 ssr = ["leptos/ssr", "leptos_router/ssr", "leptos_meta/ssr"]
 # Dev routes (style-audit, etc.) - DO NOT enable in production
 dev-routes = []
-
 [dependencies]
 # Leptos ecosystem - CSR mode for client-side rendering
 leptos = { version = "0.7", features = ["csr"] }
 leptos_router = { version = "0.7" }
 leptos_meta = { version = "0.7" }
-
 # Shared types (WASM-compatible)
 adapteros-api-types = { path = "../adapteros-api-types", default-features = false, features = ["wasm"] }
-
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde-wasm-bindgen = "0.6"
-
 # HTTP client for WASM
 gloo-net = "0.6"
 gloo-timers = { version = "0.3", features = ["futures"] }
 gloo-file = { version = "0.3", features = ["futures"] }
-
 # Async
 futures = "0.3"
 wasm-bindgen-futures = "0.4"
-
 # Web APIs
 web-sys = { version = "0.3", features = [
     "AbortController",
@@ -74,7 +67,6 @@ web-sys = { version = "0.3", features = [
 ] }
 wasm-bindgen = "0.2"
 js-sys = "0.3"
-
 # Utilities
 send_wrapper = "0.6"
 chrono = { version = "0.4", features = ["serde", "wasmbind"] }
@@ -83,11 +75,9 @@ thiserror = "2.0"
 regex-lite = "0.1"
 csv = { version = "1.4", default-features = false }
 urlencoding = "2.1"
-
 # Console logging for WASM
 console_error_panic_hook = "0.1"
 tracing = "0.1"
 tracing-wasm = "0.2"
-
 [dev-dependencies]
 wasm-bindgen-test = "0.3"

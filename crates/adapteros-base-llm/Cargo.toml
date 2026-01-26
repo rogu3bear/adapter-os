@@ -13,15 +13,12 @@ adapteros-core = { path = "../adapteros-core" }
 adapteros-config = { path = "../adapteros-config" }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
 adapteros-trace = { path = "../adapteros-trace" }
-adapteros-secure-fs = { path = "../adapteros-secure-fs" }
-
 # Workspace dependencies
 anyhow.workspace = true
 thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
-
 # Additional dependencies
 tracing = { workspace = true }
 uuid = { version = "1.6", features = ["v7"] }

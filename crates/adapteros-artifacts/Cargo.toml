@@ -8,8 +8,6 @@ license.workspace = true
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
 adapteros-crypto = { path = "../adapteros-crypto" }
-adapteros-secure-fs = { path = "../adapteros-secure-fs" }
-adapteros-sbom = { path = "../adapteros-sbom" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tar = { workspace = true }
@@ -21,10 +19,8 @@ tokio = { workspace = true, features = ["net", "io-util"] }
 base64 = "0.22"
 uuid = { workspace = true }
 reqwest = { workspace = true }
-
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework = { workspace = true }
 core-foundation = { workspace = true }
-
 [dev-dependencies]
 tempfile = { workspace = true }

@@ -13,7 +13,6 @@ categories = ["configuration"]
 extended-tests = []
 # Enable test utilities (TestEnvGuard) for external crates
 testkit = []
-
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
 serde = { version = "1.0", features = ["derive"] }
@@ -25,6 +24,5 @@ anyhow = "1.0"
 tracing = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 dotenvy = "0.15"
-
 [dev-dependencies]
 tempfile = { workspace = true }

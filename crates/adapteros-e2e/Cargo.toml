@@ -7,7 +7,6 @@ license = "MIT OR Apache-2.0"
 [features]
 prod-gate = []
 worker-gate = []
-
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
 adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }

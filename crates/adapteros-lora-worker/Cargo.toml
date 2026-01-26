@@ -10,7 +10,6 @@ license.workspace = true
 default = ["multi-backend"]
 deterministic-only = []
 telemetry-sysinfo = ["dep:sysinfo"]
-
 # Backend feature flags
 # These must be explicitly enabled to activate conditional compilation paths
 #
@@ -18,76 +17,59 @@ telemetry-sysinfo = ["dep:sysinfo"]
 #   - Adds adapteros-lora-kernel-coreml as dependency
 #   - Enables ANE detection and CoreML model loading
 #   - macOS 13+ required
-#
 # multi-backend: Enables MLX FFI backend
 #   - Adds adapteros-lora-mlx-ffi as dependency
 #   - For research/training workloads
-#
 # remote-llm: Enables remote LLM backend for external API services
 #   - Adds reqwest HTTP client dependency
 #   - Allows egress to remote LLM endpoints
 #   - SECURITY: Only enable if egress is intentionally permitted
-#
 coreml-backend = ["dep:adapteros-lora-kernel-coreml"]
 multi-backend = ["dep:adapteros-lora-mlx-ffi"]
 remote-llm = ["dep:reqwest"]
-
 # mlx-bridge: Enables MLX subprocess bridge backend (Python subprocess)
 #   - Uses Python mlx-lm via subprocess for MoE models
 #   - Opt-in only to avoid mandatory Python dependencies
 #   - When disabled, MoE MLX models are rejected instead of falling back
 mlx-bridge = ["multi-backend"]
-
 # Alias for clarity
 mlx-backend = ["multi-backend"]
 mlx = ["multi-backend"]  # Enable real MLX backend (includes multi-backend for FFI)
 real-mlx = ["mlx"]       # Legacy alias (deprecated)
 loom = []
-
 # base-model-training: DEPRECATED - base model is now always required
 #   - This feature flag is kept for backward compatibility but has no effect
 #   - Training always requires a base model for proper cross-entropy loss computation
 #   - The "scaled token ID proxy" approach has been removed as it produced incorrect adapters
 #   - Use multi-backend feature to enable MLX training support
 base-model-training = ["multi-backend"]
-
 # Residency testing features
 ci-residency = []                    # Enable standard CI residency tests
 hardware-residency = []             # Enable hardware residency tests (Mac Studio)
-
 # test-utils: Enables test helper methods like MicroLoRATrainer::new_for_test()
 #   - Use this in integration tests that need a trainer without a real base model
 #   - Not intended for production use
 test-utils = []
-
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
 adapteros-config = { path = "../adapteros-config" }
 adapteros-aos = { path = "../adapteros-aos" }
-adapteros-codegraph = { path = "../adapteros-codegraph" }
+adapteros-retrieval = { path = "../adapteros-retrieval" }
 adapteros-db = { path = "../adapteros-db" }
-adapteros-manifest = { path = "../adapteros-manifest" }
 adapteros-policy = { path = "../adapteros-policy" }
 adapteros-lora-router = { path = "../adapteros-lora-router" }
-adapteros-lora-rag = { path = "../adapteros-lora-rag" }
 adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
 adapteros-lora-kernel-coreml = { path = "../adapteros-lora-kernel-coreml", optional = true }
 # Use C++ FFI for real MLX inference (primary/only supported path)
 adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true, features = ["mlx"] }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
-adapteros-profiler = { path = "../adapteros-profiler" }
 adapteros-lora-lifecycle = { path = "../adapteros-lora-lifecycle" }
 adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
 adapteros-memory = { path = "../adapteros-memory" }
-adapteros-secure-fs = { path = "../adapteros-secure-fs" }
-adapteros-storage = { path = "../adapteros-storage" }
-adapteros-single-file-adapter = { path = "../adapteros-single-file-adapter" }
-adapteros-platform = { path = "../adapteros-platform" }
 adapteros-types = { path = "../adapteros-types" }
 adapteros-api-types = { path = "../adapteros-api-types" }
 adapteros-boot = { path = "../adapteros-boot" }
-adapteros-normalization = { path = "../adapteros-normalization" }
 lru = "0.16"
 ed25519-dalek = { workspace = true }
 # adapteros-lint = { path = "../adapteros-lint" }  # Temporarily disabled due to dependency issues
@@ -135,35 +117,26 @@ sysinfo = { version = "0.30", optional = true }  # Telemetry + residency harness
 reqwest = { version = "0.12", features = ["json"], optional = true }
 ureq = "3.0"  # PRD-09: Blocking HTTP client for panic hook
 libc = "0.2"
-
 clap = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-
 [[bin]]
 name = "aos-worker"
 path = "src/bin/aos_worker.rs"
-
-[[bin]]
 name = "residency_harness"
 path = "src/bin/residency_harness.rs"
 required-features = ["hardware-residency"]
-
 [dev-dependencies]
 loom = { version = "0.7", features = ["futures"] }
 criterion = { version = "0.5", features = ["html_reports"] }
-tempfile = { workspace = true }
 proptest = "1.0"
 serial_test = "3.0"
 sysinfo = { version = "0.30" }
 adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", features = ["mlx"] }
-
 [[bench]]
 name = "hotswap"
 harness = false
-
 [target.'cfg(target_os = "macos")'.dependencies]
 adapteros-lora-kernel-mtl = { path = "../adapteros-lora-kernel-mtl" }
 nix = { workspace = true }
 mach = "0.3"
 metal = { workspace = true }
-libc = "0.2"

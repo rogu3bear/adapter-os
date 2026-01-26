@@ -34,11 +34,9 @@ members = [
     "crates/adapteros-telemetry",
     "crates/adapteros-policy",
     "crates/adapteros-config",
-    "crates/adapteros-config-types",
     "crates/adapteros-cli",
     "crates/adapteros-tui",  # Terminal UI dashboard
     "crates/adapteros-api",
-    "crates/adapteros-sbom",
     "crates/adapteros-lora-quant",
     "crates/adapteros-server",  # Re-enabled for building
     "crates/adapteros-server-api",
@@ -56,7 +54,6 @@ members = [
     "crates/adapteros-git",
     "crates/adapteros-deterministic-exec",
     "crates/adapteros-agent-spawn",  # Multi-agent spawn system for parallel code modification
-    "crates/adapteros-graph",
     "crates/adapteros-codegraph",
     "crates/adapteros-replay",
     "crates/adapteros-trace",
@@ -79,7 +76,6 @@ members = [
     "crates/adapteros-service-supervisor",
     "crates/adapteros-model-hub",  # Model discovery and download
     "crates/adapteros-storage",  # Storage management and versioned records
-    "crates/adapteros-telemetry-verifier",
     "crates/adapteros-normalization",  # Shared normalization utilities
     "crates/adapteros-web-browse",  # Web browsing for live data retrieval
     "crates/adapteros-single-file-adapter",
@@ -447,10 +443,8 @@ adapteros-lora-mlx-ffi = { path = "crates/adapteros-lora-mlx-ffi" }  # MLX C++ F
 adapteros-crypto = { path = "crates/adapteros-crypto" }
 sha2 = { workspace = true }
 sysinfo = { workspace = true }
-adapteros-sbom = { path = "crates/adapteros-sbom" }
 adapteros-api = { path = "crates/adapteros-api" }
 adapteros-deterministic-exec = { path = "crates/adapteros-deterministic-exec" }
-adapteros-graph = { path = "crates/adapteros-graph" }
 adapteros-replay = { path = "crates/adapteros-replay" }
 adapteros-trace = { path = "crates/adapteros-trace" }
 tracing = { workspace = true }

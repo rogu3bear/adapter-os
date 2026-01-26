@@ -7,9 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [[bin]]
-name = "adapteros-node"
 path = "src/main.rs"
-
 [dependencies]
 # Internal crates
 adapteros-core = { path = "../adapteros-core" }
@@ -18,7 +16,6 @@ adapteros-artifacts = { path = "../adapteros-artifacts" }
 adapteros-policy = { path = "../adapteros-policy" }
 adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
-
 # Workspace dependencies
 anyhow.workspace = true
 thiserror.workspace = true
@@ -30,7 +27,6 @@ tower.workspace = true
 tower-http.workspace = true
 hyper.workspace = true
 nix.workspace = true
-
 # Additional
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -43,7 +39,6 @@ hostname.workspace = true
 blake3 = { workspace = true }
 hex = { workspace = true }
 ed25519-dalek = { workspace = true }
-
 [dev-dependencies]
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "process", "io-util"] }

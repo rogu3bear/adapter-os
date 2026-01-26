@@ -15,13 +15,11 @@ server = ["dep:adapteros-core"]
 utoipa = ["dep:utoipa", "adapteros-core/utoipa"]
 # WASM-compatible build
 wasm = ["adapteros-types/wasm"]
-
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
 adapteros-core = { path = "../adapteros-core", optional = true }
 adapteros-types = { path = "../adapteros-types", default-features = false }
-
 [dependencies.utoipa]
 version = "5.4"
 features = ["axum_extras"]

@@ -10,20 +10,17 @@ default = ["server"]
 server = ["dep:axum", "dep:utoipa", "dep:adapteros-core", "dep:adapteros-telemetry", "adapteros-types/server", "adapteros-types/utoipa", "adapteros-telemetry-types/server", "adapteros-telemetry-types/utoipa"]
 # WASM-compatible build (serde types only, no server deps)
 wasm = ["adapteros-types/wasm", "adapteros-telemetry-types/wasm"]
-
 [dependencies]
 # Serialization (always required)
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.0", features = ["v4", "serde"] }
-
 # Server-only deps (optional for WASM)
 axum = { version = "0.8", optional = true }
 utoipa = { version = "5.4", features = ["axum_extras"], optional = true }
 adapteros-core = { path = "../adapteros-core", optional = true }
 adapteros-telemetry = { path = "../adapteros-telemetry", optional = true }
-
 # Types crates (always needed, but with appropriate features)
 adapteros-telemetry-types = { path = "../adapteros-telemetry-types", default-features = false }
 adapteros-types = { path = "../adapteros-types", default-features = false }

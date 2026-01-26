@@ -1,5 +1,5 @@
 [package]
-name = "adapteros-codegraph"
+name = "adapteros-retrieval"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -28,12 +28,9 @@ env_logger = "0.11"
 regex = "1.10"
 toml = "0.8"
 git2 = "0.18"
-
 [[bin]]
 name = "codegraph"
 path = "src/bin/codegraph.rs"
-
 [dev-dependencies]
 tempfile = { workspace = true }
 tokio-test = "0.4"
-env_logger = "0.11"

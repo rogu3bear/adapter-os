@@ -7,32 +7,24 @@ license.workspace = true
 repository.workspace = true
 
 [[bin]]
-name = "adapteros-server"
 path = "src/main.rs"
-
 [features]
 default = []
-
 # Multi-backend feature flag
 # Enables MLX FFI backend through adapteros-lora-worker
 # For research/training workloads with MLX support
 # Also propagates to server-api for capability reporting
 multi-backend = ["adapteros-lora-worker/multi-backend", "adapteros-server-api/mlx-ffi-backend"]
-
 # MLX feature (enables multi-backend + worker mlx for capability detection)
 mlx = ["multi-backend", "adapteros-lora-worker/mlx"]
-
 dev-bypass = ["adapteros-server-api/dev-bypass"]
-
 # Embedding model support for RAG
 # Loads sentence-transformer models at startup for real embeddings
 embeddings = ["adapteros-server-api/embeddings", "dep:adapteros-ingest-docs"]
-
 [dependencies]
 # Internal crates
 adapteros-boot = { path = "../adapteros-boot" }
 adapteros-config = { path = "../adapteros-config" }
-adapteros-config-types = { path = "../adapteros-config-types" }
 adapteros-core = { path = "../adapteros-core" }
 adapteros-types = { path = "../adapteros-types" }
 adapteros-server-api = { path = "../adapteros-server-api" }
@@ -42,11 +34,8 @@ adapteros-policy = { path = "../adapteros-policy" }
 adapteros-artifacts = { path = "../adapteros-artifacts" }
 adapteros-metrics-exporter = { path = "../adapteros-metrics-exporter" }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
-adapteros-diagnostics = { path = "../adapteros-diagnostics" }
 adapteros-verify = { path = "../adapteros-verify" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
-adapteros-manifest = { path = "../adapteros-manifest" }
-adapteros-registry = { path = "../adapteros-registry" }
 adapteros-lora-worker = { path = "../adapteros-lora-worker" }
 adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-federation = { path = "../adapteros-federation" }
@@ -54,25 +43,23 @@ adapteros-orchestrator = { path = "../adapteros-orchestrator" }
 adapteros-model-hub = { path = "../adapteros-model-hub" }
 adapteros-ingest-docs = { path = "../adapteros-ingest-docs", optional = true }
 adapteros-api-types = { path = "../adapteros-api-types" }
-
 # Workspace dependencies
 anyhow.workspace = true
 thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
+once_cell.workspace = true
 axum.workspace = true
 tower.workspace = true
 tower-http = { workspace = true, features = ["compression-br", "compression-gzip"] }
 ed25519-dalek.workspace = true
-
 # OpenAPI
 utoipa = { workspace = true }
 rust-embed = "8.0"
 hyper.workspace = true
 hyper-util.workspace = true
 clap.workspace = true
-
 # Additional dependencies
 toml = "0.8"
 tracing = "0.1"
@@ -87,10 +74,8 @@ mime_guess = "2.0"
 uuid = { version = "1.6", features = ["v7"] }
 chrono = "0.4"
 sqlx = { workspace = true, default-features = false, features = ["sqlite", "runtime-tokio"] }
-
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
-
 [dev-dependencies]
 filetime = "0.2"
 tempfile = "3"

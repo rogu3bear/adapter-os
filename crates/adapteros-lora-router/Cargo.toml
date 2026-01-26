@@ -13,7 +13,6 @@ adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
 adapteros-policy = { path = "../adapteros-policy" }
 adapteros-numerics = { path = "../adapteros-numerics" }
-adapteros-diagnostics = { path = "../adapteros-diagnostics" }
 anyhow = { workspace = true }
 blake3 = { workspace = true }
 serde = { workspace = true }
@@ -24,7 +23,6 @@ rand = { workspace = true }
 rand_core = { workspace = true }
 rand_chacha = "0.3"
 tracing = { workspace = true }
-
 [dev-dependencies]
 proptest = "1.0"
 bincode = "1.3"
