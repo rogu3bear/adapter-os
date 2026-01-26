@@ -12,6 +12,7 @@ adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-db = { path = "../adapteros-db", features = ["utoipa"] }
 adapteros-api-types = { path = "../adapteros-api-types" }
 adapteros-aos = { path = "../adapteros-aos" }
+adapteros-codegraph = { path = "../adapteros-codegraph" }
 adapteros-boot = { path = "../adapteros-boot" }
 adapteros-retrieval = { path = "../adapteros-retrieval" }
 adapteros-git = { path = "../adapteros-git" }
@@ -65,6 +66,7 @@ thiserror = "2.0"
 toml = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+futures = "0.3"
 tokio = { version = "1.0", features = ["full"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-util = { version = "0.7", features = ["codec"] }  # sync module available by default
@@ -112,6 +114,7 @@ futures = "0.3"
 axum-test = { version = "16" }
 adapteros-auth = { path = "../adapteros-auth" }
 adapteros-lora-kernel-coreml = { path = "../adapteros-lora-kernel-coreml" }
+adapteros-diagnostics = { path = "../adapteros-diagnostics" }
 insta = { version = "1.41.0", features = ["json"] }
 [lints.rust]
 # Enforce handler return type standards
