@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-use crate::error::{DomainAdapterError, Result};
+use super::error::{DomainAdapterError, Result};
 
 /// Adapter manifest structure
 ///

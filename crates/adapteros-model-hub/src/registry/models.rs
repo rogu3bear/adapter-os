@@ -256,7 +256,8 @@ mod tests {
         let mut conn = Connection::open(&db_path).expect("Database connection should succeed");
 
         // Run migrations
-        crate::migrations::run_migrations(&mut conn).expect("Database migrations should succeed");
+        crate::registry::migrations::run_migrations(&mut conn)
+            .expect("Database migrations should succeed");
 
         let registry = ModelRegistry::new(conn);
 
@@ -305,7 +306,8 @@ mod tests {
         let db_path = temp_dir.path().join("test.db");
         let mut conn = Connection::open(&db_path).expect("Database connection should succeed");
 
-        crate::migrations::run_migrations(&mut conn).expect("Database migrations should succeed");
+        crate::registry::migrations::run_migrations(&mut conn)
+            .expect("Database migrations should succeed");
         let registry = ModelRegistry::new(conn);
 
         let model1 = ModelRecord::from_input(ModelRecordInput {

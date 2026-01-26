@@ -8,9 +8,9 @@ use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::adapter::{DomainAdapter, DomainAdapterMetadata, TensorData};
-use crate::error::{DomainAdapterError, Result};
-use crate::manifest::{load_manifest, AdapterManifest};
+use super::adapter::{DomainAdapter, DomainAdapterMetadata, TensorData};
+use super::error::{DomainAdapterError, Result};
+use super::manifest::{load_manifest, AdapterManifest};
 use serde::{Deserialize, Serialize};
 
 /// LoRA merge visualization data structure
@@ -497,7 +497,8 @@ mod tests {
     }
 
     fn create_test_manifest() -> (AdapterManifest, NamedTempFile) {
-        use crate::manifest::{save_manifest, AdapterManifest};
+        use crate::domain::manifest::{save_manifest, AdapterManifest};
+        // Removed non-existent TextPolicy import, or find it if needed.
 
         let mut manifest = AdapterManifest::new(
             "test_text_adapter".to_string(),

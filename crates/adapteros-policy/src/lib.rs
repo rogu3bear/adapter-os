@@ -377,17 +377,17 @@ impl PolicyEngine {
     }
 
     /// Get egress policy
-    pub fn egress_policy(&self) -> &EgressPolicy {
-        &self.policies.egress
+    pub fn drift_policy(&self) -> &adapteros_model_hub::manifest::DriftPolicy {
+        &self.policies.drift
     }
 
     /// Get determinism policy (manifest definition)
-    pub fn determinism_policy(&self) -> &adapteros_manifest::DeterminismPolicy {
+    pub fn determinism_policy(&self) -> &adapteros_model_hub::manifest::DeterminismPolicy {
         &self.policies.determinism
     }
 
     /// Get memory policy
-    pub fn memory_policy(&self) -> &MemoryPolicy {
+    pub fn memory_policy(&self) -> &adapteros_model_hub::manifest::MemoryPolicy {
         &self.policies.memory
     }
 
@@ -564,4 +564,4 @@ pub struct PolicyDecisionChain {
 
 // Domain-specific policy and configuration
 pub mod domain;
-pub use domain::{Domain, DomainConfig, DomainPolicy};
+// pub use domain::{Domain, DomainConfig, DomainPolicy};
