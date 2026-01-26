@@ -2,7 +2,7 @@
 //!
 //! Implements Linux-specific filesystem operations and features.
 
-use crate::{FileMetadata, FileType, PlatformAttributes, PlatformHandler};
+use super::{FileMetadata, FileType, PlatformAttributes, PlatformHandler};
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -413,8 +413,8 @@ pub fn warn_if_on_tmpfs(path: &Path, purpose: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use super::super::common::PlatformUtils;
     use super::*;
-    use crate::common::PlatformUtils;
     use tempfile::TempDir;
 
     fn new_test_tempdir() -> Result<TempDir> {

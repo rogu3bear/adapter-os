@@ -323,6 +323,7 @@ pub mod secure_fs;
 pub mod platform;
 
 // Re-export secure filesystem types
-pub use secure_fs::{SecureFs, SecurePath, PathPolicy};
+pub use secure_fs::{SecureFsConfig, SecureFsManager};
 // Re-export platform utilities
-pub use platform::{Platform, PlatformPaths};
+pub use platform::common::PlatformUtils;
+pub use platform::Platform;

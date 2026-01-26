@@ -1,6 +1,6 @@
 //! Shared path policy enforcement for canonicalization and allowed-root checks.
 
-use crate::traversal::check_path_traversal;
+use super::traversal::check_path_traversal;
 use adapteros_core::{AosError, Result};
 use std::path::{Path, PathBuf};
 use tracing::{error, warn};
