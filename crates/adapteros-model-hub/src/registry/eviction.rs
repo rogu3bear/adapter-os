@@ -12,7 +12,7 @@ use std::time::Instant;
 use tracing::{info, warn};
 use zeroize::Zeroize;
 
-use crate::Registry as AdapterRegistry;
+use crate::registry::Registry as AdapterRegistry;
 
 /// Adapter structure for eviction
 #[derive(Debug, Clone)]

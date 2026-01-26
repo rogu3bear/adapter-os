@@ -7,7 +7,7 @@ use adapteros_trace::Event;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::error::{DomainAdapterError, Result};
+use super::error::{DomainAdapterError, Result};
 
 /// Wrapper for tensor data with metadata
 #[derive(Debug, Clone)]

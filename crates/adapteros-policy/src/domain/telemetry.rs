@@ -8,9 +8,9 @@ use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::adapter::{DomainAdapter, DomainAdapterMetadata, TensorData};
-use crate::error::{DomainAdapterError, Result};
-use crate::manifest::{load_manifest, AdapterManifest};
+use super::adapter::{DomainAdapter, DomainAdapterMetadata, TensorData};
+use super::error::{DomainAdapterError, Result};
+use super::manifest::{load_manifest, AdapterManifest};
 
 /// Telemetry adapter for deterministic signal processing
 ///
@@ -478,7 +478,7 @@ mod tests {
     }
 
     fn create_test_manifest() -> (AdapterManifest, NamedTempFile) {
-        use crate::manifest::{save_manifest, AdapterManifest};
+        use crate::domain::manifest::{save_manifest, AdapterManifest};
 
         let mut manifest = AdapterManifest::new(
             "test_telemetry_adapter".to_string(),
