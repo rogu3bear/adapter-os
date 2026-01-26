@@ -469,7 +469,7 @@ pub fn resolve_path_within_allowed_roots<P: AsRef<Path>, B: AsRef<Path>>(
     path: P,
     allowed_bases: &[B],
 ) -> Result<PathBuf> {
-    crate::path_policy::canonicalize_strict_in_allowed_roots(path, allowed_bases)
+    super::path_policy::canonicalize_strict_in_allowed_roots(path, allowed_bases)
 }
 
 /// Safe file existence check with path validation

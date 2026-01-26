@@ -9,6 +9,7 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
 adapteros-crypto = { path = "../adapteros-crypto" }
+adapteros-storage = { path = "../adapteros-storage" }
 cap-std = { workspace = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

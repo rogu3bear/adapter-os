@@ -2,7 +2,7 @@
 //!
 //! Implements macOS-specific filesystem operations and features.
 
-use crate::{FileMetadata, FileType, PlatformAttributes, PlatformHandler};
+use super::{FileMetadata, FileType, PlatformAttributes, PlatformHandler};
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -293,8 +293,8 @@ impl Default for MacOSSettings {
 
 #[cfg(test)]
 mod tests {
+    use super::super::common::PlatformUtils;
     use super::*;
-    use crate::common::PlatformUtils;
     use tempfile::TempDir;
 
     fn new_test_tempdir() -> Result<TempDir> {

@@ -335,8 +335,8 @@ impl Default for PlatformConfig {
 
 #[cfg(test)]
 mod tests {
+    use super::common::PlatformUtils;
     use super::*;
-    use crate::common::PlatformUtils;
     use tempfile::TempDir;
 
     fn new_test_tempdir() -> Result<TempDir> {
