@@ -7,7 +7,9 @@ license.workspace = true
 repository.workspace = true
 
 [[bin]]
+name = "aos-server"
 path = "src/main.rs"
+
 [features]
 default = []
 # Multi-backend feature flag

@@ -8,6 +8,7 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
+adapteros-storage = { path = "../adapteros-storage" }
 tokio = { version = "1.0", features = ["fs", "time", "sync", "macros", "rt", "rt-multi-thread"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

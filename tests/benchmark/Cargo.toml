@@ -19,6 +19,7 @@ adapteros-system-metrics = { path = "../../crates/adapteros-system-metrics" }
 adapteros-telemetry = { path = "../../crates/adapteros-telemetry" }
 adapteros-policy = { path = "../../crates/adapteros-policy" }
 adapteros-manifest = { path = "../../crates/adapteros-manifest" }
+adapteros-model-hub = { path = "../../crates/adapteros-model-hub" }
 adapteros-deterministic-exec = { path = "../../crates/adapteros-deterministic-exec" }
 
 # Benchmarking framework

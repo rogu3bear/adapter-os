@@ -6,7 +6,6 @@
 use adapteros_core::AosError;
 use adapteros_db::Db;
 use adapteros_deterministic_exec::global_ledger::GlobalTickLedger;
-use adapteros_telemetry::diagnostics::{DiagEnvelope, DiagnosticsConfig, DiagnosticsService};
 use adapteros_lora_worker::memory::UmaPressureMonitor;
 use adapteros_metrics_exporter::MetricsExporter;
 use adapteros_orchestrator::{FederationDaemon, TrainingService};
@@ -22,6 +21,7 @@ use adapteros_server_api::state::BackgroundTaskTracker;
 use adapteros_server_api::storage_reconciler::spawn_storage_reconciler;
 use adapteros_server_api::worker_health::WorkerHealthMonitor;
 use adapteros_server_api::{ApiConfig, AppState};
+use adapteros_telemetry::diagnostics::{DiagEnvelope, DiagnosticsConfig, DiagnosticsService};
 use adapteros_telemetry::MetricsCollector;
 use anyhow::Result;
 use ed25519_dalek::SigningKey;
@@ -264,7 +264,7 @@ pub async fn build_app_state(
             }
         }
 
-        match adapteros_registry::Registry::open(&registry_path) {
+        match adapteros_model_hub::registry::Registry::open(&registry_path) {
             Ok(registry) => {
                 info!(
                     path = %registry_path.display(),
@@ -332,8 +332,9 @@ pub async fn build_app_state(
         if eff_cfg.diagnostics.enabled {
             // Convert config DiagLevel to diagnostics DiagLevel via string representation
             let level_str = format!("{:?}", eff_cfg.diagnostics.level);
-            let diag_level =
-                adapteros_diagnostics::DiagLevel::from_str_lossy(&level_str.to_lowercase());
+            let diag_level = adapteros_telemetry::diagnostics::DiagLevel::from_str_lossy(
+                &level_str.to_lowercase(),
+            );
 
             let diag_config = DiagnosticsConfig {
                 enabled: eff_cfg.diagnostics.enabled,

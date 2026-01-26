@@ -19,7 +19,7 @@ thiserror = { workspace = true }
 tokenizers = { workspace = true }
 toml = { workspace = true }
 [features]
-default = ["mlx"]
+default = []
 mlx = ["dep:adapteros-lora-mlx-ffi"]
 training = []
 [dev-dependencies]

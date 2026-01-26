@@ -32,6 +32,7 @@ adapteros-core = { path = "../adapteros-core" }
 adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
 adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
+adapteros-storage = { path = "../adapteros-storage" }
 adapteros-numerics = { path = "../adapteros-numerics" }
 thiserror = { workspace = true }
 bincode = { workspace = true }
@@ -58,6 +59,9 @@ blake3 = { workspace = true }
 chrono = "0.4"
 cc = "1.0"
 serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+base64 = "0.22"
+ed25519-dalek = { workspace = true }
 [dev-dependencies]
 bytemuck = { workspace = true }
 adapteros-memory = { path = "../adapteros-memory" }

@@ -1,7 +1,7 @@
 // System metrics benchmarks
 use adapteros_benchmarks::*;
 use adapteros_deterministic_exec::DeterministicExecutor;
-use adapteros_manifest::Policies;
+use adapteros_model_hub::manifest::Policies;
 use adapteros_policy::PolicyEngine;
 use adapteros_system_metrics::SystemMetricsCollector;
 use adapteros_telemetry::{

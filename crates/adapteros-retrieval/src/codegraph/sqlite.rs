@@ -406,7 +406,7 @@ impl CodeGraphDb {
             let callee = SymbolId::from_hex(&callee_hex)
                 .map_err(|e| AosError::Database(format!("Invalid callee ID: {}", e)))?;
 
-            let edge = crate::callgraph::CallEdge {
+            let edge = super::CallEdge {
                 caller,
                 callee,
                 call_site: row.get("call_site"),
@@ -432,7 +432,7 @@ impl CodeGraphDb {
             let source_language = self.parse_language(&source_language_str)?;
             let target_language = self.parse_language(&target_language_str)?;
 
-            let edge = crate::callgraph::ImportEdge {
+            let edge = super::ImportEdge {
                 importer,
                 imported,
                 import_statement: row.get("import_statement"),
