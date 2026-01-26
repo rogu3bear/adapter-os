@@ -125,7 +125,12 @@ pub async fn upsert_directory_adapter(
     };
 
     let tenant_id_for_blocking = tenant_id.clone();
-    let (adapter_id, hash_hex, hash_b3, analysis) = tokio::time::timeout(
+    let (adapter_id, hash_hex, hash_b3, analysis): (
+        String,
+        String,
+        String,
+        adapteros_codegraph::DirectoryAnalysis,
+    ) = tokio::time::timeout(
         Duration::from_secs(timeout_secs),
         tokio::task::spawn_blocking(move || {
             let _span = info_span!("directory_adapter_blocking_ops", tenant = %tenant_id_for_blocking).entered();

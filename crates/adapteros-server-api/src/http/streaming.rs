@@ -25,7 +25,8 @@ use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
 use tracing::{debug, info, warn};
 
-use crate::{ApiError, ApiState};
+use crate::api_error::ApiError;
+use crate::http::ApiState;
 
 /// Streaming inference request
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -524,12 +525,12 @@ pub async fn completion_handler<K: FusedKernels + StrictnessControl + Send + Syn
     let output_text = if let Some(text) = worker_response.text {
         text
     } else if let Some(refusal) = worker_response.refusal {
-        return Err(ApiError::WorkerError(format!(
+        return Err(ApiError::internal(format!(
             "Request refused: {}",
             refusal.message
         )));
     } else {
-        return Err(ApiError::WorkerError("No text generated".to_string()));
+        return Err(ApiError::internal("No text generated"));
     };
 
     // Build streaming response

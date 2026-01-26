@@ -32,6 +32,7 @@ clap = { workspace = true }
 tracing-subscriber = { workspace = true }
 async-trait = { workspace = true }
 rand = { workspace = true }
+parking_lot = { workspace = true }
 zstd = "0.13"
 flate2 = "1.0"
 lz4_flex = "0.11"
@@ -46,3 +47,4 @@ harness = false
 [features]
 default = ["server"]
 server = []
+utoipa = []

@@ -7,7 +7,9 @@ description = "Terminal User Interface control system for adapterOS"
 license = "MIT OR Apache-2.0"
 
 [[bin]]
+name = "aos-tui"
 path = "src/main.rs"
+
 [dependencies]
 # TUI Framework
 ratatui = "0.30"

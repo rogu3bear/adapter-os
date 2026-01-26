@@ -13,7 +13,7 @@ use adapteros_lora_worker::training::{
     compute_drift, deterministic_slice, run_backend_with_examples, DatasetSubsample,
     HarnessHyperparams, TrainingBackend, TrainingExample,
 };
-use adapteros_model_hub::manifest::{AssuranceTier, ManifestV3};
+use adapteros_model_hub::manifest::{Adapter, AssuranceTier, ManifestV3};
 use clap::{Args, Subcommand};
 use comfy_table::{presets::UTF8_FULL, Cell, Table};
 use reqwest::Client;
@@ -400,7 +400,7 @@ async fn show_drift(
                 }
             }
         };
-        let summary = DriftShowSummary::from_manifest(adapter, path.to_string_lossy());
+        let summary = DriftShowSummary::from_manifest(adapter.clone(), path.to_string_lossy());
         render_drift_show(summary, json, output)?;
         return Ok(());
     }
@@ -448,10 +448,7 @@ impl DriftShowSummary {
         }
     }
 
-    fn from_manifest(
-        adapter: adapteros_manifest::Adapter,
-        manifest_path: std::borrow::Cow<str>,
-    ) -> Self {
+    fn from_manifest(adapter: Adapter, manifest_path: std::borrow::Cow<str>) -> Self {
         let tier = adapter.drift_tier.unwrap_or(AssuranceTier::Standard);
         let decision = adapter
             .drift_metric

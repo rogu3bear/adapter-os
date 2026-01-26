@@ -145,7 +145,8 @@ pub async fn run(
     // Load manifest from plan
     let manifest_path = plan_dir.join("manifest.json");
     let manifest_content = std::fs::read_to_string(&manifest_path)?;
-    let manifest: adapteros_manifest::ManifestV3 = serde_json::from_str(&manifest_content)?;
+    let manifest: adapteros_model_hub::manifest::ManifestV3 =
+        serde_json::from_str(&manifest_content)?;
 
     output.success("Manifest loaded");
 
@@ -237,7 +238,7 @@ pub async fn run(
         let index_dir = index_root.path.join(tenant);
         if index_dir.exists() {
             let embedding_hash = manifest.policies.rag.embedding_model_hash;
-            match adapteros_lora_rag::RagSystem::new(index_dir, embedding_hash) {
+            match adapteros_retrieval::RagSystem::new(index_dir, embedding_hash) {
                 Ok(rag_system) => {
                     output.success(format!(
                         "RAG system initialized (indices at {}, source: {})",

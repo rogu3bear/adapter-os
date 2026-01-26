@@ -804,11 +804,14 @@ pub async fn list_workers(
             _ => return (None, None),
         };
 
-        let parsed =
-            serde_json::from_str::<adapteros_manifest::ManifestV3>(&manifest_row.body_json)
-                .or_else(|_| {
-                    serde_yaml::from_str::<adapteros_manifest::ManifestV3>(&manifest_row.body_json)
-                });
+        let parsed = serde_json::from_str::<adapteros_model_hub::manifest::ManifestV3>(
+            &manifest_row.body_json,
+        )
+        .or_else(|_| {
+            serde_yaml::from_str::<adapteros_model_hub::manifest::ManifestV3>(
+                &manifest_row.body_json,
+            )
+        });
 
         match parsed {
             Ok(manifest) => (

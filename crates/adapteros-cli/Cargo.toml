@@ -11,19 +11,24 @@ path = "src/main.rs"
 [dependencies]
 adapteros-config = { path = "../adapteros-config" }
 adapteros-core = { path = "../adapteros-core" }
+adapteros-retrieval = { path = "../adapteros-retrieval" }
+adapteros-storage = { path = "../adapteros-storage" }
+adapteros-model-hub = { path = "../adapteros-model-hub" }
 adapteros-error-registry = { path = "../adapteros-error-registry" }
 adapteros-artifacts = { path = "../adapteros-artifacts" }
 adapteros-lora-plan = { path = "../adapteros-lora-plan" }
 adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
+adapteros-replay = { path = "../adapteros-replay", optional = true }
+adapteros-trace = { path = "../adapteros-trace", optional = true }
 adapteros-policy = { path = "../adapteros-policy" }
 adapteros-db = { path = "../adapteros-db" }
 adapteros-client = { path = "../adapteros-client" }
 adapteros-types = { path = "../adapteros-types" }
 # adapteros-server = { path = "../adapteros-server" }  # Temporarily disabled
 adapteros-api-types = { path = "../adapteros-api-types" }
+adapteros-api = { path = "../adapteros-api" }
 adapteros-lora-worker = { path = "../adapteros-lora-worker" }
-adapteros-retrieval = { path = "../adapteros-retrieval" }
 adapteros-embeddings = { path = "../adapteros-embeddings", features = ["training"] }
 adapteros-aos = { path = "../adapteros-aos" }  # Unified binary .aos format
 adapteros-lora-router = { path = "../adapteros-lora-router" }
@@ -33,13 +38,10 @@ adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true, 
 adapteros-secd = { path = "../adapteros-secd", optional = true }
 adapteros-tui = { path = "../adapteros-tui", optional = true }
 # adapteros-system-metrics = { path = "../adapteros-system-metrics" }  # Requires DATABASE_URL
-adapteros-replay = { path = "../adapteros-replay", optional = true }
-adapteros-trace = { path = "../adapteros-trace", optional = true }
 adapteros-verify = { path = "../adapteros-verify", features = ["clap"] }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
 adapteros-agent-spawn = { path = "../adapteros-agent-spawn" }
 adapteros-lora-lifecycle = { path = "../adapteros-lora-lifecycle" }
-adapteros-retrieval = { path = "../adapteros-retrieval", optional = true }
 clap = { workspace = true }
 clap_complete = "4.4"
 clap_mangen = "0.2"
@@ -99,12 +101,13 @@ parking_lot = { workspace = true }
 default = ["replay", "trace", "orchestrator"]
 # multi-backend: Enable MLX backend support in CLI commands
 multi-backend = ["dep:adapteros-lora-mlx-ffi", "adapteros-lora-worker/multi-backend"]
-codegraph = ["dep:adapteros-retrieval"]
+codegraph = []
 secd-support = ["dep:adapteros-secd"]
 tui = ["dep:adapteros-tui"]
 replay = ["dep:adapteros-replay"]
 trace = ["dep:adapteros-trace"]
 orchestrator = ["dep:adapteros-orchestrator"]
+scenarios = []
 extended-tests = []
 coreml-export = ["adapteros-lora-worker/coreml-backend"]
 # Full CLI with all optional features
