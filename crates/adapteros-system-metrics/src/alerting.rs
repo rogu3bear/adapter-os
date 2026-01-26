@@ -9,7 +9,7 @@ use crate::anomaly::{AnomalyConfig, AnomalyDetector};
 use crate::monitoring_types::*;
 use adapteros_core::Result;
 use adapteros_db::Db;
-use adapteros_manifest::Policies;
+use adapteros_model_hub::manifest::Policies;
 use adapteros_policy::PolicyEngine;
 use adapteros_telemetry::{SecurityEvent, TelemetryWriter};
 use serde::Serialize;
@@ -2175,7 +2175,7 @@ impl Clone for AlertEvaluator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use adapteros_manifest::Policies;
+    use adapteros_model_hub::manifest::Policies;
     use adapteros_telemetry::TelemetryWriter;
     use std::sync::Arc;
     use tempfile::TempDir;

@@ -4,7 +4,7 @@
 
 #![allow(unused_imports)]
 
-use adapteros_diagnostics::{
+use adapteros_telemetry::diagnostics::{
     DiagEnvelope, DiagEvent, DiagRunId, DiagSeverity, DiagStage, DiagnosticsConfig,
     DiagnosticsService, StageGuard,
 };

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 // Re-export types from codegraph for convenience
-pub use adapteros_codegraph::types::{
+pub use adapteros_retrieval::codegraph::types::{
     Language, Span, SymbolId, SymbolKind, SymbolNode, Visibility,
 };
 

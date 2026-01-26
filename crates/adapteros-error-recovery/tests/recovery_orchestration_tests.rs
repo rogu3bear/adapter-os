@@ -8,7 +8,7 @@ use adapteros_core::{AosError, Result};
 use adapteros_error_recovery::{
     ErrorRecoveryConfig, ErrorRecoveryManager, ErrorType, RecoveryResult,
 };
-use adapteros_platform::common::PlatformUtils;
+use adapteros_storage::platform::common::PlatformUtils;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};

@@ -597,7 +597,7 @@ mod bundle_creation_tests {
 mod bundle_store_tests {
     use super::*;
     use adapteros_core::B3Hash;
-    use adapteros_telemetry_types::BundleMetadata;
+    use adapteros_telemetry::types::BundleMetadata;
 
     #[test]
     fn test_bundle_store_creation() {

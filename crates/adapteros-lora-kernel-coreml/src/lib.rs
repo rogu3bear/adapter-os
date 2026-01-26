@@ -1548,7 +1548,7 @@ impl CoreMLBackend {
 
     #[cfg(target_os = "macos")]
     fn compile_model_if_needed(model_path: &Path) -> Result<PathBuf> {
-        use adapteros_platform::common::PlatformUtils;
+        use adapteros_storage::platform::common::PlatformUtils;
 
         if model_path
             .extension()

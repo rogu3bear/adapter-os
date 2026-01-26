@@ -15,7 +15,7 @@ use adapteros_api_types::training::{
 use adapteros_api_types::workers::WorkerCapabilities;
 use adapteros_api_types::{InferRequest, API_SCHEMA_VERSION};
 use adapteros_db::workers::WorkerRegistrationParams;
-use adapteros_manifest::ManifestV3;
+use adapteros_model_hub::manifest::ManifestV3;
 use adapteros_orchestrator::TrainingService;
 use adapteros_server_api::handlers::chunked_upload::MIN_CHUNK_SIZE;
 use adapteros_server_api::handlers::datasets::{

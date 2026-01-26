@@ -10,7 +10,7 @@
 use adapteros_core::{AosError, Result};
 use adapteros_db::Db;
 use adapteros_policy::{PolicyHashWatcher, QuarantineManager, QuarantineOperation};
-use adapteros_registry::Registry;
+use adapteros_model_hub::registry::Registry;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
@@ -768,7 +768,7 @@ async fn spawn_worker_process(tenant_id: &str, db_path: &std::path::Path) -> Res
 mod tests {
     use super::*;
     use crate::test_support::TestEnvGuard;
-    use adapteros_platform::common::PlatformUtils;
+    use adapteros_storage::platform::common::PlatformUtils;
     use tempfile::TempDir;
 
     fn new_test_tempdir() -> TempDir {

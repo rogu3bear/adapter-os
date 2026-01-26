@@ -1,7 +1,7 @@
 //! Implementation helpers for AOS commands
 
 use adapteros_core::{AosError, Result};
-use adapteros_single_file_adapter::{
+use adapteros_aos::single_file::{
     AdapterWeights, TrainingConfig, TrainingExample, WeightGroup, WeightGroupType, WeightMetadata,
 };
 use std::fs;

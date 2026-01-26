@@ -3,7 +3,7 @@
 use crate::{DependencyChecker, Gate, OrchestratorConfig};
 use adapteros_core::B3Hash;
 use adapteros_core::{AosError, Result};
-use adapteros_manifest::ManifestV3;
+use adapteros_model_hub::manifest::ManifestV3;
 use std::fs;
 use std::path::Path;
 use tracing::{debug, warn};

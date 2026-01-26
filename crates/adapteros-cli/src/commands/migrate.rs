@@ -7,7 +7,7 @@ use crate::output::OutputWriter;
 use adapteros_core::AosError;
 // Removed: use adapteros_core::B3Hash;
 // Removed: use adapteros_lora_worker::training::{TrainingConfig, TrainingExample};
-// Removed: use adapteros_single_file_adapter::{...};
+// Removed: use adapteros_aos::single_file::{...};
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};

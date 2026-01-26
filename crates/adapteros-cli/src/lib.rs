@@ -28,6 +28,9 @@ pub mod validation;
 pub mod app;
 pub mod local_inference;
 
+#[cfg(feature = "scenarios")]
+pub mod scenarios;
+
 /// Backend type selection for inference (mirrors the binary crate definition).
 #[derive(Debug, Clone, clap::ValueEnum)]
 pub enum BackendType {

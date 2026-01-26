@@ -260,7 +260,7 @@ pub fn extract_simple_manifest(plan_bytes: &[u8]) -> Result<(serde_json::Value, 
 
 /// Write weights data to a temp file and return the path
 pub fn write_weights_to_temp(weights_data: &[u8]) -> Result<PathBuf> {
-    use adapteros_platform::common::PlatformUtils;
+    use adapteros_storage::platform::common::PlatformUtils;
     use std::io::Write;
 
     let temp_root = PlatformUtils::temp_dir().join("aos");

@@ -407,8 +407,8 @@ impl ConfigLoader {
     }
 
     /// Get configuration schema
-    pub fn get_schema(&self) -> ConfigSchema {
-        ConfigSchema::default()
+    pub fn get_schema(&self) -> DeterministicSchema {
+        DeterministicSchema::default()
     }
 }
 

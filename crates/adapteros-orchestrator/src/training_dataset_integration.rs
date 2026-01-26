@@ -689,7 +689,7 @@ mod tests {
     use adapteros_core::AosError;
     use adapteros_db::sqlx;
     use adapteros_db::Db;
-    use adapteros_platform::common::PlatformUtils;
+    use adapteros_storage::platform::common::PlatformUtils;
     use std::path::PathBuf;
     use tempfile::TempDir;
 

@@ -9,7 +9,7 @@ use adapteros_lora_worker::training::{
     CheckpointManager, EarlyStopping, EarlyStoppingConfig, LRScheduleType, LRScheduler,
     LRSchedulerConfig, LoRAWeights, MicroLoRATrainer, TrainingConfig, TrainingExample,
 };
-use adapteros_platform::common::PlatformUtils;
+use adapteros_storage::platform::common::PlatformUtils;
 use std::collections::HashMap;
 use tempfile::TempDir;
 

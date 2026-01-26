@@ -5,7 +5,7 @@
 
 use crate::galaxy_loader::AdapterLoadOutcome;
 use adapteros_core::B3Hash;
-use adapteros_manifest::{AdapterScope, AdapterTier};
+use adapteros_model_hub::manifest::{AdapterScope, AdapterTier};
 use parking_lot::RwLock;
 use serde_json::Value;
 use std::collections::HashMap;

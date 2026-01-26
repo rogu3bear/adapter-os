@@ -62,7 +62,7 @@ use crate::constants::{
 use crate::query_helpers::db_err;
 use crate::Db;
 use adapteros_core::{AosError, B3Hash, Result};
-use adapteros_normalization::{
+use adapteros_core::{
     extract_repo_identifier_from_metadata, normalize_repo_id, normalize_repo_slug,
     sanitize_optional, sanitize_repo_identifier, sanitize_repo_slug,
 };

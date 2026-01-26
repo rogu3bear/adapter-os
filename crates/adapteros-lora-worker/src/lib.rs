@@ -83,12 +83,12 @@ use adapteros_db::{
     Db, SqlTraceSink, TraceCancellation, TraceFinalization, TraceSink, TraceStart, TraceTokenInput,
 };
 use adapteros_lora_kernel_api::{attestation::DeterminismLevel, FusedKernels, IoBuffers};
-use adapteros_lora_rag::RagSystem;
+use adapteros_retrieval::rag::RagSystem;
 use adapteros_lora_router::{
     constants::PINNED_BOOST, features::CodeFeatures, policy_mask::PolicyMask, AbstainContext,
     AdapterInfo, Router, RouterDeterminismConfig,
 };
-use adapteros_manifest::ManifestV3;
+use adapteros_model_hub::manifest::ManifestV3;
 use adapteros_policy::{PolicyEngine, RefusalResponse};
 use adapteros_telemetry::{CriticalComponentMetrics, TelemetryWriter};
 use adapteros_types::adapters::metadata::RoutingDeterminismMode;
@@ -392,9 +392,9 @@ pub use adapter_hotswap::{
 };
 // Re-export CircuitState for downstream consumers
 pub use adapteros_core::CircuitState;
-pub use adapteros_lora_rag::DocIndexImpl;
-pub use adapteros_lora_rag::SymbolIndexImpl;
-pub use adapteros_lora_rag::TestIndexImpl;
+pub use adapteros_retrieval::rag::DocIndexImpl;
+pub use adapteros_retrieval::rag::SymbolIndexImpl;
+pub use adapteros_retrieval::rag::TestIndexImpl;
 pub use adapteros_lora_router::filter_decision_by_policy;
 pub use anomaly_detection::{
     AnomalyDetectionConfig, AnomalyDetector, AnomalyScore, DetectionAlgorithm,
@@ -1423,7 +1423,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         // Initialize evidence retriever with real implementation if RAG is available
         let evidence_retriever = if let Some(ref _rag_system) = rag {
             use crate::evidence::*;
-            use adapteros_lora_rag::EvidenceIndexManager;
+            use adapteros_retrieval::rag::EvidenceIndexManager;
 
             // Create evidence index manager for the tenant
             let index_root = resolve_index_root()?;

@@ -2,9 +2,9 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::fs;
 
-pub use adapteros_config_types::{
-    AlertingConfig, AuthConfig, DatabaseConfig, MetricsConfig, PathsConfig, PoliciesConfig,
-    RateLimitsConfig, SecurityConfig, ServerConfig,
+pub use adapteros_config::{
+    AlertingConfig, AuthConfig, DatabaseConfig, InvariantsConfig, MetricsConfig, PathsConfig,
+    PoliciesConfig, RateLimitsConfig, SecurityConfig, ServerConfig,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

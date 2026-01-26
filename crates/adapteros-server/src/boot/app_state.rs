@@ -6,7 +6,7 @@
 use adapteros_core::AosError;
 use adapteros_db::Db;
 use adapteros_deterministic_exec::global_ledger::GlobalTickLedger;
-use adapteros_diagnostics::{DiagEnvelope, DiagnosticsConfig, DiagnosticsService};
+use adapteros_telemetry::diagnostics::{DiagEnvelope, DiagnosticsConfig, DiagnosticsService};
 use adapteros_lora_worker::memory::UmaPressureMonitor;
 use adapteros_metrics_exporter::MetricsExporter;
 use adapteros_orchestrator::{FederationDaemon, TrainingService};

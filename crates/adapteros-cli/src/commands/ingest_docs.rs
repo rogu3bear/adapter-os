@@ -9,7 +9,7 @@ use adapteros_ingest_docs::{
     prepare_documents_for_rag, ChunkingOptions, DocumentIngestor, EmbeddingModel,
     ProductionEmbeddingModel, TrainingGenConfig, TrainingStrategy, EMBEDDING_DIMENSION,
 };
-use adapteros_lora_rag::pgvector::PgVectorIndex;
+use adapteros_retrieval::rag::pgvector::PgVectorIndex;
 use clap::Args;
 use std::fs;
 use std::path::{Path, PathBuf};

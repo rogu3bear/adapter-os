@@ -7,7 +7,7 @@
 
 use crate::signal::{Signal, SignalBuilder, SignalPriority, SignalType};
 use adapteros_lora_lifecycle::{AdapterTransitionEvent, AdapterActivationEvent, AdapterEvictionEvent};
-use adapteros_profiler::AdapterMetrics;
+use adapteros_telemetry::profiler::AdapterMetrics;
 use serde_json::json;
 use adapteros_deterministic_exec::channel::{DeterministicChannel, Sender};
 

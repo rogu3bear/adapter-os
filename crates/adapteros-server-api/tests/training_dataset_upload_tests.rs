@@ -10,7 +10,7 @@ mod common;
 use std::sync::Arc;
 
 use adapteros_core::{B3Hash, Result};
-use adapteros_lora_rag::EmbeddingModel;
+use adapteros_retrieval::rag::EmbeddingModel;
 use adapteros_server_api::services::{
     DatasetFromDocumentIdsParams, DatasetFromUploadParams, DefaultTrainingDatasetService,
 };

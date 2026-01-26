@@ -4,8 +4,8 @@
 //! Implements the `DiagPersister` trait for integration with the background writer.
 
 use adapteros_core::{AosError, Result};
-use adapteros_diagnostics::writer::{DiagPersister, PersistError, SequencedEvent};
-use adapteros_diagnostics::{DiagEnvelope, DiagEvent, DiagSeverity};
+use adapteros_telemetry::diagnostics::writer::{DiagPersister, PersistError, SequencedEvent};
+use adapteros_telemetry::diagnostics::{DiagEnvelope, DiagEvent, DiagSeverity};
 use sqlx::SqlitePool;
 use std::sync::Arc;
 use tracing::{debug, warn};
@@ -1183,7 +1183,7 @@ mod tests {
     #[test]
     fn test_extract_event_type() {
         use adapteros_core::B3Hash;
-        use adapteros_diagnostics::DiagStage;
+        use adapteros_telemetry::diagnostics::DiagStage;
 
         assert_eq!(
             extract_event_type(&DiagEvent::StageEnter {

@@ -3,7 +3,7 @@ use adapteros_config::{get_model_path_with_fallback, reject_tmp_persistent_path,
 use adapteros_core::{AosError, Result};
 use adapteros_deterministic_exec::DeterministicExecutor;
 use adapteros_lora_mlx_ffi::MLXFFIModel;
-use adapteros_secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
+use adapteros_storage::secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
 use adapteros_trace::Event;
 use std::path::{Path, PathBuf};
 

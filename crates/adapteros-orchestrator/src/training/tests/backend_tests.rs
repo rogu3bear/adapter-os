@@ -7,7 +7,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use adapteros_lora_worker::training::TrainingBackend as WorkerTrainingBackend;
-use adapteros_platform::common::PlatformUtils;
+use adapteros_storage::platform::common::PlatformUtils;
 use tempfile::TempDir;
 use tokio::sync::RwLock;
 

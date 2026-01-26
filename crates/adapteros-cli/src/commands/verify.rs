@@ -4,7 +4,7 @@ use crate::http_client;
 use crate::output::OutputWriter;
 use adapteros_artifacts::bundle;
 use adapteros_core::B3Hash;
-use adapteros_platform::common::PlatformUtils;
+use adapteros_storage::platform::common::PlatformUtils;
 use anyhow::{Context, Result};
 use clap::Subcommand;
 use serde::{Deserialize, Serialize};

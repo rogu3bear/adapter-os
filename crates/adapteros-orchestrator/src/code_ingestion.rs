@@ -5,7 +5,7 @@
 //! samples, fine-tunes a Micro-LoRA adapter, packages it into a `.aos`
 //! artifact, and optionally registers it in the adapter registry.
 
-use adapteros_codegraph::{CodeGraph, SymbolKind, SymbolNode, Visibility};
+use adapteros_retrieval::codegraph::{CodeGraph, SymbolKind, SymbolNode, Visibility};
 use adapteros_core::paths::AdapterPaths;
 use adapteros_core::seed::{
     derive_seed_u64_from_inputs, is_strict_determinism_mode, maybe_stable_sort,
@@ -23,10 +23,10 @@ use adapteros_lora_worker::tokenizer::QwenTokenizer;
 use adapteros_lora_worker::training::{
     AdapterPackager, LoRAQuantizer, MicroLoRATrainer, TrainingConfig, TrainingExample,
 };
-pub use adapteros_normalization::{
+pub use adapteros_core::normalization::{
     normalize_path_segments, normalize_repo_id, normalize_repo_slug,
 };
-use adapteros_platform::common::PlatformUtils;
+use adapteros_storage::platform::common::PlatformUtils;
 use adapteros_storage::byte_store::{DatasetCategory, FsByteStorage};
 use adapteros_types::training::{provenance_from_map, weight_from_metadata, ExampleMetadataV1};
 use blake3::Hasher;

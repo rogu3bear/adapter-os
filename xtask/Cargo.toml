@@ -8,7 +8,7 @@ license.workspace = true
 [dependencies]
 anyhow = { workspace = true }
 adapteros-config = { path = "../crates/adapteros-config" }
-adapteros-sbom = { path = "../crates/adapteros-sbom" }
+adapteros-artifacts = { path = "../crates/adapteros-artifacts" }
 adapteros-core = { path = "../crates/adapteros-core" }
 adapteros-types = { path = "../crates/adapteros-types" }
 adapteros-lora-worker = { path = "../crates/adapteros-lora-worker" }

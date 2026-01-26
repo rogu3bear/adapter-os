@@ -1,7 +1,7 @@
 //! Shared types for adapter packaging
 
 use super::manifest::AdapterManifest;
-use adapteros_normalization::normalize_repo_slug;
+use adapteros_core::normalize_repo_slug;
 use adapteros_types::coreml::CoreMLPlacementSpec;
 use adapteros_types::training::LoraTier;
 use serde::{Deserialize, Serialize};

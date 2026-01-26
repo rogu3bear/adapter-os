@@ -14,7 +14,7 @@
 
 use adapteros_core::B3Hash;
 use adapteros_crypto::signature::Keypair;
-use adapteros_platform::common::PlatformUtils;
+use adapteros_storage::platform::common::PlatformUtils;
 use anyhow::Result;
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;

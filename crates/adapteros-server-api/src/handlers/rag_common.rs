@@ -25,7 +25,7 @@
 
 use crate::state::AppState;
 use adapteros_core::B3Hash;
-use adapteros_lora_rag::EmbeddingModel;
+use adapteros_retrieval::rag::EmbeddingModel;
 use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::{debug, info, warn};

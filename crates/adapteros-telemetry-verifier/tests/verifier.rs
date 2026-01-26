@@ -1,4 +1,4 @@
-use adapteros_telemetry_verifier::{run_with_specs, InvariantSpec};
+use adapteros_telemetry::verifier::{run_with_specs, InvariantSpec};
 use std::fs;
 use tempfile::TempDir;
 

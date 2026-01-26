@@ -62,6 +62,7 @@ pub mod jitter;
 pub mod json;
 pub mod lifecycle;
 pub mod naming;
+pub mod normalization;
 pub mod path_normalization;
 pub mod path_security;
 pub mod path_utils;
@@ -172,6 +173,10 @@ pub use lifecycle::{
     SemanticVersion, TransitionReason,
 };
 pub use naming::{AdapterName, ForkType, StackName};
+pub use normalization::{
+    extract_repo_identifier_from_metadata, normalize_path_segments, normalize_repo_id,
+    normalize_repo_slug, sanitize_optional, sanitize_repo_identifier, sanitize_repo_slug,
+};
 pub use path_normalization::{
     compare_paths_deterministic, normalize_path_for_sorting, normalize_path_str,
 };

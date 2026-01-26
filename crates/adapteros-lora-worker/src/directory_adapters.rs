@@ -4,9 +4,9 @@
 //! tightly-scoped parts of a repository.  They are derived from the
 //! directory fingerprints produced by the codegraph crate.
 
-use adapteros_codegraph::DirectoryAnalysis;
+use adapteros_retrieval::codegraph::DirectoryAnalysis;
 use adapteros_core::{B3Hash, Result};
-use adapteros_platform::common::PlatformUtils;
+use adapteros_storage::platform::common::PlatformUtils;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -190,7 +190,7 @@ fn depth_of(path: &str) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use adapteros_codegraph::{DirectorySymbol, DirectorySymbolKind};
+    use adapteros_retrieval::codegraph::{DirectorySymbol, DirectorySymbolKind};
 
     fn sample_analysis(path: &str) -> DirectoryAnalysis {
         DirectoryAnalysis {

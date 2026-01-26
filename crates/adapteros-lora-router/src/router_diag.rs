@@ -17,7 +17,7 @@
 use crate::quantization::ROUTER_GATE_Q15_DENOM;
 use crate::AdapterInfo;
 use adapteros_core::B3Hash;
-use adapteros_diagnostics::{DiagEnvelope, DiagEvent, DiagRunId, DiagSeverity, SharedDiagEmitter};
+use adapteros_telemetry::diagnostics::{DiagEnvelope, DiagEvent, DiagRunId, DiagSeverity, SharedDiagEmitter};
 use adapteros_telemetry::tracing::TraceContext;
 use std::time::Instant;
 
@@ -356,7 +356,7 @@ impl RouterDiag {
 #[allow(clippy::excessive_precision)]
 mod tests {
     use super::*;
-    use adapteros_diagnostics::NoopDiagEmitter;
+    use adapteros_telemetry::diagnostics::NoopDiagEmitter;
     use std::sync::Arc;
 
     fn make_adapter_info(stable_id: u64, id: &str) -> AdapterInfo {

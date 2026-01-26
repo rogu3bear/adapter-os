@@ -6,7 +6,7 @@ use adapteros_lora_worker::training::{
     compute_drift, deterministic_slice, run_backend_with_examples, DriftMetrics,
     HarnessHyperparams, TrainingBackend, TrainingExample,
 };
-use adapteros_manifest::{AssuranceTier, ManifestV3};
+use adapteros_model_hub::manifest::{AssuranceTier, ManifestV3};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;

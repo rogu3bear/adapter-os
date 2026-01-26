@@ -1,6 +1,6 @@
 #![no_main]
 
-use adapteros_sbom::SpdxDocument;
+use adapteros_artifacts::sbom::SpdxDocument;
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {

@@ -7,7 +7,7 @@
 //! and ensures cross-run stability.
 
 use adapteros_core::B3Hash;
-use adapteros_graph::{
+use adapteros_trace::graph::{
     canonical::{canonical_tensor_repr, CanonicalTensor, HASH_VERSION},
     hash::{hash_tensor_with_metadata, hash_tensors, HashGraph},
     tensor::{DataType, DeviceFamily, MemoryLayout, QuantizationParams, Tensor},

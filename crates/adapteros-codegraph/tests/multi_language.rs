@@ -1,9 +1,9 @@
 //! Multi-language parsing integration tests
 
-use adapteros_codegraph::parsers::test_utils::{
+use adapteros_retrieval::codegraph::parsers::test_utils::{
     create_multi_language_test_files, verify_language_parsing,
 };
-use adapteros_codegraph::{
+use adapteros_retrieval::codegraph::{
     detect_language, parse_directory, CodeGraph, Language, ParserFactory, SymbolKind,
 };
 use std::path::{Path, PathBuf};

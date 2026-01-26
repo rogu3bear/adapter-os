@@ -1017,7 +1017,7 @@ pub fn verify_bundle_from_path(bundle: &Path) -> Result<ReceiptVerificationRepor
 mod tests {
     use super::*;
     use adapteros_crypto::signature::Keypair;
-    use adapteros_platform::common::PlatformUtils;
+    use adapteros_storage::platform::common::PlatformUtils;
     use base64::engine::general_purpose::STANDARD;
     use rand::RngCore;
     use tempfile::TempDir;

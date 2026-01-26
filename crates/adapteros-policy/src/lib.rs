@@ -24,7 +24,7 @@ pub mod validation;
 
 use crate::packs::determinism::FORBIDDEN_COMPILER_FLAGS;
 use adapteros_core::{AosError, B3Hash, Result};
-use adapteros_manifest::*;
+use adapteros_model_hub::manifest::*;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
@@ -561,3 +561,7 @@ pub struct PolicyDecisionChain {
     pub decisions: Vec<PolicyDecisionRecord>,
     pub digest: B3Hash,
 }
+
+// Domain-specific policy and configuration
+pub mod domain;
+pub use domain::{Domain, DomainConfig, DomainPolicy};

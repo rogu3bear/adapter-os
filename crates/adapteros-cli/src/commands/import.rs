@@ -4,7 +4,7 @@ use crate::output::OutputWriter;
 use adapteros_artifacts::bundle;
 use adapteros_core::B3Hash;
 use adapteros_db::Db;
-use adapteros_platform::common::PlatformUtils;
+use adapteros_storage::platform::common::PlatformUtils;
 use anyhow::{Context, Result};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine as _;

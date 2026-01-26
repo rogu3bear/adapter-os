@@ -47,3 +47,7 @@ pub enum ModelHubError {
 
 /// Result type alias for model hub operations
 pub type HubResult<T> = std::result::Result<T, ModelHubError>;
+
+// Manifest and registry modules
+pub mod manifest;
+pub mod registry;

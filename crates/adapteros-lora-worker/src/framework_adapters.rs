@@ -5,7 +5,7 @@
 //! to maintain deterministic behaviour so that the same detection result
 //! always yields the same adapter identifier and weight matrices.
 
-use adapteros_codegraph::DetectedFramework;
+use adapteros_retrieval::codegraph::DetectedFramework;
 use adapteros_core::{B3Hash, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::json;

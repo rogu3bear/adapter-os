@@ -5,11 +5,11 @@
 //! - `aosctl registry migrate` - Migrate legacy registry database to new schema
 
 use crate::output::OutputWriter;
+use adapteros_artifacts::sbom::SpdxDocument;
 use adapteros_artifacts::CasStore;
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_crypto::{PublicKey, Signature};
-use adapteros_registry::Registry;
-use adapteros_sbom::SpdxDocument;
+use adapteros_model_hub::registry::Registry;
 use clap::{Parser, Subcommand};
 use indicatif::{ProgressBar, ProgressStyle};
 use rusqlite::{Connection, Row};

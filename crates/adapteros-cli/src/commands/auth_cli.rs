@@ -124,7 +124,7 @@ mod tests {
     };
     use crate::output::{OutputMode, OutputWriter};
     use adapteros_api_types::{auth::LoginResponse, API_SCHEMA_VERSION};
-    use adapteros_platform::common::PlatformUtils;
+    use adapteros_storage::platform::common::PlatformUtils;
     use axum::{routing::post, serve, Json, Router};
     use serial_test::serial;
     use std::env;

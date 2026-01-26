@@ -384,7 +384,7 @@ impl CoreMLBackend {
     /// Model files are cached for reuse based on plan hash.
     #[cfg(feature = "coreml-backend")]
     fn load_model(&mut self, plan_bytes: &[u8]) -> Result<()> {
-        use adapteros_platform::common::PlatformUtils;
+        use adapteros_storage::platform::common::PlatformUtils;
         use std::fs;
         use std::io::Write;
 

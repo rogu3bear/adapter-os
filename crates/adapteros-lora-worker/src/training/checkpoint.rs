@@ -404,7 +404,7 @@ impl CheckpointManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use adapteros_platform::common::PlatformUtils;
+    use adapteros_storage::platform::common::PlatformUtils;
     use tempfile::TempDir;
 
     fn new_test_tempdir() -> TempDir {

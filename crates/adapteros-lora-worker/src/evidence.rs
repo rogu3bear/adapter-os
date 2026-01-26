@@ -3,7 +3,7 @@
 //! Provides evidence-grounded retrieval across symbols, tests, docs, and code chunks.
 
 // use adapteros_core::B3Hash; // unused
-use adapteros_lora_rag::{EvidenceIndexManager, EvidenceType as RagEvidenceType};
+use adapteros_retrieval::rag::{EvidenceIndexManager, EvidenceType as RagEvidenceType};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

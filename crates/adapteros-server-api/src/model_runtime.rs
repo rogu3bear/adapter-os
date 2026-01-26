@@ -21,7 +21,7 @@ use tokio::task::AbortHandle;
 use tracing::info;
 
 use adapteros_config::resolve_base_model_location;
-use adapteros_secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
+use adapteros_storage::secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
 
 fn model_allowed_roots() -> Result<Vec<PathBuf>, String> {
     let location = resolve_base_model_location(None, None, false).map_err(|e| e.to_string())?;

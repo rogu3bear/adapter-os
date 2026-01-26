@@ -17,7 +17,7 @@
 /// # Examples
 ///
 /// ```
-/// use adapteros_normalization::normalize_repo_id;
+/// use adapteros_core::normalize_repo_id;
 ///
 /// assert_eq!(normalize_repo_id("https://github.com/org/repo"), "github.com/org/repo");
 /// assert_eq!(normalize_repo_id("git@github.com:org/repo.git"), "github.com/org/repo");
@@ -82,7 +82,7 @@ pub fn normalize_repo_id(repo_id: &str) -> String {
 /// # Examples
 ///
 /// ```
-/// use adapteros_normalization::normalize_path_segments;
+/// use adapteros_core::normalize_path_segments;
 ///
 /// assert_eq!(normalize_path_segments("a//b///c"), "a/b/c");
 /// assert_eq!(normalize_path_segments("/leading/"), "leading");

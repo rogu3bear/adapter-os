@@ -2,10 +2,10 @@
 //! Tests: ip_address, url, range, enum validation rules
 
 use adapteros_config::precedence::ConfigBuilder;
-use adapteros_config::types::{ConfigSchema, FieldDefinition};
+use adapteros_config::types::{DeterministicSchema, FieldDefinition};
 
-fn empty_schema() -> ConfigSchema {
-    ConfigSchema {
+fn empty_schema() -> DeterministicSchema {
+    DeterministicSchema {
         version: "test".to_string(),
         fields: std::collections::HashMap::new(),
     }

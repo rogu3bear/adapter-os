@@ -15,7 +15,7 @@ use adapteros_boot::key_ring::WorkerKeyRing;
 use adapteros_boot::{KeyUpdateRequest, KeyUpdateResponse, KEY_UPDATE_MAX_AGE_SECS};
 use adapteros_config::prepare_socket_path;
 use adapteros_core::{AosError, Result};
-use adapteros_secure_fs::traversal::normalize_path;
+use adapteros_storage::secure_fs::traversal::normalize_path;
 use blake3::Hasher;
 use ed25519_dalek::VerifyingKey;
 use serde_json;

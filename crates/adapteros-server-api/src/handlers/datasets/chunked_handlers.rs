@@ -40,7 +40,7 @@ use crate::storage_usage::compute_tenant_storage_usage;
 use crate::types::ErrorResponse;
 use adapteros_db::training_datasets::{build_codebase_rows_from_jsonl_bytes, CreateDatasetParams};
 use adapteros_deterministic_exec::spawn_deterministic;
-use adapteros_secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
+use adapteros_storage::secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
 use adapteros_storage::{ByteStorage, FsByteStorage, StorageKey};
 use axum::{
     extract::{Path, Query, State},

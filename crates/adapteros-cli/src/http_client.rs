@@ -92,7 +92,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use adapteros_platform::common::PlatformUtils;
+    use adapteros_storage::platform::common::PlatformUtils;
     use axum::{
         body::Body,
         extract::State,

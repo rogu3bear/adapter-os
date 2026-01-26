@@ -4,7 +4,7 @@
 //! JSON, or other formats for analysis and visualization.
 
 use crate::output::OutputWriter;
-use adapteros_codegraph::CodeGraph;
+use adapteros_retrieval::codegraph::CodeGraph;
 use adapteros_core::Result;
 use serde::Serialize;
 use std::path::Path;

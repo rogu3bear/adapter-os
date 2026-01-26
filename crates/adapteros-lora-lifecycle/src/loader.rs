@@ -18,7 +18,7 @@ use adapteros_aos::{
     SealedAdapterLoader, VerifiedAdapter, HEADER_SIZE, INDEX_ENTRY_SIZE,
 };
 use adapteros_core::{AosError, B3Hash, Result};
-use adapteros_single_file_adapter::format::AosSignature;
+use adapteros_aos::single_file::format::AosSignature;
 use adapteros_types::coreml::CoreMLPlacementSpec;
 use adapteros_types::training::LoraTier;
 use ed25519_dalek::VerifyingKey;

@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use adapteros_api_types::review::{PauseKind, Review, ReviewAssessment, SubmitReviewRequest};
 use adapteros_core::B3Hash;
-use adapteros_diagnostics::{DiagEvent, DiagLevel, DiagnosticsConfig, DiagnosticsService};
+use adapteros_telemetry::diagnostics::{DiagEvent, DiagLevel, DiagnosticsConfig, DiagnosticsService};
 use adapteros_server_api::pause_tracker::ServerPauseTracker;
 use adapteros_server_api::uds_client::WorkerStreamPaused;
 

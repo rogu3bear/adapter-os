@@ -13,7 +13,7 @@
 /// # Examples
 ///
 /// ```
-/// use adapteros_normalization::normalize_repo_slug;
+/// use adapteros_core::normalize_repo_slug;
 ///
 /// assert_eq!(normalize_repo_slug("adapterOS-Core"), "adapteros_core");
 /// assert_eq!(normalize_repo_slug("My Awesome Repo!"), "my_awesome_repo");

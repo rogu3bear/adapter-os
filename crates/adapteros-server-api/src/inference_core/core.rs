@@ -155,7 +155,7 @@ use adapteros_core::{
 use adapteros_db::workers::WorkerWithBinding;
 use adapteros_db::{chat_sessions::ChatSession, CreateReplayMetadataParams};
 #[allow(unused_imports)]
-use adapteros_diagnostics::DiagStage;
+use adapteros_telemetry::diagnostics::DiagStage;
 use adapteros_policy::hooks::{HookContext, PolicyHook};
 use adapteros_telemetry::unified_events::{EventType, LogLevel, TelemetryEventBuilder};
 use adapteros_telemetry::{

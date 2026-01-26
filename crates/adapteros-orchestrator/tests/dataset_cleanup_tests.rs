@@ -1,7 +1,7 @@
 //! Tests for dataset cleanup and storage management
 
 use adapteros_orchestrator::{CleanupConfig, StorageQuotaStatus};
-use adapteros_platform::common::PlatformUtils;
+use adapteros_storage::platform::common::PlatformUtils;
 use tempfile::TempDir;
 
 // Note: Database tests requiring migrations are skipped due to migration signature verification.

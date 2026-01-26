@@ -403,7 +403,7 @@ impl SignalHandler for ContactDiscoveryHandler {
 mod tests {
     use super::*;
     use crate::signal::{SignalBuilder, SignalPriority};
-    use adapteros_platform::common::PlatformUtils;
+    use adapteros_storage::platform::common::PlatformUtils;
 
     fn test_telemetry() -> TelemetryWriter {
         let temp_dir = PlatformUtils::temp_dir().join("mplora_test_telemetry");

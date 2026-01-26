@@ -10,7 +10,7 @@
 
 use adapteros_core::{AosError, B3Hash};
 use adapteros_lora_plan::{build_plan, PlanMeta, TensorLayout};
-use adapteros_manifest::{
+use adapteros_model_hub::manifest::{
     Adapter, AdapterCategory, AdapterScope, AdapterTier, AssuranceTier, Base, BundleCfg,
     DeterminismPolicy, DriftPolicy, EgressPolicy, EvictionPriority, EvidencePolicy,
     IsolationPolicy, ManifestV3, MemoryPolicy, NumericPolicy, PerformancePolicy, Policies,

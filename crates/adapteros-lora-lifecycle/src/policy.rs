@@ -1,7 +1,7 @@
 //! Promotion and demotion policies
 
-use adapteros_manifest::Policies;
-use adapteros_profiler::AdapterMetrics;
+use adapteros_model_hub::manifest::Policies;
+use adapteros_telemetry::profiler::AdapterMetrics;
 
 /// Policy for adapter lifecycle transitions
 pub struct LifecyclePolicy {

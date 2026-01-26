@@ -9,7 +9,7 @@
 //! # Examples
 //!
 //! ```ignore
-//! use adapteros_manifest::{ManifestV3, Adapter, AdapterTier};
+//! use adapteros_model_hub::manifest::{ManifestV3, Adapter, AdapterTier};
 //! use adapteros_core::B3Hash;
 //!
 //! // Create a manifest

@@ -3,7 +3,7 @@
 #![allow(clippy::field_reassign_with_default)]
 #![allow(unused_mut)]
 
-use adapteros_platform::common::PlatformUtils;
+use adapteros_storage::platform::common::PlatformUtils;
 use tempfile::TempDir;
 
 use crate::test_support::TestEnvGuard;

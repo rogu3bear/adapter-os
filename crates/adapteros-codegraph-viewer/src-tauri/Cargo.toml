@@ -1,5 +1,5 @@
 [package]
-name = "adapteros-codegraph-viewer"
+name = "adapteros-retrieval-viewer"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -7,8 +7,7 @@ license.workspace = true
 
 [dependencies]
 adapteros-core = { path = "../../adapteros-core" }
-adapteros-codegraph = { path = "../../adapteros-codegraph" }
-
+adapteros-retrieval = { path = "../../adapteros-retrieval" }
 # Tauri dependencies
 tauri = { version = "1.5", features = ["dialog-open", "shell-open", "fs-read-file"] }
 serde = { workspace = true, features = ["derive"] }
@@ -17,11 +16,8 @@ tokio = { workspace = true, features = ["full"] }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = "0.3"
-
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
-
 [build-dependencies]
 tauri-build = { version = "1.5", features = [] }
-

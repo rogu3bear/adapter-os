@@ -4,7 +4,7 @@
 //! Reference: <https://openreview.net/pdf?id=jqz6Msm3AF>
 
 use adapteros_core::{AosError, Result, Q15_GATE_DENOMINATOR};
-use adapteros_manifest::RouterCfg;
+use adapteros_model_hub::manifest::RouterCfg;
 use serde::{Deserialize, Serialize};
 
 /// DIR (Deterministic Inference Runtime) policy enforcement

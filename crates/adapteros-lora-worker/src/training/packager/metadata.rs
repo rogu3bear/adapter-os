@@ -6,7 +6,7 @@ use crate::training::{
 };
 use adapteros_core::AosError;
 use adapteros_core::Result;
-use adapteros_normalization::normalize_repo_slug;
+use adapteros_core::normalize_repo_slug;
 use adapteros_types::coreml::CoreMLOpKind;
 use adapteros_types::training::LoraTier;
 use std::collections::HashMap;

@@ -8,7 +8,7 @@
 
 #![allow(clippy::single_match)]
 
-use adapteros_api::streaming::{StreamEvent, StreamingInferenceRequest};
+use adapteros_server_api::http::streaming::{StreamEvent, StreamingInferenceRequest};
 use std::time::Duration;
 use tokio::sync::mpsc;
 

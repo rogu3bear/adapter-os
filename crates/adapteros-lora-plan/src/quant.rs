@@ -1,6 +1,4 @@
 //! Quantization API for adapterOS
-//!
-//! This module was merged from adapteros-lora-quant crate.
 
 use adapteros_core::{AosError, B3Hash, Result};
 use serde::{Deserialize, Serialize};
@@ -99,7 +97,12 @@ impl BlockQuantizer {
             let min_val = chunk.iter().fold(f32::INFINITY, |a, &b| a.min(b));
             let max_val = chunk.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
 
-            let scale = (max_val - min_val) / ((1 << bits) - 1) as f32;
+            let scale = if max_val == min_val {
+                // Avoid division by zero when all values in the block are identical
+                1.0
+            } else {
+                (max_val - min_val) / ((1 << bits) - 1) as f32
+            };
             let zero_point = (-min_val / scale).round() as i8;
 
             scales.push(scale);
@@ -239,5 +242,23 @@ mod tests {
         assert_eq!(quantized.shape, shape);
         assert!(quantized.scales.is_some());
         assert!(quantized.zero_points.is_some());
+    }
+
+    #[test]
+    fn test_constant_tensor_quantization_no_nan() {
+        let quantizer = BlockQuantizer::new("int4_block".to_string(), 128, 4);
+        let spec = quantizer.get_spec().clone();
+
+        let data = vec![1.0_f32; 3];
+        let shape = vec![3];
+
+        let quantized = quantizer
+            .quantize_tensor("constant", &data, &shape, &spec)
+            .expect("Constant tensor quantization should not fail");
+
+        let scales = quantized.scales.expect("Scales should be present");
+        assert_eq!(scales.len(), 1);
+        assert!(scales[0].is_finite());
+        assert!(scales[0] > 0.0);
     }
 }

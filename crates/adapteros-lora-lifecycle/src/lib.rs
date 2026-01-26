@@ -22,9 +22,9 @@
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_db::{sqlx, Db, ProtectedDb};
 use adapteros_deterministic_exec::spawn_deterministic;
-use adapteros_manifest::Policies;
+use adapteros_model_hub::manifest::Policies;
 use adapteros_model_hub::{ModelHubClient, ModelHubConfig};
-use adapteros_profiler::{AdapterMetrics, AdapterProfiler};
+use adapteros_telemetry::profiler::{AdapterMetrics, AdapterProfiler};
 use adapteros_telemetry::TelemetryWriter;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -3137,7 +3137,7 @@ pub struct BehaviorEvent {
 mod tests {
     use super::*;
     use adapteros_core::B3Hash;
-    use adapteros_manifest::Policies;
+    use adapteros_model_hub::manifest::Policies;
     use std::collections::HashMap;
     use tempfile::{Builder as TempDirBuilder, TempDir};
 

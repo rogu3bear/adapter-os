@@ -1,6 +1,6 @@
 //! SBOM generation from Cargo.lock
 
-use adapteros_sbom::SpdxDocument;
+use adapteros_artifacts::sbom::SpdxDocument;
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};

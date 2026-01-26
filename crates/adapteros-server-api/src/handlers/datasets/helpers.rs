@@ -17,7 +17,7 @@ use crate::services::CanonicalRow;
 use crate::state::AppState;
 
 use super::paths::resolve_dataset_root;
-use adapteros_secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
+use adapteros_storage::secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
 
 /// Maximum file size (100MB)
 pub const MAX_FILE_SIZE: usize = 100 * 1024 * 1024;

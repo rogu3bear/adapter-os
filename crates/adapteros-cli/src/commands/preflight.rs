@@ -105,7 +105,7 @@ use adapteros_core::lifecycle::{
     PreflightStatus, ValidationContext,
 };
 use adapteros_core::preflight::PreflightErrorCode;
-use adapteros_normalization::extract_repo_identifier_from_metadata;
+use adapteros_core::extract_repo_identifier_from_metadata;
 use anyhow::Result;
 use clap::Args;
 use comfy_table::{presets::UTF8_FULL, Cell, Color, Table};

@@ -8,8 +8,8 @@
 
 // Disabled: adapteros-codegraph dependency is disabled
 /*
-use adapteros_codegraph::types::{Language, Span, SymbolId, SymbolKind, SymbolNode, Visibility};
-use adapteros_lora_rag::{
+use adapteros_retrieval::codegraph::types::{Language, Span, SymbolId, SymbolKind, SymbolNode, Visibility};
+use adapteros_retrieval::rag::{
     ChangeType, DocIndexImpl, EvidenceIndexManager, EvidenceType, FileChange, IndexedDoc,
     IndexedTest, SymbolIndexImpl, TestIndexImpl,
 };

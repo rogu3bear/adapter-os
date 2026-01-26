@@ -3,7 +3,7 @@ use crate::auth::Claims;
 use crate::state::AppState;
 use adapteros_api_types::{topology::PredictedPathNode, ErrorResponse, TopologyGraph};
 use adapteros_lora_router::{AdapterInfo, Router, RouterWeights};
-use adapteros_manifest::{ManifestV3, RouterCfg};
+use adapteros_model_hub::manifest::{ManifestV3, RouterCfg};
 use axum::{
     extract::{Query, State},
     Extension, Json,

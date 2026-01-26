@@ -1,8 +1,12 @@
+use adapteros_config::EffectiveConfig;
 use anyhow::{bail, Result};
+use dotenvy::dotenv;
+use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::sync::Arc;
 
-pub use adapteros_config_types::{
+pub use adapteros_config::{
     AlertingConfig, AuthConfig, DatabaseConfig, InvariantsConfig, MetricsConfig, PathsConfig,
     PoliciesConfig, RateLimitsConfig, SecurityConfig, ServerConfig,
 };
@@ -82,10 +86,10 @@ pub struct LoggingConfig {
     #[serde(default = "default_retention_days")]
     pub retention_days: u32,
     /// Include request IDs in log output
-    #[serde(default = "adapteros_config_types::default_true")]
+    #[serde(default = "adapteros_config::types::default_true")]
     pub include_request_id: bool,
     /// Enable panic capture to log file
-    #[serde(default = "adapteros_config_types::default_true")]
+    #[serde(default = "adapteros_config::types::default_true")]
     pub capture_panics: bool,
 }
 

@@ -20,7 +20,7 @@ use crate::storage_usage::compute_tenant_storage_usage;
 use crate::types::{DatasetResponse, ErrorResponse};
 #[cfg(feature = "embeddings")]
 use adapteros_core::reject_forbidden_tmp_path;
-use adapteros_secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
+use adapteros_storage::secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
 use async_trait::async_trait;
 use axum::body::Bytes;
 use axum::http::StatusCode;

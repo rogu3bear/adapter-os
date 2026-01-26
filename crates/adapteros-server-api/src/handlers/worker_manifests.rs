@@ -2,7 +2,7 @@ use crate::error_helpers::{db_error_msg, internal_error_msg, not_found_with_deta
 use crate::state::AppState;
 use adapteros_api_types::workers::WorkerManifestFetchResponse;
 use adapteros_core::B3Hash;
-use adapteros_manifest::ManifestV3;
+use adapteros_model_hub::manifest::ManifestV3;
 use axum::{
     extract::{Path, State},
     http::StatusCode,

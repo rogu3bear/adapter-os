@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 pub mod bundle;
 pub mod cas;
 pub mod replication;
+pub mod sbom;
 pub mod secd_client;
 pub mod secureenclave;
 

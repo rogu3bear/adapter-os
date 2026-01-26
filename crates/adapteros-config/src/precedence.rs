@@ -15,7 +15,7 @@ pub struct DeterministicConfig {
     /// Configuration metadata
     metadata: ConfigMetadata,
     /// Configuration schema
-    schema: ConfigSchema,
+    schema: DeterministicSchema,
     /// Freeze status
     frozen: bool,
 }
@@ -25,7 +25,7 @@ impl DeterministicConfig {
     pub fn new(
         values: HashMap<String, String>,
         metadata: ConfigMetadata,
-        schema: ConfigSchema,
+        schema: DeterministicSchema,
     ) -> Self {
         Self {
             values,
@@ -82,7 +82,7 @@ impl DeterministicConfig {
     }
 
     /// Get configuration schema
-    pub fn get_schema(&self) -> &ConfigSchema {
+    pub fn get_schema(&self) -> &DeterministicSchema {
         &self.schema
     }
 
@@ -348,7 +348,7 @@ impl DeterministicConfig {
             hash: String::new(),
             sources: values
                 .iter()
-                .map(|(k, v)| ConfigSource {
+                .map(|(k, v)| ConfigFieldSource {
                     level: PrecedenceLevel::Environment,
                     source: "test".to_string(),
                     key: k.clone(),
@@ -362,7 +362,7 @@ impl DeterministicConfig {
         Self {
             values,
             metadata,
-            schema: ConfigSchema::default(),
+            schema: DeterministicSchema::default(),
             frozen: true,
         }
     }
@@ -383,8 +383,8 @@ impl fmt::Display for DeterministicConfig {
 /// Configuration builder for constructing deterministic configs
 pub struct ConfigBuilder {
     values: HashMap<String, String>,
-    sources: Vec<ConfigSource>,
-    schema: ConfigSchema,
+    sources: Vec<ConfigFieldSource>,
+    schema: DeterministicSchema,
     manifest_path: Option<String>,
     cli_args: Vec<String>,
 }
@@ -395,14 +395,14 @@ impl ConfigBuilder {
         Self {
             values: HashMap::new(),
             sources: Vec::new(),
-            schema: ConfigSchema::default(),
+            schema: DeterministicSchema::default(),
             manifest_path: None,
             cli_args: Vec::new(),
         }
     }
 
     /// Set the configuration schema
-    pub fn with_schema(mut self, schema: ConfigSchema) -> Self {
+    pub fn with_schema(mut self, schema: DeterministicSchema) -> Self {
         self.schema = schema;
         self
     }
@@ -428,7 +428,7 @@ impl ConfigBuilder {
         }
 
         self.values.insert(key.clone(), value.clone());
-        self.sources.push(ConfigSource {
+        self.sources.push(ConfigFieldSource {
             level,
             source,
             key,
@@ -463,7 +463,7 @@ impl ConfigBuilder {
             if !values.contains_key(key) {
                 if let Some(default_value) = &field_def.default_value {
                     values.insert(key.clone(), default_value.clone());
-                    sources.push(ConfigSource {
+                    sources.push(ConfigFieldSource {
                         level: PrecedenceLevel::Manifest,
                         source: "default".to_string(),
                         key: key.clone(),
@@ -501,7 +501,7 @@ impl ConfigBuilder {
                         );
                         values.insert(err.key.clone(), default_value.clone());
                         sources.retain(|s| s.key != err.key);
-                        sources.push(ConfigSource {
+                        sources.push(ConfigFieldSource {
                             level: PrecedenceLevel::Manifest,
                             source: "default".to_string(),
                             key: err.key.clone(),

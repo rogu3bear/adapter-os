@@ -11,7 +11,7 @@ use adapteros_config::{
 use adapteros_core::{AosError, Result};
 use adapteros_deterministic_exec::DeterministicExecutor;
 use adapteros_lora_mlx_ffi::{LoRAAdapter, MLXFFIBackend, MLXFFIModel};
-use adapteros_secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
+use adapteros_storage::secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
 use adapteros_trace::Event;
 use bytemuck;
 use parking_lot::RwLock;

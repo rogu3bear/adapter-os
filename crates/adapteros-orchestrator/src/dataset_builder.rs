@@ -4,13 +4,13 @@
 //! adapteros_lora_worker::training::TrainingExample, reusing the
 //! DatasetGenerator logic for sliding window pair creation.
 
-use adapteros_codegraph::analyze_directory;
+use adapteros_retrieval::codegraph::analyze_directory;
 use adapteros_core::{AosError, Result};
 use adapteros_lora_worker::training::{
     dataset::ChangeType, dataset::FilePatch, DatasetGenerator, TrainingExample,
 };
-use adapteros_platform::common::PlatformUtils;
-use adapteros_secure_fs::path_policy::{canonicalize_strict, canonicalize_strict_in_allowed_roots};
+use adapteros_storage::platform::common::PlatformUtils;
+use adapteros_storage::secure_fs::path_policy::{canonicalize_strict, canonicalize_strict_in_allowed_roots};
 use std::path::Path;
 use tracing::{info, warn};
 use walkdir::WalkDir;

@@ -1,6 +1,6 @@
 use adapteros_config::resolve_manifest_cache_dir;
 use adapteros_core::{AosError, B3Hash, Result};
-use adapteros_manifest::ManifestV3;
+use adapteros_model_hub::manifest::ManifestV3;
 use std::fs;
 use tracing::{info, warn};
 

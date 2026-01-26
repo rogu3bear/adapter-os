@@ -659,7 +659,7 @@ mod tests {
     use super::*;
     use adapteros_config::DEFAULT_BASE_MODEL_ID;
     use adapteros_core::paths::{AOS_ADAPTERS_DIR_ENV, DEFAULT_ADAPTERS_DIR};
-    use adapteros_platform::common::PlatformUtils;
+    use adapteros_storage::platform::common::PlatformUtils;
     use clap::Parser;
     use serial_test::serial;
     use std::path::PathBuf;

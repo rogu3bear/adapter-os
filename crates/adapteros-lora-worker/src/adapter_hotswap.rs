@@ -3031,7 +3031,7 @@ mod tests {
     use adapteros_aos::{AosWriter, BackendTag};
     use adapteros_core::constants::BYTES_PER_MB;
     use adapteros_lora_kernel_api::{attestation, IoBuffers, RouterRing};
-    use adapteros_manifest::{AdapterScope, AdapterTier};
+    use adapteros_model_hub::manifest::{AdapterScope, AdapterTier};
     use serde::Serialize;
     use std::collections::HashMap;
     use std::path::Path;

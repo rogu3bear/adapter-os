@@ -13,7 +13,7 @@ use adapteros_lora_worker::backend_factory::CoreMLBackendSettings;
 #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
 use adapteros_lora_worker::CoremlRuntimeTelemetry;
 #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
-use adapteros_manifest::ManifestV3;
+use adapteros_model_hub::manifest::ManifestV3;
 #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
 use std::fs;
 #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
