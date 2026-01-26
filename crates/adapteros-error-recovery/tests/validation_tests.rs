@@ -9,7 +9,7 @@ use adapteros_error_recovery::{
     validation::{ValidationEngine, ValidationErrorType, ValidationSeverity},
     ErrorRecoveryConfig, ErrorRecoveryManager, ErrorType, RecoveryResult, RecoveryStrategy,
 };
-use adapteros_platform::common::PlatformUtils;
+use adapteros_storage::platform::common::PlatformUtils;
 use std::time::Duration;
 use tempfile::TempDir;
 

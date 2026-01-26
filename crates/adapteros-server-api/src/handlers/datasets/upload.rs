@@ -36,7 +36,7 @@ use adapteros_db::training_datasets::{
     validate_format, validate_hash_b3, CreateDatasetParams, CreateTrainingDatasetRowParams,
     DatasetFile,
 };
-use adapteros_secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
+use adapteros_storage::secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
 use adapteros_storage::{ByteStorage, DatasetCategory, FsByteStorage, StorageKey};
 use adapteros_types::training::DataLineageMode;
 use axum::{

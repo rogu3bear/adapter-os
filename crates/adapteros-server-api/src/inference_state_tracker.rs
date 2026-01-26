@@ -29,7 +29,7 @@ use parking_lot::RwLock;
 use tracing::{debug, info, warn};
 
 use adapteros_api_types::review::{InferenceState, PauseKind, PauseReason, ReviewContext};
-use adapteros_diagnostics::{DiagEnvelope, DiagEvent, DiagRunId, DiagSeverity, DiagnosticsService};
+use adapteros_telemetry::diagnostics::{DiagEnvelope, DiagEvent, DiagRunId, DiagSeverity, DiagnosticsService};
 use adapteros_telemetry::tracing::TraceContext;
 
 /// Entry tracking an inference through its lifecycle

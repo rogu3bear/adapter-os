@@ -36,7 +36,7 @@ use adapteros_config::{
 use adapteros_core::{constants::BYTES_PER_MB, AosError, B3Hash, Result};
 use adapteros_lora_kernel_api::attestation::BackendType;
 use adapteros_lora_kernel_api::FusedKernels;
-use adapteros_secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
+use adapteros_storage::secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
 #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
 use model_io::estimate_coreml_model_size_bytes;
 #[cfg(target_os = "macos")]
@@ -1254,7 +1254,7 @@ pub fn create_backend(choice: BackendChoice) -> Result<KernelBox> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use adapteros_platform::common::PlatformUtils;
+    use adapteros_storage::platform::common::PlatformUtils;
     use tempfile::TempDir;
 
     fn new_test_tempdir() -> TempDir {

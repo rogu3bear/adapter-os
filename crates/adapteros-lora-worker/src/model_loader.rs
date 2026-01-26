@@ -13,7 +13,7 @@ use crate::chaos_mode;
 use adapteros_config::ModelConfig as UnifiedModelConfig;
 use adapteros_core::{AosError, Result};
 use adapteros_memory::{ModelCache, ModelCacheConfig};
-use adapteros_secure_fs::{
+use adapteros_storage::secure_fs::{
     content::{validate_and_parse_json, validate_model_config_json},
     traversal::normalize_path,
 };

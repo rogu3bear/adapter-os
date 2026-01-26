@@ -5,7 +5,7 @@
 
 use super::limits::DatasetSizeLimits;
 use adapteros_core::{AosError, B3Hash, Result};
-use adapteros_secure_fs::path_policy::canonicalize_strict;
+use adapteros_storage::secure_fs::path_policy::canonicalize_strict;
 use adapteros_types::training::{provenance_from_map, ExampleMetadataV1, TrainingExampleV1};
 use serde::Deserialize;
 use serde_json::Value;

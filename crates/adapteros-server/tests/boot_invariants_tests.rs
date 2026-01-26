@@ -16,7 +16,7 @@
 #![allow(clippy::vec_init_then_push)]
 #![allow(unused_comparisons)]
 
-use adapteros_config_types::InvariantsConfig;
+use adapteros_config::InvariantsConfig;
 use adapteros_server::boot::{
     boot_invariant_metrics, enforce_invariants, invariants::InvariantCategory,
     invariants::Severity, validate_boot_invariants, InvariantReport, InvariantViolation,

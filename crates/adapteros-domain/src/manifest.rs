@@ -202,7 +202,7 @@ impl AdapterManifest {
 /// # Example
 ///
 /// ```rust,no_run
-/// use adapteros_domain::manifest::load_manifest;
+/// use adapteros_policy::domain::manifest::load_manifest;
 ///
 /// let manifest = load_manifest("adapter/manifest.toml").unwrap();
 /// println!("Loaded adapter: {}", manifest.adapter.name);

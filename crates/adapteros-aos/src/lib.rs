@@ -52,3 +52,7 @@ pub use writer::{
     AosWriter, BackendTag, SegmentDescriptor, SegmentView, WriteOptions, AOS_MAGIC, HAS_INDEX_FLAG,
     HEADER_SIZE, INDEX_ENTRY_SIZE,
 };
+
+// Single-file adapter archive format
+pub mod single_file;
+pub use single_file::{SingleFileAdapter, AdapterArchive};

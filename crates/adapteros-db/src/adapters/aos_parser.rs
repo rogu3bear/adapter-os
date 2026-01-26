@@ -5,7 +5,7 @@
 
 use adapteros_aos::{compute_scope_hash, open_aos, BackendTag};
 use adapteros_core::{AosError, B3Hash, Result};
-use adapteros_single_file_adapter::{LoadOptions, SingleFileAdapterLoader};
+use adapteros_aos::single_file::{LoadOptions, SingleFileAdapterLoader};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom};

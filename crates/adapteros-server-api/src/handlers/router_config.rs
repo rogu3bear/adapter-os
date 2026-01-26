@@ -6,7 +6,7 @@ use crate::state::AppState;
 use crate::types::ErrorResponse;
 use adapteros_api_types::RoutingPolicy;
 use adapteros_db::{adapters::Adapter, users::Role};
-use adapteros_manifest::{Adapter as ManifestAdapter, ManifestV3, RouterCfg};
+use adapteros_model_hub::manifest::{Adapter as ManifestAdapter, ManifestV3, RouterCfg};
 use axum::extract::{Extension, Path, State};
 use axum::http::StatusCode;
 use axum::Json;

@@ -738,7 +738,7 @@ mod tests {
     use super::*;
     use crate::auth_store::{save_auth, AuthStore};
     use crate::output::{OutputMode, OutputWriter};
-    use adapteros_platform::common::PlatformUtils;
+    use adapteros_storage::platform::common::PlatformUtils;
     use axum::{
         extract::Path,
         http::StatusCode,

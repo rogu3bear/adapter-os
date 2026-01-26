@@ -4,7 +4,7 @@ use crate::output::OutputWriter;
 use adapteros_api_types::InferRequest;
 use adapteros_core::{AosError, Result};
 use adapteros_db::Db;
-use adapteros_scenarios::{ScenarioConfig, ScenarioLoader};
+use crate::scenarios::{ScenarioConfig, ScenarioLoader};
 use clap::Subcommand;
 use comfy_table::{presets::UTF8_FULL, Cell, Table};
 use reqwest::Client;
@@ -331,7 +331,7 @@ fn workspace_root() -> PathBuf {
 }
 
 fn default_scenario_root() -> PathBuf {
-    workspace_root().join(adapteros_scenarios::DEFAULT_SCENARIO_DIR)
+    workspace_root().join(crate::scenarios::DEFAULT_SCENARIO_DIR)
 }
 
 fn resolve_workspace_path(path: &str) -> PathBuf {
@@ -347,7 +347,7 @@ fn loader_from_arg(dir: Option<String>) -> ScenarioLoader {
     match dir {
         Some(path) => ScenarioLoader::with_root(resolve_workspace_path(&path)),
         None => {
-            let root = env::var(adapteros_scenarios::ENV_SCENARIO_DIR)
+            let root = env::var(crate::scenarios::ENV_SCENARIO_DIR)
                 .map(|p| resolve_workspace_path(&p))
                 .unwrap_or_else(|_| default_scenario_root());
             ScenarioLoader::with_root(root)
@@ -1020,9 +1020,9 @@ name = "adapter-rel"
             .strip_prefix(&workspace_root)
             .expect("strip workspace prefix")
             .to_path_buf();
-        let prior = env::var_os(adapteros_scenarios::ENV_SCENARIO_DIR);
+        let prior = env::var_os(crate::scenarios::ENV_SCENARIO_DIR);
         env::set_var(
-            adapteros_scenarios::ENV_SCENARIO_DIR,
+            crate::scenarios::ENV_SCENARIO_DIR,
             relative.to_string_lossy().as_ref(),
         );
 
@@ -1033,9 +1033,9 @@ name = "adapter-rel"
         assert_eq!(listed[0].id.as_str(), "rel-env");
 
         if let Some(val) = prior {
-            env::set_var(adapteros_scenarios::ENV_SCENARIO_DIR, val);
+            env::set_var(crate::scenarios::ENV_SCENARIO_DIR, val);
         } else {
-            env::remove_var(adapteros_scenarios::ENV_SCENARIO_DIR);
+            env::remove_var(crate::scenarios::ENV_SCENARIO_DIR);
         }
     }
 
@@ -1075,9 +1075,9 @@ name = "adapter-explicit"
     #[test]
     fn loader_defaults_to_workspace_configs_dir() {
         let workspace_root = workspace_root();
-        let default_root = workspace_root.join(adapteros_scenarios::DEFAULT_SCENARIO_DIR);
-        let prior = env::var_os(adapteros_scenarios::ENV_SCENARIO_DIR);
-        env::remove_var(adapteros_scenarios::ENV_SCENARIO_DIR);
+        let default_root = workspace_root.join(crate::scenarios::DEFAULT_SCENARIO_DIR);
+        let prior = env::var_os(crate::scenarios::ENV_SCENARIO_DIR);
+        env::remove_var(crate::scenarios::ENV_SCENARIO_DIR);
 
         let loader = loader_from_arg(None);
         assert_eq!(loader.root(), &default_root);
@@ -1088,14 +1088,14 @@ name = "adapter-explicit"
         );
 
         if let Some(val) = prior {
-            env::set_var(adapteros_scenarios::ENV_SCENARIO_DIR, val);
+            env::set_var(crate::scenarios::ENV_SCENARIO_DIR, val);
         }
     }
 
     #[test]
     fn loader_resolves_relative_scenario_dir_argument() {
         let workspace_root = workspace_root();
-        let relative_dir = adapteros_scenarios::DEFAULT_SCENARIO_DIR.to_string();
+        let relative_dir = crate::scenarios::DEFAULT_SCENARIO_DIR.to_string();
         let original_cwd = env::current_dir().expect("cwd");
         env::set_current_dir(workspace_root.join("crates")).expect("change cwd");
 

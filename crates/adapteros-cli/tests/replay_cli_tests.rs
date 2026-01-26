@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-use adapteros_platform::common::PlatformUtils;
+use adapteros_storage::platform::common::PlatformUtils;
 use serde_json::Value;
 use tempfile::TempDir;
 

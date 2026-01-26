@@ -1,4 +1,4 @@
-use adapteros_telemetry_verifier::{run_verifier, workspace_root};
+use adapteros_telemetry::verifier::{run_verifier, workspace_root};
 use anyhow::Result;
 use std::process;
 

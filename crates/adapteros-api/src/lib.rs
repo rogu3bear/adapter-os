@@ -9,7 +9,7 @@
 //! # Examples
 //!
 //! ```rust
-//! use adapteros_api::{ApiError, LoginRequest, LoginResponse};
+//! use adapteros_server_api::http::{ApiError, LoginRequest, LoginResponse};
 //! use axum::response::IntoResponse;
 //!
 //! // Handle API errors

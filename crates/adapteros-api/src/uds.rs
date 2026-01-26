@@ -7,7 +7,7 @@ use tokio::sync::broadcast;
 use std::os::unix::fs::PermissionsExt;
 use tracing::{info, error};
 use axum::Router;
-use adapteros_api::ApiState;
+use adapteros_server_api::http::ApiState;
 use std::sync::Arc;
 use adapteros_deterministic_exec::spawn_deterministic;
 use adapteros_core::{AosError, Result};

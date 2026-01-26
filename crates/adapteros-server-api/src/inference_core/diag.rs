@@ -3,7 +3,7 @@
 //! Provides helpers for emitting diagnostic events during inference.
 
 use crate::state::AppState;
-use adapteros_diagnostics::{
+use adapteros_telemetry::diagnostics::{
     DiagEnvelope, DiagEvent, DiagRunId, DiagSeverity, DiagStage, DiagnosticsService, StageGuard,
 };
 use adapteros_telemetry::tracing::TraceContext;

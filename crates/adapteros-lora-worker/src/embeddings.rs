@@ -6,7 +6,7 @@
 use crate::tokenizer::QwenTokenizer;
 use adapteros_config::{resolve_embedding_model_path, PathSource};
 use adapteros_core::{AosError, B3Hash, Result};
-use adapteros_lora_rag::EmbeddingModel as RagEmbeddingModel;
+use adapteros_retrieval::rag::EmbeddingModel as RagEmbeddingModel;
 use memmap2::Mmap;
 use safetensors::SafeTensors;
 use std::fs::File;

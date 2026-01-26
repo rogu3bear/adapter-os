@@ -9,7 +9,7 @@
 //! - adapteros-manifest/src/lib.rs: Policy configuration structs
 
 use adapteros_core::AosError;
-use adapteros_manifest::Policies;
+use adapteros_model_hub::manifest::Policies;
 use adapteros_policy::PolicyEngine;
 
 /// Test that max_tokens threshold comes from config

@@ -30,7 +30,7 @@
 //! # Example Usage
 //!
 //! ```rust,no_run
-//! use adapteros_domain::{DomainAdapter, TextAdapter};
+//! use adapteros_policy::domain::{DomainAdapter, TextAdapter};
 //! use adapteros_deterministic_exec::{DeterministicExecutor, ExecutorConfig};
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {

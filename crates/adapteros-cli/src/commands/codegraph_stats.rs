@@ -4,7 +4,7 @@
 //! including symbol counts, edge counts, and database health metrics.
 
 use crate::output::OutputWriter;
-use adapteros_codegraph::sqlite::CodeGraphDb;
+use adapteros_retrieval::codegraph::sqlite::CodeGraphDb;
 use adapteros_core::Result;
 
 /// Run the codegraph stats command

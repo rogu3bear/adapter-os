@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use tracing;
 
 // Re-export canonical BundleMetadata from adapteros-telemetry-types
-pub use adapteros_telemetry_types::BundleMetadata;
+pub use crate::types::BundleMetadata;
 
 /// Bundle Store Manager
 pub struct BundleStore {
@@ -99,7 +99,7 @@ impl BundleStore {
 
         // Check if bundle already exists
         if self.index.contains_key(&bundle_hash) {
-            tracing::debug!("Bundle {} already exists in store", bundle_hash);
+            tracing::debug!("Bundle {:?} already exists in store", bundle_hash);
             return Ok(bundle_hash);
         }
 
@@ -110,11 +110,11 @@ impl BundleStore {
             .join("bundles");
         fs::create_dir_all(&tenant_dir)?;
 
-        let bundle_path = tenant_dir.join(format!("{}.ndjson", bundle_hash));
+        let bundle_path = tenant_dir.join(format!("{:?}.ndjson", bundle_hash));
         fs::write(&bundle_path, bundle_data)?;
 
         // Store metadata file
-        let meta_path = tenant_dir.join(format!("{}.meta.json", bundle_hash));
+        let meta_path = tenant_dir.join(format!("{:?}.meta.json", bundle_hash));
         let meta_json = serde_json::to_string_pretty(&metadata)?;
         fs::write(&meta_path, meta_json)?;
 
@@ -122,7 +122,7 @@ impl BundleStore {
         self.index.insert(bundle_hash, metadata);
 
         tracing::info!(
-            "Stored bundle {} ({} bytes)",
+            "Stored bundle {:?} ({:?} bytes)",
             bundle_hash,
             bundle_data.len()
         );
@@ -135,13 +135,13 @@ impl BundleStore {
         let metadata = self
             .index
             .get(bundle_hash)
-            .ok_or_else(|| AosError::Telemetry(format!("Bundle {} not found", bundle_hash)))?;
+            .ok_or_else(|| AosError::Telemetry(format!("Bundle {:?} not found", bundle_hash)))?;
 
         let bundle_path = self
             .root_dir
             .join(metadata.tenant_id.as_deref().unwrap_or("default"))
             .join("bundles")
-            .join(format!("{}.ndjson", bundle_hash));
+            .join(format!("{:?}.ndjson", bundle_hash));
 
         let bundle_data = fs::read(&bundle_path)?;
 
@@ -149,7 +149,7 @@ impl BundleStore {
         let computed_hash = B3Hash::hash(&bundle_data);
         if computed_hash != *bundle_hash {
             return Err(AosError::Telemetry(format!(
-                "Bundle hash mismatch: expected {}, got {}",
+                "Bundle hash mismatch: expected {:?}, got {:?}",
                 bundle_hash, computed_hash
             )));
         }
@@ -165,7 +165,7 @@ impl BundleStore {
         let data = self.get_bundle(&bundle_hash)?;
 
         let data_str = std::str::from_utf8(&data)
-            .map_err(|e| AosError::Telemetry(format!("Invalid UTF-8 in bundle: {}", e)))?;
+            .map_err(|e| AosError::Telemetry(format!("Invalid UTF-8 in bundle: {:?}", e)))?;
 
         let mut events = Vec::new();
 
@@ -175,7 +175,7 @@ impl BundleStore {
                 match serde_json::from_str::<Value>(trimmed) {
                     Ok(event) => events.push(event),
                     Err(e) => tracing::warn!(
-                        "Failed to parse event line in bundle {}: {}",
+                        "Failed to parse event line in bundle {:?}: {:?}",
                         bundle_id_hex,
                         e
                     ),
@@ -230,7 +230,7 @@ impl BundleStore {
             let metadata = self
                 .index
                 .get_mut(bundle_hash)
-                .ok_or_else(|| AosError::Telemetry(format!("Bundle {} not found", bundle_hash)))?;
+                .ok_or_else(|| AosError::Telemetry(format!("Bundle {:?} not found", bundle_hash)))?;
 
             metadata.is_incident_bundle = true;
         }
@@ -243,7 +243,7 @@ impl BundleStore {
             .expect("bundle_hash must exist; verified via get_mut above");
         self.update_metadata_file(bundle_hash, metadata)?;
 
-        tracing::info!("Marked bundle {} as incident bundle", bundle_hash);
+        tracing::info!("Marked bundle {:?} as incident bundle", bundle_hash);
 
         Ok(())
     }
@@ -254,7 +254,7 @@ impl BundleStore {
             let metadata = self
                 .index
                 .get_mut(bundle_hash)
-                .ok_or_else(|| AosError::Telemetry(format!("Bundle {} not found", bundle_hash)))?;
+                .ok_or_else(|| AosError::Telemetry(format!("Bundle {:?} not found", bundle_hash)))?;
 
             metadata.is_promotion_bundle = true;
         }
@@ -267,7 +267,7 @@ impl BundleStore {
             .expect("bundle_hash must exist; verified via get_mut above");
         self.update_metadata_file(bundle_hash, metadata)?;
 
-        tracing::info!("Marked bundle {} as promotion bundle", bundle_hash);
+        tracing::info!("Marked bundle {:?} as promotion bundle", bundle_hash);
 
         Ok(())
     }
@@ -285,7 +285,7 @@ impl BundleStore {
         let mut bundles_by_cpid: HashMap<String, Vec<B3Hash>> = HashMap::new();
         for (hash, metadata) in &self.index {
             if let Some(cpid) = &metadata.cpid {
-                bundles_by_cpid.entry(cpid.clone()).or_default().push(*hash);
+                bundles_by_cpid.entry(cpid as u0026String).or_default().push(*hash);
             }
         }
 
@@ -312,12 +312,12 @@ impl BundleStore {
 
                     // Check if bundle is protected
                     if self.policy.keep_incident_bundles && metadata.is_incident_bundle {
-                        tracing::debug!("Skipping incident bundle {} from eviction", bundle_hash);
+                        tracing::debug!("Skipping incident bundle {:?} from eviction", bundle_hash);
                         continue;
                     }
 
                     if self.policy.keep_promotion_bundles && metadata.is_promotion_bundle {
-                        tracing::debug!("Skipping promotion bundle {} from eviction", bundle_hash);
+                        tracing::debug!("Skipping promotion bundle {:?} from eviction", bundle_hash);
                         continue;
                     }
 
@@ -332,7 +332,7 @@ impl BundleStore {
         report.retained_bundles = self.index.len();
 
         tracing::info!(
-            "GC complete: evicted {} bundles, freed {} bytes, retained {} bundles",
+            "GC complete: evicted {:?} bundles, freed {:?} bytes, retained {:?} bundles",
             report.evicted_bundles.len(),
             report.bytes_freed,
             report.retained_bundles
@@ -346,14 +346,14 @@ impl BundleStore {
         let metadata = self
             .index
             .remove(bundle_hash)
-            .ok_or_else(|| AosError::Telemetry(format!("Bundle {} not found", bundle_hash)))?;
+            .ok_or_else(|| AosError::Telemetry(format!("Bundle {:?} not found", bundle_hash)))?;
 
         let tenant_dir = self
             .root_dir
             .join(metadata.tenant_id.as_deref().unwrap_or("default"))
             .join("bundles");
-        let bundle_path = tenant_dir.join(format!("{}.ndjson", bundle_hash));
-        let meta_path = tenant_dir.join(format!("{}.meta.json", bundle_hash));
+        let bundle_path = tenant_dir.join(format!("{:?}.ndjson", bundle_hash));
+        let meta_path = tenant_dir.join(format!("{:?}.meta.json", bundle_hash));
 
         // Get file size before deletion
         let bundle_size = fs::metadata(&bundle_path)?.len();
@@ -362,7 +362,7 @@ impl BundleStore {
         fs::remove_file(&bundle_path)?;
         fs::remove_file(&meta_path)?;
 
-        tracing::debug!("Evicted bundle {} ({} bytes)", bundle_hash, bundle_size);
+        tracing::debug!("Evicted bundle {:?} ({:?} bytes)", bundle_hash, bundle_size);
 
         Ok(bundle_size)
     }
@@ -402,7 +402,7 @@ impl BundleStore {
             }
         }
 
-        tracing::info!("Rebuilt index with {} bundles", self.index.len());
+        tracing::info!("Rebuilt index with {:?} bundles", self.index.len());
 
         Ok(())
     }
@@ -413,7 +413,7 @@ impl BundleStore {
             .root_dir
             .join(metadata.tenant_id.as_deref().unwrap_or("default"))
             .join("bundles");
-        let meta_path = tenant_dir.join(format!("{}.meta.json", bundle_hash));
+        let meta_path = tenant_dir.join(format!("{:?}.meta.json", bundle_hash));
         let meta_json = serde_json::to_string_pretty(metadata)?;
         fs::write(&meta_path, meta_json)?;
         Ok(())
@@ -441,7 +441,7 @@ impl BundleStore {
         if let Some(first) = bundles.first() {
             if first.prev_bundle_hash.is_some() {
                 let msg = format!(
-                    "First bundle {} has non-null prev_bundle_hash (should be chain root)",
+                    "First bundle {:?} has non-null prev_bundle_hash (should be chain root)",
                     first.bundle_hash
                 );
                 tracing::error!(
@@ -468,7 +468,7 @@ impl BundleStore {
             // Verify chain link
             if current.prev_bundle_hash.as_ref() != Some(&prev.merkle_root) {
                 let msg = format!(
-                    "Bundle {} does not link to previous bundle {}",
+                    "Bundle {:?} does not link to previous bundle {:?}",
                     current.bundle_hash, prev.bundle_hash
                 );
                 tracing::error!(
@@ -529,7 +529,7 @@ impl BundleStore {
                 .root_dir
                 .join(metadata.tenant_id.as_deref().unwrap_or("default"))
                 .join("bundles")
-                .join(format!("{}.ndjson", metadata.bundle_hash));
+                .join(format!("{:?}.ndjson", metadata.bundle_hash));
 
             if let Ok(meta) = fs::metadata(&bundle_path) {
                 stats.total_bytes += meta.len();
@@ -631,7 +631,7 @@ mod tests {
 
         // Add 3 bundles for same CPID
         for i in 0..3 {
-            let bundle_data = format!("bundle {}", i);
+            let bundle_data = format!("bundle {:?}", i);
             let metadata = BundleMetadata {
                 bundle_hash: B3Hash::hash(bundle_data.as_bytes()),
                 cpid: Some("cpid-001".to_string()),

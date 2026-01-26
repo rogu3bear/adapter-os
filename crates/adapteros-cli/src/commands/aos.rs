@@ -26,7 +26,7 @@ use crate::output::OutputWriter;
 use adapteros_aos::{AosWriter, BackendTag};
 use adapteros_core::{AosError, Result};
 use adapteros_crypto::Keypair;
-use adapteros_single_file_adapter::{
+use adapteros_aos::single_file::{
     migrate_file, LineageInfo, LoadOptions, SingleFileAdapter, SingleFileAdapterLoader,
     SingleFileAdapterValidator, TrainingConfig, WeightGroup,
 };

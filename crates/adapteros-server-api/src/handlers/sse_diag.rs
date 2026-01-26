@@ -3,7 +3,7 @@
 //! Provides utilities for emitting diagnostic events for SSE streams.
 
 use crate::state::AppState;
-use adapteros_diagnostics::{DiagEnvelope, DiagEvent, DiagRunId, DiagSeverity};
+use adapteros_telemetry::diagnostics::{DiagEnvelope, DiagEvent, DiagRunId, DiagSeverity};
 use adapteros_telemetry::tracing::TraceContext;
 
 /// Reasons for SSE stream closure.

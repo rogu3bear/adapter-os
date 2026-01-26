@@ -1,7 +1,7 @@
 //! Graph diff computation
 
 use crate::types::*;
-use adapteros_codegraph::CodeGraph;
+use adapteros_retrieval::codegraph::CodeGraph;
 use std::collections::HashSet;
 
 /// Compute diff between two CodeGraphs

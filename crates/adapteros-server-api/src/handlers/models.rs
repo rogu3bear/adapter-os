@@ -17,7 +17,7 @@ use adapteros_config::{
 };
 use adapteros_db::users::Role;
 use adapteros_lora_worker::memory::UmaStats;
-use adapteros_secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
+use adapteros_storage::secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
 use std::fs;
 use std::path::{Path as StdPath, PathBuf};
 use std::time::Duration;

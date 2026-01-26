@@ -1,7 +1,7 @@
 //! Tauri commands for graph operations
 
 use crate::types::*;
-use adapteros_codegraph::{CodeGraph, CodeGraphDb, SymbolId};
+use adapteros_retrieval::codegraph::{CodeGraph, CodeGraphDb, SymbolId};
 use std::path::Path;
 use tauri::command;
 

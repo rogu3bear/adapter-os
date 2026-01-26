@@ -1,6 +1,6 @@
 use adapteros_core::{BackendKind, SeedMode};
 use adapteros_db::Db;
-use adapteros_manifest::ManifestV3;
+use adapteros_model_hub::manifest::ManifestV3;
 use adapteros_metrics_exporter::MetricsExporter;
 use adapteros_server_api::config::PathsConfig;
 use adapteros_server_api::handlers::worker_manifests::{

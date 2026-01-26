@@ -19,7 +19,7 @@ use adapteros_config::{resolve_base_model_location, ModelConfig};
 use adapteros_core::io_utils::{ensure_temp_dir, get_directory_size};
 use adapteros_core::path_normalization::normalize_path_for_sorting;
 use adapteros_core::{AosError, B3Hash, Result};
-use adapteros_platform::common::PlatformUtils;
+use adapteros_storage::platform::common::PlatformUtils;
 use blake3::Hasher;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};

@@ -113,7 +113,7 @@ pub fn warn_if_tenant_mismatch(request_tenant: Option<&str>, output: &OutputWrit
 #[cfg(test)]
 mod tests {
     use super::*;
-    use adapteros_platform::common::PlatformUtils;
+    use adapteros_storage::platform::common::PlatformUtils;
     use serial_test::serial;
     use tempfile::TempDir;
 

@@ -85,7 +85,7 @@ impl PlatformUtils {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// use adapteros_platform::common::PlatformUtils;
+    /// use adapteros_storage::platform::common::PlatformUtils;
     ///
     /// // Expands ~ to home directory
     /// let path = PlatformUtils::expand_path("~/.cache/adapteros").unwrap();

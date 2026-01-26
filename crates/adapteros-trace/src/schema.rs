@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 // Re-export canonical TraceBundleMetadata from adapteros-telemetry-types
-pub use adapteros_telemetry_types::TraceBundleMetadata as BundleMetadata;
+pub use adapteros_telemetry::types::TraceBundleMetadata as BundleMetadata;
 
 /// Core event schema for adapterOS traces
 #[derive(Debug, Clone, Serialize, Deserialize)]

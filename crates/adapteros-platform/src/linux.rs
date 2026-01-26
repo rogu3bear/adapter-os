@@ -322,7 +322,7 @@ impl Default for LinuxSettings {
 /// # Example
 ///
 /// ```rust,no_run
-/// use adapteros_platform::linux::is_on_tmpfs;
+/// use adapteros_storage::platform::linux::is_on_tmpfs;
 /// use std::path::Path;
 ///
 /// if is_on_tmpfs(Path::new("/var/run/my_state.json")) {

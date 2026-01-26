@@ -1,16 +1,20 @@
 //! Plan builder and model loading
 
 use adapteros_core::{B3Hash, Result};
-use adapteros_manifest::ManifestV3;
+use adapteros_model_hub::manifest::ManifestV3;
 use serde::{Deserialize, Serialize};
 
+pub mod chat;
 pub mod config;
 pub mod layout;
 pub mod loader;
+pub mod quant;
 
+pub use chat::*;
 pub use config::*;
 pub use layout::TensorLayout;
 pub use loader::ModelLoader;
+pub use quant::*;
 
 /// Plan metadata with hashes
 #[derive(Debug, Clone, Serialize, Deserialize)]

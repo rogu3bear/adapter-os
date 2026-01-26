@@ -9,7 +9,7 @@ use crate::{
     retrieval::{EvidenceSpan, EvidenceType},
     DocMetadata, IndexNamespaceId, TenantIndex,
 };
-use adapteros_codegraph::types::{Language, SymbolNode};
+use adapteros_retrieval::codegraph::types::{Language, SymbolNode};
 use adapteros_core::{B3Hash, Result};
 use anyhow::Context;
 use serde::{Deserialize, Serialize};

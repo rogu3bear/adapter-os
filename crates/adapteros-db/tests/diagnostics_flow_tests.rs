@@ -1,7 +1,7 @@
 use adapteros_db::diagnostics::{
     get_all_diag_events_for_run, get_diag_run_by_id, insert_diag_run, SqliteDiagPersister,
 };
-use adapteros_diagnostics::{
+use adapteros_telemetry::diagnostics::{
     spawn_diagnostics_writer, DiagEnvelope, DiagEvent, DiagLevel, DiagRunId, DiagSeverity,
     DiagStage, DiagnosticsConfig, DiagnosticsService, WriterConfig, DIAG_SCHEMA_VERSION,
 };

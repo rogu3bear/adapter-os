@@ -12,7 +12,7 @@
 #![allow(clippy::too_many_arguments)]
 
 use adapteros_core::{AosError, B3Hash, Result};
-use adapteros_secure_fs::path_policy::canonicalize_strict;
+use adapteros_storage::secure_fs::path_policy::canonicalize_strict;
 use std::path::{Path, PathBuf};
 
 // Array abstraction layer

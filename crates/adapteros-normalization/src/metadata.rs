@@ -15,7 +15,7 @@ use serde_json::Value;
 /// # Examples
 ///
 /// ```
-/// use adapteros_normalization::extract_repo_identifier_from_metadata;
+/// use adapteros_core::extract_repo_identifier_from_metadata;
 ///
 /// let metadata = r#"{"repo_id": "https://github.com/org/repo"}"#;
 /// assert_eq!(
@@ -51,7 +51,7 @@ pub fn extract_repo_identifier_from_metadata(metadata_json: Option<&str>) -> Opt
 /// # Examples
 ///
 /// ```
-/// use adapteros_normalization::sanitize_repo_identifier;
+/// use adapteros_core::sanitize_repo_identifier;
 ///
 /// assert_eq!(
 ///     sanitize_repo_identifier(Some("  https://github.com/org/repo  ")),
@@ -75,7 +75,7 @@ pub fn sanitize_repo_identifier(value: Option<&str>) -> Option<String> {
 /// # Examples
 ///
 /// ```
-/// use adapteros_normalization::sanitize_repo_slug;
+/// use adapteros_core::sanitize_repo_slug;
 ///
 /// assert_eq!(sanitize_repo_slug(Some("  my-repo  ")), Some("my-repo".to_string()));
 /// assert_eq!(sanitize_repo_slug(Some("")), None);
@@ -95,7 +95,7 @@ pub fn sanitize_repo_slug(value: Option<&str>) -> Option<String> {
 /// # Examples
 ///
 /// ```
-/// use adapteros_normalization::sanitize_optional;
+/// use adapteros_core::sanitize_optional;
 ///
 /// assert_eq!(sanitize_optional(Some("  value  ")), Some("value".to_string()));
 /// assert_eq!(sanitize_optional(Some("")), None);

@@ -11,9 +11,9 @@
 //! - Concurrent file access race conditions
 
 use adapteros_core::Result;
-use adapteros_secure_fs::symlink;
-use adapteros_secure_fs::traversal;
-use adapteros_secure_fs::{SecureFsConfig, SecureFsManager};
+use adapteros_storage::secure_fs::symlink;
+use adapteros_storage::secure_fs::traversal;
+use adapteros_storage::secure_fs::{SecureFsConfig, SecureFsManager};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Barrier, Mutex};

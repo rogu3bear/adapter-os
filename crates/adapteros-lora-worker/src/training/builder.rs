@@ -10,8 +10,8 @@ use super::limits::DatasetSizeLimits;
 use super::normalize::NORMALIZATION_SCHEME;
 use crate::tokenizer::QwenTokenizer;
 use adapteros_core::{AosError, B3Hash, Result};
-use adapteros_secure_fs::path_policy::{canonicalize_strict, canonicalize_strict_in_allowed_roots};
-use adapteros_secure_fs::traversal::check_path_traversal;
+use adapteros_storage::secure_fs::path_policy::{canonicalize_strict, canonicalize_strict_in_allowed_roots};
+use adapteros_storage::secure_fs::traversal::check_path_traversal;
 use adapteros_types::training::{
     provenance_from_map, validate_training_examples, ExampleMetadataV1, TrainingDataContractConfig,
     TrainingExampleV1, TRAINING_DATA_CONTRACT_VERSION,

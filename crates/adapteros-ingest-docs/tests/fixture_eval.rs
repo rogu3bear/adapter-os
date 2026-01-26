@@ -5,7 +5,7 @@ use adapteros_ingest_docs::{
     DocumentIngestor, RagChunkParams, SimpleEmbeddingModel, TrainingData, TrainingGenConfig,
     TrainingStrategy,
 };
-use adapteros_lora_rag::{DocMetadata, TenantIndex};
+use adapteros_retrieval::rag::{DocMetadata, TenantIndex};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};

@@ -2,7 +2,7 @@ use super::*;
 use crate::training::coreml_pipeline;
 use adapteros_core::backend::BackendKind;
 use adapteros_core::B3Hash;
-use adapteros_platform::common::PlatformUtils;
+use adapteros_storage::platform::common::PlatformUtils;
 use adapteros_types::training::ExampleMetadataV1;
 use blake3;
 use rand::SeedableRng;

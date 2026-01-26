@@ -14,7 +14,7 @@
 
 use crate::patch_generator::FilePatch;
 use adapteros_core::Result;
-use adapteros_lora_rag::EvidenceSpan;
+use adapteros_retrieval::rag::EvidenceSpan;
 use adapteros_policy::PolicyEngine;
 use adapteros_telemetry::TelemetryWriter;
 use regex::Regex;
@@ -1151,7 +1151,7 @@ mod tests {
     use super::*;
     use crate::patch_generator::{HunkType, PatchHunk};
     use adapteros_core::B3Hash;
-    use adapteros_manifest::{
+    use adapteros_model_hub::manifest::{
         ArtifactsPolicy, DeterminismPolicy, DriftPolicy, EgressPolicy, EvidencePolicy,
         IsolationPolicy, MemoryPolicy, NumericPolicy, PerformancePolicy, Policies, RagPolicy,
         RefusalPolicy,

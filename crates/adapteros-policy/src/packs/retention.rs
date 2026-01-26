@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 // Re-export canonical types from adapteros-telemetry-types
-pub use adapteros_telemetry_types::{BundleType, RetentionBundleMetadata as BundleMetadata};
+pub use adapteros_telemetry::types::{BundleType, RetentionBundleMetadata as BundleMetadata};
 
 /// Retention policy configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]

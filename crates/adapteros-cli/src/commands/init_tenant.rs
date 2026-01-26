@@ -1,7 +1,7 @@
 //! Initialize tenant
 
 use crate::output::OutputWriter;
-use adapteros_registry::Registry;
+use adapteros_model_hub::registry::Registry;
 use anyhow::Result;
 use serde::Serialize;
 

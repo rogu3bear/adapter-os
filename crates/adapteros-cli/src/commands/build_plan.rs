@@ -2,7 +2,7 @@
 
 use crate::output::OutputWriter;
 use adapteros_db::Db;
-use adapteros_manifest::ManifestV3;
+use adapteros_model_hub::manifest::ManifestV3;
 use anyhow::{Context, Result};
 use serde::Serialize;
 use std::fs;

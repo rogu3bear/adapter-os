@@ -29,7 +29,7 @@ use adapteros_orchestrator::{
     training::{compute_combined_data_spec_hash, TrainingVersioningContext},
     TrainingJobStatus,
 };
-use adapteros_secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
+use adapteros_storage::secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
 use adapteros_types::training::{
     BranchClassification, DataLineageMode, DatasetVersionSelection as CoreDatasetVersionSelection,
     LoraTier, TrainingBackendKind, TrainingBackendPolicy, TrainingDataContractConfig,

@@ -1,7 +1,7 @@
 //! Tensor layout with padding calculations
 
 use adapteros_core::Result;
-use adapteros_manifest::ManifestV3;
+use adapteros_model_hub::manifest::ManifestV3;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

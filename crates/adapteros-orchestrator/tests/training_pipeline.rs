@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use adapteros_db::sqlx;
 use adapteros_orchestrator::TrainingService;
-use adapteros_platform::common::PlatformUtils;
+use adapteros_storage::platform::common::PlatformUtils;
 use adapteros_types::training::{DataLineageMode, TrainingConfig, TrainingJobStatus};
 use tempfile::TempDir;
 

@@ -217,7 +217,7 @@ pub fn check_and_fix_permissions_recursive(
 /// # Example
 ///
 /// ```rust
-/// use adapteros_secure_fs::permissions::{try_open_with_permission_fix, PermissionConfig};
+/// use adapteros_storage::secure_fs::permissions::{try_open_with_permission_fix, PermissionConfig};
 /// use std::path::Path;
 ///
 /// let config = PermissionConfig::default();
@@ -288,7 +288,7 @@ pub fn try_open_with_permission_fix(
 /// # Example
 ///
 /// ```rust
-/// use adapteros_secure_fs::permissions::{try_create_with_permission_fix, PermissionConfig};
+/// use adapteros_storage::secure_fs::permissions::{try_create_with_permission_fix, PermissionConfig};
 /// use std::path::Path;
 ///
 /// let config = PermissionConfig::default();

@@ -1,7 +1,7 @@
 //! Router calibration commands
 
 use adapteros_lora_router::{CalibrationDataset, Calibrator, OptimizationMethod, RouterWeights};
-use adapteros_manifest::RouterCfg;
+use adapteros_model_hub::manifest::RouterCfg;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use std::path::{Path, PathBuf};

@@ -4,10 +4,10 @@
 //! impact of recent changes.  They are generated from the change detector
 //! and automatically expire after their TTL window.
 
-use adapteros_codegraph::DetectedChange;
+use adapteros_retrieval::codegraph::DetectedChange;
 
 // Re-export for consumers
-pub use adapteros_codegraph::DetectedChangeType;
+pub use adapteros_retrieval::codegraph::DetectedChangeType;
 use adapteros_core::{B3Hash, Result};
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};

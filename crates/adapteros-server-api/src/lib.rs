@@ -165,3 +165,6 @@ pub use sse::{SseEvent, SseEventManager, SseRingBuffer, SseStreamType};
 
 // Export the router builder function
 pub use routes::build as create_app;
+
+// HTTP utilities from adapteros-api
+pub mod http;

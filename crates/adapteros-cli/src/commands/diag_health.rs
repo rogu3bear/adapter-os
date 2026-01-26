@@ -13,7 +13,7 @@ use adapteros_lora_worker::training::{
     compute_drift, deterministic_slice, run_backend_with_examples, DatasetSubsample,
     HarnessHyperparams, TrainingBackend, TrainingExample,
 };
-use adapteros_manifest::{AssuranceTier, ManifestV3};
+use adapteros_model_hub::manifest::{AssuranceTier, ManifestV3};
 use clap::{Args, Subcommand};
 use comfy_table::{presets::UTF8_FULL, Cell, Table};
 use reqwest::Client;

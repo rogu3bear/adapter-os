@@ -6,7 +6,7 @@ use adapteros_cli::commands::training_common::{CommonTrainingArgs, TokenizerArg}
 use adapteros_cli::output::{OutputMode, OutputWriter};
 use adapteros_config::{DEFAULT_BASE_MODEL_ID, DEFAULT_MODEL_CACHE_ROOT};
 use adapteros_db::Db;
-use adapteros_platform::common::PlatformUtils;
+use adapteros_storage::platform::common::PlatformUtils;
 use blake3::Hasher;
 use git2::{IndexAddOption, Repository, Signature};
 use std::fs;

@@ -3,7 +3,7 @@
 //! Provides high-performance FTS5-based indices for symbols, tests, and documentation
 //! with per-tenant isolation and deterministic ordering.
 
-use adapteros_codegraph::types::SymbolNode;
+use adapteros_retrieval::codegraph::types::SymbolNode;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};

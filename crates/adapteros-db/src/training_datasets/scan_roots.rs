@@ -7,7 +7,7 @@
 use crate::query_helpers::db_err;
 use crate::Db;
 use adapteros_core::Result;
-use adapteros_normalization::{normalize_repo_slug, sanitize_repo_slug};
+use adapteros_core::{normalize_repo_slug, sanitize_repo_slug};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use uuid::Uuid;

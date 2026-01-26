@@ -6,7 +6,7 @@
 use crate::parsers::LanguageParser;
 use crate::types::{Language, ParseResult, Span, SymbolId, SymbolKind, SymbolNode, Visibility};
 use adapteros_core::{AosError, Result};
-use adapteros_single_file_adapter::SingleFileAdapterLoader;
+use adapteros_aos::single_file::SingleFileAdapterLoader;
 use std::path::Path;
 
 /// Parser for adapterOS single-file adapter manifests.
@@ -115,7 +115,7 @@ impl LanguageParser for AdapterParser {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use adapteros_single_file_adapter::{
+    use adapteros_aos::single_file::{
         format::{AdapterWeights, WeightGroup, WeightGroupType, WeightMetadata},
         LineageInfo, SingleFileAdapter, SingleFileAdapterPackager, TrainingConfig, TrainingExample,
     };

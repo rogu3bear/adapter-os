@@ -4,10 +4,10 @@ use adapteros_crypto::Keypair;
 use adapteros_db::git::FileChangeEvent;
 use adapteros_db::{sqlx, Db, KvIsolationScanReport, ProtectedDb, WriteCapableDb};
 use adapteros_deterministic_exec::global_ledger::GlobalTickLedger;
-use adapteros_diagnostics::DiagnosticsService;
+use adapteros_telemetry::diagnostics::DiagnosticsService;
 use adapteros_lora_kernel_api::FusedKernels;
 use adapteros_lora_lifecycle::LifecycleManager;
-use adapteros_lora_rag::EmbeddingModel;
+use adapteros_retrieval::rag::EmbeddingModel;
 use adapteros_lora_worker::memory::UmaPressureMonitor;
 use adapteros_lora_worker::signal::Signal;
 use adapteros_lora_worker::Worker;
@@ -35,7 +35,7 @@ use crate::pause_tracker::ServerPauseTracker;
 use crate::rate_limit::{RateLimiterConfig, RateLimiterState};
 use crate::sse::SseEventManager;
 use crate::telemetry::{MetricsRegistry, TelemetryBuffer, TelemetrySender, TraceBuffer};
-use adapteros_registry::Registry;
+use adapteros_model_hub::registry::Registry;
 
 type WorkerHandle = Arc<Mutex<Worker<Box<dyn FusedKernels + Send + Sync>>>>;
 

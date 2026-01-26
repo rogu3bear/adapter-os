@@ -17,7 +17,7 @@
 #![allow(unused_comparisons)]
 #![allow(clippy::unnecessary_cast)]
 
-use adapteros_codegraph::CodeGraph;
+use adapteros_retrieval::codegraph::CodeGraph;
 use adapteros_config::{DEFAULT_BASE_MODEL_ID, DEFAULT_MODEL_CACHE_ROOT};
 use adapteros_db::sqlx;
 use adapteros_lora_worker::training::TrainingConfig;
@@ -25,7 +25,7 @@ use adapteros_orchestrator::code_ingestion::{
     CodeDatasetConfig, CodeIngestionPipeline, CodeIngestionRequest, CodeIngestionSource,
 };
 use adapteros_orchestrator::codebase_ingestion::{CodebaseIngestion, IngestionConfig};
-use adapteros_platform::common::PlatformUtils;
+use adapteros_storage::platform::common::PlatformUtils;
 use git2::{Repository, Signature};
 use std::io::Write;
 use std::path::PathBuf;

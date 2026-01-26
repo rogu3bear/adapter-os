@@ -1,8 +1,8 @@
 //! Model loader and validation for adapterOS
 
-use adapteros_chat::{ChatTemplate, ChatTemplateProcessor, SpecialTokens};
+use crate::chat::{ChatTemplate, ChatTemplateProcessor, SpecialTokens};
 use adapteros_core::{AosError, Result};
-use adapteros_lora_quant::BlockQuantizer;
+use crate::quant::BlockQuantizer;
 use std::path::Path;
 use tracing::{debug, info, warn};
 

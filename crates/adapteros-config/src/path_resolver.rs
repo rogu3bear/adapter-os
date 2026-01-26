@@ -63,8 +63,12 @@ pub struct BaseModelLocation {
 }
 
 fn is_url_like(value: &str) -> bool {
-    let trimmed = value.trim();
-    trimmed.starts_with("sqlite:") || trimmed.starts_with("file:")
+    let lower = value.to_lowercase();
+    lower.starts_with("http://")
+        || lower.starts_with("https://")
+        || lower.starts_with("file://")
+        || lower.starts_with("sqlite://")
+        || lower.starts_with("unix://")
 }
 
 /// Resolve manifest path with precedence: env > CLI > config > dev fallback.
@@ -157,7 +161,11 @@ pub fn resolve_base_model_location(
 
     let cache_root = cache_root_override
         .map(rebase_var_path)
-        .or_else(|| std::env::var("AOS_MODEL_CACHE_DIR").ok().map(rebase_var_path))
+        .or_else(|| {
+            std::env::var("AOS_MODEL_CACHE_DIR")
+                .ok()
+                .map(rebase_var_path)
+        })
         .or_else(|| {
             effective
                 .and_then(|cfg| cfg.model.cache_root.as_ref())
@@ -541,9 +549,15 @@ fn should_skip_symlink_check() -> bool {
 
 /// String-based literal check for /tmp prefixes (fast path).
 fn reject_tmp_literal(path_str: &str, kind: &str, original_path: &Path) -> Result<()> {
+    let path_to_check = path_str
+        .strip_prefix("file://")
+        .or_else(|| path_str.strip_prefix("sqlite://"))
+        .or_else(|| path_str.strip_prefix("sqlite:/"))
+        .unwrap_or(path_str);
+
     if FORBIDDEN_TMP_PREFIXES
         .iter()
-        .any(|prefix| path_str.starts_with(prefix))
+        .any(|prefix| path_to_check.starts_with(prefix))
     {
         return Err(AosError::Config(format!(
             "{} path must not be under /tmp: {}",
@@ -841,7 +855,11 @@ fn resolve_env_or_default(
     crate::model::load_dotenv();
     if let Ok(val) = std::env::var(env_var) {
         if !val.is_empty() {
-            let path = rebase_var_path(PathBuf::from(&val));
+            let path = if is_url_like(&val) {
+                PathBuf::from(&val)
+            } else {
+                rebase_var_path(PathBuf::from(&val))
+            };
             tracing::info!(
                 path = %path.display(),
                 source = %PathSource::Env(env_var),
@@ -1065,10 +1083,7 @@ mod tests {
         let _env = TestEnvGuard::new();
         std::env::set_var("AOS_TELEMETRY_DIR", "./var/aos-telemetry-env");
         let resolved = resolve_telemetry_dir().unwrap();
-        assert_eq!(
-            resolved.path,
-            rebase_var_path("./var/aos-telemetry-env")
-        );
+        assert_eq!(resolved.path, rebase_var_path("./var/aos-telemetry-env"));
         assert_eq!(resolved.source, PathSource::Env("AOS_TELEMETRY_DIR"));
         std::env::remove_var("AOS_TELEMETRY_DIR");
     }
@@ -1329,10 +1344,7 @@ mod tests {
         let _env = TestEnvGuard::new();
         std::env::remove_var("AOS_EMBEDDING_MODEL_PATH");
         let resolved = resolve_embedding_model_path().unwrap();
-        assert_eq!(
-            resolved.path,
-            rebase_var_path(DEFAULT_EMBEDDING_MODEL_PATH)
-        );
+        assert_eq!(resolved.path, rebase_var_path(DEFAULT_EMBEDDING_MODEL_PATH));
         assert_eq!(resolved.source, PathSource::Default("embedding-model"));
     }
 
@@ -1341,7 +1353,10 @@ mod tests {
         let _env = TestEnvGuard::new();
         std::env::set_var("AOS_VAR_DIR", "./var/custom-root");
         let resolved = resolve_status_path().unwrap();
-        assert_eq!(resolved.path, resolve_var_dir().join("run/adapteros_status.json"));
+        assert_eq!(
+            resolved.path,
+            resolve_var_dir().join("run/adapteros_status.json")
+        );
         assert_eq!(resolved.source, PathSource::Default("status-path"));
     }
 

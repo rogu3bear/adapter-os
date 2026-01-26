@@ -10,7 +10,7 @@
 use super::trainer::{LoRAWeights, TrainingConfig};
 use adapteros_config::resolve_telemetry_dir;
 use adapteros_core::{derive_seed, AosError, B3Hash, Result};
-use adapteros_single_file_adapter::{
+use adapteros_aos::single_file::{
     format::{AdapterWeights, CombinationStrategy, WeightGroup, WeightGroupType, WeightMetadata},
     weights::combine_weight_groups,
 };

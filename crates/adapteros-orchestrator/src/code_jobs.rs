@@ -6,7 +6,7 @@
 //! - Index updates
 //! - Integration with CAS artifact storage
 
-use adapteros_codegraph::CodeGraph;
+use adapteros_retrieval::codegraph::CodeGraph;
 use adapteros_core::{AosError, Result};
 use adapteros_db::{repositories::ScanJob, Db};
 use serde::{Deserialize, Serialize};

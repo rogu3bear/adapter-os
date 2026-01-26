@@ -1,8 +1,8 @@
 //! SBOM gate: verifies SBOM is present and valid
 
 use crate::{DependencyChecker, Gate, OrchestratorConfig};
+use adapteros_artifacts::sbom::SpdxDocument;
 use adapteros_core::{AosError, Result};
-use adapteros_sbom::SpdxDocument;
 use std::fs;
 use std::path::Path;
 use tracing::{info, warn};

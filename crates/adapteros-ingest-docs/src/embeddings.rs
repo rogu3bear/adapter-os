@@ -11,7 +11,7 @@ use tokenizers::Tokenizer;
 use tracing::{debug, warn};
 
 // Re-export the canonical EmbeddingModel trait from adapteros-lora-rag
-pub use adapteros_lora_rag::EmbeddingModel;
+pub use adapteros_retrieval::rag::EmbeddingModel;
 
 /// Embedding dimension (standard for many models)
 pub const EMBEDDING_DIMENSION: usize = 384;

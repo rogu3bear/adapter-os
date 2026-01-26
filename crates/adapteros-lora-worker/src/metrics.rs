@@ -8,7 +8,7 @@
 //! - NAR: Numeric Accuracy Rate
 //! - PAR: Policy Adherence Rate
 
-use adapteros_lora_rag::EvidenceSpan;
+use adapteros_retrieval::rag::EvidenceSpan;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

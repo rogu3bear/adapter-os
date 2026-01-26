@@ -44,7 +44,7 @@ use crate::status_writer;
 use adapteros_db::diagnostics::SqliteDiagPersister;
 use adapteros_db::kv_metrics;
 use adapteros_db::Db;
-use adapteros_diagnostics::{DiagEnvelope, DiagnosticsWriter, RunTracker, WriterConfig};
+use adapteros_telemetry::diagnostics::{DiagEnvelope, DiagnosticsWriter, RunTracker, WriterConfig};
 use adapteros_server_api::boot_state::{BootStateManager, FailureReason};
 use adapteros_server_api::security::{
     cleanup_expired_ip_rules, cleanup_expired_revocations, cleanup_expired_sessions,

@@ -13,7 +13,7 @@ use adapteros_db::{
     query_performance::{QueryMetrics, ThresholdViolation, ViolationType},
 };
 use adapteros_lora_lifecycle::AdapterState;
-use adapteros_manifest::AssuranceTier;
+use adapteros_model_hub::manifest::AssuranceTier;
 use adapteros_telemetry::unified_events::{EventType, LogLevel, TelemetryEventBuilder};
 use async_trait::async_trait;
 use serde_json::{json, Value};
