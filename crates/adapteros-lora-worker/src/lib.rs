@@ -83,13 +83,13 @@ use adapteros_db::{
     Db, SqlTraceSink, TraceCancellation, TraceFinalization, TraceSink, TraceStart, TraceTokenInput,
 };
 use adapteros_lora_kernel_api::{attestation::DeterminismLevel, FusedKernels, IoBuffers};
-use adapteros_retrieval::rag::RagSystem;
 use adapteros_lora_router::{
     constants::PINNED_BOOST, features::CodeFeatures, policy_mask::PolicyMask, AbstainContext,
     AdapterInfo, Router, RouterDeterminismConfig,
 };
 use adapteros_model_hub::manifest::ManifestV3;
 use adapteros_policy::{PolicyEngine, RefusalResponse};
+use adapteros_retrieval::rag::RagSystem;
 use adapteros_telemetry::{CriticalComponentMetrics, TelemetryWriter};
 use adapteros_types::adapters::metadata::RoutingDeterminismMode;
 use adapteros_types::{CancelSource, CancellationState};
@@ -392,10 +392,10 @@ pub use adapter_hotswap::{
 };
 // Re-export CircuitState for downstream consumers
 pub use adapteros_core::CircuitState;
+pub use adapteros_lora_router::filter_decision_by_policy;
 pub use adapteros_retrieval::rag::DocIndexImpl;
 pub use adapteros_retrieval::rag::SymbolIndexImpl;
 pub use adapteros_retrieval::rag::TestIndexImpl;
-pub use adapteros_lora_router::filter_decision_by_policy;
 pub use anomaly_detection::{
     AnomalyDetectionConfig, AnomalyDetector, AnomalyScore, DetectionAlgorithm,
 };
@@ -1070,8 +1070,7 @@ impl AvailableBackends {
     fn has_coreml_with_ane(&self) -> bool {
         let coreml_available =
             self.primary == BackendKind::CoreML || self.fallback == Some(BackendKind::CoreML);
-        let ane_available =
-            self.coreml_primary.is_some() || self.coreml_fallback.is_some();
+        let ane_available = self.coreml_primary.is_some() || self.coreml_fallback.is_some();
         coreml_available && ane_available
     }
 
@@ -1299,7 +1298,7 @@ pub struct Worker<K: FusedKernels + StrictnessControl + Send + Sync + 'static> {
     trace_flush_every: usize,
     placement_template: Option<(PlacementConfig, Vec<LaneDescriptor>)>,
     // Lifecycle management
-    profiler: adapteros_profiler::AdapterProfiler,
+    profiler: adapteros_telemetry::profiler::AdapterProfiler,
     lifecycle: Arc<Mutex<adapteros_lora_lifecycle::LifecycleManager>>,
     // Hot-swap management
     hotswap: Arc<HotSwapManager<K>>,
@@ -1516,7 +1515,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
 
         // Initialize profiler
         let adapter_names: Vec<String> = manifest.adapters.iter().map(|a| a.id.clone()).collect();
-        let profiler = adapteros_profiler::AdapterProfiler::new(
+        let profiler = adapteros_telemetry::profiler::AdapterProfiler::new(
             adapter_names.clone(),
             Some(telemetry.clone()),
         );
@@ -3951,7 +3950,9 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             let mut io_buffers = IoBuffers {
                 input_ids: input_ids_slice.to_vec(),
                 output_logits: vec![0.0; self.manifest.base.vocab_size as usize],
-                position: step_with_free, attention_entropy: None, activations: None,
+                position: step_with_free,
+                attention_entropy: None,
+                activations: None,
             };
 
             if let Some(ref mut placement) = placement_state {
@@ -4378,8 +4379,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                     || backend_used_normalized.starts_with(expected)
             } else {
                 // Allow match if backend name equals or starts with expected profile
-                backend_used_normalized == expected
-                    || backend_used_normalized.starts_with(expected)
+                backend_used_normalized == expected || backend_used_normalized.starts_with(expected)
             };
             if !backend_matches {
                 emit_observability_event(&determinism_violation_event(

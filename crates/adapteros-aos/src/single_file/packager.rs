@@ -3,7 +3,7 @@
 //! Creates .aos archives in AOS2 binary format using the segment-indexed structure.
 
 use super::format::*;
-use adapteros_aos::{AosWriter, BackendTag};
+use crate::{AosWriter, BackendTag};
 use adapteros_core::{AosError, Result};
 use safetensors::tensor::TensorView;
 use std::path::Path;
@@ -150,8 +150,8 @@ impl SingleFileAdapterPackager {
 
 #[cfg(test)]
 mod tests {
+    use super::super::loader::SingleFileAdapterLoader;
     use super::*;
-    use crate::loader::SingleFileAdapterLoader;
     use tempfile::TempDir;
 
     fn new_test_tempdir() -> TempDir {
@@ -193,7 +193,7 @@ mod tests {
             .unwrap();
 
         // Load back
-        let loaded = SingleFileAdapterLoader::load(&aos_path).await.unwrap();
+        let loaded: SingleFileAdapter = SingleFileAdapterLoader::load(&aos_path).await.unwrap();
 
         // Verify key fields match
         assert_eq!(loaded.manifest.adapter_id, original.manifest.adapter_id);
@@ -201,7 +201,7 @@ mod tests {
     }
 
     fn create_test_adapter() -> SingleFileAdapter {
-        use crate::training::TrainingConfig;
+        use super::super::training::TrainingConfig;
 
         let positive_weights = WeightGroup {
             lora_a: vec![vec![0.1, 0.2], vec![0.3, 0.4]],

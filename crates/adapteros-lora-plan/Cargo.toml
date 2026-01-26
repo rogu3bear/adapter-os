@@ -7,6 +7,10 @@ license.workspace = true
 
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
+adapteros-chat = { path = "../adapteros-chat" }
+adapteros-model-hub = { path = "../adapteros-model-hub" }
+adapteros-manifest = { path = "../adapteros-manifest" }
+adapteros-registry = { path = "../adapteros-registry" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

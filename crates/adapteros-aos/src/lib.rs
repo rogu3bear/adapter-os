@@ -55,4 +55,4 @@ pub use writer::{
 
 // Single-file adapter archive format
 pub mod single_file;
-pub use single_file::{SingleFileAdapter, AdapterArchive};
+pub use single_file::SingleFileAdapter;

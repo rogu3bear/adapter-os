@@ -11,6 +11,7 @@ coreml-backend = ["dep:adapteros-lora-kernel-coreml"]
 [dependencies]
 adapteros-aos = { path = "../adapteros-aos" }
 adapteros-core = { path = "../adapteros-core" }
+adapteros-storage = { path = "../adapteros-storage" }
 adapteros-config = { path = "../adapteros-config" }
 adapteros-db = { path = "../adapteros-db" }
 adapteros-model-hub = { path = "../adapteros-model-hub" }

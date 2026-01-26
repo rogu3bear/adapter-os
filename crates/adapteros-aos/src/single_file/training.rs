@@ -3,11 +3,17 @@
 //! These are simple DTOs that are also defined in adapteros-lora-worker.
 //! We define them here to avoid circular dependencies.
 
-use super::format::WeightGroupConfig;
 use serde::{Deserialize, Serialize};
 
-/// Single training example (shared contract).
 pub type TrainingExample = adapteros_types::training::TrainingExampleV1;
+
+/// Weight group combination settings for separated training
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct WeightGroupConfig {
+    /// Whether to combine weight groups by summing them. If false, they are concatenated.
+    #[serde(default)]
+    pub sum_weight_groups: bool,
+}
 
 /// Training configuration
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

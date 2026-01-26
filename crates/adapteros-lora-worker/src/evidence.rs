@@ -126,13 +126,16 @@ impl EvidenceRetriever {
     }
 
     /// Convert RAG EvidenceSpan to Worker EvidenceSpan
-    fn convert_evidence_span(&self, rag_span: adapteros_lora_rag::EvidenceSpan) -> EvidenceSpan {
+    fn convert_evidence_span(
+        &self,
+        rag_span: adapteros_retrieval::rag::EvidenceSpan,
+    ) -> EvidenceSpan {
         let evidence_type = match rag_span.evidence_type {
-            Some(RagEvidenceType::Symbol) => EvidenceType::Symbol,
-            Some(RagEvidenceType::Test) => EvidenceType::Test,
-            Some(RagEvidenceType::Doc) => EvidenceType::Doc,
-            Some(RagEvidenceType::Code) => EvidenceType::Code,
-            Some(RagEvidenceType::Framework) => EvidenceType::Framework,
+            Some(adapteros_retrieval::rag::EvidenceType::Symbol) => EvidenceType::Symbol,
+            Some(adapteros_retrieval::rag::EvidenceType::Test) => EvidenceType::Test,
+            Some(adapteros_retrieval::rag::EvidenceType::Doc) => EvidenceType::Doc,
+            Some(adapteros_retrieval::rag::EvidenceType::Code) => EvidenceType::Code,
+            Some(adapteros_retrieval::rag::EvidenceType::Framework) => EvidenceType::Framework,
             None => EvidenceType::Code, // Default
         };
 

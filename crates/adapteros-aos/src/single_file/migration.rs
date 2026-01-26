@@ -101,8 +101,10 @@ pub async fn migrate_file<P: AsRef<Path>>(path: P) -> Result<MigrationResult> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::format::{AdapterWeights, WeightGroup, WeightGroupType, WeightMetadata};
-    use crate::training::{TrainingConfig, TrainingExample};
+    use crate::single_file::format::{
+        AdapterWeights, WeightGroup, WeightGroupType, WeightMetadata,
+    };
+    use crate::single_file::training::{TrainingConfig, TrainingExample, WeightGroupConfig};
     use adapteros_types::training::ExampleMetadataV1;
 
     fn create_legacy_adapter() -> SingleFileAdapter {

@@ -14,7 +14,8 @@ use adapteros_model_hub::manifest::{
     Adapter, AdapterCategory, AdapterScope, AdapterTier, AssuranceTier, Base, BundleCfg,
     DeterminismPolicy, DriftPolicy, EgressPolicy, EvictionPriority, EvidencePolicy,
     IsolationPolicy, ManifestV3, MemoryPolicy, NumericPolicy, PerformancePolicy, Policies,
-    RagPolicy, RefusalPolicy, RouterCfg, Sampling, Seeds, TelemetryCfg,
+    RagPolicy, RefusalPolicy, RouterCfg, Sampling, Seeds, TelemetryCfg, ArtifactsPolicy,
+    AdapterDependencies,
 };
 use std::collections::BTreeMap;
 
@@ -131,7 +132,7 @@ fn create_test_manifest() -> ManifestV3 {
                 ],
                 k_reduce_before_evict: true,
             },
-            artifacts: adapteros_manifest::ArtifactsPolicy {
+            artifacts: ArtifactsPolicy {
                 require_signature: true,
                 require_sbom: true,
                 cas_only: true,
@@ -695,7 +696,7 @@ fn test_adapter_with_dependencies() {
     manifest.adapters.push(base_adapter);
 
     let mut dependent_adapter = create_test_adapter("framework-specific", 16);
-    dependent_adapter.dependencies = Some(adapteros_manifest::AdapterDependencies {
+    dependent_adapter.dependencies = Some(AdapterDependencies {
         base_model: Some("test-model".to_string()),
         requires_adapters: vec!["base-code".to_string()],
         conflicts_with: vec![],
