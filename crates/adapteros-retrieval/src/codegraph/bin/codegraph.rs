@@ -2,8 +2,8 @@
 //!
 //! Command-line interface for building and analyzing code graphs
 
-use crate::codegraph::{CodeGraph, DbConfig};
 use adapteros_core::Result;
+use adapteros_retrieval::{CodeGraph, DbConfig};
 use clap::Parser;
 use std::path::PathBuf;
 

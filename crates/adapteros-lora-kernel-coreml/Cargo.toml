@@ -29,6 +29,7 @@ coreml-stub = []       # Enable stub fallback for tests/dev; OFF for production
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
 adapteros-aos = { path = "../adapteros-aos" }
+adapteros-storage = { path = "../adapteros-storage" }
 adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
 adapteros-types = { path = "../adapteros-types" }

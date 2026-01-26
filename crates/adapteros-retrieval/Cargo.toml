@@ -9,7 +9,6 @@ license.workspace = true
 adapteros-core = { path = "../adapteros-core" }
 adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-embeddings = { path = "../adapteros-embeddings" }
-adapteros-ingest-docs = { path = "../adapteros-ingest-docs" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
 # RAG dependencies
 hnsw_rs = { workspace = true }

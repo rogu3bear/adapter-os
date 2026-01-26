@@ -3,13 +3,13 @@
 //! Manages symbol, test, doc, and vector indices with incremental updates
 //! and multi-index search capabilities.
 
+use crate::codegraph::types::{Language, SymbolNode};
 use crate::{
-    chunking::CodeChunker,
     fts_index::{DocIndexImpl, IndexedDoc, IndexedTest, SymbolIndexImpl, TestIndexImpl},
+    rag_chunking::CodeChunker,
     retrieval::{EvidenceSpan, EvidenceType},
     DocMetadata, IndexNamespaceId, TenantIndex,
 };
-use adapteros_retrieval::codegraph::types::{Language, SymbolNode};
 use adapteros_core::{B3Hash, Result};
 use anyhow::Context;
 use serde::{Deserialize, Serialize};

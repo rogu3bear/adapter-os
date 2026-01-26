@@ -92,6 +92,8 @@ fi
 : "${AOS_VAR_DIR:=var}"
 : "${AOS_LOG_DIR:=$AOS_VAR_DIR/logs}"
 : "${SKIP_WORKER:=0}"
+: "${SKIP_SECD:=0}"
+: "${SKIP_NODE:=0}"
 : "${AOS_QUICK_BOOT:=0}"
 : "${AOS_VERIFY_CHAT:=0}"
 : "${AOS_LOG_PROFILE:=json}"
@@ -1048,6 +1050,30 @@ start_all() {
             "$( [ "$worker_ok" -eq 1 ] && echo true || echo false )" \
         )"
     #endregion agent log
+
+    # Start SecD (Secure Enclave Daemon) - optional
+    local secd_ok=0
+    print_step "running" "Starting Secure Enclave Daemon..."
+    if [ "${SKIP_SECD:-0}" = "1" ]; then
+        update_step "pending" "SecD            ${FG_YELLOW}SKIPPED${FG_RESET}  (requested via SKIP_SECD)"
+    elif scripts/service-manager.sh start secd >/dev/null 2>&1; then
+        update_step "success" "SecD            ${FG_GREEN}READY${FG_RESET}"
+        secd_ok=1
+    else
+        update_step "pending" "SecD            ${FG_YELLOW}UNAVAILABLE${FG_RESET} (optional - build with: cargo build -p adapteros-secd)"
+    fi
+
+    # Start Node Agent - optional
+    local node_ok=0
+    print_step "running" "Starting Node Agent..."
+    if [ "${SKIP_NODE:-0}" = "1" ]; then
+        update_step "pending" "Node            ${FG_YELLOW}SKIPPED${FG_RESET}  (requested via SKIP_NODE)"
+    elif scripts/service-manager.sh start node >/dev/null 2>&1; then
+        update_step "success" "Node            ${FG_GREEN}READY${FG_RESET}"
+        node_ok=1
+    else
+        update_step "pending" "Node            ${FG_YELLOW}UNAVAILABLE${FG_RESET} (optional - build with: cargo build -p adapteros-node)"
+    fi
 
     # Final readiness check (unless --quick was used)
     local inference_ready=0

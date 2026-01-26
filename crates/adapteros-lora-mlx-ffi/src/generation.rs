@@ -11,11 +11,22 @@
 use crate::kv_cache::PrefixKvTensors;
 use crate::MLXFFIModel;
 use adapteros_core::{derive_seed, AosError, B3Hash, Result};
-use adapteros_lora_router::RoutingDecision;
 use rand::Rng;
 use rand::SeedableRng;
 use std::collections::HashMap;
 use std::sync::Arc;
+
+/// Local routing decision type for generation
+///
+/// This is a minimal type to avoid cyclic dependencies with lora-router.
+/// Consumers can convert from/to `adapteros_lora_router::RoutingDecision` as needed.
+#[derive(Debug, Clone)]
+pub struct RoutingDecision {
+    /// Adapter to use for this routing decision
+    pub adapter_id: Option<String>,
+    /// Confidence score (0.0 - 1.0)
+    pub confidence: f32,
+}
 
 /// Sampling strategy selector
 #[derive(Debug, Clone, Copy, PartialEq)]

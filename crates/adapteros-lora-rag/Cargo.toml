@@ -1,5 +1,5 @@
 [package]
-name = "adapteros-retrieval"
+name = "adapteros-lora-rag"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

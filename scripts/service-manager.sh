@@ -25,6 +25,8 @@ PID_DIR="$PROJECT_ROOT/var"
 BACKEND_PID_FILE="$PID_DIR/backend.pid"
 UI_PID_FILE="$PID_DIR/ui.pid"
 WORKER_PID_FILE="$PID_DIR/worker.pid"
+SECD_PID_FILE="$PID_DIR/secd.pid"
+NODE_PID_FILE="$PID_DIR/node.pid"
 QUARANTINE_DIR="$PID_DIR/quarantine"
 
 # Log file locations
@@ -32,7 +34,15 @@ LOG_DIR="$PROJECT_ROOT/var/logs"
 BACKEND_LOG="$LOG_DIR/backend.log"
 UI_LOG="$LOG_DIR/ui.log"
 WORKER_LOG="$LOG_DIR/worker.log"
+SECD_LOG="$LOG_DIR/secd.log"
+NODE_LOG="$LOG_DIR/node.log"
 SCRIPT_LOG="$LOG_DIR/service-manager.log"
+
+# Socket paths
+SECD_SOCKET="$PROJECT_ROOT/var/run/aos-secd.sock"
+
+# Port configuration for node
+NODE_PORT="${AOS_NODE_PORT:-9443}"
 
 # Canonical dev model (single source of truth)
 DEFAULT_MODEL_DIR="$PROJECT_ROOT/var/models/mistral-7b-instruct-v0.3-4bit"
@@ -63,6 +73,8 @@ FAST_TIMEOUT=30
 FORCE_TIMEOUT=10
 UI_TIMEOUT=15
 WORKER_TIMEOUT=60
+SECD_TIMEOUT=30
+NODE_TIMEOUT=30
 
 # =============================================================================
 # Colors
@@ -1332,8 +1344,289 @@ start_worker_with_restart() {
 }
 
 # =============================================================================
+# Service: SecD (Secure Enclave Daemon)
+# =============================================================================
+
+select_secd_binary() {
+    local debug_bin="$PROJECT_ROOT/target/debug/aos-secd"
+    local release_bin="$PROJECT_ROOT/target/release/aos-secd"
+
+    if is_dev_mode; then
+        if [ -f "$debug_bin" ]; then
+            echo "$debug_bin"
+            return 0
+        else
+            error_msg "Dev mode active but debug secd binary not found."
+            error_msg "Build with: cargo build -p adapteros-secd"
+            return 1
+        fi
+    else
+        if [ -f "$release_bin" ]; then
+            echo "$release_bin"
+            return 0
+        elif [ -f "$debug_bin" ]; then
+            warning_msg "No release secd binary, using debug (slower)" >&2
+            echo "$debug_bin"
+            return 0
+        else
+            error_msg "SecD binary not found. Build with:"
+            error_msg "  cargo build -p adapteros-secd"
+            return 1
+        fi
+    fi
+}
+
+start_secd() {
+    ensure_dirs
+
+    # Check if secd socket already exists and is in use
+    if [ -S "$SECD_SOCKET" ]; then
+        local existing_pid=$(lsof -t "$SECD_SOCKET" 2>/dev/null | head -1)
+        if [ -n "$existing_pid" ] && kill -0 "$existing_pid" 2>/dev/null; then
+            warning_msg "SecD socket already in use (PID: $existing_pid)"
+            echo "$existing_pid" > "$SECD_PID_FILE"
+            return 0
+        else
+            # Stale socket, remove it
+            status_msg "Removing stale secd socket..."
+            rm -f "$SECD_SOCKET"
+        fi
+    fi
+
+    if is_running "$SECD_PID_FILE"; then
+        local pid=$(get_pid "$SECD_PID_FILE")
+        warning_msg "SecD is already running (PID: $pid)"
+        return 0
+    fi
+
+    status_msg "Starting Secure Enclave Daemon..."
+
+    # Select binary based on dev mode
+    local secd_bin=""
+    if ! secd_bin=$(select_secd_binary); then
+        return 1
+    fi
+
+    # Ensure socket directory exists
+    mkdir -p "$(dirname "$SECD_SOCKET")"
+
+    # Set up environment
+    export RUST_LOG="${RUST_LOG:-info,adapteros_secd=info}"
+
+    # Start secd
+    nohup "$secd_bin" \
+        --socket "$SECD_SOCKET" \
+        --pid-file "$SECD_PID_FILE" \
+        --heartbeat-file "$PROJECT_ROOT/var/run/aos-secd.heartbeat" \
+        --database "$DATABASE_PATH" \
+        > "$SECD_LOG" 2>&1 &
+    local pid=$!
+
+    echo "$pid" > "$SECD_PID_FILE"
+
+    # Wait for socket to be created
+    local waited=0
+    while [ $waited -lt "$SECD_TIMEOUT" ]; do
+        # Early exit: check if process died during startup
+        if ! kill -0 "$pid" 2>/dev/null; then
+            error_msg "SecD process died during startup. Check logs: $SECD_LOG"
+            [ "${AOS_BOOT_VERBOSE:-0}" = "1" ] && tail -25 "$SECD_LOG"
+            rm -f "$SECD_PID_FILE"
+            return 1
+        fi
+
+        if [ -S "$SECD_SOCKET" ]; then
+            success_msg "SecD started (PID: $pid, Socket: $SECD_SOCKET)"
+            return 0
+        fi
+        sleep 1
+        ((waited++))
+    done
+
+    # Timeout
+    if kill -0 "$pid" 2>/dev/null; then
+        error_msg "SecD process running but socket never created after ${SECD_TIMEOUT}s"
+        [ "${AOS_BOOT_VERBOSE:-0}" = "1" ] && tail -25 "$SECD_LOG"
+    else
+        error_msg "SecD failed to start. Check logs: $SECD_LOG"
+    fi
+    return 1
+}
+
+stop_secd() {
+    local mode="${1:-graceful}"
+
+    # Check for processes using the socket
+    local socket_pid=""
+    if [ -S "$SECD_SOCKET" ]; then
+        socket_pid=$(lsof -t "$SECD_SOCKET" 2>/dev/null | head -1)
+    fi
+
+    local pid=""
+    if is_running "$SECD_PID_FILE"; then
+        pid=$(get_pid "$SECD_PID_FILE")
+    elif [ -n "$socket_pid" ]; then
+        pid="$socket_pid"
+        warning_msg "Found secd via socket (PID: $pid)"
+    else
+        status_msg "SecD is not running"
+        rm -f "$SECD_SOCKET"
+        rm -f "$SECD_PID_FILE"
+        return 0
+    fi
+
+    stop_process "$pid" "SecD" "$SECD_TIMEOUT" "$mode"
+    
+    # Clean up socket and PID file
+    rm -f "$SECD_SOCKET"
+    rm -f "$SECD_PID_FILE"
+    rm -f "$PROJECT_ROOT/var/run/aos-secd.heartbeat"
+}
+
+restart_secd() {
+    local mode="${1:-graceful}"
+    status_msg "Restarting SecD (mode: ${mode})..."
+    stop_secd "$mode"
+    start_secd
+}
+
+# =============================================================================
+# Service: Node Agent
+# =============================================================================
+
+select_node_binary() {
+    local debug_bin="$PROJECT_ROOT/target/debug/aos-node"
+    local release_bin="$PROJECT_ROOT/target/release/aos-node"
+
+    if is_dev_mode; then
+        if [ -f "$debug_bin" ]; then
+            echo "$debug_bin"
+            return 0
+        else
+            error_msg "Dev mode active but debug node binary not found."
+            error_msg "Build with: cargo build -p adapteros-node"
+            return 1
+        fi
+    else
+        if [ -f "$release_bin" ]; then
+            echo "$release_bin"
+            return 0
+        elif [ -f "$debug_bin" ]; then
+            warning_msg "No release node binary, using debug (slower)" >&2
+            echo "$debug_bin"
+            return 0
+        else
+            error_msg "Node binary not found. Build with:"
+            error_msg "  cargo build -p adapteros-node"
+            return 1
+        fi
+    fi
+}
+
+start_node() {
+    ensure_dirs
+
+    if is_running "$NODE_PID_FILE"; then
+        local pid=$(get_pid "$NODE_PID_FILE")
+        warning_msg "Node agent is already running (PID: $pid)"
+        return 0
+    fi
+
+    # Check if port is in use
+    if ! ensure_port_free "$NODE_PORT" "Node Agent"; then
+        error_msg "Node port $NODE_PORT is busy; unable to start."
+        return 1
+    fi
+
+    status_msg "Starting Node Agent (port $NODE_PORT)..."
+
+    # Select binary based on dev mode
+    local node_bin=""
+    if ! node_bin=$(select_node_binary); then
+        return 1
+    fi
+
+    # Set up environment
+    export RUST_LOG="${RUST_LOG:-info,aos_node=info}"
+
+    # Start node agent (development mode with TCP binding)
+    nohup "$node_bin" \
+        --port "$NODE_PORT" \
+        --cas-path "$PROJECT_ROOT/var/cas" \
+        --kernel-path "$PROJECT_ROOT/var/kernels" \
+        --plan-path "$PROJECT_ROOT/var/plans" \
+        > "$NODE_LOG" 2>&1 &
+    local pid=$!
+
+    echo "$pid" > "$NODE_PID_FILE"
+
+    # Give it a moment to start
+    sleep 2
+
+    # Check if process survived startup
+    if ! kill -0 "$pid" 2>/dev/null; then
+        error_msg "Node agent failed to start. Check logs: $NODE_LOG"
+        [ "${AOS_BOOT_VERBOSE:-0}" = "1" ] && tail -20 "$NODE_LOG"
+        rm -f "$NODE_PID_FILE"
+        return 1
+    fi
+
+    # Wait for health endpoint
+    local waited=0
+    while [ $waited -lt "$NODE_TIMEOUT" ]; do
+        if curl -sf --max-time 2 "http://localhost:$NODE_PORT/health" >/dev/null 2>&1; then
+            success_msg "Node agent started (PID: $pid, Port: $NODE_PORT)"
+            return 0
+        fi
+        sleep 1
+        ((waited++))
+    done
+
+    # Health check timeout
+    if kill -0 "$pid" 2>/dev/null; then
+        warning_msg "Node agent running but health endpoint not responding after ${NODE_TIMEOUT}s"
+        # Still consider it started since process is alive
+        success_msg "Node agent started (PID: $pid, Port: $NODE_PORT) - health pending"
+        return 0
+    else
+        error_msg "Node agent crashed during startup. Check logs: $NODE_LOG"
+        rm -f "$NODE_PID_FILE"
+        return 1
+    fi
+}
+
+stop_node() {
+    local mode="${1:-graceful}"
+
+    if ! is_running "$NODE_PID_FILE"; then
+        # Try to find by port
+        local port_pid=$(lsof -nP -i :"$NODE_PORT" -sTCP:LISTEN -t 2>/dev/null | head -1)
+        if [ -n "$port_pid" ]; then
+            warning_msg "Found node via port (PID: $port_pid)"
+            stop_process "$port_pid" "Node" "$NODE_TIMEOUT" "$mode"
+        else
+            status_msg "Node agent is not running"
+        fi
+        rm -f "$NODE_PID_FILE"
+        return 0
+    fi
+
+    local pid=$(get_pid "$NODE_PID_FILE")
+    stop_process "$pid" "Node" "$NODE_TIMEOUT" "$mode"
+    rm -f "$NODE_PID_FILE"
+}
+
+restart_node() {
+    local mode="${1:-graceful}"
+    status_msg "Restarting Node agent (mode: ${mode})..."
+    stop_node "$mode"
+    start_node
+}
+
+# =============================================================================
 # Status Command
 # =============================================================================
+
 
 show_status() {
     echo -e "${CYAN}
@@ -1420,6 +1713,39 @@ show_status() {
         echo -e "$status_line"
     fi
 
+    # SecD status
+    if [ -S "$SECD_SOCKET" ]; then
+        local secd_pid=$(lsof -t "$SECD_SOCKET" 2>/dev/null | head -1)
+        if [ -n "$secd_pid" ] && kill -0 "$secd_pid" 2>/dev/null; then
+            echo -e "${GREEN}[RUNNING]${NC} SecD (PID: $secd_pid, Socket: $SECD_SOCKET)"
+        else
+            echo -e "${YELLOW}[STALE]${NC} SecD socket exists but process not found"
+        fi
+    elif is_running "$SECD_PID_FILE"; then
+        local pid=$(get_pid "$SECD_PID_FILE")
+        echo -e "${YELLOW}[STARTING]${NC} SecD (PID: $pid, socket not ready)"
+    else
+        echo -e "${WHITE}[STOPPED]${NC} SecD (optional)"
+    fi
+
+    # Node agent status
+    if is_running "$NODE_PID_FILE"; then
+        local pid=$(get_pid "$NODE_PID_FILE")
+        if curl -sf --max-time 2 "http://localhost:$NODE_PORT/health" >/dev/null 2>&1; then
+            echo -e "${GREEN}[RUNNING]${NC} Node Agent (PID: $pid, Port: $NODE_PORT)"
+        else
+            echo -e "${YELLOW}[STARTING]${NC} Node Agent (PID: $pid, health pending)"
+        fi
+    else
+        # Check if something is listening on node port
+        local port_pid=$(lsof -nP -i :"$NODE_PORT" -sTCP:LISTEN -t 2>/dev/null | head -1)
+        if [ -n "$port_pid" ]; then
+            echo -e "${GREEN}[RUNNING]${NC} Node Agent (PID: $port_pid, Port: $NODE_PORT)"
+        else
+            echo -e "${WHITE}[STOPPED]${NC} Node Agent (optional)"
+        fi
+    fi
+
     echo ""
     echo -e "${CYAN}================================${NC}"
 }
@@ -1442,10 +1768,19 @@ stop_all() {
 
     # Stop in reverse order of startup
 
-    # 1. UI
+    # 1. Node agent (optional)
+    stop_node "$mode" 2>/dev/null || true
+
+    # 2. Worker
+    stop_worker "$mode" 2>/dev/null || true
+
+    # 3. SecD (optional)
+    stop_secd "$mode" 2>/dev/null || true
+
+    # 4. UI
     stop_ui "$mode"
 
-    # 2. Backend (last, as others may depend on it)
+    # 5. Backend (last, as others may depend on it)
     stop_backend "$mode"
 
     echo ""
@@ -1470,6 +1805,8 @@ usage() {
     echo "  backend     Backend API server"
     echo "  ui          Web UI development server"
     echo "  worker      Inference worker (ML model server)"
+    echo "  secd        Secure Enclave Daemon"
+    echo "  node        Node Agent (cluster management)"
     echo ""
     echo "STOP MODES (used by stop/restart commands):"
     echo "  graceful    Graceful shutdown with full cleanup (default)"
@@ -1479,6 +1816,8 @@ usage() {
     echo "EXAMPLES:"
     echo "  $0 start backend          # Start backend server"
     echo "  $0 start ui               # Start web UI"
+    echo "  $0 start secd             # Start Secure Enclave Daemon"
+    echo "  $0 start node             # Start Node Agent"
     echo "  $0 stop all               # Stop all services gracefully"
     echo "  $0 stop all fast          # Fast stop all services"
     echo "  $0 restart backend        # Restart backend gracefully"
@@ -1511,6 +1850,12 @@ case "$COMMAND" in
             worker)
                 start_worker
                 ;;
+            secd)
+                start_secd
+                ;;
+            node)
+                start_node
+                ;;
             "")
                 error_msg "Please specify a service to start"
                 usage
@@ -1537,6 +1882,12 @@ case "$COMMAND" in
             worker)
                 stop_worker "$MODE"
                 ;;
+            secd)
+                stop_secd "$MODE"
+                ;;
+            node)
+                stop_node "$MODE"
+                ;;
             "")
                 error_msg "Please specify a service to stop (or 'all')"
                 usage
@@ -1559,6 +1910,12 @@ case "$COMMAND" in
                 ;;
             worker)
                 restart_worker "$MODE"
+                ;;
+            secd)
+                restart_secd "$MODE"
+                ;;
+            node)
+                restart_node "$MODE"
                 ;;
             "")
                 error_msg "Please specify a service to restart"
