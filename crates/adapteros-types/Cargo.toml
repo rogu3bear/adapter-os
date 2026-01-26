@@ -15,7 +15,6 @@ server = ["dep:sqlx", "dep:schemars"]
 utoipa = ["dep:utoipa"]
 # WASM-compatible build (excludes server deps)
 wasm = []
-
 [dependencies]
 # Serialization (required for API boundaries)
 serde = { workspace = true }
@@ -24,7 +23,6 @@ thiserror = { workspace = true }
 sqlx = { workspace = true, features = ["sqlite"], optional = true }
 schemars = { workspace = true, optional = true }
 utoipa = { workspace = true, optional = true }
-
 # Core types
 chrono = { workspace = true }
 uuid = { version = "1.6", features = ["v4", "v7", "serde"] }

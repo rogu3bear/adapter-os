@@ -8,7 +8,6 @@ license.workspace = true
 [[bin]]
 name = "aos-secd"
 path = "src/main.rs"
-
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
 adapteros-crypto = { path = "../adapteros-crypto" }
@@ -33,7 +32,6 @@ clap = { workspace = true, features = ["derive"] }
 nix = { workspace = true }
 hkdf = { workspace = true }
 sha2 = { workspace = true }
-
 [features]
 default = []
 # Enable macOS Secure Enclave support (requires macOS 10.12+)

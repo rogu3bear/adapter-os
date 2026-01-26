@@ -12,7 +12,6 @@ adapteros-core = { path = "../adapteros-core" }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
 adapteros-config = { path = "../adapteros-config" }
-
 tokio = { workspace = true, features = ["full", "process"] }
 tokio-util = { version = "0.7", features = ["codec"] }
 serde = { workspace = true, features = ["derive"] }
@@ -25,7 +24,6 @@ parking_lot = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
 futures = "0.3"
 async-stream = "0.3"
-
 [dev-dependencies]
 tokio-test = "0.4"
 tempfile = { workspace = true }

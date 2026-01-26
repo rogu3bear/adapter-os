@@ -38,17 +38,14 @@ unicode-normalization = "0.1"
 tokenizers = { version = "0.15", default-features = false, features = ["onig"] }
 fs2 = { workspace = true }
 walkdir.workspace = true
-
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
-
 [dev-dependencies]
 futures = "0.3"
 proptest = { workspace = true }
 rand = { workspace = true }
 criterion = "0.5"
 tempfile = "3.8"
-
 [features]
 default = ["schemars-support"]
 test-utils = ["rand"]
@@ -59,7 +56,6 @@ async = []
 coreml-backend = []
 multi-backend = []  # MLX primary with CoreML fallback
 evidence-signing = ["ed25519-dalek"]
-
 # Workspace feature passthroughs for build_info.rs
 # These are defined at workspace level and enabled via workspace dependencies
 deterministic-only = []
@@ -80,20 +76,16 @@ secure-enclave = []
 mlx = []
 metal-backend = []
 mlx-bridge = []
-
 [dependencies.utoipa]
 version = "5.4"
 optional = true
-
 [lib]
 name = "adapteros_core"
 path = "src/lib.rs"
-
 # BLAKE3 and HKDF performance benchmarks
 [[bench]]
 name = "hash_benchmarks"
 harness = false
-
 [[test]]
 name = "canonical_bytes_proptest"
 path = "proptest/canonical_bytes.rs"

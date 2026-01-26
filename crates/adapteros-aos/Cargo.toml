@@ -10,46 +10,35 @@ description = "AOS 2.0 archive format for adapterOS"
 [[bin]]
 name = "aos"
 path = "src/bin/aos.rs"
-
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
 adapteros-config = { path = "../adapteros-config" }
-
 # Serialization
 serde = { workspace = true }
 serde_json = { workspace = true }
-
 # Cryptography (for sealed containers)
 ed25519-dalek = { workspace = true }
 base64 = { workspace = true }
 blake3 = { workspace = true }
-
 # Logging
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-
 # CLI and async runtime
 clap = { workspace = true, features = ["derive"] }
 tokio = { workspace = true, features = ["full"] }
-
 # Process management
 anyhow = { workspace = true }
-
 # Caching and synchronization (mmap feature only)
 lru = { version = "0.16", optional = true }
 parking_lot = { version = "0.12", optional = true }
-
 # File adapters - adapteros-single-file-adapter provides high-level wrapper (training, lineage, migration)
 tempfile = { workspace = true }
-
 # Unix signal handling (Unix-only)
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
-
 # HTTP and time utilities (for health checks and timestamps)
 reqwest = { workspace = true, features = ["json", "rustls-tls"] }
 chrono = { version = "0.4", features = ["serde"] }
-
 # File mapping
 memmap2 = { version = "0.9", optional = true }
 metal = { workspace = true, optional = true }
@@ -57,12 +46,10 @@ safetensors = { workspace = true, optional = true }
 rand = { workspace = true, optional = true }
 rand_chacha = "0.3"
 hex = { workspace = true }
-
 [dev-dependencies]
-tempfile = { workspace = true }
 criterion = { workspace = true }
 rand = { workspace = true }
-
 [features]
 default = []
 mmap = ["memmap2", "metal", "safetensors", "rand", "lru", "parking_lot"]
+# Single-file adapter dependencies

@@ -8,7 +8,6 @@ repository.workspace = true
 
 [lib]
 doctest = false
-
 [dependencies]
 # Internal crates
 adapteros-core = { path = "../adapteros-core", features = ["sqlx"] }
@@ -19,11 +18,7 @@ adapteros-storage = { path = "../adapteros-storage" }
 adapteros-api-types = { path = "../adapteros-api-types" }
 adapteros-types = { path = "../adapteros-types" }
 adapteros-artifacts = { path = "../adapteros-artifacts" }
-adapteros-single-file-adapter = { path = "../adapteros-single-file-adapter" }
 adapteros-aos = { path = "../adapteros-aos" }
-adapteros-normalization = { path = "../adapteros-normalization" }
-adapteros-diagnostics = { path = "../adapteros-diagnostics" }
-
 # Workspace dependencies
 anyhow.workspace = true
 thiserror.workspace = true
@@ -31,15 +26,12 @@ serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 fs2 = { workspace = true }
-
 # Version parsing for semver ordering
 semver = "1.0"
-
 # Database
 sqlx = { workspace = true, default-features = false, features = ["runtime-tokio", "sqlite", "macros", "migrate", "chrono", "uuid"] }
 uuid = { version = "1.6", features = ["v7", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
-
 # Additional
 tracing = { workspace = true }
 argon2 = "0.5"
@@ -49,12 +41,10 @@ rand_chacha = "0.3"  # For deterministic RNG per Determinism Policy
 async-trait = "0.1"
 walkdir = "2.4"  # For directory traversal in model import
 once_cell = "1.19"  # For global KV metrics singleton
-
 # Tenant resource metrics
 sysinfo = { workspace = true }  # System memory metrics
 dashmap = { workspace = true }  # Concurrent hash maps for caching
 num_cpus = "1.16"  # CPU count for percentage calculation
-
 # Cryptography for migration verification
 blake3 = { workspace = true }
 hex = { workspace = true }
@@ -62,24 +52,20 @@ base64 = { workspace = true }
 sha2 = { workspace = true }
 ed25519-dalek = { version = "2.1", features = ["pkcs8"] }
 chacha20poly1305 = "0.10"
-
 # OpenAPI schema generation
 utoipa = { workspace = true, optional = true }
-
 [features]
 default = []
 # Enable PostgreSQL support
 postgres = []
 # Enable OpenAPI schema generation
 utoipa = ["dep:utoipa"]
-
 [dev-dependencies]
 tempfile = { workspace = true }
 criterion = { workspace = true }
 toml = { workspace = true }
 adapteros-lora-lifecycle = { path = "../adapteros-lora-lifecycle" }
 adapteros-config = { path = "../adapteros-config", features = ["testkit"] }
-
 [[bench]]
 name = "kv_vs_sql"
 harness = false

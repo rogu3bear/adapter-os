@@ -1,5 +1,5 @@
 [package]
-name = "adapteros-lora-rag"
+name = "adapteros-retrieval"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -7,7 +7,7 @@ license.workspace = true
 
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
-adapteros-codegraph = { path = "../adapteros-codegraph" }
+adapteros-retrieval = { path = "../adapteros-retrieval" }
 hnsw_rs = { workspace = true }
 tantivy = { workspace = true }
 serde = { workspace = true }
@@ -16,16 +16,13 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 anyhow = { workspace = true }
 walkdir = "2"
-
 # SQLite + FTS5 support
 sqlx = { workspace = true, default-features = false, features = ["runtime-tokio", "sqlite", "chrono"] }
 chrono = { version = "0.4" }
 tokio = { workspace = true, features = ["fs"] }
-
 [features]
 default = ["fts5"]
 fts5 = []
-
 [dev-dependencies]
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }

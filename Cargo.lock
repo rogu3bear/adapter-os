@@ -21,7 +21,6 @@ dependencies = [
  "adapteros-db",
  "adapteros-deterministic-exec",
  "adapteros-federation",
- "adapteros-graph",
  "adapteros-lora-kernel-api",
  "adapteros-lora-kernel-mtl",
  "adapteros-lora-lifecycle",
@@ -39,7 +38,6 @@ dependencies = [
  "adapteros-profiler",
  "adapteros-registry",
  "adapteros-replay",
- "adapteros-sbom",
  "adapteros-scenarios",
  "adapteros-secd",
  "adapteros-server",
@@ -185,7 +183,6 @@ version = "0.13.1"
 dependencies = [
  "adapteros-core",
  "adapteros-crypto",
- "adapteros-sbom",
  "adapteros-secure-fs",
  "base64 0.22.1",
  "core-foundation 0.10.1",
@@ -340,15 +337,12 @@ dependencies = [
  "adapteros-lora-router",
  "adapteros-lora-worker",
  "adapteros-manifest",
- "adapteros-normalization",
  "adapteros-orchestrator",
  "adapteros-platform",
  "adapteros-policy",
  "adapteros-registry",
  "adapteros-replay",
  "adapteros-retrieval",
- "adapteros-sbom",
- "adapteros-scenarios",
  "adapteros-secd",
  "adapteros-single-file-adapter",
  "adapteros-telemetry",
@@ -375,7 +369,7 @@ dependencies = [
  "fs_extra",
  "git2",
  "glob",
- "half",
+ "half 2.7.1",
  "hex",
  "hyper-util",
  "indicatif",
@@ -481,14 +475,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "adapteros-config-types"
-version = "0.2.1"
-dependencies = [
- "adapteros-core",
- "serde",
-]
-
-[[package]]
 name = "adapteros-core"
 version = "0.13.1"
 dependencies = [
@@ -588,9 +574,7 @@ dependencies = [
  "adapteros-config",
  "adapteros-core",
  "adapteros-crypto",
- "adapteros-diagnostics",
  "adapteros-lora-lifecycle",
- "adapteros-normalization",
  "adapteros-single-file-adapter",
  "adapteros-storage",
  "adapteros-telemetry",
@@ -830,20 +814,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "adapteros-graph"
-version = "0.13.1"
-dependencies = [
- "adapteros-core",
- "anyhow",
- "blake3",
- "criterion",
- "hex",
- "serde",
- "serde_cbor_2",
- "serde_json",
-]
-
-[[package]]
 name = "adapteros-ingest-docs"
 version = "0.13.1"
 dependencies = [
@@ -913,7 +883,7 @@ dependencies = [
  "cc",
  "cocoa",
  "core-foundation 0.10.1",
- "half",
+ "half 2.7.1",
  "hex",
  "libc",
  "memmap2",
@@ -950,7 +920,7 @@ dependencies = [
  "core-foundation 0.10.1",
  "criterion",
  "ed25519-dalek",
- "half",
+ "half 2.7.1",
  "hex",
  "memmap2",
  "metal 0.30.0",
@@ -992,7 +962,6 @@ dependencies = [
  "adapteros-manifest",
  "adapteros-memory",
  "adapteros-model-hub",
- "adapteros-profiler",
  "adapteros-secure-fs",
  "adapteros-single-file-adapter",
  "adapteros-telemetry",
@@ -1054,9 +1023,7 @@ dependencies = [
 name = "adapteros-lora-plan"
 version = "0.13.1"
 dependencies = [
- "adapteros-chat",
  "adapteros-core",
- "adapteros-lora-quant",
  "adapteros-manifest",
  "adapteros-registry",
  "memmap2",
@@ -1107,7 +1074,6 @@ version = "0.13.1"
 dependencies = [
  "adapteros-api-types",
  "adapteros-core",
- "adapteros-diagnostics",
  "adapteros-lora-kernel-api",
  "adapteros-numerics",
  "adapteros-policy",
@@ -1152,10 +1118,8 @@ dependencies = [
  "adapteros-lora-router",
  "adapteros-manifest",
  "adapteros-memory",
- "adapteros-normalization",
  "adapteros-platform",
  "adapteros-policy",
- "adapteros-profiler",
  "adapteros-secure-fs",
  "adapteros-single-file-adapter",
  "adapteros-storage",
@@ -1175,7 +1139,7 @@ dependencies = [
  "ed25519-dalek",
  "flate2",
  "git2",
- "half",
+ "half 2.7.1",
  "hex",
  "hkdf",
  "libc",
@@ -1247,7 +1211,7 @@ dependencies = [
  "core-graphics 0.25.0",
  "criterion",
  "futures",
- "half",
+ "half 2.7.1",
  "hex",
  "libc",
  "lru 0.16.2",
@@ -1359,6 +1323,7 @@ name = "adapteros-orchestrator"
 version = "0.13.1"
 dependencies = [
  "adapteros-api-types",
+ "adapteros-artifacts",
  "adapteros-client",
  "adapteros-codegraph",
  "adapteros-config",
@@ -1372,11 +1337,9 @@ dependencies = [
  "adapteros-lora-router",
  "adapteros-lora-worker",
  "adapteros-manifest",
- "adapteros-normalization",
  "adapteros-platform",
  "adapteros-policy",
  "adapteros-registry",
- "adapteros-sbom",
  "adapteros-secure-fs",
  "adapteros-storage",
  "adapteros-telemetry",
@@ -1444,7 +1407,6 @@ dependencies = [
  "adapteros-lora-rag",
  "adapteros-manifest",
  "adapteros-telemetry",
- "adapteros-telemetry-types",
  "blake3",
  "chrono",
  "governor",
@@ -1498,7 +1460,6 @@ dependencies = [
  "adapteros-core",
  "adapteros-crypto",
  "adapteros-deterministic-exec",
- "adapteros-graph",
  "adapteros-telemetry",
  "adapteros-trace",
  "adapteros-types",
@@ -1523,29 +1484,36 @@ dependencies = [
  "adapteros-crypto",
  "adapteros-embeddings",
  "adapteros-ingest-docs",
- "adapteros-lora-rag",
  "adapteros-telemetry",
+ "anyhow",
  "async-trait",
+ "bincode",
  "blake3",
  "chrono",
+ "clap",
+ "env_logger",
+ "git2",
+ "hnsw_rs",
  "regex",
  "serde",
  "serde_json",
+ "sqlx",
+ "streaming-iterator",
+ "tantivy",
  "tempfile",
  "thiserror 2.0.17",
  "tokio",
+ "tokio-test",
+ "toml 0.8.23",
  "tracing",
+ "tree-sitter",
+ "tree-sitter-go",
+ "tree-sitter-javascript",
+ "tree-sitter-python",
+ "tree-sitter-rust",
+ "tree-sitter-typescript",
  "uuid",
-]
-
-[[package]]
-name = "adapteros-sbom"
-version = "0.13.1"
-dependencies = [
- "adapteros-core",
- "serde",
- "serde_json",
- "thiserror 2.0.17",
+ "walkdir",
 ]
 
 [[package]]
@@ -1612,12 +1580,10 @@ dependencies = [
  "adapteros-artifacts",
  "adapteros-boot",
  "adapteros-config",
- "adapteros-config-types",
  "adapteros-core",
  "adapteros-crypto",
  "adapteros-db",
  "adapteros-deterministic-exec",
- "adapteros-diagnostics",
  "adapteros-federation",
  "adapteros-git",
  "adapteros-ingest-docs",
@@ -1642,6 +1608,7 @@ dependencies = [
  "hyper-util",
  "libc",
  "mime_guess",
+ "once_cell",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
@@ -1674,12 +1641,10 @@ dependencies = [
  "adapteros-client",
  "adapteros-codegraph",
  "adapteros-config",
- "adapteros-config-types",
  "adapteros-core",
  "adapteros-crypto",
  "adapteros-db",
  "adapteros-deterministic-exec",
- "adapteros-diagnostics",
  "adapteros-federation",
  "adapteros-git",
  "adapteros-ingest-docs",
@@ -1715,6 +1680,7 @@ dependencies = [
  "criterion",
  "dashmap 5.5.3",
  "data-encoding",
+ "dotenvy",
  "ed25519-dalek",
  "flate2",
  "futures",
@@ -1829,7 +1795,7 @@ dependencies = [
  "adapteros-types",
  "anyhow",
  "chrono",
- "half",
+ "half 2.7.1",
  "hex",
  "safetensors",
  "serde",
@@ -1904,8 +1870,8 @@ version = "0.13.1"
 dependencies = [
  "adapteros-core",
  "adapteros-crypto",
- "adapteros-telemetry-types",
  "adapteros-types",
+ "anyhow",
  "async-trait",
  "axum 0.8.8",
  "blake3",
@@ -1913,11 +1879,13 @@ dependencies = [
  "clap",
  "criterion",
  "crossbeam",
+ "dashmap 5.5.3",
  "flate2",
  "hex",
  "lz4_flex",
  "prometheus",
  "rand 0.8.5",
+ "regex",
  "serde",
  "serde_jcs",
  "serde_json",
@@ -1944,17 +1912,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "adapteros-telemetry-verifier"
-version = "0.13.1"
-dependencies = [
- "anyhow",
- "regex",
- "serde",
- "serde_json",
- "tempfile",
-]
-
-[[package]]
 name = "adapteros-testing"
 version = "0.13.1"
 dependencies = [
@@ -1978,9 +1935,7 @@ version = "0.13.1"
 dependencies = [
  "adapteros-core",
  "adapteros-crypto",
- "adapteros-graph",
  "adapteros-telemetry",
- "adapteros-telemetry-types",
  "adapteros-types",
  "anyhow",
  "blake3",
@@ -1988,6 +1943,7 @@ dependencies = [
  "hex",
  "schemars",
  "serde",
+ "serde_cbor",
  "serde_jcs",
  "serde_json",
  "tempfile",
@@ -3681,7 +3637,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "57663b653d948a338bfb3eeba9bb2fd5fcfaecb9e199e87e1eda4d9e8b240fd9"
 dependencies = [
  "ciborium-io",
- "half",
+ "half 2.7.1",
 ]
 
 [[package]]
@@ -5140,7 +5096,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4300e043a56aa2cb633c01af81ca8f699a321879a7854d3896a0ba89056363be"
 dependencies = [
  "bit_field",
- "half",
+ "half 2.7.1",
  "lebe",
  "miniz_oxide",
  "rayon-core",
@@ -5805,6 +5761,12 @@ dependencies = [
  "tokio-util",
  "tracing",
 ]
+
+[[package]]
+name = "half"
+version = "1.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1b43ede17f21864e81be2fa654110bf1e793774238d86ef8555c37e6519c0403"
 
 [[package]]
 name = "half"
@@ -10172,12 +10134,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde_cbor_2"
-version = "0.13.0"
+name = "serde_cbor"
+version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34aec2709de9078e077090abd848e967abab63c9fb3fdb5d4799ad359d8d482c"
+checksum = "2bef2ebfde456fb76bbcf9f59315333decc4fda0b2b44b420243c11e0f5ec1f5"
 dependencies = [
- "half",
+ "half 1.8.3",
  "serde",
 ]
 
@@ -11435,7 +11397,7 @@ checksum = "af9605de7fee8d9551863fd692cce7637f548dbd9db9180fcc07ccc6d26c336f"
 dependencies = [
  "fax",
  "flate2",
- "half",
+ "half 2.7.1",
  "quick-error 2.0.1",
  "weezl",
  "zune-jpeg 0.4.21",
@@ -13219,10 +13181,10 @@ checksum = "66fee0b777b0f5ac1c69bb06d361268faafa61cd4682ae064a171c16c433e9e4"
 name = "xtask"
 version = "0.13.1"
 dependencies = [
+ "adapteros-artifacts",
  "adapteros-config",
  "adapteros-core",
  "adapteros-lora-worker",
- "adapteros-sbom",
  "adapteros-single-file-adapter",
  "adapteros-types",
  "anyhow",

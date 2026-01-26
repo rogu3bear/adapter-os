@@ -12,6 +12,5 @@ serde_cbor = { workspace = true }
 serde_json = { workspace = true }
 blake3 = { workspace = true }
 hex = { workspace = true }
-
 [dev-dependencies]
 criterion = "0.5"

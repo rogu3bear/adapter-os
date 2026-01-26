@@ -8,16 +8,12 @@ default = []
 # multi-backend: Enable MLX FFI backend for research/training workloads
 multi-backend = ["dep:adapteros-lora-mlx-ffi"]
 coreml-backend = ["dep:adapteros-lora-kernel-coreml"]
-
 [dependencies]
 adapteros-aos = { path = "../adapteros-aos" }
 adapteros-core = { path = "../adapteros-core" }
 adapteros-config = { path = "../adapteros-config" }
 adapteros-db = { path = "../adapteros-db" }
-adapteros-single-file-adapter = { path = "../adapteros-single-file-adapter" }
-adapteros-manifest = { path = "../adapteros-manifest" }
 adapteros-model-hub = { path = "../adapteros-model-hub" }
-adapteros-profiler = { path = "../adapteros-profiler" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
 adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
@@ -25,7 +21,6 @@ adapteros-lora-kernel-coreml = { path = "../adapteros-lora-kernel-coreml", optio
 adapteros-lora-kernel-mtl = { path = "../adapteros-lora-kernel-mtl" }
 adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true }
 adapteros-memory = { path = "../adapteros-memory" }
-adapteros-secure-fs = { path = "../adapteros-secure-fs" }
 adapteros-types = { path = "../adapteros-types" }
 ed25519-dalek = { workspace = true }
 memmap2 = "0.9"
@@ -43,8 +38,6 @@ zeroize = "1.8"
 utoipa = "5.4"
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
 uuid = { version = "1", features = ["v4"] }
-
 [dev-dependencies]
 tempfile = "3"
-uuid = { version = "1", features = ["v4"] }
 criterion = { workspace = true }

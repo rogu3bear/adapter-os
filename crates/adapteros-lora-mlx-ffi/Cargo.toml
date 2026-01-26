@@ -12,17 +12,14 @@ adapteros-core = { path = "../adapteros-core" }
 adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
 adapteros-lora-router = { path = "../adapteros-lora-router" }
-adapteros-secure-fs = { path = "../adapteros-secure-fs" }
 anyhow.workspace = true
 thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 safetensors.workspace = true
-
 # FFI support libraries (required for C++ bridge)
 libc = "0.2"
 core-foundation = "0.9"
-
 # Utilities
 tracing.workspace = true
 parking_lot.workspace = true
@@ -31,67 +28,46 @@ arc-swap = "1.7"  # Lock-free atomic pointer swapping for adapter lookup
 zeroize = { version = "1.7", features = ["derive"] }
 tokenizers.workspace = true
 memmap2.workspace = true
-
 # Async runtime and streaming
 tokio.workspace = true
 futures-util.workspace = true
 uuid.workspace = true
-
 [build-dependencies]
 bindgen = "0.69"
 cc = "1.0"
 blake3 = { workspace = true }
-
 [dev-dependencies]
 tempfile.workspace = true
-tokio.workspace = true
 criterion = { version = "0.5", features = ["html_reports"] }
-
 [features]
 default = ["mlx"]
-
 # =============================================================================
 # MLX FFI FEATURE FLAGS
-# =============================================================================
 # This crate provides MLX (Apple's ML framework) integration via C++ FFI.
 #
 # mlx: Enable real MLX library integration (DEFAULT)
 #   - Requires the MLX C++ library to be installed (brew install mlx)
 #   - Enables actual GPU-accelerated inference on Apple Silicon
 #   - This is the primary production backend
-#
 # To build WITHOUT real MLX (stub mode for CI/testing):
 #   cargo build -p adapteros-lora-mlx-ffi --no-default-features
-#
 # test-utils: Enable test utilities
 #   - Mock implementations for testing
 #   - Deterministic test fixtures
-# =============================================================================
-
 # mlx: C++ FFI (primary/production)
 #   - Requires the MLX C++ library to be installed
 #   - Uses custom C++ wrapper compiled via build.rs
 mlx = []
 real-mlx = ["mlx"]  # Alias for backward compatibility (deprecated)
-
 test-utils = []   # Enable test utilities and mocks
-
 [lints.rust]
 non_camel_case_types = "allow"
 non_snake_case = "allow"
 non_upper_case_globals = "allow"
-
 # Tests are now enabled. They can run with stub implementations and be
 # conditionally skipped if real MLX is not available using #[ignore] attributes.
-
 [[bench]]
 name = "mlx_performance"
 harness = false
-
-[[bench]]
 name = "streaming_latency"
-harness = false
-
-[[bench]]
 name = "mlx_integration_benchmark"
-harness = false

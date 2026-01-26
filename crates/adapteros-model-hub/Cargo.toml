@@ -8,38 +8,36 @@ repository.workspace = true
 
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
-
 # Async runtime
 tokio = { workspace = true, features = ["fs", "io-util", "sync", "time"] }
 tokio-util = { version = "0.7", features = ["io"] }
-
 # HTTP client
 reqwest = { workspace = true, features = ["stream"] }
-
 # Hashing
 blake3.workspace = true
-
 # Error handling
 thiserror.workspace = true
 anyhow.workspace = true
-
 # Serialization
 serde = { workspace = true }
 serde_json.workspace = true
-
 # Logging
 tracing.workspace = true
-
 # Utilities
 futures-util.workspace = true
 parking_lot.workspace = true
 hex.workspace = true
 chrono = { workspace = true }
 uuid = { workspace = true }
-
 [target.'cfg(unix)'.dependencies]
 nix = { workspace = true, features = ["fs"] }
-
 [dev-dependencies]
 tempfile.workspace = true
 tokio-test = "0.4"
+# Manifest dependencies
+schemars = { workspace = true }
+# Registry dependencies  
+rusqlite = { workspace = true }
+refinery = { workspace = true }
+zeroize = { version = "1.7", features = ["derive"] }
+parking_lot = { workspace = true }

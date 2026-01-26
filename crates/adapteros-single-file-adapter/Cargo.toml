@@ -22,7 +22,6 @@ tracing = "0.1"
 hex = { workspace = true }
 safetensors = { workspace = true }
 half = { workspace = true }
-
 [dev-dependencies]
 tempfile = { workspace = true }
 tokio-test = "0.4"

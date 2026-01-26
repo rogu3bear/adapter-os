@@ -4,9 +4,7 @@ version.workspace = true
 edition = "2021"
 
 [[bin]]
-name = "sign-migrations"
 path = "src/main.rs"
-
 [dependencies]
 anyhow = "1.0"
 ed25519-dalek = { version = "2.1", features = ["rand_core"] }
