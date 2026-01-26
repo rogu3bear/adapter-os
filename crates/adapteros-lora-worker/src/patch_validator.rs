@@ -14,8 +14,8 @@
 
 use crate::patch_generator::FilePatch;
 use adapteros_core::Result;
-use adapteros_retrieval::rag::EvidenceSpan;
 use adapteros_policy::PolicyEngine;
+use adapteros_retrieval::rag::EvidenceSpan;
 use adapteros_telemetry::TelemetryWriter;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -1454,7 +1454,7 @@ impl PatchValidator {
                             evidence_spans.push(EvidenceSpan {
                                 text: line.clone(),
                                 superseded: None,
-                                evidence_type: Some(adapteros_lora_rag::EvidenceType::Code),
+                                evidence_type: Some(adapteros_retrieval::rag::EvidenceType::Code),
                                 file_path,
                                 start_line,
                                 end_line,

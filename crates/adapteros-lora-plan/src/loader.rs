@@ -1,8 +1,8 @@
 //! Model loader and validation for adapterOS
 
 use crate::chat::{ChatTemplate, ChatTemplateProcessor, SpecialTokens};
-use adapteros_core::{AosError, Result};
 use crate::quant::BlockQuantizer;
+use adapteros_core::{AosError, Result};
 use std::path::Path;
 use tracing::{debug, info, warn};
 
@@ -519,10 +519,10 @@ mod tests {
 
         let loader = ModelLoader {
             config,
-            chat_template: ChatTemplateProcessor::new(adapteros_chat::ChatTemplate {
+            chat_template: ChatTemplateProcessor::new(ChatTemplate {
                 name: "test".to_string(),
                 template: "test".to_string(),
-                special_tokens: adapteros_chat::SpecialTokens {
+                special_tokens: SpecialTokens {
                     bos: "<|im_start|>".to_string(),
                     eos: "<|im_end|>".to_string(),
                     unk: "<|unk|>".to_string(),

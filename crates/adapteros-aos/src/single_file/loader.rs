@@ -61,7 +61,7 @@ impl SingleFileAdapterLoader {
 
     /// Load AOS format adapter (64-byte header with segment index)
     async fn load_aos_format(path: &Path, options: LoadOptions) -> Result<SingleFileAdapter> {
-        use adapteros_aos::{open_aos, BackendTag};
+        use crate::{open_aos, BackendTag};
 
         // Read entire file
         let data = std::fs::read(path)
@@ -253,7 +253,7 @@ impl SingleFileAdapterLoader {
 
     /// Load only the manifest without extracting full weights (fast)
     pub async fn load_manifest_only<P: AsRef<Path>>(path: P) -> Result<AdapterManifest> {
-        use adapteros_aos::open_aos;
+        use crate::open_aos;
 
         let path = path.as_ref();
 
@@ -277,7 +277,7 @@ impl SingleFileAdapterLoader {
 
     /// Extract a specific component from .aos file without loading everything
     pub async fn extract_component<P: AsRef<Path>>(path: P, component: &str) -> Result<Vec<u8>> {
-        use adapteros_aos::{open_aos, BackendTag};
+        use crate::{open_aos, BackendTag};
 
         let path = path.as_ref();
 

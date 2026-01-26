@@ -3,7 +3,7 @@
 //! Provides utilities for encoding weight groups to on-disk payloads and
 //! recombining separated positive/negative LoRA weights for inference.
 
-use crate::format::{CombinationStrategy, WeightGroup, WeightGroupType, WeightMetadata};
+use super::format::{CombinationStrategy, WeightGroup, WeightGroupType, WeightMetadata};
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 

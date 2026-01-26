@@ -336,15 +336,8 @@ pub struct ProvenanceDocument {
     pub content_hash: String,
 }
 
-// Re-export types from adapteros-aos for backward compatibility
-#[deprecated(since = "0.1.0", note = "Use adapteros_aos::WeightGroupConfig instead")]
-pub use adapteros_aos::WeightGroupConfig;
-
-#[deprecated(
-    since = "0.1.0",
-    note = "Use adapteros_aos::CombinationStrategy instead"
-)]
-pub use adapteros_aos::CombinationStrategy;
+// Re-export types from crate::types for backward compatibility
+pub use crate::types::{CombinationStrategy, WeightGroupConfig};
 
 /// Evolution lineage tracking
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -639,7 +632,7 @@ impl SingleFileAdapter {
 
     /// Compute combined weights from positive and negative
     fn compute_combined_weights(&self) -> Result<WeightGroup> {
-        crate::weights::combine_weight_groups(
+        super::weights::combine_weight_groups(
             &self.weights.positive,
             &self.weights.negative,
             &self.manifest.weight_groups.combination_strategy,
