@@ -6,8 +6,8 @@
 //! - Per-run sequence assignment
 //! - Graceful shutdown
 
-use crate::diagnostics::run_tracker::RunTracker;
 use super::DiagEnvelope;
+use crate::diagnostics::run_tracker::RunTracker;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -273,7 +273,7 @@ pub fn spawn_diagnostics_writer<P: DiagPersister + 'static>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{DiagEvent, DiagRunId, DiagSeverity, DiagStage};
+    use crate::diagnostics::{DiagEvent, DiagRunId, DiagSeverity, DiagStage};
     use crate::tracing::TraceContext;
     use std::sync::Mutex;
 

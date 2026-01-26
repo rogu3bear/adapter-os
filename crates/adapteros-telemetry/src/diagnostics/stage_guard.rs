@@ -4,7 +4,7 @@
 //! even if the stage fails or panics. It uses Drop semantics to guarantee
 //! proper cleanup.
 
-use super::{DiagEnvelope, DiagEvent, DiagRunId, DiagSeverity, DiagStage, DiagnosticsConfig, DiagnosticsService, DiagLevel};
+use super::{DiagEnvelope, DiagEvent, DiagRunId, DiagSeverity, DiagStage, DiagnosticsService};
 use crate::tracing::TraceContext;
 use std::cell::Cell;
 use std::sync::Arc;
@@ -158,13 +158,13 @@ macro_rules! stage_guard {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::DiagnosticsConfig;
+    use crate::diagnostics::DiagnosticsConfig;
     use tokio::sync::mpsc;
 
     fn test_service() -> (Arc<DiagnosticsService>, mpsc::Receiver<DiagEnvelope>) {
         let config = DiagnosticsConfig {
             enabled: true,
-            level: crate::DiagLevel::Tokens,
+            level: super::super::DiagLevel::Tokens,
             channel_capacity: 100,
             ..Default::default()
         };

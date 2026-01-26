@@ -227,10 +227,9 @@ impl BundleStore {
     /// Mark bundle as incident-related (protect from GC)
     pub fn mark_incident_bundle(&mut self, bundle_hash: &B3Hash) -> Result<()> {
         {
-            let metadata = self
-                .index
-                .get_mut(bundle_hash)
-                .ok_or_else(|| AosError::Telemetry(format!("Bundle {:?} not found", bundle_hash)))?;
+            let metadata = self.index.get_mut(bundle_hash).ok_or_else(|| {
+                AosError::Telemetry(format!("Bundle {:?} not found", bundle_hash))
+            })?;
 
             metadata.is_incident_bundle = true;
         }
@@ -251,10 +250,9 @@ impl BundleStore {
     /// Mark bundle as promotion bundle (protect from GC)
     pub fn mark_promotion_bundle(&mut self, bundle_hash: &B3Hash) -> Result<()> {
         {
-            let metadata = self
-                .index
-                .get_mut(bundle_hash)
-                .ok_or_else(|| AosError::Telemetry(format!("Bundle {:?} not found", bundle_hash)))?;
+            let metadata = self.index.get_mut(bundle_hash).ok_or_else(|| {
+                AosError::Telemetry(format!("Bundle {:?} not found", bundle_hash))
+            })?;
 
             metadata.is_promotion_bundle = true;
         }
@@ -285,7 +283,7 @@ impl BundleStore {
         let mut bundles_by_cpid: HashMap<String, Vec<B3Hash>> = HashMap::new();
         for (hash, metadata) in &self.index {
             if let Some(cpid) = &metadata.cpid {
-                bundles_by_cpid.entry(cpid as u0026String).or_default().push(*hash);
+                bundles_by_cpid.entry(cpid.clone()).or_default().push(*hash);
             }
         }
 
@@ -317,7 +315,10 @@ impl BundleStore {
                     }
 
                     if self.policy.keep_promotion_bundles && metadata.is_promotion_bundle {
-                        tracing::debug!("Skipping promotion bundle {:?} from eviction", bundle_hash);
+                        tracing::debug!(
+                            "Skipping promotion bundle {:?} from eviction",
+                            bundle_hash
+                        );
                         continue;
                     }
 

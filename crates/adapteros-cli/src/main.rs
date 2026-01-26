@@ -260,6 +260,7 @@ Examples:
     },
 
     /// Scenario readiness utilities
+    #[cfg(feature = "scenarios")]
     #[command(subcommand)]
     Scenario(commands::scenario::ScenarioSubcommand),
 
@@ -1616,6 +1617,7 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         }
 
         // Scenario readiness utilities
+        #[cfg(feature = "scenarios")]
         Commands::Scenario(cmd) => {
             commands::scenario::run(cmd.clone(), &output).await?;
         }
@@ -2364,6 +2366,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Chat(_) => "chat",
         Commands::Dev { .. } => "dev",
         Commands::Agent(_) => "agent",
+        #[cfg(feature = "scenarios")]
         Commands::Scenario(_) => "scenario",
         Commands::Coreml(_) => "coreml",
         #[cfg(feature = "coreml-export")]

@@ -6,8 +6,8 @@
 //! - Level-based event filtering
 //! - Global metrics
 
-use crate::diagnostics::run_tracker::{RunSummary, RunTracker};
 use super::{DiagEnvelope, DiagError, DiagEvent, DiagRunId};
+use crate::diagnostics::run_tracker::{RunSummary, RunTracker};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -295,9 +295,9 @@ impl DiagnosticsService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{DiagSeverity, DiagStage};
-    use adapteros_core::B3Hash;
+    use crate::diagnostics::{DiagSeverity, DiagStage};
     use crate::tracing::TraceContext;
+    use adapteros_core::B3Hash;
 
     fn make_envelope(event: DiagEvent) -> DiagEnvelope {
         let trace_ctx = TraceContext::new_root();
