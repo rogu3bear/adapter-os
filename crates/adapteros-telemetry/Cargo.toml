@@ -6,10 +6,12 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
+dashmap = { workspace = true }
 adapteros-core = { path = "../adapteros-core" }
 adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-types = { path = "../adapteros-types" }
-adapteros-telemetry-types = { path = "../adapteros-telemetry-types" }
+regex = { workspace = true }
+anyhow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_jcs = { workspace = true }
@@ -33,15 +35,14 @@ rand = { workspace = true }
 zstd = "0.13"
 flate2 = "1.0"
 lz4_flex = "0.11"
-
 [dev-dependencies]
 tempfile = { workspace = true }
 criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
-
 [[bench]]
+
+
 name = "telemetry_overhead"
 harness = false
-
-[[bench]]
-name = "compression_benchmark"
-harness = false
+[features]
+default = ["server"]
+server = []

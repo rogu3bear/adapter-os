@@ -26,7 +26,9 @@ glob = "0.3"
 regex = "1.0"
 bytes = "1.6"
 fs2 = { workspace = true }
-
 [dev-dependencies]
 tokio = { version = "1.35", features = ["full", "macros", "rt-multi-thread"] }
 tempfile = "3.8"
+# Secure-fs dependencies
+cap-std = { workspace = true }
+# No additional dependencies needed - uses std and workspace deps

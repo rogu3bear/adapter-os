@@ -30,6 +30,7 @@ pub mod bundle_parser;
 pub mod bundle_store;
 pub mod compression;
 pub mod crash_journal;
+pub mod diagnostics;
 pub mod event;
 pub mod events;
 pub mod health_monitoring;
@@ -40,14 +41,17 @@ pub mod middleware;
 pub mod monitoring;
 pub mod observability;
 pub mod performance_monitoring;
+pub mod profiler;
 pub mod replay;
 pub mod report;
 pub mod ring_buffer;
 pub mod sampling;
 pub mod signature_audit;
 pub mod tracing;
+pub mod types;
 pub mod uds_exporter;
 pub mod unified_events;
+pub mod verifier;
 pub mod writer;
 
 pub use alerting::{
@@ -67,9 +71,9 @@ pub use signature_audit::{
     SignatureAuditEntry, SignatureAuditLogger, SignatureOperation, SignatureResult,
 };
 // Re-export canonical BundleMetadata with StoredBundleMetadata alias for backward compatibility
-pub use adapteros_telemetry_types::BundleMetadata as StoredBundleMetadata;
+pub use crate::types::BundleMetadata as StoredBundleMetadata;
 // Import canonical BundleMetadata for internal use
-use adapteros_telemetry_types::BundleMetadata;
+use crate::types::BundleMetadata;
 pub use compression::{
     CompressedBundleMetadata, CompressionAlgorithm, CompressionLevel, TelemetryCompressor,
 };
