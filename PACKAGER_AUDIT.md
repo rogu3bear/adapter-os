@@ -284,7 +284,7 @@ The `packager.rs` file is a large, monolithic module (3,346 lines) that handles 
 **Dependencies:**
 
 - `types.rs` - Uses `ScopeMetadataExtract`, `ManifestFieldsExtract`, `ScanRootMetadata`, `BranchMetadata`
-- External: `HashMap`, `adapteros_normalization`, `adapteros_core`
+- External: `HashMap`, `adapteros_core` (includes normalization utilities via `adapteros_infra_common`)
 
 **Risk Level:** Medium - Many helper functions, but clear boundaries
 
@@ -414,7 +414,7 @@ use adapteros_aos::{AosWriter, BackendTag};
 use adapteros_core::{AosError, RepoAdapterPaths, Result};
 use adapteros_crypto::Keypair;
 use adapteros_lora_router::ROUTER_GATE_Q15_DENOM;
-use adapteros_normalization::normalize_repo_slug;
+use adapteros_core::normalize_repo_slug;
 use adapteros_storage::{ByteStorage, FsByteStorage, StorageKey};
 use adapteros_types::coreml::{...};
 use adapteros_types::training::LoraTier;

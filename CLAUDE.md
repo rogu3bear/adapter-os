@@ -128,14 +128,6 @@ cargo test -p adapteros-e2e --features prod-gate
 ./aosctl verify-cancellation-receipt <receipt-file>    # Verify a cancellation receipt signature
 ```
 
-### Stubbed/Partial CLI Commands
-
-The following CLI paths are intentionally stubbed or only partially implemented:
-
-- `aosctl agent spawn|worker|list|status|cancel` (orchestrator integration pending; all operations are mock/placeholder)
-- `aosctl policy quarantine-clear|quarantine-rollback` (requires runtime policy manager connection; prints guidance only)
-- `aosctl metrics config --key --value` (config persistence not implemented; displays placeholder message)
-
 ## UI (Leptos WASM)
 
 Located in `crates/adapteros-ui/`. Leptos 0.7 + Pure CSS + WASM (Client-Side Rendering).

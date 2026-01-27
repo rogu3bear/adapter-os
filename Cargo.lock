@@ -21,6 +21,7 @@ dependencies = [
  "adapteros-db",
  "adapteros-deterministic-exec",
  "adapteros-federation",
+ "adapteros-infra-common",
  "adapteros-lora-kernel-api",
  "adapteros-lora-kernel-mtl",
  "adapteros-lora-lifecycle",
@@ -173,6 +174,7 @@ dependencies = [
  "adapteros-telemetry",
  "adapteros-telemetry-types",
  "adapteros-types",
+ "anyhow",
  "axum 0.8.8",
  "chrono",
  "serde",
@@ -480,6 +482,7 @@ name = "adapteros-core"
 version = "0.13.1"
 dependencies = [
  "adapteros-error-registry",
+ "adapteros-infra-common",
  "adapteros-types",
  "anyhow",
  "async-trait",
@@ -811,6 +814,24 @@ dependencies = [
  "tokio-test",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "adapteros-infra-common"
+version = "0.13.1"
+dependencies = [
+ "blake3",
+ "hex",
+ "once_cell",
+ "rand 0.8.5",
+ "regex",
+ "schemars",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+ "tracing",
+ "unicode-normalization",
+ "utoipa",
 ]
 
 [[package]]
@@ -1305,13 +1326,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "adapteros-normalization"
-version = "0.13.1"
-dependencies = [
- "serde_json",
-]
-
-[[package]]
 name = "adapteros-numerics"
 version = "0.13.1"
 dependencies = [
@@ -1651,6 +1665,7 @@ dependencies = [
  "adapteros-db",
  "adapteros-deterministic-exec",
  "adapteros-diagnostics",
+ "adapteros-error-registry",
  "adapteros-federation",
  "adapteros-git",
  "adapteros-ingest-docs",
@@ -1895,6 +1910,7 @@ dependencies = [
  "serde",
  "serde_jcs",
  "serde_json",
+ "sysinfo 0.31.4",
  "tempfile",
  "thiserror 2.0.17",
  "tokio",
