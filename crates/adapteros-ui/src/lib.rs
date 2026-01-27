@@ -40,7 +40,7 @@ use leptos_router::components::*;
 use leptos_router::path;
 
 use crate::api::ApiClient;
-use components::{AuthProvider, BootSequence, CommandPalette, ProtectedRoute, Shell};
+use components::{AuthProvider, CommandPalette, ProtectedRoute, Shell};
 use signals::{
     provide_chat_context, provide_notifications_context, provide_refetch_context,
     provide_search_context,
@@ -158,17 +158,11 @@ pub fn App() -> impl IntoView {
         return view! { <BaseUrlError reason=err.to_string()/> }.into_any();
     }
 
-    let (boot_complete, set_boot_complete) = signal(false);
-
     view! {
         <>
             <Title text="adapterOS"/>
             <Meta charset="utf-8"/>
             <Meta name="viewport" content="width=device-width, initial-scale=1"/>
-
-            <Show when=move || !boot_complete.get()>
-                <BootSequence on_complete=move || set_boot_complete.set(true) />
-            </Show>
 
             <AuthProvider>
                 <NotificationsProvider>
@@ -201,6 +195,9 @@ pub fn App() -> impl IntoView {
                         <Route path=path!("/audit") view=|| view! { <ProtectedRoute><Shell><pages::Audit/></Shell></ProtectedRoute> }/>
                         <Route path=path!("/runs") view=|| view! { <ProtectedRoute><Shell><pages::FlightRecorder/></Shell></ProtectedRoute> }/>
                         <Route path=path!("/runs/:id") view=|| view! { <ProtectedRoute><Shell><pages::FlightRecorderDetail/></Shell></ProtectedRoute> }/>
+                        // Backward compatibility redirects for old flight-recorder paths
+                        <Route path=path!("/flight-recorder") view=|| view! { <Redirect path="/runs"/> }/>
+                        <Route path=path!("/flight-recorder/:id") view=FlightRecorderIdRedirect/>
                         <Route path=path!("/diff") view=|| view! { <ProtectedRoute><Shell><pages::Diff/></Shell></ProtectedRoute> }/>
                         <Route path=path!("/workers") view=|| view! { <ProtectedRoute><Shell><pages::Workers/></Shell></ProtectedRoute> }/>
                         <Route path=path!("/workers/:id") view=|| view! { <ProtectedRoute><Shell><pages::WorkerDetail/></Shell></ProtectedRoute> }/>
@@ -277,6 +274,27 @@ fn SearchProvider(children: Children) -> impl IntoView {
 fn RefetchProvider(children: Children) -> impl IntoView {
     provide_refetch_context();
     children()
+}
+
+/// Redirect component for /flight-recorder/:id -> /runs/:id (preserves query params)
+#[component]
+fn FlightRecorderIdRedirect() -> impl IntoView {
+    use leptos_router::hooks::use_params_map;
+    let params = use_params_map();
+    let path = move || {
+        let id = params.get().get("id").unwrap_or_default();
+        // Get query string directly from window location
+        let query_string = web_sys::window()
+            .and_then(|w| w.location().search().ok())
+            .unwrap_or_default();
+
+        if query_string.is_empty() {
+            format!("/runs/{}", id)
+        } else {
+            format!("/runs/{}{}", id, query_string)
+        }
+    };
+    view! { <Redirect path=path()/> }
 }
 
 // PRD-UI-000: JS interop for boot diagnostics

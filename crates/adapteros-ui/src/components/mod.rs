@@ -6,7 +6,6 @@ pub mod adapter_bar;
 pub mod adapter_detail_panel;
 pub mod async_state;
 pub mod auth;
-pub mod boot_sequence;
 pub mod button;
 pub mod card;
 pub mod charts;
@@ -53,7 +52,6 @@ pub use async_state::{
     ErrorDisplay, LoadingDisplay, PageHeader, RefreshButton,
 };
 pub use auth::{AuthProvider, ProtectedRoute};
-pub use boot_sequence::BootSequence;
 pub use button::{Button, ButtonSize, ButtonVariant};
 pub use card::Card;
 pub use chat_dock::{ChatDock, ChatDockPanel, MobileChatOverlay, NarrowChatDock};
@@ -89,7 +87,7 @@ pub use table::{
 };
 pub use tabs::{TabButton, TabButtonEnum, TabNav, TabNavEnum, TabPanel, TabPanelEnum};
 pub use toggle::{Select, Toggle};
-pub use trace_viewer::{TraceButton, TracePanel, TraceViewer};
+pub use trace_viewer::{TokenDecisions, TraceButton, TraceDetailStandalone, TracePanel, TraceViewer, TraceViewerWithData};
 pub use version_skew_banner::VersionSkewBanner;
 pub use workspace::{
     TwoColumnRatio, Workspace, WorkspaceColumn, WorkspaceGrid, WorkspaceHeader, WorkspacePanel,
