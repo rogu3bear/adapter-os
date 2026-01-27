@@ -368,8 +368,9 @@ See [docs/LIFECYCLE.md](docs/LIFECYCLE.md) for detailed state machine documentat
 
 ### 🔄 **In Development**
 - **Training Pipeline**: Dataset management and LoRA fine-tuning
-- **Federation**: Cross-node adapter synchronization
-- **Advanced UI**: Web dashboard with real-time monitoring
+- **Federation**: Peer discovery, consensus, partition handling, state sync
+- **Advanced UI**: Web dashboard polish with real-time monitoring
+- **CoreML Fusion**: Runtime sidecar fusion
 - **Production Deployment**: Kubernetes operators, service mesh integration
 
 **📋 Completion Roadmap**: See project board for the comprehensive plan to complete all features.

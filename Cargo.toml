@@ -52,6 +52,7 @@ members = [
     "crates/adapteros-lora-lifecycle",
     "crates/adapteros-scenarios",
     "crates/adapteros-git",
+    "crates/adapteros-infra-common",
     "crates/adapteros-deterministic-exec",
     "crates/adapteros-agent-spawn",  # Multi-agent spawn system for parallel code modification
     "crates/adapteros-codegraph",
@@ -76,7 +77,6 @@ members = [
     "crates/adapteros-service-supervisor",
     "crates/adapteros-model-hub",  # Model discovery and download
     "crates/adapteros-storage",  # Storage management and versioned records
-    "crates/adapteros-normalization",  # Shared normalization utilities
     "crates/adapteros-web-browse",  # Web browsing for live data retrieval
     "crates/adapteros-single-file-adapter",
     "crates/adapteros-api-types",
@@ -391,6 +391,7 @@ smallvec = { workspace = true }
 adapteros-core = { path = "crates/adapteros-core" }
 adapteros-manifest = { path = "crates/adapteros-manifest" }
 adapteros-chat = { path = "crates/adapteros-chat" }
+adapteros-infra-common = { path = "crates/adapteros-infra-common" }
 adapteros-lora-plan = { path = "crates/adapteros-lora-plan" }
 adapteros-lora-worker = { path = "crates/adapteros-lora-worker" }
 adapteros-aos = { path = "crates/adapteros-aos" }

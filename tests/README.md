@@ -464,38 +464,30 @@ async fn my_test() { /* ... */ }
 
 ### Coverage Status
 
-⚠️ **Test coverage has not been measured for this codebase.**
+✅ **Test coverage is measured in CI via cargo-tarpaulin.**
 
-**To measure coverage**:
-```bash
-# Install coverage tool
-cargo install cargo-tarpaulin
+Coverage is automatically measured on every PR via the `coverage` job in `.github/workflows/integration-tests.yml`. Reports are uploaded to Codecov.
 
-# Generate coverage report
-cargo tarpaulin --workspace --exclude-files 'tests/*' --out Html
-
-# View report
-open tarpaulin-report.html
-```
-
-**Target Coverage** (design goals):
-- Core crates: >80%
-- Infrastructure crates: >70%
-- Integration tests: All critical paths covered
+**Coverage Thresholds** (enforced by `scripts/check_coverage.py`):
+- Core backends (`adapteros-lora-kernel-*`): ≥80%
+- Inference pipeline (`adapteros-lora-router`, `adapteros-lora-worker`): ≥85%
+- Security/crypto (`adapteros-policy`, `adapteros-secd`): ≥95%
+- API handlers (`adapteros-server-api`): ≥80%
+- Default: 80%
 
 **Known Test Gaps**:
-- `adapteros-server-api` - Currently disabled due to compilation errors
+- `adapteros-server-api` - Some tests may be disabled due to compilation errors
 - `adapteros-system-metrics` - SQLite validation issues
 - Retirement queue - Tests not yet implemented (see `/tests/retirement_queue.rs`)
 
-### Generating Coverage Reports
+### Generating Coverage Reports Locally
 
 **Using cargo-tarpaulin**:
 ```bash
 # Install tarpaulin
 cargo install cargo-tarpaulin
 
-# Generate coverage report
+# Generate coverage report (same as CI)
 cargo tarpaulin --workspace --exclude-files 'tests/*' --out Html
 
 # View report

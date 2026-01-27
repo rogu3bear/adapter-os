@@ -38,14 +38,76 @@ if [ -d "$MODEL_PATH" ]; then
     exit 0
 fi
 
-echo -e "${GREEN}→ Simulating download of Tiny-BERT CoreML model...${NC}"
+# Check for python3 and huggingface_hub
+if command -v python3 &> /dev/null; then
+    echo -e "${GREEN}→ Checking for huggingface_hub...${NC}"
+    if python3 -c "import huggingface_hub" &> /dev/null; then
+        echo -e "${GREEN}→ Downloading model via huggingface_hub...${NC}"
+        # Download snapshot to temp dir then move to target
+        python3 -c "
+from huggingface_hub import snapshot_download
+import os
+import shutil
+
+model_id = '${HF_MODEL_ID}'
+target_dir = '${MODEL_PATH}'
+
+print(f'Downloading {model_id}...')
+path = snapshot_download(repo_id=model_id)
+print(f'Downloaded to {path}')
+
+# Move/Copy logic
+if os.path.exists(target_dir):
+    shutil.rmtree(target_dir)
+shutil.copytree(path, target_dir)
+print('Model installed successfully.')
+"
+        if [ $? -eq 0 ]; then
+            echo -e "${GREEN}✓ Tiny-BERT model downloaded successfully to: $MODEL_PATH${NC}"
+            exit 0
+        else
+            echo -e "${RED}⚠ Download failed, falling back to mock...${NC}"
+        fi
+    else
+        echo -e "${YELLOW}python3 huggingface_hub not found.${NC}"
+    fi
+else
+    echo -e "${YELLOW}python3 not found.${NC}"
+fi
+
+echo -e "${YELLOW}→ Falling back to basic mock creation...${NC}"
 # In a real environment, we would use huggingface-cli
 # For this demonstration, we'll create the structure
 mkdir -p "$MODEL_PATH/Data"
 mkdir -p "$MODEL_PATH/Metadata"
+
+# Create config.json with required hidden_size
+echo '{"hidden_size": 128, "vocab_size": 30522}' > "$MODEL_PATH/config.json"
+
+# Create a valid tokenizer.json (WordPiece)
+cat > "$MODEL_PATH/tokenizer.json" <<EOF
+{
+    "version": "1.0",
+    "truncation": null,
+    "padding": null,
+    "added_tokens": [],
+    "normalizer": null,
+    "pre_tokenizer": null,
+    "post_processor": null,
+    "decoder": null,
+    "model": {
+        "type": "WordPiece",
+        "vocab": {"[PAD]": 0, "[UNK]": 1, "[CLS]": 2, "[SEP]": 3, "[MASK]": 4},
+        "unk_token": "[UNK]",
+        "continuing_subword_prefix": "##",
+        "max_input_chars_per_word": 100
+    }
+}
+EOF
+
 touch "$MODEL_PATH/Manifest.json"
 
-echo -e "${GREEN}✓ Tiny-BERT model ready at: $MODEL_PATH${NC}"
+echo -e "${GREEN}✓ Tiny-BERT model ready (MOCK) at: $MODEL_PATH${NC}"
 echo ""
 echo -e "${BLUE}Next steps:${NC}"
 echo "  1. Update your .env to use the Tiny-BERT embedder"
