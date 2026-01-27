@@ -127,40 +127,55 @@ pub fn SystemContent(
         .count();
     let total_workers = workers_with_overrides.len();
 
-    let models_status_counts = models_status.data().map(|data| {
+    // Unified model status: prefer models_status API data for consistency
+    let models_from_api = models_status.data().map(|data| {
         let loaded = data.models.iter().filter(|m| m.is_loaded).count() as i64;
         let total = data.models.len() as i64;
-        (loaded, total)
+        let active_model = data.models.iter().find(|m| m.is_loaded);
+        (loaded, total, active_model.cloned())
     });
-    let kernel_models = status.kernel.as_ref().and_then(|k| k.models.as_ref());
-    let models_loaded = kernel_models
-        .and_then(|m| m.loaded)
-        .or_else(|| models_status_counts.map(|(loaded, _)| loaded))
-        .or_else(|| {
-            status
-                .kernel
-                .as_ref()
-                .and_then(|k| k.adapters.as_ref())
-                .and_then(|a| a.loaded_models)
-        });
-    let models_total = kernel_models
-        .and_then(|m| m.total)
-        .or_else(|| models_status_counts.map(|(_, total)| total));
-    let active_model_detail = match status.kernel.as_ref().and_then(|k| k.model.as_ref()) {
-        Some(summary) => {
-            let status_label = summary.status.clone();
-            if let Some(model_id) = summary.model_id.clone() {
-                let short_id = if model_id.len() > 8 {
-                    format!("{}...", &model_id[..8])
-                } else {
-                    model_id
-                };
-                format!("Active: {} ({})", short_id, status_label)
-            } else {
-                format!("Active: - ({})", status_label)
-            }
+
+    // Extract loaded/total counts - prioritize API data for consistency
+    let (models_loaded, models_total, api_active_model) = match models_from_api {
+        Some((loaded, total, active)) => (Some(loaded), Some(total), active),
+        None => {
+            // Fallback to kernel data only if API not available
+            let kernel_models = status.kernel.as_ref().and_then(|k| k.models.as_ref());
+            let loaded = kernel_models.and_then(|m| m.loaded).or_else(|| {
+                status
+                    .kernel
+                    .as_ref()
+                    .and_then(|k| k.adapters.as_ref())
+                    .and_then(|a| a.loaded_models)
+            });
+            let total = kernel_models.and_then(|m| m.total);
+            (loaded, total, None)
         }
-        None => "Active: -".to_string(),
+    };
+
+    // Active model detail - prefer API data, fall back to kernel
+    let active_model_detail = if let Some(ref model) = api_active_model {
+        let short_id = if model.model_name.len() > 8 {
+            format!("{}...", &model.model_name[..8])
+        } else {
+            model.model_name.clone()
+        };
+        let status_label = format!("{:?}", model.status).to_lowercase();
+        format!("Active: {} ({})", short_id, status_label)
+    } else if let Some(summary) = status.kernel.as_ref().and_then(|k| k.model.as_ref()) {
+        let status_label = summary.status.clone();
+        if let Some(model_id) = summary.model_id.clone() {
+            let short_id = if model_id.len() > 8 {
+                format!("{}...", &model_id[..8])
+            } else {
+                model_id
+            };
+            format!("Active: {} ({})", short_id, status_label)
+        } else {
+            format!("Active: - ({})", status_label)
+        }
+    } else {
+        "Active: -".to_string()
     };
 
     view! {
@@ -378,8 +393,13 @@ fn WorkerRow(worker: WorkerResponse) -> impl IntoView {
     let backend = worker
         .backend
         .clone()
+        .filter(|b| !b.is_empty())
         .unwrap_or_else(|| "Unknown".to_string());
-    let model = worker.model_id.clone().unwrap_or_else(|| "-".to_string());
+    let model = worker
+        .model_id
+        .clone()
+        .filter(|m| !m.is_empty())
+        .unwrap_or_else(|| "Not assigned".to_string());
     let last_seen = worker
         .last_seen_at
         .clone()
@@ -557,38 +577,38 @@ fn NodesSection(nodes: Vec<NodeResponse>) -> impl IntoView {
 /// Single node row component
 #[component]
 fn NodeRow(node: NodeResponse) -> impl IntoView {
-    let status_variant = match node.status.as_str() {
+    let status_variant = match node.node.status.as_str() {
         "healthy" | "active" => BadgeVariant::Success,
         "draining" => BadgeVariant::Warning,
         "error" | "offline" => BadgeVariant::Destructive,
         _ => BadgeVariant::Secondary,
     };
 
-    let short_id = if node.id.len() > 8 {
-        format!("{}...", &node.id[..8])
+    let short_id = if node.node.id.len() > 8 {
+        format!("{}...", &node.node.id[..8])
     } else {
-        node.id.clone()
+        node.node.id.clone()
     };
 
     view! {
         <TableRow>
             <TableCell>
-                <span class="font-mono text-sm" title=node.id.clone()>{short_id}</span>
+                <span class="font-mono text-sm" title=node.node.id.clone()>{short_id}</span>
             </TableCell>
             <TableCell>
-                <span class="text-sm">{node.hostname.clone()}</span>
+                <span class="text-sm">{node.node.hostname.clone()}</span>
             </TableCell>
             <TableCell>
                 <Badge variant=status_variant>
-                    {node.status.clone()}
+                    {node.node.status.clone()}
                 </Badge>
             </TableCell>
             <TableCell>
-                <span class="text-sm font-mono">{node.agent_endpoint.clone()}</span>
+                <span class="text-sm font-mono">{node.node.agent_endpoint.clone()}</span>
             </TableCell>
             <TableCell>
                 <span class="text-sm text-muted-foreground">
-                    {node.last_seen_at.clone().map(|t| format_timestamp(&t)).unwrap_or("-".to_string())}
+                    {node.node.last_seen_at.clone().map(|t| format_timestamp(&t)).unwrap_or("-".to_string())}
                 </span>
             </TableCell>
         </TableRow>
@@ -1418,87 +1438,149 @@ fn InferenceBlockersSection(blockers: Vec<InferenceBlocker>) -> impl IntoView {
 // ============================================================================
 
 /// Boot status section (optional, shown when boot info is available)
+/// Collapsible by default to avoid obscuring main content
 #[component]
 pub fn BootStatusSection(boot: adapteros_api_types::BootStatus) -> impl IntoView {
+    // Default to collapsed unless there are issues
+    let has_issues = !boot.degraded.is_empty() || boot.failure.is_some();
+    let expanded = RwSignal::new(has_issues);
+    let dismissed = RwSignal::new(false);
+
+    // Store phase in a signal so it can be read reactively without ownership issues
+    let phase_for_header = RwSignal::new(boot.phase.clone());
+
     view! {
-        <Card title="Boot Status".to_string() description="System boot lifecycle information".to_string()>
-            <div class="space-y-4">
-                // Phase
-                <div class="flex items-center gap-4">
-                    <span class="text-sm font-medium">"Current Phase:"</span>
-                    <Badge variant=BadgeVariant::Secondary>
-                        {boot.phase.clone()}
-                    </Badge>
-                </div>
+        // Don't render if dismissed
+        {move || {
+            if dismissed.get() {
+                return view! {}.into_any();
+            }
 
-                // Boot trace ID
-                {boot.boot_trace_id.clone().map(|trace_id| view! {
-                    <div class="flex items-center gap-2">
-                        <span class="text-sm text-muted-foreground">"Trace ID:"</span>
-                        <span class="font-mono text-sm">{trace_id}</span>
+            let boot = boot.clone();
+            view! {
+                <Card title="Boot Status".to_string() description="System boot lifecycle information".to_string()>
+                    <div class="space-y-4">
+                        // Header with phase, toggle, and dismiss buttons
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-4">
+                                <span class="text-sm font-medium">"Current Phase:"</span>
+                                <Badge variant=BadgeVariant::Secondary>
+                                    {move || phase_for_header.get()}
+                                </Badge>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                // Toggle expand/collapse
+                                <button
+                                    class="p-1.5 rounded-md hover:bg-muted focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                                    title=move || if expanded.get() { "Collapse boot details" } else { "Expand boot details" }
+                                    aria-label=move || if expanded.get() { "Collapse boot details" } else { "Expand boot details" }
+                                    aria-expanded=move || expanded.get().to_string()
+                                    on:click=move |_| expanded.update(|v| *v = !*v)
+                                >
+                                    <svg
+                                        class=move || format!("w-4 h-4 transition-transform {}", if expanded.get() { "rotate-180" } else { "" })
+                                        fill="none"
+                                        stroke="currentColor"
+                                        viewBox="0 0 24 24"
+                                        aria-hidden="true"
+                                    >
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                                    </svg>
+                                </button>
+                                // Dismiss button
+                                <button
+                                    class="p-1.5 rounded-md hover:bg-muted focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                                    title="Dismiss boot status"
+                                    aria-label="Dismiss boot status panel"
+                                    on:click=move |_| dismissed.set(true)
+                                >
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+
+                        // Collapsible details
+                        {move || {
+                            if !expanded.get() {
+                                return view! {}.into_any();
+                            }
+
+                            let boot = boot.clone();
+                            view! {
+                                // Boot trace ID
+                                {boot.boot_trace_id.clone().map(|trace_id| view! {
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-sm text-muted-foreground">"Trace ID:"</span>
+                                        <span class="font-mono text-sm">{trace_id}</span>
+                                    </div>
+                                })}
+
+                                // Timings
+                                {if !boot.timings.is_empty() {
+                                    view! {
+                                        <div class="space-y-2">
+                                            <span class="text-sm font-medium">"Phase Timings"</span>
+                                            <div class="grid gap-2 md:grid-cols-3">
+                                                {boot.timings.iter().map(|timing| {
+                                                    view! {
+                                                        <div class="flex items-center justify-between p-2 rounded border">
+                                                            <span class="text-sm">{timing.phase.clone()}</span>
+                                                            <span class="text-sm text-muted-foreground">{format!("{} ms", timing.elapsed_ms)}</span>
+                                                        </div>
+                                                    }
+                                                }).collect::<Vec<_>>()}
+                                            </div>
+                                        </div>
+                                    }.into_any()
+                                } else {
+                                    view! {}.into_any()
+                                }}
+
+                                // Degraded components
+                                {if !boot.degraded.is_empty() {
+                                    view! {
+                                        <div class="space-y-2">
+                                            <span class="text-sm font-medium text-status-warning">"Degraded Components"</span>
+                                            <div class="space-y-1">
+                                                {boot.degraded.iter().map(|d| {
+                                                    view! {
+                                                        <div class="flex items-center gap-2 text-status-warning">
+                                                            <WarningIcon/>
+                                                            <span class="text-sm">{format!("{}: {}", d.component, d.reason)}</span>
+                                                        </div>
+                                                    }
+                                                }).collect::<Vec<_>>()}
+                                            </div>
+                                        </div>
+                                    }.into_any()
+                                } else {
+                                    view! {}.into_any()
+                                }}
+
+                                // Boot failure
+                                {boot.failure.map(|failure| {
+                                    view! {
+                                        <div class="p-4 rounded-lg bg-destructive/10 border border-destructive">
+                                            <div class="flex items-center gap-2 text-destructive font-medium">
+                                                <WarningIcon/>
+                                                <span>"Boot Failure"</span>
+                                            </div>
+                                            <p class="text-sm text-destructive mt-2">
+                                                "Code: " <span class="font-mono">{failure.code}</span>
+                                            </p>
+                                            {failure.message.map(|msg| view! {
+                                                <p class="text-sm text-destructive/80 mt-1">{msg}</p>
+                                            })}
+                                        </div>
+                                    }
+                                })}
+                            }.into_any()
+                        }}
                     </div>
-                })}
-
-                // Timings
-                {if !boot.timings.is_empty() {
-                    view! {
-                        <div class="space-y-2">
-                            <span class="text-sm font-medium">"Phase Timings"</span>
-                            <div class="grid gap-2 md:grid-cols-3">
-                                {boot.timings.iter().map(|timing| {
-                                    view! {
-                                        <div class="flex items-center justify-between p-2 rounded border">
-                                            <span class="text-sm">{timing.phase.clone()}</span>
-                                            <span class="text-sm text-muted-foreground">{format!("{} ms", timing.elapsed_ms)}</span>
-                                        </div>
-                                    }
-                                }).collect::<Vec<_>>()}
-                            </div>
-                        </div>
-                    }.into_any()
-                } else {
-                    view! {}.into_any()
-                }}
-
-                // Degraded components
-                {if !boot.degraded.is_empty() {
-                    view! {
-                        <div class="space-y-2">
-                            <span class="text-sm font-medium text-status-warning">"Degraded Components"</span>
-                            <div class="space-y-1">
-                                {boot.degraded.iter().map(|d| {
-                                    view! {
-                                        <div class="flex items-center gap-2 text-status-warning">
-                                            <WarningIcon/>
-                                            <span class="text-sm">{format!("{}: {}", d.component, d.reason)}</span>
-                                        </div>
-                                    }
-                                }).collect::<Vec<_>>()}
-                            </div>
-                        </div>
-                    }.into_any()
-                } else {
-                    view! {}.into_any()
-                }}
-
-                // Boot failure
-                {boot.failure.map(|failure| {
-                    view! {
-                        <div class="p-4 rounded-lg bg-destructive/10 border border-destructive">
-                            <div class="flex items-center gap-2 text-destructive font-medium">
-                                <WarningIcon/>
-                                <span>"Boot Failure"</span>
-                            </div>
-                            <p class="text-sm text-destructive mt-2">
-                                "Code: " <span class="font-mono">{failure.code}</span>
-                            </p>
-                            {failure.message.map(|msg| view! {
-                                <p class="text-sm text-destructive/80 mt-1">{msg}</p>
-                            })}
-                        </div>
-                    }
-                })}
-            </div>
-        </Card>
+                </Card>
+            }.into_any()
+        }}
     }
 }

@@ -9,6 +9,11 @@ use std::sync::{Arc, RwLock};
 use urlencoding::encode;
 
 pub use adapteros_api_types::dataset_domain::CanonicalRow;
+pub use adapteros_api_types::code_repositories::{
+    RegisterRepositoryRequest, RegisterRepositoryResponse, RepositoryDetailResponse,
+    RepositoryInfo, RepositoryListResponse, ScanJobResponse, ScanRepositoryRequest,
+};
+pub use adapteros_api_types::activity::ActivityEventResponse;
 pub use adapteros_api_types::training::{
     DatasetFileResponse, DatasetVersionsResponse, JsonlValidationDiagnostic,
 };
@@ -761,55 +766,50 @@ impl ApiClient {
         &self,
         status: Option<&str>,
     ) -> ApiResult<RepositoryListResponse> {
-        let path = match status {
-            Some(s) => format!("/v1/repositories?status={}", encode(s)),
-            None => "/v1/repositories".to_string(),
+        let mut params = Vec::new();
+        if let Some(s) = status {
+            params.push(format!("status={}", encode(s)));
+        }
+        params.push("page=1".to_string());
+        params.push("limit=100".to_string());
+        let path = if params.is_empty() {
+            "/v1/code/repositories".to_string()
+        } else {
+            format!("/v1/code/repositories?{}", params.join("&"))
         };
         self.get(&path).await
     }
 
     /// Get repository details by ID
-    pub async fn get_repository(&self, id: &str) -> ApiResult<RepositoryDetailResponse> {
-        self.get(&format!("/v1/repositories/{}", id)).await
+    pub async fn get_repository(&self, repo_id: &str) -> ApiResult<RepositoryDetailResponse> {
+        self.get(&format!("/v1/code/repositories/{}", repo_id)).await
     }
 
     /// Register a new repository
     pub async fn register_repository(
         &self,
         request: &RegisterRepositoryRequest,
-    ) -> ApiResult<RepositoryResponse> {
-        self.post("/v1/repositories", request).await
+    ) -> ApiResult<RegisterRepositoryResponse> {
+        self.post("/v1/code/register-repo", request).await
     }
 
-    /// Delete a repository
-    pub async fn delete_repository(&self, id: &str) -> ApiResult<()> {
-        self.delete(&format!("/v1/repositories/{}", id)).await
-    }
-
-    /// Trigger a sync/scan for a repository
-    pub async fn sync_repository(&self, id: &str) -> ApiResult<ScanStatusResponse> {
-        self.post(
-            &format!("/v1/repositories/{}/sync", id),
-            &serde_json::json!({}),
-        )
-        .await
-    }
-
-    /// Get sync status for a repository
-    pub async fn get_sync_status(&self, id: &str) -> ApiResult<ScanStatusResponse> {
-        self.get(&format!("/v1/repositories/{}/sync/status", id))
-            .await
-    }
-
-    /// Publish an adapter from a repository
-    pub async fn publish_repository_adapter(
+    /// Trigger a scan for a repository
+    pub async fn scan_repository(
         &self,
-        id: &str,
-        request: &PublishAdapterRequest,
-    ) -> ApiResult<PublishAdapterResponse> {
-        self.post(&format!("/v1/repositories/{}/publish", id), request)
-            .await
+        request: &ScanRepositoryRequest,
+    ) -> ApiResult<ScanJobResponse> {
+        self.post("/v1/code/scan", request).await
     }
+
+    /// Fetch activity feed for the current user's workspaces
+    pub async fn activity_feed(&self, limit: Option<i64>) -> ApiResult<Vec<ActivityEventResponse>> {
+        let path = match limit {
+            Some(l) => format!("/v1/activity/feed?limit={}", l),
+            None => "/v1/activity/feed".to_string(),
+        };
+        self.get(&path).await
+    }
+
 
     // --- Audit ---
 
@@ -2146,116 +2146,6 @@ pub struct CollectionListResponse {
     pub page: u32,
     pub limit: u32,
     pub pages: u32,
-}
-
-// ============================================================================
-// Repository types
-// ============================================================================
-
-/// Repository list response
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct RepositoryListResponse {
-    pub repositories: Vec<RepositoryResponse>,
-    pub total: usize,
-}
-
-/// Repository response (mirrors adapteros_api_types::RepositoryResponse)
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct RepositoryResponse {
-    #[serde(default)]
-    pub schema_version: String,
-    pub id: String,
-    pub repo_id: String,
-    pub path: String,
-    pub languages: Vec<String>,
-    pub default_branch: String,
-    pub status: String,
-    #[serde(default)]
-    pub frameworks: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub file_count: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub symbol_count: Option<i64>,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-/// Register repository request
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct RegisterRepositoryRequest {
-    pub repo_id: String,
-    pub path: String,
-    pub languages: Vec<String>,
-    pub default_branch: String,
-}
-
-/// Trigger scan request
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct TriggerScanRequest {
-    pub repo_id: String,
-}
-
-/// Scan status response
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct ScanStatusResponse {
-    #[serde(default)]
-    pub schema_version: String,
-    pub repo_id: String,
-    pub status: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub progress: Option<f32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub message: Option<String>,
-}
-
-/// Publish adapter request
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct PublishAdapterRequest {
-    pub repo_id: String,
-    pub adapter_name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub version: Option<String>,
-}
-
-/// Publish adapter response
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct PublishAdapterResponse {
-    pub adapter_id: String,
-    pub status: String,
-    pub message: String,
-}
-
-/// Repository adapter (adapter associated with a repository)
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct RepositoryAdapter {
-    pub adapter_id: String,
-    pub name: String,
-    pub version: String,
-    pub status: String,
-    pub created_at: String,
-}
-
-/// Repository detail response with adapters
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct RepositoryDetailResponse {
-    #[serde(flatten)]
-    pub repository: RepositoryResponse,
-    #[serde(default)]
-    pub adapters: Vec<RepositoryAdapter>,
-    #[serde(default)]
-    pub versions: Vec<RepositoryVersion>,
-}
-
-/// Repository version (git tag/branch snapshot)
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct RepositoryVersion {
-    pub version: String,
-    pub commit_hash: String,
-    pub created_at: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub adapter_id: Option<String>,
 }
 
 // ============================================================================

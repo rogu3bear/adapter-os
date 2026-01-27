@@ -3067,6 +3067,10 @@
     font-size: 0.8125rem;
     color: var(--color-muted-foreground);
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 120px;
+    flex-shrink: 0;
 }
 
 .status-item-spacer {
@@ -3087,6 +3091,9 @@
     font-weight: 500;
     text-align: right;
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 180px;
 }
 
 .status-item-detail {
@@ -3094,6 +3101,9 @@
     color: var(--color-muted-foreground);
     padding-left: 1.375rem;
     margin-top: 0.125rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 /* ========================================

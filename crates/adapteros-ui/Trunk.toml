@@ -11,9 +11,15 @@ public_url = "/"
 # PRD-UI-170: CI runs wasm-opt -O4 --enable-bulk-memory, asserts <3.5MB
 no_wasm_opt = true
 
+# PRD-UI-170: Copy service worker to output directory
+[[hooks]]
+stage = "post_build"
+command = "cp"
+command_arguments = ["dist/sw.js", "../adapteros-server/static/sw.js"]
+
 [watch]
 # Watch for changes (stylers generates CSS at cargo build time)
-watch = ["src", "index.html", "dist/base.css", "dist/glass.css", "dist/components.css"]
+watch = ["src", "index.html", "dist/base.css", "dist/glass.css", "dist/components.css", "dist/sw.js"]
 # Ignore patterns
 ignore = ["target"]
 

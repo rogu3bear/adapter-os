@@ -26,19 +26,6 @@ pub(crate) mod helpers {
             date_str.to_string()
         }
     }
-
-    /// Format a large number with commas
-    pub fn format_number(n: u64) -> String {
-        let s = n.to_string();
-        let mut result = String::new();
-        for (i, c) in s.chars().rev().enumerate() {
-            if i > 0 && i % 3 == 0 {
-                result.push(',');
-            }
-            result.push(c);
-        }
-        result.chars().rev().collect()
-    }
 }
 
 /// Repositories list page
@@ -80,7 +67,12 @@ pub fn Repositories() -> impl IntoView {
             // Left panel: Repository list
             <div class=left_panel_class>
                 <div class="flex items-center justify-between">
-                    <h1 class="text-3xl font-bold tracking-tight">"Repositories"</h1>
+                    <div>
+                        <h1 class="text-3xl font-bold tracking-tight">"Repositories"</h1>
+                        <p class="text-sm text-muted-foreground">
+                            "Register and scan codebases to power code intelligence."
+                        </p>
+                    </div>
                     <div class="flex items-center gap-2">
                         <StatusFilter filter=status_filter/>
                         <button
@@ -111,7 +103,7 @@ pub fn Repositories() -> impl IntoView {
                             // Repositories are already filtered server-side
                             view! {
                                 <RepositoryList
-                                    repos=data.repositories.clone()
+                                    repos=data.repos.clone()
                                     selected_id=selected_repo_id
                                 />
                             }.into_any()

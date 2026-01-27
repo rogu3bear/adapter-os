@@ -69,6 +69,9 @@ pub fn Chat() -> impl IntoView {
                     "New Session"
                 </Button>
             </div>
+            <p class="text-sm text-muted-foreground">
+                "Use the system to reason, generate, and run inference against your active context."
+            </p>
 
             // Continue from dock (if dock has messages)
             {move || {

@@ -219,8 +219,16 @@ pub fn WorkerRow(
         worker.id.clone()
     };
 
-    let backend = worker.backend.clone().unwrap_or_else(|| "-".to_string());
-    let model = worker.model_id.clone().unwrap_or_else(|| "-".to_string());
+    let backend = worker
+        .backend
+        .clone()
+        .filter(|b| !b.is_empty())
+        .unwrap_or_else(|| "Unknown".to_string());
+    let model = worker
+        .model_id
+        .clone()
+        .filter(|m| !m.is_empty())
+        .unwrap_or_else(|| "Not assigned".to_string());
     let short_model = if model.len() > 20 {
         format!("{}...", &model[..20])
     } else {
@@ -356,8 +364,8 @@ pub fn WorkerDetailPanel(worker: WorkerResponse, on_close: Callback<()>) -> impl
                     <DetailItem label="Node ID" value=worker.node_id.clone()/>
                     <DetailItem label="Tenant ID" value=worker.tenant_id.clone()/>
                     <DetailItem label="Plan ID" value=worker.plan_id.clone()/>
-                    <DetailItem label="Backend" value=worker.backend.clone().unwrap_or("-".to_string())/>
-                    <DetailItem label="Model" value=worker.model_id.clone().unwrap_or("-".to_string())/>
+                    <DetailItem label="Backend" value=worker.backend.clone().filter(|b| !b.is_empty()).unwrap_or_else(|| "Unknown".to_string())/>
+                    <DetailItem label="Model" value=worker.model_id.clone().filter(|m| !m.is_empty()).unwrap_or_else(|| "Not assigned".to_string())/>
                     <DetailItem label="PID" value=worker.pid.map(|p| p.to_string()).unwrap_or("-".to_string())/>
                     <DetailItem label="UDS Path" value=worker.uds_path.clone()/>
                     <DetailItem label="Started At" value=format_timestamp(&worker.started_at)/>
@@ -555,8 +563,8 @@ pub fn WorkerDetailView(
                     <DetailItem label="Node ID" value=worker.node_id.clone()/>
                     <DetailItem label="Tenant ID" value=worker.tenant_id.clone()/>
                     <DetailItem label="Plan ID" value=worker.plan_id.clone()/>
-                    <DetailItem label="Backend" value=worker.backend.clone().unwrap_or("-".to_string())/>
-                    <DetailItem label="Model ID" value=worker.model_id.clone().unwrap_or("-".to_string())/>
+                    <DetailItem label="Backend" value=worker.backend.clone().filter(|b| !b.is_empty()).unwrap_or_else(|| "Unknown".to_string())/>
+                    <DetailItem label="Model ID" value=worker.model_id.clone().filter(|m| !m.is_empty()).unwrap_or_else(|| "Not assigned".to_string())/>
                     <DetailItem label="Model Hash" value=worker.model_hash.clone().map(|h| short_hash(&h)).unwrap_or("-".to_string())/>
                     <DetailItem label="Model Loaded" value=if worker.model_loaded { "Yes".to_string() } else { "No".to_string() }/>
                     <DetailItem label="PID" value=worker.pid.map(|p| p.to_string()).unwrap_or("-".to_string())/>

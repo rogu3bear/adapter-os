@@ -1,24 +1,29 @@
 //! Repository list components
 
-use super::helpers::{format_date, format_number};
-use crate::api::RepositoryResponse;
+use super::helpers::format_date;
+use crate::api::RepositoryInfo;
 use crate::components::{
-    Badge, BadgeVariant, Card, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    Badge, BadgeVariant, Card, EmptyState, EmptyStateVariant, Table, TableBody, TableCell,
+    TableHead, TableHeader, TableRow,
 };
 use leptos::prelude::*;
 
 /// Repository list table
 #[component]
 pub fn RepositoryList(
-    repos: Vec<RepositoryResponse>,
+    repos: Vec<RepositoryInfo>,
     selected_id: RwSignal<Option<String>>,
 ) -> impl IntoView {
     if repos.is_empty() {
         return view! {
             <Card>
-                <div class="py-8 text-center">
-                    <p class="text-muted-foreground">"No repositories found. Register one to get started."</p>
-                </div>
+                <EmptyState
+                    variant=EmptyStateVariant::Empty
+                    title="No repositories found"
+                    description="Register a code repository to enable code intelligence and adapter training from your codebase."
+                    secondary_label="Learn about Code Intelligence"
+                    secondary_href="/docs/code-intelligence"
+                />
             </Card>
         }
         .into_any();
@@ -32,21 +37,26 @@ pub fn RepositoryList(
                         <TableHead>"Repository"</TableHead>
                         <TableHead>"Languages"</TableHead>
                         <TableHead>"Status"</TableHead>
-                        <TableHead>"Files"</TableHead>
-                        <TableHead>"Updated"</TableHead>
+                        <TableHead>"Last Scan"</TableHead>
+                        <TableHead>"Created"</TableHead>
                     </TableRow>
                 </TableHeader>
                 <TableBody>
                     {repos
                         .into_iter()
                         .map(|repo| {
-                            let repo_id = repo.id.clone();
+                            let repo_id = repo.repo_id.clone();
                             let repo_id_for_click = repo_id.clone();
                             let languages_display = if repo.languages.len() > 3 {
                                 format!("{} +{}", repo.languages[..3].join(", "), repo.languages.len() - 3)
                             } else {
                                 repo.languages.join(", ")
                             };
+                            let last_scan = repo
+                                .latest_scan_at
+                                .as_deref()
+                                .map(format_date)
+                                .unwrap_or_else(|| "Never".to_string());
 
                             view! {
                                 <tr
@@ -70,12 +80,12 @@ pub fn RepositoryList(
                                     </TableCell>
                                     <TableCell>
                                         <span class="text-sm text-muted-foreground">
-                                            {repo.file_count.map(|c| format_number(c as u64)).unwrap_or_else(|| "-".to_string())}
+                                            {last_scan}
                                         </span>
                                     </TableCell>
                                     <TableCell>
                                         <span class="text-sm text-muted-foreground">
-                                            {format_date(&repo.updated_at)}
+                                            {format_date(&repo.created_at)}
                                         </span>
                                     </TableCell>
                                 </tr>

@@ -24,14 +24,14 @@ pub use client::{
     ModelArchitectureSummary, ModelListResponse, ModelStatusResponse, ModelWithStatsResponse,
     ProcessAlertResponse, ProcessAnomalyResponse, ProcessCrashDumpResponse,
     ProcessHealthMetricResponse, ProcessLogResponse, ProcessMonitoringRuleResponse,
-    PublishAdapterRequest, RegisterRepositoryRequest, RepositoryAdapter, RepositoryDetailResponse,
-    RepositoryListResponse, RepositoryResponse, RepositoryVersion, ResourceUsageInfo,
-    RevokeApiKeyResponse, RoutingCandidateResponse, RoutingDebugRequest, RoutingDebugResponse,
-    RoutingDecisionResponse, RoutingDecisionsQuery, RoutingDecisionsResponse, ScanStatusResponse,
-    ServiceStatus, StackResponse, SystemOverviewResponse, UpdateCodePolicyRequest,
-    UpdateErrorAlertRuleRequest, UpdateStackRequest, UploadDatasetResponse, UserResponse,
-    ValidateAllFilesResponse, ValidateFileRequest, ValidateFileResponse, WorkerMetricsResponse,
-    WorkflowType,
+    RegisterRepositoryRequest, RegisterRepositoryResponse, RepositoryDetailResponse, RepositoryInfo,
+    RepositoryListResponse, ResourceUsageInfo, RevokeApiKeyResponse, RoutingCandidateResponse,
+    RoutingDebugRequest, RoutingDebugResponse, RoutingDecisionResponse, RoutingDecisionsQuery,
+    RoutingDecisionsResponse, ScanJobResponse, ScanRepositoryRequest, ServiceStatus, StackResponse,
+    SystemOverviewResponse, TokenDecision, UpdateCodePolicyRequest, UpdateErrorAlertRuleRequest,
+    UpdateStackRequest, UploadDatasetResponse, UserResponse, ValidateAllFilesResponse,
+    ValidateFileRequest, ValidateFileResponse, WorkerMetricsResponse, WorkflowType,
+    ActivityEventResponse,
 };
 pub use diagnostic_bundle::DiagnosticBundle;
 pub use error::{ApiError, ApiResult};

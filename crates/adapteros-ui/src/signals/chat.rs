@@ -4,6 +4,7 @@
 //! Supports both non-streaming and SSE streaming inference.
 
 use crate::api::{api_base_url, ApiClient, ApiError, InferenceRequest};
+use adapteros_api_types::inference::ContextRequest;
 use chrono::{DateTime, Utc};
 use leptos::prelude::*;
 use send_wrapper::SendWrapper;
@@ -48,32 +49,6 @@ fn evict_old_messages(messages: &mut Vec<ChatMessage>, max: usize) {
 // ============================================================================
 // SSE Streaming Types (moved from pages/chat.rs)
 // ============================================================================
-
-/// Context request for inference with UI context toggles.
-///
-/// Mirrors `adapteros_api_types::inference::ContextRequest` for WASM builds.
-#[derive(Debug, Clone, Serialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub struct ContextRequest {
-    /// Include current page context (navigation path, selected entity)
-    #[serde(default)]
-    pub include_page_context: bool,
-    /// Include recent system logs (last 200 lines)
-    #[serde(default)]
-    pub include_recent_logs: bool,
-    /// Include system health snapshot (workers, memory, health)
-    #[serde(default)]
-    pub include_system_snapshot: bool,
-    /// Current page path (e.g., "/adapters/my-adapter")
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub page_path: Option<String>,
-    /// Type of selected entity (e.g., "adapter", "job")
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub entity_type: Option<String>,
-    /// ID of selected entity
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub entity_id: Option<String>,
-}
 
 /// Streaming inference request for POST /v1/infer/stream
 #[derive(Debug, Clone, Serialize)]

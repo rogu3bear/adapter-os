@@ -284,10 +284,18 @@ pub fn ChainStatusSummary(
                         {move || {
                             match compliance.get() {
                                 LoadingState::Loaded(c) => {
-                                    let rate = format!("{:.0}%", c.compliance_rate * 100.0);
-                                    let class = if c.compliance_rate >= 0.95 {
+                                    // Handle both formats: decimal (0-1) and percentage (0-100)
+                                    // Normalize to decimal for color comparison
+                                    let rate_decimal = if c.compliance_rate > 1.0 {
+                                        c.compliance_rate / 100.0
+                                    } else {
+                                        c.compliance_rate
+                                    };
+                                    let rate_percent = (rate_decimal * 100.0).min(100.0);
+                                    let rate = format!("{:.0}%", rate_percent);
+                                    let class = if rate_decimal >= 0.95 {
                                         "text-status-success"
-                                    } else if c.compliance_rate >= 0.8 {
+                                    } else if rate_decimal >= 0.8 {
                                         "text-status-warning"
                                     } else {
                                         "text-status-error"

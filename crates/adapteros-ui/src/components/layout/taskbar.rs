@@ -1,6 +1,7 @@
 //! Taskbar - Bottom navigation bar
 //!
-//! Windows-style bottom taskbar with start button, pinned pages, and system tray.
+//! Module-level bottom taskbar with start button, module shortcuts, and system tray.
+//! Navigation follows the 6-module structure: Run, Prove, Configure, Data, Operate, Govern
 
 use super::start_menu::StartMenu;
 use super::system_tray::SystemTray;
@@ -8,30 +9,69 @@ use crate::signals::{use_chat, DockState};
 use leptos::prelude::*;
 use leptos_router::hooks::use_location;
 
-/// Navigation item for taskbar
-struct NavItem {
+/// Module navigation item for taskbar
+struct ModuleItem {
     label: &'static str,
+    /// Primary route for the module (clicked to navigate)
     href: &'static str,
     icon: &'static str,
+    /// All routes that belong to this module (for active state)
+    routes: &'static [&'static str],
 }
 
-impl NavItem {
-    const fn new(label: &'static str, href: &'static str, icon: &'static str) -> Self {
-        Self { label, href, icon }
+impl ModuleItem {
+    const fn new(
+        label: &'static str,
+        href: &'static str,
+        icon: &'static str,
+        routes: &'static [&'static str],
+    ) -> Self {
+        Self { label, href, icon, routes }
     }
 }
 
-/// Pinned navigation items
-const NAV_ITEMS: &[NavItem] = &[
-    NavItem::new("Dashboard", "/", "M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"),
-    NavItem::new("Adapters", "/adapters", "M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"),
-    NavItem::new("Chat", "/chat", "M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"),
-    NavItem::new("Training", "/training", "M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"),
-    NavItem::new("System", "/system", "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"),
-    NavItem::new("Settings", "/settings", "M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"),
+/// Module navigation items - showing the 6 primary modules
+/// Each module links to its primary page
+const MODULE_ITEMS: &[ModuleItem] = &[
+    ModuleItem::new(
+        "Run",
+        "/chat",
+        "M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z",
+        &["/chat", "/runs"],
+    ),
+    ModuleItem::new(
+        "Prove",
+        "/audit",
+        "M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z",
+        &["/audit", "/runs/"],
+    ),
+    ModuleItem::new(
+        "Configure",
+        "/adapters",
+        "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z",
+        &["/adapters", "/stacks", "/policies", "/models"],
+    ),
+    ModuleItem::new(
+        "Data",
+        "/datasets",
+        "M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4",
+        &["/datasets", "/documents", "/repositories", "/collections"],
+    ),
+    ModuleItem::new(
+        "Operate",
+        "/",
+        "M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z",
+        &["/", "/dashboard", "/system", "/workers", "/monitoring", "/errors", "/training", "/agents"],
+    ),
+    ModuleItem::new(
+        "Govern",
+        "/admin",
+        "M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z",
+        &["/admin", "/reviews", "/settings"],
+    ),
 ];
 
-/// Bottom taskbar with start button, pinned pages, and system tray
+/// Bottom taskbar with start button, module shortcuts, and system tray
 #[component]
 pub fn Taskbar() -> impl IntoView {
     let (start_menu_open, set_start_menu_open) = signal(false);
@@ -52,14 +92,18 @@ pub fn Taskbar() -> impl IntoView {
                         }
                     )
                     on:click=move |_| set_start_menu_open.update(|v| *v = !*v)
+                    title="Open Start Menu"
+                    aria-label="Open Start Menu - access all pages and settings"
+                    aria-expanded=move || start_menu_open.get().to_string()
+                    aria-haspopup="menu"
                 >
-                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                         <rect x="3" y="3" width="8" height="8" rx="1"/>
                         <rect x="13" y="3" width="8" height="8" rx="1"/>
                         <rect x="3" y="13" width="8" height="8" rx="1"/>
                         <rect x="13" y="13" width="8" height="8" rx="1"/>
                     </svg>
-                    <span class="text-sm font-medium hidden sm:block">"Start"</span>
+                    <span class="text-sm font-medium hidden sm:block">"Menu"</span>
                 </button>
 
                 // Start menu dropdown
@@ -68,25 +112,32 @@ pub fn Taskbar() -> impl IntoView {
                 </Show>
             </div>
 
-            // Center: Pinned pages
+            // Center: Module shortcuts
             <div class="flex items-center gap-1">
-                {NAV_ITEMS.iter().map(|item| {
+                {MODULE_ITEMS.iter().map(|item| {
                     let href = item.href;
                     let label = item.label;
                     let icon_path = item.icon;
+                    let routes = item.routes;
 
                     view! {
-                        <TaskbarButton
+                        <ModuleButton
                             href=href
                             label=label
                             icon_path=icon_path
                             is_active=move || {
                                 let path = location.pathname.get();
-                                if href == "/" {
-                                    path == "/" || path == "/dashboard"
-                                } else {
-                                    path.starts_with(href)
-                                }
+                                // Check if current path matches any route in this module
+                                routes.iter().any(|r| {
+                                    if *r == "/" {
+                                        path == "/" || path == "/dashboard"
+                                    } else if r.ends_with('/') {
+                                        // Pattern like "/runs/" matches "/runs/abc"
+                                        path.starts_with(r)
+                                    } else {
+                                        path == *r || path.starts_with(&format!("{}/", r))
+                                    }
+                                })
                             }
                         />
                     }
@@ -113,8 +164,21 @@ pub fn Taskbar() -> impl IntoView {
                                 move |_| action.toggle_dock()
                             }
                             title="Toggle chat panel"
+                            aria-label=move || {
+                                if chat_state.get().dock_state == DockState::Docked {
+                                    "Close chat panel".to_string()
+                                } else {
+                                    let unread = chat_state.get().unread_count();
+                                    if unread > 0 {
+                                        format!("Open chat panel ({} unread messages)", unread)
+                                    } else {
+                                        "Open chat panel".to_string()
+                                    }
+                                }
+                            }
+                            aria-expanded=move || (chat_state.get().dock_state == DockState::Docked).to_string()
                         >
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
                             </svg>
 
@@ -142,9 +206,9 @@ pub fn Taskbar() -> impl IntoView {
     }
 }
 
-/// Taskbar button for pinned pages
+/// Module button for taskbar - represents a navigation module
 #[component]
-fn TaskbarButton(
+fn ModuleButton(
     href: &'static str,
     label: &'static str,
     icon_path: &'static str,
@@ -162,6 +226,8 @@ fn TaskbarButton(
                 }
             )
             title=label
+            aria-label=format!("Go to {} module", label)
+            aria-current=move || if is_active() { Some("page") } else { None }
         >
             <svg
                 class="w-4 h-4"
@@ -169,6 +235,7 @@ fn TaskbarButton(
                 stroke="currentColor"
                 viewBox="0 0 24 24"
                 stroke-width="2"
+                aria-hidden="true"
             >
                 <path stroke-linecap="round" stroke-linejoin="round" d=icon_path/>
             </svg>
@@ -178,7 +245,7 @@ fn TaskbarButton(
             {move || {
                 if is_active() {
                     view! {
-                        <span class="absolute bottom-0 left-1/2 -translate-x-1/2 w-4 h-0.5 bg-primary rounded-full"></span>
+                        <span class="absolute bottom-0 left-1/2 -translate-x-1/2 w-4 h-0.5 bg-primary rounded-full" aria-hidden="true"></span>
                     }.into_any()
                 } else {
                     view! {}.into_any()
