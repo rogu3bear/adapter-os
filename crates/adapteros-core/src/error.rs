@@ -35,6 +35,17 @@ use zip::result::ZipError;
 
 pub type Result<T> = std::result::Result<T, AosError>;
 
+impl From<adapteros_infra_common::AosError> for AosError {
+    fn from(err: adapteros_infra_common::AosError) -> Self {
+        match err {
+            adapteros_infra_common::AosError::InvalidHash(s) => AosError::InvalidHash(s),
+            adapteros_infra_common::AosError::InvalidCPID(s) => AosError::InvalidCPID(s),
+            adapteros_infra_common::AosError::Parse(s) => AosError::Parse(s),
+            adapteros_infra_common::AosError::Validation(s) => AosError::Validation(s),
+        }
+    }
+}
+
 /// Core error type for adapterOS operations
 ///
 /// All errors in adapterOS should use this enum to ensure consistent
@@ -1462,5 +1473,39 @@ mod tests {
         let err = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "access denied");
         let formatted = error_chain_string(&err);
         assert_eq!(formatted, "access denied");
+    }
+}
+
+// Manual implementation of JsonSchema for AosError to avoid complex trait bounds on variants
+#[cfg(any(feature = "schemars", feature = "schemars-support"))]
+impl schemars::JsonSchema for AosError {
+    fn schema_name() -> String {
+        "AosError".to_string()
+    }
+
+    fn json_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+        let mut schema = String::json_schema(gen).into_object();
+        schema.metadata().description = Some("adapterOS error message".to_string());
+        schema.into()
+    }
+}
+
+// Manual implementation of ToSchema for AosError
+#[cfg(feature = "utoipa")]
+impl utoipa::ToSchema for AosError {
+    fn name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("AosError")
+    }
+}
+
+#[cfg(feature = "utoipa")]
+impl utoipa::PartialSchema for AosError {
+    fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
+        utoipa::openapi::ObjectBuilder::new()
+            .schema_type(utoipa::openapi::schema::SchemaType::Type(
+                utoipa::openapi::schema::Type::String,
+            ))
+            .description(Some("adapterOS error message".to_string()))
+            .into()
     }
 }

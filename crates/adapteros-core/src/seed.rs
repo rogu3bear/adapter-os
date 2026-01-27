@@ -78,8 +78,8 @@
 
 use crate::backend::BackendKind;
 use crate::defaults::DEFAULT_SEED_MODE;
-use crate::hash::B3Hash;
 use crate::{AosError, Result};
+use adapteros_infra_common::B3Hash;
 use chrono::{DateTime, Utc};
 use hkdf::Hkdf;
 use parking_lot::RwLock;

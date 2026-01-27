@@ -1,4 +1,4 @@
-use crate::hash::B3Hash;
+use adapteros_infra_common::B3Hash;
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};

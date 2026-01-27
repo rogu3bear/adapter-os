@@ -34,7 +34,6 @@ pub mod circuit_breaker;
 pub mod circuit_breaker_registry;
 pub mod clock;
 pub mod codebase_versioning;
-pub mod constants;
 pub mod context_hash;
 pub mod context_manifest;
 pub mod crypto_receipt;
@@ -52,17 +51,13 @@ pub mod evidence_verifier;
 pub mod feature_guards;
 pub mod fusion_interval;
 pub mod guard_common;
-pub mod hash;
-pub mod id;
 pub mod identity;
 pub mod index_snapshot;
-pub mod invariants;
 pub mod io_utils;
 pub mod jitter;
 pub mod json;
 pub mod lifecycle;
 pub mod naming;
-pub mod normalization;
 pub mod path_normalization;
 pub mod path_security;
 pub mod path_utils;
@@ -92,7 +87,6 @@ pub mod timeout;
 pub mod tokenizer_config;
 pub mod training;
 pub mod validation;
-pub mod vector_math;
 pub mod version;
 pub mod worker_status;
 
@@ -107,6 +101,16 @@ pub use adapter_store::{
     AdapterCacheKey, AdapterPins, AdapterRecord, AdapterSnapshot, AdapterStore,
 };
 pub use adapter_type::{AdapterType, AdapterTypeParseError};
+pub use adapteros_infra_common as constants;
+pub use adapteros_infra_common::{
+    bytes_to_gb, bytes_to_mb, canonical_adapter_sort, canonical_score_comparator,
+    cosine_similarity, decode_q15_gate, dot_product, encode_q15_gate,
+    extract_repo_identifier_from_metadata, gb_to_bytes, kb_to_bytes, l2_norm, mb_to_bytes,
+    normalize, normalize_path_segments, normalize_repo_id, normalize_repo_slug, sanitize_optional,
+    sanitize_repo_identifier, sanitize_repo_slug, validate_seed_bytes, validate_seed_bytes_soft,
+    AdapterName, B3Hash, ForkType, StackName, BYTES_PER_GB, BYTES_PER_KB, BYTES_PER_MB, CPID,
+    DEFAULT_TIMEOUT_SECS, EPS as VECTOR_EPS, Q15_GATE_DENOMINATOR, SLOW_TIMEOUT_SECS,
+};
 pub use backend::BackendKind;
 pub use build_info::BuildInfo;
 pub use circuit_breaker::{
@@ -119,12 +123,8 @@ pub use codebase_versioning::{
     evaluate_versioning, should_auto_version, VersionBump, VersioningContext, VersioningDecision,
     VersioningPolicy, VersioningReason, DEFAULT_VERSIONING_THRESHOLD, MAX_VERSIONING_THRESHOLD,
     MIN_VERSIONING_THRESHOLD,
-};
-pub use constants::{
-    bytes_to_gb, bytes_to_mb, gb_to_bytes, kb_to_bytes, mb_to_bytes, BYTES_PER_GB, BYTES_PER_KB,
-    BYTES_PER_MB, DEFAULT_TIMEOUT_SECS, SLOW_TIMEOUT_SECS,
-};
-pub use context_hash::{compute_context_hash, ChunkRef};
+}; // For kb_to_bytes etc if I moved them correctly
+
 pub use context_manifest::{
     ContextAdapterEntry, ContextAdapterEntryV1, ContextManifest, ContextManifestV1,
 };
@@ -160,8 +160,6 @@ pub use evidence_verifier::{
 };
 pub use fusion_interval::FusionInterval;
 pub use guard_common::{GuardConfig, GuardLogLevel};
-pub use hash::B3Hash;
-pub use id::CPID;
 pub use io_utils::{
     check_disk_space, classify_and_convert_io_error, classify_io_error, ensure_temp_dir,
     get_available_space, validate_path_characters, IoErrorKind, TempFileGuard,
@@ -171,11 +169,6 @@ pub use jitter::{check_probability_by_id, compute_backoff_with_jitter, compute_j
 pub use lifecycle::{
     validate_deterministic_transition, LifecycleError, LifecycleState, LifecycleTransition,
     SemanticVersion, TransitionReason,
-};
-pub use naming::{AdapterName, ForkType, StackName};
-pub use normalization::{
-    extract_repo_identifier_from_metadata, normalize_path_segments, normalize_repo_id,
-    normalize_repo_slug, sanitize_optional, sanitize_repo_identifier, sanitize_repo_slug,
 };
 pub use path_normalization::{
     compare_paths_deterministic, normalize_path_for_sorting, normalize_path_str,
@@ -228,19 +221,12 @@ pub use tenant_isolation::{
 pub use timeout::TimeoutExt;
 pub use tokenizer_config::SpecialTokenMap;
 pub use training::{TrainingConfig, TrainingJob, TrainingJobStatus, TrainingTemplate};
-pub use vector_math::{cosine_similarity, dot_product, l2_norm, normalize, EPS as VECTOR_EPS};
 pub use version::{
     AlgorithmVersionBundle, IncompatibilitySeverity, VersionIncompatibility, VersionInfo,
     HASH_ALGORITHM_VERSION, HKDF_ALGORITHM_VERSION, PARSER_ALGORITHM_VERSION,
     PATH_NORMALIZATION_VERSION,
 };
 pub use worker_status::{WorkerStatus, WorkerStatusTransition};
-
-// Invariant validation for determinism-critical operations
-pub use invariants::{
-    canonical_adapter_sort, canonical_score_comparator, decode_q15_gate, encode_q15_gate,
-    validate_seed_bytes, validate_seed_bytes_soft, Q15_GATE_DENOMINATOR,
-};
 
 /// RNG module version for determinism tracking
 /// @deprecated Use `version::RNG_MODULE_VERSION` instead

@@ -152,7 +152,7 @@ impl Drop for SeedScopeGuard {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hash::B3Hash;
+    use crate::B3Hash;
     use crate::seed::derive_adapter_seed;
 
     #[test]

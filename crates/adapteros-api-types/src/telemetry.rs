@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::schema_version;
 
 // Re-export canonical BundleMetadata from adapteros-telemetry-types
-pub use adapteros_telemetry::types::BundleMetadata;
+pub use adapteros_telemetry_types::BundleMetadata;
 
 /// API telemetry event (DTO for public API)
 #[derive(Debug, Clone, Serialize, Deserialize)]
