@@ -7,7 +7,6 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use adapteros_lora_worker::training::TrainingBackend as WorkerTrainingBackend;
-use adapteros_storage::platform::common::PlatformUtils;
 use tempfile::TempDir;
 use tokio::sync::RwLock;
 
@@ -19,9 +18,7 @@ use crate::training::job::{
 };
 
 fn new_test_tempdir() -> TempDir {
-    let root = PlatformUtils::temp_dir();
-    std::fs::create_dir_all(&root).expect("create var/tmp");
-    TempDir::new_in(&root).expect("tempdir")
+    TempDir::with_prefix("aos-test-").expect("create temp dir")
 }
 
 fn cpu_only_config() -> TrainingConfig {

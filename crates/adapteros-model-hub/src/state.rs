@@ -609,16 +609,11 @@ impl StateManager {
 
 #[cfg(test)]
 mod tests {
-    //! Unit tests use `tempfile::TempDir`, but always under `var/tmp` (never OS temp).
-    //! Fixture strings like "var/..." are dummy data, not real paths.
-    //! Production code should use ./var/ paths - see AGENTS.md "Storage Paths".
     use super::*;
     use tempfile::TempDir;
 
     fn new_test_tempdir() -> TempDir {
-        let root = std::path::PathBuf::from("var").join("tmp");
-        std::fs::create_dir_all(&root).expect("create var/tmp");
-        TempDir::new_in(&root).expect("tempdir")
+        TempDir::with_prefix("aos-test-").expect("tempdir")
     }
 
     #[tokio::test]

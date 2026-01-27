@@ -44,9 +44,8 @@ async fn create_model(state: &AppState, model_id: &str, model_path: &Path) -> St
 #[tokio::test]
 async fn start_training_rejects_base_model_mismatch() {
     let state = common::setup_state(None).await.expect("state");
-    let tmp = PathBuf::from("var/tmp/training-guardrails-model");
-    std::fs::create_dir_all(&tmp).expect("mkdir");
-    let model_path = tmp.join("model.bin");
+    let tmp = tempfile::TempDir::with_prefix("aos-test-").expect("create temp dir");
+    let model_path = tmp.path().join("model.bin");
     std::fs::write(&model_path, b"weights").expect("write dummy model");
 
     // Register a model whose id will be sent in the request
@@ -153,9 +152,8 @@ async fn start_training_rejects_base_model_mismatch() {
 #[tokio::test]
 async fn start_training_rejects_empty_dataset() {
     let state = common::setup_state(None).await.expect("state");
-    let tmp = PathBuf::from("var/tmp/training-guardrails-empty");
-    std::fs::create_dir_all(&tmp).expect("mkdir");
-    let model_path = tmp.join("model.bin");
+    let tmp = tempfile::TempDir::with_prefix("aos-test-").expect("create temp dir");
+    let model_path = tmp.path().join("model.bin");
     std::fs::write(&model_path, b"weights").expect("write dummy model");
 
     let empty_model_id = create_model(&state, "empty-model", &model_path).await;

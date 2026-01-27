@@ -12,9 +12,10 @@ use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
 fn new_test_tempdir() -> TempDir {
-    let root = PlatformUtils::temp_dir();
-    std::fs::create_dir_all(&root).expect("create var/tmp");
-    TempDir::new_in(&root).expect("create temp dir")
+    tempfile::Builder::new()
+        .prefix("aos-test-")
+        .tempdir()
+        .expect("create temp dir")
 }
 
 fn make_prepared(example: &TrainingExample, hidden_dim: usize) -> coreml_pipeline::PreparedExample {

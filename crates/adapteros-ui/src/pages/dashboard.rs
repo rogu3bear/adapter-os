@@ -897,11 +897,18 @@ fn SelfTestButton(state: RwSignal<SelfTestState>) -> impl IntoView {
                     state.set(SelfTestState::Completed(result));
                 }
                 Err(e) => {
+                    let error_message = if e.requires_auth() {
+                        format!("Authentication failed. Please refresh the page. ({})", e)
+                    } else if e.is_retryable() {
+                        format!("Temporary error. Please try again. ({})", e)
+                    } else {
+                        format!("Self-test failed: {}", e)
+                    };
                     let result = SelfTestResult {
                         passed: false,
                         trace_id: None,
                         latency_ms: None,
-                        error: Some(e.to_string()),
+                        error: Some(error_message),
                         backend_used: None,
                     };
                     state.set(SelfTestState::Completed(result));

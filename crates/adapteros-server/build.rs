@@ -12,15 +12,13 @@ use std::process::Command;
 
 fn main() {
     // Rerun if git HEAD changes or Cargo.toml version changes
-    // Paths must be relative to workspace root for git files
+    // NOTE: We only watch .git/HEAD, not .git/index
+    // Watching .git/index triggers rebuilds on every git add/commit/stash, killing incremental build performance
+    // .git/HEAD changes when branches switch, which is when we actually need a new build ID
     if let Some(workspace_root) = find_workspace_root() {
         println!(
             "cargo:rerun-if-changed={}",
             workspace_root.join(".git/HEAD").display()
-        );
-        println!(
-            "cargo:rerun-if-changed={}",
-            workspace_root.join(".git/index").display()
         );
     }
     println!("cargo:rerun-if-changed=Cargo.toml");

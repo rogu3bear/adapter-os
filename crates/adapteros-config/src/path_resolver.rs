@@ -931,9 +931,7 @@ mod tests {
     use tempfile::TempDir;
 
     fn new_test_tempdir() -> TempDir {
-        let root = PathBuf::from("var").join("tmp");
-        std::fs::create_dir_all(&root).expect("create var/tmp");
-        TempDir::new_in(&root).expect("tempdir")
+        TempDir::with_prefix("aos-test-").expect("create temp dir")
     }
 
     #[test]
@@ -1312,7 +1310,7 @@ mod tests {
     #[test]
     fn prepare_socket_removes_stale_and_creates_parent() {
         let _env = TestEnvGuard::new();
-        let tmp = TempDir::new_in(".").unwrap();
+        let tmp = TempDir::with_prefix("aos-test-").unwrap();
         let socket_path = tmp.path().join("nested/worker.sock");
         std::fs::create_dir_all(socket_path.parent().unwrap()).unwrap();
         std::fs::write(&socket_path, b"stale").unwrap();

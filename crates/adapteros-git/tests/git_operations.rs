@@ -6,16 +6,12 @@
 use adapteros_core::Result;
 use adapteros_db::Db;
 use adapteros_git::{GitConfig, GitSubsystem};
-use std::path::PathBuf;
 use std::process::Command;
 use tempfile::TempDir;
 
 /// Helper to create a test Git repository with commits
 async fn create_test_repo() -> Result<(TempDir, String, String)> {
-    let root = PathBuf::from("var").join("tmp");
-    std::fs::create_dir_all(&root)
-        .map_err(|e| adapteros_core::AosError::Io(format!("Failed to create temp root: {}", e)))?;
-    let temp_dir = TempDir::new_in(&root)
+    let temp_dir = TempDir::with_prefix("aos-test-git-")
         .map_err(|e| adapteros_core::AosError::Io(format!("Failed to create temp dir: {}", e)))?;
     let repo_path = temp_dir.path();
 

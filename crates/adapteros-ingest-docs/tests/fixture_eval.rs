@@ -165,9 +165,7 @@ async fn fixture_documents_retrieval_and_training() -> Result<()> {
     let tokenizer = tokenizer_from_fixtures(&fixture_paths)?;
 
     let run = run_fixture_pipeline(&tokenizer, &fixture_paths).await?;
-    let root = PathBuf::from("var").join("tmp");
-    std::fs::create_dir_all(&root)?;
-    let temp_index = TempDir::new_in(&root)?;
+    let temp_index = TempDir::with_prefix("aos-test-")?;
     let mut tenant_index = TenantIndex::new(temp_index.path(), run.embedding_model.model_hash())?;
 
     for chunk in &run.rag_chunks {

@@ -1280,8 +1280,6 @@ mod file_validation_tests {
 
     #[tokio::test]
     async fn test_quick_validation_valid_jsonl() {
-        let tmp_root = std::path::PathBuf::from("var").join("tmp");
-        std::fs::create_dir_all(&tmp_root).expect("create var/tmp");
         let dir = tempdir().unwrap();
         let content = r#"{"data": "test"}"#;
         let path = create_test_file(dir.path(), "test.jsonl", content).await;
@@ -1295,8 +1293,6 @@ mod file_validation_tests {
 
     #[tokio::test]
     async fn test_deep_validation_with_training_format() {
-        let tmp_root = std::path::PathBuf::from("var").join("tmp");
-        std::fs::create_dir_all(&tmp_root).expect("create var/tmp");
         let dir = tempdir().unwrap();
         let content = r#"{"prompt": "Hello", "completion": "World"}"#;
         let path = create_test_file(dir.path(), "test.jsonl", content).await;
@@ -1310,8 +1306,6 @@ mod file_validation_tests {
 
     #[tokio::test]
     async fn test_deep_validation_missing_required_field() {
-        let tmp_root = std::path::PathBuf::from("var").join("tmp");
-        std::fs::create_dir_all(&tmp_root).expect("create var/tmp");
         let dir = tempdir().unwrap();
         let content = r#"{"prompt": "Hello"}"#; // missing completion
         let path = create_test_file(dir.path(), "test.jsonl", content).await;

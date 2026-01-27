@@ -20,15 +20,8 @@ use std::sync::{Arc, Barrier, Mutex};
 use std::thread;
 use tempfile::TempDir;
 
-fn test_temp_root() -> Result<PathBuf> {
-    let root = PathBuf::from("var").join("tmp");
-    fs::create_dir_all(&root)?;
-    Ok(root)
-}
-
 fn new_test_tempdir() -> Result<TempDir> {
-    let root = test_temp_root()?;
-    Ok(TempDir::new_in(&root)?)
+    Ok(TempDir::with_prefix("aos-test-")?)
 }
 
 // ============================================================================
@@ -485,9 +478,7 @@ fn test_path_canonicalization() -> Result<()> {
     assert!(is_within, "Nested file should be within base directory");
 
     // Test 6.5: Verify path outside base is detected
-    let temp_root = PathBuf::from("var/tmp");
-    fs::create_dir_all(&temp_root)?;
-    let outside_dir = TempDir::new_in(&temp_root)?;
+    let outside_dir = new_test_tempdir()?;
     let outside = outside_dir.path().join("outside.txt");
     fs::write(&outside, "outside")?;
 

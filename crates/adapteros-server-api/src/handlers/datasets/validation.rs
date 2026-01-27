@@ -1815,8 +1815,6 @@ mod validation_tests {
 
     #[tokio::test]
     async fn test_file_size_rule() {
-        let tmp_root = std::path::PathBuf::from("var").join("tmp");
-        std::fs::create_dir_all(&tmp_root).expect("create var/tmp");
         let dir = tempdir().unwrap();
         let path = create_test_file(dir.path(), "test.jsonl", "").await;
 
@@ -1830,8 +1828,6 @@ mod validation_tests {
 
     #[tokio::test]
     async fn test_file_extension_rule() {
-        let tmp_root = std::path::PathBuf::from("var").join("tmp");
-        std::fs::create_dir_all(&tmp_root).expect("create var/tmp");
         let dir = tempdir().unwrap();
         let path = create_test_file(dir.path(), "test.xyz", "content").await;
 
@@ -1845,8 +1841,6 @@ mod validation_tests {
 
     #[tokio::test]
     async fn test_jsonl_format_rule_valid() {
-        let tmp_root = std::path::PathBuf::from("var").join("tmp");
-        std::fs::create_dir_all(&tmp_root).expect("create var/tmp");
         let dir = tempdir().unwrap();
         let content = r#"{"prompt": "Hello", "completion": "World"}
 {"prompt": "Foo", "completion": "Bar"}"#;
@@ -1861,8 +1855,6 @@ mod validation_tests {
 
     #[tokio::test]
     async fn test_jsonl_format_rule_valid_raw_text() {
-        let tmp_root = std::path::PathBuf::from("var").join("tmp");
-        std::fs::create_dir_all(&tmp_root).expect("create var/tmp");
         let dir = tempdir().unwrap();
         let content = r#"{"text": "Hello"}"#;
         let path = create_test_file(dir.path(), "test.jsonl", content).await;
@@ -1876,8 +1868,6 @@ mod validation_tests {
 
     #[tokio::test]
     async fn test_jsonl_format_rule_invalid_json() {
-        let tmp_root = std::path::PathBuf::from("var").join("tmp");
-        std::fs::create_dir_all(&tmp_root).expect("create var/tmp");
         let dir = tempdir().unwrap();
         let content = r#"{"valid": true}
 {invalid json}
@@ -1900,8 +1890,6 @@ mod validation_tests {
 
     #[tokio::test]
     async fn test_jsonl_format_rule_missing_field() {
-        let tmp_root = std::path::PathBuf::from("var").join("tmp");
-        std::fs::create_dir_all(&tmp_root).expect("create var/tmp");
         let dir = tempdir().unwrap();
         let content = r#"{"prompt": "Hello"}"#; // missing completion
         let path = create_test_file(dir.path(), "test.jsonl", content).await;
@@ -1924,8 +1912,6 @@ mod validation_tests {
 
     #[tokio::test]
     async fn test_jsonl_format_rule_missing_prompt() {
-        let tmp_root = std::path::PathBuf::from("var").join("tmp");
-        std::fs::create_dir_all(&tmp_root).expect("create var/tmp");
         let dir = tempdir().unwrap();
         let content = r#"{"completion": "World"}"#;
         let path = create_test_file(dir.path(), "test.jsonl", content).await;
@@ -1948,8 +1934,6 @@ mod validation_tests {
 
     #[tokio::test]
     async fn test_jsonl_format_rule_empty_prompt() {
-        let tmp_root = std::path::PathBuf::from("var").join("tmp");
-        std::fs::create_dir_all(&tmp_root).expect("create var/tmp");
         let dir = tempdir().unwrap();
         let content = r#"{"prompt": "", "completion": "World"}"#;
         let path = create_test_file(dir.path(), "test.jsonl", content).await;
@@ -1971,8 +1955,6 @@ mod validation_tests {
 
     #[tokio::test]
     async fn test_jsonl_format_rule_invalid_response_type() {
-        let tmp_root = std::path::PathBuf::from("var").join("tmp");
-        std::fs::create_dir_all(&tmp_root).expect("create var/tmp");
         let dir = tempdir().unwrap();
         let content = r#"{"prompt": "Hello", "completion": 42}"#;
         let path = create_test_file(dir.path(), "test.jsonl", content).await;
@@ -1993,8 +1975,6 @@ mod validation_tests {
 
     #[tokio::test]
     async fn test_jsonl_format_rule_mixed_schema() {
-        let tmp_root = std::path::PathBuf::from("var").join("tmp");
-        std::fs::create_dir_all(&tmp_root).expect("create var/tmp");
         let dir = tempdir().unwrap();
         let content = r#"{"prompt": "A", "completion": "B"}
 {"text": "C"}"#;
@@ -2009,8 +1989,6 @@ mod validation_tests {
 
     #[tokio::test]
     async fn test_quick_validate_file() {
-        let tmp_root = std::path::PathBuf::from("var").join("tmp");
-        std::fs::create_dir_all(&tmp_root).expect("create var/tmp");
         let dir = tempdir().unwrap();
         let content = r#"{"data": "test"}"#;
         let path = create_test_file(dir.path(), "test.jsonl", content).await;
@@ -2022,8 +2000,6 @@ mod validation_tests {
 
     #[tokio::test]
     async fn test_deep_validate_file() {
-        let tmp_root = std::path::PathBuf::from("var").join("tmp");
-        std::fs::create_dir_all(&tmp_root).expect("create var/tmp");
         let dir = tempdir().unwrap();
         let content = r#"{"prompt": "Hello", "completion": "World"}"#;
         let path = create_test_file(dir.path(), "test.jsonl", content).await;
@@ -2037,8 +2013,6 @@ mod validation_tests {
 
     #[tokio::test]
     async fn test_composite_validator() {
-        let tmp_root = std::path::PathBuf::from("var").join("tmp");
-        std::fs::create_dir_all(&tmp_root).expect("create var/tmp");
         let dir = tempdir().unwrap();
         let path = create_test_file(dir.path(), "test.jsonl", "{}").await;
 

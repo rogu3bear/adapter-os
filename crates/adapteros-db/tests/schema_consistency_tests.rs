@@ -24,11 +24,10 @@ async fn create_test_db() -> Result<Db> {
 }
 
 fn new_test_aos_file() -> NamedTempFile {
-    let root = PathBuf::from("var").join("tmp");
-    std::fs::create_dir_all(&root).expect("Failed to create var/tmp");
     tempfile::Builder::new()
+        .prefix("aos-test-")
         .suffix(".aos")
-        .tempfile_in(&root)
+        .tempfile()
         .expect("Failed to create temp .aos file")
 }
 

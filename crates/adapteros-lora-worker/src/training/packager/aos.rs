@@ -1127,9 +1127,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_compute_hash() {
-        let tmp_root = std::path::PathBuf::from("var").join("tmp");
-        std::fs::create_dir_all(&tmp_root).expect("create var/tmp");
-        let temp_dir = tempfile::tempdir_in(&tmp_root).expect("tempdir");
+        let temp_dir = tempfile::Builder::new()
+            .prefix("aos-test-")
+            .tempdir()
+            .expect("tempdir");
         let test_file = temp_dir.path().join("test.txt");
         tokio::fs::write(&test_file, b"hello world").await.unwrap();
 
@@ -1141,9 +1142,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_save_load_manifest() {
-        let tmp_root = std::path::PathBuf::from("var").join("tmp");
-        std::fs::create_dir_all(&tmp_root).expect("create var/tmp");
-        let temp_dir = tempfile::tempdir_in(&tmp_root).expect("tempdir");
+        let temp_dir = tempfile::Builder::new()
+            .prefix("aos-test-")
+            .tempdir()
+            .expect("tempdir");
         let manifest_path = temp_dir.path().join("manifest.json");
 
         let manifest = AdapterManifest {
@@ -1212,9 +1214,10 @@ mod tests {
 
     #[tokio::test]
     async fn artifact_quota_enforces_hard_limit() {
-        let tmp_root = std::path::PathBuf::from("var").join("tmp");
-        std::fs::create_dir_all(&tmp_root).expect("create var/tmp");
-        let temp_dir = tempfile::tempdir_in(&tmp_root).expect("tempdir");
+        let temp_dir = tempfile::Builder::new()
+            .prefix("aos-test-")
+            .tempdir()
+            .expect("tempdir");
         let tenant_dir = temp_dir.path().join("tenant1").join("adapter");
         tokio::fs::create_dir_all(&tenant_dir).await.unwrap();
         let existing = tenant_dir.join("v1.aos");

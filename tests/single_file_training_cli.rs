@@ -357,9 +357,7 @@ fn verify_aos_file_header(aos_path: &Path) -> Result<(), Box<dyn std::error::Err
 }
 
 fn new_test_tempdir() -> std::io::Result<TempDir> {
-    let root = PathBuf::from("var").join("tmp");
-    std::fs::create_dir_all(&root)?;
-    TempDir::new_in(&root)
+    TempDir::with_prefix("aos-test-")
 }
 
 #[tokio::test]

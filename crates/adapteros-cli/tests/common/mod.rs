@@ -87,9 +87,7 @@ pub struct StubUdsServer {
 impl StubUdsServer {
     /// Launch stub server with pre-programmed responses returned FIFO per request.
     pub async fn start(responses: Vec<StubHttpResponse>) -> Result<Self> {
-        let root = PathBuf::from("var").join("tmp");
-        std::fs::create_dir_all(&root)?;
-        let tempdir = TempDir::new_in(&root)?;
+        let tempdir = TempDir::with_prefix("aos-test-")?;
         let socket_path = tempdir.path().join("worker.sock");
         Self::start_with_socket(socket_path, tempdir, responses)
     }
@@ -99,9 +97,7 @@ impl StubUdsServer {
         socket_path: P,
         responses: Vec<StubHttpResponse>,
     ) -> Result<Self> {
-        let root = PathBuf::from("var").join("tmp");
-        std::fs::create_dir_all(&root)?;
-        let tempdir = TempDir::new_in(&root)?;
+        let tempdir = TempDir::with_prefix("aos-test-")?;
         Self::start_with_socket(socket_path.as_ref().to_path_buf(), tempdir, responses)
     }
 

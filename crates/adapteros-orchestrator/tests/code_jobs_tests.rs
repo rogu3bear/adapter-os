@@ -3,8 +3,8 @@ use adapteros_orchestrator::code_jobs::{
     ArtifactStore, CommitDeltaPack, CommitDeltaJob, SymbolIndexArtifact, TestMapArtifact,
 };
 use adapteros_orchestrator::{CodeJobManager, UpdateIndicesJob};
-use adapteros_retrieval::codegraph::{CodeGraph, Language, Span, SymbolId, SymbolKind, SymbolNode};
-use std::path::PathBuf;
+use adapteros_retrieval::codegraph::{CodeGraph, Language, SymbolId, SymbolKind, SymbolNode};
+use adapteros_retrieval::Span;
 
 fn make_symbol(name: &str, file_path: &str, kind: SymbolKind, line: u32) -> SymbolNode {
     let span = Span::new(line, 1, line, 10, 0, 10);
@@ -30,9 +30,9 @@ fn build_graph(symbols: Vec<SymbolNode>) -> CodeGraph {
 #[tokio::test]
 async fn commit_delta_job_writes_pack() -> adapteros_core::Result<()> {
     let db = Db::new_in_memory().await?;
-    let tmp_root = PathBuf::from("var").join("tmp");
-    std::fs::create_dir_all(&tmp_root)?;
-    let temp_dir = tempfile::tempdir_in(&tmp_root)?;
+    let temp_dir = tempfile::Builder::new()
+        .prefix("aos-test-")
+        .tempdir()?;
 
     let store = ArtifactStore::new(temp_dir.path().to_path_buf());
     let mut base_symbol = make_symbol("foo", "src/lib.rs", SymbolKind::Function, 1);
@@ -77,9 +77,9 @@ async fn commit_delta_job_writes_pack() -> adapteros_core::Result<()> {
 #[tokio::test]
 async fn update_indices_job_writes_artifacts() -> adapteros_core::Result<()> {
     let db = Db::new_in_memory().await?;
-    let tmp_root = PathBuf::from("var").join("tmp");
-    std::fs::create_dir_all(&tmp_root)?;
-    let temp_dir = tempfile::tempdir_in(&tmp_root)?;
+    let temp_dir = tempfile::Builder::new()
+        .prefix("aos-test-")
+        .tempdir()?;
 
     let store = ArtifactStore::new(temp_dir.path().to_path_buf());
     let symbol = make_symbol("test_feature", "src/tests.rs", SymbolKind::Function, 10);

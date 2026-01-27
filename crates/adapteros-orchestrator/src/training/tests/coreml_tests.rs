@@ -3,7 +3,6 @@
 #![allow(clippy::field_reassign_with_default)]
 #![allow(unused_mut)]
 
-use adapteros_storage::platform::common::PlatformUtils;
 use tempfile::TempDir;
 
 use crate::test_support::TestEnvGuard;
@@ -17,9 +16,7 @@ use crate::training::service::TrainingService;
 use adapteros_lora_worker::{ComputeUnits, CoreMLExportJob};
 
 fn new_test_tempdir() -> TempDir {
-    let root = PlatformUtils::temp_dir();
-    std::fs::create_dir_all(&root).expect("create var/tmp");
-    TempDir::new_in(&root).expect("tempdir")
+    TempDir::with_prefix("aos-test-").expect("create temp dir")
 }
 
 #[cfg(not(all(target_os = "macos", feature = "coreml-backend")))]

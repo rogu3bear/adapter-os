@@ -736,9 +736,7 @@ mod safety_scan_tests {
 
     #[tokio::test]
     async fn safety_scan_marks_parse_errors_as_anomaly() {
-        let tmp_root = std::path::PathBuf::from("var").join("tmp");
-        std::fs::create_dir_all(&tmp_root).expect("create var/tmp");
-        let tmp = tempfile::tempdir_in(&tmp_root).expect("tempdir");
+        let tmp = tempfile::TempDir::with_prefix("aos-test-").expect("tempdir");
         let path = tmp.path().join("data.jsonl");
         let row = mk_row("ok prompt", "resp", "row-1");
         let content = format!(

@@ -29,9 +29,7 @@ use adapteros_single_file_adapter::{
 use tempfile::TempDir;
 
 fn new_test_tempdir() -> TempDir {
-    let root = std::path::PathBuf::from("var").join("tmp");
-    std::fs::create_dir_all(&root).expect("create var/tmp");
-    TempDir::new_in(&root).unwrap()
+    TempDir::with_prefix("aos-test-").unwrap()
 }
 
 fn create_test_adapter() -> SingleFileAdapter {

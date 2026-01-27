@@ -22,11 +22,9 @@ use std::path::PathBuf;
 use tempfile::TempDir;
 
 fn new_test_adapters_dir() -> TempDir {
-    let base_dir = PathBuf::from("var").join("tmp");
-    let _ = std::fs::create_dir_all(&base_dir);
     tempfile::Builder::new()
         .prefix("lifecycle_test_")
-        .tempdir_in(&base_dir)
+        .tempdir()
         .expect("tempdir")
 }
 

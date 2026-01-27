@@ -1,34 +1,24 @@
 //! Test to apply migrations to a test database
 //!
-//! This test creates a test database at var/aos-cp-test.sqlite3 and applies
+//! This test creates a test database in a temporary directory and applies
 //! all migrations from the migrations/ directory. This is used to ensure
 //! the database schema is up to date for SQLx compile-time query validation.
 
 use adapteros_db::Db;
-use std::path::PathBuf;
+use tempfile::TempDir;
 
 #[tokio::test]
 async fn apply_all_migrations_to_test_database() {
-    // Ensure var directory exists
-    let var_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(|p| p.parent())
-        .unwrap()
-        .join("var");
+    // Create temporary directory for test database (auto-cleanup on drop)
+    let temp_dir = TempDir::with_prefix("aos-test-migrations-")
+        .expect("Failed to create temporary directory for test database");
 
-    std::fs::create_dir_all(&var_dir).expect("Failed to create var directory");
+    // Test database path in temp directory
+    let db_path = temp_dir.path().join("aos-cp-test.sqlite3");
+    let db_path_str = db_path
+        .to_str()
+        .expect("Temporary database path should be valid UTF-8");
 
-    // Test database path
-    let db_path = var_dir.join("aos-cp-test.sqlite3");
-
-    // Remove existing database to start fresh
-    if db_path.exists() {
-        std::fs::remove_file(&db_path).expect("Failed to remove existing test database");
-        println!("Removed existing test database at: {}", db_path.display());
-    }
-
-    // Create database and apply migrations
-    let db_path_str = db_path.to_str().expect("Invalid database path");
     println!("Creating test database at: {}", db_path_str);
 
     let db = Db::connect(db_path_str)
@@ -40,4 +30,6 @@ async fn apply_all_migrations_to_test_database() {
 
     println!("✓ All migrations applied successfully to: {}", db_path_str);
     println!("✓ Database ready for SQLx compile-time validation");
+
+    // TempDir is dropped here, cleaning up the test database automatically
 }

@@ -16,14 +16,11 @@ use adapteros_config::{
 };
 use adapteros_core::rebase_var_path;
 mod test_env;
-use std::path::PathBuf;
 use tempfile::TempDir;
 use test_env::TestEnvGuard;
 
 fn new_test_tempdir() -> TempDir {
-    let root = PathBuf::from("var").join("tmp");
-    std::fs::create_dir_all(&root).expect("create var/tmp");
-    TempDir::new_in(&root).expect("tempdir")
+    TempDir::with_prefix("aos-test-").expect("create temp dir")
 }
 
 /// Guard that ensures env vars are cleaned up even on panic

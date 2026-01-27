@@ -659,7 +659,6 @@ mod tests {
     use super::*;
     use adapteros_config::DEFAULT_BASE_MODEL_ID;
     use adapteros_core::paths::{AOS_ADAPTERS_DIR_ENV, DEFAULT_ADAPTERS_DIR};
-    use adapteros_storage::platform::common::PlatformUtils;
     use clap::Parser;
     use serial_test::serial;
     use std::path::PathBuf;
@@ -679,9 +678,7 @@ mod tests {
     }
 
     fn new_test_tempdir() -> tempfile::TempDir {
-        let root = PlatformUtils::temp_dir();
-        std::fs::create_dir_all(&root).expect("create var/tmp");
-        tempfile::tempdir_in(&root).expect("tempdir")
+        tempfile::TempDir::with_prefix("aos-test-").expect("create temp dir")
     }
 
     #[test]

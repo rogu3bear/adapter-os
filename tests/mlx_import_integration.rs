@@ -10,9 +10,7 @@ use std::process::Command;
 use tempfile::TempDir;
 
 fn new_test_tempdir() -> TempDir {
-    let root = PathBuf::from("var").join("tmp");
-    std::fs::create_dir_all(&root).expect("create var/tmp");
-    TempDir::new_in(&root).expect("Failed to create temp directory")
+    TempDir::with_prefix("aos-test-").expect("Failed to create temp directory")
 }
 
 #[test]

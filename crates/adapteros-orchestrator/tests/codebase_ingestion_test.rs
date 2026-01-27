@@ -25,16 +25,13 @@ use adapteros_orchestrator::code_ingestion::{
     CodeDatasetConfig, CodeIngestionPipeline, CodeIngestionRequest, CodeIngestionSource,
 };
 use adapteros_orchestrator::codebase_ingestion::{CodebaseIngestion, IngestionConfig};
-use adapteros_storage::platform::common::PlatformUtils;
 use git2::{Repository, Signature};
 use std::io::Write;
 use std::path::PathBuf;
 use tempfile::TempDir;
 
 fn new_test_tempdir() -> TempDir {
-    let root = PlatformUtils::temp_dir();
-    std::fs::create_dir_all(&root).expect("create var/tmp");
-    TempDir::new_in(&root).expect("tempdir")
+    TempDir::with_prefix("aos-test-").expect("create temp dir")
 }
 
 fn canonical_tokenizer_path() -> PathBuf {

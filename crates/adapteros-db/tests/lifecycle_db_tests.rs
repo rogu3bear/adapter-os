@@ -27,9 +27,7 @@ async fn promote_adapter_to_active(db: &Db, adapter_id: &str) -> Result<(), sqlx
 }
 
 async fn create_test_db_persistent() -> (Db, TempDir) {
-    let root = PathBuf::from("var").join("tmp");
-    std::fs::create_dir_all(&root).expect("Failed to create var/tmp");
-    let temp_dir = TempDir::new_in(&root).expect("Failed to create temp directory");
+    let temp_dir = TempDir::with_prefix("aos-test-").expect("Failed to create temp directory");
     let db_path = temp_dir.path().join("test.db");
     let db = Db::connect(db_path.to_str().expect("Invalid db path"))
         .await

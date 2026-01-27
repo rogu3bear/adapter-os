@@ -255,13 +255,13 @@ impl IntegrityVerifier {
 mod tests {
     use super::*;
     use std::io::Write;
-    use std::path::PathBuf;
     use tempfile::NamedTempFile;
 
     fn new_test_tempfile() -> NamedTempFile {
-        let root = PathBuf::from("var").join("tmp");
-        std::fs::create_dir_all(&root).expect("create var/tmp");
-        NamedTempFile::new_in(&root).expect("create temp file")
+        tempfile::Builder::new()
+            .prefix("aos-test-")
+            .tempfile()
+            .expect("create temp file")
     }
 
     #[test]

@@ -86,10 +86,8 @@ async fn load_model_rejects_path_outside_allowed_root() {
     std::fs::write(&fake_socket, b"").expect("touch fake socket");
     std::env::set_var("AOS_WORKER_SOCKET", fake_socket.to_str().unwrap());
 
-    let temp_root = std::path::PathBuf::from("var").join("tmp");
-    std::fs::create_dir_all(&temp_root).expect("create var/tmp");
-    let allowed_root = TempDir::new_in(&temp_root).expect("allowed root");
-    let disallowed_root = TempDir::new_in(&temp_root).expect("disallowed root");
+    let allowed_root = TempDir::with_prefix("aos-test-allowed-").expect("allowed root");
+    let disallowed_root = TempDir::with_prefix("aos-test-disallowed-").expect("disallowed root");
     std::env::set_var(
         "AOS_MODEL_CACHE_DIR",
         allowed_root.path().to_string_lossy().to_string(),

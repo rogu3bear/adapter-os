@@ -1,14 +1,11 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-use adapteros_storage::platform::common::PlatformUtils;
 use serde_json::Value;
 use tempfile::TempDir;
 
 fn new_test_tempdir() -> TempDir {
-    let root = PlatformUtils::temp_dir();
-    std::fs::create_dir_all(&root).expect("create var/tmp");
-    TempDir::new_in(&root).expect("temp dir should create")
+    TempDir::with_prefix("aos-test-").expect("create temp dir")
 }
 
 fn fixture_root() -> PathBuf {

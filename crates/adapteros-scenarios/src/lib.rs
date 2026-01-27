@@ -232,9 +232,7 @@ mod tests {
 
     #[test]
     fn loader_reads_default_dir() {
-        let tmp_root = PathBuf::from("var").join("tmp");
-        std::fs::create_dir_all(&tmp_root).expect("create var/tmp");
-        let dir = tempfile::tempdir_in(&tmp_root).expect("tempdir");
+        let dir = tempfile::Builder::new().prefix("aos-test-").tempdir().expect("tempdir");
         write_scenario(
             dir.path(),
             "doc-chat",
