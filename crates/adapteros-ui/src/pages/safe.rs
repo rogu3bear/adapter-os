@@ -15,13 +15,13 @@ pub fn Safe() -> impl IntoView {
     view! {
         <div class="min-h-screen flex items-center justify-center bg-muted/40 p-6">
             <Card
-                title="Safe Mode".to_string()
+                title="Safety Mode".to_string()
                 description="Minimal UI with no API calls. Use this if the main app fails to load.".to_string()
                 class="w-full max-w-lg".to_string()
             >
                 <div class="space-y-4">
                     <p class="text-sm text-muted-foreground">
-                        "Safe mode helps diagnose boot issues and provides a stable fallback UI."
+                        "Safety mode helps diagnose boot issues and provides a stable fallback UI."
                     </p>
                     <div class="flex items-center gap-3">
                         <Button on_click=Callback::new(go_login)>

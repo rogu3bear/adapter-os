@@ -260,6 +260,8 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::error_alerts::list_error_alert_history,
         handlers::error_alerts::acknowledge_error_alert,
         handlers::error_alerts::resolve_error_alert,
+        // Embedding benchmark handlers
+        handlers::embeddings::list_embedding_benchmarks,
         // Dataset handlers
         handlers::datasets::upload_dataset,
         handlers::datasets::initiate_chunked_upload,
@@ -368,6 +370,9 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::toggle_tenant_policy,
         handlers::query_policy_decisions,
         handlers::verify_policy_audit_chain,
+        // Audit chain handlers (UI-compatible format)
+        handlers::audit::get_audit_chain,
+        handlers::audit::verify_audit_chain,
         // Policy assignment handlers (PRD-RBAC-01)
         handlers::tenant_policies::assign_policy,
         handlers::tenant_policies::list_policy_assignments,
@@ -551,6 +556,10 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::tenant_policies::PolicyDecisionsQuery,
         handlers::tenant_policies::ChainVerificationResult,
         handlers::tenant_policies::BrokenLink,
+        // Audit chain types (UI-compatible format)
+        handlers::audit::AuditChainEntry,
+        handlers::audit::AuditChainResponse,
+        handlers::audit::ChainVerificationResponse,
         // Worker stop types
         crate::types::WorkerStopResponse,
         // Contacts and Streams types - Citation: CONTACTS_AND_STREAMS_IMPLEMENTATION_PLAN.md
@@ -755,6 +764,7 @@ use utoipa_swagger_ui::SwaggerUi;
         (name = "cli", description = "Owner CLI command execution"),
         (name = "storage", description = "Storage mode and statistics visibility"),
         (name = "runtime", description = "Runtime session and configuration tracking"),
+        (name = "Embeddings", description = "Embedding benchmark operations"),
     )
 )]
 pub struct ApiDoc;
@@ -1788,6 +1798,11 @@ pub fn build(state: AppState) -> Router {
             "/v1/error-alerts/{id}/resolve",
             post(handlers::error_alerts::resolve_error_alert),
         )
+        // Embedding benchmarks routes
+        .route(
+            "/v1/embeddings/benchmarks",
+            get(handlers::embeddings::list_embedding_benchmarks),
+        )
         // Metrics snapshot/series routes
         .route(
             "/v1/metrics/snapshot",
@@ -1909,6 +1924,12 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/audit/policy-decisions/verify-chain",
             get(handlers::verify_policy_audit_chain),
+        )
+        // Audit chain endpoints (UI-compatible format)
+        .route("/v1/audit/chain", get(handlers::audit::get_audit_chain))
+        .route(
+            "/v1/audit/chain/verify",
+            get(handlers::audit::verify_audit_chain),
         )
         // Agent D contract endpoints
         .route("/v1/audits", get(handlers::list_audits_extended))

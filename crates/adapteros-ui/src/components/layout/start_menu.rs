@@ -43,12 +43,7 @@ fn build_modules() -> Vec<NavModule> {
         NavModule {
             name: "Data",
             icon: "M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4",
-            items: &[
-                ("Datasets", "/datasets"),
-                ("Documents", "/documents"),
-                ("Repositories", "/repositories"),
-                ("Collections", "/collections"),
-            ],
+            items: &[("Datasets", "/datasets"), ("Documents", "/documents")],
             collapsed: false,
         },
         NavModule {
@@ -60,8 +55,6 @@ fn build_modules() -> Vec<NavModule> {
                 ("Workers", "/workers"),
                 ("Metrics", "/monitoring"),
                 ("Incidents", "/errors"),
-                ("Training", "/training"),
-                ("Agents", "/agents"),
             ],
             collapsed: false,
         },
@@ -80,7 +73,7 @@ fn build_modules() -> Vec<NavModule> {
             icon: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z",
             items: &[
                 ("Routing Debug", "/routing"),
-                ("Diff Viewer", "/diff"),
+                ("Run Diff", "/diff"),
                 ("Style Audit", "/style-audit"),
             ],
             collapsed: true, // Tools collapsed by default

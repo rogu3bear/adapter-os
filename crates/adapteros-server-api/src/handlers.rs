@@ -21,6 +21,7 @@ use uuid::Uuid;
 
 pub mod activity;
 pub mod adapter_health;
+pub mod audit;
 pub mod adapter_lifecycle;
 pub mod adapter_stacks;
 pub mod adapter_utils;
@@ -53,6 +54,7 @@ pub mod diagnostics;
 pub mod discovery;
 pub mod documents;
 pub mod domain_adapters;
+pub mod embeddings;
 pub mod error_alerts;
 pub mod event_applier;
 pub mod evidence;

@@ -60,8 +60,8 @@ pub fn Stacks() -> impl IntoView {
     view! {
         <div class="space-y-6">
             <PageHeader
-                title="Adapter Stacks"
-                subtitle="Manage adapter compositions for inference"
+                title="Runtime Stacks"
+                subtitle="Compose adapter stacks for inference"
             >
                 <RefreshButton on_click=Callback::new(move |_| trigger_refresh())/>
                 <Button

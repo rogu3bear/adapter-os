@@ -11,14 +11,16 @@
 use crate::api::ApiClient;
 use crate::api::client::InferenceTraceDetailResponse;
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonVariant, Card, Spinner, Table, TableBody, TableCell,
-    TableHead, TableHeader, TableRow, TokenDecisions, TraceViewerWithData,
+    Badge, BadgeVariant, Button, ButtonVariant, Card, DiffResults, Spinner, Table, TableBody,
+    TableCell, TableHead, TableHeader, TableRow, TokenDecisions, TraceViewerWithData,
 };
 use crate::hooks::{use_api_resource, use_polling, LoadingState};
 use adapteros_api_types::diagnostics::{
-    DiagEventResponse, DiagExportResponse, DiagRunResponse, ListDiagRunsQuery, StageTiming,
+    DiagDiffRequest, DiagDiffResponse, DiagEventResponse, DiagExportResponse, DiagRunResponse,
+    ListDiagRunsQuery, ListDiagRunsResponse, StageTiming,
 };
 use leptos::prelude::*;
+use leptos::task::spawn_local;
 use leptos_router::hooks::{use_params_map, use_query_map};
 use std::sync::Arc;
 
@@ -283,6 +285,7 @@ pub enum RunDetailTab {
     Receipt,
     Routing,
     Tokens,
+    Diff,
     Events,
 }
 
@@ -293,6 +296,7 @@ impl RunDetailTab {
             "receipt" => Self::Receipt,
             "routing" => Self::Routing,
             "tokens" => Self::Tokens,
+            "diff" => Self::Diff,
             "events" => Self::Events,
             _ => Self::Overview,
         }
@@ -307,7 +311,12 @@ impl RunDetailTab {
 fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
     // Get initial tab from URL query param
     let query = use_query_map();
-    let initial_tab = query.get().get("tab").map(|t| RunDetailTab::from_str(&t)).unwrap_or_default();
+    let initial_tab = query
+        .get()
+        .get("tab")
+        .map(|t| RunDetailTab::from_str(&t))
+        .unwrap_or_default();
+    let compare_trace = query.get().get("compare");
 
     // Tab state
     let active_tab = RwSignal::new(initial_tab);
@@ -316,7 +325,24 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
     let run_id_clone = run_id.clone();
     let (export_data, _refetch) = use_api_resource(move |client: Arc<ApiClient>| {
         let id = run_id_clone.clone();
-        async move { client.export_diag_run(&id).await }
+        async move {
+            match client.export_diag_run(&id).await {
+                Ok(export) => Ok(export),
+                Err(primary_err) => {
+                    let runs = client
+                        .list_diag_runs(&ListDiagRunsQuery {
+                            limit: Some(200),
+                            ..Default::default()
+                        })
+                        .await?;
+                    if let Some(run) = runs.runs.into_iter().find(|r| r.trace_id == id) {
+                        client.export_diag_run(&run.id).await
+                    } else {
+                        Err(primary_err)
+                    }
+                }
+            }
+        }
     });
 
     let run_id_display = truncate_id(&run_id);
@@ -348,6 +374,32 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
                 </Button>
             </div>
 
+            // Quick Actions bar
+            <div class="flex items-center gap-2 flex-wrap">
+                <QuickActionButton
+                    icon="📋"
+                    label="Copy Run ID"
+                    action=QuickAction::CopyText(run_id.clone())
+                />
+                <QuickActionButton
+                    icon="🔗"
+                    label="Copy Receipt Hash"
+                    action=QuickAction::CopyReceiptHash(run_id.clone())
+                />
+                <QuickActionButton
+                    icon="📥"
+                    label="Export"
+                    action=QuickAction::Export(run_id.clone())
+                />
+                <a
+                    href=format!("/runs/{}?tab=diff", run_id)
+                    class="inline-flex items-center gap-1.5 px-2 py-1 text-xs rounded border border-border hover:bg-muted transition-colors"
+                >
+                    <span>"↔"</span>
+                    <span>"Open Diff"</span>
+                </a>
+            </div>
+
             // Tabs navigation
             <div class="border-b border-border">
                 <nav class="flex gap-1">
@@ -356,6 +408,7 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
                     <RunDetailTabButton tab=RunDetailTab::Receipt active=active_tab label="Receipt"/>
                     <RunDetailTabButton tab=RunDetailTab::Routing active=active_tab label="Routing"/>
                     <RunDetailTabButton tab=RunDetailTab::Tokens active=active_tab label="Tokens"/>
+                    <RunDetailTabButton tab=RunDetailTab::Diff active=active_tab label="Diff"/>
                     <RunDetailTabButton tab=RunDetailTab::Events active=active_tab label="Events"/>
                 </nav>
             </div>
@@ -385,7 +438,7 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
 
                         match active_tab.get() {
                             RunDetailTab::Overview => {
-                                view! { <OverviewTab export=export_clone/> }.into_any()
+                                view! { <OverviewTab export=export_clone trace_detail=trace_detail/> }.into_any()
                             }
                             RunDetailTab::Trace => {
                                 view! { <TraceTab trace_detail=trace_detail/> }.into_any()
@@ -398,6 +451,9 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
                             }
                             RunDetailTab::Tokens => {
                                 view! { <TokensTab export=export_clone trace_detail=trace_detail/> }.into_any()
+                            }
+                            RunDetailTab::Diff => {
+                                view! { <DiffTab export=export_clone compare_trace=compare_trace.clone()/> }.into_any()
                             }
                             RunDetailTab::Events => {
                                 view! { <EventsTab export=export_clone/> }.into_any()
@@ -441,19 +497,124 @@ fn RunDetailTabButton(
     }
 }
 
+/// Quick action type for Run Detail buttons
+#[derive(Clone)]
+enum QuickAction {
+    /// Copy text to clipboard
+    CopyText(String),
+    /// Copy receipt hash (requires fetching from export)
+    CopyReceiptHash(String),
+    /// Export run data
+    Export(String),
+}
+
+/// Quick action button component
+#[component]
+fn QuickActionButton(icon: &'static str, label: &'static str, action: QuickAction) -> impl IntoView {
+    let (copied, set_copied) = signal(false);
+
+    let on_click = move |_| {
+        match action.clone() {
+            QuickAction::CopyText(text) => {
+                copy_to_clipboard(&text, set_copied);
+            }
+            QuickAction::CopyReceiptHash(run_id) => {
+                // For now, copy the run_id as placeholder
+                // In production, this would fetch the receipt hash
+                copy_to_clipboard(&format!("receipt:{}", run_id), set_copied);
+            }
+            QuickAction::Export(run_id) => {
+                // Navigate to export endpoint or trigger download
+                if let Some(window) = web_sys::window() {
+                    let _ = window.open_with_url_and_target(
+                        &format!("/api/diag/runs/{}/export", run_id),
+                        "_blank",
+                    );
+                }
+            }
+        }
+    };
+
+    view! {
+        <button
+            class="inline-flex items-center gap-1.5 px-2 py-1 text-xs rounded border border-border hover:bg-muted transition-colors"
+            on:click=on_click
+            title=label
+        >
+            <span>{icon}</span>
+            <span>{move || if copied.get() { "Copied!" } else { label }}</span>
+        </button>
+    }
+}
+
+/// Copy text to clipboard and reset copied state after timeout
+fn copy_to_clipboard(text: &str, set_copied: WriteSignal<bool>) {
+    use wasm_bindgen::prelude::*;
+    use wasm_bindgen::JsCast;
+    use wasm_bindgen_futures::JsFuture;
+
+    let text = text.to_string();
+    spawn_local(async move {
+        let success = async {
+            let window = web_sys::window()?;
+            let navigator = window.navigator();
+
+            // Get clipboard from navigator using JS reflection
+            let clipboard = js_sys::Reflect::get(&navigator, &wasm_bindgen::JsValue::from_str("clipboard"))
+                .ok()
+                .filter(|v| !v.is_undefined())?;
+
+            // Call writeText method
+            let write_text_fn = js_sys::Reflect::get(&clipboard, &wasm_bindgen::JsValue::from_str("writeText"))
+                .ok()?;
+            let write_text_fn = write_text_fn.dyn_ref::<js_sys::Function>()?;
+            let promise = write_text_fn.call1(&clipboard, &wasm_bindgen::JsValue::from_str(&text)).ok()?;
+            let promise = promise.dyn_into::<js_sys::Promise>().ok()?;
+
+            JsFuture::from(promise).await.ok()?;
+            Some(())
+        }.await;
+
+        if success.is_some() {
+            set_copied.set(true);
+
+            // Reset after 2 seconds
+            let window = web_sys::window();
+            if let Some(window) = window {
+                let callback = Closure::once(Box::new(move || {
+                    set_copied.set(false);
+                }) as Box<dyn FnOnce()>);
+
+                let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
+                    callback.as_ref().unchecked_ref(),
+                    2000,
+                );
+                callback.forget();
+            }
+        }
+    });
+}
+
 // ============================================================================
 // Tab Content Components
 // ============================================================================
 
 /// Overview tab - run summary, status, timing, adapters
 #[component]
-fn OverviewTab(export: DiagExportResponse) -> impl IntoView {
+fn OverviewTab(
+    export: DiagExportResponse,
+    trace_detail: ReadSignal<LoadingState<InferenceTraceDetailResponse>>,
+) -> impl IntoView {
     let timing = export.timing_summary.clone().unwrap_or_default();
     let status = export.run.status.clone();
     let duration_str = format_duration_ms(export.run.duration_ms);
     let events_count = export.run.total_events_count;
     let dropped_count = export.run.dropped_events_count;
     let started_at = format_timestamp_ms(export.run.started_at_unix_ms);
+
+    // Extract backend info from events (look for inference-related events)
+    let events = export.events.clone().unwrap_or_default();
+    let reasoning_mode = extract_reasoning_mode_from_events(&events);
 
     // Calculate total duration for percentage bars
     let total_us: i64 = timing.iter().filter_map(|s| s.duration_us).sum();
@@ -489,6 +650,64 @@ fn OverviewTab(export: DiagExportResponse) -> impl IntoView {
                 </div>
             </Card>
 
+            // Configuration section - shows stack/model/policy/backend used
+            <Card title="Configuration".to_string()>
+                <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+                    <div>
+                        <p class="text-sm text-muted-foreground">"Stack"</p>
+                        <p class="font-medium text-sm text-muted-foreground/70 italic">"Unknown"</p>
+                    </div>
+                    <div>
+                        <p class="text-sm text-muted-foreground">"Model"</p>
+                        <p class="font-medium text-sm text-muted-foreground/70 italic">"Unknown"</p>
+                    </div>
+                    <div>
+                        <p class="text-sm text-muted-foreground">"Policy"</p>
+                        <p class="font-medium text-sm text-muted-foreground/70 italic">"Unknown"</p>
+                    </div>
+                    <div>
+                        <p class="text-sm text-muted-foreground">"Backend"</p>
+                        {move || {
+                            match trace_detail.get() {
+                                LoadingState::Loaded(detail) => {
+                                    if let Some(backend) = detail.backend_id.clone() {
+                                        view! {
+                                            <p class="font-medium">
+                                                <Badge variant=BadgeVariant::Secondary>{backend}</Badge>
+                                            </p>
+                                        }.into_any()
+                                    } else {
+                                        view! {
+                                            <p class="font-medium text-sm text-muted-foreground/70 italic">"Unknown"</p>
+                                        }.into_any()
+                                    }
+                                }
+                                _ => view! {
+                                    <p class="font-medium text-sm text-muted-foreground/70 italic">"Loading..."</p>
+                                }.into_any()
+                            }
+                        }}
+                    </div>
+                    <div>
+                        <p class="text-sm text-muted-foreground">"Thinking Mode"</p>
+                        {match reasoning_mode {
+                            Some(true) => view! {
+                                <Badge variant=BadgeVariant::Success>"Enabled"</Badge>
+                            }.into_any(),
+                            Some(false) => view! {
+                                <Badge variant=BadgeVariant::Secondary>"Disabled"</Badge>
+                            }.into_any(),
+                            None => view! {
+                                <p class="font-medium text-sm text-muted-foreground/70 italic">"Unknown"</p>
+                            }.into_any(),
+                        }}
+                    </div>
+                </div>
+                <p class="text-xs text-muted-foreground mt-3">
+                    "Stack, Model, and Policy identifiers are not yet captured in diagnostic runs."
+                </p>
+            </Card>
+
             // Stage timeline (if available)
             {if !timing.is_empty() {
                 Some(view! {
@@ -513,7 +732,7 @@ fn OverviewTab(export: DiagExportResponse) -> impl IntoView {
 
             // Quick links to other tabs
             <Card title="Provenance".to_string()>
-                <div class="grid grid-cols-3 gap-3">
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
                     <a href="?tab=trace" class="p-3 rounded-lg border border-border hover:bg-muted/50 transition-colors text-center">
                         <div class="text-2xl mb-1">"🔍"</div>
                         <div class="text-sm font-medium">"Trace"</div>
@@ -528,6 +747,11 @@ fn OverviewTab(export: DiagExportResponse) -> impl IntoView {
                         <div class="text-2xl mb-1">"⚡"</div>
                         <div class="text-sm font-medium">"Routing"</div>
                         <div class="text-xs text-muted-foreground">"K-sparse decisions"</div>
+                    </a>
+                    <a href="?tab=diff" class="p-3 rounded-lg border border-border hover:bg-muted/50 transition-colors text-center">
+                        <div class="text-2xl mb-1">"↔"</div>
+                        <div class="text-sm font-medium">"Diff"</div>
+                        <div class="text-xs text-muted-foreground">"Compare runs"</div>
                     </a>
                 </div>
             </Card>
@@ -956,6 +1180,213 @@ fn TokensTab(
     }
 }
 
+/// Diff tab - compare current run against another run
+#[component]
+fn DiffTab(export: DiagExportResponse, compare_trace: Option<String>) -> impl IntoView {
+    let run_a_trace_id = export.run.trace_id.clone();
+    let run_a_id = export.run.id.clone();
+    let compare_trace_value = compare_trace.clone().unwrap_or_default();
+
+    let run_b_trace_id = RwSignal::new(compare_trace_value.clone());
+    let diff_result: RwSignal<Option<DiagDiffResponse>> = RwSignal::new(None);
+    let diff_loading = RwSignal::new(false);
+    let diff_error: RwSignal<Option<String>> = RwSignal::new(None);
+    let auto_compare_done = RwSignal::new(false);
+
+    let (runs, refetch_runs) = use_api_resource(|client: Arc<ApiClient>| async move {
+        client
+            .list_diag_runs(&ListDiagRunsQuery {
+                limit: Some(50),
+                ..Default::default()
+            })
+            .await
+    });
+
+    let start_compare = {
+        let run_a_trace_id = run_a_trace_id.clone();
+        Callback::new(move |trace_b: String| {
+            if trace_b.is_empty() {
+                diff_error.set(Some("Select a run to compare".to_string()));
+                return;
+            }
+
+            diff_loading.set(true);
+            diff_error.set(None);
+            diff_result.set(None);
+
+            let trace_a = run_a_trace_id.clone();
+            spawn_local(async move {
+                let client = ApiClient::new();
+                let request = DiagDiffRequest {
+                    trace_id_a: trace_a,
+                    trace_id_b: trace_b,
+                    include_timing: true,
+                    include_events: true,
+                    include_router_steps: true,
+                };
+
+                match client.diff_diag_runs(&request).await {
+                    Ok(result) => {
+                        diff_result.set(Some(result));
+                        diff_loading.set(false);
+                    }
+                    Err(e) => {
+                        diff_error.set(Some(e.to_string()));
+                        diff_loading.set(false);
+                    }
+                }
+            });
+        })
+    };
+
+    let start_compare_for_effect = start_compare.clone();
+    Effect::new(move |_| {
+        if auto_compare_done.get() || compare_trace_value.is_empty() {
+            return;
+        }
+        auto_compare_done.set(true);
+        start_compare_for_effect.run(compare_trace_value.clone());
+    });
+
+    let selected_run_id = Signal::derive(move || {
+        let selected_trace = run_b_trace_id.get();
+        match runs.get() {
+            LoadingState::Loaded(ref data) => data
+                .runs
+                .iter()
+                .find(|run| run.trace_id == selected_trace)
+                .map(|run| run.id.clone()),
+            _ => None,
+        }
+    });
+    let run_a_trace_id_for_link = run_a_trace_id.clone();
+
+    view! {
+        <div class="space-y-4">
+            <p class="text-sm text-muted-foreground">
+                "Compare this run against another trace to diagnose determinism drift."
+            </p>
+
+            <Card title="Run Diff".to_string()>
+                <div class="space-y-4">
+                    <div class="grid gap-4 md:grid-cols-2">
+                        <div>
+                            <p class="text-xs text-muted-foreground uppercase tracking-wide mb-1">"Run A (current)"</p>
+                            <div class="rounded-md border border-border p-3 bg-muted/20">
+                                <div class="text-sm font-medium">{"Run ID"}</div>
+                                <div class="text-xs font-mono text-muted-foreground break-all">{run_a_id.clone()}</div>
+                                <div class="mt-2 text-sm font-medium">{"Trace ID"}</div>
+                                <div class="text-xs font-mono text-muted-foreground break-all">{run_a_trace_id.clone()}</div>
+                            </div>
+                        </div>
+                        <div>
+                            <p class="text-xs text-muted-foreground uppercase tracking-wide mb-1">"Run B (comparison)"</p>
+                            <RunCompareSelector
+                                runs=runs
+                                selected=run_b_trace_id
+                                exclude=run_a_trace_id.clone()
+                            />
+                        </div>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-3">
+                        <button
+                            class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                            disabled=move || diff_loading.get() || run_b_trace_id.get().is_empty()
+                            on:click=move |_| start_compare.run(run_b_trace_id.get())
+                        >
+                            {move || if diff_loading.get() { "Comparing..." } else { "Compare Runs" }}
+                        </button>
+                        <button
+                            class="inline-flex items-center gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm hover:bg-accent"
+                            on:click=move |_| refetch_runs.run(())
+                        >
+                            "Refresh Runs"
+                        </button>
+                        {move || diff_error.get().map(|e| view! {
+                            <span class="text-destructive text-sm">{e}</span>
+                        })}
+                        {move || {
+                            let compare_id = run_b_trace_id.get();
+                            if compare_id.is_empty() {
+                                return view! {}.into_any();
+                            }
+                            let run_id = selected_run_id.get().unwrap_or(compare_id.clone());
+                            let href = format!("/runs/{}?tab=diff&compare={}", run_id, run_a_trace_id_for_link);
+                            view! {
+                                <a href=href class="text-sm text-primary hover:underline">
+                                    "Open in Run Detail"
+                                </a>
+                            }.into_any()
+                        }}
+                    </div>
+                </div>
+            </Card>
+
+            {move || {
+                if diff_loading.get() {
+                    view! {
+                        <Card>
+                            <div class="flex items-center justify-center py-12">
+                                <Spinner/>
+                                <span class="ml-2 text-muted-foreground">"Comparing runs..."</span>
+                            </div>
+                        </Card>
+                    }.into_any()
+                } else if let Some(result) = diff_result.get() {
+                    view! { <DiffResults result=result/> }.into_any()
+                } else {
+                    view! {
+                        <Card>
+                            <div class="text-center py-10 text-muted-foreground text-sm">
+                                "Select a comparison run to see differences."
+                            </div>
+                        </Card>
+                    }.into_any()
+                }
+            }}
+        </div>
+    }
+}
+
+#[component]
+fn RunCompareSelector(
+    runs: ReadSignal<LoadingState<ListDiagRunsResponse>>,
+    selected: RwSignal<String>,
+    exclude: String,
+) -> impl IntoView {
+    view! {
+        <select
+            class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            on:change=move |ev| selected.set(event_target_value(&ev))
+            prop:value=move || selected.get()
+        >
+            <option value="">"-- Select a run --"</option>
+            {move || {
+                match runs.get() {
+                    LoadingState::Loaded(data) => {
+                        data.runs
+                            .into_iter()
+                            .filter(|r| r.trace_id != exclude)
+                            .map(|run| {
+                                let trace_id = run.trace_id.clone();
+                                let label = format!(
+                                    "{} - {} ({})",
+                                    run.trace_id.chars().take(12).collect::<String>(),
+                                    run.status,
+                                    run.created_at
+                                );
+                                view! { <option value=trace_id.clone()>{label}</option> }.into_any()
+                            })
+                            .collect::<Vec<_>>()
+                    }
+                    LoadingState::Loading => vec![view! { <option value="">"Loading..."</option> }.into_any()],
+                    _ => vec![view! { <option value="">"No runs available"</option> }.into_any()],
+                }
+            }}
+        </select>
+    }
+}
+
 /// Events tab - shows events with collapsible details
 #[component]
 fn EventsTab(export: DiagExportResponse) -> impl IntoView {
@@ -1176,4 +1607,32 @@ fn format_timestamp_ms(ms: i64) -> String {
         "{} ({} {}, {}:{:02} {})",
         relative, month_name, day, hour12, minutes, ampm
     )
+}
+
+/// Extract reasoning mode from diagnostic events
+/// Looks for "reasoning_mode" or "thinking_mode" in event payloads
+fn extract_reasoning_mode_from_events(events: &[DiagEventResponse]) -> Option<bool> {
+    for event in events {
+        // Check for reasoning_mode in payload
+        if let Some(reasoning) = event.payload.get("reasoning_mode") {
+            if let Some(b) = reasoning.as_bool() {
+                return Some(b);
+            }
+        }
+        // Check for thinking_mode as an alternative key
+        if let Some(thinking) = event.payload.get("thinking_mode") {
+            if let Some(b) = thinking.as_bool() {
+                return Some(b);
+            }
+        }
+        // Check in run_envelope if present
+        if let Some(envelope) = event.payload.get("run_envelope") {
+            if let Some(reasoning) = envelope.get("reasoning_mode") {
+                if let Some(b) = reasoning.as_bool() {
+                    return Some(b);
+                }
+            }
+        }
+    }
+    None
 }

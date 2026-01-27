@@ -49,7 +49,7 @@ pub fn StackDetail() -> impl IntoView {
             <div class="flex items-center justify-between">
                 <div class="flex items-center gap-4">
                     <a href="/stacks" class="text-muted-foreground hover:text-foreground">
-                        "< Stacks"
+                        "< Runtime Stacks"
                     </a>
                     <h1 class="text-3xl font-bold tracking-tight">"Stack Details"</h1>
                 </div>

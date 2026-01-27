@@ -673,11 +673,13 @@ pub fn ChatSession() -> impl IntoView {
                                                                 }}
                                                             </p>
                                                         </div>
-                                                        // Show trace button for assistant messages with trace info
+                                                        // Show trace button and run links for assistant messages with trace info
                                                         {if let (false, false, Some(tid)) = (is_user, is_streaming, trace_id.clone()) {
                                                             let latency = latency_ms.unwrap_or(0);
+                                                            let run_overview_url = format!("/runs/{}", tid);
+                                                            let run_receipt_url = format!("/runs/{}?tab=receipt", tid);
                                                             Some(view! {
-                                                                <div class="flex items-center gap-2 pl-1">
+                                                                <div class="flex items-center gap-2 pl-1 flex-wrap">
                                                                     <TraceButton
                                                                         trace_id=tid.clone()
                                                                         latency_ms=latency
@@ -685,6 +687,24 @@ pub fn ChatSession() -> impl IntoView {
                                                                             active_trace.set(Some(id));
                                                                         })
                                                                     />
+                                                                    // Run detail links
+                                                                    <div class="flex items-center gap-1">
+                                                                        <a
+                                                                            href=run_overview_url
+                                                                            class="text-xs text-muted-foreground hover:text-primary transition-colors px-1.5 py-0.5 rounded hover:bg-muted"
+                                                                            title="View Run Detail"
+                                                                        >
+                                                                            "Run"
+                                                                        </a>
+                                                                        <span class="text-muted-foreground/50">"·"</span>
+                                                                        <a
+                                                                            href=run_receipt_url
+                                                                            class="text-xs text-muted-foreground hover:text-primary transition-colors px-1.5 py-0.5 rounded hover:bg-muted"
+                                                                            title="Verify Receipt"
+                                                                        >
+                                                                            "Receipt"
+                                                                        </a>
+                                                                    </div>
                                                                     {token_count.map(|tc| {
                                                                         let display = format_token_display(tc, prompt_tokens, completion_tokens);
                                                                         view! {

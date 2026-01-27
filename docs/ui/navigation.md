@@ -4,12 +4,12 @@
 
 The UI is a **control plane for ML inference**, not a desktop operating system.
 
-The user mental model:
+Mental model:
 1. **Run** inference
-2. **Prove** what happened (provenance, receipts, audit)
-3. **Configure** behavior (adapters, stacks, policies)
-4. **Data** management (datasets, documents, repos)
-5. **Operate** the system (health, workers, metrics)
+2. **Prove** what happened (audit/provenance)
+3. **Configure** behavior (adapters, stacks, policies, models)
+4. **Data** management (datasets, documents)
+5. **Operate** the system (health ladder)
 6. **Govern** usage (admin, reviews, settings)
 
 ## Module Structure
@@ -17,65 +17,62 @@ The user mental model:
 ### Primary Navigation (6 Modules)
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  Run       Prove      Configure    Data    Operate   Govern │
-└─────────────────────────────────────────────────────────────┘
+Run · Prove · Configure · Data · Operate · Govern
 ```
 
 Each module is a coherent product area:
 
-#### 1. Run
-Execute inference and manage sessions.
-- **Chat** - Interactive inference with streaming
-- **Runs** - Run history and diagnostics
+#### 1) Run
+- **Chat** – Interactive inference
+- **Runs** – Run history + canonical Run Detail hub
 
-#### 2. Prove
-Verify provenance and compliance.
-- **Audit** - Immutable audit log with hash chain
-- **Run Detail** - Trace, receipt, routing for any run
+#### 2) Prove
+- **Audit** – Immutable audit trail
 
-#### 3. Configure
-Set up inference behavior.
-- **Adapters** - LoRA adapter management
-- **Stacks** - Runtime stack composition
-- **Policies** - Policy pack enforcement
-- **Models** - Base model registry
+#### 3) Configure
+- **Adapters** – LoRA adapter management
+- **Runtime Stacks** – Adapter composition
+- **Policies** – Policy packs
+- **Models** – Base model registry
 
-#### 4. Data
-Manage training and retrieval data.
-- **Datasets** - Training datasets
-- **Documents** - RAG document store
-- **Repositories** - Code repository scanning
-- **Collections** - Document collections
+#### 4) Data
+- **Datasets** – Training datasets
+- **Documents** – RAG document store
 
-#### 5. Operate
-System health and operations.
-- **Dashboard** - Live system summary
-- **Infrastructure** - Topology and services
-- **Workers** - Worker pool management
-- **Metrics** - Monitoring charts
-- **Incidents** - Error tracking
-- **Training** - Training jobs
-- **Agents** - Agent management
+#### 5) Operate
+Health ladder (no duplicate dashboards):
+- **Dashboard** – Summary + alerts
+- **Infrastructure** – Topology/services
+- **Workers** – Worker control
+- **Metrics** – Monitoring charts
+- **Incidents** – Error feed
 
-#### 6. Govern
-Administration and compliance.
-- **Admin** - Users, roles, API keys
-- **Human Review** - Review queue for paused inference
-- **Settings** - User preferences
+#### 6) Govern
+- **Admin** – Users, roles, API keys
+- **Human Review** – Review queue
+- **Settings** – Preferences & system info
 
 ### Tools (Collapsed)
 
-Debug and experimental pages, hidden by default:
-- **Routing Debug** - K-sparse routing testing
-- **Diff Viewer** - Run comparison tool
-- **Style Audit** - Design system audit
+Debug/experimental utilities, hidden by default:
+- **Routing Debug** – K‑sparse routing inspection
+- **Run Diff** – Compare runs (launcher)
+- **Style Audit** – CSS/system audit
+
+### Hidden / Not In Primary Nav
+
+Accessible via command palette or direct link:
+- **Training** (`/training`)
+- **Repositories** (`/repositories`) and **Collections** (`/collections`)
+- **Agents** (`/agents`, experimental)
+- **Safety Mode** (`/safe`, public fallback)
+- **Login** (`/login`)
 
 ## StartMenu Layout
 
 ```
 ┌─────────────────────────────────────────┐
-│           AdapterOS                     │
+│           adapterOS                     │
 ├─────────────────────────────────────────┤
 │  ▸ Run                                  │
 │      Chat                               │
@@ -86,24 +83,20 @@ Debug and experimental pages, hidden by default:
 │                                         │
 │  ▸ Configure                            │
 │      Adapters                           │
-│      Stacks                             │
+│      Runtime Stacks                     │
 │      Policies                           │
 │      Models                             │
 │                                         │
 │  ▸ Data                                 │
 │      Datasets                           │
 │      Documents                          │
-│      Repositories                       │
-│      Collections                        │
 │                                         │
 │  ▸ Operate                              │
 │      Dashboard                          │
 │      Infrastructure                     │
 │      Workers                            │
 │      Metrics                            │
-│      Incidents                          │
-│      Training                           │
-│      Agents                             │
+│      Incidents                           │
 │                                         │
 │  ▸ Govern                               │
 │      Admin                              │
@@ -112,7 +105,7 @@ Debug and experimental pages, hidden by default:
 │                                         │
 │  ▾ Tools                                │
 │      Routing Debug                      │
-│      Diff Viewer                        │
+│      Run Diff                           │
 │      Style Audit                        │
 ├─────────────────────────────────────────┤
 │  v0.13.1                    ⚙ Settings  │
@@ -121,61 +114,40 @@ Debug and experimental pages, hidden by default:
 
 ## Taskbar
 
-The taskbar shows module-level shortcuts (not individual pages):
+The taskbar shows **module-level** shortcuts only (no random pages):
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│ [≡] │ Run │ Prove │ Configure │ Data │ Operate │ Govern │ [tray] │
-└──────────────────────────────────────────────────────────────────┘
+[≡]  Run  Prove  Configure  Data  Operate  Govern  [tray]
 ```
-
-Clicking a module:
-- If one primary page: navigates directly
-- If multiple pages: shows a mini-menu
 
 ## Run Detail Hub
 
-The canonical provenance view for any run at `/runs/:id`:
+Canonical provenance view at `/runs/:id`:
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  Run: abc-123-def                                    [Actions ▾]│
-├─────────────────────────────────────────────────────────────────┤
-│  Overview │ Trace │ Receipt │ Routing │ Tokens │ Diff          │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  [Tab content based on selection]                               │
-│                                                                 │
-│  - Overview: Summary card, timing, status, adapters used        │
-│  - Trace: Full TraceViewer with timeline visualization          │
-│  - Receipt: ReceiptVerification with hash, signature, hardware  │
-│  - Routing: TokenDecisions with K-sparse breakdown              │
-│  - Tokens: Token accounting, cache hits, billing                │
-│  - Diff: Compare with another run (optional)                    │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
+Overview │ Trace │ Receipt │ Routing │ Tokens │ Diff │ Events
 ```
+
+- **Overview** – Summary, status, timing
+- **Trace** – Full trace timeline
+- **Receipt** – Hash/receipt verification
+- **Routing** – K‑sparse routing decisions
+- **Tokens** – Token accounting
+- **Diff** – Compare with another run
+- **Events** – Raw diagnostic events (internal)
 
 ## Deep Links
 
-All routes support deep linking via URL:
-- `/runs/:id` - Run detail, Overview tab
-- `/runs/:id?tab=trace` - Trace tab
-- `/runs/:id?tab=receipt` - Receipt tab
-- `/runs/:id?tab=routing` - Routing tab
-- `/runs/:id?tab=tokens` - Tokens tab
-- `/runs/:id?tab=diff&compare=:other_id` - Diff tab comparing runs
+- `/runs/:id` – Run Detail Overview
+- `/runs/:id?tab=trace` – Trace tab
+- `/runs/:id?tab=receipt` – Receipt tab
+- `/runs/:id?tab=routing` – Routing tab
+- `/runs/:id?tab=tokens` – Tokens tab
+- `/runs/:id?tab=diff&compare=:other_trace_id` – Diff tab
 
 ## Command Palette
 
 Power users access all pages via Cmd+K:
-- Searches across all routes and actions
-- Supports fuzzy matching
-- Shows keyboard shortcuts
-- Preserves access to hidden/Tools pages
-
-## Mobile/Responsive
-
-- **Desktop (≥1024px)**: Full navigation with all modules
-- **Tablet (768-1023px)**: Collapsed modules, hamburger menu
-- **Mobile (<768px)**: Bottom nav with 4 key modules + menu
+- Fuzzy search across routes and actions
+- Includes Tools/Hidden pages
+- Preserves deep links

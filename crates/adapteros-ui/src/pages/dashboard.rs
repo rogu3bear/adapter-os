@@ -1,6 +1,6 @@
 //! Dashboard page
 
-use crate::api::{use_sse_json_events, ActivityEventResponse, ApiClient, SseState};
+use crate::api::{use_sse_json_events, ActivityEventResponse, ApiClient, InferenceRequest, SseState};
 use crate::boot_log;
 use crate::components::{
     Badge, BadgeVariant, Card, ChartPoint, DataSeries, EmptyState, EmptyStateVariant,
@@ -136,6 +136,29 @@ impl MetricsHistory {
     }
 }
 
+// =============================================================================
+// Self-Test Types
+// =============================================================================
+
+/// State of a self-test run
+#[derive(Debug, Clone, Default, PartialEq)]
+pub enum SelfTestState {
+    #[default]
+    Idle,
+    Running,
+    Completed(SelfTestResult),
+}
+
+/// Result of a self-test run
+#[derive(Debug, Clone, PartialEq)]
+pub struct SelfTestResult {
+    pub passed: bool,
+    pub trace_id: Option<String>,
+    pub latency_ms: Option<u64>,
+    pub error: Option<String>,
+    pub backend_used: Option<String>,
+}
+
 /// Dashboard page
 #[component]
 pub fn Dashboard() -> impl IntoView {
@@ -264,6 +287,9 @@ pub fn Dashboard() -> impl IntoView {
         refetch_activity_signal.with_value(|f| f.run(()));
     };
 
+    // Self-test state
+    let self_test_state: RwSignal<SelfTestState> = RwSignal::new(SelfTestState::Idle);
+
     view! {
         <div class="p-6 space-y-6">
             <div class="flex items-center justify-between">
@@ -306,6 +332,7 @@ pub fn Dashboard() -> impl IntoView {
                                 metrics_history=metrics_history
                                 activity=activity
                                 can_view_activity=can_view_activity
+                                self_test_state=self_test_state
                             />
                         }.into_any()
                     }
@@ -357,6 +384,7 @@ fn DashboardContent(
     metrics_history: RwSignal<MetricsHistory>,
     activity: ReadSignal<LoadingState<Vec<ActivityEventResponse>>>,
     can_view_activity: Memo<bool>,
+    self_test_state: RwSignal<SelfTestState>,
 ) -> impl IntoView {
     let (auth_state, _) = use_auth();
     let user = auth_state.get().user().cloned();
@@ -369,6 +397,12 @@ fn DashboardContent(
     let role_for_perm = role.clone();
     let permissions_for_perm = permissions.clone();
     let has_perm = move |perm: &str| role_for_perm == "admin" || permissions_for_perm.iter().any(|p| p == perm);
+
+    // Clone for use in multiple view closures
+    let role_for_perm2 = role.clone();
+    let permissions_for_perm2 = permissions.clone();
+    let has_perm2 = move |perm: &str| role_for_perm2 == "admin" || permissions_for_perm2.iter().any(|p| p == perm);
+
     let can_access_role = move |allowed: &[&str]| allowed.iter().any(|r| *r == role);
 
     let is_ready = matches!(status.readiness.overall, ApiStatusIndicator::Ready);
@@ -459,7 +493,43 @@ fn DashboardContent(
             </Card>
         </div>
 
-        // Capability map (conceptual entry points, no backend dependency)
+        // Quick Actions - primary entry points
+        <Card title="Quick Actions".to_string() class="mt-6".to_string()>
+            <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+                <a class="rounded-md border border-input p-3 hover:bg-accent text-center" href="/chat">
+                    <div class="text-2xl mb-1">"💬"</div>
+                    <div class="font-medium">"New Run"</div>
+                    <div class="text-xs text-muted-foreground">"Start inference"</div>
+                </a>
+                <a class="rounded-md border border-input p-3 hover:bg-accent text-center" href="/runs">
+                    <div class="text-2xl mb-1">"✓"</div>
+                    <div class="font-medium">"Verify Receipt"</div>
+                    <div class="text-xs text-muted-foreground">"View run history"</div>
+                </a>
+                <a class="rounded-md border border-input p-3 hover:bg-accent text-center" href="/stacks">
+                    <div class="text-2xl mb-1">"⚡"</div>
+                    <div class="font-medium">"Activate Stack"</div>
+                    <div class="text-xs text-muted-foreground">"Configure stack"</div>
+                </a>
+                <a class="rounded-md border border-input p-3 hover:bg-accent text-center" href="/datasets">
+                    <div class="text-2xl mb-1">"📄"</div>
+                    <div class="font-medium">"Upload Document"</div>
+                    <div class="text-xs text-muted-foreground">"Add training data"</div>
+                </a>
+                <SelfTestButton state=self_test_state />
+                {has_perm("MonitoringManage").then(|| view! {
+                    <a class="rounded-md border border-input p-3 hover:bg-accent text-center" href="/monitoring">
+                        <div class="text-2xl mb-1">"🔔"</div>
+                        <div class="font-medium">"View Alerts"</div>
+                        <div class="text-xs text-muted-foreground">"Check health"</div>
+                    </a>
+                })}
+            </div>
+            // Self-test results display
+            <SelfTestResults state=self_test_state />
+        </Card>
+
+        // Capability map (expanded options)
         <Card title="What You Can Do".to_string() class="mt-6".to_string()>
             <div class="grid gap-3 md:grid-cols-2">
                 <a class="rounded-md border border-input p-3 hover:bg-accent" href="/chat">
@@ -478,7 +548,7 @@ fn DashboardContent(
                     <div class="font-medium">"Scan Code"</div>
                     <div class="text-sm text-muted-foreground">"Register and scan repos for code intelligence."</div>
                 </a>
-                {has_perm("MonitoringManage").then(|| view! {
+                {has_perm2("MonitoringManage").then(|| view! {
                     <a class="rounded-md border border-input p-3 hover:bg-accent" href="/monitoring">
                         <div class="font-medium">"Monitor Health"</div>
                         <div class="text-sm text-muted-foreground">"Track system stability and anomalies."</div>
@@ -785,5 +855,163 @@ fn format_uptime(seconds: u64) -> String {
         format!("{}h {}m", hours, minutes)
     } else {
         format!("{}m", minutes)
+    }
+}
+
+// =============================================================================
+// Self-Test Components
+// =============================================================================
+
+/// Self-test button component - triggers a minimal inference test
+#[component]
+fn SelfTestButton(state: RwSignal<SelfTestState>) -> impl IntoView {
+    let run_test = move |_| {
+        // Don't start a new test if one is already running
+        if matches!(state.get(), SelfTestState::Running) {
+            return;
+        }
+
+        state.set(SelfTestState::Running);
+
+        // Run the self-test asynchronously
+        wasm_bindgen_futures::spawn_local(async move {
+            let client = ApiClient::new();
+            let request = InferenceRequest {
+                prompt: "What is 2+2? Answer with just the number.".to_string(),
+                max_tokens: Some(10),
+                temperature: Some(0.0),
+                stream: Some(false),
+            };
+
+            match client.infer(&request).await {
+                Ok(response) => {
+                    // Check if the response contains "4" (basic sanity check)
+                    let passed = response.text.contains('4');
+                    let result = SelfTestResult {
+                        passed,
+                        trace_id: Some(response.id),
+                        latency_ms: Some(response.latency_ms),
+                        error: if passed { None } else { Some("Unexpected response".to_string()) },
+                        backend_used: response.backend_used,
+                    };
+                    state.set(SelfTestState::Completed(result));
+                }
+                Err(e) => {
+                    let result = SelfTestResult {
+                        passed: false,
+                        trace_id: None,
+                        latency_ms: None,
+                        error: Some(e.to_string()),
+                        backend_used: None,
+                    };
+                    state.set(SelfTestState::Completed(result));
+                }
+            }
+        });
+    };
+
+    let is_running = move || matches!(state.get(), SelfTestState::Running);
+
+    view! {
+        <button
+            class="rounded-md border border-input p-3 hover:bg-accent text-center cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            on:click=run_test
+            disabled=is_running
+            type="button"
+        >
+            <div class="text-2xl mb-1">
+                {move || if is_running() { "⏳" } else { "🧪" }}
+            </div>
+            <div class="font-medium">
+                {move || if is_running() { "Testing..." } else { "Run Self-Test" }}
+            </div>
+            <div class="text-xs text-muted-foreground">"Verify inference"</div>
+        </button>
+    }
+}
+
+/// Self-test results display component
+#[component]
+fn SelfTestResults(state: RwSignal<SelfTestState>) -> impl IntoView {
+    view! {
+        {move || {
+            match state.get() {
+                SelfTestState::Idle => view! { <div></div> }.into_any(),
+                SelfTestState::Running => view! {
+                    <div class="mt-4 p-3 rounded-md border border-input bg-muted/50">
+                        <div class="flex items-center gap-2">
+                            <Spinner />
+                            <span class="text-sm">"Running self-test..."</span>
+                        </div>
+                    </div>
+                }.into_any(),
+                SelfTestState::Completed(result) => {
+                    let passed = result.passed;
+                    let trace_id = result.trace_id.clone();
+                    let latency_ms = result.latency_ms;
+                    let error = result.error.clone();
+                    let backend_used = result.backend_used.clone();
+
+                    view! {
+                        <div class=format!(
+                            "mt-4 p-3 rounded-md border {}",
+                            if passed { "border-green-500/50 bg-green-500/10" } else { "border-red-500/50 bg-red-500/10" }
+                        )>
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center gap-2">
+                                    <span class="text-lg">
+                                        {if passed { "✅" } else { "❌" }}
+                                    </span>
+                                    <span class="font-medium">
+                                        {if passed { "Self-test passed" } else { "Self-test failed" }}
+                                    </span>
+                                    {latency_ms.map(|ms| view! {
+                                        <Badge variant=BadgeVariant::Secondary>
+                                            {format!("{}ms", ms)}
+                                        </Badge>
+                                    })}
+                                    {backend_used.map(|b| view! {
+                                        <Badge variant=BadgeVariant::Secondary>
+                                            {b}
+                                        </Badge>
+                                    })}
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    {trace_id.clone().map(|tid| {
+                                        let run_url = format!("/runs/{}", tid);
+                                        let receipt_url = format!("/runs/{}?tab=receipt", tid);
+                                        view! {
+                                            <a
+                                                href=run_url
+                                                class="text-xs text-primary hover:underline"
+                                            >
+                                                "View Run"
+                                            </a>
+                                            <span class="text-muted-foreground">"|"</span>
+                                            <a
+                                                href=receipt_url
+                                                class="text-xs text-primary hover:underline"
+                                            >
+                                                "Receipt"
+                                            </a>
+                                        }
+                                    })}
+                                    <button
+                                        class="text-xs text-muted-foreground hover:text-foreground"
+                                        on:click=move |_| state.set(SelfTestState::Idle)
+                                        type="button"
+                                    >
+                                        "Dismiss"
+                                    </button>
+                                </div>
+                            </div>
+                            {error.map(|e| view! {
+                                <p class="mt-2 text-sm text-red-500">{e}</p>
+                            })}
+                        </div>
+                    }.into_any()
+                }
+            }
+        }}
     }
 }

@@ -119,6 +119,7 @@ pub mod client_errors;
 pub mod collections_kv;
 pub mod coreml_fusion_pairs;
 pub mod documents_kv;
+pub mod embedding_benchmarks;
 pub mod error_classification;
 pub mod evidence_envelopes;
 pub mod factory;
@@ -167,6 +168,7 @@ pub use adapter_repositories::{
     UpsertRuntimeStateParams,
 };
 pub use coreml_fusion_pairs::{CoremlFusionPair, CreateCoremlFusionPairParams};
+pub use embedding_benchmarks::EmbeddingBenchmarkRow;
 pub use factory::{DbFactory, StorageBackend as DbStorageBackend};
 pub use repository_training_policies::RepositoryTrainingPolicy;
 pub use traits::{

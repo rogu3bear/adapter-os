@@ -31,6 +31,9 @@ pub use adapteros_api_types::models::{
 pub use adapteros_api_types::routing::{
     CreateRoutingRuleRequest, RoutingRuleResponse, RoutingRulesResponse,
 };
+pub use adapteros_api_types::embeddings::{
+    EmbeddingBenchmarkReport, EmbeddingBenchmarksQuery, EmbeddingBenchmarksResponse,
+};
 pub use adapteros_api_types::workers::WorkerMetricsResponse;
 
 #[cfg(target_arch = "wasm32")]
@@ -1705,6 +1708,36 @@ impl ApiClient {
     pub async fn delete_error_alert_rule(&self, id: &str) -> ApiResult<()> {
         self.delete(&format!("/v1/error-alerts/rules/{}", id))
             .await
+    }
+
+    // --- Embedding Benchmarks ---
+
+    /// List embedding benchmark reports
+    pub async fn list_embedding_benchmarks(
+        &self,
+        query: Option<&EmbeddingBenchmarksQuery>,
+    ) -> ApiResult<EmbeddingBenchmarksResponse> {
+        let path = match query {
+            Some(q) => {
+                let mut params = Vec::new();
+                if let Some(ref model_name) = q.model_name {
+                    params.push(format!("model_name={}", encode(model_name)));
+                }
+                if let Some(limit) = q.limit {
+                    params.push(format!("limit={}", limit));
+                }
+                if let Some(offset) = q.offset {
+                    params.push(format!("offset={}", offset));
+                }
+                if params.is_empty() {
+                    "/v1/embeddings/benchmarks".to_string()
+                } else {
+                    format!("/v1/embeddings/benchmarks?{}", params.join("&"))
+                }
+            }
+            None => "/v1/embeddings/benchmarks".to_string(),
+        };
+        self.get(&path).await
     }
 }
 

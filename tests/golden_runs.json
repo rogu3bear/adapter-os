@@ -1,0 +1,56 @@
+{
+  "description": "Golden determinism test cases for AdapterOS inference",
+  "version": "1.0.0",
+  "cases": [
+    {
+      "id": "simple_math",
+      "description": "Simple arithmetic question with deterministic seed",
+      "prompt": "What is 2+2? Answer with just the number.",
+      "seed": 12345,
+      "max_tokens": 10,
+      "temperature": 0.0,
+      "reasoning_mode": false,
+      "expected_contains": "4"
+    },
+    {
+      "id": "word_count",
+      "description": "Simple word counting task",
+      "prompt": "How many words are in this sentence: The quick brown fox. Answer with just the number.",
+      "seed": 67890,
+      "max_tokens": 10,
+      "temperature": 0.0,
+      "reasoning_mode": false,
+      "expected_contains": "5"
+    },
+    {
+      "id": "simple_logic",
+      "description": "Simple logical deduction",
+      "prompt": "If A is true and B is false, what is A AND B? Answer with just true or false.",
+      "seed": 11111,
+      "max_tokens": 10,
+      "temperature": 0.0,
+      "reasoning_mode": false,
+      "expected_contains": "false"
+    },
+    {
+      "id": "thinking_math",
+      "description": "Arithmetic with thinking/reasoning mode enabled",
+      "prompt": "What is 7*8? Think step by step, then give just the number.",
+      "seed": 22222,
+      "max_tokens": 100,
+      "temperature": 0.0,
+      "reasoning_mode": true,
+      "expected_contains": "56"
+    },
+    {
+      "id": "sequence_next",
+      "description": "Simple sequence completion",
+      "prompt": "What is the next number in the sequence: 2, 4, 6, 8, ? Answer with just the number.",
+      "seed": 33333,
+      "max_tokens": 10,
+      "temperature": 0.0,
+      "reasoning_mode": false,
+      "expected_contains": "10"
+    }
+  ]
+}
