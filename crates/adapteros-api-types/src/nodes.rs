@@ -1,5 +1,6 @@
 //! Node management types
 
+use adapteros_types::nodes::{Node, NodeDetail};
 use serde::{Deserialize, Serialize};
 
 use crate::schema_version;
@@ -20,11 +21,8 @@ pub struct RegisterNodeRequest {
 pub struct NodeResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,
-    pub id: String,
-    pub hostname: String,
-    pub agent_endpoint: String,
-    pub status: String,
-    pub last_seen_at: Option<String>,
+    #[serde(flatten)]
+    pub node: Node,
 }
 
 /// Node ping response
@@ -57,11 +55,7 @@ pub struct WorkerInfo {
 pub struct NodeDetailsResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,
-    pub id: String,
-    pub hostname: String,
-    pub agent_endpoint: String,
-    pub status: String,
-    pub last_seen_at: Option<String>,
-    pub workers: Vec<WorkerInfo>,
+    #[serde(flatten)]
+    pub detail: NodeDetail,
     pub recent_logs: Vec<String>,
 }

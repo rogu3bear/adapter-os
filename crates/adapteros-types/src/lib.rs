@@ -59,6 +59,12 @@ pub mod telemetry;
 /// Common API patterns (requests, responses, streaming)
 pub mod api;
 
+/// Node and status types
+pub mod nodes;
+
+/// Tenant and usage types
+pub mod tenants;
+
 /// Re-exported types for convenience
 ///
 /// # Purpose
@@ -109,6 +115,8 @@ pub use inference::{
     CancelSource, CancellationState, InferRequest, RunReceipt, StopReasonCode, STOP_Q15_DENOM,
 };
 pub use manifest::Manifest;
+pub use nodes::{Node, NodeDetail};
 pub use repository::RepoTier;
 pub use routing::{RouterCandidate, RouterDecision, RouterModelType};
 pub use telemetry::{EventType, LogLevel, TelemetryBundle, TelemetryEvent, TelemetryFilters};
+pub use tenants::{Tenant, TenantUsage};

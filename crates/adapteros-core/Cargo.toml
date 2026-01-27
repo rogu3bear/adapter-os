@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 adapteros-types = { path = "../adapteros-types" }
+adapteros-infra-common = { path = "../adapteros-infra-common" }
 adapteros-error-registry = { path = "../adapteros-error-registry" }
 anyhow = { workspace = true }
 blake3 = { workspace = true }
@@ -49,9 +50,9 @@ tempfile = "3.8"
 [features]
 default = ["schemars-support"]
 test-utils = ["rand"]
-schemars-support = ["schemars"]
+schemars-support = ["schemars", "adapteros-infra-common/jsonschema"]
 sqlx = ["dep:sqlx"]
-utoipa = ["dep:utoipa"]
+utoipa = ["dep:utoipa", "adapteros-infra-common/utoipa"]
 async = []
 coreml-backend = []
 multi-backend = []  # MLX primary with CoreML fallback

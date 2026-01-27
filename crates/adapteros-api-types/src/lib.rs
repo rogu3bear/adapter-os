@@ -23,9 +23,11 @@ pub fn schema_version() -> String {
 }
 
 pub mod adapters;
+pub mod activity;
 pub mod admin;
 pub mod api_keys;
 pub mod auth;
+pub mod code_repositories;
 pub mod codebase_adapters;
 pub mod dashboard;
 pub mod dataset_domain;
@@ -41,6 +43,7 @@ pub mod models;
 pub mod nodes;
 pub mod orchestration;
 pub mod plans;
+pub mod policy;
 pub mod prefix_templates;
 pub mod provenance;
 pub mod repositories;
@@ -66,6 +69,7 @@ pub use adapteros_types::coreml::{
 #[cfg(feature = "server")]
 pub use adapteros_types::repository::RepoTier;
 pub use adapters::*;
+pub use activity::*;
 pub use admin::*;
 pub use api_keys::*;
 pub use auth::*;
@@ -83,6 +87,7 @@ pub use models::*;
 pub use nodes::*;
 pub use orchestration::*;
 pub use plans::*;
+pub use policy::*;
 pub use prefix_templates::*;
 pub use provenance::*;
 pub use repositories::*;

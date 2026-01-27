@@ -1,5 +1,6 @@
 //! Tenant management types
 
+use adapteros_types::tenants::{Tenant, TenantUsage};
 use serde::{Deserialize, Serialize};
 
 use crate::schema_version;
@@ -20,23 +21,8 @@ pub struct CreateTenantRequest {
 pub struct TenantResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,
-    pub id: String,
-    pub name: String,
-    pub itar_flag: bool,
-    pub created_at: String,
-    pub status: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub updated_at: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub default_stack_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_adapters: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_training_jobs: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_storage_gb: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub rate_limit_rpm: Option<i32>,
+    #[serde(flatten)]
+    pub tenant: Tenant,
 }
 
 /// Update tenant request
@@ -61,21 +47,8 @@ pub struct UpdateTenantRequest {
 pub struct TenantUsageResponse {
     #[serde(default = "schema_version")]
     pub schema_version: String,
-    pub tenant_id: String,
-    /// Storage used by tenant artifacts, adapters, and datasets (in GB)
-    pub storage_used_gb: f64,
-    /// CPU usage percentage (rolling 5-minute window)
-    pub cpu_usage_pct: f64,
-    /// GPU usage percentage (rolling 5-minute window)
-    pub gpu_usage_pct: f64,
-    /// Memory used by system (in GB) - per-tenant attribution is approximate
-    pub memory_used_gb: f64,
-    /// Total system memory (in GB)
-    pub memory_total_gb: f64,
-    /// Number of inference operations in last 24 hours
-    pub inference_count_24h: i64,
-    /// Number of active adapters
-    pub active_adapters_count: i32,
+    #[serde(flatten)]
+    pub usage: TenantUsage,
     // Optional legacy fields
     pub avg_latency_ms: Option<f64>,
     pub estimated_cost_usd: Option<f64>,

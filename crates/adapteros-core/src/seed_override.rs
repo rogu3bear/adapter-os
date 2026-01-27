@@ -25,9 +25,9 @@
 //! let seed = derive_seed_contextual("router")?;
 //! ```
 
-use crate::hash::B3Hash;
 use crate::seed::{derive_request_seed, derive_seed, derive_seed_typed, SeedLabel, SeedMode};
 use crate::{AosError, Result};
+use adapteros_infra_common::B3Hash;
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::sync::OnceLock;
