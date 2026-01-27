@@ -121,7 +121,7 @@ dependencies = [
  "half 2.7.1",
  "hex",
  "libc",
- "lru 0.16.2",
+ "lru 0.16.3",
  "memmap2",
  "metal 0.30.0",
  "parking_lot",
@@ -291,7 +291,7 @@ dependencies = [
  "chrono",
  "ed25519-dalek",
  "hex",
- "lru 0.16.2",
+ "lru 0.16.3",
  "rand 0.8.5",
  "serde",
  "serde_jcs",
@@ -1140,7 +1140,7 @@ dependencies = [
  "hkdf",
  "libc",
  "loom",
- "lru 0.16.2",
+ "lru 0.16.3",
  "mach",
  "memmap2",
  "metal 0.30.0",
@@ -1210,7 +1210,7 @@ dependencies = [
  "half 2.7.1",
  "hex",
  "libc",
- "lru 0.16.2",
+ "lru 0.16.3",
  "metal 0.30.0",
  "objc",
  "parking_lot",
@@ -1701,7 +1701,7 @@ dependencies = [
  "hyper-util",
  "insta",
  "jsonwebtoken 10.2.0",
- "lru 0.16.2",
+ "lru 0.16.3",
  "nix 0.29.0",
  "once_cell",
  "opentelemetry",
@@ -7155,9 +7155,9 @@ dependencies = [
 
 [[package]]
 name = "lru"
-version = "0.16.2"
+version = "0.16.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "96051b46fc183dc9cd4a223960ef37b9af631b55191852a8274bfef064cda20f"
+checksum = "a1dc47f592c06f33f8e3aea9591776ec7c9f9e4124778ff8a3c3b87159f7e593"
 dependencies = [
  "hashbrown 0.16.1",
 ]
@@ -9128,7 +9128,7 @@ dependencies = [
  "indoc",
  "itertools 0.14.0",
  "kasuari",
- "lru 0.16.2",
+ "lru 0.16.3",
  "strum 0.27.2",
  "thiserror 2.0.17",
  "unicode-segmentation",
