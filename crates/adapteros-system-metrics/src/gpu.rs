@@ -337,27 +337,39 @@ pub struct GpuDeviceInfo {
     pub supports_counters: bool,
 }
 
-/// MLX device integration (placeholder for future implementation)
+/// MLX device integration (best-effort).
 #[cfg(feature = "mlx")]
 pub struct MlxDevice {
-    // Placeholder for MLX device integration
-    // This would be implemented when MLX crate is available
+    caps: adapteros_lora_mlx_ffi::MlxBackendCapabilities,
 }
 
 #[cfg(feature = "mlx")]
 impl MlxDevice {
     pub fn new() -> Result<Self> {
-        // Placeholder implementation
-        Ok(Self {})
+        let _ = mlx_runtime_is_initialized() || mlx_runtime_init().is_ok();
+        let caps = mlx_get_backend_capabilities()?;
+        Ok(Self { caps })
     }
 
     pub fn get_memory_usage(&self) -> Option<u64> {
-        // Placeholder implementation
-        None
+        let used = memory::memory_usage() as u64;
+        if used == 0 {
+            None
+        } else {
+            Some(used)
+        }
+    }
+
+    pub fn get_total_memory(&self) -> Option<u64> {
+        if self.caps.max_buffer_size > 0 {
+            Some(self.caps.max_buffer_size as u64)
+        } else {
+            None
+        }
     }
 
     pub fn get_utilization(&self) -> Option<f32> {
-        // Placeholder implementation
+        // MLX backend does not currently expose utilization.
         None
     }
 }

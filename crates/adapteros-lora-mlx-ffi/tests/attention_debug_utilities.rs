@@ -1,6 +1,11 @@
 //! Attention Debugging and Visualization Utilities
-//! NOTE: Stubbed pending API updates
+
+use adapteros_lora_mlx_ffi::AttentionConfig;
 
 #[test]
-#[ignore = "Pending API updates - attention module not exported [tracking: STAB-IGN-0036]"]
-fn test_attention_debug_stub() {}
+fn test_attention_config_exported() {
+    let config = AttentionConfig::new(256, 8, true).expect("config");
+    assert_eq!(config.num_heads, 8);
+    assert!(config.causal_mask);
+    assert_eq!(config.head_dim, 32);
+}

@@ -57,6 +57,41 @@ impl Default for ReasoningRouterConfig {
     }
 }
 
+impl ReasoningRouterConfig {
+    /// Create an embedder based on configuration with robust fallback.
+    pub fn create_embedder(&self) -> Arc<Embedder> {
+        match self.embedder_type {
+            EmbedderType::Hashed => Arc::new(Embedder::Hashed(FastEmbedder::default_quantized())),
+            EmbedderType::TinyBert => {
+                let model_path = self
+                    .model_path
+                    .as_ref()
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or_else(|| {
+                        std::path::PathBuf::from("var/models/tiny-bert-4bit-ane.mlpackage")
+                    });
+
+                // Attempt to load TinyBert
+                match TinyBertEmbedder::load(&model_path, None) {
+                    Ok(e) => {
+                        info!("Loaded Tiny-BERT embedder from {:?}", model_path);
+                        Arc::new(Embedder::TinyBert(Box::new(e)))
+                    }
+                    Err(e) => {
+                        // Fallback to Hashed on failure
+                        tracing::warn!(
+                            "Failed to load Tiny-BERT embedder from {:?}, falling back to Hashed: {}",
+                            model_path,
+                            e
+                        );
+                        Arc::new(Embedder::Hashed(FastEmbedder::default_quantized()))
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Unified embedder interface for the reasoning router.
 pub enum Embedder {
     Hashed(FastEmbedder),
@@ -459,5 +494,22 @@ mod tests {
             transitions.iter().any(|t| t.to == "math"),
             "expected math transition"
         );
+    }
+
+    #[test]
+    fn create_embedder_fallback_test() {
+        // Config for TinyBert with non-existent model
+        let config = ReasoningRouterConfig {
+            embedder_type: EmbedderType::TinyBert,
+            model_path: Some("non/existent/path".to_string()),
+            ..Default::default()
+        };
+
+        // Should fallback to Hashed
+        let embedder = config.create_embedder();
+        match *embedder {
+            Embedder::Hashed(_) => assert!(true),
+            _ => assert!(false, "Should fallback to Hashed"),
+        }
     }
 }

@@ -282,6 +282,7 @@ impl DashboardService {
             start_time: None,
             end_time: None,
             limit: Some(config.limit),
+            offset: None,
         };
 
         let alerts = ProcessAlert::list(self.db.pool(), filters).await?;
@@ -343,6 +344,7 @@ impl DashboardService {
                 start_time: Some(start_time),
                 end_time: None,
                 limit: Some(100),
+                offset: None,
             };
 
             let anomalies = ProcessAnomaly::list(self.db.pool(), filters).await?;

@@ -95,6 +95,11 @@ impl AnomalyDetector {
         }
     }
 
+    /// Access the detector configuration.
+    pub fn config(&self) -> &AnomalyConfig {
+        &self.config
+    }
+
     /// Start the anomaly detection service
     pub async fn start(&self) -> Result<()> {
         info!("Starting anomaly detection service");

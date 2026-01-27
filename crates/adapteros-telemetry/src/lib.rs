@@ -864,7 +864,7 @@ fn finalize_bundle(path: &Path, event_hashes: &[B3Hash], signing_keypair: &Keypa
     let meta_path = path.with_extension("meta.json");
     let public_key_bytes = bundle_signature.public_key.to_bytes();
     let key_id = {
-        let hash = adapteros_core::hash::B3Hash::hash(&public_key_bytes);
+        let hash = adapteros_core::B3Hash::hash(&public_key_bytes);
         hex::encode(&hash.as_bytes()[..16])
     };
     let metadata = BundleMetadata {

@@ -1,6 +1,11 @@
 //! Integration tests for CoreML tensor operation pipeline
-//! NOTE: Stubbed pending FFI updates
+
+use adapteros_lora_kernel_coreml::TensorBridgeType;
 
 #[test]
-#[ignore = "Pending FFI updates - TensorBridgeType not exported [tracking: STAB-IGN-0029]"]
-fn test_coreml_integration_stub() {}
+fn test_tensor_bridge_type_exported() {
+    let swift = TensorBridgeType::Swift;
+    let objc = TensorBridgeType::ObjCpp;
+
+    assert_ne!(swift, objc);
+}
