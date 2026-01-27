@@ -91,33 +91,6 @@ pub struct MetricsSnapshotResponse {
     pub metrics: HashMap<String, f64>,
 }
 
-/// Activity event for recent activity feed
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct ActivityEventResponse {
-    /// Unique event identifier
-    pub id: String,
-    /// Event timestamp (RFC3339)
-    pub timestamp: String,
-    /// Type of event (e.g., "adapter.loaded", "training.completed")
-    pub event_type: String,
-    /// Log level (debug, info, warn, error, critical)
-    pub level: String,
-    /// Human-readable event message
-    pub message: String,
-    /// Component that generated the event
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub component: Option<String>,
-    /// Tenant ID associated with the event
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tenant_id: Option<String>,
-    /// User ID that triggered the event
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub user_id: Option<String>,
-    /// Additional event metadata
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<Value>,
-}
-
 /// Telemetry bundle response
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct TelemetryBundleResponse {

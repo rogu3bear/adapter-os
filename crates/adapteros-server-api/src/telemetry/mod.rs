@@ -991,6 +991,7 @@ impl std::fmt::Display for SpanStatus {
 /// Search query for traces
 #[derive(Debug, Clone)]
 pub struct TraceSearchQuery {
+    pub tenant_id: Option<String>,
     pub span_name: Option<String>,
     pub status: Option<SpanStatus>,
     pub start_time_ns: Option<u64>,
@@ -1005,6 +1006,7 @@ pub struct TraceBuffer {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TraceEvent {
+    pub tenant_id: String,
     pub trace_id: String,
     pub span_id: String,
     pub parent_span_id: Option<String>,
@@ -1070,6 +1072,13 @@ impl TraceBuffer {
         traces
             .iter()
             .filter(|trace| {
+                // Filter by tenant_id (FIRST check for tenant isolation)
+                if let Some(ref tenant_id) = query.tenant_id {
+                    if &trace.tenant_id != tenant_id {
+                        return false;
+                    }
+                }
+
                 // Filter by span_name (operation)
                 if let Some(ref span_name) = query.span_name {
                     if !trace.operation.contains(span_name) {
@@ -1112,6 +1121,20 @@ impl TraceBuffer {
         };
 
         traces.iter().find(|t| t.trace_id == trace_id).cloned()
+    }
+
+    /// Get a trace by ID with tenant isolation check
+    pub fn get_trace_for_tenant(&self, trace_id: &str, tenant_id: &str) -> Option<TraceEvent> {
+        // Use blocking read since this is a synchronous method
+        let traces = match self.traces.try_read() {
+            Ok(traces) => traces,
+            Err(_) => return None, // Return None if lock is held
+        };
+
+        traces
+            .iter()
+            .find(|t| t.trace_id == trace_id && t.tenant_id == tenant_id)
+            .cloned()
     }
 }
 

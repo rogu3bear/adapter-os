@@ -9,6 +9,7 @@ use adapteros_deterministic_exec::global_ledger::GlobalTickLedger;
 use adapteros_lora_worker::memory::UmaPressureMonitor;
 use adapteros_metrics_exporter::MetricsExporter;
 use adapteros_orchestrator::{FederationDaemon, TrainingService};
+use adapteros_policy::PolicyHashWatcher;
 use adapteros_server_api::boot_state::BootStateManager;
 use adapteros_server_api::config::Config;
 use adapteros_server_api::handlers::datasets::{
@@ -56,6 +57,7 @@ pub async fn build_app_state(
     api_config: Arc<RwLock<ApiConfig>>,
     server_config: Arc<RwLock<Config>>,
     federation_daemon: Arc<FederationDaemon>,
+    policy_watcher: Arc<PolicyHashWatcher>,
     metrics_exporter: Arc<MetricsExporter>,
     uma_monitor: Arc<UmaPressureMonitor>,
     jwt_secret: Vec<u8>,
@@ -170,6 +172,7 @@ pub async fn build_app_state(
     .with_health_monitor(health_monitor.clone())
     .with_background_task_tracker(Arc::clone(&background_tasks))
     .with_federation(federation_daemon_for_state)
+    .with_policy_watcher(policy_watcher)
     .with_pause_tracker(Arc::new(ServerPauseTracker::new()))
     .with_inference_state_tracker(Arc::new(
         adapteros_server_api::inference_state_tracker::InferenceStateTracker::new(),

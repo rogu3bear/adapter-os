@@ -10,7 +10,8 @@ adapteros-client = { path = "../adapteros-client" }
 adapteros-core = { path = "../adapteros-core", features = ["sqlx"] }
 adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-db = { path = "../adapteros-db", features = ["utoipa"] }
-adapteros-api-types = { path = "../adapteros-api-types" }
+adapteros-api-types = { path = "../adapteros-api-types", features = ["server"] }
+adapteros-error-registry = { path = "../adapteros-error-registry" }
 adapteros-aos = { path = "../adapteros-aos" }
 adapteros-codegraph = { path = "../adapteros-codegraph" }
 adapteros-boot = { path = "../adapteros-boot" }

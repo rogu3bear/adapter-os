@@ -429,7 +429,9 @@ pub async fn create_process_monitoring_rule(
         ("tenant_id" = Option<String>, Query, description = "Filter by tenant ID"),
         ("worker_id" = Option<String>, Query, description = "Filter by worker ID"),
         ("status" = Option<String>, Query, description = "Filter by alert status"),
-        ("severity" = Option<String>, Query, description = "Filter by severity")
+        ("severity" = Option<String>, Query, description = "Filter by severity"),
+        ("limit" = Option<i64>, Query, description = "Maximum number of alerts to return"),
+        ("offset" = Option<i64>, Query, description = "Offset for pagination")
     ),
     responses(
         (status = 200, description = "Process alerts", body = Vec<ProcessAlertResponse>)
@@ -484,6 +486,7 @@ pub async fn list_process_alerts(
         start_time: None,
         end_time: None,
         limit: params.get("limit").and_then(|s| s.parse::<i64>().ok()),
+        offset: params.get("offset").and_then(|s| s.parse::<i64>().ok()),
     };
 
     let alerts = match ProcessAlert::list(state.db.pool(), filters).await {
@@ -594,7 +597,9 @@ pub async fn acknowledge_process_alert(
         ("tenant_id" = Option<String>, Query, description = "Filter by tenant ID"),
         ("worker_id" = Option<String>, Query, description = "Filter by worker ID"),
         ("status" = Option<String>, Query, description = "Filter by anomaly status"),
-        ("severity" = Option<String>, Query, description = "Filter by severity")
+        ("anomaly_type" = Option<String>, Query, description = "Filter by anomaly type"),
+        ("limit" = Option<i64>, Query, description = "Maximum number of anomalies to return"),
+        ("offset" = Option<i64>, Query, description = "Offset for pagination")
     ),
     responses(
         (status = 200, description = "Process anomalies", body = Vec<ProcessAnomalyResponse>)
@@ -616,13 +621,23 @@ pub async fn list_process_anomalies(
     let filters = AnomalyFilters {
         tenant_id: Some(tenant_id),
         worker_id: params.get("worker_id").cloned(),
-        status: params
-            .get("status")
-            .map(|s| AnomalyStatus::from_string(s.to_string())),
+        status: params.get("status").map(|s| {
+            parse_anomaly_status(s.as_str()).ok_or_else(|| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(
+                        ErrorResponse::new("invalid status")
+                            .with_code("BAD_REQUEST")
+                            .with_string_details(s.to_string()),
+                    ),
+                )
+            })
+        }).transpose()?,
         anomaly_type: params.get("anomaly_type").cloned(),
         start_time: None,
         end_time: None,
         limit: params.get("limit").and_then(|s| s.parse::<i64>().ok()),
+        offset: params.get("offset").and_then(|s| s.parse::<i64>().ok()),
     };
 
     let anomalies =
@@ -1294,12 +1309,17 @@ pub async fn list_monitoring_rules(
 ) -> Result<Json<Vec<MonitoringRuleResponse>>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
-    let tenant_id = params.get("tenant_id");
+    let tenant_id = params
+        .get("tenant_id")
+        .cloned()
+        .unwrap_or_else(|| claims.tenant_id.clone());
+    validate_tenant_isolation(&claims, &tenant_id)?;
+
     let is_active = params.get("is_active").and_then(|s| s.parse::<bool>().ok());
 
     let rules = adapteros_system_metrics::ProcessMonitoringRule::list(
         state.db.pool(),
-        tenant_id.map(|s| s.as_str()),
+        Some(&tenant_id),
         is_active,
     )
     .await
@@ -1468,6 +1488,32 @@ pub async fn delete_monitoring_rule(
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
+    // Fetch the rule first to validate tenant isolation
+    let row = sqlx::query("SELECT tenant_id FROM process_monitoring_rules WHERE id = ?")
+        .bind(&rule_id)
+        .fetch_optional(state.db.pool())
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("INTERNAL_SERVER_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let row = row.ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse::new("rule not found").with_code("NOT_FOUND")),
+        )
+    })?;
+
+    let rule_tenant_id: String = row.get("tenant_id");
+    validate_tenant_isolation(&claims, &rule_tenant_id)?;
+
     adapteros_system_metrics::ProcessMonitoringRule::delete(state.db.pool(), &rule_id)
         .await
         .map_err(|e| {
@@ -1507,8 +1553,14 @@ pub async fn list_alerts(
 ) -> Result<Json<Vec<AlertResponse>>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
+    let tenant_id = params
+        .get("tenant_id")
+        .cloned()
+        .unwrap_or_else(|| claims.tenant_id.clone());
+    validate_tenant_isolation(&claims, &tenant_id)?;
+
     let filters = adapteros_system_metrics::AlertFilters {
-        tenant_id: params.get("tenant_id").cloned(),
+        tenant_id: Some(tenant_id),
         worker_id: params.get("worker_id").cloned(),
         status: params
             .get("status")
@@ -1519,6 +1571,7 @@ pub async fn list_alerts(
         start_time: None,
         end_time: None,
         limit: params.get("limit").and_then(|s| s.parse::<i64>().ok()),
+        offset: params.get("offset").and_then(|s| s.parse::<i64>().ok()),
     };
 
     let alerts = adapteros_system_metrics::ProcessAlert::list(state.db.pool(), filters)
@@ -1587,6 +1640,7 @@ pub async fn acknowledge_alert(
         start_time: None,
         end_time: None,
         limit: Some(1),
+        offset: None,
     };
 
     let alerts = adapteros_system_metrics::ProcessAlert::list(state.db.pool(), filters)
@@ -1661,6 +1715,7 @@ pub async fn resolve_alert(
         start_time: None,
         end_time: None,
         limit: Some(1),
+        offset: None,
     };
 
     let alerts = adapteros_system_metrics::ProcessAlert::list(state.db.pool(), filters)

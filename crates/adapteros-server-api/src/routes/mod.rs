@@ -26,6 +26,7 @@ use crate::middleware_security::{
 };
 use crate::request_id;
 use crate::state::AppState;
+use adapteros_api_types::CreateActivityEventRequest;
 use axum::{
     middleware,
     routing::{delete, get, patch, post, put},
@@ -163,6 +164,10 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::federation::get_federation_quarantine_status,
         handlers::federation::release_quarantine,
         handlers::federation::get_federation_sync_status,
+        // Policy quarantine handlers
+        handlers::quarantine::get_quarantine_status,
+        handlers::quarantine::clear_policy_violations,
+        handlers::quarantine::rollback_policy_config,
         // Domain adapter handlers
         domain_adapters::list_domain_adapters,
         domain_adapters::get_domain_adapter,
@@ -307,8 +312,6 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::evidence::get_adapter_evidence,
         handlers::run_evidence::download_run_evidence,
         handlers::aliases::run_evidence::download_run_evidence_alias,
-        // Journey visualization handlers
-        handlers::journeys::get_journey,
         // Golden run handlers
         handlers::golden::list_golden_runs,
         handlers::golden::get_golden_run,
@@ -639,8 +642,9 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::evidence::EvidenceResponse,
         handlers::evidence::ListEvidenceQuery,
         // Activity types
-        handlers::activity::CreateActivityEventRequest,
-        handlers::activity::ActivityEventResponse,
+        // Activity types
+        // CreateActivityEventRequest,
+        // ActivityEventResponse, // FIXME: utoipa resolution error
         // Service control types
         handlers::services::ServiceControlResponse,
         handlers::services::LogsQuery,
@@ -740,6 +744,7 @@ use utoipa_swagger_ui::SwaggerUi;
         (name = "domain-adapters", description = "Domain adapter management"),
         (name = "git", description = "Git integration and session management"),
         (name = "federation", description = "Federation verification and quarantine management"),
+        (name = "Policy", description = "Policy quarantine and configuration management"),
         (name = "inference", description = "Model inference endpoints"),
         (name = "promotion", description = "Golden run promotion workflow"),
         (name = "activity", description = "Activity event tracking and feeds"),
@@ -750,7 +755,6 @@ use utoipa_swagger_ui::SwaggerUi;
         (name = "cli", description = "Owner CLI command execution"),
         (name = "storage", description = "Storage mode and statistics visibility"),
         (name = "runtime", description = "Runtime session and configuration tracking"),
-        (name = "journeys", description = "Journey visualization and workflow tracking"),
     )
 )]
 pub struct ApiDoc;
@@ -808,18 +812,6 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/telemetry/client-errors/anonymous",
             post(handlers::client_errors::report_client_error_anonymous),
-        )
-        .route(
-            "/admin/lifecycle/request-shutdown",
-            post(handlers::admin_lifecycle::request_shutdown),
-        )
-        .route(
-            "/admin/lifecycle/request-maintenance",
-            post(handlers::admin_lifecycle::request_maintenance),
-        )
-        .route(
-            "/admin/lifecycle/safe-restart",
-            post(handlers::admin_lifecycle::safe_restart),
         )
         .route(
             "/v1/version",
@@ -922,6 +914,18 @@ pub fn build(state: AppState) -> Router {
         .merge(auth_routes::protected_auth_routes())
         // Admin routes
         .route("/v1/admin/users", get(handlers::admin::list_users))
+        .route(
+            "/admin/lifecycle/request-shutdown",
+            post(handlers::admin_lifecycle::request_shutdown),
+        )
+        .route(
+            "/admin/lifecycle/request-maintenance",
+            post(handlers::admin_lifecycle::request_maintenance),
+        )
+        .route(
+            "/admin/lifecycle/safe-restart",
+            post(handlers::admin_lifecycle::safe_restart),
+        )
         // Tenant routes (extracted to routes/tenant_routes.rs)
         .merge(tenant_routes::tenant_routes())
         .route("/v1/nodes", get(handlers::list_nodes))
@@ -1109,11 +1113,6 @@ pub fn build(state: AppState) -> Router {
             post(handlers::create_process_monitoring_report),
         )
         .route("/v1/jobs", get(handlers::list_jobs))
-        // Journey visualization routes
-        .route(
-            "/v1/journeys/{journey_type}/{id}",
-            get(handlers::journeys::get_journey),
-        )
         .route("/v1/policies", get(handlers::list_policies))
         .route("/v1/policies/{cpid}", get(handlers::get_policy))
         .route(
@@ -1885,6 +1884,19 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/federation/sync-status",
             get(handlers::federation::get_federation_sync_status),
+        )
+        // Policy quarantine routes
+        .route(
+            "/v1/policy/quarantine/status",
+            get(handlers::quarantine::get_quarantine_status),
+        )
+        .route(
+            "/v1/policy/quarantine/clear",
+            post(handlers::quarantine::clear_policy_violations),
+        )
+        .route(
+            "/v1/policy/quarantine/rollback",
+            post(handlers::quarantine::rollback_policy_config),
         )
         // Audit endpoints
         .route("/v1/audit/federation", get(handlers::get_federation_audit))

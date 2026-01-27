@@ -64,7 +64,6 @@ pub mod golden;
 pub mod health;
 pub mod inference;
 pub mod infrastructure;
-pub mod journeys;
 pub mod kv_isolation;
 pub mod memory_detail;
 pub mod metrics;
@@ -82,6 +81,7 @@ pub mod plugins;
 pub mod policies;
 pub mod promotion;
 pub mod promotion_validation;
+pub mod quarantine;
 pub mod rag_common;
 pub mod registry;
 pub mod replay;
@@ -1536,7 +1536,9 @@ pub async fn create_process_monitoring_rule(
         ("tenant_id" = Option<String>, Query, description = "Filter by tenant ID"),
         ("worker_id" = Option<String>, Query, description = "Filter by worker ID"),
         ("status" = Option<String>, Query, description = "Filter by alert status"),
-        ("severity" = Option<String>, Query, description = "Filter by severity")
+        ("severity" = Option<String>, Query, description = "Filter by severity"),
+        ("limit" = Option<i64>, Query, description = "Maximum number of alerts to return"),
+        ("offset" = Option<i64>, Query, description = "Offset for pagination")
     ),
     responses(
         (status = 200, description = "Process alerts", body = Vec<ProcessAlertResponse>)
@@ -1587,7 +1589,9 @@ pub async fn acknowledge_process_alert(
         ("tenant_id" = Option<String>, Query, description = "Filter by tenant ID"),
         ("worker_id" = Option<String>, Query, description = "Filter by worker ID"),
         ("status" = Option<String>, Query, description = "Filter by anomaly status"),
-        ("severity" = Option<String>, Query, description = "Filter by severity")
+        ("anomaly_type" = Option<String>, Query, description = "Filter by anomaly type"),
+        ("limit" = Option<i64>, Query, description = "Maximum number of anomalies to return"),
+        ("offset" = Option<i64>, Query, description = "Offset for pagination")
     ),
     responses(
         (status = 200, description = "Process anomalies", body = Vec<ProcessAnomalyResponse>)

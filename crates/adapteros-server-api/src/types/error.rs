@@ -1,6 +1,7 @@
 //! Error types for the API layer.
 
 use adapteros_api_types::{ErrorResponse, FailureCode};
+use adapteros_error_registry::{HasECode, ECode};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use utoipa::ToSchema;
@@ -220,32 +221,12 @@ impl std::fmt::Display for InferenceError {
             Self::BackpressureError(msg) => write!(f, "Backpressure: {}", msg),
             Self::RoutingBypass(msg) => write!(f, "Routing bypass: {}", msg),
             Self::ModelNotReady(msg) => write!(f, "Model not ready: {}", msg),
-            Self::NoCompatibleWorker {
-                required_hash,
-                tenant_id,
-                available_count,
-                reason,
-                details: _,
-            } => write!(
-                f,
-                "No compatible worker for tenant {} with manifest {} ({} workers available). Reason: {}",
-                tenant_id, required_hash, available_count, reason
-            ),
-            Self::WorkerDegraded { tenant_id, reason } => write!(
-                f,
-                "Worker degraded for tenant {}: {}",
-                tenant_id, reason
-            ),
+            Self::NoCompatibleWorker { .. } => write!(f, "No compatible worker available"),
+            Self::WorkerDegraded { .. } => write!(f, "Worker operating in degraded mode"),
             Self::AdapterNotFound(msg) => write!(f, "Adapter not found: {}", msg),
-            Self::AdapterTenantMismatch {
-                adapter_id,
-                tenant_id,
-                adapter_tenant_id,
-            } => write!(
-                f,
-                "Adapter '{}' belongs to tenant '{}' (request tenant '{}')",
-                adapter_id, adapter_tenant_id, tenant_id
-            ),
+            Self::AdapterTenantMismatch { .. } => {
+                write!(f, "Resource not found or access denied")
+            }
             Self::AdapterBaseModelMismatch {
                 adapter_id,
                 expected_base_model_id,
@@ -259,11 +240,7 @@ impl std::fmt::Display for InferenceError {
                     .as_deref()
                     .unwrap_or("unknown")
             ),
-            Self::WorkerIdUnavailable { tenant_id, reason } => write!(
-                f,
-                "Worker ID unavailable for tenant {}: {}",
-                tenant_id, reason
-            ),
+            Self::WorkerIdUnavailable { .. } => write!(f, "Worker ID unavailable"),
             Self::CacheBudgetExceeded {
                 needed_mb,
                 freed_mb,
@@ -276,15 +253,7 @@ impl std::fmt::Display for InferenceError {
                 "Model cache budget exceeded: needed {} MB, freed {} MB (pinned={}, active={}), max {} MB",
                 needed_mb, freed_mb, pinned_count, active_count, max_mb
             ),
-            Self::PolicyViolation {
-                tenant_id,
-                policy_id,
-                reason,
-            } => write!(
-                f,
-                "Policy violation for tenant {} (policy: {}): {}",
-                tenant_id, policy_id, reason
-            ),
+            Self::PolicyViolation { .. } => write!(f, "Request blocked by policy"),
             Self::DatabaseError(msg) => write!(f, "Database error: {}", msg),
             Self::AdapterNotLoadable { adapter_id, reason } => write!(
                 f,
@@ -321,7 +290,7 @@ impl InferenceError {
             Self::NoCompatibleWorker { .. } => StatusCode::SERVICE_UNAVAILABLE,
             Self::WorkerDegraded { .. } => StatusCode::SERVICE_UNAVAILABLE,
             Self::AdapterNotFound(_) => StatusCode::NOT_FOUND,
-            Self::AdapterTenantMismatch { .. } => StatusCode::FORBIDDEN,
+            Self::AdapterTenantMismatch { .. } => StatusCode::NOT_FOUND,
             Self::WorkerIdUnavailable { .. } => StatusCode::SERVICE_UNAVAILABLE,
             Self::CacheBudgetExceeded { .. } => StatusCode::SERVICE_UNAVAILABLE,
             Self::PolicyViolation { .. } => StatusCode::FORBIDDEN,
@@ -411,6 +380,58 @@ impl InferenceError {
     }
 }
 
+/// FIXED (Issue 2.1): Implement HasECode for InferenceError to unify error code system
+/// This replaces hardcoded mappings in diag.rs with compile-time checked mappings
+impl HasECode for InferenceError {
+    fn ecode(&self) -> ECode {
+        match self {
+            // E8xxx: CLI/Config errors
+            Self::ValidationError(_) => ECode::E8001, // Invalid Configuration
+            Self::ClientClosed(_) => ECode::E8001,    // Client-side issue
+            
+            // E9xxx: OS/Environment issues
+            Self::PermissionDenied(_) => ECode::E9002, // Permission Denied
+            Self::BackpressureError(_) => ECode::E9006, // Out of Memory
+            Self::CacheBudgetExceeded { .. } => ECode::E9006, // Out of Memory
+            Self::InternalError(_) => ECode::E9001,    // Insufficient Memory (closest match)
+            
+            // E2xxx: Policy/Determinism violations
+            Self::PolicyViolation { .. } => ECode::E2002, // Policy Violation
+            Self::DeterminismError(_) => ECode::E2001,     // Determinism Violation Detected
+            Self::Timeout(_) => ECode::E2003,               // Egress Violation (closest match for timeout)
+            
+            // E1xxx: Crypto/Signing/Worker issues
+            Self::WorkerNotAvailable(_) => ECode::E1003,   // No Workers Available
+            Self::NoCompatibleWorker { .. } => ECode::E1003, // No Workers Available
+            
+            // E7xxx: Node/Cluster problems (note: E7001/E7003 don't exist, using closest match)
+            Self::WorkerError(_) => ECode::E1003,          // Node Unavailable (closest match)
+            Self::WorkerDegraded { .. } => ECode::E1003,   // Node Unavailable (closest match)
+            Self::WorkerIdUnavailable { .. } => ECode::E1003, // Node Unavailable (closest match)
+            Self::RoutingBypass(_) => ECode::E1003,        // Node Unavailable (closest match)
+            
+            // E8xxx: CLI/Config errors (continued)
+            Self::DatabaseError(_) => ECode::E8003,        // Database Connection Failed
+            
+            // E6xxx: Adapters/DIR issues
+            Self::ModelNotReady(_) => ECode::E6001,        // Adapter Not Found in Registry
+            Self::AdapterNotFound(_) => ECode::E6001,      // Adapter Not Found in Registry
+            Self::AdapterNotLoadable { .. } => ECode::E6002, // Adapter Eviction Occurred
+            Self::AdapterTenantMismatch { .. } => ECode::E6001, // Adapter Not Found in Registry
+            Self::AdapterBaseModelMismatch { .. } => ECode::E6009, // Base Model Mismatch
+            
+            // E5xxx: Artifacts/CAS errors
+            Self::RagError(_) => ECode::E5001,             // Artifact Not Found in CAS
+            
+            // E7xxx: Node/Cluster problems (replay)
+            Self::ReplayError(_) => ECode::E7002,          // Job Execution Failed
+            
+            // E8xxx: CLI/Config errors (idempotency)
+            Self::DuplicateRequest { .. } => ECode::E8001, // Invalid Configuration (client issue)
+        }
+    }
+}
+
 /// Convert InferenceError to ErrorResponse for API compatibility
 impl From<InferenceError> for (axum::http::StatusCode, axum::Json<ErrorResponse>) {
     fn from(err: InferenceError) -> Self {
@@ -434,10 +455,16 @@ impl From<InferenceError> for (axum::http::StatusCode, axum::Json<ErrorResponse>
                 tenant_id,
                 adapter_tenant_id,
             } => {
+                // Log sensitive details for debugging, but do not expose in response
+                tracing::warn!(
+                    adapter_id = %adapter_id,
+                    request_tenant_id = %tenant_id,
+                    adapter_tenant_id = %adapter_tenant_id,
+                    "Adapter tenant mismatch detected"
+                );
+                // Sanitized response: do not include tenant_id or adapter_tenant_id
                 response = response.with_details(json!({
                     "adapter_id": adapter_id,
-                    "tenant_id": tenant_id,
-                    "adapter_tenant_id": adapter_tenant_id,
                 }));
             }
             InferenceError::AdapterBaseModelMismatch {

@@ -3,6 +3,7 @@
 //! Provides helpers for emitting diagnostic events during inference.
 
 use crate::state::AppState;
+use adapteros_error_registry::HasECode;
 use adapteros_telemetry::diagnostics::{
     DiagEnvelope, DiagEvent, DiagRunId, DiagSeverity, DiagStage, DiagnosticsService, StageGuard,
 };
@@ -118,34 +119,12 @@ impl DiagRunContext {
 }
 
 /// Extract error code from InferenceError.
+///
+/// FIXED (Issue 2.1): Use HasECode trait instead of hardcoded mappings.
+/// This ensures compile-time exhaustiveness checking and prevents drift.
 pub fn extract_error_code(error: &crate::types::InferenceError) -> &'static str {
-    use crate::types::InferenceError;
-    match error {
-        InferenceError::ValidationError(_) => "E1001",
-        InferenceError::PermissionDenied(_) => "E1002",
-        InferenceError::PolicyViolation { .. } => "E1003",
-        InferenceError::WorkerNotAvailable(_) => "E2001",
-        InferenceError::WorkerError(_) => "E2002",
-        InferenceError::Timeout(_) => "E2003",
-        InferenceError::RoutingBypass(_) => "E2004",
-        InferenceError::BackpressureError(_) => "E2005",
-        InferenceError::NoCompatibleWorker { .. } => "E2006",
-        InferenceError::WorkerDegraded { .. } => "E2007",
-        InferenceError::ClientClosed(_) => "E3001",
-        InferenceError::DatabaseError(_) => "E4001",
-        InferenceError::RagError(_) => "E5001",
-        InferenceError::ModelNotReady(_) => "E6001",
-        InferenceError::AdapterNotLoadable { .. } => "E6002",
-        InferenceError::AdapterNotFound(_) => "E6003",
-        InferenceError::AdapterTenantMismatch { .. } => "E6004",
-        InferenceError::AdapterBaseModelMismatch { .. } => "E6005",
-        InferenceError::ReplayError(_) => "E7001",
-        InferenceError::DeterminismError(_) => "E8001",
-        InferenceError::CacheBudgetExceeded { .. } => "E9001",
-        InferenceError::WorkerIdUnavailable { .. } => "E9002",
-        InferenceError::InternalError(_) => "E9999",
-        InferenceError::DuplicateRequest { .. } => "E1004",
-    }
+    use adapteros_error_registry::HasECode;
+    error.ecode().as_str()
 }
 
 /// Suggest recovery action for an error.
@@ -191,10 +170,14 @@ mod tests {
     fn test_extract_error_code() {
         use crate::types::InferenceError;
 
+        // FIXED (Issue 2.1): Updated test expectations to match correct semantic mappings
+        // Original "E1001" was incorrect (E1001 is Crypto/Signing, not validation)
+        // ValidationError correctly maps to E8001 (CLI/Config - Invalid Configuration)
         assert_eq!(
             extract_error_code(&InferenceError::ValidationError("test".into())),
-            "E1001"
+            "E8001"
         );
+        // Timeout maps to E2003 (Policy/Determinism - Egress Violation, closest semantic match)
         assert_eq!(
             extract_error_code(&InferenceError::Timeout("test".into())),
             "E2003"

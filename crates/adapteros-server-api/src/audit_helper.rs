@@ -372,6 +372,11 @@ pub mod actions {
     pub const POLICY_BINDING_ENABLE: &str = "policy.binding.enable";
     pub const POLICY_BINDING_DISABLE: &str = "policy.binding.disable";
 
+    // Policy quarantine actions
+    pub const POLICY_QUARANTINE_CLEAR: &str = "policy.quarantine.clear";
+    pub const POLICY_QUARANTINE_CLEAR_PACK: &str = "policy.quarantine.clear_pack";
+    pub const POLICY_QUARANTINE_ROLLBACK: &str = "policy.quarantine.rollback";
+
     // Stack policy actions (PRD-GOV-01)
     pub const STACK_POLICY_ASSIGN: &str = "stack.policy.assign";
     pub const STACK_POLICY_REVOKE: &str = "stack.policy.revoke";
