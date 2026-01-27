@@ -188,11 +188,11 @@ async fn update_model_path_by_id() -> Result<()> {
     let model_id = db.register_model(params).await?;
     set_model_tenant(&db, &model_id, None).await?;
 
-    db.update_model_path(&model_id, "/var/models/qwen2.5-7b")
+    db.update_model_path(&model_id, "/var/models/Llama-3.2-3B-Instruct-4bit")
         .await?;
 
     let model = db.get_model(&model_id).await?.expect("model exists");
-    assert_eq!(model.model_path.as_deref(), Some("/var/models/qwen2.5-7b"));
+    assert_eq!(model.model_path.as_deref(), Some("/var/models/Llama-3.2-3B-Instruct-4bit"));
 
     Ok(())
 }

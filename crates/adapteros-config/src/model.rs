@@ -9,7 +9,7 @@
 //!
 //! ```env
 //! # .env file in project root
-//! AOS_MODEL_PATH=./var/models/Qwen2.5-7B-Instruct-4bit
+//! AOS_MODEL_PATH=/var/models/Llama-3.2-3B-Instruct-4bit
 //! AOS_MODEL_BACKEND=mlx
 //! ```
 
@@ -110,7 +110,7 @@ pub struct ModelConfig {
 }
 
 impl Default for ModelConfig {
-    /// Default configuration for Qwen2.5-Coder-32B model (MLX primary, dev-only)
+    /// Default configuration for Llama-3.2-3B-Instruct-4bit model (MLX primary, dev-only)
     fn default() -> Self {
         if !cfg!(debug_assertions) {
             panic!("ModelConfig::default() is dev-only. Set AOS_MODEL_PATH or load from config.json in release builds.");
@@ -610,10 +610,11 @@ pub fn get_tokenizer_path() -> Result<PathBuf> {
          2. Ensure tokenizer.json exists in your model directory{}\n\
          \n\
          Known working tokenizers:\n\
-         - Qwen2.5-7B-Instruct: ./var/models/Qwen2.5-7B-Instruct/tokenizer.json\n\
-         - Llama-3-8B: ./var/models/Llama-3-8B/tokenizer.json\n\
+         - Llama-3.2-3B-Instruct-4bit: /var/models/Llama-3.2-3B-Instruct-4bit/tokenizer.json\n\
+         - Qwen2.5-7B-Instruct: /var/models/Qwen2.5-7B-Instruct/tokenizer.json\n\
+         - Llama-3-8B: /var/models/Llama-3-8B/tokenizer.json\n\
          \n\
-         Example: export AOS_TOKENIZER_PATH=./var/models/Qwen2.5-7B-Instruct/tokenizer.json",
+         Example: export AOS_TOKENIZER_PATH=/var/models/Llama-3.2-3B-Instruct-4bit/tokenizer.json",
         model_path_hint
     )))
 }
@@ -683,9 +684,7 @@ mod tests {
     use tempfile::TempDir;
 
     fn new_test_tempdir() -> TempDir {
-        let root = PathBuf::from("var").join("tmp");
-        std::fs::create_dir_all(&root).expect("create var/tmp");
-        TempDir::new_in(&root).expect("tempdir")
+        TempDir::with_prefix("aos-test-").expect("create temp dir")
     }
 
     #[test]

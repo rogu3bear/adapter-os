@@ -11,7 +11,7 @@
 //! Create a `.env` file in your project root:
 //!
 //! ```env
-//! AOS_MODEL_PATH=./var/models/Qwen2.5-7B-Instruct-4bit
+//! AOS_MODEL_PATH=/var/models/Llama-3.2-3B-Instruct-4bit
 //! AOS_MODEL_BACKEND=metal
 //! AOS_SERVER_PORT=8080
 //! ```

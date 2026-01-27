@@ -141,9 +141,9 @@ ln -sf target/release/aosctl ./aosctl
 ./aosctl db migrate
 
 # Download a model (optional)
-huggingface-cli download mlx-community/Qwen2.5-7B-Instruct \
+huggingface-cli download mlx-community/Llama-3.2-3B-Instruct-4bit \
     --include "*.safetensors" "*.json" \
-    --local-dir models/qwen2.5-7b-mlx
+    --local-dir /var/models/Llama-3.2-3B-Instruct-4bit
 
 # Start the server
 ./start up
@@ -210,13 +210,13 @@ Use `./scripts/fresh-build.sh` before rebuilding to prevent port conflicts and b
 > MLX-format model and set the `AOS_MLX_FFI_MODEL` environment variable:
 
 ```bash
-# Download Qwen 2.5 7B MLX format (~3.8GB)
-huggingface-cli download mlx-community/Qwen2.5-7B-Instruct \
+# Download Llama 3.2 3B MLX format (~2GB)
+huggingface-cli download mlx-community/Llama-3.2-3B-Instruct-4bit \
     --include "*.safetensors" "*.json" \
-    --local-dir var/models/qwen2.5-7b-mlx
+    --local-dir /var/models/Llama-3.2-3B-Instruct-4bit
 
 # Set the model path for the server
-export AOS_MLX_FFI_MODEL=var/models/qwen2.5-7b-mlx
+export AOS_MLX_FFI_MODEL=/var/models/Llama-3.2-3B-Instruct-4bit
 
 # See QUICKSTART.md for complete setup instructions
 ```

@@ -23,7 +23,7 @@
 //! cargo bench --package adapteros-lora-worker --bench mlx_bridge_streaming
 //!
 //! # Specific model
-//! MLX_BENCHMARK_MODEL=./var/models/Qwen3-Coder-30B-A3B-Instruct-MLX-4bit \
+//! MLX_BENCHMARK_MODEL=/var/models/Llama-3.2-3B-Instruct-4bit \
 //!   cargo bench --package adapteros-lora-worker --bench mlx_bridge_streaming
 //! ```
 //!
@@ -311,7 +311,7 @@ fn bench_mlx_bridge_streaming(c: &mut Criterion) {
         Some(m) => m,
         None => {
             eprintln!("⚠️  Skipping MLX bridge benchmarks: no model found");
-            eprintln!("   Set MLX_BENCHMARK_MODEL or place model at ./var/models/Qwen2.5-7B-Instruct-4bit");
+            eprintln!("   Set MLX_BENCHMARK_MODEL or place model at /var/models/Llama-3.2-3B-Instruct-4bit");
             return;
         }
     };

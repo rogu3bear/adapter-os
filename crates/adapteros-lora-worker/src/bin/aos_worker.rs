@@ -5,7 +5,7 @@
 //!
 //! Usage:
 //!   aos-worker --uds-path ./var/run/worker.sock --manifest manifests/qwen32b-coder-mlx.yaml \
-//!              --model-path ./var/models/Qwen2.5-7B-Instruct-4bit --manifest-hash <HASH>
+//!              --model-path /var/models/Llama-3.2-3B-Instruct-4bit --manifest-hash <HASH>
 
 mod worker_modules;
 

@@ -540,7 +540,7 @@ fn resolve_model_path_from_inputs(cmd: &PreflightCommand) -> Result<PathBuf> {
             "   Please migrate to AOS_MODEL_CACHE_DIR and AOS_BASE_MODEL_ID for consistency with server."
         );
         eprintln!("   Example: export AOS_MODEL_CACHE_DIR=~/.cache/adapteros/models");
-        eprintln!("            export AOS_BASE_MODEL_ID=Qwen/Qwen2.5-7B-Instruct-4bit\n");
+        eprintln!("            export AOS_BASE_MODEL_ID=Llama-3.2-3B-Instruct-4bit\n");
         return Ok(PathBuf::from(path));
     }
 
@@ -551,7 +551,7 @@ fn resolve_model_path_from_inputs(cmd: &PreflightCommand) -> Result<PathBuf> {
             "   Please migrate to AOS_MODEL_CACHE_DIR and AOS_BASE_MODEL_ID for consistency with server."
         );
         eprintln!("   Example: export AOS_MODEL_CACHE_DIR=~/.cache/adapteros/models");
-        eprintln!("            export AOS_BASE_MODEL_ID=Qwen/Qwen2.5-7B-Instruct-4bit\n");
+        eprintln!("            export AOS_BASE_MODEL_ID=Llama-3.2-3B-Instruct-4bit\n");
         return Ok(PathBuf::from(path));
     }
 

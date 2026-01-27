@@ -46,7 +46,7 @@ Seed models from a local directory into the database:
 aosctl models seed
 
 # Seed a specific model path
-aosctl models seed --model-path ./var/models/Qwen2.5-7B-Instruct-4bit
+aosctl models seed --model-path /var/models/Llama-3.2-3B-Instruct-4bit
 
 # Force re-seed even if models already exist
 aosctl models seed --force
