@@ -175,3 +175,55 @@ This section is a **verified snapshot** of backend behavior. **Update it only af
 ### AppState (Central Services)
 
 - DB + config + clock + metrics + policy + crypto + lifecycle manager + registry + telemetry buffers + SSE manager + idempotency store + load coordinator + optional federation daemon + tick ledger + boot attestation.
+
+## File System Hygiene (CRITICAL FOR AGENTS)
+
+### Forbidden Actions
+
+1. **NEVER create `var/` or `tmp/` directories inside crates** - These pollute the repo
+2. **NEVER write to `/tmp`, `/private/tmp`, `/var/tmp`** - System rejects these paths
+3. **NEVER leave test databases behind** - Clean up `*-test.sqlite3`, UUID dirs
+4. **NEVER create files in repo root** - Use `./var/` for all runtime data
+
+### Why This Matters
+
+Agents have historically created orphaned directories that consume gigabytes:
+- `crates/*/var/` - Test isolation artifacts (cleaned: 6+ GB)
+- `var/tmp/` - Temporary test databases (cleaned: 5.9 GB)
+- `var/test-dbs/` - Integration test leftovers (cleaned: 5.2 GB)
+
+### Canonical var/ Structure
+
+All runtime data goes in `./var/` (gitignored). See `docs/VAR_STRUCTURE.md`.
+
+```
+var/
+├── aos-cp.sqlite3      # Main database
+├── adapters/           # Trained LoRA adapters
+├── models/             # Base models (~16 GB)
+├── model-cache/        # Downloaded models
+├── keys/               # Signing keys
+├── logs/               # Rotated logs
+├── run/                # Sockets, PIDs
+└── [other canonical dirs]
+```
+
+### After Running Tests
+
+```bash
+# Clean crate-level var directories
+find ./crates -type d -name "var" -not -path "*/target/*" -exec rm -rf {} +
+
+# Clean test databases
+rm -f ./var/*-test.sqlite3* ./var/*_test.sqlite3*
+
+# Clean var/tmp
+rm -rf ./var/tmp
+```
+
+### Path Security Enforcement
+
+`crates/adapteros-core/src/path_security.rs` enforces:
+- Rejects `/tmp`, `/private/tmp`, `/var/tmp` for persistent paths
+- Validates symlinks don't resolve to forbidden paths
+- Guard test in `crates/adapteros-config/tests/tmp_usage_guard.rs` scans runtime code
