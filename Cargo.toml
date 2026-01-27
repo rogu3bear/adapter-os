@@ -40,6 +40,10 @@ members = [
     "crates/adapteros-lora-quant",
     "crates/adapteros-server",  # Re-enabled for building
     "crates/adapteros-server-api",
+    "crates/adapteros-server-api-health",  # Health check endpoints
+    "crates/adapteros-server-api-training",  # Training endpoint handlers
+    "crates/adapteros-server-api-inference",  # Inference and streaming endpoints
+    "crates/adapteros-server-api-audit",  # Audit logging endpoints
     "crates/adapteros-db",
     "crates/adapteros-client",
     "crates/adapteros-node",
@@ -87,6 +91,9 @@ members = [
     "crates/adapteros-diagnostics",  # Diagnostic event contract and producer API
     "crates/adapteros-embeddings",  # Deterministic embedding generation
     "crates/adapteros-retrieval",  # Deterministic retrieval with receipts and benchmarking
+    "crates/adapteros-server-api-types",  # Shared types for server-api crates
+    "crates/adapteros-server-api-admin",  # Admin and policy endpoints
+    "crates/adapteros-server-api-models",  # Model management endpoints
 ]
 
 [workspace.package]
@@ -211,7 +218,7 @@ toml = "0.8"
 # Database
 rusqlite = { version = "0.32.1", features = ["bundled"] }
 refinery = { version = "0.8", features = ["rusqlite"] }
-sqlx = { version = "0.8.2", default-features = false, features = ["runtime-tokio", "sqlite", "postgres", "macros", "migrate", "chrono", "uuid"] }
+sqlx = { version = "0.8.2", default-features = false, features = ["runtime-tokio", "sqlite", "macros", "migrate", "chrono", "uuid"] }
 libsqlite3-sys = { version = "=0.30.1", features = ["bundled"] }
 
 # Compression & Archive
@@ -219,7 +226,7 @@ zstd = "0.13"
 tar = "0.4"
 
 # Async & Concurrency
-tokio = { version = "1.35", features = ["full", "macros", "rt-multi-thread"] }
+tokio = { version = "1.35", features = ["rt-multi-thread", "macros", "sync", "time", "io-util", "net", "fs", "signal", "process"] }
 tokio-stream = "0.1"
 futures-util = "0.3"
 async-stream = "0.3"
@@ -229,7 +236,7 @@ parking_lot = "0.12"
 # HTTP & API
 axum = { version = "0.8", features = ["tokio", "macros"] }
 tower = "0.5"
-hyper = { version = "1.0", features = ["full"] }
+hyper = { version = "1.0", features = ["http1", "server", "client"] }
 hyper-util = "0.1"
 tower-http = { version = "0.6", features = ["cors", "trace"] }
 reqwest = { version = "0.12", features = ["json"] }
@@ -244,6 +251,8 @@ git2 = "0.18"
 # ML & Search
 hnsw_rs = "0.3"
 tantivy = "0.25"
+# Security: Force oneshot >= 0.1.12 (CVE: Use After Free in async)
+oneshot = "0.1.13"
 tokenizers = "0.15"
 safetensors = "0.4"
 
@@ -261,7 +270,7 @@ cap-std = "3.0"
 tempfile = "3.8"
 
 # Utilities
-smallvec = "1.11"
+smallvec = { version = "1.11", features = ["serde"] }
 bytemuck = { version = "1.14", features = ["derive"] }
 half = "2.7"
 memmap2 = "0.9"
@@ -317,6 +326,14 @@ opt-level = 3
 lto = true
 codegen-units = 1
 strip = "symbols"  # Strip symbols but preserve UUID load commands
+
+# Fast iteration profile: thin LTO + parallel codegen for development
+[profile.release-dev]
+inherits = "release"
+lto = "thin"
+codegen-units = 16
+incremental = true
+debug = 1
 
 # WASM-specific overrides for UI bundle size optimization
 # Note: panic = "abort" cannot be set per-package; WASM targets use abort by default
@@ -489,3 +506,4 @@ incremental = true
 
 # Debug profile with higher optimization for faster testing
 # Note: "debug" is reserved, so we configure "dev" profile directly above
+
