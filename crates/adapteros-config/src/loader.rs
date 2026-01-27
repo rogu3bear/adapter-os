@@ -313,7 +313,7 @@ impl ConfigLoader {
                 // SAFETY: starts_with check guarantees strip_prefix succeeds
                 let key = arg
                     .strip_prefix("--")
-                    .expect("BUG: starts_with('--') guarantees strip_prefix succeeds")
+                    .expect("CLI argument parsing failed: arg.starts_with('--') check guarantees strip_prefix('--') must succeed, but it did not. This indicates a logic error in argument validation.")
                     .to_string();
                 let value = if i + 1 < cli_args.len() && !cli_args[i + 1].starts_with("--") {
                     i += 1;

@@ -819,3 +819,253 @@ pub async fn get_invariant_status(State(state): State<AppState>) -> Json<Invaria
         production_mode,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_readyz_check_serde() {
+        let check = ReadyzCheck {
+            ok: true,
+            hint: Some("all good".to_string()),
+            latency_ms: Some(42),
+        };
+        let json = serde_json::to_string(&check).unwrap();
+        let parsed: ReadyzCheck = serde_json::from_str(&json).unwrap();
+        assert!(parsed.ok);
+        assert_eq!(parsed.hint, Some("all good".to_string()));
+        assert_eq!(parsed.latency_ms, Some(42));
+    }
+
+    #[test]
+    fn test_readyz_check_skips_none() {
+        let check = ReadyzCheck {
+            ok: false,
+            hint: None,
+            latency_ms: None,
+        };
+        let json = serde_json::to_string(&check).unwrap();
+        assert!(!json.contains("hint"));
+        assert!(!json.contains("latency_ms"));
+    }
+
+    #[test]
+    fn test_readyz_checks_serde() {
+        let checks = ReadyzChecks {
+            db: ReadyzCheck {
+                ok: true,
+                hint: None,
+                latency_ms: Some(5),
+            },
+            worker: ReadyzCheck {
+                ok: true,
+                hint: None,
+                latency_ms: Some(10),
+            },
+            models_seeded: ReadyzCheck {
+                ok: false,
+                hint: Some("no models".to_string()),
+                latency_ms: None,
+            },
+        };
+        let json = serde_json::to_string(&checks).unwrap();
+        let parsed: ReadyzChecks = serde_json::from_str(&json).unwrap();
+        assert!(parsed.db.ok);
+        assert!(parsed.worker.ok);
+        assert!(!parsed.models_seeded.ok);
+    }
+
+    #[test]
+    fn test_readiness_mode_strict_serde() {
+        let mode = ReadinessMode::Strict;
+        let json = serde_json::to_string(&mode).unwrap();
+        assert!(json.contains("strict"));
+        let parsed: ReadinessMode = serde_json::from_str(&json).unwrap();
+        assert!(matches!(parsed, ReadinessMode::Strict));
+    }
+
+    #[test]
+    fn test_readiness_mode_relaxed_serde() {
+        let mode = ReadinessMode::Relaxed {
+            relaxed_checks: vec!["worker".to_string(), "models".to_string()],
+        };
+        let json = serde_json::to_string(&mode).unwrap();
+        assert!(json.contains("relaxed"));
+        assert!(json.contains("worker"));
+        let parsed: ReadinessMode = serde_json::from_str(&json).unwrap();
+        if let ReadinessMode::Relaxed { relaxed_checks } = parsed {
+            assert_eq!(relaxed_checks.len(), 2);
+        } else {
+            panic!("Expected Relaxed variant");
+        }
+    }
+
+    #[test]
+    fn test_readiness_mode_dev_bypass_serde() {
+        let mode = ReadinessMode::DevBypass;
+        let json = serde_json::to_string(&mode).unwrap();
+        assert!(json.contains("dev_bypass"));
+        let parsed: ReadinessMode = serde_json::from_str(&json).unwrap();
+        assert!(matches!(parsed, ReadinessMode::DevBypass));
+    }
+
+    #[test]
+    fn test_boot_phase_duration_serde() {
+        let phase = BootPhaseDuration {
+            state: "Migrating".to_string(),
+            elapsed_ms: 1500,
+        };
+        let json = serde_json::to_string(&phase).unwrap();
+        let parsed: BootPhaseDuration = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.state, "Migrating");
+        assert_eq!(parsed.elapsed_ms, 1500);
+    }
+
+    #[test]
+    fn test_ready_metrics_serde() {
+        let metrics = ReadyMetrics {
+            boot_phases_ms: vec![
+                BootPhaseDuration {
+                    state: "Starting".to_string(),
+                    elapsed_ms: 100,
+                },
+                BootPhaseDuration {
+                    state: "Ready".to_string(),
+                    elapsed_ms: 50,
+                },
+            ],
+            db_latency_ms: Some(5),
+            worker_latency_ms: Some(10),
+            models_latency_ms: None,
+        };
+        let json = serde_json::to_string(&metrics).unwrap();
+        let parsed: ReadyMetrics = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.boot_phases_ms.len(), 2);
+        assert_eq!(parsed.db_latency_ms, Some(5));
+    }
+
+    #[test]
+    fn test_ready_metrics_default() {
+        let metrics = ReadyMetrics::default();
+        assert!(metrics.boot_phases_ms.is_empty());
+        assert!(metrics.db_latency_ms.is_none());
+    }
+
+    #[test]
+    fn test_drain_section_serde() {
+        let drain = DrainSection {
+            active: true,
+            in_flight_requests: Some(5),
+            in_flight_jobs: Some(2),
+            started_at: Some("2025-01-27T00:00:00Z".to_string()),
+            deadline_at: Some("2025-01-27T00:05:00Z".to_string()),
+        };
+        let json = serde_json::to_string(&drain).unwrap();
+        let parsed: DrainSection = serde_json::from_str(&json).unwrap();
+        assert!(parsed.active);
+        assert_eq!(parsed.in_flight_requests, Some(5));
+    }
+
+    #[test]
+    fn test_maintenance_section_serde() {
+        let maintenance = MaintenanceSection {
+            active: true,
+            reason: Some("scheduled maintenance".to_string()),
+            actor: Some("admin".to_string()),
+        };
+        let json = serde_json::to_string(&maintenance).unwrap();
+        let parsed: MaintenanceSection = serde_json::from_str(&json).unwrap();
+        assert!(parsed.active);
+        assert_eq!(parsed.reason, Some("scheduled maintenance".to_string()));
+    }
+
+    #[test]
+    fn test_restart_section_serde() {
+        let restart = RestartSection {
+            supervisor_hook_configured: true,
+            restart_counter: 3,
+            last_restart_at: Some("2025-01-27T00:00:00Z".to_string()),
+        };
+        let json = serde_json::to_string(&restart).unwrap();
+        let parsed: RestartSection = serde_json::from_str(&json).unwrap();
+        assert!(parsed.supervisor_hook_configured);
+        assert_eq!(parsed.restart_counter, 3);
+    }
+
+    #[test]
+    fn test_telemetry_section_serde() {
+        let telemetry = TelemetrySection {
+            last_registration_heartbeat_at: Some("2025-01-27T00:00:00Z".to_string()),
+            last_error: Some("connection timeout".to_string()),
+            last_error_at: Some("2025-01-26T23:59:00Z".to_string()),
+        };
+        let json = serde_json::to_string(&telemetry).unwrap();
+        let parsed: TelemetrySection = serde_json::from_str(&json).unwrap();
+        assert!(parsed.last_error.is_some());
+    }
+
+    #[test]
+    fn test_system_ready_section_serde() {
+        let section = SystemReadySection {
+            ready: false,
+            critical_degraded: vec!["db".to_string()],
+            non_critical_degraded: vec!["metrics".to_string()],
+            maintenance: false,
+            reason: "critical degraded: [\"db\"]".to_string(),
+        };
+        let json = serde_json::to_string(&section).unwrap();
+        let parsed: SystemReadySection = serde_json::from_str(&json).unwrap();
+        assert!(!parsed.ready);
+        assert_eq!(parsed.critical_degraded.len(), 1);
+    }
+
+    #[test]
+    fn test_invariant_violation_dto_serde() {
+        let violation = InvariantViolationDto {
+            id: "INV-001".to_string(),
+            message: "Seed not configured".to_string(),
+            is_fatal: true,
+            remediation: "Set AOS_GLOBAL_SEED environment variable".to_string(),
+        };
+        let json = serde_json::to_string(&violation).unwrap();
+        let parsed: InvariantViolationDto = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.id, "INV-001");
+        assert!(parsed.is_fatal);
+    }
+
+    #[test]
+    fn test_invariant_status_response_serde() {
+        let response = InvariantStatusResponse {
+            checked: 10,
+            passed: 8,
+            failed: 1,
+            skipped: 1,
+            fatal: 0,
+            violations: vec![
+                InvariantViolationDto {
+                    id: "INV-002".to_string(),
+                    message: "Minor issue".to_string(),
+                    is_fatal: false,
+                    remediation: "Check configuration".to_string(),
+                },
+            ],
+            skipped_ids: vec!["INV-SKIP-001".to_string()],
+            production_mode: false,
+        };
+        let json = serde_json::to_string(&response).unwrap();
+        let parsed: InvariantStatusResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.checked, 10);
+        assert_eq!(parsed.passed, 8);
+        assert_eq!(parsed.violations.len(), 1);
+    }
+
+    #[test]
+    fn test_normalize_service_status() {
+        assert_eq!(normalize_service_status("failed"), "error");
+        assert_eq!(normalize_service_status("restarting"), "starting");
+        assert_eq!(normalize_service_status("running"), "running");
+        assert_eq!(normalize_service_status("stopped"), "stopped");
+        assert_eq!(normalize_service_status("unknown_state"), "unknown");
+    }
+}

@@ -78,7 +78,8 @@ pub fn create_metrics_enabled_trainer(
     metrics_config: Option<MetricsConfig>,
 ) -> TrainingMetricsSession {
     let config = metrics_config.unwrap_or_default();
-    let mut metrics = TrainingMetrics::new(config.clone()).expect("Failed to create metrics");
+    let mut metrics = TrainingMetrics::new(config.clone())
+        .expect("failed to create TrainingMetrics - metrics config should be valid and telemetry should be accessible");
     metrics.mark_training_start();
 
     TrainingMetricsSession {

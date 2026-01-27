@@ -1,5 +1,5 @@
+use crate::api_error::ApiError;
 use crate::auth::Claims;
-use crate::error_helpers::internal_error;
 use crate::kv_isolation::{kv_isolation_config_from_env, run_kv_isolation_scan};
 use crate::middleware::require_any_role;
 use crate::state::AppState;
@@ -47,7 +47,7 @@ pub async fn get_kv_isolation_health(
     let snapshot = state
         .kv_isolation_snapshot
         .read()
-        .map_err(|e| internal_error(AosError::Database(e.to_string())))?
+        .map_err(|e| ApiError::internal(e.to_string()))?
         .clone();
 
     Ok(Json(KvIsolationHealthResponse {
@@ -90,5 +90,5 @@ pub async fn trigger_kv_isolation_scan(
     run_kv_isolation_scan(&state, cfg, "manual")
         .await
         .map(Json)
-        .map_err(internal_error)
+        .map_err(|e| ApiError::internal(e.to_string()))
 }

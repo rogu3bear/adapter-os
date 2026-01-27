@@ -1560,8 +1560,8 @@ impl CoreMLBackend {
         }
 
         let hash = B3Hash::hash(model_path.to_string_lossy().as_bytes()).to_hex();
-        let cache_dir = PlatformUtils::temp_dir()
-            .join("adapteros-coremlc")
+        let cache_dir = PlatformUtils::aos_model_cache_dir()
+            .join("coreml")
             .join(hash);
 
         if let Some(compiled) = Self::find_compiled_model(&cache_dir)? {

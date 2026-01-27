@@ -4,7 +4,7 @@
 
 use crate::auth::AdminClaims;
 use crate::middleware::require_any_role;
-use crate::state::AdminAppState;
+use crate::state::{AdminAppState, AdminDb, PluginRegistry};
 use crate::types::AdminErrorResponse;
 use adapteros_core::{PluginHealth, PluginStatus};
 use adapteros_db::users::Role;

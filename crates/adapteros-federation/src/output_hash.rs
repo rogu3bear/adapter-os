@@ -360,7 +360,7 @@ mod tests {
     // Returns (Db, TempDir) - caller must hold TempDir to keep DB files alive
     async fn setup_test_db() -> Result<(Db, TempDir)> {
         let temp_dir = TempDir::with_prefix("aos-output-hash-test-")
-            .expect("create temp dir");
+            .expect("failed to create temporary directory for output hash manager test database: system tmp directory should be writable");
         let db_path = temp_dir.path().join("test.db");
         let db = Db::connect(db_path.to_str().unwrap()).await?;
         db.migrate().await?;

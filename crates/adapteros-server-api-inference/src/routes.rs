@@ -65,14 +65,14 @@ pub fn inference_routes() -> Router {
         .route("/v1/infer/batch", post(batch_infer_placeholder))
         // Async batch jobs
         .route("/v1/batches", post(create_batch_job_placeholder))
-        .route("/v1/batches/:batch_id", get(get_batch_status_placeholder))
+        .route("/v1/batches/{batch_id}", get(get_batch_status_placeholder))
         .route(
-            "/v1/batches/:batch_id/items",
+            "/v1/batches/{batch_id}/items",
             get(get_batch_items_placeholder),
         )
         // Provenance
         .route(
-            "/v1/inference/:trace_id/provenance",
+            "/v1/inference/{trace_id}/provenance",
             get(get_inference_provenance_placeholder),
         )
 }
@@ -105,14 +105,14 @@ where
         .route("/v1/infer/batch", post(batch_infer_placeholder))
         // Async batch jobs
         .route("/v1/batches", post(create_batch_job_placeholder))
-        .route("/v1/batches/:batch_id", get(get_batch_status_placeholder))
+        .route("/v1/batches/{batch_id}", get(get_batch_status_placeholder))
         .route(
-            "/v1/batches/:batch_id/items",
+            "/v1/batches/{batch_id}/items",
             get(get_batch_items_placeholder),
         )
         // Provenance
         .route(
-            "/v1/inference/:trace_id/provenance",
+            "/v1/inference/{trace_id}/provenance",
             get(get_inference_provenance_placeholder),
         )
 }

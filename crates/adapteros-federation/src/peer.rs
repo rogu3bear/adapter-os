@@ -1457,7 +1457,7 @@ mod tests {
     // Returns (Db, TempDir) - caller must hold TempDir to keep DB files alive
     async fn setup_test_db() -> Result<(Db, TempDir)> {
         let temp_dir = TempDir::with_prefix("aos-peer-test-")
-            .expect("create temp dir");
+            .expect("failed to create temporary directory for peer registry test database: system tmp directory should be writable");
         let db_path = temp_dir
             .path()
             .join(format!("test_{}.db", uuid::Uuid::new_v4()));

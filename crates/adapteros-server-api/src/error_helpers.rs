@@ -1,23 +1,96 @@
 // TODO: Migrate callers to ApiError::* methods and remove these helpers
 // Tracking: POST-BETA-CLEANUP
+//
+// MIGRATION STATUS (as of 2026-01-27):
+// ======================================
+// Current usage: ~742 call sites across 16+ handler modules in adapteros-server-api
+//
+// Key usage patterns:
+// - `.map_err(db_error)`: ~102 occurrences
+// - `.map_err(internal_error)`: ~24 occurrences
+// - `.map_err(bad_request)`: ~4 occurrences
+// - Direct error helper calls: ~612 occurrences
+//
+// Most affected modules (need systematic migration):
+// - src/handlers/datasets/*.rs (validation, fs_utils, tenant, from_documents, progress_sse)
+// - src/handlers/adapters/*.rs (repo, fs_utils)
+// - src/handlers/*.rs (admin, tenant_settings, api_keys, execution_policy, router_config, workspaces, kv_isolation)
+//
+// MIGRATION STRATEGY:
+// 1. Start with new handlers - enforce ApiError usage in code review
+// 2. Convert high-traffic endpoints first (inference, training endpoints)
+// 3. Batch convert by module (datasets, adapters, admin)
+// 4. Remove this module once all callers migrated
+//
+// BENEFITS OF COMPLETING MIGRATION:
+// - Builder pattern enables .with_details(), .with_request_id(), .with_tenant_id()
+// - Automatic AosError conversion (58 error variants mapped to HTTP status codes)
+// - Redaction of sensitive data in error details (file paths, tokens, connection strings)
+// - Type-safe error responses vs. manual tuple construction
+//
+// ESTIMATED EFFORT:
+// ~2-3 days of focused work with comprehensive testing
 
 //! Standardized error response helpers for API handlers
 //!
 //! **DEPRECATED**: This module uses the legacy tuple pattern `(StatusCode, Json<ErrorResponse>)`.
 //! Use `crate::api_error::ApiError` instead for all new code.
 //!
-//! # Migration
+//! # Migration Examples
+//!
+//! ## Basic Error Conversion
 //! ```ignore
 //! // Old (deprecated):
 //! use crate::error_helpers::{ApiResult, db_error, not_found};
-//! pub async fn handler() -> ApiResult<Response> { ... }
+//! pub async fn handler() -> ApiResult<Response> {
+//!     let adapter = state.db.get_adapter(&id).await.map_err(db_error)?;
+//!     let adapter = adapter.ok_or_else(|| not_found("Adapter"))?;
+//!     Ok(Json(response))
+//! }
 //!
 //! // New (preferred):
 //! use crate::api_error::{ApiError, ApiResult};
-//! pub async fn handler() -> ApiResult<Response> { ... }
+//! pub async fn handler() -> ApiResult<Response> {
+//!     let adapter = state.db.get_adapter(&id).await
+//!         .map_err(|e| ApiError::db_error(e))?;
+//!     let adapter = adapter.ok_or_else(|| ApiError::not_found("Adapter"))?;
+//!     Ok(Json(response))
+//! }
 //! ```
 //!
-//! See `crate::api_error` for the new API.
+//! ## With Request Context (Builder Pattern)
+//! ```ignore
+//! // Old:
+//! let result = state.db.query().await.map_err(db_error)?;
+//!
+//! // New (with tracing context):
+//! let result = state.db.query().await
+//!     .map_err(|e| ApiError::db_error(e)
+//!         .with_request_context(&ctx)
+//!         .with_details("failed to query adapters"))?;
+//! ```
+//!
+//! ## With Redacted Details
+//! ```ignore
+//! // Old:
+//! return Err(internal_error(format!("failed at path: {}", path)));
+//!
+//! // New (with automatic redaction of file paths):
+//! return Err(ApiError::internal("operation failed")
+//!     .with_redacted_details(format!("failed at path: {}", path)));
+//! ```
+//!
+//! ## AosError Auto-Conversion
+//! ```ignore
+//! // Old:
+//! let policy = validate_policy(&req).map_err(internal_error)?;
+//!
+//! // New (AosError::PolicyViolation maps to 403 Forbidden automatically):
+//! let policy = validate_policy(&req)?;  // Returns Result<T, AosError>
+//! // ApiError::from(AosError) handles the conversion
+//! ```
+//!
+//! See `crate::api_error` for the complete API and all 58 AosError variant mappings.
 
 use crate::types::ErrorResponse;
 use axum::{http::StatusCode, Json};

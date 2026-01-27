@@ -982,7 +982,7 @@ pub async fn run_with_seed_options(
         fetch_online_bundle(trace_id, server_url).await?
     } else {
         let bundle_path = resolve_bundle_path(
-            bundle.expect("bundle path should be present when online_trace is None"),
+            bundle.expect("BUG: bundle path argument must be provided when --online-trace is not set. This is a CLI argument parsing error that should have been caught by clap validation."),
         )?;
         load_bundle(&bundle_path)?
     };

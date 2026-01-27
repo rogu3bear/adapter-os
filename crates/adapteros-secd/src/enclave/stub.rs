@@ -1,3 +1,48 @@
+//! Software-based fallback enclave implementation for non-macOS platforms.
+//!
+//! This module provides a software-only implementation of the `EnclaveManager` that
+//! is used when the macOS Secure Enclave is not available (non-macOS platforms or
+//! when the `secure-enclave` feature is disabled).
+//!
+//! ## Why This Stub Exists
+//!
+//! The Secure Enclave Processor (SEP) is a hardware coprocessor available only on:
+//! - Apple Silicon Macs (M1, M2, M3 series)
+//! - Intel Macs with T2 security chip
+//!
+//! For cross-platform builds, CI environments, and development on non-Apple hardware,
+//! this stub provides API-compatible functionality using software cryptography.
+//!
+//! ## Security Properties Comparison
+//!
+//! | Property | Hardware SEP | Software Stub |
+//! |----------|--------------|---------------|
+//! | Key Storage | Tamper-resistant hardware | Process memory (ephemeral) |
+//! | Key Extraction | Impossible | Keys in memory (vulnerable) |
+//! | Attestation | Hardware-backed proof | Not available |
+//! | Boot Security | Secure boot chain | None |
+//! | Side-Channel Resistance | Hardware isolation | Software only |
+//!
+//! ## Cryptographic Primitives
+//!
+//! The stub uses equivalent cryptographic algorithms:
+//! - **Encryption**: ChaCha20-Poly1305 (same as macOS implementation)
+//! - **Signing**: Ed25519 (vs ECDSA in hardware SEP)
+//! - **Key Derivation**: HKDF-SHA256 with domain separation
+//! - **Hashing**: BLAKE3 for keyed digests
+//!
+//! ## Usage Recommendations
+//!
+//! - **Development/Testing**: Safe to use for local development
+//! - **CI/CD**: Appropriate for automated testing
+//! - **Production**: NOT recommended without additional hardening (e.g., TPM, HSM)
+//!
+//! ## Root Key Generation
+//!
+//! On initialization, the stub generates a random root key using OS entropy (`OsRng`).
+//! All derived keys are deterministically computed from this root key using HKDF
+//! with domain separation. The root key is ephemeral and lost when the process exits.
+
 use super::{EnclaveError, Result};
 use adapteros_core::{derive_seed, B3Hash};
 use chacha20poly1305::aead::Aead;
@@ -9,18 +54,29 @@ use std::collections::HashMap;
 use tracing::{debug, info, warn};
 
 /// Software-based fallback for platforms without Secure Enclave support.
-/// Provides graceful degradation while maintaining cryptographic security properties.
 ///
-/// Security Model:
+/// This is a **stub implementation** that provides API compatibility with the
+/// hardware-backed `EnclaveManager` on macOS. It uses software cryptography
+/// instead of hardware isolation.
+///
+/// # Security Model
+///
 /// - Uses HKDF for key derivation with domain separation
 /// - ChaCha20-Poly1305 for AEAD encryption (same as macOS implementation)
 /// - Ed25519 for signing (platform-agnostic alternative to Secure Enclave ECDSA)
 /// - In-memory key cache (ephemeral, cleared on process exit)
 ///
-/// Limitations vs Hardware Enclave:
+/// # Limitations vs Hardware Enclave
+///
 /// - Keys are in process memory (not in tamper-resistant hardware)
 /// - No secure boot or attestation
+/// - Keys can theoretically be extracted by privileged processes
 /// - Suitable for development, testing, and non-production deployments
+///
+/// # Thread Safety
+///
+/// The `EnclaveManager` is not `Sync` due to interior mutability of the key cache.
+/// Use `Arc<Mutex<EnclaveManager>>` for shared access across threads.
 #[derive(Debug)]
 pub struct EnclaveManager {
     /// Cache of derived keys by label for fast reuse

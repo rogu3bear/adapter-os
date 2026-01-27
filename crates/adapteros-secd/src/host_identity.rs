@@ -2,6 +2,59 @@
 //!
 //! Provides hardware-rooted Ed25519 signing keys for host attestation and
 //! telemetry bundle signing (Secrets Ruleset #14).
+//!
+//! ## Stub Implementation: SecureEnclaveConnection
+//!
+//! This module contains a **stub implementation** of [`SecureEnclaveConnection`] that
+//! uses software cryptography instead of hardware Secure Enclave operations.
+//!
+//! ### Why This Is a Stub
+//!
+//! The Secure Enclave Processor (SEP) requires:
+//! - Apple Silicon (M1/M2/M3) or Intel Mac with T2 chip
+//! - macOS with proper entitlements for Secure Enclave access
+//! - The `secure-enclave` feature flag enabled
+//!
+//! This module provides a mock implementation for:
+//! - Cross-platform development and testing
+//! - CI/CD environments without Apple hardware
+//! - Rapid prototyping before hardware integration
+//!
+//! ### What Would Be Needed for Full Implementation
+//!
+//! 1. **Hardware-backed key generation**:
+//!    - Use `SecKeyCreateRandomKey` with `kSecAttrTokenIDSecureEnclave`
+//!    - Keys never leave the hardware
+//!
+//! 2. **Hardware-backed signing**:
+//!    - Use `SecKeyCreateSignature` with SEP-resident key
+//!    - Private key operations happen in hardware
+//!
+//! 3. **Real attestation**:
+//!    - Use `SecKeyCopyAttestation` for hardware attestation
+//!    - Provides cryptographic proof key resides in SEP
+//!
+//! ### Current Stub Behavior
+//!
+//! | Operation | Stub Behavior |
+//! |-----------|---------------|
+//! | `generate_keypair()` | Generates new Ed25519 keypair in memory |
+//! | `sign()` | Generates new keypair and signs (NOT deterministic) |
+//! | `get_public_key()` | Generates new keypair and returns public key |
+//! | `attest_key()` | Returns 64 zero bytes (mock attestation) |
+//!
+//! **Warning**: The stub `sign()` and `get_public_key()` methods generate NEW keypairs
+//! on each call, so signatures cannot be verified with subsequent `get_public_key()` calls.
+//! This is intentional for the stub to clearly indicate it's not production-ready.
+//!
+//! ### Hardware Detection
+//!
+//! The module includes real hardware detection functions:
+//! - [`detect_hardware_model()`]: Uses `system_profiler` to identify Mac model
+//! - [`detect_secure_enclave_version()`]: Uses `ioreg` to check SEP availability
+//!
+//! These work correctly and populate [`AttestationMetadata`] with real hardware info,
+//! even though the cryptographic operations are stubbed.
 
 use adapteros_core::Result;
 use adapteros_crypto::{Keypair, PublicKey, Signature};
@@ -172,7 +225,30 @@ pub struct AttestationReport {
     pub timestamp_us: u64,
 }
 
-/// Secure Enclave connection (mock implementation for now)
+/// Secure Enclave connection for host identity operations.
+///
+/// # Stub Implementation
+///
+/// This is a **mock/stub implementation** that uses software cryptography instead of
+/// the actual macOS Secure Enclave. It exists to provide API compatibility for:
+/// - Cross-platform development
+/// - CI/CD testing without Apple hardware
+/// - Prototyping before hardware integration
+///
+/// ## Current Limitations
+///
+/// - **No key persistence**: Keys are generated fresh on each call
+/// - **No hardware binding**: Keys exist only in process memory
+/// - **Mock attestation**: Returns placeholder data (64 zero bytes)
+/// - **Non-deterministic signing**: Each `sign()` call uses a new keypair
+///
+/// ## Full Implementation Requirements
+///
+/// A production implementation would need:
+/// 1. `SecKeyCreateRandomKey` with `kSecAttrTokenIDSecureEnclave` for key generation
+/// 2. `SecKeyCreateSignature` for hardware-backed signing
+/// 3. `SecKeyCopyAttestation` for hardware attestation (macOS 13.0+)
+/// 4. Proper entitlements in the app's code signature
 pub struct SecureEnclaveConnection {
     /// Mock keypair (in production, this would be a handle to Secure Enclave)
     _mock_keypair: Keypair,
@@ -187,12 +263,18 @@ impl std::fmt::Debug for SecureEnclaveConnection {
 }
 
 impl SecureEnclaveConnection {
-    /// Create a new Secure Enclave connection
+    /// Create a new Secure Enclave connection.
+    ///
+    /// # Stub Behavior
+    ///
+    /// This stub generates a mock Ed25519 keypair in memory. The keypair is not
+    /// actually used by the other methods (they generate fresh keypairs), but
+    /// represents what would be a connection handle to the Secure Enclave.
     pub fn new() -> Result<Self> {
         info!("Initializing Secure Enclave connection");
 
-        // In production, this would establish connection to Secure Enclave
-        // For now, we use a mock implementation
+        // STUB: In production, this would establish connection to Secure Enclave
+        // via Security.framework and verify hardware availability.
         let mock_keypair = Keypair::generate();
 
         Ok(Self {
@@ -200,31 +282,75 @@ impl SecureEnclaveConnection {
         })
     }
 
-    /// Generate a new keypair in Secure Enclave
+    /// Generate a new keypair in Secure Enclave.
+    ///
+    /// # Stub Behavior
+    ///
+    /// Generates a fresh Ed25519 keypair in memory and returns its public key.
+    /// The private key is immediately discarded (not stored).
+    ///
+    /// # Production Implementation
+    ///
+    /// Would use `SecKeyCreateRandomKey` with:
+    /// - `kSecAttrTokenIDSecureEnclave` for hardware binding
+    /// - `kSecAttrKeyTypeECSECPrimeRandom` for ECDSA P-256
+    /// - `kSecAttrIsPermanent = true` for keychain persistence
     pub fn generate_keypair(&self, _alias: &str) -> Result<PublicKey> {
-        // In production, this would generate key in Secure Enclave
+        // STUB: Generates ephemeral keypair, discards private key
         let keypair = Keypair::generate();
         Ok(keypair.public_key())
     }
 
-    /// Sign data with Secure Enclave key
+    /// Sign data with Secure Enclave key.
+    ///
+    /// # Stub Behavior
+    ///
+    /// **Warning**: Generates a NEW keypair for each call. Signatures produced
+    /// by this stub CANNOT be verified because the keypair is ephemeral.
+    /// This is intentional to make stub usage obvious.
+    ///
+    /// # Production Implementation
+    ///
+    /// Would use `SecKeyCreateSignature` with the key handle retrieved by alias,
+    /// keeping the private key in hardware.
     pub fn sign(&self, _alias: &str, data: &[u8]) -> Result<Signature> {
-        // In production, this would sign using Secure Enclave
+        // STUB: WARNING - generates new keypair each call, signatures unverifiable
         let keypair = Keypair::generate();
         Ok(keypair.sign(data))
     }
 
-    /// Get public key from Secure Enclave
+    /// Get public key from Secure Enclave.
+    ///
+    /// # Stub Behavior
+    ///
+    /// **Warning**: Generates a NEW keypair for each call. The public key will
+    /// NOT match keys from previous `generate_keypair()` or `sign()` calls.
+    ///
+    /// # Production Implementation
+    ///
+    /// Would use `SecItemCopyMatching` to retrieve the key by alias and
+    /// `SecKeyCopyPublicKey` to extract the public component.
     pub fn get_public_key(&self, _alias: &str) -> Result<PublicKey> {
-        // In production, this would retrieve key from Secure Enclave
+        // STUB: WARNING - generates new keypair each call
         let keypair = Keypair::generate();
         Ok(keypair.public_key())
     }
 
-    /// Attest key in Secure Enclave
+    /// Attest key in Secure Enclave.
+    ///
+    /// # Stub Behavior
+    ///
+    /// Returns 64 zero bytes as mock attestation data. This provides no
+    /// cryptographic guarantees and should not be trusted.
+    ///
+    /// # Production Implementation
+    ///
+    /// Would use `SecKeyCopyAttestation` (macOS 13.0+) to get hardware-signed
+    /// attestation proving the key resides in the Secure Enclave. The attestation
+    /// can be verified against Apple's attestation root certificate.
     pub fn attest_key(&self, _alias: &str) -> Result<Vec<u8>> {
-        // In production, this would request hardware attestation
-        Ok(vec![0u8; 64]) // Mock attestation data
+        // STUB: Returns placeholder data - no hardware attestation
+        Ok(vec![0u8; 64])
     }
 }
 

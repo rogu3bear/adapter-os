@@ -64,15 +64,10 @@ pub use crate::types::*;
 // The handlers below document the expected signatures and logic flow.
 // The actual integration happens in adapteros-server-api's finalization.rs
 
-use adapteros_api_types::{
-    TrainingBackendCapabilities, TrainingBackendReadinessResponse, TrainingBaseModelReadiness,
-    TrainingCoremlReadiness, TrainingJobListResponse, TrainingJobResponse,
-    TrainingMetricsListResponse, TrainingReportResponse, TrainingTemplateResponse,
-};
-use adapteros_lora_worker::backend_factory::{detect_capabilities, BackendCapabilities};
+use adapteros_api_types::TrainingBackendCapabilities;
+use adapteros_api_types::TrainingCoremlReadiness;
+use adapteros_lora_worker::backend_factory::BackendCapabilities;
 use adapteros_types::training::{TrainingBackendKind, TrainingBackendPolicy};
-
-use crate::types::{BackendPlan, BackendReadinessQuery};
 
 // ============================================================================
 // Backend Readiness Helpers

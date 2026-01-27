@@ -387,7 +387,7 @@ mod tests {
 
     #[test]
     fn test_paginated_response_roundtrip() {
-        #[derive(Debug, Serialize, Deserialize, PartialEq)]
+        #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
         struct TestItem {
             id: u32,
             name: String,

@@ -4,17 +4,17 @@
 
 use axum::response::IntoResponse;
 use axum::Json;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Admin status response
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct AdminStatusResponse {
     pub status: &'static str,
     pub version: &'static str,
 }
 
 /// System configuration response
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SystemConfigResponse {
     pub config_version: &'static str,
     pub policies_enabled: bool,

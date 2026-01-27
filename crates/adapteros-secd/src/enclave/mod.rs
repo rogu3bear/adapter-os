@@ -1,9 +1,30 @@
 //! Secure Enclave abstraction with platform-specific implementations.
 //!
+//! This module provides a unified `EnclaveManager` API with two implementations:
+//!
+//! 1. **Hardware-backed** ([`macos`]): Uses macOS Secure Enclave for tamper-resistant
+//!    key storage and cryptographic operations
+//! 2. **Software fallback** ([`stub`]): Uses standard cryptography libraries for
+//!    cross-platform compatibility
+//!
 //! ## Backend Selection
 //!
-//! - **macOS with `secure-enclave` feature:** Uses hardware-backed Secure Enclave (ECDSA signing, hardware-sealed keys)
-//! - **macOS without feature or other platforms:** Uses software fallback (Ed25519 + HKDF-derived keys)
+//! The backend is selected at compile time based on target OS and feature flags:
+//!
+//! | Condition | Backend | Module |
+//! |-----------|---------|--------|
+//! | macOS + `secure-enclave` feature | Hardware SEP | [`macos`] |
+//! | macOS without feature | Software stub | [`stub`] |
+//! | Non-macOS (Linux, Windows) | Software stub | [`stub`] |
+//!
+//! ## Why the Stub Exists
+//!
+//! The software stub provides:
+//!
+//! - **Cross-platform builds**: CI/CD on Linux, development on non-Apple hardware
+//! - **Feature parity**: Same API regardless of hardware availability
+//! - **Graceful degradation**: Applications continue to work without SEP
+//! - **Testing**: Unit tests can run without hardware dependencies
 //!
 //! ## Security Properties
 //!
@@ -14,10 +35,28 @@
 //! | Key Derivation | Keychain + master key | HKDF (SHA256) |
 //! | Nonce Generation | Deterministic (data-derived) | Deterministic (data-derived) |
 //! | Key Storage | Tamper-resistant hardware | Ephemeral (process memory) |
+//! | Key Extraction | Impossible | Possible (keys in memory) |
+//! | Attestation | Synthetic (stub - real SEP not implemented) | Not available |
+//!
+//! ## Production Recommendations
 //!
 //! The software fallback maintains cryptographic security properties suitable for
 //! development and testing but should not be used in production without additional
-//! hardening (e.g., TPM/TEE integration, encrypted key storage).
+//! hardening (e.g., TPM/TEE integration, encrypted key storage, HSM backing).
+//!
+//! For production deployments requiring hardware security:
+//! - Use macOS with `secure-enclave` feature enabled
+//! - Ensure proper code signing entitlements
+//! - Verify SEP availability at runtime before trusting attestation
+//!
+//! ## Checking Backend at Runtime
+//!
+//! ```rust,ignore
+//! let manager = EnclaveManager::new()?;
+//! if manager.is_software_fallback() {
+//!     warn!("Running with software fallback - hardware security not available");
+//! }
+//! ```
 
 use thiserror::Error;
 

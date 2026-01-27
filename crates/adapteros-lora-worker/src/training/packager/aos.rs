@@ -1130,7 +1130,7 @@ mod tests {
         let temp_dir = tempfile::Builder::new()
             .prefix("aos-test-")
             .tempdir()
-            .expect("tempdir");
+            .expect("failed to create temporary directory for compute_hash test - check disk space and permissions");
         let test_file = temp_dir.path().join("test.txt");
         tokio::fs::write(&test_file, b"hello world").await.unwrap();
 
@@ -1145,7 +1145,7 @@ mod tests {
         let temp_dir = tempfile::Builder::new()
             .prefix("aos-test-")
             .tempdir()
-            .expect("tempdir");
+            .expect("failed to create temporary directory for manifest save/load test - check disk space");
         let manifest_path = temp_dir.path().join("manifest.json");
 
         let manifest = AdapterManifest {
@@ -1217,7 +1217,7 @@ mod tests {
         let temp_dir = tempfile::Builder::new()
             .prefix("aos-test-")
             .tempdir()
-            .expect("tempdir");
+            .expect("failed to create temporary directory for artifact quota test - check disk space");
         let tenant_dir = temp_dir.path().join("tenant1").join("adapter");
         tokio::fs::create_dir_all(&tenant_dir).await.unwrap();
         let existing = tenant_dir.join("v1.aos");
@@ -1245,13 +1245,14 @@ mod tests {
         )];
 
         let serialized = safetensors::tensor::serialize(tensors, &None).unwrap();
-        let hashes =
-            AdapterPackager::compute_per_layer_hashes_from_bytes(&serialized).expect("hashing ok");
+        let hashes = AdapterPackager::compute_per_layer_hashes_from_bytes(&serialized)
+            .expect("failed to compute per-layer hashes from serialized safetensors - serialization format should be valid");
 
         let canonical = "transformer.layer_0.attn.q_proj.lora_A";
-        let entry = hashes
-            .get(canonical)
-            .expect("canonical layer entry should exist");
+        let entry = hashes.get(canonical).expect(
+            "canonical layer entry 'transformer.layer_0.attn.q_proj.lora_A' should exist after hashing - \
+             layer normalization should have created this key from 'model.layers.0.attn.q_proj.lora_A.weight'"
+        );
         assert_eq!(
             entry.tensor_name.as_deref(),
             Some("model.layers.0.attn.q_proj.lora_A.weight")

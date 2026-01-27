@@ -1,4 +1,4 @@
-use crate::error_helpers::db_error;
+use crate::api_error::ApiError;
 use crate::types::ErrorResponse;
 use adapteros_db::Db;
 use axum::http::StatusCode;
@@ -11,5 +11,5 @@ pub async fn bind_dataset_to_tenant(
 ) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
     db.update_dataset_extended_fields(dataset_id, None, None, None, None, None, Some(tenant_id))
         .await
-        .map_err(|e| db_error(format!("Failed to set dataset tenant: {}", e)))
+        .map_err(|e| ApiError::db_error(format!("Failed to set dataset tenant: {}", e)).into())
 }

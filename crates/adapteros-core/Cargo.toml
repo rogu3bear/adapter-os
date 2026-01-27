@@ -41,6 +41,11 @@ fs2 = { workspace = true }
 walkdir.workspace = true
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+[build-dependencies]
+# Used by build.rs tests to verify migration counting logic
+tempfile = "3.8"
+
 [dev-dependencies]
 futures = "0.3"
 proptest = { workspace = true }

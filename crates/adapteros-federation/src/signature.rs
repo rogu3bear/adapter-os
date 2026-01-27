@@ -382,7 +382,7 @@ mod tests {
     use tempfile::TempDir;
 
     fn new_test_tempdir() -> TempDir {
-        TempDir::with_prefix("aos-test-").expect("create temp dir")
+        TempDir::with_prefix("aos-test-").expect("failed to create temporary directory for quorum manager test: system tmp directory should be writable")
     }
 
     async fn setup_test_db() -> Result<Db> {

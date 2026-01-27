@@ -6,7 +6,7 @@
 #![allow(dead_code)]
 
 use super::types::ProgressStreamQuery;
-use crate::error_helpers::internal_error;
+use crate::api_error::ApiError;
 use crate::sse::{SseEventManager, SseStreamType};
 use crate::state::{AppState, DatasetProgressEvent, IngestionPhase, SessionProgressEvent};
 use crate::types::ErrorResponse;
@@ -450,7 +450,11 @@ pub async fn dataset_upload_progress(
     let rx = state
         .dataset_progress_tx
         .as_ref()
-        .ok_or_else(|| internal_error("Dataset progress streaming not available"))?
+        .ok_or_else(|| {
+            let err: (StatusCode, Json<ErrorResponse>) =
+                ApiError::internal("Dataset progress streaming not available").into();
+            err
+        })?
         .subscribe();
 
     info!(
@@ -610,7 +614,11 @@ pub async fn session_progress_stream(
     let rx = state
         .session_progress_tx
         .as_ref()
-        .ok_or_else(|| internal_error("Session progress streaming not available"))?
+        .ok_or_else(|| {
+            let err: (StatusCode, Json<ErrorResponse>) =
+                ApiError::internal("Session progress streaming not available").into();
+            err
+        })?
         .subscribe();
 
     info!(

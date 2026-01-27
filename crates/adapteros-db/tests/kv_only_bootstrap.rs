@@ -3,7 +3,7 @@ use adapteros_db::{Db, KvDb, StorageMode};
 use tempfile::TempDir;
 
 fn new_test_tempdir() -> TempDir {
-    TempDir::with_prefix("aos-test-").expect("tempdir")
+    TempDir::with_prefix("aos-test-").expect("Failed to create temporary directory for KV-only bootstrap test")
 }
 
 #[tokio::test]

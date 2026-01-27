@@ -11,8 +11,8 @@
 //! - `source_model_hash` - BLAKE3 hash of the model used for generation
 //! - `generation_receipt_digests` - BLAKE3 digests of per-chunk generation receipts
 
+use crate::api_error::ApiError;
 use crate::auth::Claims;
-use crate::error_helpers::{bad_request, internal_error, payload_too_large};
 use crate::inference_core::InferenceCore;
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
@@ -175,7 +175,7 @@ pub async fn generate_dataset_from_file(
     while let Some(field) = multipart
         .next_field()
         .await
-        .map_err(|e| bad_request(format!("Failed to read multipart field: {}", e)))?
+        .map_err(|e| ApiError::bad_request(format!("Failed to read multipart field: {}", e)))?
     {
         let field_name = field.name().unwrap_or("").to_string();
 
@@ -185,39 +185,40 @@ pub async fn generate_dataset_from_file(
                 let data = field
                     .bytes()
                     .await
-                    .map_err(|e| bad_request(format!("Failed to read file: {}", e)))?;
+                    .map_err(|e| ApiError::bad_request(format!("Failed to read file: {}", e)))?;
 
                 if data.is_empty() {
-                    return Err(bad_request("File is empty"));
+                    return Err(ApiError::bad_request("File is empty").into());
                 }
                 if data.len() > MAX_FILE_SIZE {
-                    return Err(payload_too_large("File exceeds maximum size"));
+                    return Err(ApiError::payload_too_large("File exceeds maximum size").into());
                 }
 
                 file_content = Some(
                     String::from_utf8(data.to_vec())
-                        .map_err(|_| bad_request("File must be valid UTF-8 text"))?,
+                        .map_err(|_| ApiError::bad_request("File must be valid UTF-8 text"))?,
                 );
             }
             "name" => {
                 name = field
                     .text()
                     .await
-                    .map_err(|e| bad_request(format!("Failed to read name: {}", e)))?;
+                    .map_err(|e| ApiError::bad_request(format!("Failed to read name: {}", e)))?;
             }
             "strategy" => {
                 let strategy_str = field
                     .text()
                     .await
-                    .map_err(|e| bad_request(format!("Failed to read strategy: {}", e)))?;
+                    .map_err(|e| ApiError::bad_request(format!("Failed to read strategy: {}", e)))?;
                 strategy = match strategy_str.to_lowercase().as_str() {
                     "qa" => GenerationStrategy::Qa,
                     "summary" => GenerationStrategy::Summary,
                     _ => {
-                        return Err(bad_request(format!(
+                        return Err(ApiError::bad_request(format!(
                             "Unknown strategy '{}'. Valid: qa, summary",
                             strategy_str
-                        )))
+                        ))
+                        .into())
                     }
                 };
             }
@@ -225,25 +226,25 @@ pub async fn generate_dataset_from_file(
                 let size_str = field
                     .text()
                     .await
-                    .map_err(|e| bad_request(format!("Failed to read chunk_size: {}", e)))?;
+                    .map_err(|e| ApiError::bad_request(format!("Failed to read chunk_size: {}", e)))?;
                 chunk_size = size_str
                     .parse()
-                    .map_err(|_| bad_request("chunk_size must be a number"))?;
+                    .map_err(|_| ApiError::bad_request("chunk_size must be a number"))?;
             }
             "max_tokens" => {
                 let tokens_str = field
                     .text()
                     .await
-                    .map_err(|e| bad_request(format!("Failed to read max_tokens: {}", e)))?;
+                    .map_err(|e| ApiError::bad_request(format!("Failed to read max_tokens: {}", e)))?;
                 max_tokens = tokens_str
                     .parse()
-                    .map_err(|_| bad_request("max_tokens must be a number"))?;
+                    .map_err(|_| ApiError::bad_request("max_tokens must be a number"))?;
             }
             "description" => {
                 let desc = field
                     .text()
                     .await
-                    .map_err(|e| bad_request(format!("Failed to read description: {}", e)))?;
+                    .map_err(|e| ApiError::bad_request(format!("Failed to read description: {}", e)))?;
                 if !desc.trim().is_empty() {
                     description = Some(desc);
                 }
@@ -252,21 +253,21 @@ pub async fn generate_dataset_from_file(
                 let vol_str = field
                     .text()
                     .await
-                    .map_err(|e| bad_request(format!("Failed to read target_volume: {}", e)))?;
+                    .map_err(|e| ApiError::bad_request(format!("Failed to read target_volume: {}", e)))?;
                 target_volume = vol_str
                     .parse()
-                    .map_err(|_| bad_request("target_volume must be a number"))?;
+                    .map_err(|_| ApiError::bad_request("target_volume must be a number"))?;
             }
             "generation_seed" => {
                 let seed_str = field
                     .text()
                     .await
-                    .map_err(|e| bad_request(format!("Failed to read generation_seed: {}", e)))?;
+                    .map_err(|e| ApiError::bad_request(format!("Failed to read generation_seed: {}", e)))?;
                 if !seed_str.trim().is_empty() {
                     generation_seed = Some(
                         seed_str
                             .parse()
-                            .map_err(|_| bad_request("generation_seed must be a number"))?,
+                            .map_err(|_| ApiError::bad_request("generation_seed must be a number"))?,
                     );
                 }
             }
@@ -274,7 +275,7 @@ pub async fn generate_dataset_from_file(
                 let prompts_str = field
                     .text()
                     .await
-                    .map_err(|e| bad_request(format!("Failed to read seed_prompts: {}", e)))?;
+                    .map_err(|e| ApiError::bad_request(format!("Failed to read seed_prompts: {}", e)))?;
                 seed_prompts = prompts_str
                     .lines()
                     .map(|s| s.trim().to_string())
@@ -287,7 +288,7 @@ pub async fn generate_dataset_from_file(
         }
     }
 
-    let content = file_content.ok_or_else(|| bad_request("No file uploaded"))?;
+    let content = file_content.ok_or_else(|| ApiError::bad_request("No file uploaded"))?;
 
     // Default name from filename if not provided
     if name.is_empty() {
@@ -297,9 +298,10 @@ pub async fn generate_dataset_from_file(
     // Chunk the content
     let mut chunks = chunk_text(&content, chunk_size);
     if chunks.is_empty() {
-        return Err(bad_request(
+        return Err(ApiError::bad_request(
             "File content too short to generate samples (minimum 50 characters per chunk)",
-        ));
+        )
+        .into());
     }
 
     // Limit chunks if target_volume is specified
@@ -410,14 +412,15 @@ pub async fn generate_dataset_from_file(
     }
 
     if samples.is_empty() {
-        return Err(internal_error(
+        return Err(ApiError::internal(
             "Failed to generate any valid samples. Check that inference is working.",
-        ));
+        )
+        .into());
     }
 
     // Write JSONL file
     let dataset_id = Uuid::now_v7().to_string();
-    let dataset_root = resolve_dataset_root(&state).map_err(internal_error)?;
+    let dataset_root = resolve_dataset_root(&state).map_err(|e| ApiError::internal(e.to_string()))?;
     let paths = DatasetPaths::new(dataset_root);
 
     ensure_dirs([paths.files.as_path()]).await?;
@@ -450,12 +453,12 @@ pub async fn generate_dataset_from_file(
     let storage_path = paths.files.join(&dataset_id);
     tokio::fs::create_dir_all(&storage_path)
         .await
-        .map_err(|e| internal_error(format!("Failed to create dataset dir: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to create dataset dir: {}", e)))?;
 
     let data_file = storage_path.join("data.jsonl");
     tokio::fs::write(&data_file, &jsonl_content)
         .await
-        .map_err(|e| internal_error(format!("Failed to write dataset: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to write dataset: {}", e)))?;
 
     // Build synthetic provenance for manifest
     let provenance = SyntheticProvenance {
@@ -494,7 +497,7 @@ pub async fn generate_dataset_from_file(
         serde_json::to_string_pretty(&manifest_json).unwrap(),
     )
     .await
-    .map_err(|e| internal_error(format!("Failed to write manifest: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Failed to write manifest: {}", e)))?;
 
     // Create DB record
     let dataset_params = CreateDatasetParams::builder()
@@ -511,7 +514,7 @@ pub async fn generate_dataset_from_file(
         .collection_method("pipeline")
         .category("synthetic")
         .build()
-        .map_err(|e| internal_error(format!("Failed to build dataset params: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to build dataset params: {}", e)))?;
 
     let (_, dataset_version_id) = state
         .db
@@ -524,7 +527,7 @@ pub async fn generate_dataset_from_file(
             None, // manifest_json
         )
         .await
-        .map_err(|e| internal_error(format!("Failed to create dataset record: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to create dataset record: {}", e)))?;
 
     bind_dataset_to_tenant(&state.db, &dataset_id, &claims.tenant_id).await?;
 

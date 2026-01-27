@@ -3,9 +3,9 @@
 //! Provides REST endpoints for managing document collections.
 //! Collections group related documents together for organizational purposes.
 
+use crate::api_error::ApiError;
 use crate::audit_helper::{actions, log_success_or_warn, resources};
 use crate::auth::Claims;
-use crate::error_helpers::{conflict, db_error, not_found};
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use crate::types::{ErrorResponse, PaginatedResponse};
@@ -100,7 +100,7 @@ pub async fn create_collection(
             metadata_json: None,
         })
         .await
-        .map_err(db_error)?;
+        .map_err(ApiError::db_error)?;
 
     info!(
         "Created collection {} for tenant {}",
@@ -156,7 +156,7 @@ pub async fn list_collections(
         .db
         .list_collections_paginated(&claims.tenant_id, pagination.limit as i64, offset as i64)
         .await
-        .map_err(db_error)?;
+        .map_err(ApiError::db_error)?;
 
     let mut data = Vec::new();
     for c in collections {
@@ -218,16 +218,16 @@ pub async fn get_collection(
         .db
         .get_collection(&claims.tenant_id, &id)
         .await
-        .map_err(db_error)?;
+        .map_err(ApiError::db_error)?;
 
-    let collection = collection.ok_or_else(|| not_found("Collection"))?;
+    let collection = collection.ok_or_else(|| ApiError::not_found("Collection"))?;
 
     // Get documents in collection
     let documents = state
         .db
         .get_collection_documents(&claims.tenant_id, &id)
         .await
-        .map_err(db_error)?;
+        .map_err(ApiError::db_error)?;
 
     let document_infos: Vec<CollectionDocumentInfo> = documents
         .into_iter()
@@ -283,12 +283,12 @@ pub async fn delete_collection(
         .db
         .get_collection(&claims.tenant_id, &id)
         .await
-        .map_err(db_error)?;
+        .map_err(ApiError::db_error)?;
 
-    let collection = collection.ok_or_else(|| not_found("Collection"))?;
+    let collection = collection.ok_or_else(|| ApiError::not_found("Collection"))?;
 
     // Delete from database (cascades to collection_documents)
-    state.db.delete_collection(&id).await.map_err(db_error)?;
+    state.db.delete_collection(&id).await.map_err(ApiError::db_error)?;
 
     info!("Deleted collection {}", id);
 
@@ -336,18 +336,18 @@ pub async fn add_document_to_collection(
         .db
         .get_collection(&claims.tenant_id, &id)
         .await
-        .map_err(db_error)?;
+        .map_err(ApiError::db_error)?;
 
-    let collection = collection.ok_or_else(|| not_found("Collection"))?;
+    let collection = collection.ok_or_else(|| ApiError::not_found("Collection"))?;
 
     // Verify document exists and belongs to same tenant
     let document = state
         .db
         .get_document(&claims.tenant_id, &req.document_id)
         .await
-        .map_err(db_error)?;
+        .map_err(ApiError::db_error)?;
 
-    let document = document.ok_or_else(|| not_found("Document"))?;
+    let document = document.ok_or_else(|| ApiError::not_found("Document"))?;
 
     // Add document to collection
     state
@@ -357,7 +357,7 @@ pub async fn add_document_to_collection(
         .map_err(|e| {
             let error_str = e.to_string();
             if error_str.contains("UNIQUE constraint failed") {
-                conflict("Document already in collection")
+                ApiError::conflict("Document already in collection")
             } else {
                 db_error(e)
             }
@@ -407,16 +407,16 @@ pub async fn remove_document_from_collection(
         .db
         .get_collection(&claims.tenant_id, &id)
         .await
-        .map_err(db_error)?;
+        .map_err(ApiError::db_error)?;
 
-    let collection = collection.ok_or_else(|| not_found("Collection"))?;
+    let collection = collection.ok_or_else(|| ApiError::not_found("Collection"))?;
 
     // Remove document from collection
     state
         .db
         .remove_document_from_collection(&id, &doc_id)
         .await
-        .map_err(db_error)?;
+        .map_err(ApiError::db_error)?;
 
     info!("Removed document {} from collection {}", doc_id, id);
 
