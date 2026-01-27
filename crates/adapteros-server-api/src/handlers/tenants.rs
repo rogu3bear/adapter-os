@@ -44,17 +44,7 @@ pub async fn list_tenants(
         .into_iter()
         .map(|t| TenantResponse {
             schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-            id: t.id.clone(),
-            name: t.name,
-            itar_flag: t.itar_flag,
-            created_at: t.created_at,
-            status: t.status.unwrap_or_else(|| "active".to_string()),
-            updated_at: t.updated_at,
-            default_stack_id: t.default_stack_id,
-            max_adapters: t.max_adapters,
-            max_training_jobs: t.max_training_jobs,
-            max_storage_gb: t.max_storage_gb,
-            rate_limit_rpm: t.rate_limit_rpm,
+            tenant: t,
         })
         .collect();
 
@@ -121,17 +111,7 @@ pub async fn create_tenant(
 
     Ok(Json(TenantResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-        id: tenant.id.clone(),
-        name: tenant.name,
-        itar_flag: tenant.itar_flag,
-        created_at: tenant.created_at,
-        status: tenant.status.unwrap_or_else(|| "active".to_string()),
-        updated_at: tenant.updated_at,
-        default_stack_id: tenant.default_stack_id,
-        max_adapters: tenant.max_adapters,
-        max_training_jobs: tenant.max_training_jobs,
-        max_storage_gb: tenant.max_storage_gb,
-        rate_limit_rpm: tenant.rate_limit_rpm,
+        tenant,
     }))
 }
 
@@ -384,17 +364,7 @@ pub async fn update_tenant(
 
     Ok(Json(TenantResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-        id: tenant.id,
-        name: tenant.name,
-        itar_flag: tenant.itar_flag,
-        created_at: tenant.created_at,
-        status: tenant.status.unwrap_or_else(|| "active".to_string()),
-        updated_at: tenant.updated_at,
-        default_stack_id: tenant.default_stack_id,
-        max_adapters: tenant.max_adapters,
-        max_training_jobs: tenant.max_training_jobs,
-        max_storage_gb: tenant.max_storage_gb,
-        rate_limit_rpm: tenant.rate_limit_rpm,
+        tenant,
     }))
 }
 
@@ -456,17 +426,7 @@ pub async fn pause_tenant(
 
     Ok(Json(TenantResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-        id: tenant.id,
-        name: tenant.name,
-        itar_flag: tenant.itar_flag,
-        created_at: tenant.created_at,
-        status: tenant.status.unwrap_or_else(|| "paused".to_string()),
-        updated_at: tenant.updated_at,
-        default_stack_id: tenant.default_stack_id,
-        max_adapters: tenant.max_adapters,
-        max_training_jobs: tenant.max_training_jobs,
-        max_storage_gb: tenant.max_storage_gb,
-        rate_limit_rpm: tenant.rate_limit_rpm,
+        tenant,
     }))
 }
 
@@ -529,17 +489,7 @@ pub async fn archive_tenant(
 
     Ok(Json(TenantResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-        id: tenant.id,
-        name: tenant.name,
-        itar_flag: tenant.itar_flag,
-        created_at: tenant.created_at,
-        status: tenant.status.unwrap_or_else(|| "archived".to_string()),
-        updated_at: tenant.updated_at,
-        default_stack_id: tenant.default_stack_id,
-        max_adapters: tenant.max_adapters,
-        max_training_jobs: tenant.max_training_jobs,
-        max_storage_gb: tenant.max_storage_gb,
-        rate_limit_rpm: tenant.rate_limit_rpm,
+        tenant,
     }))
 }
 
@@ -587,14 +537,17 @@ pub async fn get_tenant_usage(
 
     Ok(Json(TenantUsageResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-        tenant_id: usage.tenant_id,
-        storage_used_gb: resource_metrics.storage_used_gb,
-        cpu_usage_pct: resource_metrics.cpu_usage_pct,
-        gpu_usage_pct: resource_metrics.gpu_usage_pct,
-        memory_used_gb: resource_metrics.memory_used_gb,
-        memory_total_gb: resource_metrics.memory_total_gb,
-        inference_count_24h: usage.inference_count_24h,
-        active_adapters_count: usage.active_adapters_count,
+        usage: adapteros_types::tenants::TenantUsage {
+            tenant_id: usage.tenant_id,
+            storage_used_gb: resource_metrics.storage_used_gb,
+            cpu_usage_pct: resource_metrics.cpu_usage_pct,
+            gpu_usage_pct: resource_metrics.gpu_usage_pct,
+            memory_used_gb: resource_metrics.memory_used_gb,
+            memory_total_gb: resource_metrics.memory_total_gb,
+            inference_count_24h: usage.inference_count_24h,
+            active_adapters_count: usage.active_adapters_count,
+            running_training_jobs: 0,
+        },
         avg_latency_ms: None,
         estimated_cost_usd: None,
     }))

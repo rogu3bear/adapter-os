@@ -64,7 +64,18 @@ impl IdempotencyStore {
     /// Mark a request as in-progress
     ///
     /// Returns false if the key is already in-progress or completed (race condition)
+    ///
+    /// FIXED (ADR-0023 Bug #2): Create lock BEFORE cache entry to prevent cleanup_expired()
+    /// from removing locks between cache entry creation and lock insertion.
     pub fn mark_in_progress(&self, key: &IdempotencyKey) -> bool {
+        // Create lock FIRST to ensure it exists before cache entry is visible
+        // This prevents cleanup_expired() from removing the lock between cache entry creation
+        // and lock insertion
+        let lock = Arc::new(RwLock::new(()));
+        
+        // Insert lock first (idempotent - if lock exists, this is a no-op)
+        self.locks.insert(key.0.clone(), lock);
+
         // Use entry API for atomic check-and-insert
         let mut inserted = false;
         self.cache.entry(key.0.clone()).or_insert_with(|| {
@@ -76,9 +87,11 @@ impl IdempotencyStore {
         });
 
         if inserted {
-            // Create a lock for waiters
-            self.locks.insert(key.0.clone(), Arc::new(RwLock::new(())));
             debug!(key = %key.as_str(), "Marked request as in-progress");
+        } else {
+            // Cache entry already existed - remove the lock we just created
+            // (another request is handling this key)
+            self.locks.remove(key.as_str());
         }
 
         inserted
@@ -182,6 +195,68 @@ mod tests {
     fn test_new_key_returns_new_status() {
         let store = IdempotencyStore::new();
         assert_eq!(store.check(&test_key()), IdempotencyStatus::New);
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_mark_in_progress_and_cleanup_no_orphaned_locks() {
+        // FIXED (ADR-0023 Bug #2): Test that concurrent mark_in_progress() and cleanup_expired()
+        // don't create orphaned locks. The fix ensures lock is created BEFORE cache entry.
+        use tokio::time::{sleep, Duration};
+        
+        let store = Arc::new(IdempotencyStore::new());
+        
+        // Spawn concurrent mark_in_progress operations
+        let mut handles = vec![];
+        for i in 0..10 {
+            let store_clone = store.clone();
+            let key = IdempotencyKey::new(&format!("test-key-{}", i));
+            let handle = tokio::spawn(async move {
+                // Small delay to increase chance of race condition
+                sleep(Duration::from_millis(i * 2)).await;
+                store_clone.mark_in_progress(&key)
+            });
+            handles.push(handle);
+        }
+        
+        // Spawn cleanup_expired concurrently
+        let store_clone = store.clone();
+        let cleanup_handle = tokio::spawn(async move {
+            for _ in 0..5 {
+                sleep(Duration::from_millis(5)).await;
+                store_clone.cleanup_expired();
+            }
+        });
+        
+        // Wait for all mark_in_progress to complete
+        for handle in handles {
+            handle.await.unwrap();
+        }
+        
+        // Wait for cleanup to complete
+        cleanup_handle.await.unwrap();
+        
+        // Verify: no orphaned locks exist (all locks should have corresponding cache entries)
+        let cache_keys: std::collections::HashSet<_> = 
+            store.cache.iter().map(|e| e.key().clone()).collect();
+        
+        for lock_key in store.locks.iter() {
+            assert!(
+                cache_keys.contains(lock_key.key()),
+                "Found orphaned lock: {} (no corresponding cache entry)",
+                lock_key.key()
+            );
+        }
+        
+        // Verify: all cache entries that are InProgress have locks
+        for entry in store.cache.iter() {
+            if entry.value().status == IdempotencyStatus::InProgress {
+                assert!(
+                    store.locks.contains_key(entry.key()),
+                    "Found InProgress cache entry without lock: {}",
+                    entry.key()
+                );
+            }
+        }
     }
 
     #[test]

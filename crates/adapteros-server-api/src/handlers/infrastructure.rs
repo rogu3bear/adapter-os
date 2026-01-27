@@ -35,11 +35,7 @@ pub async fn list_nodes(
         .into_iter()
         .map(|n| NodeResponse {
             schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-            id: n.id,
-            hostname: n.hostname,
-            agent_endpoint: n.agent_endpoint,
-            status: n.status,
-            last_seen_at: n.last_seen_at,
+            node: n,
         })
         .collect();
 
@@ -99,11 +95,7 @@ pub async fn register_node(
 
     Ok(Json(NodeResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-        id: node.id,
-        hostname: node.hostname,
-        agent_endpoint: node.agent_endpoint,
-        status: node.status,
-        last_seen_at: node.last_seen_at,
+        node,
     }))
 }
 
@@ -347,12 +339,10 @@ pub async fn get_node_details(
 
     Ok(Json(NodeDetailsResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-        id: node.id,
-        hostname: node.hostname,
-        agent_endpoint: node.agent_endpoint,
-        status: node.status,
-        last_seen_at: node.last_seen_at,
-        workers,
+        detail: adapteros_types::nodes::NodeDetail {
+            node,                                                 // Wrap the Node struct
+            workers: workers.into_iter().map(|w| w.id).collect(), // Map to IDs
+        },
         recent_logs: {
             // Attempt to fetch recent logs, but don't fail if unavailable
             match sqlx::query_as::<_, (String,)>(
@@ -813,7 +803,15 @@ pub async fn list_workers(
 ) -> Result<Json<Vec<WorkerResponse>>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
-    let workers = if let Some(tenant_id) = query.tenant_id {
+    // Non-admin users are forced to their own tenant
+    let is_admin = claims.roles.iter().any(|r| r.to_lowercase() == "admin");
+    let effective_tenant_id = if is_admin {
+        query.tenant_id.clone()
+    } else {
+        Some(claims.tenant_id.clone())
+    };
+
+    let workers = if let Some(tenant_id) = effective_tenant_id {
         state
             .db
             .list_workers_by_tenant(&tenant_id)
@@ -1206,8 +1204,15 @@ pub async fn list_worker_incidents(
 )]
 pub async fn get_worker_health_summary(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    let workers = state.db.list_all_workers().await.map_err(|e| {
+    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+
+    let workers = state
+        .db
+        .list_workers_by_tenant(&claims.tenant_id)
+        .await
+        .map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(

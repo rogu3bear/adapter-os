@@ -9,6 +9,7 @@
 //! Citation: docs/llm-interface-specification.md §5.1
 
 use crate::{adapterOSClient, types::*, TelemetryBundleResponse, TelemetryEvent};
+use adapteros_types::tenants::Tenant;
 use anyhow::Result;
 use futures_util::stream::BoxStream;
 use serde_json;
@@ -517,17 +518,22 @@ impl adapterOSClient for UdsClient {
         // UDS clients typically work with a single tenant
         Ok(vec![TenantResponse {
             schema_version: "1.0".to_string(),
-            id: "default".to_string(),
-            name: "Default Tenant".to_string(),
-            itar_flag: false,
-            created_at: "2025-01-01T00:00:00Z".to_string(),
-            status: "active".to_string(),
-            updated_at: None,
-            default_stack_id: None,
-            max_adapters: None,
-            max_training_jobs: None,
-            max_storage_gb: None,
-            rate_limit_rpm: None,
+            tenant: Tenant {
+                id: "default".to_string(),
+                name: "Default Tenant".to_string(),
+                itar_flag: false,
+                created_at: "2025-01-01T00:00:00Z".to_string(),
+                status: Some("active".to_string()),
+                updated_at: None,
+                default_stack_id: None,
+                max_adapters: None,
+                max_training_jobs: None,
+                max_storage_gb: None,
+                rate_limit_rpm: None,
+                default_pinned_adapter_ids: None,
+                max_kv_cache_bytes: None,
+                kv_residency_policy_id: None,
+            },
         }])
     }
 

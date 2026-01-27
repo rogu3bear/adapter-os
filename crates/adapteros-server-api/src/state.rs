@@ -12,7 +12,7 @@ use adapteros_lora_worker::memory::UmaPressureMonitor;
 use adapteros_lora_worker::signal::Signal;
 use adapteros_lora_worker::Worker;
 use adapteros_orchestrator::{CodeJobManager, FederationDaemon, TrainingService};
-use adapteros_policy::PolicyPackManager;
+use adapteros_policy::{PolicyHashWatcher, PolicyPackManager};
 use adapteros_telemetry::{BundleStore, MetricsCollector, RetentionPolicy};
 
 use crate::auth::{derive_kid_from_bytes, derive_kid_from_str};
@@ -939,6 +939,8 @@ pub struct AppState {
     pub contact_signal_tx: Arc<broadcast::Sender<Signal>>,
     // Federation daemon for consensus ledger
     pub federation_daemon: Option<Arc<FederationDaemon>>,
+    // Policy hash watcher for quarantine management
+    pub policy_watcher: Option<Arc<PolicyHashWatcher>>,
     // Telemetry bundle store for tenant hydration
     pub telemetry_bundle_store: Arc<std::sync::RwLock<BundleStore>>,
     // Chunked upload session manager
@@ -1153,6 +1155,7 @@ impl AppState {
             discovery_signal_tx: Arc::new(discovery_signal_tx),
             contact_signal_tx: Arc::new(contact_signal_tx),
             federation_daemon: None,
+            policy_watcher: None,
             telemetry_bundle_store: Arc::new(std::sync::RwLock::new(
                 BundleStore::new("var/telemetry/bundles", RetentionPolicy::default())
                     .expect("Failed to create telemetry bundle store"),
@@ -1273,6 +1276,12 @@ impl AppState {
 
     pub fn with_federation(mut self, daemon: Arc<FederationDaemon>) -> Self {
         self.federation_daemon = Some(daemon);
+        self
+    }
+
+    /// Set policy hash watcher for quarantine management
+    pub fn with_policy_watcher(mut self, watcher: Arc<PolicyHashWatcher>) -> Self {
+        self.policy_watcher = Some(watcher);
         self
     }
 

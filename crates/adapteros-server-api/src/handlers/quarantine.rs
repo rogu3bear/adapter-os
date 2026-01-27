@@ -43,7 +43,14 @@ pub async fn get_quarantine_status(
                 Some(
                     violations
                         .iter()
-                        .map(|v| format!("{}: {}", v.policy_pack_id, v.message))
+                        .map(|v| {
+                            format!(
+                                "{}: hash mismatch (expected: {}, actual: {})",
+                                v.policy_pack_id,
+                                v.expected_hash.to_hex(),
+                                v.actual_hash.to_hex()
+                            )
+                        })
                         .collect::<Vec<_>>()
                         .join("; "),
                 )

@@ -444,6 +444,7 @@ pub async fn list_process_alerts(
         start_time: None,
         end_time: None,
         limit: Some(100),
+        offset: None,
     };
 
     let alerts = ProcessAlert::list(state.db.pool(), filters)
@@ -575,6 +576,7 @@ pub async fn list_process_anomalies(
         start_time: None,
         end_time: None,
         limit: Some(100),
+        offset: None,
     };
 
     let anomalies = ProcessAnomaly::list(state.db.pool(), filters)

@@ -100,17 +100,7 @@ pub async fn update_tenant(
 
     Ok(Json(TenantResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-        id: tenant_id_value,
-        name: tenant.name,
-        itar_flag: tenant.itar_flag,
-        created_at: tenant.created_at,
-        status: tenant.status.unwrap_or_else(|| "active".to_string()),
-        updated_at: tenant.updated_at,
-        default_stack_id: tenant.default_stack_id,
-        max_adapters: tenant.max_adapters,
-        max_training_jobs: tenant.max_training_jobs,
-        max_storage_gb: tenant.max_storage_gb,
-        rate_limit_rpm: tenant.rate_limit_rpm,
+        tenant,
     }))
 }
 
@@ -654,14 +644,17 @@ pub async fn get_tenant_usage(
     // Stub - returns mock data; see handlers::tenants::get_tenant_usage for real implementation
     Ok(Json(TenantUsageResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-        tenant_id,
-        storage_used_gb: 0.0,
-        cpu_usage_pct: 45.2,
-        gpu_usage_pct: 85.0,
-        memory_used_gb: 8.5,
-        memory_total_gb: 16.0,
-        inference_count_24h: 1250,
-        active_adapters_count: 12,
+        usage: adapteros_types::tenants::TenantUsage {
+            tenant_id,
+            storage_used_gb: 0.0,
+            cpu_usage_pct: 45.2,
+            gpu_usage_pct: 85.0,
+            memory_used_gb: 8.5,
+            memory_total_gb: 16.0,
+            inference_count_24h: 1250,
+            active_adapters_count: 12,
+            running_training_jobs: 0,
+        },
         avg_latency_ms: Some(125.5),
         estimated_cost_usd: Some(42.50),
     }))

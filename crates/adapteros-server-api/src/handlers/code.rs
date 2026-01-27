@@ -3,144 +3,17 @@ use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::*;
+use adapteros_api_types::code_repositories::{
+    CommitDeltaRequest, CommitDeltaResponse, ListRepositoriesQuery, Pagination,
+    RegisterRepositoryRequest, RegisterRepositoryResponse, RepositoryDetailResponse, RepositoryInfo,
+    RepositoryListResponse, ScanJobProgress, ScanJobResponse, ScanJobResult, ScanJobStatusResponse,
+    ScanRepositoryRequest,
+};
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
     Extension, Json,
 };
-use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
-
-/// Register repository request
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct RegisterRepositoryRequest {
-    pub tenant_id: String,
-    pub repo_id: String,
-    pub path: String,
-    pub languages: Vec<String>,
-    pub default_branch: String,
-}
-
-/// Register repository response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct RegisterRepositoryResponse {
-    pub status: String,
-    pub repo_id: String,
-    pub message: String,
-}
-
-/// Scan repository request
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct ScanRepositoryRequest {
-    pub tenant_id: String,
-    pub repo_id: String,
-    pub commit: String,
-    pub full_scan: bool,
-}
-
-/// Scan job response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct ScanJobResponse {
-    pub status: String,
-    pub job_id: String,
-    pub repo_id: String,
-    pub commit: String,
-    pub estimated_duration_seconds: Option<u32>,
-}
-
-/// Scan job status response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct ScanJobStatusResponse {
-    pub job_id: String,
-    pub status: String,
-    pub progress: ScanJobProgress,
-    pub result: Option<ScanJobResult>,
-    pub started_at: String,
-    pub completed_at: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct ScanJobProgress {
-    pub current_stage: Option<String>,
-    pub percentage: i32,
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct ScanJobResult {
-    pub code_graph_hash: String,
-    pub symbol_index_hash: Option<String>,
-    pub vector_index_hash: Option<String>,
-    pub test_map_hash: Option<String>,
-    pub file_count: i32,
-    pub symbol_count: i32,
-    pub test_count: i32,
-}
-
-/// List repositories query
-#[derive(Debug, Deserialize)]
-pub struct ListRepositoriesQuery {
-    pub page: Option<i32>,
-    pub limit: Option<i32>,
-    pub status: Option<String>,
-}
-
-/// Repository list response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct RepositoryListResponse {
-    pub repos: Vec<RepositoryInfo>,
-    pub pagination: Pagination,
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct RepositoryInfo {
-    pub repo_id: String,
-    pub path: String,
-    pub languages: Vec<String>,
-    pub default_branch: String,
-    pub status: String,
-    pub latest_scan_commit: Option<String>,
-    pub latest_scan_at: Option<String>,
-    pub created_at: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct Pagination {
-    pub page: i32,
-    pub limit: i32,
-    pub total: i64,
-}
-
-/// Repository detail response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct RepositoryDetailResponse {
-    pub repo_id: String,
-    pub path: String,
-    pub languages: Vec<String>,
-    pub default_branch: String,
-    pub latest_scan_commit: Option<String>,
-    pub latest_scan_at: Option<String>,
-    pub status: String,
-    pub latest_graph_hash: Option<String>,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-/// Commit delta request
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct CommitDeltaRequest {
-    pub tenant_id: String,
-    pub repo_id: String,
-    pub base_commit: String,
-    pub head_commit: String,
-}
-
-/// Commit delta response
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct CommitDeltaResponse {
-    pub status: String,
-    pub job_id: String,
-    pub message: String,
-}
 
 /// Register repository
 #[utoipa::path(
@@ -350,6 +223,23 @@ pub async fn get_scan_status(
                 Json(ErrorResponse::new("Job not found").with_code("NOT_FOUND")),
             )
         })?;
+
+    // Validate tenant isolation by looking up the repository
+    let repo = state
+        .db
+        .get_repository(&job.repo_id)
+        .await
+        .map_err(|e| {
+            // get_repository returns AosError::NotFound if not found
+            let status = if matches!(e, adapteros_core::AosError::NotFound(_)) {
+                StatusCode::NOT_FOUND
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            };
+            (status, Json(ErrorResponse::new(e.to_string())))
+        })?;
+
+    validate_tenant_isolation(&claims, &repo.tenant_id)?;
 
     // Get result if completed
     let result = if job.status == "completed" {

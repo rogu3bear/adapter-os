@@ -142,11 +142,11 @@ pub async fn get_node_detail(
 
     Ok(Json(NodeDetailResponse {
         schema_version: API_SCHEMA_VERSION.to_string(),
-        id: node.id,
-        hostname: node.hostname,
-        agent_endpoint: node.agent_endpoint,
-        status: node.status,
-        last_seen_at: node.last_seen_at,
+        id: node.node.id,
+        hostname: node.node.hostname,
+        agent_endpoint: node.node.agent_endpoint,
+        status: node.node.status,
+        last_seen_at: node.node.last_seen_at,
         hardware,
         resource_usage: NodeResourceUsage {
             cpu_usage_percent: metrics.cpu_usage as f32,
@@ -165,9 +165,9 @@ pub async fn get_node_detail(
         },
         adapters_loaded,
         federation_role,
-        labels: serde_json::from_str(&node.labels_json.unwrap_or_else(|| "{}".to_string()))
+        labels: serde_json::from_str(&node.node.labels_json.unwrap_or_else(|| "{}".to_string()))
             .unwrap_or_else(|_| serde_json::json!({})),
-        created_at: node.created_at,
+        created_at: node.node.created_at,
     }))
 }
 

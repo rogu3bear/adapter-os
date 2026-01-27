@@ -285,6 +285,7 @@ async fn main() -> Result<()> {
             api_config,
             config_ctx.server_config.clone(),
             federation_ctx.federation_daemon,
+            federation_ctx.policy_watcher,
             metrics_ctx.metrics_exporter,
             metrics_ctx.uma_monitor,
             metrics_ctx.jwt_secret,

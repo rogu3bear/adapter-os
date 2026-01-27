@@ -712,6 +712,7 @@ pub async fn alerts_stream(
             start_time: Some(chrono::Utc::now() - chrono::Duration::minutes(5)),
             end_time: None,
             limit: Some(50),
+            offset: None,
         };
 
         let alerts =
@@ -784,6 +785,7 @@ pub async fn anomalies_stream(
             start_time: Some(chrono::Utc::now() - chrono::Duration::minutes(10)),
             end_time: None,
             limit: Some(20),
+            offset: None,
         };
 
         let anomalies =
@@ -963,6 +965,7 @@ pub async fn dashboard_metrics_stream(
                             start_time: None,
                             end_time: None,
                             limit: Some(widget["limit"].as_i64().unwrap_or(10)),
+                            offset: None,
                         };
 
                         let alerts = match adapteros_system_metrics::ProcessAlert::list(
@@ -1091,6 +1094,7 @@ pub async fn enhanced_system_metrics_stream(
             start_time: None,
             end_time: None,
             limit: Some(1),
+            offset: None,
         };
 
         let active_alerts_count = match adapteros_system_metrics::ProcessAlert::list(
@@ -1112,6 +1116,7 @@ pub async fn enhanced_system_metrics_stream(
             start_time: Some(chrono::Utc::now() - chrono::Duration::hours(1)),
             end_time: None,
             limit: Some(1),
+            offset: None,
         };
 
         let recent_anomalies_count =

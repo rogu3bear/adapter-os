@@ -6,8 +6,7 @@ use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use crate::telemetry::{SpanStatus, TraceSearchQuery};
 use crate::types::{
-    ActivityEventResponse, ErrorResponse, MetricDataPointResponse, MetricsSeriesResponse,
-    MetricsSnapshotResponse,
+    ErrorResponse, MetricDataPointResponse, MetricsSeriesResponse, MetricsSnapshotResponse,
 };
 use adapteros_db::kv_metrics::{
     global_kv_metrics, KV_ALERT_METRIC_DEGRADATIONS, KV_ALERT_METRIC_DRIFT, KV_ALERT_METRIC_ERRORS,
@@ -31,6 +30,21 @@ use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::Stream as TokioStream;
 use tokio_stream::StreamExt;
 use tracing::warn;
+
+/// Local ActivityEventResponse for telemetry handlers.
+/// This avoids utoipa ToSchema issues when ActivityEventResponse is used internally.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ActivityEventResponse {
+    pub id: String,
+    pub tenant_id: String,
+    pub user_id: String,
+    pub event_type: String,
+    pub workspace_id: Option<String>,
+    pub target_type: Option<String>,
+    pub target_id: Option<String>,
+    pub metadata_json: Option<String>,
+    pub created_at: String,
+}
 
 /// GET /api/metrics/snapshot - Get current metrics snapshot
 pub async fn get_metrics_snapshot(
@@ -308,8 +322,9 @@ pub async fn search_traces(
         _ => None,
     });
 
-    // Create search query
+    // Create search query with tenant isolation
     let query = TraceSearchQuery {
+        tenant_id: Some(claims.tenant_id.clone()),
         span_name: params.span_name.clone(),
         status,
         start_time_ns: params.start_time_ns,
@@ -349,8 +364,8 @@ pub async fn get_trace(
         )
     })?;
 
-    // Get trace from the trace buffer
-    let trace = state.trace_buffer.get_trace(&trace_id);
+    // Get trace from the trace buffer with tenant isolation
+    let trace = state.trace_buffer.get_trace_for_tenant(&trace_id, &claims.tenant_id);
     Ok(Json(trace))
 }
 
@@ -497,7 +512,7 @@ pub struct RecentActivityQuery {
         ("limit" = Option<usize>, Query, description = "Maximum number of events (default 50, max 200)"),
     ),
     responses(
-        (status = 200, description = "Recent activity events", body = Vec<ActivityEventResponse>)
+        (status = 200, description = "Recent activity events")
     ),
     tag = "telemetry",
     security(("bearer_token" = []))
@@ -506,7 +521,7 @@ pub async fn get_recent_activity(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Query(query): Query<RecentActivityQuery>,
-) -> Result<Json<Vec<ActivityEventResponse>>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
 
     let limit = query.limit.unwrap_or(50).clamp(1, 200);
@@ -533,7 +548,7 @@ pub async fn get_recent_activity(
 
     events.truncate(limit);
 
-    Ok(Json(events))
+    Ok(Json(serde_json::json!(events)))
 }
 
 #[utoipa::path(
@@ -637,7 +652,7 @@ async fn load_recent_activity_events(
             continue;
         }
         let response = convert_unified_event(&event);
-        if dedupe.insert(response.id.clone()) {
+        if dedupe.insert(response.target_id.clone()) {
             events.push(response);
         }
     }
@@ -669,12 +684,12 @@ async fn load_recent_activity_events(
             continue;
         }
         let response = convert_activity_event(event);
-        if dedupe.insert(response.id.clone()) {
+        if dedupe.insert(response.target_id.clone()) {
             events.push(response);
         }
     }
 
-    events.sort_by(|a, b| parse_timestamp(&b.timestamp).cmp(&parse_timestamp(&a.timestamp)));
+    events.sort_by(|a, b| parse_timestamp(&b.created_at).cmp(&parse_timestamp(&a.created_at)));
 
     Ok(events)
 }
@@ -687,16 +702,43 @@ fn event_type_matches(event_type: &str, filter: Option<&HashSet<String>>) -> boo
 }
 
 fn convert_unified_event(event: &UnifiedTelemetryEvent) -> ActivityEventResponse {
+    // Construct metadata
+    let mut meta_obj = serde_json::Map::new();
+    meta_obj.insert(
+        "level".to_string(),
+        Value::String(format!("{:?}", event.level).to_ascii_lowercase()),
+    );
+    meta_obj.insert("message".to_string(), Value::String(event.message.clone()));
+
+    if let Some(comp) = &event.component {
+        meta_obj.insert("component".to_string(), Value::String(comp.clone()));
+    }
+
+    if let Some(md) = &event.metadata {
+        meta_obj.insert("details".to_string(), md.clone());
+    }
+
+    // Attempt to extract workspace_id from metadata if present
+    let workspace_id = event
+        .metadata
+        .as_ref()
+        .and_then(|m| m.get("workspace_id"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
     ActivityEventResponse {
         id: event.id.clone(),
-        timestamp: event.timestamp.to_rfc3339(),
+        tenant_id: event.identity.tenant_id.clone(),
+        user_id: event
+            .user_id
+            .clone()
+            .unwrap_or_else(|| "system".to_string()),
         event_type: event.event_type.clone(),
-        level: format!("{:?}", event.level).to_ascii_lowercase(),
-        message: event.message.clone(),
-        component: event.component.clone(),
-        tenant_id: Some(event.identity.tenant_id.clone()),
-        user_id: event.user_id.clone(),
-        metadata: event.metadata.clone(),
+        workspace_id,
+        target_type: event.component.clone(),
+        target_id: Some(event.id.clone()), // Use event ID as proxy fallback
+        metadata_json: serde_json::to_string(&Value::Object(meta_obj)).ok(),
+        created_at: event.timestamp.to_rfc3339(),
     }
 }
 
@@ -715,16 +757,24 @@ fn convert_activity_event(event: ActivityEvent) -> ActivityEventResponse {
 
     let timestamp = parse_timestamp(&event.created_at);
 
+    // Construct metadata
+    let mut meta_obj = serde_json::Map::new();
+    meta_obj.insert("message".to_string(), Value::String(message));
+    meta_obj.insert("level".to_string(), Value::String("info".to_string()));
+    if let Some(md) = metadata {
+        meta_obj.insert("details".to_string(), md);
+    }
+
     ActivityEventResponse {
         id: event.id,
-        timestamp: timestamp.to_rfc3339(),
+        tenant_id: event.tenant_id,
+        user_id: event.user_id,
         event_type: event.event_type,
-        level: "info".to_string(),
-        message,
-        component: event.target_type,
-        tenant_id: Some(event.tenant_id),
-        user_id: Some(event.user_id),
-        metadata,
+        workspace_id: event.workspace_id,
+        target_type: event.target_type,
+        target_id: event.target_id,
+        metadata_json: serde_json::to_string(&Value::Object(meta_obj)).ok(),
+        created_at: timestamp.to_rfc3339(),
     }
 }
 
