@@ -199,6 +199,9 @@ pub struct AdapterKvRepository {
     default_tenant: String,
     // Mutex to serialize concurrent increments for each adapter
     increment_locks: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
+    // FIXED (ADR-0023 Bug #3): Mutex to serialize concurrent state updates for each adapter
+    // Prevents read-modify-write race conditions in update_adapter_state_kv()
+    update_locks: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
 }
 
 impl AdapterKvRepository {
@@ -208,6 +211,7 @@ impl AdapterKvRepository {
             repo,
             default_tenant,
             increment_locks: Arc::new(Mutex::new(HashMap::new())),
+            update_locks: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -221,6 +225,7 @@ impl AdapterKvRepository {
             repo,
             default_tenant,
             increment_locks,
+            update_locks: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -580,6 +585,19 @@ impl AdapterKvOps for AdapterKvRepository {
         debug!(adapter_id = %adapter_id, state = %state, reason = %reason,
                "Updating adapter state (KV)");
 
+        // FIXED (ADR-0023 Bug #3): Use mutex per adapter to serialize read-modify-write operations
+        // This prevents lost updates when concurrent modifications occur
+        let lock = {
+            let mut locks = self.update_locks.lock().await;
+            locks
+                .entry(adapter_id.to_string())
+                .or_insert_with(|| Arc::new(Mutex::new(())))
+                .clone()
+        };
+
+        // Hold lock while performing read-modify-write to ensure atomicity
+        let _guard = lock.lock().await;
+
         // Get current adapter
         let mut adapter_kv = self
             .repo
@@ -592,7 +610,7 @@ impl AdapterKvOps for AdapterKvRepository {
         adapter_kv.current_state = state.to_string();
         adapter_kv.updated_at = Utc::now().to_rfc3339();
 
-        // Save
+        // Save (now safe from concurrent modifications)
         self.repo
             .update(adapter_kv)
             .await

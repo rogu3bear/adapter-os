@@ -3773,6 +3773,46 @@ impl Db {
         }
 
         // Not pinned - safe to delete
+        // FIXED (ADR-0023 Bug #1): Delete from KV first, then SQL to prevent race condition
+        // where concurrent reads see SQL empty but KV still has stale data
+        let kv_start = std::time::Instant::now();
+        let kv_delete_result = if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
+            repo.delete_adapter_kv(&adapter_id).await
+        } else {
+            Ok(())
+        };
+        let kv_latency = kv_start.elapsed();
+
+        // Handle KV delete result before SQL delete
+        let kv_succeeded = match &kv_delete_result {
+            Err(e) => {
+                let err_msg = e.to_string();
+                if self.dual_write_requires_strict() {
+                    error!(
+                        error = %err_msg,
+                        adapter_id = %adapter_id,
+                        tenant_id = %tenant_id,
+                        mode = "dual-write-strict",
+                        "KV delete failed before SQL delete (strict mode). Aborting to prevent inconsistency."
+                    );
+                    return Err(AosError::database(format!(
+                        "KV delete failed (strict mode), aborting SQL delete: {err_msg}"
+                    )));
+                } else {
+                    warn!(
+                        error = %err_msg,
+                        adapter_id = %adapter_id,
+                        tenant_id = %tenant_id,
+                        mode = "dual-write",
+                        "KV delete failed, continuing with SQL delete (non-strict mode)"
+                    );
+                }
+                false
+            }
+            Ok(_) => true,
+        };
+
+        // Now delete from SQL (only if KV succeeded or non-strict mode)
         let sql_start = std::time::Instant::now();
         sqlx::query("DELETE FROM adapters WHERE id = ?")
             .bind(id)
@@ -3781,43 +3821,23 @@ impl Db {
             .map_err(|e| AosError::database(e.to_string()))?;
         let sql_latency = sql_start.elapsed();
 
-        // KV write (dual-write mode)
-        if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
-            let kv_start = std::time::Instant::now();
-            if let Err(e) = repo.delete_adapter_kv(&adapter_id).await {
-                if self.dual_write_requires_strict() {
-                    error!(
-                        error = %e,
-                        adapter_id = %adapter_id,
-                        tenant_id = %tenant_id,
-                        mode = "dual-write-strict",
-                        "CONSISTENCY WARNING: SQL delete committed but KV delete failed in strict mode. KV entry may be orphaned."
-                    );
-                    return Err(AosError::database(format!(
-                        "Adapter deleted in SQL but KV delete failed (strict mode): {e}"
-                    )));
-                } else {
-                    warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to delete adapter from KV backend");
-                }
+        // Record dual-write latency lag (KV latency vs SQL latency)
+        if kv_succeeded {
+            let lag = if kv_latency > sql_latency {
+                kv_latency.saturating_sub(sql_latency)
             } else {
-                let kv_latency = kv_start.elapsed();
-                // Record dual-write latency lag (KV latency vs SQL latency)
-                let lag = if kv_latency > sql_latency {
-                    kv_latency.saturating_sub(sql_latency)
-                } else {
-                    std::time::Duration::ZERO
-                };
-                global_kv_metrics().record_dual_write_lag(lag);
-                debug!(
-                    adapter_id = %adapter_id,
-                    tenant_id = %tenant_id,
-                    mode = "dual-write",
-                    sql_latency_ms = sql_latency.as_millis() as u64,
-                    kv_latency_ms = kv_latency.as_millis() as u64,
-                    lag_ms = lag.as_millis() as u64,
-                    "Adapter deleted from both SQL and KV backends"
-                );
-            }
+                std::time::Duration::ZERO
+            };
+            global_kv_metrics().record_dual_write_lag(lag);
+            debug!(
+                adapter_id = %adapter_id,
+                tenant_id = %tenant_id,
+                mode = "dual-write",
+                sql_latency_ms = sql_latency.as_millis() as u64,
+                kv_latency_ms = kv_latency.as_millis() as u64,
+                lag_ms = lag.as_millis() as u64,
+                "Adapter deleted from both SQL and KV backends"
+            );
         }
 
         // Audit log for adapter deletion
@@ -3913,7 +3933,47 @@ impl Db {
 
         info!(id = %id, adapter_id = %adapter_id, "Deleting adapter with cascade");
 
-        // Delete the adapter itself
+        // FIXED (ADR-0023 Bug #1): Delete from KV first, then SQL to prevent race condition
+        // where concurrent reads see SQL empty but KV still has stale data
+        // Note: KV delete happens before transaction commit to ensure consistency
+        let kv_start = std::time::Instant::now();
+        let kv_delete_result = if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
+            repo.delete_adapter_kv(&adapter_id).await
+        } else {
+            Ok(())
+        };
+        let kv_latency = kv_start.elapsed();
+
+        // Handle KV delete result before SQL delete
+        let kv_succeeded = match &kv_delete_result {
+            Err(e) => {
+                let err_msg = e.to_string();
+                if self.dual_write_requires_strict() {
+                    error!(
+                        error = %err_msg,
+                        adapter_id = %adapter_id,
+                        tenant_id = %tenant_id,
+                        mode = "dual-write-strict",
+                        "KV delete failed before SQL cascade delete (strict mode). Aborting to prevent inconsistency."
+                    );
+                    return Err(AosError::database(format!(
+                        "KV delete failed (strict mode), aborting SQL cascade delete: {err_msg}"
+                    )));
+                } else {
+                    warn!(
+                        error = %err_msg,
+                        adapter_id = %adapter_id,
+                        tenant_id = %tenant_id,
+                        mode = "dual-write",
+                        "KV delete failed, continuing with SQL cascade delete (non-strict mode)"
+                    );
+                }
+                false
+            }
+            Ok(_) => true,
+        };
+
+        // Delete the adapter itself from SQL (only if KV succeeded or non-strict mode)
         let sql_start = std::time::Instant::now();
         sqlx::query("DELETE FROM adapters WHERE id = ?")
             .bind(id)
@@ -3926,43 +3986,23 @@ impl Db {
             .map_err(|e| AosError::database(e.to_string()))?;
         let sql_latency = sql_start.elapsed();
 
-        // KV write (dual-write mode) - after transaction commit
-        if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
-            let kv_start = std::time::Instant::now();
-            if let Err(e) = repo.delete_adapter_kv(&adapter_id).await {
-                if self.dual_write_requires_strict() {
-                    error!(
-                        error = %e,
-                        adapter_id = %adapter_id,
-                        tenant_id = %tenant_id,
-                        mode = "dual-write-strict",
-                        "CONSISTENCY WARNING: SQL cascade delete committed but KV delete failed in strict mode. KV entry may be orphaned."
-                    );
-                    return Err(AosError::database(format!(
-                        "Cascade delete succeeded in SQL but failed in KV (strict mode): {e}"
-                    )));
-                } else {
-                    warn!(error = %e, adapter_id = %adapter_id, tenant_id = %tenant_id, mode = "dual-write", "Failed to cascade delete adapter from KV backend");
-                }
+        // Record dual-write latency lag (KV latency vs SQL latency)
+        if kv_succeeded {
+            let lag = if kv_latency > sql_latency {
+                kv_latency.saturating_sub(sql_latency)
             } else {
-                let kv_latency = kv_start.elapsed();
-                // Record dual-write latency lag (KV latency vs SQL latency)
-                let lag = if kv_latency > sql_latency {
-                    kv_latency.saturating_sub(sql_latency)
-                } else {
-                    std::time::Duration::ZERO
-                };
-                global_kv_metrics().record_dual_write_lag(lag);
-                debug!(
-                    adapter_id = %adapter_id,
-                    tenant_id = %tenant_id,
-                    mode = "dual-write",
-                    sql_latency_ms = sql_latency.as_millis() as u64,
-                    kv_latency_ms = kv_latency.as_millis() as u64,
-                    lag_ms = lag.as_millis() as u64,
-                    "Adapter cascade deleted from both SQL and KV backends"
-                );
-            }
+                std::time::Duration::ZERO
+            };
+            global_kv_metrics().record_dual_write_lag(lag);
+            debug!(
+                adapter_id = %adapter_id,
+                tenant_id = %tenant_id,
+                mode = "dual-write",
+                sql_latency_ms = sql_latency.as_millis() as u64,
+                kv_latency_ms = kv_latency.as_millis() as u64,
+                lag_ms = lag.as_millis() as u64,
+                "Adapter cascade deleted from both SQL and KV backends"
+            );
         }
 
         // Audit log for cascade adapter deletion

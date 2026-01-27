@@ -26,6 +26,7 @@ use crate::stacks_kv::{stack_record_to_kv, StackKvOps, StackKvRepository};
 use crate::tenants::Tenant;
 use crate::tenants_kv::TenantKvRepository;
 use crate::training_jobs_kv::{TrainingJobKv, TrainingJobKvRepository, TrainingMetricKv};
+use crate::traits;
 use crate::traits::StackRecord;
 use crate::Db;
 use adapteros_core::{AosError, B3Hash, Result};
@@ -1831,14 +1832,19 @@ impl Db {
             "#
         };
 
-        let mut tenants: Vec<Tenant> = if let Some(tid) = opts.tenant_filter.as_deref() {
-            sqlx::query_as::<_, Tenant>(query)
-                .bind(tid)
-                .fetch_all(pool)
-                .await?
-        } else {
-            sqlx::query_as::<_, Tenant>(query).fetch_all(pool).await?
-        };
+        let tenant_rows: Vec<crate::tenants::TenantRow> =
+            if let Some(tid) = opts.tenant_filter.as_deref() {
+                sqlx::query_as::<_, crate::tenants::TenantRow>(query)
+                    .bind(tid)
+                    .fetch_all(pool)
+                    .await?
+            } else {
+                sqlx::query_as::<_, crate::tenants::TenantRow>(query)
+                    .fetch_all(pool)
+                    .await?
+            };
+
+        let mut tenants: Vec<Tenant> = tenant_rows.into_iter().map(Tenant::from).collect();
 
         tenants.sort_by(|a, b| {
             b.created_at
@@ -1861,7 +1867,10 @@ impl Db {
                 continue;
             }
 
-            let kv_tenant: adapteros_storage::entities::tenant::TenantKv = tenant.clone().into();
+            use crate::tenants::Tenant;
+            use crate::traits;
+            use adapteros_storage::entities::tenant::TenantKv;
+            let kv_tenant: TenantKv = crate::tenants::tenant_to_kv_tenant(tenant.clone());
             if let Err(e) = repo.put_tenant(&kv_tenant).await {
                 stats.failed += 1;
                 stats.errors.push(format!("tenant {}: {}", kv_tenant.id, e));
@@ -1905,16 +1914,19 @@ impl Db {
 	            "#
         };
 
-        let mut stacks: Vec<StackRecord> = if let Some(tid) = opts.tenant_filter.as_deref() {
-            sqlx::query_as::<_, StackRecord>(query)
-                .bind(tid)
-                .fetch_all(pool)
-                .await?
-        } else {
-            sqlx::query_as::<_, StackRecord>(query)
-                .fetch_all(pool)
-                .await?
-        };
+        let stack_rows: Vec<traits::StackRecordRow> =
+            if let Some(tid) = opts.tenant_filter.as_deref() {
+                sqlx::query_as::<_, traits::StackRecordRow>(query)
+                    .bind(tid)
+                    .fetch_all(pool)
+                    .await?
+            } else {
+                sqlx::query_as::<_, traits::StackRecordRow>(query)
+                    .fetch_all(pool)
+                    .await?
+            };
+
+        let mut stacks: Vec<StackRecord> = stack_rows.into_iter().map(StackRecord::from).collect();
 
         stacks.sort_by(|a, b| {
             b.created_at
@@ -2261,11 +2273,11 @@ impl Db {
             .await
             .unwrap_or_default();
 
-        let sql_stacks: Vec<StackRecord> = sqlx::query_as(
+        let sql_stack_rows: Vec<traits::StackRecordRow> = sqlx::query_as(
             r#"
             SELECT id, tenant_id, name, description, adapter_ids_json, workflow_type,
-                   CAST(version AS INTEGER) AS version, lifecycle_state, created_at,
-                   updated_at, created_by, determinism_mode
+                   lifecycle_state, created_at,
+                   updated_at, created_by, version, determinism_mode, routing_determinism_mode, metadata_json
             FROM adapter_stacks
             WHERE tenant_id = ?
             ORDER BY created_at DESC, id ASC
@@ -2274,6 +2286,8 @@ impl Db {
         .bind(tenant_id)
         .fetch_all(pool)
         .await?;
+        let sql_stacks: Vec<StackRecord> =
+            sql_stack_rows.into_iter().map(StackRecord::from).collect();
         let stack_repo = StackKvRepository::new(kv_backend.backend().clone());
         let kv_stacks = stack_repo
             .list_stacks_by_tenant(tenant_id)

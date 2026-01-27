@@ -5,13 +5,14 @@
 //! without code changes.
 
 use adapteros_core::Result;
+pub use adapteros_types::adapters::{AdapterRecord, CreateStackRequest, StackRecord};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use sqlx::Sqlite;
+use sqlx::{FromRow as SqlxFromRow, Sqlite};
 
-/// Adapter record from database
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct AdapterRecord {
+/// Database-specific row for AdapterRecord
+#[derive(Debug, Clone, Serialize, Deserialize, SqlxFromRow)]
+pub struct AdapterRecordRow {
     pub id: String,
     pub tenant_id: String,
     pub name: String,
@@ -51,16 +52,65 @@ pub struct AdapterRecord {
     pub version: String,
     pub lifecycle_state: String,
     pub lora_strength: Option<f32>,
-    // Archive/GC state (from migration 0138)
     pub archived_at: Option<String>,
     pub archived_by: Option<String>,
     pub archive_reason: Option<String>,
     pub purged_at: Option<String>,
 }
 
-/// Stack record from database
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct StackRecord {
+impl From<AdapterRecordRow> for AdapterRecord {
+    fn from(row: AdapterRecordRow) -> Self {
+        Self {
+            id: row.id,
+            tenant_id: row.tenant_id,
+            name: row.name,
+            tier: row.tier,
+            hash_b3: row.hash_b3,
+            rank: row.rank,
+            alpha: row.alpha,
+            targets_json: row.targets_json,
+            acl_json: row.acl_json,
+            adapter_id: row.adapter_id,
+            languages_json: row.languages_json,
+            framework: row.framework,
+            active: row.active != 0,
+            category: row.category,
+            scope: row.scope,
+            framework_id: row.framework_id,
+            framework_version: row.framework_version,
+            repo_id: row.repo_id,
+            commit_sha: row.commit_sha,
+            intent: row.intent,
+            current_state: row.current_state,
+            pinned: row.pinned != 0,
+            memory_bytes: row.memory_bytes,
+            last_activated: row.last_activated,
+            activation_count: row.activation_count,
+            expires_at: row.expires_at,
+            load_state: row.load_state,
+            last_loaded_at: row.last_loaded_at,
+            adapter_name: row.adapter_name,
+            tenant_namespace: row.tenant_namespace,
+            domain: row.domain,
+            purpose: row.purpose,
+            revision: row.revision,
+            parent_id: row.parent_id,
+            fork_type: row.fork_type,
+            fork_reason: row.fork_reason,
+            version: row.version,
+            lifecycle_state: row.lifecycle_state,
+            lora_strength: row.lora_strength,
+            archived_at: row.archived_at,
+            archived_by: row.archived_by,
+            archive_reason: row.archive_reason,
+            purged_at: row.purged_at,
+        }
+    }
+}
+
+/// Database-specific row for StackRecord
+#[derive(Debug, Clone, Serialize, Deserialize, SqlxFromRow)]
+pub struct StackRecordRow {
     pub id: String,
     pub tenant_id: String,
     pub name: String,
@@ -71,35 +121,31 @@ pub struct StackRecord {
     pub created_at: String,
     pub updated_at: String,
     pub created_by: Option<String>,
-    /// Stack version (auto-incremented on updates for telemetry correlation)
-    #[serde(default = "default_version")]
     pub version: i64,
-    /// Determinism mode for this stack (strict, besteffort, relaxed)
-    /// If not specified, uses global config
     pub determinism_mode: Option<String>,
-    /// Routing determinism mode for adapter selection
     pub routing_determinism_mode: Option<String>,
-    /// Optional JSON metadata for stack configuration
     pub metadata_json: Option<String>,
 }
 
-fn default_version() -> i64 {
-    1
-}
-
-/// Request to create a new adapter stack
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreateStackRequest {
-    pub tenant_id: String,
-    pub name: String,
-    pub description: Option<String>,
-    pub adapter_ids: Vec<String>,
-    pub workflow_type: Option<String>,
-    /// Determinism mode for this stack (strict, besteffort, relaxed)
-    /// If not specified, uses global config
-    pub determinism_mode: Option<String>,
-    /// Routing determinism mode for adapter selection (deterministic/adaptive)
-    pub routing_determinism_mode: Option<String>,
+impl From<StackRecordRow> for StackRecord {
+    fn from(row: StackRecordRow) -> Self {
+        Self {
+            id: row.id,
+            tenant_id: row.tenant_id,
+            name: row.name,
+            description: row.description,
+            adapter_ids_json: row.adapter_ids_json,
+            workflow_type: row.workflow_type,
+            lifecycle_state: row.lifecycle_state,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+            created_by: row.created_by,
+            version: row.version,
+            determinism_mode: row.determinism_mode,
+            routing_determinism_mode: row.routing_determinism_mode,
+            metadata_json: row.metadata_json,
+        }
+    }
 }
 
 /// Database backend abstraction trait

@@ -59,7 +59,7 @@ default = []
 # Enable PostgreSQL support
 postgres = []
 # Enable OpenAPI schema generation
-utoipa = ["dep:utoipa"]
+utoipa = ["dep:utoipa", "adapteros-core/utoipa", "adapteros-core/schemars-support", "adapteros-types/utoipa", "adapteros-api-types/server"]
 [dev-dependencies]
 tempfile = { workspace = true }
 criterion = { workspace = true }

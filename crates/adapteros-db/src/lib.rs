@@ -170,8 +170,8 @@ pub use coreml_fusion_pairs::{CoremlFusionPair, CreateCoremlFusionPairParams};
 pub use factory::{DbFactory, StorageBackend as DbStorageBackend};
 pub use repository_training_policies::RepositoryTrainingPolicy;
 pub use traits::{
-    AdapterRecord, CreateStackRequest, DatabaseBackend, DatabaseBackendType, DatabaseConfig,
-    StackRecord,
+    AdapterRecord, AdapterRecordRow, CreateStackRequest, DatabaseBackend, DatabaseBackendType,
+    DatabaseConfig, StackRecord, StackRecordRow,
 };
 
 // Re-export KV backend types
@@ -1564,9 +1564,9 @@ impl Db {
         tenant_id: &str,
         adapter_id: &str,
     ) -> Result<Option<AdapterRecord>> {
-        let row = sqlx::query_as::<_, AdapterRecord>(
+        let row = sqlx::query_as::<_, traits::AdapterRecordRow>(
             r#"
-            SELECT id, tenant_id, name, tier, hash_b3, rank, alpha, targets_json, acl_json, adapter_id, languages_json, framework, active, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated, activation_count, expires_at, load_state, last_loaded_at, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, version, lifecycle_state
+            SELECT id, tenant_id, name, tier, hash_b3, rank, alpha, targets_json, acl_json, adapter_id, languages_json, framework, active, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated, activation_count, expires_at, load_state, last_loaded_at, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, version, lifecycle_state, lora_strength, archived_at, archived_by, archive_reason, purged_at
             FROM adapters
             WHERE tenant_id = ? AND id = ?
             "#,
@@ -1577,7 +1577,7 @@ impl Db {
         .await
         .map_err(|e| AosError::Database(format!("Failed to fetch adapter: {}", e)))?;
 
-        Ok(row)
+        Ok(row.map(AdapterRecord::from))
     }
 
     /// List stacks for a tenant
@@ -1602,9 +1602,9 @@ impl Db {
             Some(p) => p,
             None => return Ok(Vec::new()),
         };
-        let rows = sqlx::query_as::<_, StackRecord>(
+        let rows = sqlx::query_as::<_, traits::StackRecordRow>(
             r#"
-            SELECT id, tenant_id, name, description, adapter_ids_json, workflow_type, CAST(version AS INTEGER) AS version, lifecycle_state, created_at, updated_at, created_by, determinism_mode, routing_determinism_mode, metadata_json
+            SELECT id, tenant_id, name, description, adapter_ids_json, workflow_type, lifecycle_state, created_at, updated_at, created_by, version, determinism_mode, routing_determinism_mode, metadata_json
             FROM adapter_stacks
             WHERE tenant_id = ?
             ORDER BY created_at DESC
@@ -1615,7 +1615,7 @@ impl Db {
         .await
         .map_err(|e| AosError::Database(format!("Failed to list stacks: {}", e)))?;
 
-        Ok(rows)
+        Ok(rows.into_iter().map(StackRecord::from).collect())
     }
 
     /// Get a stack by ID and tenant
@@ -1637,9 +1637,9 @@ impl Db {
             Some(p) => p,
             None => return Ok(None),
         };
-        let row = sqlx::query_as::<_, StackRecord>(
+        let row = sqlx::query_as::<_, traits::StackRecordRow>(
             r#"
-            SELECT id, tenant_id, name, description, adapter_ids_json, workflow_type, CAST(version AS INTEGER) AS version, lifecycle_state, created_at, updated_at, created_by, determinism_mode, routing_determinism_mode, metadata_json
+            SELECT id, tenant_id, name, description, adapter_ids_json, workflow_type, lifecycle_state, created_at, updated_at, created_by, version, determinism_mode, routing_determinism_mode, metadata_json
             FROM adapter_stacks
             WHERE tenant_id = ? AND id = ?
             "#,
@@ -1650,15 +1650,59 @@ impl Db {
         .await
         .map_err(|e| AosError::Database(format!("Failed to fetch stack: {}", e)))?;
 
-        Ok(row)
+        Ok(row.map(StackRecord::from))
     }
 
     /// Delete a stack by ID and tenant
+    ///
+    /// FIXED (ADR-0023 Bug #1): Delete from KV first, then SQL to prevent race condition
+    /// where concurrent reads see SQL empty but KV still has stale data
     pub async fn delete_stack(&self, tenant_id: &str, id: &str) -> Result<bool> {
-        let mut deleted = false;
-        // SQL delete if enabled
+        use tracing::{debug, error, warn};
+        use stacks_kv::StackKvOps;
+
+        // Delete from KV first to prevent race condition
+        let kv_start = std::time::Instant::now();
+        let kv_delete_result = if let Some(kv_backend) = self.get_stack_kv_repo() {
+            kv_backend.delete_stack(tenant_id, id).await
+        } else {
+            Ok(false) // No KV backend, treat as not found
+        };
+        let kv_latency = kv_start.elapsed();
+
+        // Handle KV delete result before SQL delete
+        let kv_succeeded = match &kv_delete_result {
+            Err(e) => {
+                if self.dual_write_requires_strict() {
+                    error!(
+                        error = %e,
+                        stack_id = %id,
+                        tenant_id = %tenant_id,
+                        mode = "dual-write-strict",
+                        "KV delete failed before SQL delete (strict mode). Aborting to prevent inconsistency."
+                    );
+                    return Err(AosError::Database(format!(
+                        "KV delete failed (strict mode), aborting SQL delete: {e}"
+                    )));
+                } else {
+                    warn!(
+                        error = %e,
+                        stack_id = %id,
+                        tenant_id = %tenant_id,
+                        mode = "dual-write",
+                        "KV delete failed, continuing with SQL delete (non-strict mode)"
+                    );
+                }
+                false
+            }
+            Ok(kv_deleted) => *kv_deleted,
+        };
+
+        // Now delete from SQL (only if KV succeeded or non-strict mode)
+        let mut sql_deleted = false;
         if self.storage_mode().write_to_sql() {
             if let Some(pool) = self.pool_opt() {
+                let sql_start = std::time::Instant::now();
                 let result = sqlx::query(
                     r#"
                     DELETE FROM adapter_stacks
@@ -1670,23 +1714,31 @@ impl Db {
                 .execute(pool)
                 .await
                 .map_err(|e| AosError::Database(format!("Failed to delete stack: {}", e)))?;
-                deleted |= result.rows_affected() > 0;
-            }
-        }
+                sql_deleted = result.rows_affected() > 0;
+                let sql_latency = sql_start.elapsed();
 
-        // KV delete (dual-write mode)
-        if deleted {
-            if let Some(kv_backend) = self.get_stack_kv_repo() {
-                use stacks_kv::StackKvOps;
-                if let Err(e) = kv_backend.delete_stack(tenant_id, id).await {
-                    warn!(error = %e, stack_id = %id, "Failed to delete stack from KV backend (dual-write)");
-                } else {
-                    debug!(stack_id = %id, "Stack deleted from both SQL and KV backends");
+                // Record dual-write latency lag if both succeeded
+                if kv_succeeded && sql_deleted {
+                    let lag = if kv_latency > sql_latency {
+                        kv_latency.saturating_sub(sql_latency)
+                    } else {
+                        std::time::Duration::ZERO
+                    };
+                    global_kv_metrics().record_dual_write_lag(lag);
+                    debug!(
+                        stack_id = %id,
+                        tenant_id = %tenant_id,
+                        mode = "dual-write",
+                        sql_latency_ms = sql_latency.as_millis() as u64,
+                        kv_latency_ms = kv_latency.as_millis() as u64,
+                        lag_ms = lag.as_millis() as u64,
+                        "Stack deleted from both SQL and KV backends"
+                    );
                 }
             }
         }
 
-        Ok(deleted)
+        Ok(sql_deleted || kv_succeeded)
     }
 
     /// Update a stack
@@ -2436,8 +2488,8 @@ impl Db {
         let pool = self.pool().clone();
         let tenant_id_owned = tenant_id.to_string();
 
-        let rows = tokio::time::timeout(timeout_duration, async move {
-            sqlx::query_as::<_, AdapterRecord>(
+        let result = tokio::time::timeout(timeout_duration, async move {
+            sqlx::query_as::<_, traits::AdapterRecordRow>(
                 r#"
                 SELECT id, tenant_id, name, tier, hash_b3, rank, alpha, lora_strength, targets_json, acl_json,
                        adapter_id, languages_json, framework, active, category, scope,
@@ -2459,7 +2511,7 @@ impl Db {
         .map_err(|_| AosError::PerformanceViolation(format!("Query timeout after {:?}", timeout_duration)))?
         .map_err(|e| AosError::Database(format!("Failed to list adapters by tenant: {}", e)))?;
 
-        Ok(rows)
+        Ok(result.into_iter().map(AdapterRecord::from).collect())
     }
 
     /// Get user by username (optimized with direct prefix matching)

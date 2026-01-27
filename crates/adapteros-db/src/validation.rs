@@ -29,6 +29,7 @@ use crate::lifecycle_rules::{
     LifecycleRuleEvaluation, LifecycleRuleFilter, LifecycleRuleType, TransitionValidationResult,
 };
 use crate::metadata::{validate_version, LifecycleState};
+use crate::traits::StackRecord;
 use crate::Db;
 use adapteros_core::lifecycle::{
     validate_transition_with_context, PreflightStatus, ValidationContext,
@@ -330,7 +331,7 @@ impl Db {
         use tracing::{debug, warn};
 
         // Fetch current stack state
-        let stack = self
+        let stack: StackRecord = self
             .get_stack(tenant_id, stack_id)
             .await?
             .ok_or_else(|| AosError::NotFound(format!("Stack not found: {}", stack_id)))?;

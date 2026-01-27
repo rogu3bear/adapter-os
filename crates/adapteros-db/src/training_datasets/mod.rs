@@ -72,7 +72,7 @@ use sqlx::{Sqlite, Transaction};
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
-// Normalization functions imported from adapteros_normalization crate
+// Normalization functions imported from adapteros_core (via adapteros-infra-common)
 
 pub(crate) fn normalize_optional_value(value: Option<&str>) -> Option<String> {
     sanitize_optional(value)

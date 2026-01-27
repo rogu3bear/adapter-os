@@ -1,11 +1,13 @@
 use crate::adapters::Adapter; // assume
 use crate::kv_backend::KvBackend;
 use crate::tenants_kv::{CreateTenantParams, TenantKvOps, TenantKvRepository};
+use crate::traits::StackRecord;
 use crate::Db;
 use adapteros_core::error_helpers::DbErrorExt;
 use adapteros_core::tenant_snapshot::{AdapterInfo, PolicyInfo, StackInfo, TenantStateSnapshot};
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_storage::entities::tenant::TenantKv;
+pub use adapteros_types::tenants::{Tenant, TenantUsage};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -19,7 +21,7 @@ use uuid::Uuid;
 const CORE_POLICIES: &[&str] = &["egress", "determinism", "isolation", "evidence"];
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct Tenant {
+pub(crate) struct TenantRow {
     pub id: String,
     pub name: String,
     pub itar_flag: bool,
@@ -38,49 +40,75 @@ pub struct Tenant {
     pub max_storage_gb: Option<f64>,
     #[sqlx(default)]
     pub rate_limit_rpm: Option<i32>,
-    /// Default pinned adapter IDs for new chat sessions (JSON array)
     #[sqlx(default)]
     pub default_pinned_adapter_ids: Option<String>,
-    /// KV cache quota in bytes (None = unlimited)
     #[sqlx(default)]
     pub max_kv_cache_bytes: Option<i64>,
-    /// KV residency policy ID for cache management
     #[sqlx(default)]
     pub kv_residency_policy_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TenantUsage {
-    pub tenant_id: String,
-    pub active_adapters_count: i32,
-    pub running_training_jobs: i32,
-    pub inference_count_24h: i64,
-    pub storage_used_gb: f64,
-    pub cpu_usage_pct: f64,
-    pub gpu_usage_pct: f64,
-    pub memory_used_gb: f64,
-    pub memory_total_gb: f64,
+impl From<TenantRow> for Tenant {
+    fn from(row: TenantRow) -> Self {
+        Self {
+            id: row.id,
+            name: row.name,
+            itar_flag: row.itar_flag,
+            created_at: row.created_at,
+            status: row.status,
+            updated_at: row.updated_at,
+            default_stack_id: row.default_stack_id,
+            max_adapters: row.max_adapters,
+            max_training_jobs: row.max_training_jobs,
+            max_storage_gb: row.max_storage_gb,
+            rate_limit_rpm: row.rate_limit_rpm,
+            default_pinned_adapter_ids: row.default_pinned_adapter_ids,
+            max_kv_cache_bytes: row.max_kv_cache_bytes,
+            kv_residency_policy_id: row.kv_residency_policy_id,
+        }
+    }
 }
 
-impl From<TenantKv> for Tenant {
-    fn from(kv: TenantKv) -> Self {
-        Self {
-            id: kv.id,
-            name: kv.name,
-            itar_flag: kv.itar_flag,
-            created_at: kv.created_at.to_rfc3339(),
-            status: Some(kv.status),
-            updated_at: Some(kv.updated_at.to_rfc3339()),
-            default_stack_id: kv.default_stack_id,
-            max_adapters: kv.max_adapters,
-            max_training_jobs: kv.max_training_jobs,
-            max_storage_gb: kv.max_storage_gb,
-            rate_limit_rpm: kv.rate_limit_rpm,
-            default_pinned_adapter_ids: kv.default_pinned_adapter_ids,
-            // KV quota fields - default to None for KV backend (not yet supported in KV)
-            max_kv_cache_bytes: None,
-            kv_residency_policy_id: None,
-        }
+pub(crate) fn kv_tenant_to_tenant(kv: TenantKv) -> Tenant {
+    Tenant {
+        id: kv.id,
+        name: kv.name,
+        itar_flag: kv.itar_flag,
+        created_at: kv.created_at.to_rfc3339(),
+        status: Some(kv.status),
+        updated_at: Some(kv.updated_at.to_rfc3339()),
+        default_stack_id: kv.default_stack_id,
+        max_adapters: kv.max_adapters,
+        max_training_jobs: kv.max_training_jobs,
+        max_storage_gb: kv.max_storage_gb,
+        rate_limit_rpm: kv.rate_limit_rpm,
+        default_pinned_adapter_ids: kv.default_pinned_adapter_ids,
+        // KV quota fields - default to None for KV backend (not yet supported in KV)
+        max_kv_cache_bytes: None,
+        kv_residency_policy_id: None,
+    }
+}
+
+pub(crate) fn tenant_to_kv_tenant(tenant: Tenant) -> TenantKv {
+    TenantKv {
+        id: tenant.id,
+        name: tenant.name,
+        itar_flag: tenant.itar_flag,
+        created_at: chrono::DateTime::parse_from_rfc3339(&tenant.created_at)
+            .map(|dt| dt.with_timezone(&Utc))
+            .unwrap_or_else(|_| Utc::now()),
+        status: tenant.status.unwrap_or_default(),
+        updated_at: tenant
+            .updated_at
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
+            .map(|dt| dt.with_timezone(&Utc))
+            .unwrap_or_else(|| Utc::now()),
+        default_stack_id: tenant.default_stack_id,
+        max_adapters: tenant.max_adapters,
+        max_training_jobs: tenant.max_training_jobs,
+        max_storage_gb: tenant.max_storage_gb,
+        rate_limit_rpm: tenant.rate_limit_rpm,
+        default_pinned_adapter_ids: tenant.default_pinned_adapter_ids,
     }
 }
 
@@ -300,7 +328,7 @@ impl Db {
         if self.storage_mode().read_from_kv() {
             if let Some(repo) = self.get_tenant_kv_repo() {
                 match repo.get_tenant_kv(id).await {
-                    Ok(Some(kv)) => return Ok(Some(Tenant::from(kv))),
+                    Ok(Some(kv)) => return Ok(Some(kv_tenant_to_tenant(kv))),
                     Ok(None) if self.storage_mode().sql_fallback_enabled() => {
                         self.record_kv_read_fallback("tenants.get.miss");
                     }
@@ -318,7 +346,7 @@ impl Db {
             AosError::Database("SQL backend unavailable for get_tenant".to_string())
         })?;
 
-        let tenant = sqlx::query_as::<_, Tenant>(
+        let tenant = sqlx::query_as::<_, TenantRow>(
             "SELECT id, name, itar_flag, created_at, status, updated_at, default_stack_id,
                     max_adapters, max_training_jobs, max_storage_gb, rate_limit_rpm,
                     default_pinned_adapter_ids, max_kv_cache_bytes, kv_residency_policy_id
@@ -328,7 +356,7 @@ impl Db {
         .fetch_optional(pool)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
-        Ok(tenant)
+        Ok(tenant.map(Tenant::from))
     }
 
     pub async fn list_tenants(&self) -> Result<Vec<Tenant>> {
@@ -344,7 +372,7 @@ impl Db {
                                     .cmp(&a.created_at)
                                     .then_with(|| a.id.cmp(&b.id))
                             });
-                            return Ok(kv_tenants.into_iter().map(Tenant::from).collect());
+                            return Ok(kv_tenants.into_iter().map(kv_tenant_to_tenant).collect());
                         }
                     }
                     Err(e) if self.storage_mode().sql_fallback_enabled() => {
@@ -360,7 +388,7 @@ impl Db {
             AosError::Database("SQL backend unavailable for list_tenants".to_string())
         })?;
 
-        let tenants = sqlx::query_as::<_, Tenant>(
+        let tenants = sqlx::query_as::<_, TenantRow>(
             "SELECT id, name, itar_flag, created_at, status, updated_at, default_stack_id,
                     max_adapters, max_training_jobs, max_storage_gb, rate_limit_rpm,
                     default_pinned_adapter_ids, max_kv_cache_bytes, kv_residency_policy_id
@@ -369,7 +397,7 @@ impl Db {
         .fetch_all(pool)
         .await
         .map_err(|e| AosError::Database(e.to_string()))?;
-        Ok(tenants)
+        Ok(tenants.into_iter().map(Tenant::from).collect())
     }
 
     /// List tenants with pagination
@@ -400,7 +428,10 @@ impl Db {
                                 Vec::new()
                             };
 
-                            return Ok((window.into_iter().map(Tenant::from).collect(), total));
+                            return Ok((
+                                window.into_iter().map(kv_tenant_to_tenant).collect(),
+                                total,
+                            ));
                         }
                     }
                     Err(e) if self.storage_mode().sql_fallback_enabled() => {
@@ -424,7 +455,7 @@ impl Db {
             .get::<i64, _>(0);
 
         // Get paginated results
-        let tenants = sqlx::query_as::<_, Tenant>(
+        let tenants = sqlx::query_as::<_, TenantRow>(
             "SELECT id, name, itar_flag, created_at, status, updated_at, default_stack_id,
                     max_adapters, max_training_jobs, max_storage_gb, rate_limit_rpm,
                     default_pinned_adapter_ids, max_kv_cache_bytes, kv_residency_policy_id
@@ -436,7 +467,7 @@ impl Db {
         .await
         .db_err("list tenants paginated")?;
 
-        Ok((tenants, total))
+        Ok((tenants.into_iter().map(Tenant::from).collect(), total))
     }
 
     /// Ensure the system tenant exists across storage backends with core policies.
@@ -950,7 +981,7 @@ impl Db {
             .collect();
 
         // Stacks
-        let stacks = self.list_stacks_for_tenant(tenant_id).await?;
+        let stacks: Vec<StackRecord> = self.list_stacks_for_tenant(tenant_id).await?;
         let stack_infos: Vec<StackInfo> = stacks
             .iter()
             .map(|s| {
@@ -1055,7 +1086,7 @@ impl Db {
     /// Set default stack for a tenant
     pub async fn set_default_stack(&self, tenant_id: &str, stack_id: &str) -> Result<()> {
         // Verify stack exists and belongs to tenant
-        let stack = self.get_stack(tenant_id, stack_id).await?;
+        let stack: Option<StackRecord> = self.get_stack(tenant_id, stack_id).await?;
         if stack.is_none() {
             return Err(AosError::Database(format!(
                 "Stack {} not found for tenant {}",
