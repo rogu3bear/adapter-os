@@ -8,6 +8,7 @@
 use super::utils::aos_error_to_response;
 use crate::api_error::ApiError;
 use crate::auth::Claims;
+use crate::error_helpers::db_error_with_details;
 use crate::handlers::event_applier::{apply_event, parse_event, TenantEvent};
 use crate::middleware::require_role;
 use crate::permissions::{require_permission, Permission};
@@ -207,7 +208,7 @@ pub async fn set_default_stack(
                     ),
                 )
             } else {
-                ApiError::db_error(error_str)
+                ApiError::db_error(error_str).into()
             }
         })?;
 
