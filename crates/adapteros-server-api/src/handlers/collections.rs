@@ -6,6 +6,7 @@
 use crate::api_error::ApiError;
 use crate::audit_helper::{actions, log_success_or_warn, resources};
 use crate::auth::Claims;
+use crate::error_helpers::db_error;
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use crate::types::{ErrorResponse, PaginatedResponse};
@@ -354,12 +355,12 @@ pub async fn add_document_to_collection(
         .db
         .add_document_to_collection(&claims.tenant_id, &id, &req.document_id)
         .await
-        .map_err(|e| {
+        .map_err(|e| -> (StatusCode, Json<ErrorResponse>) {
             let error_str = e.to_string();
             if error_str.contains("UNIQUE constraint failed") {
-                ApiError::conflict("Document already in collection")
+                ApiError::conflict("Document already in collection").into()
             } else {
-                db_error(e)
+                ApiError::db_error(e).into()
             }
         })?;
 

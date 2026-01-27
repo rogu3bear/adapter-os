@@ -1,5 +1,6 @@
 use crate::api_error::ApiError;
 use crate::auth::Claims;
+use crate::error_helpers::internal_error;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
