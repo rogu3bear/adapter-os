@@ -66,7 +66,7 @@ pub struct ChatMessage {
 pub enum ChatCommand {
     /// Start interactive chat (REPL mode)
     #[command(
-        after_help = "Examples:\n  aosctl chat interactive --stack my-stack\n  aosctl chat interactive\n  aosctl chat interactive --local --model-path ./var/models/Qwen2.5-7B-Instruct\n\n  Type 'exit' or press Ctrl+D to quit\n  Type '/clear' to clear screen\n  Type '/stack <id>' to switch stacks"
+        after_help = "Examples:\n  aosctl chat interactive --stack my-stack\n  aosctl chat interactive\n  aosctl chat interactive --local --model-path /var/models/Llama-3.2-3B-Instruct-4bit\n\n  Type 'exit' or press Ctrl+D to quit\n  Type '/clear' to clear screen\n  Type '/stack <id>' to switch stacks"
     )]
     Interactive {
         /// Stack ID to use
@@ -96,7 +96,7 @@ pub enum ChatCommand {
 
     /// Single prompt mode (non-interactive)
     #[command(
-        after_help = "Examples:\n  aosctl chat prompt --text \"Explain async in Rust\" --stack my-stack\n  aosctl chat prompt --text \"Write hello world\" --max-tokens 100\n  aosctl chat prompt --text \"Hello\" --local --model-path ./var/models/Qwen2.5-7B-Instruct"
+        after_help = "Examples:\n  aosctl chat prompt --text \"Explain async in Rust\" --stack my-stack\n  aosctl chat prompt --text \"Write hello world\" --max-tokens 100\n  aosctl chat prompt --text \"Hello\" --local --model-path /var/models/Llama-3.2-3B-Instruct-4bit"
     )]
     Prompt {
         /// Prompt text
@@ -738,7 +738,6 @@ mod tests {
     use super::*;
     use crate::auth_store::{save_auth, AuthStore};
     use crate::output::{OutputMode, OutputWriter};
-    use adapteros_storage::platform::common::PlatformUtils;
     use axum::{
         extract::Path,
         http::StatusCode,
@@ -878,9 +877,7 @@ mod tests {
         let base_url = format!("http://{}", addr);
 
         // Simulate auth store providing base URL (token unused by chat command)
-        let root = PlatformUtils::temp_dir();
-        std::fs::create_dir_all(&root).expect("create var/tmp");
-        let tmp_auth = NamedTempFile::new_in(&root).expect("tmp auth");
+        let tmp_auth = NamedTempFile::new().expect("tmp auth");
         env::set_var("AOSCTL_AUTH_PATH", tmp_auth.path());
         let auth = AuthStore {
             base_url: base_url.clone(),

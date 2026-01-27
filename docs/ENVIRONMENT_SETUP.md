@@ -56,7 +56,7 @@ This script:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AOS_MODEL_PATH` | `./var/models/Qwen2.5-7B-Instruct-4bit` | Path to model directory with config.json and weights |
+| `AOS_MODEL_PATH` | `/var/models/Llama-3.2-3B-Instruct-4bit` | Path to model directory with config.json and weights |
 | `AOS_MANIFEST_HASH` | `756be0c4434c3fe5e1198fcf417c52a662e7a24d0716dbf12aae6246bea84f9e` | Canonical manifest hash (preferred over path) |
 | `AOS_MODEL_BACKEND` | `mlx` | Backend preference: `auto`, `coreml`, `metal`, `mlx` |
 | `AOS_MODEL_ARCHITECTURE` | *(auto-detected)* | Model architecture (qwen2, llama, etc.) |

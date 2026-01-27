@@ -77,7 +77,7 @@ cargo test -p adapteros-lora-router --test determinism
 bash scripts/check_fast_math_flags.sh
 
 # E2E worker startup test
-AOS_TEST_MODEL_DIR=./var/models/Qwen2.5-7B-Instruct-4bit \
+AOS_TEST_MODEL_DIR=/var/models/Llama-3.2-3B-Instruct-4bit \
 AOS_TEST_WORKER_BACKEND=mlx \
 AOS_TEST_WORKER_UDS_PATH=./var/run/aos-e2e.sock \
 AOS_TEST_WORKER_MANIFEST=manifests/qwen7b-4bit-mlx.yaml \
@@ -252,7 +252,7 @@ cargo test --test e2e_adapter_lifecycle
 cargo test --test e2e_training_workflow -- --nocapture
 
 # Worker startup E2E (requires model files)
-AOS_TEST_MODEL_DIR=./var/models/Qwen2.5-7B-Instruct-4bit \
+AOS_TEST_MODEL_DIR=/var/models/Llama-3.2-3B-Instruct-4bit \
 AOS_TEST_WORKER_BACKEND=mlx \
 AOS_TEST_WORKER_UDS_PATH=./var/run/aos-e2e.sock \
 AOS_TEST_WORKER_MANIFEST=manifests/qwen7b-4bit-mlx.yaml \

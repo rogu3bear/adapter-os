@@ -350,7 +350,7 @@ if default_model_dir="$(select_default_model_dir "$ROOT_DIR/var/models")"; then
     DEFAULT_MODEL_DIR="$default_model_dir"
 fi
 if [ -z "$DEFAULT_MODEL_DIR" ]; then
-    DEFAULT_MODEL_DIR="$ROOT_DIR/var/models/mistral-7b-instruct-v0.3-4bit"
+    DEFAULT_MODEL_DIR="/var/models/Llama-3.2-3B-Instruct-4bit"
 fi
 
 # Derive AOS_MODEL_PATH from canonical vars if not set

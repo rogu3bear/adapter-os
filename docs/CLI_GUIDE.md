@@ -2420,20 +2420,20 @@ The `chat` command supports a local mode that runs inference directly without re
 
 **Prerequisites**:
 - CLI built with `multi-backend` feature: `cargo build --release -p adapteros-cli --features multi-backend`
-- A model directory with `tokenizer.json` (e.g., `./var/models/Qwen2.5-7B-Instruct`)
+- A model directory with `tokenizer.json` (e.g., `/var/models/Llama-3.2-3B-Instruct-4bit`)
 
 **Commands**:
 
 ```bash
 # Interactive local chat
-aosctl chat interactive --local --model-path ./var/models/Qwen2.5-7B-Instruct
+aosctl chat interactive --local --model-path /var/models/Llama-3.2-3B-Instruct-4bit
 
 # Single prompt local inference
-aosctl chat prompt --text "Hello" --local --model-path ./var/models/Qwen2.5-7B-Instruct
+aosctl chat prompt --text "Hello" --local --model-path /var/models/Llama-3.2-3B-Instruct-4bit
 
 # With custom parameters
 aosctl chat interactive --local \
-  --model-path ./var/models/Qwen2.5-7B-Instruct \
+  --model-path /var/models/Llama-3.2-3B-Instruct-4bit \
   --temperature 0.8 \
   --max-tokens 1024
 ```

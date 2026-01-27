@@ -19,11 +19,11 @@ NC='\033[0m' # No Color
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 MODEL_DIR="$REPO_ROOT/var/models"
-MODEL_NAME="mistral-7b-instruct-v0.3-4bit"
+MODEL_NAME="Llama-3.2-3B-Instruct-4bit"
 MODEL_PATH="$MODEL_DIR/$MODEL_NAME"
 
 # Hugging Face model ID (4-bit quantized version - public, no auth required)
-HF_MODEL_ID="mlx-community/Mistral-7B-Instruct-v0.3-4bit"
+HF_MODEL_ID="mlx-community/Llama-3.2-3B-Instruct-4bit"
 
 echo -e "${BLUE}═══════════════════════════════════════════════════════════════${NC}"
 echo -e "${BLUE}  adapterOS Model Downloader${NC}"

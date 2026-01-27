@@ -105,7 +105,7 @@ cargo test -p adapteros-e2e --features prod-gate
 # Train adapter on markdown documentation (end-to-end pipeline)
 ./aosctl train-docs --docs-dir ./my-docs --dry-run              # Preview what will be trained
 ./aosctl train-docs --docs-dir ./my-docs --register \
-  --tenant-id <tenant> --base-model-id Qwen2.5-7B-Instruct      # Train and register
+  --tenant-id <tenant> --base-model-id Llama-3.2-3B-Instruct-4bit      # Train and register
 ./aosctl train-docs --training-strategy qa --epochs 5           # Custom training params
 ./aosctl train-docs --docs-dir ./my-docs --resume               # Resume from checkpoint
 
@@ -118,7 +118,7 @@ cargo test -p adapteros-e2e --features prod-gate
 ./aosctl models list --db-path ./custom.sqlite3            # Use custom database
 
 # Tokenizer validation
-./aosctl models check-tokenizer ./var/models/Qwen2.5-7B-Instruct/tokenizer.json  # Validate tokenizer
+./aosctl models check-tokenizer /var/models/Llama-3.2-3B-Instruct-4bit/tokenizer.json  # Validate tokenizer
 
 # Serve with additional options
 ./aosctl serve --capture-events ./events/              # Capture telemetry events to directory
@@ -335,15 +335,16 @@ Tokenizers are required for inference and training. The system discovers tokeniz
 
 ```bash
 # Set explicit tokenizer path
-export AOS_TOKENIZER_PATH=./var/models/Qwen2.5-7B-Instruct/tokenizer.json
+export AOS_TOKENIZER_PATH=/var/models/Llama-3.2-3B-Instruct-4bit/tokenizer.json
 
 # Validate a tokenizer file
-./aosctl models check-tokenizer ./path/to/tokenizer.json
+./aosctl models check-tokenizer /path/to/tokenizer.json
 ```
 
 Known working tokenizers:
-- Qwen2.5-7B-Instruct: `./var/models/Qwen2.5-7B-Instruct/tokenizer.json`
-- Llama-3-8B: `./var/models/Llama-3-8B/tokenizer.json`
+- Llama-3.2-3B-Instruct-4bit: `/var/models/Llama-3.2-3B-Instruct-4bit/tokenizer.json` (default)
+- Qwen2.5-7B-Instruct: `/var/models/Qwen2.5-7B-Instruct/tokenizer.json`
+- Llama-3-8B: `/var/models/Llama-3-8B/tokenizer.json`
 
 ## Code Quality
 
@@ -372,6 +373,63 @@ cargo clippy --workspace -- -D warnings
 - `tests/`: Workspace-level integration tests
 - `scripts/`: Build and utility scripts
 - `docs/`: Architecture documentation
+
+## var/ Directory Policy (CRITICAL)
+
+**Agents MUST NOT create files outside of `./var/`** for runtime data. The `var/` directory is gitignored and contains all ephemeral state.
+
+### Canonical var/ Structure
+
+```
+var/
+├── aos-cp.sqlite3      # Control plane database (REQUIRED)
+├── adapters/           # Trained LoRA adapters
+├── models/             # Base model files (~16 GB)
+├── model-cache/        # Cached model downloads
+├── keys/               # Signing keys (sensitive)
+├── logs/               # Application logs (rotated)
+├── run/                # Runtime sockets and status
+├── telemetry/          # Telemetry events
+├── manifest-cache/     # Cached manifests
+├── embeddings/         # Embedding data
+├── documents/          # Ingested documents
+├── datasets/           # Training datasets
+├── quarantine/         # Quarantined items
+├── analysis/           # Analysis outputs
+├── audit-evidence/     # Audit trails
+└── bundles/            # Packaged adapters
+```
+
+### Forbidden Paths (Enforced by path_security.rs)
+
+The system **rejects** these for persistent storage:
+- `/tmp`, `/private/tmp`, `/var/tmp` - Ephemeral, lost on reboot
+- Any symlink resolving to the above
+
+### Agent Hygiene Rules
+
+1. **NEVER create `var/` directories inside crates** - Tests must clean up after themselves
+2. **NEVER write to `/tmp`** for persistent data - Use `./var/` with `AOS_VAR_DIR` override
+3. **NEVER commit files to var/** - It is gitignored for a reason
+4. **Clean test artifacts** - Remove `*-test.sqlite3`, `*.tmp`, UUID-named dirs after tests
+
+### Cleanup Commands
+
+```bash
+# Clean crate-level var directories (test artifacts)
+find ./crates -type d -name "var" -not -path "*/target/*" -exec rm -rf {} +
+
+# Clean test databases
+rm -f ./var/*-test.sqlite3* ./var/*_test.sqlite3*
+
+# Clean var/tmp if present
+rm -rf ./var/tmp
+
+# Clean old logs (keep last 3 days)
+find ./var/logs -name "aos-cp.*" -mtime +3 -delete
+```
+
+See `docs/VAR_STRUCTURE.md` for the full canonical specification.
 
 ## Human-in-the-Loop Review
 

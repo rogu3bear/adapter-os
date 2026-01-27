@@ -17,7 +17,7 @@ pub enum ModelsCommand {
   aosctl models seed
 
   # Seed a specific model path
-  aosctl models seed --model-path ./var/models/Qwen2.5-7B-Instruct-4bit
+  aosctl models seed --model-path /var/models/Llama-3.2-3B-Instruct-4bit
 
   # Force re-seed even if models exist
   aosctl models seed --force
@@ -57,7 +57,7 @@ pub enum ModelsCommand {
     /// Validate a tokenizer.json file
     #[command(after_help = r#"Examples:
   # Check a tokenizer file
-  aosctl models check-tokenizer ./var/models/Qwen2.5-7B-Instruct/tokenizer.json
+  aosctl models check-tokenizer /var/models/Llama-3.2-3B-Instruct-4bit/tokenizer.json
 
   # Validate tokenizer with JSON output
   aosctl models check-tokenizer ./tokenizer.json --json
