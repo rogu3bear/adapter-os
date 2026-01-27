@@ -121,6 +121,9 @@ pub fn Training() -> impl IntoView {
                                     </Button>
                                 </div>
                             </div>
+                            <p class="text-sm text-muted-foreground">
+                                "Launch, monitor, and validate training runs for adapter builds."
+                            </p>
 
                             // Job list
                             {move || {

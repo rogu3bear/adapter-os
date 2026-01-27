@@ -18,8 +18,8 @@
 
 use crate::api::ApiClient;
 use crate::components::{
-    AdapterDetailPanel, Badge, BadgeVariant, Card, ErrorDisplay, SplitPanel, SplitRatio, Spinner,
-    Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    AdapterDetailPanel, Badge, BadgeVariant, Card, EmptyState, EmptyStateVariant, ErrorDisplay,
+    SplitPanel, SplitRatio, Spinner, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use crate::signals::refetch::{use_refetch_signal, RefetchTopic};
@@ -157,9 +157,19 @@ fn AdaptersListInteractive(
     if adapters.is_empty() {
         return view! {
             <Card>
-                <div class="py-8 text-center">
-                    <p class="text-muted-foreground">"No adapters found"</p>
-                </div>
+                <EmptyState
+                    variant=EmptyStateVariant::Empty
+                    title="No adapters found"
+                    description="Adapters enable specialized inference capabilities. Train your first adapter to get started."
+                    action_label="Train Adapter"
+                    on_action=Callback::new(|_| {
+                        if let Some(window) = web_sys::window() {
+                            let _ = window.location().set_href("/training");
+                        }
+                    })
+                    secondary_label="View Documentation"
+                    secondary_href="/docs/adapters"
+                />
             </Card>
         }
         .into_any();
@@ -535,6 +545,7 @@ fn AdapterDetailContent(adapter: AdapterResponse) -> impl IntoView {
                     </div>
                 </div>
             </Card>
+
         </div>
 
         // Languages

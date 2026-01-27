@@ -1,6 +1,6 @@
 //! Dashboard page
 
-use crate::api::{use_sse_json_events, ApiClient, SseState};
+use crate::api::{use_sse_json_events, ActivityEventResponse, ApiClient, SseState};
 use crate::boot_log;
 use crate::components::{
     Badge, BadgeVariant, Card, ChartPoint, DataSeries, EmptyState, EmptyStateVariant,
@@ -8,6 +8,7 @@ use crate::components::{
     StatusColor, StatusIndicator, TimeSeriesData,
 };
 use crate::hooks::{use_api_resource, use_sse_notifications, LoadingState};
+use crate::signals::use_auth;
 use adapteros_api_types::{
     InferenceReadyState, StatusIndicator as ApiStatusIndicator, SystemMetricsResponse,
     SystemStatusResponse, WorkerResponse,
@@ -159,6 +160,27 @@ pub fn Dashboard() -> impl IntoView {
     let (workers, refetch_workers) =
         use_api_resource(|client: Arc<ApiClient>| async move { client.list_workers().await });
 
+    let (auth_state, _) = use_auth();
+    let can_view_activity = Memo::new(move |_| {
+        auth_state
+            .get()
+            .user()
+            .map(|u| u.role == "admin" || u.permissions.iter().any(|p| p == "ActivityView"))
+            .unwrap_or(false)
+    });
+
+    // Fetch activity feed (permission-aware)
+    let (activity, refetch_activity) = use_api_resource({
+        let can_view_activity = can_view_activity.clone();
+        move |client: Arc<ApiClient>| async move {
+            if !can_view_activity.get_untracked() {
+                Ok(Vec::new())
+            } else {
+                client.activity_feed(Some(20)).await
+            }
+        }
+    });
+
     // Live metrics snapshot - lightweight struct for display (avoids full response clone)
     let live_metrics: RwSignal<Option<MetricsSnapshot>> = RwSignal::new(None);
 
@@ -191,14 +213,55 @@ pub fn Dashboard() -> impl IntoView {
     // Bridge SSE connection state to user notifications
     use_sse_notifications(sse_status.read_only());
 
+    // REST fallback for metrics when SSE fails or is not connected
+    let (metrics_fallback, refetch_metrics_fallback) =
+        use_api_resource(|client: Arc<ApiClient>| async move { client.system_metrics().await });
+
+    // Update live_metrics from REST fallback when SSE is not providing data
+    Effect::new(move || {
+        let sse_state = sse_status.get();
+        let has_live_metrics = live_metrics.get().is_some();
+
+        // If SSE is not connected/working and we don't have live metrics, use REST fallback
+        if !has_live_metrics
+            || matches!(
+                sse_state,
+                SseState::Error | SseState::CircuitOpen | SseState::Disconnected
+            )
+        {
+            if let LoadingState::Loaded(ref resp) = metrics_fallback.get() {
+                let now = js_sys::Date::now() as u64;
+                let _ = live_metrics.try_set(Some(MetricsSnapshot::from(resp)));
+                let _ = metrics_history.try_update(|h| h.push(resp, now));
+            }
+        }
+    });
+
+    // Periodically refresh REST fallback when SSE is not connected
+    let refetch_metrics_fallback_stored = StoredValue::new(refetch_metrics_fallback);
+    Effect::new(move || {
+        let sse_state = sse_status.get();
+
+        // Only set up polling if SSE is not connected
+        if matches!(
+            sse_state,
+            SseState::Error | SseState::CircuitOpen | SseState::Disconnected
+        ) {
+            // Trigger a refetch - the interval is handled by the resource itself
+            refetch_metrics_fallback_stored.with_value(|f| f.run(()));
+        }
+    });
+
     // Refetch functions stored for use in closures
     let refetch_signal = StoredValue::new(refetch);
     let refetch_workers_signal = StoredValue::new(refetch_workers);
+    let refetch_activity_signal = StoredValue::new(refetch_activity);
 
     // Refetch all data (SSE reconnection handled separately due to non-Send types)
     let refetch_all = move || {
         refetch_signal.with_value(|f| f.run(()));
         refetch_workers_signal.with_value(|f| f.run(()));
+        refetch_activity_signal.with_value(|f| f.run(()));
     };
 
     view! {
@@ -217,6 +280,9 @@ pub fn Dashboard() -> impl IntoView {
                     "Refresh"
                 </button>
             </div>
+            <p class="text-sm text-muted-foreground">
+                "A live system overview with direct entry points into core operations."
+            </p>
 
             {move || {
                 match status.get() {
@@ -238,6 +304,8 @@ pub fn Dashboard() -> impl IntoView {
                                 workers=workers_data
                                 live_metrics=live_metrics
                                 metrics_history=metrics_history
+                                activity=activity
+                                can_view_activity=can_view_activity
                             />
                         }.into_any()
                     }
@@ -287,7 +355,22 @@ fn DashboardContent(
     workers: Vec<WorkerResponse>,
     live_metrics: RwSignal<Option<MetricsSnapshot>>,
     metrics_history: RwSignal<MetricsHistory>,
+    activity: ReadSignal<LoadingState<Vec<ActivityEventResponse>>>,
+    can_view_activity: Memo<bool>,
 ) -> impl IntoView {
+    let (auth_state, _) = use_auth();
+    let user = auth_state.get().user().cloned();
+    let role = user
+        .as_ref()
+        .map(|u| u.role.clone())
+        .unwrap_or_else(|| "user".to_string());
+    let permissions = user.map(|u| u.permissions).unwrap_or_default();
+
+    let role_for_perm = role.clone();
+    let permissions_for_perm = permissions.clone();
+    let has_perm = move |perm: &str| role_for_perm == "admin" || permissions_for_perm.iter().any(|p| p == perm);
+    let can_access_role = move |allowed: &[&str]| allowed.iter().any(|r| *r == role);
+
     let is_ready = matches!(status.readiness.overall, ApiStatusIndicator::Ready);
     let db_status = matches!(status.readiness.checks.db.status, ApiStatusIndicator::Ready);
 
@@ -375,6 +458,86 @@ fn DashboardContent(
                 </div>
             </Card>
         </div>
+
+        // Capability map (conceptual entry points, no backend dependency)
+        <Card title="What You Can Do".to_string() class="mt-6".to_string()>
+            <div class="grid gap-3 md:grid-cols-2">
+                <a class="rounded-md border border-input p-3 hover:bg-accent" href="/chat">
+                    <div class="font-medium">"Run Inference"</div>
+                    <div class="text-sm text-muted-foreground">"Ask the system to reason, analyze, or generate."</div>
+                </a>
+                <a class="rounded-md border border-input p-3 hover:bg-accent" href="/training">
+                    <div class="font-medium">"Train Adapters"</div>
+                    <div class="text-sm text-muted-foreground">"Create and iterate on domain adapters."</div>
+                </a>
+                <a class="rounded-md border border-input p-3 hover:bg-accent" href="/datasets">
+                    <div class="font-medium">"Curate Data"</div>
+                    <div class="text-sm text-muted-foreground">"Upload and validate datasets for training."</div>
+                </a>
+                <a class="rounded-md border border-input p-3 hover:bg-accent" href="/repositories">
+                    <div class="font-medium">"Scan Code"</div>
+                    <div class="text-sm text-muted-foreground">"Register and scan repos for code intelligence."</div>
+                </a>
+                {has_perm("MonitoringManage").then(|| view! {
+                    <a class="rounded-md border border-input p-3 hover:bg-accent" href="/monitoring">
+                        <div class="font-medium">"Monitor Health"</div>
+                        <div class="text-sm text-muted-foreground">"Track system stability and anomalies."</div>
+                    </a>
+                })}
+                {can_access_role(&["admin", "operator", "viewer"]).then(|| view! {
+                    <a class="rounded-md border border-input p-3 hover:bg-accent" href="/routing">
+                        <div class="font-medium">"Inspect Routing"</div>
+                        <div class="text-sm text-muted-foreground">"See how traffic and adapters are selected."</div>
+                    </a>
+                })}
+            </div>
+        </Card>
+
+        // Activity feed
+        <Card title="Activity".to_string() class="mt-6".to_string()>
+            {move || {
+                if !can_view_activity.get() {
+                    return view! {
+                        <div class="text-sm text-muted-foreground">
+                            "Activity requires permission."
+                        </div>
+                    }.into_any();
+                }
+                match activity.get() {
+                    LoadingState::Idle | LoadingState::Loading => view! {
+                        <div class="text-sm text-muted-foreground">"Loading activity..."</div>
+                    }.into_any(),
+                    LoadingState::Error(_) => view! {
+                        <div class="text-sm text-muted-foreground">"Activity unavailable."</div>
+                    }.into_any(),
+                    LoadingState::Loaded(events) => {
+                        if events.is_empty() {
+                            view! {
+                                <div class="text-sm text-muted-foreground">"No recent activity."</div>
+                            }.into_any()
+                        } else {
+                            view! {
+                                <div class="space-y-2">
+                                    {events.into_iter().map(|event| {
+                                        let target = event.target_type.clone().unwrap_or_else(|| "system".to_string());
+                                        let when = event.created_at.clone();
+                                        view! {
+                                            <div class="flex items-center justify-between rounded-md border border-input px-3 py-2">
+                                                <div>
+                                                    <div class="text-sm font-medium">{event.event_type}</div>
+                                                    <div class="text-xs text-muted-foreground">{target}</div>
+                                                </div>
+                                                <div class="text-xs text-muted-foreground">{when}</div>
+                                            </div>
+                                        }
+                                    }).collect::<Vec<_>>()}
+                                </div>
+                            }.into_any()
+                        }
+                    }
+                }
+            }}
+        </Card>
 
         // Live Metrics Section - Updated in real-time via SSE with charts
         <LiveMetricsSection metrics=live_metrics history=metrics_history/>
@@ -520,11 +683,14 @@ fn LiveMetricsSection(
                             </div>
                         }.into_any(),
                         None => view! {
-                            <div class="flex items-center justify-center py-8 text-muted-foreground">
+                            <div class="flex flex-col items-center justify-center py-8 text-muted-foreground gap-2">
                                 <div class="flex items-center gap-2">
                                     <Spinner/>
-                                    <span>"Waiting for live metrics..."</span>
+                                    <span>"Loading metrics..."</span>
                                 </div>
+                                <p class="text-xs">
+                                    "Connecting to metrics stream. If this persists, try refreshing the page."
+                                </p>
                             </div>
                         }.into_any(),
                     }

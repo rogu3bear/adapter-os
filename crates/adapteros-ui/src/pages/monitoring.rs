@@ -66,7 +66,7 @@ pub fn Monitoring() -> impl IntoView {
             // Header
             <div class="flex items-center justify-between">
                 <div>
-                    <h1 class="text-3xl font-bold tracking-tight">"Process Monitoring"</h1>
+                    <h1 class="text-3xl font-bold tracking-tight">"Metrics"</h1>
                     <p class="text-muted-foreground mt-1">
                         "Monitor process health, alerts, and anomalies across workers"
                     </p>

@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,6 +8,8 @@
     <!-- PRD-UI-000: Build metadata for diagnostics -->
     <meta name="aos-build-hash" content="__TRUNK_HASH__">
     <meta name="aos-build-time" content="__BUILD_TIME__">
+    <!-- PRD-UI-170: Preload critical resources for faster perceived load -->
+    <link rel="preconnect" href="/" crossorigin>
     <!-- Base styles with CSS variables and reset -->
     <link data-trunk rel="css" href="dist/base.css">
     <!-- Component styles -->
@@ -16,7 +19,10 @@
     <!-- Liquid Glass Charts (PRD-UI-101) -->
     <link data-trunk rel="css" href="dist/charts.css">
     <!-- wasm-opt disabled: Trunk's bundled wasm-opt lacks --enable-bulk-memory (PRD-UI-170) -->
+    <!-- CI runs: wasm-opt -O4 --enable-bulk-memory, asserts <3.5MB -->
     <link data-trunk rel="rust" data-wasm-opt="0">
+    <!-- PRD-UI-170: DNS prefetch for API endpoints -->
+    <link rel="dns-prefetch" href="/">
     <style>
         /* PRD-UI-000: White screen triage styles */
         #aos-boot-probe {
@@ -32,8 +38,15 @@
             z-index: 99999;
             opacity: 0.8;
         }
-        #aos-boot-probe.error { background: #7f1d1d; color: #fca5a5; }
-        #aos-boot-probe.hidden { display: none; }
+
+        #aos-boot-probe.error {
+            background: #7f1d1d;
+            color: #fca5a5;
+        }
+
+        #aos-boot-probe.hidden {
+            display: none;
+        }
 
         /* PRD-UI-000: Boot progress display */
         #aos-boot-progress {
@@ -49,12 +62,17 @@
             font-family: ui-monospace, monospace;
             min-width: 280px;
         }
-        #aos-boot-progress.hidden { display: none; }
+
+        #aos-boot-progress.hidden {
+            display: none;
+        }
+
         #aos-boot-progress .boot-header {
             display: flex;
             align-items: center;
             gap: 0.75rem;
         }
+
         #aos-boot-progress .spinner {
             width: 24px;
             height: 24px;
@@ -63,18 +81,21 @@
             border-radius: 50%;
             animation: aos-spin 1s linear infinite;
         }
+
         #aos-boot-progress .title {
             font-size: 18px;
             font-weight: 600;
             color: #e5e7eb;
             letter-spacing: -0.025em;
         }
+
         #aos-boot-progress .boot-stages {
             display: flex;
             flex-direction: column;
             gap: 0.5rem;
             width: 100%;
         }
+
         #aos-boot-progress .stage {
             display: flex;
             align-items: center;
@@ -83,43 +104,63 @@
             color: #6b7280;
             padding: 0.25rem 0;
         }
+
         #aos-boot-progress .stage .icon {
             width: 16px;
             text-align: center;
             font-size: 10px;
         }
+
         #aos-boot-progress .stage .label {
             flex: 1;
         }
+
         #aos-boot-progress .stage .detail {
             font-size: 10px;
             color: #4b5563;
         }
+
         #aos-boot-progress .stage[data-status="done"] {
             color: #4ade80;
         }
+
         #aos-boot-progress .stage[data-status="done"] .icon {
             color: #4ade80;
         }
+
         #aos-boot-progress .stage[data-status="active"] {
             color: #fbbf24;
         }
+
         #aos-boot-progress .stage[data-status="active"] .icon {
             animation: aos-pulse 1s ease-in-out infinite;
         }
+
         #aos-boot-progress .stage[data-status="error"] {
             color: #f87171;
         }
+
         #aos-boot-progress .boot-elapsed {
             font-size: 10px;
             color: #4b5563;
         }
+
         @keyframes aos-spin {
-            to { transform: rotate(360deg); }
+            to {
+                transform: rotate(360deg);
+            }
         }
+
         @keyframes aos-pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.4; }
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.4;
+            }
         }
 
         /* PRD-UI-000: Enhanced panic overlay */
@@ -135,8 +176,17 @@
             z-index: 100000;
             overflow: auto;
         }
-        #aos-panic-overlay.visible { display: block; }
-        #aos-panic-overlay h1 { color: #fca5a5; font-size: 1.5rem; margin-bottom: 1rem; }
+
+        #aos-panic-overlay.visible {
+            display: block;
+        }
+
+        #aos-panic-overlay h1 {
+            color: #fca5a5;
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+        }
+
         #aos-panic-overlay .panic-meta {
             background: #450a0a;
             padding: 0.75rem 1rem;
@@ -147,8 +197,15 @@
             gap: 1.5rem;
             flex-wrap: wrap;
         }
-        #aos-panic-overlay .panic-meta span { opacity: 0.8; }
-        #aos-panic-overlay .panic-meta strong { opacity: 1; }
+
+        #aos-panic-overlay .panic-meta span {
+            opacity: 0.8;
+        }
+
+        #aos-panic-overlay .panic-meta strong {
+            opacity: 1;
+        }
+
         #aos-panic-overlay pre {
             background: #450a0a;
             padding: 1rem;
@@ -157,21 +214,28 @@
             white-space: pre-wrap;
             word-break: break-word;
         }
+
         #aos-panic-overlay details {
             margin-top: 1rem;
         }
+
         #aos-panic-overlay details summary {
             cursor: pointer;
             padding: 0.5rem 0;
             color: #fca5a5;
         }
-        #aos-panic-overlay details summary:hover { text-decoration: underline; }
+
+        #aos-panic-overlay details summary:hover {
+            text-decoration: underline;
+        }
+
         #aos-panic-overlay .panic-actions {
             margin-top: 1.5rem;
             display: flex;
             gap: 0.5rem;
             flex-wrap: wrap;
         }
+
         #aos-panic-overlay button {
             padding: 0.5rem 1rem;
             background: #dc2626;
@@ -180,14 +244,22 @@
             border-radius: 4px;
             cursor: pointer;
         }
-        #aos-panic-overlay button:hover { background: #b91c1c; }
+
+        #aos-panic-overlay button:hover {
+            background: #b91c1c;
+        }
+
         #aos-panic-overlay button.secondary {
             background: #450a0a;
             border: 1px solid #dc2626;
         }
-        #aos-panic-overlay button.secondary:hover { background: #5c0f0f; }
+
+        #aos-panic-overlay button.secondary:hover {
+            background: #5c0f0f;
+        }
     </style>
 </head>
+
 <body>
     <!-- PRD-UI-000: Boot progress display -->
     <div id="aos-boot-progress">
@@ -253,7 +325,8 @@
         <div class="panic-actions">
             <button onclick="location.reload()">Reload Page</button>
             <button class="secondary" onclick="location.href='/safe'">Safe Mode</button>
-            <button class="secondary" onclick="document.getElementById('aos-panic-overlay').classList.remove('visible')">Dismiss</button>
+            <button class="secondary"
+                onclick="document.getElementById('aos-panic-overlay').classList.remove('visible')">Dismiss</button>
         </div>
     </div>
     <noscript>
@@ -264,9 +337,9 @@
     </noscript>
     <script>
         // PRD-UI-000: WASM fetch interceptor for download progress tracking
-        (function() {
+        (function () {
             var originalFetch = window.fetch;
-            window.fetch = function(url, options) {
+            window.fetch = function (url, options) {
                 var urlStr = typeof url === 'string' ? url : (url.url || '');
 
                 // Only intercept WASM file fetches
@@ -276,7 +349,7 @@
 
                 if (window.aosWasmFetchStart) window.aosWasmFetchStart(0);
 
-                return originalFetch.apply(this, arguments).then(function(response) {
+                return originalFetch.apply(this, arguments).then(function (response) {
                     if (!response.ok) return response;
 
                     var contentLength = response.headers.get('content-length');
@@ -289,7 +362,7 @@
                     var chunks = [];
 
                     function read() {
-                        return reader.read().then(function(result) {
+                        return reader.read().then(function (result) {
                             if (result.done) {
                                 if (window.aosWasmFetchDone) window.aosWasmFetchDone(loaded);
                                 var blob = new Blob(chunks);
@@ -314,12 +387,12 @@
     </script>
     <script>
         // PRD-UI-000: WebAssembly instantiation interceptor for error capture
-        (function() {
+        (function () {
             var originalInstantiate = WebAssembly.instantiate;
             var originalInstantiateStreaming = WebAssembly.instantiateStreaming;
 
-            WebAssembly.instantiate = function(bufferSource, importObject) {
-                return originalInstantiate.apply(this, arguments).catch(function(error) {
+            WebAssembly.instantiate = function (bufferSource, importObject) {
+                return originalInstantiate.apply(this, arguments).catch(function (error) {
                     if (window.aosWasmInstantiateError) {
                         window.aosWasmInstantiateError(error, 'instantiate');
                     }
@@ -328,8 +401,8 @@
             };
 
             if (originalInstantiateStreaming) {
-                WebAssembly.instantiateStreaming = function(source, importObject) {
-                    return originalInstantiateStreaming.apply(this, arguments).catch(function(error) {
+                WebAssembly.instantiateStreaming = function (source, importObject) {
+                    return originalInstantiateStreaming.apply(this, arguments).catch(function (error) {
                         if (window.aosWasmInstantiateError) {
                             window.aosWasmInstantiateError(error, 'instantiateStreaming');
                         }
@@ -341,7 +414,7 @@
     </script>
     <script>
         // PRD-UI-000: Enhanced boot diagnostics with streaming progress
-        (function() {
+        (function () {
             // Read build metadata from meta tags
             var buildHashMeta = document.querySelector('meta[name="aos-build-hash"]');
             var buildTimeMeta = document.querySelector('meta[name="aos-build-time"]');
@@ -377,7 +450,7 @@
             }
 
             // Update elapsed time display
-            var elapsedInterval = setInterval(function() {
+            var elapsedInterval = setInterval(function () {
                 var el = document.getElementById('boot-elapsed');
                 if (el) el.textContent = getElapsed();
             }, 100);
@@ -413,7 +486,7 @@
                 if (progress) progress.classList.add('hidden');
                 if (probe) {
                     probe.textContent = 'Boot: ' + getElapsed();
-                    setTimeout(function() { probe.classList.add('hidden'); }, 3000);
+                    setTimeout(function () { probe.classList.add('hidden'); }, 3000);
                 }
             }
 
@@ -429,15 +502,15 @@
                 }
             }
 
-            cssSheets.forEach(function(link) {
+            cssSheets.forEach(function (link) {
                 if (link.sheet) {
                     cssLoaded++;
                 } else {
-                    link.addEventListener('load', function() {
+                    link.addEventListener('load', function () {
                         cssLoaded++;
                         checkCss();
                     });
-                    link.addEventListener('error', function() {
+                    link.addEventListener('error', function () {
                         cssLoaded++;
                         checkCss();
                     });
@@ -452,7 +525,7 @@
             function startCompileTimeout() {
                 if (compileStarted) return;
                 compileStarted = true;
-                compileTimeoutId = setTimeout(function() {
+                compileTimeoutId = setTimeout(function () {
                     if (window.aosBoot.stages.wasmCompile.status !== 'done') {
                         updateStage('wasm-compile', 'error', 'timeout (30s)');
                         showBootError('WASM compilation timed out after 30 seconds. This may indicate a browser issue or corrupted WASM binary.');
@@ -496,12 +569,12 @@
                     var reloadBtn = document.createElement('button');
                     reloadBtn.textContent = 'Reload';
                     reloadBtn.style.cssText = 'padding: 0.25rem 0.5rem; background: #dc2626; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 10px;';
-                    reloadBtn.onclick = function() { location.reload(); };
+                    reloadBtn.onclick = function () { location.reload(); };
 
                     var safeBtn = document.createElement('button');
                     safeBtn.textContent = 'Safe Mode';
                     safeBtn.style.cssText = 'padding: 0.25rem 0.5rem; background: #450a0a; color: #fca5a5; border: 1px solid #dc2626; border-radius: 4px; cursor: pointer; font-size: 10px;';
-                    safeBtn.onclick = function() { location.href = '/safe'; };
+                    safeBtn.onclick = function () { location.href = '/safe'; };
 
                     actionsDiv.appendChild(reloadBtn);
                     actionsDiv.appendChild(safeBtn);
@@ -539,7 +612,7 @@
             }
 
             // Error handlers
-            window.addEventListener('error', function(e) {
+            window.addEventListener('error', function (e) {
                 window.aosBoot.errors.push(e.message || 'Unknown error');
                 var probe = document.getElementById('aos-boot-probe');
                 if (probe) { probe.textContent = 'ERROR: ' + (e.message || 'Unknown'); probe.classList.add('error'); }
@@ -550,7 +623,7 @@
                 }
             });
 
-            window.addEventListener('unhandledrejection', function(e) {
+            window.addEventListener('unhandledrejection', function (e) {
                 var rawMsg = e.reason ? (e.reason.message || String(e.reason)) : 'Promise rejected';
                 var msg = parseWasmError(e.reason || {});
                 window.aosBoot.errors.push(rawMsg);
@@ -571,7 +644,7 @@
             });
 
             // PRD-UI-000: Direct WASM instantiation error handler
-            window.aosWasmInstantiateError = function(error, method) {
+            window.aosWasmInstantiateError = function (error, method) {
                 var msg = parseWasmError(error);
                 window.aosBoot.errors.push('WASM ' + method + ': ' + (error.message || String(error)));
 
@@ -589,13 +662,13 @@
             };
 
             // WASM fetch started (called by trunk's loader or our hook)
-            window.aosWasmFetchStart = function(totalBytes) {
+            window.aosWasmFetchStart = function (totalBytes) {
                 updateStage('wasm-fetch', 'active', '0%');
                 window.aosBoot.stages.wasmFetch.total = totalBytes || 0;
             };
 
             // WASM fetch progress
-            window.aosWasmFetchProgress = function(loadedBytes, totalBytes) {
+            window.aosWasmFetchProgress = function (loadedBytes, totalBytes) {
                 var total = totalBytes || window.aosBoot.stages.wasmFetch.total;
                 window.aosBoot.stages.wasmFetch.bytes = loadedBytes;
                 if (total > 0) {
@@ -607,7 +680,7 @@
             };
 
             // WASM fetch complete
-            window.aosWasmFetchDone = function(totalBytes) {
+            window.aosWasmFetchDone = function (totalBytes) {
                 updateStage('wasm-fetch', 'done', formatBytes(totalBytes || window.aosBoot.stages.wasmFetch.bytes));
                 updateStage('wasm-compile', 'active', 'compiling...');
                 // Start timeout for compilation phase
@@ -615,13 +688,13 @@
             };
 
             // WASM compile complete (called when wasm_bindgen init completes but before start)
-            window.aosWasmCompileDone = function() {
+            window.aosWasmCompileDone = function () {
                 clearCompileTimeout();
                 updateStage('wasm-compile', 'done', '');
             };
 
             // WASM loaded - runtime is initializing (called from Rust)
-            window.aosSignalWasmLoaded = function() {
+            window.aosSignalWasmLoaded = function () {
                 clearCompileTimeout();
                 updateStage('wasm-compile', 'done', '');
                 updateStage('runtime', 'done', '');
@@ -633,40 +706,41 @@
             };
 
             // App mounted (called from Rust)
-            window.aosSignalMounted = function() {
+            window.aosSignalMounted = function () {
                 updateStage('mount', 'done', '');
-                updateStage('backend', 'active', 'checking...');
 
-                // Check backend health with 10-second timeout
+                // Hide boot progress immediately - app is ready to render
+                // Backend health check can happen in background
+                hideBoot();
+
+                // Check backend health with 10-second timeout (non-blocking)
+                updateStage('backend', 'active', 'checking...');
                 var controller = new AbortController();
-                var timeoutId = setTimeout(function() {
+                var timeoutId = setTimeout(function () {
                     controller.abort();
                 }, 10000);
 
                 fetch('/healthz', { method: 'GET', signal: controller.signal })
-                    .then(function(r) {
+                    .then(function (r) {
                         clearTimeout(timeoutId);
                         if (r.ok) {
                             updateStage('backend', 'done', 'connected');
-                            hideBoot();
                         } else {
                             updateStage('backend', 'error', 'status ' + r.status);
-                            hideBoot();
                         }
                     })
-                    .catch(function(e) {
+                    .catch(function (e) {
                         clearTimeout(timeoutId);
                         if (e.name === 'AbortError') {
                             updateStage('backend', 'error', 'timeout');
                         } else {
                             updateStage('backend', 'error', 'offline');
                         }
-                        hideBoot();
                     });
             };
 
             // Panic handler
-            window.aosShowPanic = function(message, stackTrace) {
+            window.aosShowPanic = function (message, stackTrace) {
                 clearInterval(elapsedInterval);
                 var progress = document.getElementById('aos-boot-progress');
                 var overlay = document.getElementById('aos-panic-overlay');
@@ -692,7 +766,7 @@
             };
 
             // Expose build info for diagnostics
-            window.aosGetBuildInfo = function() {
+            window.aosGetBuildInfo = function () {
                 return {
                     hash: buildHash,
                     time: buildTime,
@@ -708,5 +782,37 @@
             updateStage('wasm-fetch', 'active', 'starting...');
         })();
     </script>
+    <script>
+        // PRD-UI-170: Register service worker for WASM and asset caching
+        // Improves subsequent page loads significantly
+        (function () {
+            if ('serviceWorker' in navigator) {
+                // Wait until after app is mounted to register SW
+                // This prioritizes initial render over SW registration
+                var originalMounted = window.aosSignalMounted;
+                window.aosSignalMounted = function () {
+                    originalMounted.apply(this, arguments);
+
+                    // Register service worker after a delay to not compete with initial render
+                    setTimeout(function () {
+                        navigator.serviceWorker.register('/sw.js', { scope: '/' })
+                            .then(function (registration) {
+                                console.log('[adapterOS] Service worker registered:', registration.scope);
+
+                                // Check for updates periodically
+                                setInterval(function () {
+                                    registration.update();
+                                }, 60000); // Check every minute
+                            })
+                            .catch(function (error) {
+                                // SW registration is optional - don't fail boot
+                                console.log('[adapterOS] Service worker registration skipped:', error.message);
+                            });
+                    }, 2000); // 2 second delay after mount
+                };
+            }
+        })();
+    </script>
 </body>
+
 </html>

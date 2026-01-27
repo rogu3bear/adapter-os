@@ -13,6 +13,12 @@ pub fn Routing() -> impl IntoView {
 
     view! {
         <div class="space-y-6">
+            <div>
+                <h1 class="text-3xl font-bold tracking-tight">"Routing Debug"</h1>
+                <p class="text-sm text-muted-foreground">
+                    "Inspect and manage how requests are routed across adapters."
+                </p>
+            </div>
             <TabNav
                 tabs=vec![
                     ("rules", "Management"),

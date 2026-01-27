@@ -71,7 +71,15 @@ fn DatasetsList(datasets: DatasetListResponse, refetch_trigger: RwSignal<u32>) -
             <Card>
                 <EmptyState
                     title="No datasets"
-                    description="Datasets are created from documents. Upload documents first, then create a dataset."
+                    description="Datasets are created from documents. Upload documents first, then create a dataset for training."
+                    action_label="Upload Documents"
+                    on_action=Callback::new(|_| {
+                        if let Some(window) = web_sys::window() {
+                            let _ = window.location().set_href("/documents");
+                        }
+                    })
+                    secondary_label="Learn about Datasets"
+                    secondary_href="/docs/datasets"
                 />
             </Card>
         }

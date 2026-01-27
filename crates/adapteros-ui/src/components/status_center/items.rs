@@ -67,6 +67,11 @@ pub fn StatusItem(
 ) -> impl IntoView {
     let has_detail = !detail.is_empty();
 
+    // Clone values for use in title attributes
+    let label_title = label.clone();
+    let value_title = value.clone();
+    let detail_title = detail.clone();
+
     view! {
         <div class="status-item">
             <div class="status-item-main">
@@ -88,22 +93,25 @@ pub fn StatusItem(
                     ></span>
                 </span>
 
-                // Label
-                <span class="status-item-label">{label}</span>
+                // Label with truncation and tooltip
+                <span class="status-item-label" title=label_title>{label}</span>
 
                 // Spacer
                 <span class="status-item-spacer"></span>
 
-                // Value
-                <span class=format!("status-item-value {}", severity.text_class())>
+                // Value with truncation and tooltip
+                <span
+                    class=format!("status-item-value {}", severity.text_class())
+                    title=value_title
+                >
                     {value}
                 </span>
             </div>
 
-            // Optional detail
+            // Optional detail with truncation and tooltip
             {if has_detail {
                 view! {
-                    <div class="status-item-detail">
+                    <div class="status-item-detail" title=detail_title>
                         {detail}
                     </div>
                 }.into_any()

@@ -71,8 +71,8 @@ pub fn SpawnWorkerDialog(
         std::iter::once(("".to_string(), "Select a node...".to_string()))
             .chain(nodes.iter().map(|n| {
                 (
-                    n.id.clone(),
-                    format!("{} ({})", n.hostname, short_id(&n.id)),
+                    n.node.id.clone(),
+                    format!("{} ({})", n.node.hostname, short_id(&n.node.id)),
                 )
             }))
             .collect();

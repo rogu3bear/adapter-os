@@ -706,7 +706,17 @@ pub fn ComplianceTab(
                                     <div class="p-4 bg-muted/30 rounded-lg">
                                         <p class="text-sm text-muted-foreground">"Compliance Rate"</p>
                                         <p class="text-2xl font-bold">
-                                            {format!("{:.1}%", data.compliance_rate * 100.0)}
+                                            {
+                                                // Handle both formats: decimal (0-1) and percentage (0-100)
+                                                let rate = if data.compliance_rate > 1.0 {
+                                                    // API returned percentage, use as-is
+                                                    data.compliance_rate
+                                                } else {
+                                                    // API returned decimal, convert to percentage
+                                                    data.compliance_rate * 100.0
+                                                };
+                                                format!("{:.1}%", rate.min(100.0))
+                                            }
                                         </p>
                                     </div>
                                     <div class="p-4 bg-muted/30 rounded-lg">
