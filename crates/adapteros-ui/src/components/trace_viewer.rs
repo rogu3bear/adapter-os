@@ -9,6 +9,9 @@ use crate::api::client::{
     ApiClient, InferenceTraceDetailResponse, InferenceTraceResponse, TimingBreakdown,
     TokenDecision, TraceReceiptSummary,
 };
+use crate::components::async_state::ErrorDisplay;
+use crate::components::Spinner;
+use crate::hooks::LoadingState;
 
 /// State for the trace viewer
 #[derive(Clone, Debug)]
@@ -413,7 +416,7 @@ fn AdaptersList(adapters: Vec<String>, #[prop(optional)] compact: bool) -> impl 
 
 /// Token-level routing decisions
 #[component]
-fn TokenDecisions(
+pub fn TokenDecisions(
     decisions: Vec<TokenDecision>,
     expanded: ReadSignal<bool>,
     set_expanded: WriteSignal<bool>,
@@ -657,11 +660,25 @@ pub fn TracePanel(
     trace_id: String,
     #[prop(optional)] on_close: Option<Callback<()>>,
 ) -> impl IntoView {
+    let full_page_url = format!("/runs/{}?tab=trace", trace_id);
+
     view! {
         <div class="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
             <div class="bg-card border border-border rounded-xl shadow-xl w-full max-w-2xl max-h-[80vh] overflow-auto">
                 <div class="sticky top-0 bg-card border-b border-border p-4 flex items-center justify-between">
-                    <h2 class="text-lg font-semibold">"Trace Viewer"</h2>
+                    <div class="flex items-center gap-3">
+                        <h2 class="text-lg font-semibold">"Trace Viewer"</h2>
+                        <a
+                            href=full_page_url
+                            class="text-xs text-primary hover:underline flex items-center gap-1"
+                            title="Open in Run Detail page"
+                        >
+                            "Open Full View"
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                            </svg>
+                        </a>
+                    </div>
                     <button
                         class="p-2 rounded-lg hover:bg-muted transition-colors"
                         on:click=move |_| {
@@ -806,6 +823,48 @@ pub fn TraceDetailStandalone(
             {trace.receipt.clone().map(|r| view! {
                 <ReceiptVerification receipt=r compact=compact/>
             })}
+        </div>
+    }
+}
+
+/// Trace viewer that accepts pre-loaded data (no internal fetch)
+///
+/// Use this component when trace data is already fetched at a parent level
+/// to avoid duplicate API calls.
+#[component]
+pub fn TraceViewerWithData(
+    trace_detail: ReadSignal<LoadingState<InferenceTraceDetailResponse>>,
+    #[prop(optional)] compact: bool,
+) -> impl IntoView {
+    let (expanded_tokens, set_expanded_tokens) = signal(false);
+
+    let container_class = if compact {
+        "bg-card border border-border rounded-lg p-3 text-sm"
+    } else {
+        "bg-card border border-border rounded-lg p-6"
+    };
+
+    view! {
+        <div class=container_class>
+            {move || match trace_detail.get() {
+                LoadingState::Idle | LoadingState::Loading => view! {
+                    <div class="flex items-center justify-center py-8">
+                        <Spinner/>
+                        <span class="ml-3 text-muted-foreground">"Loading trace data..."</span>
+                    </div>
+                }.into_any(),
+                LoadingState::Loaded(detail) => view! {
+                    <TraceDetailStandalone
+                        trace=detail.clone()
+                        expanded_tokens=expanded_tokens
+                        set_expanded_tokens=set_expanded_tokens
+                        compact=compact
+                    />
+                }.into_any(),
+                LoadingState::Error(err) => view! {
+                    <ErrorDisplay error=err.clone()/>
+                }.into_any(),
+            }}
         </div>
     }
 }
