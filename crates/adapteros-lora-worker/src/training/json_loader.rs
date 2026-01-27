@@ -425,7 +425,7 @@ mod tests {
 
     #[test]
     fn test_load_json_dataset() {
-        let tmp = tempdir().expect("tempdir");
+        let tmp = tempdir().expect("failed to create temporary directory for JSON dataset test");
         let json_path = tmp.path().join("dataset.json");
 
         // Write test JSON dataset

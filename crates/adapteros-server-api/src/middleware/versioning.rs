@@ -177,7 +177,12 @@ impl SchemaVersion {
     /// Get the current server schema version
     pub fn current() -> Self {
         Self::parse(adapteros_api_types::API_SCHEMA_VERSION)
-            .expect("API_SCHEMA_VERSION must be a valid semver")
+            .expect(
+                "Failed to parse API_SCHEMA_VERSION constant as valid semver: \
+                 expected API_SCHEMA_VERSION to be a compile-time constant in format 'major.minor.patch', \
+                 but parsing failed. This indicates adapteros_api_types::API_SCHEMA_VERSION is malformed. \
+                 This is a critical configuration error that should never occur in production."
+            )
     }
 
     /// Check if this version is compatible with the server version

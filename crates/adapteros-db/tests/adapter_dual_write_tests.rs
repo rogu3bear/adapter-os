@@ -10,7 +10,7 @@ use adapteros_storage::repos::adapter::AdapterRepository;
 use tempfile::TempDir;
 
 fn new_test_tempdir() -> TempDir {
-    TempDir::with_prefix("aos-test-").expect("tempdir")
+    TempDir::with_prefix("aos-test-").expect("Failed to create temporary directory for dual-write test")
 }
 
 /// Helper to set up test database with KV backend in DualWrite mode

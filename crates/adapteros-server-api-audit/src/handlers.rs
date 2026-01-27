@@ -649,6 +649,216 @@ pub async fn get_audit_chain(
     }))
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_federation_audit_response_serde() {
+        let response = FederationAuditResponse {
+            total_hosts: 3,
+            total_signatures: 10,
+            verified_signatures: 8,
+            quarantined: false,
+            quarantine_reason: None,
+            host_chains: vec![
+                HostChainSummary {
+                    host_id: "host-1".to_string(),
+                    bundle_count: 5,
+                    latest_bundle: Some("bundle-abc".to_string()),
+                },
+            ],
+            timestamp: "2025-01-27T00:00:00Z".to_string(),
+        };
+        let json = serde_json::to_string(&response).unwrap();
+        let parsed: FederationAuditResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.total_hosts, 3);
+        assert_eq!(parsed.verified_signatures, 8);
+        assert!(!parsed.quarantined);
+    }
+
+    #[test]
+    fn test_federation_audit_response_with_quarantine() {
+        let response = FederationAuditResponse {
+            total_hosts: 1,
+            total_signatures: 5,
+            verified_signatures: 3,
+            quarantined: true,
+            quarantine_reason: Some("policy violation".to_string()),
+            host_chains: vec![],
+            timestamp: "2025-01-27T00:00:00Z".to_string(),
+        };
+        let json = serde_json::to_string(&response).unwrap();
+        assert!(json.contains("quarantine_reason"));
+        let parsed: FederationAuditResponse = serde_json::from_str(&json).unwrap();
+        assert!(parsed.quarantined);
+        assert_eq!(parsed.quarantine_reason, Some("policy violation".to_string()));
+    }
+
+    #[test]
+    fn test_host_chain_summary_serde() {
+        let summary = HostChainSummary {
+            host_id: "host-xyz".to_string(),
+            bundle_count: 10,
+            latest_bundle: Some("latest-bundle-hash".to_string()),
+        };
+        let json = serde_json::to_string(&summary).unwrap();
+        let parsed: HostChainSummary = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.host_id, "host-xyz");
+        assert_eq!(parsed.bundle_count, 10);
+    }
+
+    #[test]
+    fn test_compliance_audit_response_serde() {
+        let response = ComplianceAuditResponse {
+            compliance_rate: 95.5,
+            total_controls: 10,
+            compliant_controls: 9,
+            active_violations: 1,
+            controls: vec![
+                ComplianceControl {
+                    control_id: "CTRL-001".to_string(),
+                    control_name: "Test Control".to_string(),
+                    status: "compliant".to_string(),
+                    last_checked: "2025-01-27T00:00:00Z".to_string(),
+                    evidence: vec!["evidence1".to_string()],
+                    findings: vec![],
+                },
+            ],
+            timestamp: "2025-01-27T00:00:00Z".to_string(),
+        };
+        let json = serde_json::to_string(&response).unwrap();
+        let parsed: ComplianceAuditResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.compliance_rate, 95.5);
+        assert_eq!(parsed.total_controls, 10);
+        assert_eq!(parsed.controls.len(), 1);
+    }
+
+    #[test]
+    fn test_compliance_control_serde() {
+        let control = ComplianceControl {
+            control_id: "EGRESS-001".to_string(),
+            control_name: "Network Egress Control".to_string(),
+            status: "compliant".to_string(),
+            last_checked: "2025-01-27T12:00:00Z".to_string(),
+            evidence: vec!["Zero egress mode".to_string(), "PF rules active".to_string()],
+            findings: vec!["minor issue".to_string()],
+        };
+        let json = serde_json::to_string(&control).unwrap();
+        let parsed: ComplianceControl = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.control_id, "EGRESS-001");
+        assert_eq!(parsed.evidence.len(), 2);
+        assert_eq!(parsed.findings.len(), 1);
+    }
+
+    #[test]
+    fn test_audit_chain_entry_serde() {
+        let entry = AuditChainEntry {
+            id: "entry-001".to_string(),
+            timestamp: "2025-01-27T00:00:00Z".to_string(),
+            action: "inference".to_string(),
+            resource_type: "adapter".to_string(),
+            status: "allow".to_string(),
+            entry_hash: "abc123hash".to_string(),
+            previous_hash: Some("prev123hash".to_string()),
+            chain_sequence: 42,
+            verified: true,
+        };
+        let json = serde_json::to_string(&entry).unwrap();
+        let parsed: AuditChainEntry = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.id, "entry-001");
+        assert_eq!(parsed.chain_sequence, 42);
+        assert!(parsed.verified);
+    }
+
+    #[test]
+    fn test_audit_chain_entry_without_previous_hash() {
+        let entry = AuditChainEntry {
+            id: "first-entry".to_string(),
+            timestamp: "2025-01-27T00:00:00Z".to_string(),
+            action: "create".to_string(),
+            resource_type: "tenant".to_string(),
+            status: "allow".to_string(),
+            entry_hash: "genesis-hash".to_string(),
+            previous_hash: None,
+            chain_sequence: 1,
+            verified: true,
+        };
+        let json = serde_json::to_string(&entry).unwrap();
+        assert!(!json.contains("previous_hash")); // Should skip None
+        let parsed: AuditChainEntry = serde_json::from_str(&json).unwrap();
+        assert!(parsed.previous_hash.is_none());
+    }
+
+    #[test]
+    fn test_audit_chain_response_serde() {
+        let response = AuditChainResponse {
+            entries: vec![
+                AuditChainEntry {
+                    id: "e1".to_string(),
+                    timestamp: "2025-01-27T00:00:00Z".to_string(),
+                    action: "test".to_string(),
+                    resource_type: "test".to_string(),
+                    status: "allow".to_string(),
+                    entry_hash: "hash1".to_string(),
+                    previous_hash: None,
+                    chain_sequence: 1,
+                    verified: true,
+                },
+            ],
+            chain_valid: true,
+            total_entries: 1,
+            merkle_root: Some("root-hash".to_string()),
+        };
+        let json = serde_json::to_string(&response).unwrap();
+        let parsed: AuditChainResponse = serde_json::from_str(&json).unwrap();
+        assert!(parsed.chain_valid);
+        assert_eq!(parsed.total_entries, 1);
+        assert_eq!(parsed.merkle_root, Some("root-hash".to_string()));
+    }
+
+    #[test]
+    fn test_chain_verification_response_serde() {
+        let response = ChainVerificationResponse {
+            chain_valid: true,
+            total_entries: 100,
+            verified_entries: 100,
+            first_invalid_sequence: None,
+            error_message: None,
+            merkle_root: Some("merkle-root-hash".to_string()),
+            verification_timestamp: "2025-01-27T00:00:00Z".to_string(),
+        };
+        let json = serde_json::to_string(&response).unwrap();
+        let parsed: ChainVerificationResponse = serde_json::from_str(&json).unwrap();
+        assert!(parsed.chain_valid);
+        assert_eq!(parsed.verified_entries, 100);
+    }
+
+    #[test]
+    fn test_chain_verification_response_with_error() {
+        let response = ChainVerificationResponse {
+            chain_valid: false,
+            total_entries: 100,
+            verified_entries: 50,
+            first_invalid_sequence: Some(51),
+            error_message: Some("hash mismatch at sequence 51".to_string()),
+            merkle_root: None,
+            verification_timestamp: "2025-01-27T00:00:00Z".to_string(),
+        };
+        let json = serde_json::to_string(&response).unwrap();
+        let parsed: ChainVerificationResponse = serde_json::from_str(&json).unwrap();
+        assert!(!parsed.chain_valid);
+        assert_eq!(parsed.first_invalid_sequence, Some(51));
+        assert!(parsed.error_message.is_some());
+    }
+
+    #[test]
+    fn test_audit_chain_query_default() {
+        let query = AuditChainQuery { limit: 100 };
+        assert_eq!(query.limit, 100);
+    }
+}
+
 /// Verify audit chain integrity
 ///
 /// Performs full cryptographic verification of the policy audit chain.

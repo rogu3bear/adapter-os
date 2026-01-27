@@ -4,7 +4,7 @@
 //!
 //! 【2025-11-30†feature†admin_users_endpoint】
 
-use crate::state::AdminAppState;
+use crate::state::{AdminAppState, AdminDb};
 use crate::types::AdminErrorResponse;
 use adapteros_api_types::admin::{ListUsersParams, ListUsersResponse, UserResponse};
 use adapteros_api_types::API_SCHEMA_VERSION;
@@ -66,8 +66,8 @@ pub async fn list_users<S: AdminAppState>(
     let (users, total) = state
         .db()
         .list_users(
-            params.page,
-            params.page_size,
+            Some(params.page),
+            Some(params.page_size),
             params.role.as_deref(),
             params.tenant_id.as_deref(),
         )

@@ -560,7 +560,7 @@ mod tests {
     // Returns (Db, TempDir) - caller must hold TempDir to keep DB files alive
     async fn setup_test_db() -> Result<(Db, TempDir)> {
         let temp_dir = TempDir::with_prefix("aos-tick-ledger-test-")
-            .expect("create temp dir");
+            .expect("failed to create temporary directory for tick ledger manager test database: system tmp directory should be writable");
         let db_path = temp_dir
             .path()
             .join(format!("test_{}.db", std::process::id()));

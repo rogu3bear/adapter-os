@@ -297,7 +297,7 @@ mod tests {
     // Edge cases
     #[test]
     fn test_api_response_with_complex_data() {
-        #[derive(Debug, Serialize, Deserialize, PartialEq)]
+        #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
         struct ComplexData {
             id: u64,
             name: String,

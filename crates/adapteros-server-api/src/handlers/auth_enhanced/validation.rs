@@ -14,7 +14,12 @@ use regex::Regex;
 pub(super) static EMAIL_REGEX: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
         r"(?i)^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$"
-    ).expect("email regex is valid")
+    ).expect(
+        "Failed to compile RFC 5322 email validation regex: \
+         expected hardcoded regex pattern to be syntactically valid, \
+         but Regex::new() returned an error. This should never happen as \
+         the pattern is a compile-time constant that was previously validated."
+    )
 });
 
 /// Validates an email address against RFC 5322 rules.

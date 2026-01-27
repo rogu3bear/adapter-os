@@ -1772,6 +1772,7 @@ dependencies = [
  "adapteros-boot",
  "adapteros-core",
  "adapteros-db",
+ "adapteros-server-api",
  "axum 0.8.8",
  "chrono",
  "futures-util",
@@ -1821,11 +1822,6 @@ name = "adapteros-server-api-inference"
 version = "0.1.0"
 dependencies = [
  "adapteros-api-types",
- "adapteros-core",
- "adapteros-db",
- "adapteros-lora-lifecycle",
- "adapteros-lora-worker",
- "adapteros-policy",
  "adapteros-types",
  "axum 0.8.8",
  "chrono",
@@ -1849,6 +1845,7 @@ version = "0.1.0"
 dependencies = [
  "adapteros-api-types",
  "adapteros-config",
+ "adapteros-core",
  "adapteros-db",
  "adapteros-lora-worker",
  "adapteros-server-api",
@@ -1857,11 +1854,9 @@ dependencies = [
  "chrono",
  "serde",
  "serde_json",
- "sqlx",
  "tokio",
  "tracing",
  "utoipa",
- "uuid",
 ]
 
 [[package]]

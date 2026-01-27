@@ -288,49 +288,25 @@ pub enum Commands {
     // ============================================================
     // Node & Cluster Management
     // ============================================================
-    /// List cluster nodes
+    /// Node management commands (list, verify, sync)
+    #[command(subcommand)]
     #[command(after_help = r#"Examples:
   # List all nodes
-  aosctl node-list
+  aosctl node list
+  aosctl node list --offline
 
-  # List nodes offline (cached)
-  aosctl node-list --offline
+  # Verify cross-node determinism
+  aosctl node verify --all
+  aosctl node verify --nodes node1,node2
 
-  # Check node status
-  aosctl node-status node1
+  # Sync adapters across nodes
+  aosctl node sync verify --from node1 --to node2
+  aosctl node sync push --to node2 --adapters adapter1,adapter2
+  aosctl node sync pull --from node1 --adapters adapter1
+  aosctl node sync export --file ./adapters-bundle.tar
+  aosctl node sync import --file ./adapters-bundle.tar
 "#)]
-    NodeList {
-        /// Offline mode (use cached database state)
-        #[arg(long)]
-        offline: bool,
-    },
-
-    /// Verify cross-node determinism
-    #[command(after_help = r#"Examples:
-  # Verify all nodes
-  aosctl node-verify --all
-
-  # Verify specific nodes
-  aosctl node-verify --nodes node1,node2
-
-  # Check determinism across cluster
-  aosctl node-verify --all --verbose
-"#)]
-    NodeVerify {
-        /// Verify all nodes
-        #[arg(long)]
-        all: bool,
-
-        /// Specific node IDs to verify (comma-separated)
-        #[arg(long, value_delimiter = ',')]
-        nodes: Option<Vec<String>>,
-    },
-
-    /// Sync adapters across nodes
-    NodeSync {
-        #[command(subcommand)]
-        mode: NodeSyncMode,
-    },
+    Node(node::NodeCommand),
 
     // ============================================================
     // Registry Management
@@ -1369,55 +1345,6 @@ pub enum Commands {
     },
 }
 
-#[derive(Subcommand)]
-pub enum NodeSyncMode {
-    /// Verify sync between two nodes
-    Verify {
-        /// Source node ID
-        #[arg(long)]
-        from: String,
-
-        /// Target node ID
-        #[arg(long)]
-        to: String,
-    },
-
-    /// Push adapters to target node
-    Push {
-        /// Target node ID
-        #[arg(long)]
-        to: String,
-
-        /// Adapter IDs to push (comma-separated)
-        #[arg(long, value_delimiter = ',')]
-        adapters: Vec<String>,
-    },
-
-    /// Pull adapters from source node
-    Pull {
-        /// Source node ID
-        #[arg(long)]
-        from: String,
-
-        /// Adapter IDs to pull (comma-separated)
-        #[arg(long, value_delimiter = ',')]
-        adapters: Vec<String>,
-    },
-
-    /// Export adapters for air-gap transfer
-    Export {
-        /// Output file path
-        #[arg(long)]
-        file: PathBuf,
-    },
-
-    /// Import adapters from air-gap bundle
-    Import {
-        /// Input file path
-        #[arg(long)]
-        file: PathBuf,
-    },
-}
 
 pub async fn run() -> Result<()> {
     // Initialize unified logging
@@ -1540,31 +1467,8 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         }
 
         // Node & Cluster Management
-        Commands::NodeList { offline } => {
-            node_list::run(*offline).await?;
-        }
-        Commands::NodeVerify { all, nodes } => {
-            node_verify::run(*all, nodes.clone()).await?;
-        }
-        Commands::NodeSync { mode } => {
-            use node_sync::SyncMode;
-            let sync_mode = match mode {
-                NodeSyncMode::Verify { from, to } => SyncMode::Verify {
-                    from: from.clone(),
-                    to: to.clone(),
-                },
-                NodeSyncMode::Push { to, adapters } => SyncMode::Push {
-                    to: to.clone(),
-                    adapters: adapters.clone(),
-                },
-                NodeSyncMode::Pull { from, adapters } => SyncMode::Pull {
-                    from: from.clone(),
-                    adapters: adapters.clone(),
-                },
-                NodeSyncMode::Export { file } => SyncMode::Export { file: file.clone() },
-                NodeSyncMode::Import { file } => SyncMode::Import { file: file.clone() },
-            };
-            node_sync::run(sync_mode).await?;
+        Commands::Node(cmd) => {
+            node::handle_node_command(cmd.clone(), output).await?;
         }
 
         // Registry Management
@@ -1977,9 +1881,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::AdapterInfo { .. } => "adapter-info",
         Commands::Adapter(_) => "adapter",
         Commands::Adapters(_) => "adapters",
-        Commands::NodeList { .. } => "node-list",
-        Commands::NodeVerify { .. } => "node-verify",
-        Commands::NodeSync { .. } => "node-sync",
+        Commands::Node(_) => "node",
         Commands::PlanBuild { .. } => "build-plan",
         Commands::ModelImport { .. } => "import-model",
         #[cfg(feature = "trace")]

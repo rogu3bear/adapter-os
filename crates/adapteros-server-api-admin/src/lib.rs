@@ -26,12 +26,17 @@
 //! ```
 
 pub mod auth;
+pub mod boot_state_impl;
+pub mod db_impl;
 pub mod handlers;
 pub mod middleware;
+pub mod plugin_impl;
 pub mod policies;
 pub mod routes;
 pub mod state;
+pub mod supervisor_impl;
 pub mod types;
+pub mod uds_impl;
 
 // Re-export main entry points
 pub use auth::AdminClaims;

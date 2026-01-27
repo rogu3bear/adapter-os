@@ -3,8 +3,8 @@
 //! Provides API endpoints for workspace CRUD, membership management, and resource sharing.
 //! Workspaces enable cross-tenant collaboration while maintaining tenant isolation.
 
+use crate::api_error::ApiError;
 use crate::audit_helper::{actions, log_success_or_warn, resources};
-use crate::error_helpers::internal_error_msg as internal_error;
 use crate::handlers::{AppState, Claims, ErrorResponse};
 use crate::permissions::{require_permission, Permission};
 use crate::uds_client::UdsClient;
@@ -1520,7 +1520,7 @@ pub async fn get_workspace_active_state(
         .db
         .get_workspace_active_state(&workspace_id)
         .await
-        .map_err(|e| internal_error("Failed to fetch workspace active state", e))?;
+        .map_err(|e| ApiError::internal("Failed to fetch workspace active state").with_details(e.to_string()))?;
 
     let response = build_active_state_response(&state, workspace_id, record).await?;
     Ok(Json(response))
@@ -1587,7 +1587,7 @@ pub async fn set_workspace_active_state(
             .db
             .get_model_for_tenant(&workspace_id, model_id)
             .await
-            .map_err(|e| internal_error("Failed to validate base model", e))?;
+            .map_err(|e| ApiError::internal("Failed to validate base model").with_details(e.to_string()))?;
 
         if model.is_none() {
             return Err(not_found_response("Model", model_id));
@@ -1600,7 +1600,7 @@ pub async fn set_workspace_active_state(
             .db
             .get_plan(plan_id)
             .await
-            .map_err(|e| internal_error("Failed to validate plan", e))?;
+            .map_err(|e| ApiError::internal("Failed to validate plan").with_details(e.to_string()))?;
 
         let Some(plan) = plan else {
             return Err(not_found_response("Plan", plan_id));
@@ -1623,7 +1623,7 @@ pub async fn set_workspace_active_state(
             .db
             .get_adapter_for_tenant(&workspace_id, adapter_id)
             .await
-            .map_err(|e| internal_error("Failed to validate adapter", e))?;
+            .map_err(|e| ApiError::internal("Failed to validate adapter").with_details(e.to_string()))?;
 
         if adapter.is_none() {
             return Err(not_found_response("Adapter", adapter_id));
@@ -1646,7 +1646,7 @@ pub async fn set_workspace_active_state(
             manifest_hash.as_deref(),
         )
         .await
-        .map_err(|e| internal_error("Failed to store workspace active state", e))?;
+        .map_err(|e| ApiError::internal("Failed to store workspace active state").with_details(e.to_string()))?;
 
     let response = build_active_state_response(&state, workspace_id, Some(stored)).await?;
     Ok(Json(response))
@@ -1672,7 +1672,7 @@ pub(crate) async fn build_active_state_response(
         if let Some(raw) = state_record.active_adapter_ids.as_deref() {
             if !raw.is_empty() {
                 active_adapter_ids = serde_json::from_str(raw).map_err(|e| {
-                    internal_error("Failed to parse stored adapter ids", e.to_string())
+                    ApiError::internal("Failed to parse stored adapter ids").with_details(e.to_string())
                 })?;
             }
         }
@@ -1706,7 +1706,7 @@ async fn is_model_ready(
 ) -> Result<Option<bool>, (StatusCode, Json<ErrorResponse>)> {
     is_model_ready_internal(state, tenant_id, model_id)
         .await
-        .map_err(|e| internal_error("Failed to read model status", e))
+        .map_err(|e| ApiError::internal("Failed to read model status").with_details(e.to_string()).into())
 }
 
 async fn is_model_ready_internal(

@@ -41,7 +41,7 @@ pub mod routes;
 pub mod streaming;
 mod types;
 
+// Types are re-exported via handlers::*
 pub use handlers::*;
 pub use routes::training_routes;
-pub use streaming::stream_training_progress;
-pub use types::*;
+pub use streaming::{create_training_progress_stream, TrainingJobDb, TrainingJobRecord};

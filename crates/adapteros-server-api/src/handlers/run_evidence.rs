@@ -1,5 +1,5 @@
+use crate::api_error::ApiError;
 use crate::auth::Claims;
-use crate::error_helpers::{db_error, internal_error, not_found};
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
@@ -203,8 +203,8 @@ pub async fn download_run_evidence(
         .db
         .get_replay_metadata_by_inference(&run_id)
         .await
-        .map_err(db_error)?
-        .ok_or_else(|| not_found("Run"))?;
+        .map_err(ApiError::db_error)?
+        .ok_or_else(|| ApiError::not_found("Run"))?;
 
     // Defense in depth: also validate at handler level
     validate_tenant_isolation(&claims, &metadata.tenant_id)?;
@@ -216,14 +216,14 @@ pub async fn download_run_evidence(
     let mut warnings: Vec<String> = Vec::new();
 
     // Replay metadata (always included)
-    let replay_metadata_json = serde_json::to_vec_pretty(&metadata).map_err(internal_error)?;
+    let replay_metadata_json = serde_json::to_vec_pretty(&metadata).map_err(|e| ApiError::internal(e.to_string()))?;
 
     // Manifest reference with optional embedded manifest
     let manifest_record = state
         .db
         .get_manifest_by_hash(&metadata.manifest_hash)
         .await
-        .map_err(db_error)?;
+        .map_err(ApiError::db_error)?;
     let manifest_entry = if let Some(rec) = manifest_record {
         // Manifest found and already tenant-scoped by the query
         let manifest_json: serde_json::Value =
@@ -244,7 +244,7 @@ pub async fn download_run_evidence(
             warnings: vec!["manifest content unavailable".to_string()],
         }
     };
-    let manifest_ref_json = serde_json::to_vec_pretty(&manifest_entry).map_err(internal_error)?;
+    let manifest_ref_json = serde_json::to_vec_pretty(&manifest_entry).map_err(|e| ApiError::internal(e.to_string()))?;
 
     // Policy digest entry
     let mut policy_warnings = Vec::new();
@@ -256,7 +256,7 @@ pub async fn download_run_evidence(
         policy_mask_digest_b3: metadata.policy_mask_digest_b3.clone(),
         warnings: policy_warnings.clone(),
     };
-    let policy_digest_json = serde_json::to_vec_pretty(&policy_entry).map_err(internal_error)?;
+    let policy_digest_json = serde_json::to_vec_pretty(&policy_entry).map_err(|e| ApiError::internal(e.to_string()))?;
 
     // Boot state snapshot (deterministic - no timing fields)
     // DETERMINISM: We exclude phase timing (started_at_ms, finished_at_ms, duration_ms)
@@ -295,7 +295,7 @@ pub async fn download_run_evidence(
         .db
         .get_base_model_status(&metadata.tenant_id)
         .await
-        .map_err(db_error)?;
+        .map_err(ApiError::db_error)?;
     let model_snapshot = if let Some(status) = status_record {
         let model_name = status.model_id.clone();
         ModelStatusSnapshot {
@@ -316,7 +316,7 @@ pub async fn download_run_evidence(
             warnings: model_warnings.clone(),
         }
     };
-    let model_status_json = serde_json::to_vec_pretty(&model_snapshot).map_err(internal_error)?;
+    let model_status_json = serde_json::to_vec_pretty(&model_snapshot).map_err(|e| ApiError::internal(e.to_string()))?;
 
     // Attempt to load trace receipt and build inference envelope
     let trace_id: Option<String> = sqlx::query_scalar(
@@ -326,7 +326,7 @@ pub async fn download_run_evidence(
     .bind(&metadata.tenant_id)
     .fetch_optional(&state.db_pool)
     .await
-    .map_err(db_error)?;
+    .map_err(ApiError::db_error)?;
 
     let mut run_envelope_bytes: Option<Vec<u8>> = None;
     let mut envelope_warnings: Vec<String> = Vec::new();
@@ -344,7 +344,7 @@ pub async fn download_run_evidence(
                 envelope.created_at = DETERMINISTIC_ENVELOPE_TIMESTAMP.to_string();
                 envelope.signed_at_us = 0;
                 run_envelope_bytes =
-                    Some(serde_json::to_vec_pretty(&envelope).map_err(internal_error)?);
+                    Some(serde_json::to_vec_pretty(&envelope).map_err(|e| ApiError::internal(e.to_string()))?);
             }
             Err(e) => {
                 envelope_warnings.push(format!(
@@ -433,10 +433,10 @@ pub async fn download_run_evidence(
     {
         let mut zip = zip::ZipWriter::new(&mut writer);
         for (name, data) in files {
-            zip.start_file(name, options).map_err(internal_error)?;
-            zip.write_all(&data).map_err(internal_error)?;
+            zip.start_file(name, options).map_err(|e| ApiError::internal(e.to_string()))?;
+            zip.write_all(&data).map_err(|e| ApiError::internal(e.to_string()))?;
         }
-        zip.finish().map_err(internal_error)?;
+        zip.finish().map_err(|e| ApiError::internal(e.to_string()))?;
     }
     let buffer = writer.into_inner();
 

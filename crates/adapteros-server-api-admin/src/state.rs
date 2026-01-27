@@ -7,12 +7,11 @@ use crate::auth::AdminClaims;
 use crate::handlers::lifecycle::RuntimeMode;
 use adapteros_boot::BootPhase as BootState;
 use adapteros_core::{PluginHealth, Result};
+use adapteros_db::models::Worker;
 use adapteros_db::tenants::Tenant;
 use adapteros_db::users::User;
-use adapteros_db::workers::Worker;
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::Arc;
 
 /// Configuration snapshot for settings handlers
 pub struct ConfigSnapshot {

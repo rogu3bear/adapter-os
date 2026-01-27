@@ -4,7 +4,7 @@
 //! These handlers provide service start/stop/restart functionality with JWT auth.
 
 use crate::auth::AdminClaims;
-use crate::state::AdminAppState;
+use crate::state::{AdminAppState, SupervisorClient};
 use crate::types::AdminErrorResponse;
 use axum::{
     extract::{Extension, Path, Query, State},

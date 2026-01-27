@@ -903,23 +903,20 @@ impl Router {
         }
 
         // Tier-based boost: Higher tiers get slight boost
-        // TODO: Refactor to use DRY principle: AdapterTier::from_str().unwrap_or_default().boost()
-        // instead of duplicating tier values from types.rs
-        let tier_boost = match adapter_info.tier.as_str() {
-            "tier_0" => 0.3,
-            "tier_1" => 0.2,
-            "tier_2" => 0.1,
-            _ => 0.0,
-        };
+        use std::str::FromStr;
+        use crate::types::{AdapterTier, LoraTier};
+
+        let tier_boost = AdapterTier::from_str(&adapter_info.tier)
+            .unwrap_or_default()
+            .boost();
         score += tier_boost;
 
         if let Some(ref lora_tier) = adapter_info.lora_tier {
-            let tier_bonus = match lora_tier.as_str() {
-                "max" => 0.12,
-                "standard" => 0.06,
-                "micro" => 0.0,
-                _ => 0.0,
-            };
+            let tier_bonus = lora_tier
+                .parse::<LoraTier>()
+                .ok()
+                .map(|t| t.boost())
+                .unwrap_or(0.0);
             score += tier_bonus;
         }
 

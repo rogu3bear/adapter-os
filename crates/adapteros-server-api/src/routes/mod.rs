@@ -26,7 +26,7 @@ use crate::middleware_security::{
 };
 use crate::request_id;
 use crate::state::AppState;
-use adapteros_api_types::CreateActivityEventRequest;
+use adapteros_api_types::{ActivityEventResponse, CreateActivityEventRequest};
 use axum::{
     middleware,
     routing::{delete, get, patch, post, put},
@@ -651,9 +651,8 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::evidence::EvidenceResponse,
         handlers::evidence::ListEvidenceQuery,
         // Activity types
-        // Activity types
-        // CreateActivityEventRequest,
-        // ActivityEventResponse, // FIXME: utoipa resolution error
+        CreateActivityEventRequest,
+        ActivityEventResponse,
         // Service control types
         handlers::services::ServiceControlResponse,
         handlers::services::LogsQuery,

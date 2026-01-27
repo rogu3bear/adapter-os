@@ -9,8 +9,8 @@
 //! - DELETE /v1/tenants/{tenant_id}/execution-policy/{policy_id} - Deactivate policy
 //! - GET /v1/tenants/{tenant_id}/execution-policy/history - Get policy history
 
+use crate::api_error::ApiError;
 use crate::auth::Claims;
-use crate::error_helpers::db_error_with_details;
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::*;
@@ -70,7 +70,7 @@ pub async fn get_execution_policy(
         .db
         .get_execution_policy_or_default(&tenant_id)
         .await
-        .map_err(db_error_with_details)?;
+        .map_err(ApiError::db_error)?;
 
     Ok(Json(policy))
 }
@@ -117,7 +117,7 @@ pub async fn create_execution_policy(
         .db
         .create_execution_policy(&tenant_id, request, created_by)
         .await
-        .map_err(db_error_with_details)?;
+        .map_err(ApiError::db_error)?;
 
     info!(
         tenant_id = %tenant_id,
@@ -167,7 +167,7 @@ pub async fn deactivate_execution_policy(
         .db
         .deactivate_execution_policy(&policy_id)
         .await
-        .map_err(db_error_with_details)?;
+        .map_err(ApiError::db_error)?;
 
     if deactivated {
         info!(
@@ -221,7 +221,7 @@ pub async fn get_execution_policy_history(
         .db
         .get_execution_policy_history(&tenant_id, query.limit)
         .await
-        .map_err(db_error_with_details)?;
+        .map_err(ApiError::db_error)?;
 
     Ok(Json(PolicyHistoryResponse { policies }))
 }

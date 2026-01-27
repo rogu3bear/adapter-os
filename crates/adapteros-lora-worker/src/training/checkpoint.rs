@@ -411,7 +411,7 @@ mod tests {
         tempfile::Builder::new()
             .prefix("aos-test-")
             .tempdir()
-            .expect("create temp dir")
+            .expect("failed to create temporary directory for checkpoint test - filesystem may be full or permissions denied")
     }
 
     #[tokio::test]

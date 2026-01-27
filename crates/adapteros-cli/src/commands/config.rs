@@ -31,12 +31,9 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing::info;
 
-/// Lazily initialized global schema
-/// TODO: Used by planned per-variable validation feature
-#[allow(dead_code)]
+/// Lazily initialized global schema for per-variable validation
 static SCHEMA: OnceLock<ConfigSchema> = OnceLock::new();
 
-#[allow(dead_code)]
 fn get_schema() -> &'static ConfigSchema {
     SCHEMA.get_or_init(default_schema)
 }
@@ -76,9 +73,8 @@ pub const SENSITIVE_VARS: &[&str] = &[
     "JWT_SECRET",
 ];
 
-/// Removal version for deprecated variables
-/// TODO: Used by planned per-variable validation feature
-#[allow(dead_code)]
+/// Removal version for deprecated variables.
+/// Used in deprecation warnings to inform users when a variable will be removed.
 const REMOVAL_VERSION: &str = "v0.03";
 
 // ============================================================================
@@ -301,6 +297,12 @@ pub enum ConfigCommand {
         after_help = "Examples:\n  aosctl config check\n  aosctl config check --path ./configs/aos.toml --json"
     )]
     Check(CheckArgs),
+
+    /// Set a configuration variable in the .env file
+    #[command(
+        after_help = "Examples:\n  aosctl config set AOS_SERVER_PORT 9090\n  aosctl config set AOS_LOG_LEVEL debug\n  aosctl config set AOS_MODEL_PATH /var/models/llama --env-file ./custom.env\n  aosctl config set --skip-validation AOS_CUSTOM_VAR value"
+    )]
+    Set(SetArgs),
 }
 
 /// Type alias for main.rs integration
@@ -426,6 +428,30 @@ pub struct CheckArgs {
     pub json: bool,
 }
 
+/// Arguments for config set command
+#[derive(Debug, Clone, Args)]
+pub struct SetArgs {
+    /// Variable name (e.g., AOS_SERVER_PORT)
+    #[arg(value_name = "NAME")]
+    pub name: String,
+
+    /// Value to set
+    #[arg(value_name = "VALUE")]
+    pub value: String,
+
+    /// Path to .env file to modify
+    #[arg(short = 'e', long, default_value = ".env")]
+    pub env_file: PathBuf,
+
+    /// Skip schema validation (for custom variables)
+    #[arg(long)]
+    pub skip_validation: bool,
+
+    /// Output format: text, json
+    #[arg(short = 'f', long, value_enum, default_value = "text")]
+    pub format: OutputFormat,
+}
+
 // ============================================================================
 // Main Entry Point
 // ============================================================================
@@ -438,6 +464,7 @@ pub async fn run_config_command(cmd: ConfigCommand, output: &OutputWriter) -> Re
         ConfigCommand::Show(args) => show(args, output).await,
         ConfigCommand::ShowEffective(args) => show_effective(args, output).await,
         ConfigCommand::Check(args) => self::check(args, output).await,
+        ConfigCommand::Set(args) => set(args, output).await,
     }
 }
 
@@ -557,11 +584,11 @@ pub async fn validate(args: ValidateArgs, output: &OutputWriter) -> Result<()> {
 }
 
 // ============================================================================
-// Per-Variable Validation (Planned Feature)
+// Per-Variable Validation
 // ============================================================================
-// TODO: These functions implement a more detailed per-variable validation system
-// that's planned for future use. Currently, validation uses the simplified
-// `perform_validation` function above. Keep these for the planned enhancement.
+// Per-variable validation is implemented in the `config set` command using
+// `get_schema()` and `validate_value()`. The functions below provide additional
+// validation capabilities used for detailed validation reporting.
 
 #[allow(dead_code)]
 fn validate_variable(name: &str, value: &str, source: ConfigSource) -> ValidationResult {
@@ -1011,10 +1038,10 @@ fn get_var_type(name: &str) -> String {
 }
 
 // ============================================================================
-// Output Formatting Functions (Planned Feature)
+// Output Formatting Functions (Future SARIF Support)
 // ============================================================================
-// TODO: These output functions are for the planned per-variable validation
-// feature which will support multiple output formats (text, JSON, SARIF).
+// These functions are scaffolded for future SARIF output format support.
+// Per-variable validation is implemented; SARIF output is not yet available.
 
 #[allow(dead_code)]
 fn output_validation_text(
@@ -2126,6 +2153,116 @@ pub async fn check(args: CheckArgs, output: &OutputWriter) -> Result<()> {
 }
 
 // ============================================================================
+// Config Set Implementation
+// ============================================================================
+
+/// Set a configuration variable in the .env file with per-variable validation
+pub async fn set(args: SetArgs, output: &OutputWriter) -> Result<()> {
+    info!(name = %args.name, value = %args.value, env_file = ?args.env_file, "Setting configuration variable");
+
+    // Validate the value against the schema unless skipped
+    if !args.skip_validation {
+        let schema = get_schema();
+        if let Some(var) = schema.get_variable(&args.name) {
+            // Variable is in schema - validate the value
+            if let Err(validation_err) = validate_value(var, &args.value) {
+                let error_msg = format!(
+                    "Invalid value for '{}': {} (expected: {})",
+                    args.name, validation_err.message, validation_err.expected
+                );
+
+                if matches!(args.format, OutputFormat::Json) {
+                    let json = json!({
+                        "success": false,
+                        "variable": args.name,
+                        "value": args.value,
+                        "error": validation_err.message,
+                        "expected": validation_err.expected,
+                    });
+                    println!("{}", serde_json::to_string_pretty(&json)?);
+                } else {
+                    output.error(&error_msg);
+                }
+
+                return Err(AosError::Config(error_msg));
+            }
+
+            // Check if variable is deprecated and warn
+            if let Some(ref dep_info) = var.deprecated {
+                output.warning(format!(
+                    "Variable '{}' is deprecated. Use '{}' instead (removal: {}).",
+                    args.name, dep_info.replacement, dep_info.removal_version
+                ));
+            }
+        }
+        // If variable is not in schema, allow setting without validation
+        // This supports custom/unknown variables
+    }
+
+    // Read existing .env file or create empty content
+    let env_content = if args.env_file.exists() {
+        fs::read_to_string(&args.env_file)
+            .map_err(|e| AosError::Io(format!("Failed to read {}: {}", args.env_file.display(), e)))?
+    } else {
+        String::new()
+    };
+
+    // Parse the .env file
+    let mut lines = parse_env_with_structure(&env_content)?;
+
+    // Check if variable already exists and update it, or add new
+    let mut found = false;
+    for line in &mut lines {
+        if let EnvLine::Variable { name, value } = line {
+            if name == &args.name {
+                *value = args.value.clone();
+                found = true;
+                break;
+            }
+        }
+    }
+
+    if !found {
+        // Add new variable at the end
+        lines.push(EnvLine::Variable {
+            name: args.name.clone(),
+            value: args.value.clone(),
+        });
+    }
+
+    // Write back to file
+    atomic_write(&args.env_file, &serialize_env(&lines))?;
+
+    // Output result
+    let display_value = if SENSITIVE_VARS.contains(&args.name.as_str()) {
+        "***REDACTED***".to_string()
+    } else {
+        args.value.clone()
+    };
+
+    if matches!(args.format, OutputFormat::Json) {
+        let json = json!({
+            "success": true,
+            "variable": args.name,
+            "value": display_value,
+            "file": args.env_file.display().to_string(),
+            "action": if found { "updated" } else { "created" },
+        });
+        println!("{}", serde_json::to_string_pretty(&json)?);
+    } else {
+        output.success(format!(
+            "{} {}={} in {}",
+            if found { "Updated" } else { "Set" },
+            args.name,
+            display_value,
+            args.env_file.display()
+        ));
+    }
+
+    Ok(())
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
@@ -2506,5 +2643,135 @@ KEY4=value4
         } else {
             panic!("Expected Variable");
         }
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_config_set_valid_port() {
+        let dir = tempdir().unwrap();
+        let env_path = dir.path().join("test.env");
+
+        let args = SetArgs {
+            name: "AOS_SERVER_PORT".to_string(),
+            value: "9090".to_string(),
+            env_file: env_path.clone(),
+            skip_validation: false,
+            format: OutputFormat::Text,
+        };
+
+        let output = OutputWriter::new(OutputMode::Quiet, false);
+        let result = set(args, &output).await;
+        assert!(result.is_ok());
+
+        // Verify file was created with the value
+        let content = std::fs::read_to_string(&env_path).unwrap();
+        assert!(content.contains("AOS_SERVER_PORT=9090"));
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_config_set_invalid_port() {
+        let dir = tempdir().unwrap();
+        let env_path = dir.path().join("test.env");
+
+        let args = SetArgs {
+            name: "AOS_SERVER_PORT".to_string(),
+            value: "invalid".to_string(),
+            env_file: env_path.clone(),
+            skip_validation: false,
+            format: OutputFormat::Text,
+        };
+
+        let output = OutputWriter::new(OutputMode::Quiet, false);
+        let result = set(args, &output).await;
+        assert!(result.is_err());
+
+        // Verify file was not created
+        assert!(!env_path.exists());
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_config_set_skip_validation() {
+        let dir = tempdir().unwrap();
+        let env_path = dir.path().join("test.env");
+
+        // Should succeed with skip_validation even for invalid value
+        let args = SetArgs {
+            name: "AOS_SERVER_PORT".to_string(),
+            value: "not-a-port".to_string(),
+            env_file: env_path.clone(),
+            skip_validation: true,
+            format: OutputFormat::Text,
+        };
+
+        let output = OutputWriter::new(OutputMode::Quiet, false);
+        let result = set(args, &output).await;
+        assert!(result.is_ok());
+
+        // Verify file was created with the value
+        let content = std::fs::read_to_string(&env_path).unwrap();
+        assert!(content.contains("AOS_SERVER_PORT=not-a-port"));
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_config_set_unknown_variable() {
+        let dir = tempdir().unwrap();
+        let env_path = dir.path().join("test.env");
+
+        // Unknown variables should be allowed without validation
+        let args = SetArgs {
+            name: "MY_CUSTOM_VARIABLE".to_string(),
+            value: "custom_value".to_string(),
+            env_file: env_path.clone(),
+            skip_validation: false,
+            format: OutputFormat::Text,
+        };
+
+        let output = OutputWriter::new(OutputMode::Quiet, false);
+        let result = set(args, &output).await;
+        assert!(result.is_ok());
+
+        // Verify file was created with the value
+        let content = std::fs::read_to_string(&env_path).unwrap();
+        assert!(content.contains("MY_CUSTOM_VARIABLE=custom_value"));
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_config_set_update_existing() {
+        let dir = tempdir().unwrap();
+        let env_path = dir.path().join("test.env");
+
+        // Create initial file
+        std::fs::write(&env_path, "AOS_SERVER_PORT=8080\nOTHER_VAR=value\n").unwrap();
+
+        // Update existing variable
+        let args = SetArgs {
+            name: "AOS_SERVER_PORT".to_string(),
+            value: "9090".to_string(),
+            env_file: env_path.clone(),
+            skip_validation: false,
+            format: OutputFormat::Text,
+        };
+
+        let output = OutputWriter::new(OutputMode::Quiet, false);
+        let result = set(args, &output).await;
+        assert!(result.is_ok());
+
+        // Verify value was updated and other vars preserved
+        let content = std::fs::read_to_string(&env_path).unwrap();
+        assert!(content.contains("AOS_SERVER_PORT=9090"));
+        assert!(content.contains("OTHER_VAR=value"));
+        assert!(!content.contains("AOS_SERVER_PORT=8080"));
+    }
+
+    #[test]
+    fn test_get_schema_returns_valid_schema() {
+        let schema = get_schema();
+        // Verify schema has some known variables
+        assert!(schema.get_variable("AOS_SERVER_PORT").is_some());
+        assert!(schema.get_variable("AOS_LOG_LEVEL").is_some());
     }
 }

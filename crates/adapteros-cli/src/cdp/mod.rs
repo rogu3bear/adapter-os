@@ -9,13 +9,13 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-// pub mod assembler; // TODO: Create assembler.rs
+pub mod assembler;
 pub mod diff_analyzer;
 pub mod language_detector;
 pub mod metadata;
 pub mod store;
 
-// pub use assembler::CdpAssembler; // TODO: Uncomment when assembler.rs is created
+pub use assembler::CdpAssembler;
 pub use diff_analyzer::DiffAnalyzer;
 pub use language_detector::LanguageDetector;
 pub use metadata::CdpMetadata;

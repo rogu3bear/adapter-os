@@ -1,237 +1,665 @@
-//! Unit tests for training API handlers
+//! Integration tests for training handlers
 //!
-//! Tests placeholder handlers that return empty/unimplemented responses.
-//! These tests verify the contract of each handler while they await migration
-//! from adapteros-server-api.
+//! Tests for the exported handler functions including backend capability mapping,
+//! availability checks, fallback selection, and backend planning.
 
-use axum::{extract::Path, http::StatusCode, Json};
-use serde_json::json;
-use uuid::Uuid;
-
-use adapteros_server_api_training::handlers::{
-    cancel_training, get_checkpoints, get_training_job, list_training_jobs, start_training,
-    StartTrainingRequest, StartTrainingResponse, TrainingJobStatus,
+use adapteros_api_types::training::TrainingCoremlReadiness;
+use adapteros_lora_worker::backend_factory::BackendCapabilities;
+use adapteros_server_api_training::{
+    backend_available, build_coreml_readiness, canonical_trust_state, choose_auto_backend,
+    choose_fallback, coreml_unavailable_reason, map_capabilities, plan_backend_readiness,
 };
+use adapteros_types::training::{TrainingBackendKind, TrainingBackendPolicy};
 
-#[tokio::test]
-async fn test_list_training_jobs_returns_empty_vec() {
-    let Json(jobs) = list_training_jobs().await;
-    assert_eq!(jobs.len(), 0, "Expected empty list of training jobs");
+// ============================================================================
+// Test Helpers
+// ============================================================================
+
+/// Create BackendCapabilities with all fields set
+fn caps_all() -> BackendCapabilities {
+    BackendCapabilities {
+        has_coreml: true,
+        has_ane: true,
+        has_metal: true,
+        has_mlx: true,
+        has_mlx_bridge: true,
+        metal_device_name: Some("Apple M1 Pro".to_string()),
+        gpu_memory_bytes: Some(16 * 1024 * 1024 * 1024),
+    }
 }
 
-#[tokio::test]
-async fn test_get_training_job_returns_not_found() {
-    let job_id = Uuid::new_v4();
-    let result = get_training_job(Path(job_id)).await;
-    assert!(result.is_err(), "Expected Err result");
+/// Create BackendCapabilities with only CoreML/ANE
+fn caps_coreml_only() -> BackendCapabilities {
+    BackendCapabilities {
+        has_coreml: true,
+        has_ane: true,
+        has_metal: false,
+        has_mlx: false,
+        has_mlx_bridge: false,
+        metal_device_name: None,
+        gpu_memory_bytes: None,
+    }
+}
+
+/// Create BackendCapabilities with only MLX
+fn caps_mlx_only() -> BackendCapabilities {
+    BackendCapabilities {
+        has_coreml: false,
+        has_ane: false,
+        has_metal: true,
+        has_mlx: true,
+        has_mlx_bridge: false,
+        metal_device_name: Some("Apple M1".to_string()),
+        gpu_memory_bytes: Some(8 * 1024 * 1024 * 1024),
+    }
+}
+
+/// Create BackendCapabilities with only Metal
+fn caps_metal_only() -> BackendCapabilities {
+    BackendCapabilities {
+        has_coreml: false,
+        has_ane: false,
+        has_metal: true,
+        has_mlx: false,
+        has_mlx_bridge: false,
+        metal_device_name: Some("Apple M1".to_string()),
+        gpu_memory_bytes: Some(8 * 1024 * 1024 * 1024),
+    }
+}
+
+/// Create BackendCapabilities with nothing available
+fn caps_none() -> BackendCapabilities {
+    BackendCapabilities::default()
+}
+
+/// Create TrainingCoremlReadiness for testing
+fn coreml_ready(available: bool, ane_available: bool) -> TrainingCoremlReadiness {
+    TrainingCoremlReadiness {
+        available,
+        gpu_available: available,
+        ane_available,
+        compute_units_preference: None,
+        compute_units_effective: None,
+        gpu_used: false,
+        ane_used: false,
+        production_mode: false,
+    }
+}
+
+// ============================================================================
+// map_capabilities Tests
+// ============================================================================
+
+#[test]
+fn map_capabilities_transfers_all_fields() {
+    let caps = caps_all();
+    let api_caps = map_capabilities(&caps);
+
+    assert!(api_caps.has_coreml);
+    assert!(api_caps.has_ane);
+    assert!(api_caps.has_metal);
+    assert!(api_caps.has_mlx);
+    assert_eq!(api_caps.has_mlx_bridge, Some(true));
     assert_eq!(
-        result.unwrap_err(),
-        StatusCode::NOT_FOUND,
-        "Expected NOT_FOUND status code"
+        api_caps.metal_device_name,
+        Some("Apple M1 Pro".to_string())
+    );
+    assert_eq!(api_caps.gpu_memory_bytes, Some(16 * 1024 * 1024 * 1024));
+}
+
+#[test]
+fn map_capabilities_handles_none_values() {
+    let caps = caps_none();
+    let api_caps = map_capabilities(&caps);
+
+    assert!(!api_caps.has_coreml);
+    assert!(!api_caps.has_ane);
+    assert!(!api_caps.has_metal);
+    assert!(!api_caps.has_mlx);
+    assert_eq!(api_caps.has_mlx_bridge, Some(false));
+    assert!(api_caps.metal_device_name.is_none());
+    assert!(api_caps.gpu_memory_bytes.is_none());
+}
+
+#[test]
+fn map_capabilities_preserves_device_name() {
+    let mut caps = caps_metal_only();
+    caps.metal_device_name = Some("Apple M3 Max".to_string());
+
+    let api_caps = map_capabilities(&caps);
+    assert_eq!(api_caps.metal_device_name, Some("Apple M3 Max".to_string()));
+}
+
+// ============================================================================
+// backend_available Tests
+// ============================================================================
+
+#[test]
+fn backend_available_coreml_when_coreml_available() {
+    let caps = caps_coreml_only();
+    assert!(backend_available(
+        TrainingBackendKind::CoreML,
+        true,
+        &caps,
+        false
+    ));
+}
+
+#[test]
+fn backend_available_coreml_when_coreml_not_available() {
+    let caps = caps_mlx_only();
+    assert!(!backend_available(
+        TrainingBackendKind::CoreML,
+        false,
+        &caps,
+        false
+    ));
+}
+
+#[test]
+fn backend_available_mlx_when_mlx_available() {
+    let caps = caps_mlx_only();
+    assert!(backend_available(
+        TrainingBackendKind::Mlx,
+        false,
+        &caps,
+        false
+    ));
+}
+
+#[test]
+fn backend_available_mlx_when_mlx_not_available() {
+    let caps = caps_coreml_only();
+    assert!(!backend_available(
+        TrainingBackendKind::Mlx,
+        true,
+        &caps,
+        false
+    ));
+}
+
+#[test]
+fn backend_available_metal_when_metal_available() {
+    let caps = caps_metal_only();
+    assert!(backend_available(
+        TrainingBackendKind::Metal,
+        false,
+        &caps,
+        false
+    ));
+}
+
+#[test]
+fn backend_available_metal_when_metal_not_available() {
+    let caps = caps_none();
+    assert!(!backend_available(
+        TrainingBackendKind::Metal,
+        false,
+        &caps,
+        false
+    ));
+}
+
+#[test]
+fn backend_available_cpu_when_gpu_not_required() {
+    let caps = caps_none();
+    assert!(backend_available(
+        TrainingBackendKind::Cpu,
+        false,
+        &caps,
+        false
+    ));
+}
+
+#[test]
+fn backend_available_cpu_when_gpu_required() {
+    let caps = caps_none();
+    assert!(!backend_available(
+        TrainingBackendKind::Cpu,
+        false,
+        &caps,
+        true
+    ));
+}
+
+#[test]
+fn backend_available_auto_when_any_available() {
+    let caps = caps_mlx_only();
+    assert!(backend_available(
+        TrainingBackendKind::Auto,
+        false,
+        &caps,
+        false
+    ));
+}
+
+#[test]
+fn backend_available_auto_when_nothing_available_but_cpu_allowed() {
+    let caps = caps_none();
+    assert!(backend_available(
+        TrainingBackendKind::Auto,
+        false,
+        &caps,
+        false
+    ));
+}
+
+#[test]
+fn backend_available_auto_when_nothing_available_and_gpu_required() {
+    let caps = caps_none();
+    assert!(!backend_available(
+        TrainingBackendKind::Auto,
+        false,
+        &caps,
+        true
+    ));
+}
+
+// ============================================================================
+// choose_fallback Tests
+// ============================================================================
+
+#[test]
+fn choose_fallback_respects_preferred_order() {
+    let caps = caps_all();
+    let fallback = choose_fallback(Some(TrainingBackendKind::Metal), true, &caps, false);
+    // Metal is preferred and available
+    assert_eq!(fallback, Some(TrainingBackendKind::Metal));
+}
+
+#[test]
+fn choose_fallback_uses_mlx_first_when_no_preference() {
+    let caps = caps_mlx_only();
+    let fallback = choose_fallback(None, false, &caps, false);
+    assert_eq!(fallback, Some(TrainingBackendKind::Mlx));
+}
+
+#[test]
+fn choose_fallback_uses_metal_when_mlx_unavailable() {
+    let caps = caps_metal_only();
+    let fallback = choose_fallback(None, false, &caps, false);
+    assert_eq!(fallback, Some(TrainingBackendKind::Metal));
+}
+
+#[test]
+fn choose_fallback_uses_cpu_when_nothing_else_available() {
+    let caps = caps_none();
+    let fallback = choose_fallback(None, false, &caps, false);
+    assert_eq!(fallback, Some(TrainingBackendKind::Cpu));
+}
+
+#[test]
+fn choose_fallback_returns_none_when_gpu_required_and_nothing_available() {
+    let caps = caps_none();
+    let fallback = choose_fallback(None, false, &caps, true);
+    assert!(fallback.is_none());
+}
+
+#[test]
+fn choose_fallback_skips_unavailable_preferred() {
+    let caps = caps_metal_only();
+    // Prefer CoreML but it's not available
+    let fallback = choose_fallback(Some(TrainingBackendKind::CoreML), false, &caps, false);
+    // Should fall back to Metal (next available in order after preferred)
+    assert_eq!(fallback, Some(TrainingBackendKind::Metal));
+}
+
+// ============================================================================
+// choose_auto_backend Tests
+// ============================================================================
+
+#[test]
+fn choose_auto_backend_prefers_coreml_when_available() {
+    let caps = caps_all();
+    let backend = choose_auto_backend(true, &caps, false);
+    assert_eq!(backend, Some(TrainingBackendKind::CoreML));
+}
+
+#[test]
+fn choose_auto_backend_uses_mlx_when_coreml_unavailable() {
+    let caps = caps_mlx_only();
+    let backend = choose_auto_backend(false, &caps, false);
+    assert_eq!(backend, Some(TrainingBackendKind::Mlx));
+}
+
+#[test]
+fn choose_auto_backend_uses_metal_when_mlx_unavailable() {
+    let caps = caps_metal_only();
+    let backend = choose_auto_backend(false, &caps, false);
+    assert_eq!(backend, Some(TrainingBackendKind::Metal));
+}
+
+#[test]
+fn choose_auto_backend_uses_cpu_as_last_resort() {
+    let caps = caps_none();
+    let backend = choose_auto_backend(false, &caps, false);
+    assert_eq!(backend, Some(TrainingBackendKind::Cpu));
+}
+
+#[test]
+fn choose_auto_backend_returns_none_when_gpu_required_and_nothing_available() {
+    let caps = caps_none();
+    let backend = choose_auto_backend(false, &caps, true);
+    assert!(backend.is_none());
+}
+
+// ============================================================================
+// coreml_unavailable_reason Tests
+// ============================================================================
+
+#[test]
+fn coreml_unavailable_reason_ane_unavailable() {
+    let caps = BackendCapabilities {
+        has_coreml: true,
+        has_ane: false,
+        ..Default::default()
+    };
+    let coreml = coreml_ready(true, false);
+    let reason = coreml_unavailable_reason(&caps, &coreml);
+    assert_eq!(reason, "ane_unavailable");
+}
+
+#[test]
+fn coreml_unavailable_reason_coreml_unavailable() {
+    let caps = BackendCapabilities {
+        has_coreml: false,
+        has_ane: false,
+        ..Default::default()
+    };
+    let coreml = coreml_ready(false, false);
+    let reason = coreml_unavailable_reason(&caps, &coreml);
+    assert_eq!(reason, "coreml_unavailable");
+}
+
+// ============================================================================
+// plan_backend_readiness Tests
+// ============================================================================
+
+#[test]
+fn plan_backend_readiness_coreml_only_policy_ready() {
+    let caps = caps_all();
+    let coreml = coreml_ready(true, true);
+    let plan = plan_backend_readiness(
+        TrainingBackendKind::CoreML,
+        TrainingBackendPolicy::CoremlOnly,
+        None,
+        false,
+        &caps,
+        &coreml,
+    );
+
+    assert!(plan.ready);
+    assert_eq!(plan.resolved_backend, TrainingBackendKind::CoreML);
+    assert!(plan.fallback_backend.is_none());
+    assert!(plan.fallback_reason.is_none());
+}
+
+#[test]
+fn plan_backend_readiness_coreml_only_policy_not_ready() {
+    let caps = caps_mlx_only();
+    let coreml = coreml_ready(false, false);
+    let plan = plan_backend_readiness(
+        TrainingBackendKind::CoreML,
+        TrainingBackendPolicy::CoremlOnly,
+        None,
+        false,
+        &caps,
+        &coreml,
+    );
+
+    assert!(!plan.ready);
+    assert_eq!(
+        plan.fallback_reason.as_deref(),
+        Some("coreml_required_unavailable")
+    );
+    assert!(!plan.warnings.is_empty());
+}
+
+#[test]
+fn plan_backend_readiness_coreml_else_fallback_uses_coreml() {
+    let caps = caps_all();
+    let coreml = coreml_ready(true, true);
+    let plan = plan_backend_readiness(
+        TrainingBackendKind::CoreML,
+        TrainingBackendPolicy::CoremlElseFallback,
+        Some(TrainingBackendKind::Mlx),
+        false,
+        &caps,
+        &coreml,
+    );
+
+    assert!(plan.ready);
+    assert_eq!(plan.resolved_backend, TrainingBackendKind::CoreML);
+    assert!(plan.fallback_backend.is_none());
+}
+
+#[test]
+fn plan_backend_readiness_coreml_else_fallback_falls_back() {
+    let caps = caps_mlx_only();
+    let coreml = coreml_ready(false, false);
+    let plan = plan_backend_readiness(
+        TrainingBackendKind::CoreML,
+        TrainingBackendPolicy::CoremlElseFallback,
+        Some(TrainingBackendKind::Mlx),
+        false,
+        &caps,
+        &coreml,
+    );
+
+    assert!(plan.ready);
+    assert_eq!(plan.resolved_backend, TrainingBackendKind::Mlx);
+    assert_eq!(plan.fallback_backend, Some(TrainingBackendKind::Mlx));
+    assert_eq!(
+        plan.fallback_reason.as_deref(),
+        Some("coreml_policy_fallback")
     );
 }
 
-#[tokio::test]
-async fn test_start_training_returns_not_implemented() {
-    let request = StartTrainingRequest {
-        adapter_id: Some(Uuid::new_v4()),
-        config: json!({"learning_rate": 0.001, "epochs": 10}),
-    };
-    let result = start_training(Json(request)).await;
-    assert!(result.is_err(), "Expected Err result");
+#[test]
+fn plan_backend_readiness_coreml_else_fallback_no_backend() {
+    let caps = caps_none();
+    let coreml = coreml_ready(false, false);
+    let plan = plan_backend_readiness(
+        TrainingBackendKind::CoreML,
+        TrainingBackendPolicy::CoremlElseFallback,
+        None,
+        true, // require GPU, so CPU fallback not allowed
+        &caps,
+        &coreml,
+    );
+
+    assert!(!plan.ready);
     assert_eq!(
-        result.unwrap_err(),
-        StatusCode::NOT_IMPLEMENTED,
-        "Expected NOT_IMPLEMENTED status code"
+        plan.fallback_reason.as_deref(),
+        Some("coreml_policy_no_backend")
     );
 }
 
-#[tokio::test]
-async fn test_cancel_training_returns_not_implemented() {
-    let job_id = Uuid::new_v4();
-    let status = cancel_training(Path(job_id)).await;
+#[test]
+fn plan_backend_readiness_auto_policy_coreml_request_ready() {
+    let caps = caps_all();
+    let coreml = coreml_ready(true, true);
+    let plan = plan_backend_readiness(
+        TrainingBackendKind::CoreML,
+        TrainingBackendPolicy::Auto,
+        None,
+        false,
+        &caps,
+        &coreml,
+    );
+
+    assert!(plan.ready);
+    assert_eq!(plan.resolved_backend, TrainingBackendKind::CoreML);
+}
+
+#[test]
+fn plan_backend_readiness_auto_policy_coreml_request_falls_back() {
+    let caps = caps_mlx_only();
+    let coreml = coreml_ready(false, false);
+    let plan = plan_backend_readiness(
+        TrainingBackendKind::CoreML,
+        TrainingBackendPolicy::Auto,
+        Some(TrainingBackendKind::Mlx),
+        false,
+        &caps,
+        &coreml,
+    );
+
+    assert!(plan.ready);
+    assert_eq!(plan.resolved_backend, TrainingBackendKind::Mlx);
+    assert_eq!(plan.fallback_backend, Some(TrainingBackendKind::Mlx));
+    assert_eq!(plan.fallback_reason.as_deref(), Some("coreml_unavailable"));
+}
+
+#[test]
+fn plan_backend_readiness_auto_policy_auto_request() {
+    let caps = caps_all();
+    let coreml = coreml_ready(true, true);
+    let plan = plan_backend_readiness(
+        TrainingBackendKind::Auto,
+        TrainingBackendPolicy::Auto,
+        None,
+        false,
+        &caps,
+        &coreml,
+    );
+
+    assert!(plan.ready);
+    // Auto should select CoreML when available
+    assert_eq!(plan.resolved_backend, TrainingBackendKind::CoreML);
+}
+
+#[test]
+fn plan_backend_readiness_auto_policy_mlx_request() {
+    let caps = caps_mlx_only();
+    let coreml = coreml_ready(false, false);
+    let plan = plan_backend_readiness(
+        TrainingBackendKind::Mlx,
+        TrainingBackendPolicy::Auto,
+        None,
+        false,
+        &caps,
+        &coreml,
+    );
+
+    assert!(plan.ready);
+    assert_eq!(plan.resolved_backend, TrainingBackendKind::Mlx);
+}
+
+#[test]
+fn plan_backend_readiness_auto_policy_unavailable_request() {
+    let caps = caps_metal_only();
+    let coreml = coreml_ready(false, false);
+    let plan = plan_backend_readiness(
+        TrainingBackendKind::Mlx, // Request MLX but it's unavailable
+        TrainingBackendPolicy::Auto,
+        None,
+        false,
+        &caps,
+        &coreml,
+    );
+
+    assert!(!plan.ready);
     assert_eq!(
-        status,
-        StatusCode::NOT_IMPLEMENTED,
-        "Expected NOT_IMPLEMENTED status code"
+        plan.fallback_reason.as_deref(),
+        Some("requested_backend_unavailable")
     );
 }
 
-#[tokio::test]
-async fn test_get_checkpoints_returns_empty_vec() {
-    let job_id = Uuid::new_v4();
-    let Json(checkpoints) = get_checkpoints(Path(job_id)).await;
-    assert_eq!(checkpoints.len(), 0, "Expected empty list of checkpoints");
+#[test]
+fn plan_backend_readiness_resolved_backend_unavailable() {
+    // Edge case: resolved backend becomes unavailable after initial selection
+    let caps = caps_none();
+    let coreml = coreml_ready(false, false);
+    let plan = plan_backend_readiness(
+        TrainingBackendKind::Auto,
+        TrainingBackendPolicy::Auto,
+        None,
+        true, // require GPU
+        &caps,
+        &coreml,
+    );
+
+    assert!(!plan.ready);
+    assert_eq!(
+        plan.fallback_reason.as_deref(),
+        Some("no_backend_available")
+    );
 }
 
-// Serde serialization/deserialization tests
+// ============================================================================
+// build_coreml_readiness Tests
+// ============================================================================
 
 #[test]
-fn test_training_job_status_serialize() {
-    let status = TrainingJobStatus {
-        job_id: Uuid::new_v4(),
-        status: "running".to_string(),
-        progress: Some(0.42),
-        message: Some("Epoch 3/10".to_string()),
-    };
+fn build_coreml_readiness_from_capabilities() {
+    let caps = caps_all();
+    let readiness = build_coreml_readiness(&caps);
 
-    let json = serde_json::to_value(&status).expect("Failed to serialize");
-    assert_eq!(json["status"], "running");
-    assert_eq!(json["progress"], 0.42);
-    assert_eq!(json["message"], "Epoch 3/10");
-}
-
-#[test]
-fn test_training_job_status_deserialize() {
-    let job_id = Uuid::new_v4();
-    let json = json!({
-        "job_id": job_id,
-        "status": "completed",
-        "progress": 1.0,
-        "message": "Training finished"
-    });
-
-    let status: TrainingJobStatus = serde_json::from_value(json).expect("Failed to deserialize");
-    assert_eq!(status.job_id, job_id);
-    assert_eq!(status.status, "completed");
-    assert_eq!(status.progress, Some(1.0));
-    assert_eq!(status.message, Some("Training finished".to_string()));
+    assert!(readiness.available);
+    assert!(readiness.gpu_available);
+    assert!(readiness.ane_available);
 }
 
 #[test]
-fn test_training_job_status_optional_fields() {
-    let job_id = Uuid::new_v4();
-    let json = json!({
-        "job_id": job_id,
-        "status": "pending"
-    });
+fn build_coreml_readiness_from_minimal_capabilities() {
+    let caps = caps_none();
+    let readiness = build_coreml_readiness(&caps);
 
-    let status: TrainingJobStatus = serde_json::from_value(json).expect("Failed to deserialize");
-    assert_eq!(status.job_id, job_id);
-    assert_eq!(status.status, "pending");
-    assert_eq!(status.progress, None);
-    assert_eq!(status.message, None);
+    assert!(!readiness.available);
+    // GPU availability depends on capabilities
+    assert!(!readiness.ane_available);
+}
+
+// ============================================================================
+// canonical_trust_state Tests
+// ============================================================================
+
+#[test]
+fn canonical_trust_state_normalizes_allowed() {
+    assert_eq!(canonical_trust_state("allowed"), "allowed");
+    assert_eq!(canonical_trust_state("ALLOWED"), "allowed");
+    assert_eq!(canonical_trust_state("Allowed"), "allowed");
 }
 
 #[test]
-fn test_start_training_request_serialize() {
-    let adapter_id = Uuid::new_v4();
-    let request = StartTrainingRequest {
-        adapter_id: Some(adapter_id),
-        config: json!({"learning_rate": 0.001, "batch_size": 32}),
-    };
-
-    let json = serde_json::to_value(&request).expect("Failed to serialize");
-    assert_eq!(json["adapter_id"], adapter_id.to_string());
-    assert_eq!(json["config"]["learning_rate"], 0.001);
-    assert_eq!(json["config"]["batch_size"], 32);
+fn canonical_trust_state_normalizes_warn() {
+    assert_eq!(canonical_trust_state("warn"), "allowed_with_warning");
+    assert_eq!(canonical_trust_state("WARN"), "allowed_with_warning");
+    assert_eq!(
+        canonical_trust_state("allowed_with_warning"),
+        "allowed_with_warning"
+    );
 }
 
 #[test]
-fn test_start_training_request_deserialize() {
-    let adapter_id = Uuid::new_v4();
-    let json = json!({
-        "adapter_id": adapter_id,
-        "config": {"epochs": 5, "optimizer": "adam"}
-    });
-
-    let request: StartTrainingRequest =
-        serde_json::from_value(json).expect("Failed to deserialize");
-    assert_eq!(request.adapter_id, Some(adapter_id));
-    assert_eq!(request.config["epochs"], 5);
-    assert_eq!(request.config["optimizer"], "adam");
+fn canonical_trust_state_normalizes_blocked() {
+    assert_eq!(canonical_trust_state("blocked"), "blocked");
+    assert_eq!(canonical_trust_state("blocked_regressed"), "blocked");
+    assert_eq!(canonical_trust_state("BLOCKED_REGRESSED"), "blocked");
 }
 
 #[test]
-fn test_start_training_request_no_adapter_id() {
-    let json = json!({
-        "adapter_id": null,
-        "config": {"model": "base-7b"}
-    });
-
-    let request: StartTrainingRequest =
-        serde_json::from_value(json).expect("Failed to deserialize");
-    assert_eq!(request.adapter_id, None);
-    assert_eq!(request.config["model"], "base-7b");
+fn canonical_trust_state_normalizes_needs_approval() {
+    assert_eq!(canonical_trust_state("needs_approval"), "needs_approval");
+    assert_eq!(canonical_trust_state("NEEDS_APPROVAL"), "needs_approval");
 }
 
 #[test]
-fn test_start_training_response_serialize() {
-    let job_id = Uuid::new_v4();
-    let response = StartTrainingResponse {
-        job_id,
-        status: "queued".to_string(),
-    };
-
-    let json = serde_json::to_value(&response).expect("Failed to serialize");
-    assert_eq!(json["job_id"], job_id.to_string());
-    assert_eq!(json["status"], "queued");
+fn canonical_trust_state_normalizes_unknown() {
+    assert_eq!(canonical_trust_state("unknown"), "unknown");
+    assert_eq!(canonical_trust_state("Unknown"), "unknown");
 }
 
 #[test]
-fn test_start_training_response_deserialize() {
-    let job_id = Uuid::new_v4();
-    let json = json!({
-        "job_id": job_id,
-        "status": "starting"
-    });
-
-    let response: StartTrainingResponse =
-        serde_json::from_value(json).expect("Failed to deserialize");
-    assert_eq!(response.job_id, job_id);
-    assert_eq!(response.status, "starting");
+fn canonical_trust_state_rejects_invalid() {
+    assert_eq!(canonical_trust_state("invalid_state"), "unknown");
+    assert_eq!(canonical_trust_state("random"), "unknown");
+    assert_eq!(canonical_trust_state(""), "unknown");
 }
 
 #[test]
-fn test_training_job_status_round_trip() {
-    let original = TrainingJobStatus {
-        job_id: Uuid::new_v4(),
-        status: "failed".to_string(),
-        progress: Some(0.75),
-        message: Some("Out of memory".to_string()),
-    };
-
-    let json = serde_json::to_value(&original).expect("Failed to serialize");
-    let deserialized: TrainingJobStatus =
-        serde_json::from_value(json).expect("Failed to deserialize");
-
-    assert_eq!(deserialized.job_id, original.job_id);
-    assert_eq!(deserialized.status, original.status);
-    assert_eq!(deserialized.progress, original.progress);
-    assert_eq!(deserialized.message, original.message);
-}
-
-#[test]
-fn test_start_training_request_round_trip() {
-    let original = StartTrainingRequest {
-        adapter_id: Some(Uuid::new_v4()),
-        config: json!({
-            "learning_rate": 0.0003,
-            "epochs": 20,
-            "batch_size": 16,
-            "gradient_accumulation_steps": 4
-        }),
-    };
-
-    let json = serde_json::to_value(&original).expect("Failed to serialize");
-    let deserialized: StartTrainingRequest =
-        serde_json::from_value(json).expect("Failed to deserialize");
-
-    assert_eq!(deserialized.adapter_id, original.adapter_id);
-    assert_eq!(deserialized.config, original.config);
-}
-
-#[test]
-fn test_start_training_response_round_trip() {
-    let original = StartTrainingResponse {
-        job_id: Uuid::new_v4(),
-        status: "preparing".to_string(),
-    };
-
-    let json = serde_json::to_value(&original).expect("Failed to serialize");
-    let deserialized: StartTrainingResponse =
-        serde_json::from_value(json).expect("Failed to deserialize");
-
-    assert_eq!(deserialized.job_id, original.job_id);
-    assert_eq!(deserialized.status, original.status);
+fn canonical_trust_state_handles_whitespace() {
+    assert_eq!(canonical_trust_state("  allowed  "), "allowed");
+    assert_eq!(canonical_trust_state("\tblocked\n"), "blocked");
 }

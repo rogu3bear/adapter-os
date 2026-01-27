@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 
 async fn new_test_db() -> Db {
     std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
-    Db::new_in_memory().await.expect("db")
+    Db::new_in_memory().await.expect("Failed to create in-memory database for tenant trigger isolation test")
 }
 
 async fn setup_tenants(db: &Db) -> (String, String) {
@@ -20,14 +20,14 @@ async fn setup_tenants(db: &Db) -> (String, String) {
         .bind("Tenant A")
         .execute(db.pool())
         .await
-        .expect("create tenant A");
+        .expect("Failed to create tenant A for trigger isolation test");
 
     sqlx::query("INSERT OR IGNORE INTO tenants (id, name) VALUES (?, ?)")
         .bind(tenant_b)
         .bind("Tenant B")
         .execute(db.pool())
         .await
-        .expect("create tenant B");
+        .expect("Failed to create tenant B for trigger isolation test");
 
     (tenant_a.to_string(), tenant_b.to_string())
 }
@@ -44,7 +44,7 @@ async fn create_test_repo(db: &Db, tenant_id: &str, name: &str) -> String {
     .bind("main")
     .execute(db.pool())
     .await
-    .expect("create repo");
+    .expect("Failed to create test adapter repository for trigger isolation test");
 
     repo_id
 }

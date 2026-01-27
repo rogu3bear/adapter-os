@@ -467,7 +467,7 @@ mod tests {
 
     #[test]
     fn test_load_examples_with_encoder() {
-        let tmp = tempdir().expect("tempdir");
+        let tmp = tempdir().expect("failed to create temporary directory for encoder test");
         let manifest_path = tmp.path().join("manifest.json");
         let positive_path = tmp.path().join("positive.jsonl");
         let negative_path = tmp.path().join("negative.jsonl");
@@ -545,7 +545,7 @@ mod tests {
 
     #[test]
     fn test_manifest_entry_weight_is_applied() {
-        let tmp = tempdir().expect("tempdir");
+        let tmp = tempdir().expect("failed to create temporary directory for weighted manifest test");
         let manifest_path = tmp.path().join("manifest.json");
         let weighted_path = tmp.path().join("weighted.jsonl");
 

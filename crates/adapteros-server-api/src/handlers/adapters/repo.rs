@@ -2,7 +2,7 @@ use super::fs_utils::{ensure_repo_dirs, finalize_bundle_move};
 use super::paths::resolve_adapter_roots;
 use super::progress::emit_adapter_progress;
 use super::tenant::bind_adapter_to_tenant;
-use crate::error_helpers::internal_error;
+use crate::api_error::ApiError;
 use crate::state::AppState;
 use crate::types::ErrorResponse;
 use adapteros_core::{B3Hash, RepoAdapterPaths};
@@ -106,7 +106,7 @@ pub fn map_repo_error(err: AdapterRepoError) -> (StatusCode, Json<ErrorResponse>
         ),
         AdapterRepoError::Io(msg) => {
             error!(repo_error_kind = "io", error = %msg, "adapter repo error");
-            internal_error(msg)
+            ApiError::internal(msg).into()
         }
     }
 }

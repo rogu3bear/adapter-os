@@ -64,8 +64,8 @@ pub mod models;
 pub mod node;
 pub mod stack;
 pub mod status;
-// Legacy node commands - still used by app.rs standalone commands
-// TODO: Migrate app.rs Commands::NodeList/NodeVerify/NodeSync to use node.rs subcommands
+// Legacy node command modules are kept for backward compatibility and shared utilities.
+// The consolidated node.rs subcommand structure (NodeCommand) is used by app.rs.
 pub mod baseline;
 #[cfg(feature = "orchestrator")]
 pub mod behavior_export;

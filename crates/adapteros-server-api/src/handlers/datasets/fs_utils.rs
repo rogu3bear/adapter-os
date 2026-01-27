@@ -4,7 +4,7 @@ use tokio::fs;
 use axum::http::StatusCode;
 use axum::Json;
 
-use crate::error_helpers::internal_error;
+use crate::api_error::ApiError;
 use crate::types::ErrorResponse;
 
 pub async fn ensure_dirs<'a>(
@@ -12,11 +12,12 @@ pub async fn ensure_dirs<'a>(
 ) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
     for path in paths {
         if let Err(e) = fs::create_dir_all(path).await {
-            return Err(internal_error(format!(
+            return Err(ApiError::internal(format!(
                 "Failed to create directory {}: {}",
                 path.display(),
                 e
-            )));
+            ))
+            .into());
         }
     }
     Ok(())
