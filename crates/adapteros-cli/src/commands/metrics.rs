@@ -913,27 +913,34 @@ async fn show_violations(mode: &crate::output::OutputMode, unresolved: bool) -> 
 }
 
 async fn list_config(mode: &crate::output::OutputMode) -> Result<()> {
-    // Show default configuration
-    let default_config = MetricsConfig::default();
+    let mut config = MetricsConfig::default();
+
+    if let Ok(db) = connect_db().await {
+        for key in metrics_config_keys() {
+            if let Some(value) = db.get_config(key).await? {
+                apply_config_value(&mut config, key, &value)?;
+            }
+        }
+    }
 
     if mode.is_json() {
         let response = serde_json::json!({
-            "collection_interval_secs": default_config.collection_interval_secs,
-            "sampling_rate": default_config.sampling_rate,
-            "enable_gpu_metrics": default_config.enable_gpu_metrics,
-            "enable_disk_metrics": default_config.enable_disk_metrics,
-            "enable_network_metrics": default_config.enable_network_metrics,
-            "retention_days": default_config.retention_days,
+            "collection_interval_secs": config.collection_interval_secs,
+            "sampling_rate": config.sampling_rate,
+            "enable_gpu_metrics": config.enable_gpu_metrics,
+            "enable_disk_metrics": config.enable_disk_metrics,
+            "enable_network_metrics": config.enable_network_metrics,
+            "retention_days": config.retention_days,
             "thresholds": {
-                "cpu_warning": default_config.thresholds.cpu_warning,
-                "cpu_critical": default_config.thresholds.cpu_critical,
-                "memory_warning": default_config.thresholds.memory_warning,
-                "memory_critical": default_config.thresholds.memory_critical,
-                "disk_warning": default_config.thresholds.disk_warning,
-                "disk_critical": default_config.thresholds.disk_critical,
-                "gpu_warning": default_config.thresholds.gpu_warning,
-                "gpu_critical": default_config.thresholds.gpu_critical,
-                "min_memory_headroom": default_config.thresholds.min_memory_headroom
+                "cpu_warning": config.thresholds.cpu_warning,
+                "cpu_critical": config.thresholds.cpu_critical,
+                "memory_warning": config.thresholds.memory_warning,
+                "memory_critical": config.thresholds.memory_critical,
+                "disk_warning": config.thresholds.disk_warning,
+                "disk_critical": config.thresholds.disk_critical,
+                "gpu_warning": config.thresholds.gpu_warning,
+                "gpu_critical": config.thresholds.gpu_critical,
+                "min_memory_headroom": config.thresholds.min_memory_headroom
             }
         });
         println!("{}", serde_json::to_string_pretty(&response)?);
@@ -943,32 +950,32 @@ async fn list_config(mode: &crate::output::OutputMode) -> Result<()> {
 
         table.add_row(vec![
             Cell::new("collection_interval_secs"),
-            Cell::new(format!("{}", default_config.collection_interval_secs)),
+            Cell::new(format!("{}", config.collection_interval_secs)),
         ]);
 
         table.add_row(vec![
             Cell::new("sampling_rate"),
-            Cell::new(format!("{:.3}", default_config.sampling_rate)),
+            Cell::new(format!("{:.3}", config.sampling_rate)),
         ]);
 
         table.add_row(vec![
             Cell::new("enable_gpu_metrics"),
-            Cell::new(format!("{}", default_config.enable_gpu_metrics)),
+            Cell::new(format!("{}", config.enable_gpu_metrics)),
         ]);
 
         table.add_row(vec![
             Cell::new("enable_disk_metrics"),
-            Cell::new(format!("{}", default_config.enable_disk_metrics)),
+            Cell::new(format!("{}", config.enable_disk_metrics)),
         ]);
 
         table.add_row(vec![
             Cell::new("enable_network_metrics"),
-            Cell::new(format!("{}", default_config.enable_network_metrics)),
+            Cell::new(format!("{}", config.enable_network_metrics)),
         ]);
 
         table.add_row(vec![
             Cell::new("retention_days"),
-            Cell::new(format!("{}", default_config.retention_days)),
+            Cell::new(format!("{}", config.retention_days)),
         ]);
 
         println!("{}", table);
@@ -978,20 +985,100 @@ async fn list_config(mode: &crate::output::OutputMode) -> Result<()> {
 }
 
 async fn set_config(mode: &crate::output::OutputMode, key: &str, value: &str) -> Result<()> {
-    // Config setting would require database connection
-    // For now, show a placeholder message
+    let db = connect_db().await?;
+    let mut config = MetricsConfig::default();
+    apply_config_value(&mut config, key, value)?;
+    db.set_config(key, &value.to_string()).await?;
+
     if mode.is_json() {
         let response = serde_json::json!({
-            "message": "Config setting requires database connection",
+            "status": "ok",
             "key": key,
             "value": value
         });
         println!("{}", serde_json::to_string_pretty(&response)?);
     } else {
-        println!("Config setting requires database connection");
+        println!("Config updated");
         println!("Key: {}", key);
         println!("Value: {}", value);
     }
 
+    Ok(())
+}
+
+fn metrics_config_keys() -> Vec<&'static str> {
+    vec![
+        "collection_interval_secs",
+        "sampling_rate",
+        "enable_gpu_metrics",
+        "enable_disk_metrics",
+        "enable_network_metrics",
+        "retention_days",
+        "thresholds.cpu_warning",
+        "thresholds.cpu_critical",
+        "thresholds.memory_warning",
+        "thresholds.memory_critical",
+        "thresholds.disk_warning",
+        "thresholds.disk_critical",
+        "thresholds.gpu_warning",
+        "thresholds.gpu_critical",
+        "thresholds.min_memory_headroom",
+    ]
+}
+
+fn apply_config_value(config: &mut MetricsConfig, key: &str, value: &str) -> Result<()> {
+    match key {
+        "collection_interval_secs" => {
+            config.collection_interval_secs = value.parse()?;
+        }
+        "sampling_rate" => {
+            config.sampling_rate = value.parse()?;
+        }
+        "enable_gpu_metrics" => {
+            config.enable_gpu_metrics = value.parse()?;
+        }
+        "enable_disk_metrics" => {
+            config.enable_disk_metrics = value.parse()?;
+        }
+        "enable_network_metrics" => {
+            config.enable_network_metrics = value.parse()?;
+        }
+        "retention_days" => {
+            config.retention_days = value.parse()?;
+        }
+        "thresholds.cpu_warning" => {
+            config.thresholds.cpu_warning = value.parse()?;
+        }
+        "thresholds.cpu_critical" => {
+            config.thresholds.cpu_critical = value.parse()?;
+        }
+        "thresholds.memory_warning" => {
+            config.thresholds.memory_warning = value.parse()?;
+        }
+        "thresholds.memory_critical" => {
+            config.thresholds.memory_critical = value.parse()?;
+        }
+        "thresholds.disk_warning" => {
+            config.thresholds.disk_warning = value.parse()?;
+        }
+        "thresholds.disk_critical" => {
+            config.thresholds.disk_critical = value.parse()?;
+        }
+        "thresholds.gpu_warning" => {
+            config.thresholds.gpu_warning = value.parse()?;
+        }
+        "thresholds.gpu_critical" => {
+            config.thresholds.gpu_critical = value.parse()?;
+        }
+        "thresholds.min_memory_headroom" => {
+            config.thresholds.min_memory_headroom = value.parse()?;
+        }
+        _ => {
+            return Err(anyhow::anyhow!(
+                "Unknown metrics config key '{}'",
+                key
+            ));
+        }
+    }
     Ok(())
 }

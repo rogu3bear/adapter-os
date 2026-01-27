@@ -5,7 +5,6 @@
 //! samples, fine-tunes a Micro-LoRA adapter, packages it into a `.aos`
 //! artifact, and optionally registers it in the adapter registry.
 
-use adapteros_retrieval::codegraph::{CodeGraph, SymbolKind, SymbolNode, Visibility};
 use adapteros_core::paths::AdapterPaths;
 use adapteros_core::seed::{
     derive_seed_u64_from_inputs, is_strict_determinism_mode, maybe_stable_sort,
@@ -14,8 +13,10 @@ use adapteros_core::seed::{
 use adapteros_core::tenant::TenantId;
 use adapteros_core::validation::validate_codebase_adapter_id;
 use adapteros_core::{AosError, B3Hash, Result};
+use adapteros_retrieval::codegraph::{CodeGraph, SymbolKind, SymbolNode, Visibility};
 
 // Re-export normalization functions from shared crate for backwards compatibility
+pub use adapteros_core::{normalize_path_segments, normalize_repo_id, normalize_repo_slug};
 use adapteros_db::training_datasets::CreateDatasetHashInputsParams;
 use adapteros_db::training_datasets::{CodebaseDatasetRowInput, SampleRole};
 use adapteros_db::{AdapterRegistrationBuilder, Db};
@@ -23,11 +24,8 @@ use adapteros_lora_worker::tokenizer::QwenTokenizer;
 use adapteros_lora_worker::training::{
     AdapterPackager, LoRAQuantizer, MicroLoRATrainer, TrainingConfig, TrainingExample,
 };
-pub use adapteros_core::normalization::{
-    normalize_path_segments, normalize_repo_id, normalize_repo_slug,
-};
-use adapteros_storage::platform::common::PlatformUtils;
 use adapteros_storage::byte_store::{DatasetCategory, FsByteStorage};
+use adapteros_storage::platform::common::PlatformUtils;
 use adapteros_types::training::{provenance_from_map, weight_from_metadata, ExampleMetadataV1};
 use blake3::Hasher;
 use chrono::{TimeZone, Utc};
@@ -2927,7 +2925,7 @@ fn clone_remote_repo(url: &str, repo_slug_override: Option<String>) -> Result<Pr
     )
 }
 
-// normalize_repo_slug and normalize_repo_id are now re-exported from adapteros_normalization crate
+// normalize_repo_slug and normalize_repo_id are re-exported from adapteros_core
 
 fn normalize_codebase_adapter_id(adapter_id: &str) -> Result<String> {
     let rest = adapter_id.strip_prefix("code.").ok_or_else(|| {
@@ -2951,7 +2949,7 @@ fn normalize_codebase_adapter_id(adapter_id: &str) -> Result<String> {
     ))
 }
 
-// normalize_path_segments is now re-exported from adapteros_normalization crate
+// normalize_path_segments is re-exported from adapteros_core
 
 #[cfg(test)]
 mod tests {

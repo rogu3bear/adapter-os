@@ -552,6 +552,30 @@ impl FederationDaemon {
         // Run a single verification sweep
         self.verify_all_hosts().await
     }
+
+    /// Release quarantine status.
+    ///
+    /// This clears the quarantine flag and violation summary. Should be called
+    /// after policy violations have been resolved.
+    pub fn release_quarantine(&self) {
+        info!("Releasing quarantine status via federation daemon");
+        self.quarantine.write().release_quarantine();
+    }
+
+    /// Release quarantine for a specific policy pack.
+    ///
+    /// Returns true if the quarantine was released, false if the current
+    /// quarantine was not related to the specified pack.
+    pub fn release_quarantine_for_pack(&self, pack_id: &str) -> bool {
+        info!(pack_id = %pack_id, "Attempting to release quarantine for specific pack");
+        let released = self.quarantine.write().release_quarantine_for_pack(pack_id);
+        if released {
+            info!(pack_id = %pack_id, "Quarantine released for pack");
+        } else {
+            warn!(pack_id = %pack_id, "Quarantine not released - pack not matched or not quarantined");
+        }
+        released
+    }
 }
 
 #[cfg(test)]

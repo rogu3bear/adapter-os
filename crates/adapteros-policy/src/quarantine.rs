@@ -103,6 +103,32 @@ impl QuarantineManager {
         &self.violation_summary
     }
 
+    /// Release quarantine (clear quarantine status).
+    ///
+    /// This sets `quarantined` to false and clears the violation summary.
+    /// Should be called after violations have been resolved.
+    pub fn release_quarantine(&mut self) {
+        self.quarantined = false;
+        self.violation_summary = String::new();
+    }
+
+    /// Release quarantine if the violation matches a specific policy pack.
+    ///
+    /// Returns true if quarantine was released, false if the violation was for a different pack.
+    pub fn release_quarantine_for_pack(&mut self, pack_id: &str) -> bool {
+        if !self.quarantined {
+            return false;
+        }
+
+        // Check if the violation summary mentions this pack
+        if self.violation_summary.contains(pack_id) {
+            self.release_quarantine();
+            true
+        } else {
+            false
+        }
+    }
+
     /// Check if an operation is allowed
     ///
     /// Returns `Ok(())` if allowed, `Err(AosError::Quarantined)` if denied.

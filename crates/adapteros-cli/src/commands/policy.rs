@@ -676,17 +676,68 @@ fn quarantine_clear(pack_id: &str, cpid: Option<&str>, force: bool) -> Result<()
         return Ok(());
     }
 
-    println!("\n⚠️  Quarantine clearing requires runtime policy manager connection.");
-    println!("\nOperation: Clear violations for policy pack: {}", pack_id);
-    println!("Status: This command requires integration with a running policy manager.");
-    println!("\nIn production, this would:");
-    println!("  1. Connect to PolicyHashWatcher");
-    println!("  2. Call watcher.clear_violations(pack_id)");
-    println!("  3. Update QuarantineManager state");
-    println!("  4. Log operator action to telemetry");
-    println!("\nNote: Clear violations only after verifying policy integrity.");
+    let server_url =
+        std::env::var("AOS_SERVER_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
+    let operator = std::env::var("AOS_OPERATOR")
+        .or_else(|_| std::env::var("USER"))
+        .unwrap_or_else(|_| "unknown".to_string());
 
-    Ok(())
+    let runtime = tokio::runtime::Runtime::new()
+        .map_err(|e| AosError::Worker(format!("Failed to create tokio runtime: {}", e)))?;
+
+    runtime.block_on(async {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .map_err(|e| AosError::Internal(format!("Failed to create HTTP client: {}", e)))?;
+
+        let url = format!(
+            "{}/v1/policy/quarantine/clear",
+            server_url.trim_end_matches('/')
+        );
+
+        let request_body = serde_json::json!({
+            "pack_id": pack_id,
+            "cpid": cpid,
+            "rollback": false,
+            "operator": operator
+        });
+
+        let resp = client
+            .post(&url)
+            .json(&request_body)
+            .send()
+            .await
+            .map_err(|e| AosError::Internal(format!("Failed to send clear request: {}", e)))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            return Err(AosError::Internal(format!(
+                "Clear quarantine failed with status {}: {}",
+                status, body
+            )));
+        }
+
+        let result: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| AosError::Internal(format!("Failed to parse response: {}", e)))?;
+
+        let violations_cleared = result["violations_cleared"].as_u64().unwrap_or(0);
+        let message = result["message"].as_str().unwrap_or("Quarantine cleared");
+
+        println!("\n✓ {}", message);
+        println!(
+            "  Cleared {} violation(s) for policy pack '{}'",
+            violations_cleared, pack_id
+        );
+
+        Ok(())
+    })
 }
 
 fn quarantine_rollback(cpid: Option<&str>, force: bool) -> Result<()> {
@@ -708,22 +759,73 @@ fn quarantine_rollback(cpid: Option<&str>, force: bool) -> Result<()> {
         return Ok(());
     }
 
-    // Note: This is a placeholder implementation
-    // In production, this would:
-    // 1. Connect to database
-    // 2. Load all baseline policy pack configurations
-    // 3. Restore configurations
-    // 4. Clear quarantine
-    // 5. Log rollback action to telemetry
-    println!("\n⚠️  Rollback requires database and policy manager connection.");
-    println!("This command will:");
-    println!("  1. Query policy_hashes table for baseline configurations");
-    println!("  2. Restore policy pack configurations");
-    println!("  3. Clear all violations");
-    println!("  4. Log rollback action");
-    println!("\nTo implement: Integrate with PolicyPackManager and PolicyHashWatcher");
+    let server_url =
+        std::env::var("AOS_SERVER_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
+    let operator = std::env::var("AOS_OPERATOR")
+        .or_else(|_| std::env::var("USER"))
+        .unwrap_or_else(|_| "unknown".to_string());
 
-    Ok(())
+    let runtime = tokio::runtime::Runtime::new()
+        .map_err(|e| AosError::Worker(format!("Failed to create tokio runtime: {}", e)))?;
+
+    runtime.block_on(async {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .map_err(|e| AosError::Internal(format!("Failed to create HTTP client: {}", e)))?;
+
+        let url = format!(
+            "{}/v1/policy/quarantine/rollback",
+            server_url.trim_end_matches('/')
+        );
+
+        let request_body = serde_json::json!({
+            "cpid": cpid,
+            "operator": operator
+        });
+
+        let resp = client
+            .post(&url)
+            .json(&request_body)
+            .send()
+            .await
+            .map_err(|e| AosError::Internal(format!("Failed to send rollback request: {}", e)))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            return Err(AosError::Internal(format!(
+                "Rollback failed with status {}: {}",
+                status, body
+            )));
+        }
+
+        let result: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| AosError::Internal(format!("Failed to parse response: {}", e)))?;
+
+        let violations_cleared = result["violations_cleared"].as_u64().unwrap_or(0);
+        let still_quarantined = result["still_quarantined"].as_bool().unwrap_or(false);
+        let message = result["message"]
+            .as_str()
+            .unwrap_or("Policy configuration rolled back");
+
+        println!("\n✓ {}", message);
+        println!("  Violations cleared: {}", violations_cleared);
+
+        if still_quarantined {
+            println!("\n⚠️  System is still quarantined after rollback.");
+            println!("  New violations may have been detected after cache reload.");
+        } else {
+            println!("\n✓ System is no longer quarantined.");
+        }
+
+        Ok(())
+    })
 }
 
 #[cfg(test)]
