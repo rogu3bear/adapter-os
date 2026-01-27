@@ -14,7 +14,6 @@
 
 use adapteros_core::B3Hash;
 use adapteros_crypto::signature::Keypair;
-use adapteros_storage::platform::common::PlatformUtils;
 use anyhow::Result;
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
@@ -24,9 +23,7 @@ use std::path::PathBuf;
 use tempfile::TempDir;
 
 fn new_test_tempdir() -> TempDir {
-    let root = PlatformUtils::temp_dir();
-    std::fs::create_dir_all(&root).expect("create var/tmp");
-    TempDir::new_in(&root).expect("create temp dir")
+    TempDir::with_prefix("aos-test-").expect("create temp dir")
 }
 
 // Re-export types from verify_receipt module for testing
@@ -498,7 +495,7 @@ fn test_missing_file_error() {
 
 #[test]
 fn test_directory_with_default_bundle_filename() {
-    let temp_dir = TempDir::new_in(".").expect("create temp dir");
+    let temp_dir = TempDir::with_prefix("aos-test-").expect("create temp dir");
     let bundle_path = create_valid_bundle(&temp_dir.path().to_path_buf());
 
     // The bundle was created at temp_dir/receipt_bundle.json

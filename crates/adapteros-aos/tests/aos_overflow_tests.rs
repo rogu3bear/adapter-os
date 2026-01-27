@@ -17,13 +17,10 @@ use adapteros_aos::writer::{
 use serde::Serialize;
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
 use tempfile::NamedTempFile;
 
-fn new_test_tempdir() -> PathBuf {
-    let root = PathBuf::from("var/tmp");
-    fs::create_dir_all(&root).expect("create var/tmp");
-    root
+fn new_test_tempfile() -> NamedTempFile {
+    NamedTempFile::new().expect("create temp file")
 }
 
 /// Create a minimal valid header with customizable offsets
@@ -48,8 +45,7 @@ fn create_custom_header(
 /// If manifest_offset + manifest_size > u64::MAX, parsing should fail safely.
 #[test]
 fn test_manifest_offset_checked_add_overflow() {
-    let temp_root = new_test_tempdir();
-    let temp_file = NamedTempFile::new_in(&temp_root).unwrap();
+    let temp_file = new_test_tempfile();
 
     // Create header with manifest offset near u64::MAX
     let header = create_custom_header(
@@ -85,8 +81,7 @@ fn test_manifest_offset_checked_add_overflow() {
 /// If index_offset + index_size > u64::MAX, parsing should fail safely.
 #[test]
 fn test_index_offset_checked_add_overflow() {
-    let temp_root = new_test_tempdir();
-    let temp_file = NamedTempFile::new_in(&temp_root).unwrap();
+    let temp_file = new_test_tempfile();
 
     // Create header with index offset near u64::MAX
     let header = create_custom_header(
@@ -113,8 +108,7 @@ fn test_index_offset_checked_add_overflow() {
 /// Malformed index entries with huge offsets should not cause panics.
 #[test]
 fn test_segment_offset_overflow_protection() {
-    let temp_root = new_test_tempdir();
-    let temp_file = NamedTempFile::new_in(&temp_root).unwrap();
+    let temp_file = new_test_tempfile();
 
     // Create a valid header and one malformed index entry
     let index_offset = HEADER_SIZE as u64;
@@ -193,8 +187,7 @@ fn test_total_archive_size_overflow_protection() {
 /// index_size must be a multiple of INDEX_ENTRY_SIZE (80 bytes).
 #[test]
 fn test_index_size_not_aligned_rejected() {
-    let temp_root = new_test_tempdir();
-    let temp_file = NamedTempFile::new_in(&temp_root).unwrap();
+    let temp_file = new_test_tempfile();
 
     // Create header with misaligned index size
     let header = create_custom_header(

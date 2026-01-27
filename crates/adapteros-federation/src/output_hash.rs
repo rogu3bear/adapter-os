@@ -354,22 +354,17 @@ mod tests {
     use super::*;
     use crate::peer::PeerRegistry;
     use adapteros_crypto::Keypair;
-    use std::path::PathBuf;
     use tempfile::TempDir;
 
-    fn new_test_tempdir() -> TempDir {
-        let root = PathBuf::from("var").join("tmp");
-        std::fs::create_dir_all(&root).expect("create var/tmp");
-        TempDir::new_in(&root).expect("create temp dir")
-    }
-
-    async fn setup_test_db() -> Result<Db> {
-        let temp_dir = new_test_tempdir();
+    // Helper to setup a test database with proper cleanup
+    // Returns (Db, TempDir) - caller must hold TempDir to keep DB files alive
+    async fn setup_test_db() -> Result<(Db, TempDir)> {
+        let temp_dir = TempDir::with_prefix("aos-output-hash-test-")
+            .expect("create temp dir");
         let db_path = temp_dir.path().join("test.db");
         let db = Db::connect(db_path.to_str().unwrap()).await?;
         db.migrate().await?;
-        std::mem::forget(temp_dir);
-        Ok(db)
+        Ok((db, temp_dir))
     }
 
     async fn register_peer(db: &Arc<Db>, host_id: &str) -> Result<()> {
@@ -387,7 +382,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_record_and_get_output_hash() -> Result<()> {
-        let db = Arc::new(setup_test_db().await?);
+        let (db, _temp) = setup_test_db().await?;
+        let db = Arc::new(db);
         register_peer(&db, "test-host").await?;
         let manager = OutputHashManager::new(db);
 
@@ -416,7 +412,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_compare_consistent_outputs() -> Result<()> {
-        let db = Arc::new(setup_test_db().await?);
+        let (db, _temp) = setup_test_db().await?;
+        let db = Arc::new(db);
         register_peer(&db, "host1").await?;
         register_peer(&db, "host2").await?;
         let manager = OutputHashManager::new(db);
@@ -455,7 +452,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_compare_divergent_outputs() -> Result<()> {
-        let db = Arc::new(setup_test_db().await?);
+        let (db, _temp) = setup_test_db().await?;
+        let db = Arc::new(db);
         register_peer(&db, "host1").await?;
         register_peer(&db, "host2").await?;
         let manager = OutputHashManager::new(db);

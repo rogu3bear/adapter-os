@@ -66,7 +66,16 @@ pub async fn list_embedding_benchmarks(
         .db
         .count_embedding_benchmarks(&claims.tenant_id, query.model_name.as_deref())
         .await
-        .unwrap_or(0) as usize;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to count benchmarks")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })? as usize;
 
     // Convert to API types
     let benchmarks: Vec<EmbeddingBenchmarkReport> = rows

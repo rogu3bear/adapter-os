@@ -775,7 +775,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_statistical_calculations() {
-        let temp_dir = TempDir::new_in(".").unwrap();
+        let temp_dir = TempDir::with_prefix("aos-test-").unwrap();
         let telemetry_writer =
             Arc::new(TelemetryWriter::new(temp_dir.path(), 1000, 1024 * 1024).unwrap());
         let service = BaselineService::new(
@@ -803,7 +803,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_percentile_calculation() {
-        let temp_dir = TempDir::new_in(".").unwrap();
+        let temp_dir = TempDir::with_prefix("aos-test-").unwrap();
         let telemetry_writer =
             Arc::new(TelemetryWriter::new(temp_dir.path(), 1000, 1024 * 1024).unwrap());
         let service = BaselineService::new(
@@ -827,7 +827,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mode_calculation() {
-        let temp_dir = TempDir::new_in(".").unwrap();
+        let temp_dir = TempDir::with_prefix("aos-test-").unwrap();
         let telemetry_writer =
             Arc::new(TelemetryWriter::new(temp_dir.path(), 1000, 1024 * 1024).unwrap());
         let service = BaselineService::new(
@@ -848,7 +848,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_skewness_and_kurtosis() {
-        let temp_dir = TempDir::new_in(".").unwrap();
+        let temp_dir = TempDir::with_prefix("aos-test-").unwrap();
         let telemetry_writer =
             Arc::new(TelemetryWriter::new(temp_dir.path(), 1000, 1024 * 1024).unwrap());
         let service = BaselineService::new(

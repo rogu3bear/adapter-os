@@ -773,9 +773,17 @@ pub struct ApiDoc;
 pub fn build(state: AppState) -> Router {
     // Liveness/readiness endpoints must be cheap and never depend on DB/policy middleware.
     // These routes intentionally bypass the global middleware stack applied to the main API.
+    // Note: When exclude-spoke-routes is enabled, /healthz and /readyz come from
+    // adapteros-server-api-health spoke crate instead.
+    #[cfg(not(feature = "exclude-spoke-routes"))]
     let health_routes = Router::new()
         .route("/healthz", get(handlers::health))
         .route("/readyz", get(handlers::ready))
+        .route("/version", get(handlers::infrastructure::get_version))
+        .with_state(state.clone());
+
+    #[cfg(feature = "exclude-spoke-routes")]
+    let health_routes = Router::new()
         .route("/version", get(handlers::infrastructure::get_version))
         .with_state(state.clone());
 
@@ -812,11 +820,6 @@ pub fn build(state: AppState) -> Router {
             post(handlers::auth_enhanced::register_handler),
         )
         .route("/v1/meta", get(handlers::meta))
-        .route("/v1/status", get(handlers::get_status))
-        .route(
-            "/v1/invariants",
-            get(handlers::health::get_invariant_status),
-        )
         .route("/v1/search", get(handlers::search::global_search))
         // Client error reporting (anonymous, for pre-auth errors)
         .route(
@@ -827,6 +830,14 @@ pub fn build(state: AppState) -> Router {
             "/v1/version",
             get(|| async { axum::Json(versioning::get_version_info()) }),
         );
+
+    // Status and invariants routes - excluded when spoke crates provide them
+    #[cfg(not(feature = "exclude-spoke-routes"))]
+    {
+        public_routes = public_routes
+            .route("/v1/status", get(handlers::get_status))
+            .route("/v1/invariants", get(handlers::health::get_invariant_status));
+    }
 
     if cfg!(debug_assertions) {
         public_routes =
@@ -1913,9 +1924,7 @@ pub fn build(state: AppState) -> Router {
             "/v1/policy/quarantine/rollback",
             post(handlers::quarantine::rollback_policy_config),
         )
-        // Audit endpoints
-        .route("/v1/audit/federation", get(handlers::get_federation_audit))
-        .route("/v1/audit/compliance", get(handlers::get_compliance_audit))
+        // Audit endpoints (policy-related routes stay in hub)
         .route("/v1/audit/logs", get(handlers::admin::query_audit_logs))
         .route(
             "/v1/audit/policy-decisions",
@@ -1925,14 +1934,6 @@ pub fn build(state: AppState) -> Router {
             "/v1/audit/policy-decisions/verify-chain",
             get(handlers::verify_policy_audit_chain),
         )
-        // Audit chain endpoints (UI-compatible format)
-        .route("/v1/audit/chain", get(handlers::audit::get_audit_chain))
-        .route(
-            "/v1/audit/chain/verify",
-            get(handlers::audit::verify_audit_chain),
-        )
-        // Agent D contract endpoints
-        .route("/v1/audits", get(handlers::list_audits_extended))
         .route("/v1/promotions/{id}", get(handlers::get_promotion))
         // SSE stream endpoints
         .route(
@@ -2172,6 +2173,34 @@ pub fn build(state: AppState) -> Router {
                 )), // Automatic audit logging (needs RequestContext)
         );
 
+    // Spoke audit routes - conditionally included when NOT using spoke crates
+    // These routes require the same auth middleware as protected_routes
+    #[cfg(not(feature = "exclude-spoke-routes"))]
+    let spoke_audit_routes = Router::new()
+        .route("/v1/audit/federation", get(handlers::get_federation_audit))
+        .route("/v1/audit/compliance", get(handlers::get_compliance_audit))
+        .route("/v1/audit/chain", get(handlers::audit::get_audit_chain))
+        .route("/v1/audit/chain/verify", get(handlers::audit::verify_audit_chain))
+        .route("/v1/audits", get(handlers::list_audits_extended))
+        .layer(
+            ServiceBuilder::new()
+                .layer(middleware::from_fn_with_state(
+                    state.clone(),
+                    auth_middleware,
+                ))
+                .layer(middleware::from_fn(tenant_route_guard_middleware))
+                .layer(middleware::from_fn(csrf_middleware))
+                .layer(middleware::from_fn(context_middleware))
+                .layer(middleware::from_fn_with_state(
+                    state.clone(),
+                    policy_enforcement_middleware,
+                ))
+                .layer(middleware::from_fn_with_state(
+                    state.clone(),
+                    audit_middleware,
+                )),
+        );
+
     // Testkit routes (E2E testing endpoints)
     let mut app = Router::new()
         .merge(public_routes)
@@ -2179,6 +2208,11 @@ pub fn build(state: AppState) -> Router {
         .merge(optional_auth_routes)
         .merge(internal_routes) // Worker-to-CP internal routes (no user auth)
         .merge(protected_routes);
+
+    #[cfg(not(feature = "exclude-spoke-routes"))]
+    {
+        app = app.merge(spoke_audit_routes);
+    }
 
     // Add testkit routes if E2E_MODE is enabled
     if handlers::testkit::e2e_enabled() {

@@ -112,11 +112,19 @@ pub async fn finalize_boot(
     // Build router with UI
     let api_routes = routes::build(state.clone());
 
+    // Build spoke routes (audit and health handlers from separate crates)
+    // These provide the same endpoints that were excluded from api_routes
+    // via the exclude-spoke-routes feature
+    let audit_spoke_routes = adapteros_server_api_audit::audit_routes();
+    let health_spoke_routes = adapteros_server_api_health::health_routes();
+
     // API routes are merged directly at root level (routes already have /v1/ prefix)
-    // The api_routes already include /healthz and /readyz endpoints
+    // Spoke routes are merged after api_routes to override excluded handlers
     // Order matters: specific API routes first, then UI fallback for SPA
     let app = axum::Router::new()
         .merge(api_routes) // API routes at their defined paths (/v1/*, /healthz, etc.)
+        .merge(audit_spoke_routes.with_state(state.clone())) // Audit spoke handlers
+        .merge(health_spoke_routes.with_state(state.clone())) // Health spoke handlers
         .merge(ui_routes) // UI fallback for non-API paths
         .layer(CompressionLayer::new()); // Response compression (gzip, br) for all routes
 

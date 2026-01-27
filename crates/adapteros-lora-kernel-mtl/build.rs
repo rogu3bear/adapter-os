@@ -1,6 +1,97 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// Compute a combined BLAKE3 hash of all Metal shader source files.
+/// Files are hashed in a deterministic order to ensure consistent cache keys.
+fn get_shader_sources_hash() -> String {
+    let metal_dir = Path::new("../../metal/src/kernels");
+
+    // List of all shader source files in deterministic order
+    let shader_files = [
+        "adapteros_kernels.metal",
+        "common.metal",
+        "attention.metal",
+        "mlp.metal",
+        "flash_attention.metal",
+        "mplora.metal",
+        "rms_norm.metal",
+    ];
+
+    // Also include toolchain config which affects compilation
+    let toolchain_config = Path::new("../../metal/toolchain.toml");
+
+    let mut hasher = blake3::Hasher::new();
+
+    // Hash each shader file in order
+    for file_name in &shader_files {
+        let file_path = metal_dir.join(file_name);
+        if let Ok(contents) = std::fs::read(&file_path) {
+            // Include filename in hash to detect renames
+            hasher.update(file_name.as_bytes());
+            hasher.update(&contents);
+        }
+    }
+
+    // Include toolchain config if present
+    if let Ok(contents) = std::fs::read(toolchain_config) {
+        hasher.update(b"toolchain.toml");
+        hasher.update(&contents);
+    }
+
+    // Include Metal version in cache key (affects output)
+    hasher.update(b"metal-std:3.1");
+
+    hasher.finalize().to_hex().to_string()
+}
+
+/// Get the path to the shader cache directory.
+/// Creates the directory if it doesn't exist.
+fn get_cache_dir() -> PathBuf {
+    // Use OUT_DIR's parent to get to target directory
+    let out_dir = std::env::var("OUT_DIR").unwrap_or_else(|_| "target".to_string());
+    let target_dir = Path::new(&out_dir)
+        .ancestors()
+        .find(|p| p.file_name().map(|n| n == "target").unwrap_or(false))
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("target"));
+
+    let cache_dir = target_dir.join("metal-shader-cache");
+    let _ = std::fs::create_dir_all(&cache_dir);
+    cache_dir
+}
+
+/// Check if a cached metallib exists for the given source hash.
+/// Returns the path to the cached metallib if found.
+fn check_cache(source_hash: &str) -> Option<PathBuf> {
+    let cache_dir = get_cache_dir();
+    let cached_metallib = cache_dir.join(format!("{}.metallib", source_hash));
+
+    if cached_metallib.exists() {
+        // Verify the cached file is not empty/corrupted
+        if let Ok(metadata) = std::fs::metadata(&cached_metallib) {
+            if metadata.len() > 0 {
+                return Some(cached_metallib);
+            }
+        }
+    }
+    None
+}
+
+/// Store a compiled metallib in the cache.
+fn store_in_cache(metallib_path: &Path, source_hash: &str) {
+    let cache_dir = get_cache_dir();
+    let cached_metallib = cache_dir.join(format!("{}.metallib", source_hash));
+
+    if let Err(e) = std::fs::copy(metallib_path, &cached_metallib) {
+        println!("cargo:warning=Failed to store metallib in cache: {}", e);
+    } else {
+        println!(
+            "cargo:warning=Cached metallib at {}",
+            cached_metallib.display()
+        );
+    }
+}
+
 fn write_bytes_if_changed(path: &Path, bytes: &[u8]) {
     let should_write = match std::fs::read(path) {
         Ok(existing) => existing != bytes,
@@ -120,6 +211,13 @@ fn resolve_metallib_path(real_home: Option<&str>) -> Option<PathBuf> {
 }
 
 fn compile_metal_shaders() {
+    // Declare environment variable dependencies for proper incremental rebuilds
+    // Without these, ANY env var change would invalidate the cache
+    println!("cargo:rerun-if-env-changed=HOME");
+    println!("cargo:rerun-if-env-changed=METAL_TOOLCHAIN_BIN");
+    println!("cargo:rerun-if-env-changed=METAL_HOME_OVERRIDE");
+    println!("cargo:rerun-if-env-changed=CLANG_MODULE_CACHE_PATH");
+
     // Metal Toolchain Detection Strategy:
     // 1. Prefer explicit Metal toolchain binaries if found in standard locations:
     //    - METAL_TOOLCHAIN_BIN env var
@@ -158,6 +256,62 @@ fn compile_metal_shaders() {
 
     // Create shaders directory if it doesn't exist
     std::fs::create_dir_all(shaders_dir).expect("Failed to create shaders directory");
+
+    // Check for cached metallib based on source file hash
+    let source_hash = get_shader_sources_hash();
+    println!("cargo:warning=Shader source hash: {}", &source_hash[..16]);
+
+    if let Some(cached_metallib) = check_cache(&source_hash) {
+        println!("cargo:warning=Cache HIT - using cached metallib");
+
+        // Copy cached metallib to shaders directory
+        std::fs::copy(
+            &cached_metallib,
+            shaders_dir.join("adapteros_kernels.metallib"),
+        )
+        .expect("Failed to copy cached metallib");
+
+        // Compute and write the hash of the metallib
+        let metallib_bytes = std::fs::read(shaders_dir.join("adapteros_kernels.metallib"))
+            .expect("Failed to read metallib");
+        let hash = blake3::hash(&metallib_bytes);
+        let hash_hex = hash.to_hex();
+        println!("cargo:warning=Kernel hash: {}", hash_hex);
+        std::fs::write(shaders_dir.join("kernel_hash.txt"), hash_hex.as_str())
+            .expect("Failed to write hash");
+
+        // Create mplora_kernels alias
+        std::fs::copy(
+            shaders_dir.join("adapteros_kernels.metallib"),
+            shaders_dir.join("mplora_kernels.metallib"),
+        )
+        .expect("Failed to copy mplora_kernels alias");
+
+        // Record build metadata (mark as cached)
+        let xcrun_version = get_xcrun_version();
+        let sdk_version = get_sdk_version();
+        let metadata = format!(
+            r#"{{
+  "xcrun_version": "{}",
+  "sdk_version": "{}",
+  "kernel_hash": "{}",
+  "build_timestamp": "{}",
+  "cached": true,
+  "source_hash": "{}"
+}}"#,
+            xcrun_version,
+            sdk_version,
+            hash_hex,
+            chrono::Utc::now().to_rfc3339(),
+            source_hash
+        );
+        std::fs::write(metal_dir.join("build_metadata.json"), metadata)
+            .expect("Failed to write metadata");
+
+        return; // Skip compilation - cache hit!
+    }
+
+    println!("cargo:warning=Cache MISS - compiling shaders");
 
     // Get SDK path early (needed for Metal toolchain binaries)
     let sdk_path = get_sdk_path();
@@ -358,6 +512,12 @@ fn compile_metal_shaders() {
     )
     .expect("Failed to copy metallib");
 
+    // Store in cache for future builds
+    store_in_cache(
+        &shaders_dir.join("adapteros_kernels.metallib"),
+        &source_hash,
+    );
+
     // Note: mplora_kernels is part of adapteros_kernels, create alias
     std::fs::copy(
         shaders_dir.join("adapteros_kernels.metallib"),
@@ -373,12 +533,15 @@ fn compile_metal_shaders() {
   "xcrun_version": "{}",
   "sdk_version": "{}",
   "kernel_hash": "{}",
-  "build_timestamp": "{}"
+  "build_timestamp": "{}",
+  "cached": false,
+  "source_hash": "{}"
 }}"#,
         xcrun_version,
         sdk_version,
         hash_hex,
-        chrono::Utc::now().to_rfc3339()
+        chrono::Utc::now().to_rfc3339(),
+        source_hash
     );
     std::fs::write(metal_dir.join("build_metadata.json"), metadata)
         .expect("Failed to write metadata");

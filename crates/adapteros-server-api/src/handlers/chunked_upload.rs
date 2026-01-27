@@ -1042,9 +1042,7 @@ mod tests {
 
     #[test]
     fn test_upload_session_creation() {
-        let temp_root = std::path::PathBuf::from("var/tmp");
-        std::fs::create_dir_all(&temp_root).unwrap();
-        let temp_dir = tempfile::TempDir::new_in(&temp_root).unwrap();
+        let temp_dir = tempfile::TempDir::with_prefix("aos-test-").unwrap();
         let session = UploadSession {
             schema_version: UPLOAD_SESSION_SCHEMA_VERSION,
             session_id: "test-123".to_string(),

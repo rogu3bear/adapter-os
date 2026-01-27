@@ -96,7 +96,7 @@ flate2 = "1.0"
 tar = "0.4"
 zstd = { workspace = true }
 serde_jcs = { workspace = true }
-zip = "0.6"
+zip = "1.1"
 adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true, features = ["mlx"] }
 adapteros-config = { path = "../adapteros-config" }
 adapteros-ingest-docs = { path = "../adapteros-ingest-docs", optional = true }
@@ -136,6 +136,9 @@ embeddings = ["adapteros-ingest-docs/multi-backend"]
 redis = ["dep:redis"]
 metrics = []
 dev-bypass = []
+# Exclude routes that are provided by spoke crates (audit, health)
+# Enable this when using adapteros-server which merges spoke routes
+exclude-spoke-routes = []
 [[bin]]
 name = "export-openapi"
 path = "src/bin/export-openapi.rs"

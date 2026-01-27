@@ -5,22 +5,19 @@
 
 use adapteros_core::Result;
 use adapteros_db::{Db, KvDb, StorageMode};
-use std::path::PathBuf;
 use tempfile::TempDir;
 use tracing::debug;
 
+/// Create a temporary directory in OS temp space (not var/tmp)
+/// This ensures automatic cleanup and doesn't pollute the repo.
 fn new_test_tempdir_result() -> Result<TempDir> {
-    let root = PathBuf::from("var").join("tmp");
-    std::fs::create_dir_all(&root).map_err(|e| {
-        adapteros_core::AosError::Internal(format!("Failed to create var/tmp: {}", e))
-    })?;
-    TempDir::new_in(&root).map_err(|e| {
+    TempDir::with_prefix("aos-db-test-").map_err(|e| {
         adapteros_core::AosError::Internal(format!("Failed to create temp directory: {}", e))
     })
 }
 
 fn new_test_tempdir() -> TempDir {
-    new_test_tempdir_result().expect("create temp directory under var/tmp")
+    new_test_tempdir_result().expect("create temp directory")
 }
 
 /// Test database wrapper with cleanup support

@@ -988,7 +988,7 @@ async fn set_config(mode: &crate::output::OutputMode, key: &str, value: &str) ->
     let db = connect_db().await?;
     let mut config = MetricsConfig::default();
     apply_config_value(&mut config, key, value)?;
-    db.set_config(key, &value.to_string()).await?;
+    db.set_config(key, value).await?;
 
     if mode.is_json() {
         let response = serde_json::json!({

@@ -22,11 +22,9 @@ use sysinfo::System;
 use tempfile::{Builder as TempDirBuilder, TempDir};
 
 fn new_test_base_dir(prefix: &str) -> TempDir {
-    let root = std::path::PathBuf::from("var/tmp");
-    let _ = std::fs::create_dir_all(&root);
     TempDirBuilder::new()
         .prefix(prefix)
-        .tempdir_in(&root)
+        .tempdir()
         .expect("temp dir")
 }
 

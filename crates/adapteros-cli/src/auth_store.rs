@@ -113,14 +113,11 @@ pub fn warn_if_tenant_mismatch(request_tenant: Option<&str>, output: &OutputWrit
 #[cfg(test)]
 mod tests {
     use super::*;
-    use adapteros_storage::platform::common::PlatformUtils;
     use serial_test::serial;
     use tempfile::TempDir;
 
     fn with_temp_store() -> (TempDir, PathBuf) {
-        let root = PlatformUtils::temp_dir();
-        std::fs::create_dir_all(&root).expect("create var/tmp");
-        let dir = TempDir::new_in(&root).expect("tmpdir");
+        let dir = TempDir::with_prefix("aos-test-").expect("create temp dir");
         let path = dir.path().join("auth.json");
         set_env("AOSCTL_AUTH_PATH", path.to_string_lossy().as_ref());
         (dir, path)

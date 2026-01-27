@@ -68,7 +68,7 @@ walkdir = "2.4"
 chrono = "0.4"
 dirs = "5.0"
 hex = { workspace = true }
-zip = "1.0"
+zip = "1.1"
 tar = "0.4"
 zstd = { workspace = true }
 fs_extra = "1.3"

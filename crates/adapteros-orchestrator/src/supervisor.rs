@@ -768,13 +768,10 @@ async fn spawn_worker_process(tenant_id: &str, db_path: &std::path::Path) -> Res
 mod tests {
     use super::*;
     use crate::test_support::TestEnvGuard;
-    use adapteros_storage::platform::common::PlatformUtils;
     use tempfile::TempDir;
 
     fn new_test_tempdir() -> TempDir {
-        let root = PlatformUtils::temp_dir();
-        std::fs::create_dir_all(&root).expect("create var/tmp");
-        TempDir::new_in(&root).expect("tempdir")
+        TempDir::with_prefix("aos-test-").expect("create temp dir")
     }
 
     #[tokio::test]

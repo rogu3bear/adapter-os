@@ -1,7 +1,6 @@
 //! Tests for dataset cleanup and storage management
 
 use adapteros_orchestrator::{CleanupConfig, StorageQuotaStatus};
-use adapteros_storage::platform::common::PlatformUtils;
 use tempfile::TempDir;
 
 // Note: Database tests requiring migrations are skipped due to migration signature verification.
@@ -9,9 +8,7 @@ use tempfile::TempDir;
 
 #[test]
 fn test_cleanup_config_creation() {
-    let root = PlatformUtils::temp_dir();
-    std::fs::create_dir_all(&root).expect("create var/tmp");
-    let temp_dir = TempDir::new_in(&root).expect("tempdir");
+    let temp_dir = TempDir::with_prefix("aos-test-").expect("create temp dir");
 
     let config = CleanupConfig {
         dataset_storage_path: temp_dir.path().to_path_buf(),

@@ -8,13 +8,10 @@
 //! - Integration tests (integration_tests)
 
 use adapteros_core::Result;
-use std::path::PathBuf;
 use tempfile::TempDir;
 
 pub(super) fn new_test_tempdir() -> Result<TempDir> {
-    let root = PathBuf::from("var").join("tmp");
-    std::fs::create_dir_all(&root)?;
-    Ok(TempDir::new_in(&root)?)
+    Ok(TempDir::with_prefix("aos-test-")?)
 }
 
 mod cleanup_tests;

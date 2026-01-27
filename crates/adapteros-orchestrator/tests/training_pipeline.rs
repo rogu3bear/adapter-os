@@ -3,16 +3,13 @@ use std::time::Duration;
 
 use adapteros_db::sqlx;
 use adapteros_orchestrator::TrainingService;
-use adapteros_storage::platform::common::PlatformUtils;
 use adapteros_types::training::{DataLineageMode, TrainingConfig, TrainingJobStatus};
 use tempfile::TempDir;
 
 /// End-to-end pipeline: start training → package .aos → register adapter → materialize artifact.
 #[tokio::test(flavor = "current_thread")]
 async fn training_pipeline_produces_registered_aos() {
-    let tmp_root = PlatformUtils::temp_dir();
-    std::fs::create_dir_all(&tmp_root).expect("create var/tmp");
-    let temp_dir = TempDir::new_in(&tmp_root).expect("tempdir");
+    let temp_dir = TempDir::with_prefix("aos-test-").expect("create temp dir");
     let db_path = temp_dir.path().join("cp.sqlite3");
     // SAFETY: This test runs on a single-threaded Tokio runtime, so no other
     // threads read or write environment variables concurrently.

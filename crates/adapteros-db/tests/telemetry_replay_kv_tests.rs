@@ -9,9 +9,7 @@ use tempfile::TempDir;
 use uuid::Uuid;
 
 fn new_test_tempdir() -> TempDir {
-    let root = std::path::PathBuf::from("var").join("tmp");
-    std::fs::create_dir_all(&root).expect("create var/tmp");
-    TempDir::new_in(&root).expect("tempdir")
+    TempDir::with_prefix("aos-test-").expect("tempdir")
 }
 
 async fn create_dual_write_db() -> (Db, TempDir, TempDir) {

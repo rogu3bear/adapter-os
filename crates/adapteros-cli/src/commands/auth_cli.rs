@@ -124,7 +124,6 @@ mod tests {
     };
     use crate::output::{OutputMode, OutputWriter};
     use adapteros_api_types::{auth::LoginResponse, API_SCHEMA_VERSION};
-    use adapteros_storage::platform::common::PlatformUtils;
     use axum::{routing::post, serve, Json, Router};
     use serial_test::serial;
     use std::env;
@@ -135,9 +134,7 @@ mod tests {
     use tokio::task::JoinHandle;
 
     fn new_test_tempdir() -> TempDir {
-        let root = PlatformUtils::temp_dir();
-        std::fs::create_dir_all(&root).expect("create var/tmp");
-        TempDir::new_in(&root).expect("tmpdir")
+        TempDir::with_prefix("aos-test-").expect("create temp dir")
     }
 
     async fn start_mock_auth_server(body: LoginResponse) -> (String, JoinHandle<()>) {

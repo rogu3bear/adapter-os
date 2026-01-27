@@ -1412,9 +1412,10 @@ mod tests {
     #[test]
     fn test_validation_empty_adapters() {
         // Create a temporary file for base model path (so we don't get NotFound error)
-        let temp_root = std::path::PathBuf::from("var/tmp");
-        std::fs::create_dir_all(&temp_root).unwrap();
-        let temp_dir = tempfile::TempDir::new_in(&temp_root).unwrap();
+        let temp_dir = tempfile::Builder::new()
+            .prefix("aos-test-")
+            .tempdir()
+            .unwrap();
         let temp_base = temp_dir.path().join("test_base_model.safetensors");
 
         // Create empty file (doesn't need to be valid safetensors for this validation test)

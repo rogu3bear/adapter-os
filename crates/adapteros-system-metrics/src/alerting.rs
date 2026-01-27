@@ -2362,7 +2362,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_threshold_checking() {
-        let temp_dir = TempDir::new_in(".").unwrap();
+        let temp_dir = TempDir::with_prefix("aos-test-").unwrap();
         let telemetry_writer =
             Arc::new(TelemetryWriter::new(temp_dir.path(), 1000, 1024 * 1024).unwrap());
         let evaluator = AlertEvaluator::new(
@@ -2406,7 +2406,7 @@ mod tests {
     #[tokio::test]
     async fn test_drift_detection() {
         let db = Arc::new(adapteros_db::Db::connect(":memory:").await.unwrap());
-        let temp_dir = TempDir::new_in(".").unwrap();
+        let temp_dir = TempDir::with_prefix("aos-test-").unwrap();
         let telemetry_writer =
             Arc::new(TelemetryWriter::new(temp_dir.path(), 1000, 1024 * 1024).unwrap());
         let config = AlertingConfig::default();
@@ -2443,7 +2443,7 @@ mod tests {
     #[tokio::test]
     async fn test_performance_budget_validation() {
         let db = Arc::new(adapteros_db::Db::connect(":memory:").await.unwrap());
-        let temp_dir = TempDir::new_in(".").unwrap();
+        let temp_dir = TempDir::with_prefix("aos-test-").unwrap();
         let telemetry_writer =
             Arc::new(TelemetryWriter::new(temp_dir.path(), 1000, 1024 * 1024).unwrap());
         let config = AlertingConfig::default();
@@ -2486,7 +2486,7 @@ mod tests {
     #[tokio::test]
     async fn test_memory_headroom_validation() {
         let db = Arc::new(adapteros_db::Db::connect(":memory:").await.unwrap());
-        let temp_dir = TempDir::new_in(".").unwrap();
+        let temp_dir = TempDir::with_prefix("aos-test-").unwrap();
         let telemetry_writer =
             Arc::new(TelemetryWriter::new(temp_dir.path(), 1000, 1024 * 1024).unwrap());
         let config = AlertingConfig::default();
@@ -2529,7 +2529,7 @@ mod tests {
     #[tokio::test]
     async fn test_security_event_correlation() {
         let db = Arc::new(adapteros_db::Db::connect(":memory:").await.unwrap());
-        let temp_dir = TempDir::new_in(".").unwrap();
+        let temp_dir = TempDir::with_prefix("aos-test-").unwrap();
         let telemetry_writer =
             Arc::new(TelemetryWriter::new(temp_dir.path(), 1000, 1024 * 1024).unwrap());
         let config = AlertingConfig::default();
@@ -2572,7 +2572,7 @@ mod tests {
     #[tokio::test]
     async fn test_compliance_validation() {
         let db = Arc::new(adapteros_db::Db::connect(":memory:").await.unwrap());
-        let temp_dir = TempDir::new_in(".").unwrap();
+        let temp_dir = TempDir::with_prefix("aos-test-").unwrap();
         let telemetry_writer =
             Arc::new(TelemetryWriter::new(temp_dir.path(), 1000, 1024 * 1024).unwrap());
         let config = AlertingConfig::default();
@@ -2615,7 +2615,7 @@ mod tests {
     #[tokio::test]
     async fn test_patch_validation_pipeline() {
         let db = Arc::new(adapteros_db::Db::connect(":memory:").await.unwrap());
-        let temp_dir = TempDir::new_in(".").unwrap();
+        let temp_dir = TempDir::with_prefix("aos-test-").unwrap();
         let telemetry_writer =
             Arc::new(TelemetryWriter::new(temp_dir.path(), 1000, 1024 * 1024).unwrap());
         let config = AlertingConfig::default();
@@ -2658,7 +2658,7 @@ mod tests {
     #[tokio::test]
     async fn test_performance_monitoring() {
         let db = Arc::new(adapteros_db::Db::connect(":memory:").await.unwrap());
-        let temp_dir = TempDir::new_in(".").unwrap();
+        let temp_dir = TempDir::with_prefix("aos-test-").unwrap();
         let telemetry_writer =
             Arc::new(TelemetryWriter::new(temp_dir.path(), 1000, 1024 * 1024).unwrap());
         let config = AlertingConfig::default();
@@ -2701,7 +2701,7 @@ mod tests {
     #[tokio::test]
     async fn test_full_features_evaluator() {
         let db = Arc::new(adapteros_db::Db::connect(":memory:").await.unwrap());
-        let temp_dir = TempDir::new_in(".").unwrap();
+        let temp_dir = TempDir::with_prefix("aos-test-").unwrap();
         let telemetry_writer =
             Arc::new(TelemetryWriter::new(temp_dir.path(), 1000, 1024 * 1024).unwrap());
         let config = AlertingConfig::default();

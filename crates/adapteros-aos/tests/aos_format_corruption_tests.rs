@@ -11,17 +11,14 @@ use adapteros_aos::writer::{
     compute_scope_hash, open_aos, parse_segments, select_segment, AosWriter, BackendTag, AOS_MAGIC,
     HAS_INDEX_FLAG, HEADER_SIZE, INDEX_ENTRY_SIZE,
 };
-use adapteros_core::{AosError, B3Hash, Result};
+use adapteros_core::{B3Hash, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
 use tempfile::NamedTempFile;
 
-fn new_test_tempdir() -> PathBuf {
-    let root = PathBuf::from("var/tmp");
-    fs::create_dir_all(&root).expect("create var/tmp");
-    root
+fn new_test_tempfile() -> NamedTempFile {
+    NamedTempFile::new().expect("create temp file")
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -44,9 +41,7 @@ fn fake_weights(label: &str, len: usize) -> Vec<u8> {
 
 #[test]
 fn test_aos_format_valid_archive() -> Result<()> {
-    let temp_root = new_test_tempdir();
-    let temp_file = NamedTempFile::new_in(&temp_root)
-        .map_err(|e| AosError::Io(format!("Failed to create temp file: {}", e)))?;
+    let temp_file = new_test_tempfile();
 
     let manifest = TestManifest {
         adapter_id: "test-adapter".to_string(),
@@ -94,8 +89,7 @@ fn test_aos_format_valid_archive() -> Result<()> {
 
 #[test]
 fn test_aos_corrupt_magic_bytes() {
-    let temp_root = new_test_tempdir();
-    let temp_file = NamedTempFile::new_in(&temp_root).unwrap();
+    let temp_file = new_test_tempfile();
 
     // Write invalid magic
     let mut corrupt_header = vec![0u8; HEADER_SIZE];
@@ -110,8 +104,7 @@ fn test_aos_corrupt_magic_bytes() {
 
 #[test]
 fn test_aos_corrupt_truncated_header() {
-    let temp_root = new_test_tempdir();
-    let temp_file = NamedTempFile::new_in(&temp_root).unwrap();
+    let temp_file = new_test_tempfile();
 
     // Write truncated header (only 32 bytes instead of 64)
     let mut incomplete_header = vec![0u8; 32];
@@ -126,8 +119,7 @@ fn test_aos_corrupt_truncated_header() {
 
 #[test]
 fn test_aos_corrupt_missing_index_flag() {
-    let temp_root = new_test_tempdir();
-    let temp_file = NamedTempFile::new_in(&temp_root).unwrap();
+    let temp_file = new_test_tempfile();
 
     // Create valid header but with missing index flag
     let mut header = vec![0u8; HEADER_SIZE];
@@ -147,8 +139,7 @@ fn test_aos_corrupt_missing_index_flag() {
 
 #[test]
 fn test_aos_corrupt_hash_mismatch() -> Result<()> {
-    let temp_root = new_test_tempdir();
-    let temp_file = NamedTempFile::new_in(&temp_root)?;
+    let temp_file = new_test_tempfile();
 
     let manifest = TestManifest {
         adapter_id: "test-adapter".to_string(),
@@ -192,8 +183,7 @@ fn test_aos_corrupt_hash_mismatch() -> Result<()> {
 
 #[test]
 fn test_aos_corrupt_index_overlap() {
-    let temp_root = new_test_tempdir();
-    let temp_file = NamedTempFile::new_in(&temp_root).unwrap();
+    let temp_file = new_test_tempfile();
 
     // Create header with overlapping index and manifest
     let mut header = vec![0u8; HEADER_SIZE];
@@ -220,8 +210,7 @@ fn test_aos_corrupt_index_overlap() {
 
 #[test]
 fn test_aos_corrupt_segment_beyond_file() {
-    let temp_root = new_test_tempdir();
-    let temp_file = NamedTempFile::new_in(&temp_root).unwrap();
+    let temp_file = new_test_tempfile();
 
     // Create header with segment extending beyond file
     let mut header = vec![0u8; HEADER_SIZE];
@@ -255,8 +244,7 @@ fn test_aos_corrupt_segment_beyond_file() {
 
 #[test]
 fn test_aos_corrupt_invalid_backend_tag() {
-    let temp_root = new_test_tempdir();
-    let temp_file = NamedTempFile::new_in(&temp_root).unwrap();
+    let temp_file = new_test_tempfile();
 
     let mut header = vec![0u8; HEADER_SIZE];
     header[0..4].copy_from_slice(&AOS_MAGIC);
@@ -308,8 +296,7 @@ fn test_aos_scope_hash_validation() -> Result<()> {
 
 #[test]
 fn test_aos_segment_selection_by_backend() -> Result<()> {
-    let temp_root = new_test_tempdir();
-    let temp_file = NamedTempFile::new_in(&temp_root)?;
+    let temp_file = new_test_tempfile();
 
     let manifest = TestManifest {
         adapter_id: "multi-backend".to_string(),
@@ -364,8 +351,7 @@ fn test_aos_segment_selection_by_backend() -> Result<()> {
 
 #[test]
 fn test_aos_segment_selection_fallback() -> Result<()> {
-    let temp_root = new_test_tempdir();
-    let temp_file = NamedTempFile::new_in(&temp_root)?;
+    let temp_file = new_test_tempfile();
 
     let manifest = TestManifest {
         adapter_id: "fallback-test".to_string(),
@@ -398,8 +384,7 @@ fn test_aos_segment_selection_fallback() -> Result<()> {
 
 #[test]
 fn test_aos_open_file_view() -> Result<()> {
-    let temp_root = new_test_tempdir();
-    let temp_file = NamedTempFile::new_in(&temp_root)?;
+    let temp_file = new_test_tempfile();
 
     let manifest = TestManifest {
         adapter_id: "view-test".to_string(),
@@ -434,8 +419,7 @@ fn test_aos_open_file_view() -> Result<()> {
 
 #[test]
 fn test_aos_reserved_bytes_validation() {
-    let temp_root = new_test_tempdir();
-    let temp_file = NamedTempFile::new_in(&temp_root).unwrap();
+    let temp_file = new_test_tempfile();
 
     // Create header with non-zero reserved bytes
     let mut header = vec![0u8; HEADER_SIZE];
@@ -458,8 +442,7 @@ fn test_aos_reserved_bytes_validation() {
 
 #[test]
 fn test_aos_index_alignment() {
-    let temp_root = new_test_tempdir();
-    let temp_file = NamedTempFile::new_in(&temp_root).unwrap();
+    let temp_file = new_test_tempfile();
 
     // Create header with misaligned index size (not multiple of 80)
     let mut header = vec![0u8; HEADER_SIZE];
@@ -485,8 +468,7 @@ fn test_aos_index_alignment() {
 
 #[test]
 fn test_aos_multiple_segments_same_scope() -> Result<()> {
-    let temp_root = new_test_tempdir();
-    let temp_file = NamedTempFile::new_in(&temp_root)?;
+    let temp_file = new_test_tempfile();
 
     let manifest = TestManifest {
         adapter_id: "multi-segment".to_string(),

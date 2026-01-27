@@ -751,10 +751,8 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
-    fn test_temp_root() -> Result<PathBuf> {
-        let root = PathBuf::from("var/tmp");
-        std::fs::create_dir_all(&root)?;
-        Ok(root)
+    fn new_test_tempdir() -> Result<TempDir> {
+        Ok(TempDir::with_prefix("aos-test-")?)
     }
 
     #[test]
@@ -805,8 +803,7 @@ mod tests {
 
     #[test]
     fn test_path_within_base() -> Result<()> {
-        let root = test_temp_root()?;
-        let temp_dir = TempDir::new_in(&root)?;
+        let temp_dir = new_test_tempdir()?;
         let base = temp_dir.path();
 
         // Create a test file within the base directory
@@ -816,7 +813,7 @@ mod tests {
         assert!(is_path_within_base(&test_file, base)?);
 
         // Test file outside base
-        let outside_dir = TempDir::new_in(&root)?;
+        let outside_dir = new_test_tempdir()?;
         let outside_file = outside_dir.path().join("outside.txt");
         std::fs::write(&outside_file, "test")?;
         assert!(!is_path_within_base(&outside_file, base)?);
@@ -826,8 +823,7 @@ mod tests {
 
     #[test]
     fn test_resolve_path_within_allowed_roots() -> Result<()> {
-        let root = test_temp_root()?;
-        let temp_dir = TempDir::new_in(&root)?;
+        let temp_dir = new_test_tempdir()?;
         let base = temp_dir.path().join("datasets");
         std::fs::create_dir_all(&base)?;
 
@@ -850,8 +846,7 @@ mod tests {
     fn test_resolve_path_blocks_symlink_escape() -> Result<()> {
         use std::os::unix::fs::symlink;
 
-        let root = test_temp_root()?;
-        let temp_dir = TempDir::new_in(&root)?;
+        let temp_dir = new_test_tempdir()?;
         let base = temp_dir.path().join("datasets");
         let outside_dir = temp_dir.path().join("outside");
 
@@ -890,8 +885,7 @@ mod tests {
 
     #[test]
     fn test_validate_path_within_bases() -> Result<()> {
-        let root = test_temp_root()?;
-        let temp_dir = TempDir::new_in(&root)?;
+        let temp_dir = new_test_tempdir()?;
         let base_dir = temp_dir.path();
         let allowed_file = base_dir.join("allowed.txt");
         std::fs::write(&allowed_file, "test")?;
@@ -900,7 +894,7 @@ mod tests {
         validate_path_within_bases(&allowed_file, &[base_dir])?;
 
         // Test file outside allowed base
-        let outside_dir = TempDir::new_in(&root)?;
+        let outside_dir = new_test_tempdir()?;
         let outside_file = outside_dir.path().join("outside.txt");
         std::fs::write(&outside_file, "test")?;
         let result = validate_path_within_bases(&outside_file, &[base_dir]);
@@ -911,8 +905,7 @@ mod tests {
 
     #[test]
     fn test_safe_file_operations() -> Result<()> {
-        let root = test_temp_root()?;
-        let temp_dir = TempDir::new_in(&root)?;
+        let temp_dir = new_test_tempdir()?;
         let base_dir = temp_dir.path();
         let test_file = base_dir.join("test.txt");
         std::fs::write(&test_file, "test content")?;
@@ -925,7 +918,7 @@ mod tests {
         assert_eq!(metadata.len(), 12); // "test content" is 12 bytes
 
         // Test with unauthorized path
-        let outside_dir = TempDir::new_in(&root)?;
+        let outside_dir = new_test_tempdir()?;
         let outside_file = outside_dir.path().join("outside.txt");
         let result = safe_file_exists(&outside_file, &[base_dir]);
         assert!(result.is_err());
@@ -1072,8 +1065,7 @@ mod tests {
 
     #[test]
     fn test_enhanced_is_path_within_base() -> Result<()> {
-        let root = test_temp_root()?;
-        let temp_dir = TempDir::new_in(&root)?;
+        let temp_dir = new_test_tempdir()?;
         let base_dir = temp_dir.path();
 
         // Create a subdirectory structure
@@ -1086,7 +1078,7 @@ mod tests {
         assert!(is_path_within_base(&nested_file, base_dir)?);
 
         // Test that file outside base is not within
-        let outside_dir = TempDir::new_in(&root)?;
+        let outside_dir = new_test_tempdir()?;
         let outside_file = outside_dir.path().join("outside.txt");
         std::fs::write(&outside_file, "test")?;
         assert!(!is_path_within_base(&outside_file, base_dir)?);
@@ -1096,8 +1088,7 @@ mod tests {
 
     #[test]
     fn test_file_size_validation() -> Result<()> {
-        let root = test_temp_root()?;
-        let temp_dir = TempDir::new_in(&root)?;
+        let temp_dir = new_test_tempdir()?;
         let test_file = temp_dir.path().join("test.txt");
 
         // Test with small file
@@ -1125,8 +1116,7 @@ mod tests {
 
     #[test]
     fn test_streaming_validation() -> Result<()> {
-        let root = test_temp_root()?;
-        let temp_dir = TempDir::new_in(&root)?;
+        let temp_dir = new_test_tempdir()?;
         let test_file = temp_dir.path().join("test.bin");
 
         // Create a file with reasonable header
@@ -1157,8 +1147,7 @@ mod tests {
 
     #[test]
     fn test_per_tenant_limits() -> Result<()> {
-        let root = test_temp_root()?;
-        let temp_dir = TempDir::new_in(&root)?;
+        let temp_dir = new_test_tempdir()?;
         let test_file = temp_dir.path().join("test.txt");
         std::fs::write(&test_file, "x".repeat(200))?; // 200 bytes
 

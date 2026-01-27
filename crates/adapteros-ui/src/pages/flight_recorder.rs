@@ -329,6 +329,10 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
             match client.export_diag_run(&id).await {
                 Ok(export) => Ok(export),
                 Err(primary_err) => {
+                    // Log fallback attempt
+                    web_sys::console::warn_1(
+                        &format!("Primary export lookup failed: {}, trying trace_id search", primary_err).into()
+                    );
                     let runs = client
                         .list_diag_runs(&ListDiagRunsQuery {
                             limit: Some(200),
@@ -336,6 +340,9 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
                         })
                         .await?;
                     if let Some(run) = runs.runs.into_iter().find(|r| r.trace_id == id) {
+                        web_sys::console::log_1(
+                            &format!("Found run via fallback: trace_id={} -> run_id={}", id, run.id).into()
+                        );
                         client.export_diag_run(&run.id).await
                     } else {
                         Err(primary_err)
@@ -591,6 +598,11 @@ fn copy_to_clipboard(text: &str, set_copied: WriteSignal<bool>) {
                 );
                 callback.forget();
             }
+        } else {
+            // Log clipboard failure for debugging
+            web_sys::console::warn_1(
+                &"Clipboard copy failed - API unavailable or permission denied".into()
+            );
         }
     });
 }

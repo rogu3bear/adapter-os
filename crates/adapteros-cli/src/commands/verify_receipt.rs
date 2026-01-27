@@ -1017,15 +1017,12 @@ pub fn verify_bundle_from_path(bundle: &Path) -> Result<ReceiptVerificationRepor
 mod tests {
     use super::*;
     use adapteros_crypto::signature::Keypair;
-    use adapteros_storage::platform::common::PlatformUtils;
     use base64::engine::general_purpose::STANDARD;
     use rand::RngCore;
     use tempfile::TempDir;
 
     fn new_test_tempdir() -> TempDir {
-        let root = PlatformUtils::temp_dir();
-        std::fs::create_dir_all(&root).expect("create var/tmp");
-        TempDir::new_in(&root).expect("tempdir")
+        TempDir::with_prefix("aos-test-").expect("create temp dir")
     }
 
     fn make_keypair() -> Keypair {

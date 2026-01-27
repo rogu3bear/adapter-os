@@ -33,15 +33,7 @@ pub struct TestHost {
 impl TestHost {
     /// Create a new test host
     pub fn new(id: usize) -> Result<Self> {
-        let tmp_root = PathBuf::from("var").join("tmp");
-        fs::create_dir_all(&tmp_root).map_err(|e| {
-            AosError::Io(format!(
-                "Failed to create temp root {}: {}",
-                tmp_root.display(),
-                e
-            ))
-        })?;
-        let temp_dir = TempDir::new_in(&tmp_root)
+        let temp_dir = TempDir::with_prefix("aos-test-")
             .map_err(|e| AosError::Io(format!("Failed to create temp dir: {}", e)))?;
 
         let db_path = temp_dir.path().join(format!("host_{}.db", id));

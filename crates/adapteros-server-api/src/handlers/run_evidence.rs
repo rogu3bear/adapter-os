@@ -15,7 +15,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::io::Write;
-use zip::{write::FileOptions, CompressionMethod, DateTime};
+use zip::{write::SimpleFileOptions, CompressionMethod, DateTime};
 
 const DETERMINISTIC_ENVELOPE_TIMESTAMP: &str = "1970-01-01T00:00:00Z";
 
@@ -383,7 +383,7 @@ pub async fn download_run_evidence(
     let readme_bytes = build_readme(&readme).into_bytes();
 
     // Assemble files and enforce deterministic ordering
-    let options = FileOptions::default()
+    let options = SimpleFileOptions::default()
         .compression_method(CompressionMethod::Stored)
         .last_modified_time(
             DateTime::from_date_and_time(1980, 1, 1, 0, 0, 0).unwrap_or_else(|e| {

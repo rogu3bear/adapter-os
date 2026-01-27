@@ -2339,10 +2339,8 @@ mod tests {
     async fn build_test_state() -> AppState {
         let db = adapteros_db::Db::new_in_memory().await.unwrap();
         let jwt_secret = b"streaming-test-secret-32-bytes!".to_vec();
-        let base_dir = PathBuf::from("var")
-            .join("tmp")
-            .join("streaming-infer-tests")
-            .join(uuid::Uuid::new_v4().to_string());
+        let base_tempdir = tempfile::TempDir::with_prefix("aos-test-streaming-infer-").unwrap();
+        let base_dir = base_tempdir.into_path();
         for dir in [
             "artifacts",
             "bundles",

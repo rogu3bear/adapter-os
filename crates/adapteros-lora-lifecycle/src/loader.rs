@@ -1477,11 +1477,9 @@ mod tests {
     use tempfile::{Builder as TempDirBuilder, TempDir};
 
     fn new_test_tempdir(prefix: &str) -> TempDir {
-        let root = std::path::PathBuf::from("var/tmp");
-        let _ = fs::create_dir_all(&root);
         TempDirBuilder::new()
             .prefix(prefix)
-            .tempdir_in(&root)
+            .tempdir()
             .expect("Test temp directory creation should succeed")
     }
 

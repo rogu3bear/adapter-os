@@ -6,13 +6,11 @@ use adapteros_retrieval::codegraph::parsers::test_utils::{
 use adapteros_retrieval::codegraph::{
     detect_language, parse_directory, CodeGraph, Language, ParserFactory, SymbolKind,
 };
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tempfile::TempDir;
 
 fn new_test_tempdir() -> TempDir {
-    let root = PathBuf::from("var").join("tmp");
-    std::fs::create_dir_all(&root).expect("create var/tmp");
-    TempDir::new_in(&root).expect("create temp dir")
+    TempDir::with_prefix("aos-test-").expect("create temp dir")
 }
 
 #[tokio::test]

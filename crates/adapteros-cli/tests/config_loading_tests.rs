@@ -59,9 +59,7 @@ mod config_loading {
     use serial_test::serial;
 
     fn new_temp_model_dir() -> TempDir {
-        let root = PathBuf::from("var").join("tmp");
-        fs::create_dir_all(&root).expect("create var/tmp");
-        TempDir::new_in(&root).expect("temp dir")
+        TempDir::with_prefix("aos-test-").expect("create temp dir")
     }
 
     fn new_temp_model_subdir(name: &str) -> (TempDir, PathBuf) {

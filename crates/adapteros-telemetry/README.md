@@ -119,9 +119,7 @@ use std::path::PathBuf;
 use tempfile::TempDir;
 
 // Create store with default policy
-let tmp_root = PathBuf::from("var").join("tmp");
-std::fs::create_dir_all(&tmp_root)?;
-let temp_dir = TempDir::new_in(&tmp_root)?;
+let temp_dir = TempDir::with_prefix("aos-")?;
 let policy = RetentionPolicy::default();
 let mut store = BundleStore::new(temp_dir.path(), policy)?;
 

@@ -426,9 +426,7 @@ mod tests {
     use tempfile::NamedTempFile;
 
     fn new_temp_file() -> NamedTempFile {
-        let temp_root = std::path::PathBuf::from("var/tmp");
-        std::fs::create_dir_all(&temp_root).unwrap();
-        NamedTempFile::new_in(&temp_root).unwrap()
+        NamedTempFile::new().expect("create temp file")
     }
 
     #[test]
