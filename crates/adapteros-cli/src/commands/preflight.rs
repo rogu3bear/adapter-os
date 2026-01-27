@@ -248,7 +248,7 @@ fn extract_branch_from_metadata(metadata_json: &Option<String>) -> Option<String
     })
 }
 
-// extract_repo_id_from_metadata moved to adapteros_normalization crate
+// extract_repo_id_from_metadata moved to adapteros_core (via adapteros-infra-common)
 
 /// Run the preflight command
 pub async fn run(cmd: PreflightCommand, output: &OutputWriter) -> Result<()> {

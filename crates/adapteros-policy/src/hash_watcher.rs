@@ -297,6 +297,70 @@ impl PolicyHashWatcher {
         Ok(())
     }
 
+    /// Reload baseline hashes from database into cache.
+    ///
+    /// This clears the existing cache and reloads all baseline hashes from the
+    /// database. Useful for rollback scenarios where the cached hashes may be stale.
+    pub async fn reload_baseline_cache(&self) -> Result<()> {
+        info!(cpid = ?self.cpid, "Reloading policy hash baseline cache from database");
+
+        // Clear existing cache
+        {
+            let mut cache = self.cache.write().map_err(|e| {
+                error!(error = %e, "Cache lock poisoned during reload");
+                AosError::Internal(format!("Cache lock poisoned: {}", e))
+            })?;
+            cache.clear();
+        }
+
+        // Reload from database
+        self.load_cache().await?;
+
+        info!(cpid = ?self.cpid, "Policy hash baseline cache reloaded");
+        Ok(())
+    }
+
+    /// Clear violations for a specific pack with optional cache reload.
+    ///
+    /// If `reload_cache` is true, the baseline cache will be reloaded from the database
+    /// before clearing violations. This is useful for rollback scenarios.
+    pub async fn clear_violations_with_reload(
+        &self,
+        policy_pack_id: &str,
+        reload_cache: bool,
+    ) -> Result<()> {
+        if reload_cache {
+            self.reload_baseline_cache().await?;
+        }
+        self.clear_violations(policy_pack_id)
+    }
+
+    /// Clear all violations with optional cache reload.
+    ///
+    /// If `reload_cache` is true, the baseline cache will be reloaded from the database
+    /// before clearing violations. This is useful for rollback scenarios.
+    pub async fn clear_all_violations_with_reload(&self, reload_cache: bool) -> Result<()> {
+        if reload_cache {
+            self.reload_baseline_cache().await?;
+        }
+        self.clear_all_violations()
+    }
+
+    /// Get violations for a specific policy pack
+    pub fn get_violations_for_pack(&self, policy_pack_id: &str) -> Vec<HashViolation> {
+        match self.violations.read() {
+            Ok(violations) => violations
+                .iter()
+                .filter(|v| v.policy_pack_id == policy_pack_id)
+                .cloned()
+                .collect(),
+            Err(e) => {
+                error!(error = %e, "Violations lock poisoned, returning empty list");
+                Vec::new()
+            }
+        }
+    }
+
     /// Check if system is quarantined (any violations present)
     pub fn is_quarantined(&self) -> bool {
         match self.violations.read() {

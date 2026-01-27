@@ -6,14 +6,14 @@
 //! - Index updates
 //! - Integration with CAS artifact storage
 
-use adapteros_retrieval::codegraph::CodeGraph;
 use adapteros_core::{AosError, Result};
+use adapteros_retrieval::codegraph::{CodeGraph, SymbolNode};
 use adapteros_db::{repositories::ScanJob, Db};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 /// Manages code intelligence jobs for repository scanning and indexing.
 ///
@@ -150,6 +150,86 @@ impl ArtifactStore {
 
         serde_json::from_str(&json).map_err(AosError::Serialization)
     }
+
+    /// Store a commit delta pack (CDP) artifact to disk.
+    pub async fn store_commit_delta_pack(
+        &self,
+        pack: &CommitDeltaPack,
+        repo_id: &str,
+        base_commit: &str,
+        head_commit: &str,
+    ) -> Result<String> {
+        let artifact_path = self
+            .base_path
+            .join(repo_id)
+            .join(format!("{}-{}.cdp.json", base_commit, head_commit));
+
+        if let Some(parent) = artifact_path.parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| AosError::Io(format!("Failed to create artifact directory: {}", e)))?;
+        }
+
+        let json = serde_json::to_string(pack).map_err(AosError::Serialization)?;
+
+        tokio::fs::write(&artifact_path, json)
+            .await
+            .map_err(|e| AosError::Io(format!("Failed to write CDP artifact: {}", e)))?;
+
+        Ok(artifact_path.to_string_lossy().to_string())
+    }
+
+    /// Store a symbol index artifact to disk.
+    pub async fn store_symbol_index(
+        &self,
+        index: &SymbolIndexArtifact,
+        repo_id: &str,
+        commit_sha: &str,
+    ) -> Result<String> {
+        let artifact_path = self
+            .base_path
+            .join(repo_id)
+            .join(format!("{}.symbols.index.json", commit_sha));
+
+        if let Some(parent) = artifact_path.parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| AosError::Io(format!("Failed to create artifact directory: {}", e)))?;
+        }
+
+        let json = serde_json::to_string(index).map_err(AosError::Serialization)?;
+        tokio::fs::write(&artifact_path, json)
+            .await
+            .map_err(|e| AosError::Io(format!("Failed to write symbol index: {}", e)))?;
+
+        Ok(artifact_path.to_string_lossy().to_string())
+    }
+
+    /// Store a test map artifact to disk.
+    pub async fn store_test_map(
+        &self,
+        test_map: &TestMapArtifact,
+        repo_id: &str,
+        commit_sha: &str,
+    ) -> Result<String> {
+        let artifact_path = self
+            .base_path
+            .join(repo_id)
+            .join(format!("{}.tests.map.json", commit_sha));
+
+        if let Some(parent) = artifact_path.parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| AosError::Io(format!("Failed to create artifact directory: {}", e)))?;
+        }
+
+        let json = serde_json::to_string(test_map).map_err(AosError::Serialization)?;
+        tokio::fs::write(&artifact_path, json)
+            .await
+            .map_err(|e| AosError::Io(format!("Failed to write test map: {}", e)))?;
+
+        Ok(artifact_path.to_string_lossy().to_string())
+    }
 }
 
 /// Configuration for a repository scanning job.
@@ -190,6 +270,66 @@ pub struct UpdateIndicesJob {
     pub repo_id: String,
     /// Commit SHA to index
     pub commit_sha: String,
+}
+
+/// A single symbol change recorded in a commit delta pack.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SymbolDelta {
+    pub symbol_id: String,
+    pub name: String,
+    pub kind: String,
+    pub file_path: String,
+    pub module_path: Vec<String>,
+    pub change_type: String,
+}
+
+/// Commit delta pack (CDP) artifact describing symbol-level changes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommitDeltaPack {
+    pub repo_id: String,
+    pub base_commit: String,
+    pub head_commit: String,
+    pub generated_at: String,
+    pub added: Vec<SymbolDelta>,
+    pub removed: Vec<SymbolDelta>,
+    pub modified: Vec<SymbolDelta>,
+}
+
+/// Index entry for a single symbol.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SymbolIndexEntry {
+    pub symbol_id: String,
+    pub name: String,
+    pub kind: String,
+    pub file_path: String,
+    pub module_path: Vec<String>,
+    pub language: String,
+}
+
+/// Persisted index for fast symbol lookup (serialized artifact).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SymbolIndexArtifact {
+    pub repo_id: String,
+    pub commit_sha: String,
+    pub generated_at: String,
+    pub symbols: Vec<SymbolIndexEntry>,
+}
+
+/// Test map entry derived from symbols.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestMapEntry {
+    pub symbol_id: String,
+    pub name: String,
+    pub file_path: String,
+}
+
+/// Persisted test map (serialized artifact).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestMapArtifact {
+    pub repo_id: String,
+    pub commit_sha: String,
+    pub generated_at: String,
+    pub tests: Vec<TestMapEntry>,
 }
 
 impl CodeJobManager {
@@ -298,34 +438,45 @@ impl CodeJobManager {
     /// `Ok(())` if the job completes successfully.
     ///
     /// # Errors
-    /// Currently returns `Ok(())` as this feature is not fully implemented.
-    ///
-    /// # Note
-    /// This method is a placeholder. Full implementation would:
-    /// 1. Load CodeGraphs for both commits
-    /// 2. Compute diff between graphs
-    /// 3. Extract changed symbols
-    /// 4. Run tests if configured
-    /// 5. Run linters if configured
-    /// 6. Store CDP artifact
-    /// 7. Create ephemeral adapter priors
+    /// Returns an error if CodeGraph artifacts cannot be loaded or the delta
+    /// pack cannot be written to storage.
     pub async fn execute_commit_delta_job(&self, job: CommitDeltaJob) -> Result<()> {
         info!(
             "Creating commit delta pack for repo={} base={} head={}",
             job.repo_id, job.base_commit, job.head_commit
         );
 
-        // This would:
-        // 1. Get both CodeGraphs
-        // 2. Compute diff
-        // 3. Extract changed symbols
-        // 4. Run tests if configured
-        // 5. Run linters if configured
-        // 6. Store CDP artifact
-        // 7. Create ephemeral adapter priors
+        let store = self._artifact_store.read().await;
+        let base_graph = store
+            .load_codegraph(&job.repo_id, &job.base_commit)
+            .await?;
+        let head_graph = store
+            .load_codegraph(&job.repo_id, &job.head_commit)
+            .await?;
 
-        // Simplified implementation for now
-        warn!("Commit delta job not fully implemented yet");
+        let (added, removed, modified) = diff_codegraphs(&base_graph, &head_graph);
+        let pack = CommitDeltaPack {
+            repo_id: job.repo_id.clone(),
+            base_commit: job.base_commit.clone(),
+            head_commit: job.head_commit.clone(),
+            generated_at: chrono::Utc::now().to_rfc3339(),
+            added,
+            removed,
+            modified,
+        };
+
+        let artifact_path = store
+            .store_commit_delta_pack(&pack, &job.repo_id, &job.base_commit, &job.head_commit)
+            .await?;
+
+        info!(
+            added = pack.added.len(),
+            removed = pack.removed.len(),
+            modified = pack.modified.len(),
+            artifact = %artifact_path,
+            "Commit delta pack generated"
+        );
+
         Ok(())
     }
 
@@ -341,28 +492,73 @@ impl CodeJobManager {
     /// `Ok(())` if the job completes successfully.
     ///
     /// # Errors
-    /// Currently returns `Ok(())` as this feature is not fully implemented.
-    ///
-    /// # Note
-    /// This method is a placeholder. Full implementation would:
-    /// 1. Load CodeGraph for the commit
-    /// 2. Update FTS5 symbol index
-    /// 3. Update HNSW vector index
-    /// 4. Update test map
+    /// Returns an error if CodeGraph artifacts cannot be loaded or index artifacts
+    /// cannot be written to storage.
     pub async fn execute_update_indices_job(&self, job: UpdateIndicesJob) -> Result<()> {
         info!(
             "Updating indices for repo={} commit={}",
             job.repo_id, job.commit_sha
         );
 
-        // This would:
-        // 1. Load CodeGraph
-        // 2. Update FTS5 symbol index
-        // 3. Update HNSW vector index
-        // 4. Update test map
+        let store = self._artifact_store.read().await;
+        let graph = store
+            .load_codegraph(&job.repo_id, &job.commit_sha)
+            .await?;
 
-        // Simplified implementation for now
-        warn!("Update indices job not fully implemented yet");
+        let symbols: Vec<SymbolIndexEntry> = graph
+            .symbols
+            .values()
+            .map(|symbol| SymbolIndexEntry {
+                symbol_id: symbol.id.to_hex(),
+                name: symbol.name.clone(),
+                kind: symbol.kind.to_string(),
+                file_path: symbol.file_path.clone(),
+                module_path: symbol.module_path.clone(),
+                language: symbol.language.to_string(),
+            })
+            .collect();
+
+        let symbol_index = SymbolIndexArtifact {
+            repo_id: job.repo_id.clone(),
+            commit_sha: job.commit_sha.clone(),
+            generated_at: chrono::Utc::now().to_rfc3339(),
+            symbols,
+        };
+
+        let symbol_index_path = store
+            .store_symbol_index(&symbol_index, &job.repo_id, &job.commit_sha)
+            .await?;
+
+        let tests: Vec<TestMapEntry> = graph
+            .symbols
+            .values()
+            .filter(|symbol| is_test_symbol(symbol))
+            .map(|symbol| TestMapEntry {
+                symbol_id: symbol.id.to_hex(),
+                name: symbol.name.clone(),
+                file_path: symbol.file_path.clone(),
+            })
+            .collect();
+
+        let test_map = TestMapArtifact {
+            repo_id: job.repo_id.clone(),
+            commit_sha: job.commit_sha.clone(),
+            generated_at: chrono::Utc::now().to_rfc3339(),
+            tests,
+        };
+
+        let test_map_path = store
+            .store_test_map(&test_map, &job.repo_id, &job.commit_sha)
+            .await?;
+
+        info!(
+            symbols = symbol_index.symbols.len(),
+            tests = test_map.tests.len(),
+            symbols_artifact = %symbol_index_path,
+            tests_artifact = %test_map_path,
+            "Indices updated"
+        );
+
         Ok(())
     }
 
@@ -403,6 +599,50 @@ impl CodeJobManager {
             .await
             .map_err(|e| AosError::Database(e.to_string()))
     }
+}
+
+fn diff_codegraphs(
+    base: &CodeGraph,
+    head: &CodeGraph,
+) -> (Vec<SymbolDelta>, Vec<SymbolDelta>, Vec<SymbolDelta>) {
+    let mut added = Vec::new();
+    let mut removed = Vec::new();
+    let mut modified = Vec::new();
+
+    for (id, head_symbol) in &head.symbols {
+        match base.symbols.get(id) {
+            None => added.push(symbol_delta(head_symbol, "added")),
+            Some(base_symbol) => {
+                if base_symbol != head_symbol {
+                    modified.push(symbol_delta(head_symbol, "modified"));
+                }
+            }
+        }
+    }
+
+    for (id, base_symbol) in &base.symbols {
+        if !head.symbols.contains_key(id) {
+            removed.push(symbol_delta(base_symbol, "removed"));
+        }
+    }
+
+    (added, removed, modified)
+}
+
+fn symbol_delta(symbol: &SymbolNode, change_type: &str) -> SymbolDelta {
+    SymbolDelta {
+        symbol_id: symbol.id.to_hex(),
+        name: symbol.name.clone(),
+        kind: symbol.kind.to_string(),
+        file_path: symbol.file_path.clone(),
+        module_path: symbol.module_path.clone(),
+        change_type: change_type.to_string(),
+    }
+}
+
+fn is_test_symbol(symbol: &SymbolNode) -> bool {
+    let name = symbol.name.to_lowercase();
+    name.starts_with("test") || name.contains("_test") || name.contains("tests")
 }
 
 #[cfg(test)]
