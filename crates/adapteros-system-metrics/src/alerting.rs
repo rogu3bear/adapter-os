@@ -13,6 +13,7 @@ use adapteros_model_hub::manifest::Policies;
 use adapteros_policy::PolicyEngine;
 use adapteros_telemetry::{SecurityEvent, TelemetryWriter};
 use serde::Serialize;
+use sqlx::Row;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::time::interval;
@@ -534,6 +535,7 @@ impl AlertEvaluator {
                 start_time: None,
                 end_time: None,
                 limit: Some(100),
+                offset: None,
             },
         )
         .await?;
@@ -689,11 +691,27 @@ impl AlertEvaluator {
 
     /// Get active workers for a tenant
     async fn get_active_workers_for_tenant(&self, tenant_id: &str) -> Result<Vec<WorkerInfo>> {
-        // Mock implementation for testing - return a mock worker
-        Ok(vec![WorkerInfo {
-            id: "test-worker-1".to_string(),
-            tenant_id: tenant_id.to_string(),
-        }])
+        let rows = sqlx::query(
+            "SELECT id, tenant_id FROM workers WHERE tenant_id = ? AND status IN ('starting','serving','draining')",
+        )
+        .bind(tenant_id)
+        .fetch_all(self.db.pool())
+        .await
+        .map_err(|e| adapteros_core::AosError::Database(format!("Failed to get workers: {}", e)))?;
+
+        let workers = rows
+            .into_iter()
+            .map(|row| WorkerInfo {
+                id: row
+                    .get::<Option<String>, _>("id")
+                    .unwrap_or_else(|| "unknown".to_string()),
+                tenant_id: row
+                    .get::<Option<String>, _>("tenant_id")
+                    .unwrap_or_else(|| tenant_id.to_string()),
+            })
+            .collect();
+
+        Ok(workers)
     }
 
     /// Detect drift using baseline comparison
@@ -860,31 +878,108 @@ impl AlertEvaluator {
     /// Check for anomalies using integrated anomaly detector
     async fn check_anomalies(&self, rule: &ProcessMonitoringRule, metric_value: f64) -> Result<()> {
         if let Some(ref detector) = self.anomaly_detector {
-            // Get recent metrics for anomaly detection
-            // Note: This would require public access to anomaly detector methods
-            // For now, we'll skip the actual anomaly detection in this implementation
-            // let recent_metrics = detector.get_recent_worker_metrics(&rule.worker_id, &rule.tenant_id).await?;
+            let config = detector.config();
+            let end_time = chrono::Utc::now();
+            let start_time = end_time - chrono::Duration::days(config.baseline_window_days as i64);
 
-            // if recent_metrics.len() >= detector.config.min_samples_for_baseline {
-            //     // Calculate baseline for anomaly detection
-            //     let baseline = detector.calculate_baseline(&rule.worker_id, &rule.metric_name, detector.config.baseline_window_days).await?;
-            //
-            //     // Detect anomalies
-            //     let anomalies = detector.detect_anomalies(
-            //         &rule.worker_id,
-            //         &rule.tenant_id,
-            //         &rule.metric_name,
-            //         metric_value,
-            //         &baseline,
-            //     ).await?;
-            //
-            //     // Trigger alerts for detected anomalies
-            //     for anomaly in anomalies {
-            //         if anomaly.confidence_score >= detector.config.confidence_threshold {
-            //             self.trigger_anomaly_alert(rule, &anomaly).await?;
-            //         }
-            //     }
-            // }
+            let metrics = ProcessHealthMetric::query(
+                self.db.pool(),
+                MetricFilters {
+                    worker_id: None,
+                    tenant_id: Some(rule.tenant_id.clone()),
+                    metric_name: Some(rule.metric_name.clone()),
+                    start_time: Some(start_time),
+                    end_time: Some(end_time),
+                    limit: Some((config.min_samples_for_baseline * 2) as i64),
+                },
+            )
+            .await?;
+
+            if metrics.len() < config.min_samples_for_baseline {
+                return Ok(());
+            }
+
+            let values: Vec<f64> = metrics.iter().map(|m| m.metric_value).collect();
+            let mean = values.iter().sum::<f64>() / values.len() as f64;
+            let variance = values
+                .iter()
+                .map(|x| (x - mean).powi(2))
+                .sum::<f64>()
+                / (values.len().saturating_sub(1).max(1) as f64);
+            let std_dev = variance.sqrt();
+            let z_score = if std_dev > 0.0 {
+                (metric_value - mean).abs() / std_dev
+            } else {
+                0.0
+            };
+
+            if z_score >= config.z_score_threshold {
+                let expected_range_min = Some(mean - (config.z_score_threshold * std_dev));
+                let expected_range_max = Some(mean + (config.z_score_threshold * std_dev));
+                let confidence_score = (z_score / (config.z_score_threshold * 2.0)).min(1.0);
+                let severity = if z_score >= config.z_score_threshold * 2.0 {
+                    AlertSeverity::Critical
+                } else if z_score >= config.z_score_threshold * 1.5 {
+                    AlertSeverity::Error
+                } else {
+                    AlertSeverity::Warning
+                };
+
+                let worker_id = metrics
+                    .last()
+                    .map(|m| m.worker_id.clone())
+                    .unwrap_or_else(|| "unknown".to_string());
+
+                let anomaly = crate::anomaly::DetectedAnomaly {
+                    worker_id: worker_id.clone(),
+                    tenant_id: rule.tenant_id.clone(),
+                    anomaly_type: "zscore".to_string(),
+                    metric_name: rule.metric_name.clone(),
+                    detected_value: metric_value,
+                    expected_range_min,
+                    expected_range_max,
+                    confidence_score,
+                    severity: severity.clone(),
+                    description: format!(
+                        "Z-score {:.2} exceeded threshold {:.2}",
+                        z_score, config.z_score_threshold
+                    ),
+                    detection_method: "zscore".to_string(),
+                    baseline: crate::anomaly::Baseline {
+                        mean,
+                        std_dev,
+                        percentile_25: mean,
+                        percentile_75: mean,
+                        percentile_95: mean,
+                        percentile_99: mean,
+                        min_value: values.iter().cloned().fold(f64::INFINITY, f64::min),
+                        max_value: values.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
+                        sample_count: values.len(),
+                        confidence_interval: (mean - std_dev, mean + std_dev),
+                    },
+                };
+
+                let create_request = CreateAnomalyRequest {
+                    worker_id,
+                    tenant_id: rule.tenant_id.clone(),
+                    anomaly_type: anomaly.anomaly_type.clone(),
+                    metric_name: anomaly.metric_name.clone(),
+                    detected_value: anomaly.detected_value,
+                    expected_range_min: anomaly.expected_range_min,
+                    expected_range_max: anomaly.expected_range_max,
+                    confidence_score: anomaly.confidence_score,
+                    severity: anomaly.severity.clone(),
+                    description: Some(anomaly.description.clone()),
+                    detection_method: anomaly.detection_method.clone(),
+                    model_version: None,
+                    status: AnomalyStatus::Detected,
+                };
+
+                let _ = ProcessAnomaly::insert(self.db.pool(), create_request).await?;
+                if anomaly.confidence_score >= config.confidence_threshold {
+                    self.trigger_anomaly_alert(rule, &anomaly).await?;
+                }
+            }
         }
 
         Ok(())
@@ -1270,28 +1365,43 @@ impl AlertEvaluator {
 
     /// Get active adapters for a tenant
     async fn get_active_adapters_for_tenant(&self, tenant_id: &str) -> Result<Vec<AdapterInfo>> {
-        // Note: This would require the adapters table to exist with the correct schema
-        // For now, return empty vector as placeholder
-        // let rows = sqlx::query!(
-        //     "SELECT id, category, last_accessed FROM adapters WHERE tenant_id = ? AND status = 'active'",
-        //     tenant_id
-        // )
-        // .fetch_all(self.db.pool())
-        // .await
-        // .map_err(|e| adapteros_core::AosError::Database(format!("Failed to get adapters: {}", e)))?;
-        //
-        // let adapters = rows
-        //     .into_iter()
-        //     .map(|row| AdapterInfo {
-        //         id: row.id.unwrap_or_else(|| "unknown".to_string()),
-        //         category: row.category.unwrap_or_else(|| "unknown".to_string()).parse().unwrap_or(AdapterCategory::Code),
-        //         last_accessed: row.last_accessed.unwrap_or_else(|| chrono::Utc::now()),
-        //     })
-        //     .collect();
-        //
-        // Ok(adapters)
+        let rows = sqlx::query(
+            r#"
+            SELECT id, category, COALESCE(last_activated, created_at) AS last_accessed
+            FROM adapters
+            WHERE tenant_id = ? AND active = 1
+            ORDER BY last_accessed DESC
+            "#,
+        )
+        .bind(tenant_id)
+        .fetch_all(self.db.pool())
+        .await
+        .map_err(|e| adapteros_core::AosError::Database(format!("Failed to get adapters: {}", e)))?;
 
-        Ok(Vec::new())
+        let adapters = rows
+            .into_iter()
+            .map(|row| {
+                let last_accessed_raw: Option<String> = row.get("last_accessed");
+                let last_accessed = last_accessed_raw
+                    .as_deref()
+                    .map(parse_db_datetime)
+                    .unwrap_or_else(chrono::Utc::now);
+                let category_raw: Option<String> = row.get("category");
+                let category = category_raw
+                    .as_deref()
+                    .and_then(|raw| raw.parse().ok())
+                    .unwrap_or(AdapterCategory::Code);
+                AdapterInfo {
+                    id: row
+                        .get::<Option<String>, _>("id")
+                        .unwrap_or_else(|| "unknown".to_string()),
+                    category,
+                    last_accessed,
+                }
+            })
+            .collect();
+
+        Ok(adapters)
     }
 
     /// Evict an adapter
@@ -1362,12 +1472,37 @@ impl AlertEvaluator {
 
     /// Get recent security events for a tenant
     async fn get_recent_security_events(&self, tenant_id: &str) -> Result<Vec<SecurityEvent>> {
-        let end_time = chrono::Utc::now();
-        let start_time = end_time - chrono::Duration::minutes(10); // 10-minute window
+        let rows = sqlx::query(
+            r#"
+            SELECT kind, description, severity, created_at
+            FROM incidents
+            WHERE tenant_id = ? AND created_at >= datetime('now', '-10 minutes')
+            ORDER BY created_at DESC
+            LIMIT 100
+            "#,
+        )
+        .bind(tenant_id)
+        .fetch_all(self.db.pool())
+        .await
+        .map_err(|e| adapteros_core::AosError::Database(format!("Failed to get incidents: {}", e)))?;
 
-        // Query security events from telemetry (this would be implemented in telemetry system)
-        // For now, return empty vector as placeholder
-        Ok(Vec::new())
+        let events = rows
+            .into_iter()
+            .map(|row| SecurityEvent::PolicyViolation {
+                policy: row.get::<Option<String>, _>("kind").unwrap_or_else(|| "unknown".to_string()),
+                violation_type: row
+                    .get::<Option<String>, _>("severity")
+                    .unwrap_or_else(|| "unknown".to_string()),
+                details: row
+                    .get::<Option<String>, _>("description")
+                    .unwrap_or_else(|| "no description".to_string()),
+                timestamp: row
+                    .get::<Option<String>, _>("created_at")
+                    .unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
+            })
+            .collect();
+
+        Ok(events)
     }
 
     /// Check if a security event represents a policy violation
@@ -1509,26 +1644,52 @@ impl AlertEvaluator {
 
     /// Validate control matrix mapping
     async fn validate_control_matrix(&self, tenant_id: &str) -> Result<bool> {
-        // Check if control matrix cross-links resolve to existing evidence
-        // This would query the compliance database for control matrix entries
-        // For now, return true as placeholder
-        Ok(true)
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM evidence_envelopes WHERE tenant_id = ? AND scope = 'policy' AND payload_json LIKE '%control_matrix%'",
+        )
+        .bind(tenant_id)
+        .fetch_one(self.db.pool())
+        .await
+        .unwrap_or(0);
+
+        Ok(count > 0)
     }
 
     /// Validate ITAR isolation
     async fn validate_itar_isolation(&self, tenant_id: &str) -> Result<bool> {
-        // Check ITAR isolation via adversarial suite per CP
-        // This would run ITAR isolation tests
-        // For now, return true as placeholder
-        Ok(true)
+        let itar_flag: Option<i64> = sqlx::query_scalar("SELECT itar_flag FROM tenants WHERE id = ?")
+            .bind(tenant_id)
+            .fetch_optional(self.db.pool())
+            .await
+            .ok()
+            .flatten();
+
+        if itar_flag.unwrap_or(0) == 0 {
+            return Ok(true);
+        }
+
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM audits WHERE tenant_id = ? AND suite_name = 'itar_isolation' AND created_at >= datetime('now', '-7 days')",
+        )
+        .bind(tenant_id)
+        .fetch_one(self.db.pool())
+        .await
+        .unwrap_or(0);
+
+        Ok(count > 0)
     }
 
     /// Validate evidence links
     async fn validate_evidence_links(&self, rule: &ProcessMonitoringRule) -> Result<bool> {
-        // Check if evidence links are required and provided
-        // This would validate against the evidence ruleset
-        // For now, return true as placeholder
-        Ok(true)
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM evidence_envelopes WHERE tenant_id = ? AND scope = 'policy'",
+        )
+        .bind(&rule.tenant_id)
+        .fetch_one(self.db.pool())
+        .await
+        .unwrap_or(0);
+
+        Ok(count > 0)
     }
 
     /// Trigger compliance violation alert
@@ -2116,6 +2277,16 @@ impl std::str::FromStr for AdapterCategory {
             _ => Err(()),
         }
     }
+}
+
+fn parse_db_datetime(value: &str) -> chrono::DateTime<chrono::Utc> {
+    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(value) {
+        return dt.with_timezone(&chrono::Utc);
+    }
+    if let Ok(ndt) = chrono::NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S") {
+        return chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(ndt, chrono::Utc);
+    }
+    chrono::Utc::now()
 }
 
 /// Patch validation metrics

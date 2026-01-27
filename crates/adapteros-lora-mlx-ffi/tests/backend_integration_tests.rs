@@ -1,6 +1,11 @@
 //! Backend integration tests for MLX FFI
-//! NOTE: Stubbed pending API updates
+
+use adapteros_lora_mlx_ffi::mock::{create_mock_config, MockMLXFFIModel};
 
 #[test]
-#[ignore = "Pending API updates - mock module not available [tracking: STAB-IGN-0037]"]
-fn test_mlx_backend_integration_stub() {}
+fn test_mock_backend_available() {
+    let config = create_mock_config();
+    let model = MockMLXFFIModel::new(config);
+
+    assert_eq!(model.config().vocab_size, 32000);
+}
