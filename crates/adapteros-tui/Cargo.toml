@@ -46,7 +46,7 @@ which = "6.0"
 dirs = "5.0"
 toml = "0.8"
 # For aligned text and formatting
-unicode-width = "=0.2.0"
+unicode-width = "=0.2.2"
 textwrap = "0.16"
 [dev-dependencies]
 rand = "0.8"
