@@ -254,6 +254,7 @@ pub struct AlertFilters {
     pub start_time: Option<chrono::DateTime<chrono::Utc>>,
     pub end_time: Option<chrono::DateTime<chrono::Utc>>,
     pub limit: Option<i64>,
+    pub offset: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -265,6 +266,7 @@ pub struct AnomalyFilters {
     pub start_time: Option<chrono::DateTime<chrono::Utc>>,
     pub end_time: Option<chrono::DateTime<chrono::Utc>>,
     pub limit: Option<i64>,
+    pub offset: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -687,43 +689,40 @@ impl ProcessAlert {
 
     /// List alerts with filters
     pub async fn list(pool: &SqlitePool, filters: AlertFilters) -> Result<Vec<ProcessAlert>> {
-        let mut query = "SELECT * FROM process_alerts WHERE 1=1".to_string();
-        let mut params: Vec<Box<dyn sqlx::Encode<'_, sqlx::Sqlite> + Send + Sync>> = vec![];
-        let mut param_count = 0;
+        let mut query = sqlx::QueryBuilder::<sqlx::Sqlite>::new(
+            "SELECT * FROM process_alerts WHERE 1=1",
+        );
 
         if let Some(tenant_id) = filters.tenant_id {
-            param_count += 1;
-            query.push_str(&format!(" AND tenant_id = ${}", param_count));
-            params.push(Box::new(tenant_id));
+            query.push(" AND tenant_id = ").push_bind(tenant_id);
         }
 
         if let Some(worker_id) = filters.worker_id {
-            param_count += 1;
-            query.push_str(&format!(" AND worker_id = ${}", param_count));
-            params.push(Box::new(worker_id));
+            query.push(" AND worker_id = ").push_bind(worker_id);
         }
 
         if let Some(status) = filters.status {
-            param_count += 1;
-            query.push_str(&format!(" AND status = ${}", param_count));
-            params.push(Box::new(status.to_string()));
+            query.push(" AND status = ").push_bind(status.to_string());
         }
 
         if let Some(severity) = filters.severity {
-            param_count += 1;
-            query.push_str(&format!(" AND severity = ${}", param_count));
-            params.push(Box::new(severity.to_string()));
+            query.push(" AND severity = ").push_bind(severity.to_string());
         }
 
-        query.push_str(" ORDER BY created_at DESC");
+        query.push(" ORDER BY created_at DESC");
 
         if let Some(limit) = filters.limit {
-            param_count += 1;
-            query.push_str(&format!(" LIMIT ${}", param_count));
-            params.push(Box::new(limit));
+            query.push(" LIMIT ").push_bind(limit);
+        } else if filters.offset.is_some() {
+            query.push(" LIMIT -1");
         }
 
-        let rows = sqlx::query(&query)
+        if let Some(offset) = filters.offset {
+            query.push(" OFFSET ").push_bind(offset);
+        }
+
+        let rows = query
+            .build()
             .fetch_all(pool)
             .await
             .map_err(db_err("list alerts"))?;
@@ -850,43 +849,40 @@ impl ProcessAnomaly {
 
     /// List anomalies with filters
     pub async fn list(pool: &SqlitePool, filters: AnomalyFilters) -> Result<Vec<ProcessAnomaly>> {
-        let mut query = "SELECT * FROM process_anomalies WHERE 1=1".to_string();
-        let mut params: Vec<Box<dyn sqlx::Encode<'_, sqlx::Sqlite> + Send + Sync>> = vec![];
-        let mut param_count = 0;
+        let mut query = sqlx::QueryBuilder::<sqlx::Sqlite>::new(
+            "SELECT * FROM process_anomalies WHERE 1=1",
+        );
 
         if let Some(tenant_id) = filters.tenant_id {
-            param_count += 1;
-            query.push_str(&format!(" AND tenant_id = ${}", param_count));
-            params.push(Box::new(tenant_id));
+            query.push(" AND tenant_id = ").push_bind(tenant_id);
         }
 
         if let Some(worker_id) = filters.worker_id {
-            param_count += 1;
-            query.push_str(&format!(" AND worker_id = ${}", param_count));
-            params.push(Box::new(worker_id));
+            query.push(" AND worker_id = ").push_bind(worker_id);
         }
 
         if let Some(status) = filters.status {
-            param_count += 1;
-            query.push_str(&format!(" AND status = ${}", param_count));
-            params.push(Box::new(status.to_string()));
+            query.push(" AND status = ").push_bind(status.to_string());
         }
 
         if let Some(anomaly_type) = filters.anomaly_type {
-            param_count += 1;
-            query.push_str(&format!(" AND anomaly_type = ${}", param_count));
-            params.push(Box::new(anomaly_type));
+            query.push(" AND anomaly_type = ").push_bind(anomaly_type);
         }
 
-        query.push_str(" ORDER BY created_at DESC");
+        query.push(" ORDER BY created_at DESC");
 
         if let Some(limit) = filters.limit {
-            param_count += 1;
-            query.push_str(&format!(" LIMIT ${}", param_count));
-            params.push(Box::new(limit));
+            query.push(" LIMIT ").push_bind(limit);
+        } else if filters.offset.is_some() {
+            query.push(" LIMIT -1");
         }
 
-        let rows = sqlx::query(&query)
+        if let Some(offset) = filters.offset {
+            query.push(" OFFSET ").push_bind(offset);
+        }
+
+        let rows = query
+            .build()
             .fetch_all(pool)
             .await
             .map_err(db_err("list anomalies"))?;
@@ -1253,10 +1249,12 @@ impl std::fmt::Display for ThresholdOperator {
 
 impl std::fmt::Display for AlertSeverity {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // NOTE: These values must match the database CHECK constraint in migration 0019
+        // CHECK(severity IN ('low','medium','high','critical'))
         match self {
-            AlertSeverity::Info => write!(f, "info"),
-            AlertSeverity::Warning => write!(f, "warning"),
-            AlertSeverity::Error => write!(f, "error"),
+            AlertSeverity::Info => write!(f, "low"),
+            AlertSeverity::Warning => write!(f, "medium"),
+            AlertSeverity::Error => write!(f, "high"),
             AlertSeverity::Critical => write!(f, "critical"),
         }
     }

@@ -1,11 +1,12 @@
 use crate::Db;
 use adapteros_core::error_helpers::DbErrorExt;
 use adapteros_core::{AosError, Result};
+use adapteros_types::nodes::{Node, NodeDetail as NodeDetailType};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct Node {
+struct NodeRow {
     pub id: String,
     pub hostname: String,
     pub agent_endpoint: String,
@@ -13,6 +14,20 @@ pub struct Node {
     pub last_seen_at: Option<String>,
     pub labels_json: Option<String>,
     pub created_at: String,
+}
+
+impl From<NodeRow> for Node {
+    fn from(row: NodeRow) -> Self {
+        Self {
+            id: row.id,
+            hostname: row.hostname,
+            agent_endpoint: row.agent_endpoint,
+            status: row.status,
+            last_seen_at: row.last_seen_at,
+            labels_json: row.labels_json,
+            created_at: row.created_at,
+        }
+    }
 }
 
 impl Db {
@@ -40,24 +55,24 @@ impl Db {
     }
 
     pub async fn list_nodes(&self) -> Result<Vec<Node>> {
-        let nodes = sqlx::query_as::<_, Node>(
+        let nodes = sqlx::query_as::<_, NodeRow>(
             "SELECT id, hostname, agent_endpoint, status, last_seen_at, labels_json, created_at FROM nodes ORDER BY created_at DESC"
         )
         .fetch_all(self.pool())
         .await
         .db_err("list nodes")?;
-        Ok(nodes)
+        Ok(nodes.into_iter().map(Node::from).collect())
     }
 
     pub async fn get_node(&self, id: &str) -> Result<Option<Node>> {
-        let node = sqlx::query_as::<_, Node>(
+        let node = sqlx::query_as::<_, NodeRow>(
             "SELECT id, hostname, agent_endpoint, status, last_seen_at, labels_json, created_at FROM nodes WHERE id = ?"
         )
         .bind(id)
         .fetch_optional(self.pool())
         .await
         .db_err("get node")?;
-        Ok(node)
+        Ok(node.map(Node::from))
     }
 
     pub async fn update_node_status(&self, id: &str, status: &str) -> Result<()> {
@@ -110,8 +125,8 @@ impl Db {
     }
 
     /// Get detailed node information by ID
-    pub async fn get_node_detail(&self, node_id: &str) -> Result<Option<NodeDetail>> {
-        let node = sqlx::query_as::<_, NodeDetail>(
+    pub async fn get_node_detail(&self, node_id: &str) -> Result<Option<NodeDetailType>> {
+        let node = sqlx::query_as::<_, NodeRow>(
             "SELECT id, hostname, agent_endpoint, status, last_seen_at, labels_json, created_at
              FROM nodes WHERE id = ?",
         )
@@ -120,7 +135,10 @@ impl Db {
         .await
         .db_err("get node detail")?;
 
-        Ok(node)
+        Ok(node.map(|r| NodeDetailType {
+            node: Node::from(r),
+            workers: Vec::new(), // Workers list should be populated separately or via join
+        }))
     }
 
     /// Get adapters loaded on a node from workers
@@ -153,16 +171,4 @@ impl Db {
 
         Ok(count > 0)
     }
-}
-
-/// Detailed node record
-#[derive(Debug, Clone, sqlx::FromRow)]
-pub struct NodeDetail {
-    pub id: String,
-    pub hostname: String,
-    pub agent_endpoint: String,
-    pub status: String,
-    pub last_seen_at: Option<String>,
-    pub labels_json: Option<String>,
-    pub created_at: String,
 }

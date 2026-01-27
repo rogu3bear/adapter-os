@@ -480,39 +480,6 @@ impl TenantKvOps for TenantKvRepository {
 // Conversion Functions
 // ============================================================================
 
-/// Convert SQL Tenant to KV TenantKv
-impl From<Tenant> for TenantKv {
-    fn from(sql_tenant: Tenant) -> Self {
-        use chrono::DateTime;
-
-        // Parse timestamps, default to now if parsing fails
-        let created_at = DateTime::parse_from_rfc3339(&sql_tenant.created_at)
-            .map(|dt| dt.with_timezone(&Utc))
-            .unwrap_or_else(|_| Utc::now());
-
-        let updated_at = sql_tenant
-            .updated_at
-            .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
-            .map(|dt| dt.with_timezone(&Utc))
-            .unwrap_or_else(Utc::now);
-
-        Self {
-            id: sql_tenant.id,
-            name: sql_tenant.name,
-            itar_flag: sql_tenant.itar_flag,
-            status: sql_tenant.status.unwrap_or_else(|| "active".to_string()),
-            default_stack_id: sql_tenant.default_stack_id,
-            default_pinned_adapter_ids: sql_tenant.default_pinned_adapter_ids,
-            max_adapters: sql_tenant.max_adapters,
-            max_training_jobs: sql_tenant.max_training_jobs,
-            max_storage_gb: sql_tenant.max_storage_gb,
-            rate_limit_rpm: sql_tenant.rate_limit_rpm,
-            created_at,
-            updated_at,
-        }
-    }
-}
-
 /// Helper function to create TenantKv from CreateTenantParams (used in tests)
 #[allow(dead_code)]
 fn tenant_kv_from_params(params: &CreateTenantParams, id: &str) -> TenantKv {

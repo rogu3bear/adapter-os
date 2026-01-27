@@ -1,7 +1,8 @@
 //! SQLite backend implementation for database abstraction
 
-use super::traits::{CreateStackRequest, DatabaseBackend, StackRecord};
+use super::traits::{AdapterRecordRow, CreateStackRequest, DatabaseBackend, StackRecordRow};
 use adapteros_core::{AosError, Result};
+use adapteros_types::adapters::{AdapterRecord, StackRecord};
 use async_trait::async_trait;
 use sqlx::{sqlite::SqliteConnectOptions, Row, SqlitePool};
 use std::path::PathBuf;
@@ -71,8 +72,8 @@ impl DatabaseBackend for SqliteBackend {
     }
 
     async fn get_stack(&self, tenant_id: &str, id: &str) -> Result<Option<StackRecord>> {
-        let row = sqlx::query_as::<_, (String, String, String, Option<String>, String, Option<String>, i64, String, String, String, Option<String>, Option<String>, Option<String>)>(
-            "SELECT tenant_id, id, name, description, adapter_ids_json, workflow_type, CAST(version AS INTEGER) AS version, lifecycle_state, created_at, updated_at, created_by, determinism_mode, routing_determinism_mode
+        let row = sqlx::query_as::<_, StackRecordRow>(
+            "SELECT tenant_id, id, name, description, adapter_ids_json, workflow_type, CAST(version AS INTEGER) AS version, lifecycle_state, created_at, updated_at, created_by, determinism_mode, routing_determinism_mode, metadata_json
              FROM adapter_stacks WHERE tenant_id = ? AND id = ?"
         )
         .bind(tenant_id)
@@ -81,42 +82,13 @@ impl DatabaseBackend for SqliteBackend {
         .await
         .map_err(|e| AosError::Database(format!("Failed to fetch stack: {}", e)))?;
 
-        Ok(row.map(|r| StackRecord {
-            tenant_id: r.0,
-            id: r.1,
-            name: r.2,
-            description: r.3,
-            adapter_ids_json: r.4,
-            workflow_type: r.5,
-            version: r.6,
-            lifecycle_state: r.7,
-            created_at: r.8,
-            updated_at: r.9,
-            created_by: r.10,
-            determinism_mode: r.11,
-            routing_determinism_mode: r.12,
-            metadata_json: None,
-        }))
+        Ok(row.map(StackRecord::from))
     }
 
     async fn list_stacks(&self) -> Result<Vec<StackRecord>> {
-        let rows = sqlx::query_as::<_, (
-            String,                         // tenant_id
-            String,                         // id
-            String,                         // name
-            Option<String>,                 // description
-            String,                         // adapter_ids_json
-            Option<String>,                 // workflow_type
-            i64,                            // version
-            String,                         // lifecycle_state
-            String,                         // created_at
-            String,                         // updated_at
-            Option<String>,                 // created_by
-            Option<String>,                 // determinism_mode
-            Option<String>, // routing_determinism_mode
-        )>(
+        let rows = sqlx::query_as::<_, StackRecordRow>(
             r#"
-            SELECT tenant_id, id, name, description, adapter_ids_json, workflow_type, CAST(version AS INTEGER) AS version, lifecycle_state, created_at, updated_at, created_by, determinism_mode, routing_determinism_mode
+            SELECT tenant_id, id, name, description, adapter_ids_json, workflow_type, CAST(version AS INTEGER) AS version, lifecycle_state, created_at, updated_at, created_by, determinism_mode, routing_determinism_mode, metadata_json
             FROM adapter_stacks
             ORDER BY created_at DESC
             "#
@@ -125,25 +97,7 @@ impl DatabaseBackend for SqliteBackend {
         .await
         .map_err(|e| AosError::Database(format!("Failed to list stacks: {}", e)))?;
 
-        Ok(rows
-            .into_iter()
-            .map(|r| StackRecord {
-                tenant_id: r.0,
-                id: r.1,
-                name: r.2,
-                description: r.3,
-                adapter_ids_json: r.4,
-                workflow_type: r.5,
-                version: r.6,
-                lifecycle_state: r.7,
-                created_at: r.8,
-                updated_at: r.9,
-                created_by: r.10,
-                determinism_mode: r.11,
-                routing_determinism_mode: r.12,
-                metadata_json: None,
-            })
-            .collect())
+        Ok(rows.into_iter().map(StackRecord::from).collect())
     }
 
     async fn delete_stack(&self, tenant_id: &str, id: &str) -> Result<bool> {
@@ -267,10 +221,8 @@ impl DatabaseBackend for SqliteBackend {
         &self,
         tenant_id: &str,
         adapter_id: &str,
-    ) -> Result<Option<super::traits::AdapterRecord>> {
-        use super::traits::AdapterRecord;
-
-        let row = sqlx::query_as::<_, AdapterRecord>(
+    ) -> Result<Option<AdapterRecord>> {
+        let row = sqlx::query_as::<_, AdapterRecordRow>(
             r#"
             SELECT id, tenant_id, name, tier, hash_b3, rank, alpha, targets_json, acl_json, adapter_id, languages_json, framework, active, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, current_state, pinned, memory_bytes, last_activated, activation_count, expires_at, load_state, last_loaded_at, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, version, lifecycle_state, lora_strength, archived_at, archived_by, archive_reason, purged_at
             FROM adapters
@@ -283,14 +235,14 @@ impl DatabaseBackend for SqliteBackend {
         .await
         .map_err(|e| AosError::Database(format!("Failed to fetch adapter: {}", e)))?;
 
-        Ok(row)
+        Ok(row.map(AdapterRecord::from))
     }
 
     async fn list_stacks_for_tenant(&self, tenant_id: &str) -> Result<Vec<StackRecord>> {
-        let rows = sqlx::query(
+        let rows = sqlx::query_as::<_, StackRecordRow>(
             r#"
             SELECT tenant_id, id, name, description, adapter_ids_json, workflow_type,
-                   CAST(version AS INTEGER) AS version, lifecycle_state, created_at, updated_at, created_by, determinism_mode, routing_determinism_mode
+                   CAST(version AS INTEGER) AS version, lifecycle_state, created_at, updated_at, created_by, determinism_mode, routing_determinism_mode, metadata_json
             FROM adapter_stacks
             WHERE tenant_id = ?
             ORDER BY created_at DESC
@@ -301,24 +253,6 @@ impl DatabaseBackend for SqliteBackend {
         .await
         .map_err(|e| AosError::Database(format!("Failed to list stacks for tenant: {}", e)))?;
 
-        Ok(rows
-            .into_iter()
-            .map(|r: sqlx::sqlite::SqliteRow| StackRecord {
-                tenant_id: r.get(0),
-                id: r.get(1),
-                name: r.get(2),
-                description: r.get::<Option<String>, _>(3),
-                adapter_ids_json: r.get(4),
-                workflow_type: r.get::<Option<String>, _>(5),
-                version: r.get::<i64, _>(6),
-                lifecycle_state: r.get(7),
-                created_at: r.get(8),
-                updated_at: r.get(9),
-                created_by: r.get::<Option<String>, _>(10),
-                determinism_mode: r.get::<Option<String>, _>(11),
-                routing_determinism_mode: r.get::<Option<String>, _>(12),
-                metadata_json: None,
-            })
-            .collect())
+        Ok(rows.into_iter().map(StackRecord::from).collect())
     }
 }
