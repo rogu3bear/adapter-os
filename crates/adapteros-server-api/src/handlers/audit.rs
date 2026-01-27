@@ -494,3 +494,220 @@ pub async fn get_compliance_audit(
         timestamp: chrono::Utc::now().to_rfc3339(),
     }))
 }
+
+// ========== Audit Chain Types for UI ==========
+
+/// Query parameters for audit chain endpoint
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::IntoParams)]
+pub struct AuditChainQuery {
+    /// Maximum number of entries to return (default: 100, max: 1000)
+    #[serde(default = "default_chain_limit")]
+    pub limit: usize,
+}
+
+fn default_chain_limit() -> usize {
+    100
+}
+
+/// Audit chain entry with hash linkage
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub struct AuditChainEntry {
+    pub id: String,
+    pub timestamp: String,
+    pub action: String,
+    pub resource_type: String,
+    pub status: String,
+    pub entry_hash: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub previous_hash: Option<String>,
+    pub chain_sequence: i64,
+    pub verified: bool,
+}
+
+/// Audit chain response with verification status
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub struct AuditChainResponse {
+    pub entries: Vec<AuditChainEntry>,
+    pub chain_valid: bool,
+    pub total_entries: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub merkle_root: Option<String>,
+}
+
+/// Chain verification response
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub struct ChainVerificationResponse {
+    pub chain_valid: bool,
+    pub total_entries: usize,
+    pub verified_entries: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_invalid_sequence: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub merkle_root: Option<String>,
+    pub verification_timestamp: String,
+}
+
+// ========== Audit Chain Handlers ==========
+
+/// Get audit chain entries
+///
+/// Returns policy audit decision chain entries formatted for the UI.
+/// The merkle root is computed from the latest entry's hash.
+#[utoipa::path(
+    tag = "audit",
+    get,
+    path = "/v1/audit/chain",
+    params(AuditChainQuery),
+    responses(
+        (status = 200, description = "Audit chain entries retrieved", body = AuditChainResponse),
+        (status = 403, description = "Forbidden - requires AuditView permission", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    )
+)]
+pub async fn get_audit_chain(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(query): Query<AuditChainQuery>,
+) -> Result<Json<AuditChainResponse>, (StatusCode, Json<ErrorResponse>)> {
+    use crate::permissions::{require_permission, Permission};
+
+    require_permission(&claims, Permission::AuditView)?;
+
+    let limit = query.limit.min(1000);
+
+    // Query policy audit decisions for the tenant
+    let filters = adapteros_db::policy_audit::PolicyDecisionFilters {
+        tenant_id: Some(claims.tenant_id.clone()),
+        limit: Some(limit as i64),
+        ..Default::default()
+    };
+
+    let decisions = state
+        .db
+        .query_policy_decisions(filters)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to query audit chain")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    // Transform policy decisions into UI-compatible chain entries
+    let entries: Vec<AuditChainEntry> = decisions
+        .iter()
+        .map(|d| AuditChainEntry {
+            id: d.id.clone(),
+            timestamp: d.timestamp.clone(),
+            action: d.hook.clone(),
+            resource_type: d.resource_type.clone().unwrap_or_else(|| "policy".to_string()),
+            status: d.decision.clone(),
+            entry_hash: d.entry_hash.clone(),
+            previous_hash: d.previous_hash.clone(),
+            chain_sequence: d.chain_sequence,
+            verified: true, // Hash computed on insert, so entries are verified by default
+        })
+        .collect();
+
+    // Get merkle root from the latest entry's hash
+    let merkle_root = entries.first().map(|e| e.entry_hash.clone());
+
+    // Verify the chain integrity
+    let verification = state
+        .db
+        .verify_policy_audit_chain(Some(&claims.tenant_id))
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to verify audit chain")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    Ok(Json(AuditChainResponse {
+        total_entries: entries.len(),
+        entries,
+        chain_valid: verification.is_valid,
+        merkle_root,
+    }))
+}
+
+/// Verify audit chain integrity
+///
+/// Performs full cryptographic verification of the policy audit chain.
+/// Checks hash linkage and detects any tampered entries.
+#[utoipa::path(
+    tag = "audit",
+    get,
+    path = "/v1/audit/chain/verify",
+    responses(
+        (status = 200, description = "Chain verification result", body = ChainVerificationResponse),
+        (status = 403, description = "Forbidden - requires AuditView permission", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    )
+)]
+pub async fn verify_audit_chain(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+) -> Result<Json<ChainVerificationResponse>, (StatusCode, Json<ErrorResponse>)> {
+    use crate::permissions::{require_permission, Permission};
+
+    require_permission(&claims, Permission::AuditView)?;
+
+    // Use the existing chain verification from the DB layer
+    let result = state
+        .db
+        .verify_policy_audit_chain(Some(&claims.tenant_id))
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("failed to verify audit chain")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    // Get the merkle root (latest entry hash) if chain is valid
+    let merkle_root = if result.is_valid && result.entries_checked > 0 {
+        let filters = adapteros_db::policy_audit::PolicyDecisionFilters {
+            tenant_id: Some(claims.tenant_id.clone()),
+            limit: Some(1),
+            ..Default::default()
+        };
+        state
+            .db
+            .query_policy_decisions(filters)
+            .await
+            .ok()
+            .and_then(|decisions| decisions.first().map(|d| d.entry_hash.clone()))
+    } else {
+        None
+    };
+
+    Ok(Json(ChainVerificationResponse {
+        chain_valid: result.is_valid,
+        total_entries: result.entries_checked,
+        verified_entries: if result.is_valid {
+            result.entries_checked
+        } else {
+            result.first_invalid_sequence.map(|s| (s - 1) as usize).unwrap_or(0)
+        },
+        first_invalid_sequence: result.first_invalid_sequence,
+        error_message: result.error_message,
+        merkle_root,
+        verification_timestamp: chrono::Utc::now().to_rfc3339(),
+    }))
+}

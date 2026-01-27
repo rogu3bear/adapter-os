@@ -173,7 +173,7 @@ pub fn App() -> impl IntoView {
                             <Routes fallback=|| view! { <pages::NotFound/> }>
                         <Route path=path!("/login") view=pages::Login/>
                         <Route path=path!("/") view=|| view! { <ProtectedRoute><Shell><pages::Dashboard/></Shell></ProtectedRoute> }/>
-                        <Route path=path!("/dashboard") view=|| view! { <ProtectedRoute><Shell><pages::Dashboard/></Shell></ProtectedRoute> }/>
+                        <Route path=path!("/dashboard") view=|| view! { <Redirect path="/"/> }/>
                         <Route path=path!("/adapters") view=|| view! { <ProtectedRoute><Shell><pages::Adapters/></Shell></ProtectedRoute> }/>
                         <Route path=path!("/adapters/:id") view=|| view! { <ProtectedRoute><Shell><pages::AdapterDetail/></Shell></ProtectedRoute> }/>
                         <Route path=path!("/chat") view=|| view! { <ProtectedRoute><Shell><pages::Chat/></Shell></ProtectedRoute> }/>
