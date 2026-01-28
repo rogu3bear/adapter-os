@@ -49,7 +49,7 @@ impl Default for SupervisorConfig {
             policy_check_interval_secs: 30,
             adapter_check_interval_secs: 60,
             memory_check_interval_secs: 10,
-            db_path: PathBuf::from("var/aos.db"),
+            db_path: adapteros_core::rebase_var_path("var/aos.db"),
             auto_quarantine_enabled: true,
             hot_reload_enabled: true,
         }

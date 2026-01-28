@@ -94,7 +94,7 @@ impl Default for RotationDaemonConfig {
                 "tenant-encryption-key".to_string(),
                 "system-audit-key".to_string(),
             ],
-            audit_log_path: PathBuf::from("var/audit/keys"),
+            audit_log_path: adapteros_core::rebase_var_path("var/audit/keys"),
             max_receipts_per_key: 100,
         }
     }

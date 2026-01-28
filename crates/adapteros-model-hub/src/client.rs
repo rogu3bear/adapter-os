@@ -28,9 +28,10 @@ impl Default for ModelHubConfig {
     fn default() -> Self {
         // Use AOS_MODEL_CACHE_DIR env var if set, otherwise default to var/model-cache
         // This aligns with the server's default in main.rs and cp.toml paths configuration
+        // Note: rebase_var_path handles AOS_VAR_DIR override for the default path
         let cache_dir = std::env::var("AOS_MODEL_CACHE_DIR")
             .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from("var/model-cache"));
+            .unwrap_or_else(|_| adapteros_core::rebase_var_path("var/model-cache"));
 
         Self {
             registry_url: "https://huggingface.co".to_string(),

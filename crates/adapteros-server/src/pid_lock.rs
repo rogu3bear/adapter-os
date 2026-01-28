@@ -19,7 +19,7 @@ impl PidFileLock {
                     return system_path;
                 }
             }
-            PathBuf::from("var/aos-cp.pid")
+            adapteros_core::rebase_var_path("var/aos-cp.pid")
         });
 
         // Check if another instance is running

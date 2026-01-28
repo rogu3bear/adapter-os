@@ -839,7 +839,7 @@ pub(crate) async fn run_training_job(
             let checkpoint_dir = storage_root
                 .clone()
                 .map(|s| s.join("checkpoints").join(&job_id))
-                .unwrap_or_else(|| PathBuf::from("var/checkpoints").join(&job_id));
+                .unwrap_or_else(|| adapteros_core::rebase_var_path("var/checkpoints").join(&job_id));
 
             if let Err(e) = std::fs::create_dir_all(&checkpoint_dir) {
                 tracing::warn!(
@@ -1426,7 +1426,7 @@ pub(crate) async fn run_training_job(
                 };
 
                 let report_root =
-                    artifacts_root.unwrap_or_else(|| PathBuf::from("var/artifacts"));
+                    artifacts_root.unwrap_or_else(|| adapteros_core::rebase_var_path("var/artifacts"));
                 let pipeline_id_for_report = pipeline
                     .pipeline_id()
                     .unwrap_or_else(|| {
