@@ -30,7 +30,7 @@ struct Args {
     heartbeat_file: PathBuf,
 
     /// Database path for audit trail
-    #[clap(long, default_value = "./var/aos-cp.sqlite3")]
+    #[clap(long, default_value = "var/aos-cp.sqlite3")]
     database: PathBuf,
 
     /// Skip database connection (for testing)

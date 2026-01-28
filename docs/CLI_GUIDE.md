@@ -1624,7 +1624,7 @@ aosctl db migrate [OPTIONS]
 ```
 
 **Parameters**:
-- `--db-path` (optional): Database path (defaults to DATABASE_URL or ./var/aos-cp.sqlite3)
+- `--db-path` (optional): Database path (defaults to DATABASE_URL or var/aos-cp.sqlite3)
 - `--verify-only` (optional): Verify signatures only (don't run migrations)
 
 **Examples**:
@@ -1633,7 +1633,7 @@ aosctl db migrate [OPTIONS]
 aosctl db migrate
 
 # Run migrations on custom database
-aosctl db migrate --db-path ./var/custom.db
+aosctl db migrate --db-path var/custom.db
 
 # Verify signatures only (don't run migrations)
 aosctl db migrate --verify-only
@@ -1649,7 +1649,7 @@ aosctl db unlock [OPTIONS]
 ```
 
 **Parameters**:
-- `--db-path` (optional): Database path (defaults to DATABASE_URL or ./var/aos-cp.sqlite3)
+- `--db-path` (optional): Database path (defaults to DATABASE_URL or var/aos-cp.sqlite3)
 
 **Examples**:
 ```bash
@@ -1657,7 +1657,7 @@ aosctl db unlock [OPTIONS]
 aosctl db unlock
 
 # Unlock custom database
-aosctl db unlock --db-path ./var/custom.db
+aosctl db unlock --db-path var/custom.db
 ```
 
 ### `db reset`
@@ -1670,7 +1670,7 @@ aosctl db reset [OPTIONS]
 ```
 
 **Parameters**:
-- `--db-path` (optional): Database path (defaults to DATABASE_URL or ./var/aos-cp.sqlite3)
+- `--db-path` (optional): Database path (defaults to DATABASE_URL or var/aos-cp.sqlite3)
 - `--force` (optional): Skip confirmation prompt
 
 **Examples**:
@@ -1679,7 +1679,7 @@ aosctl db reset [OPTIONS]
 aosctl db reset
 
 # Reset custom database
-aosctl db reset --db-path ./var/custom.db
+aosctl db reset --db-path var/custom.db
 
 # Skip confirmation prompt (dangerous!)
 aosctl db reset --force
@@ -1697,7 +1697,7 @@ aosctl db seed-fixtures [OPTIONS]
 ```
 
 **Parameters**:
-- `--db-path` (optional): Database path (defaults to DATABASE_URL or ./var/aos-cp.sqlite3)
+- `--db-path` (optional): Database path (defaults to DATABASE_URL or var/aos-cp.sqlite3)
 - `--skip-reset` (optional): Skip removing the database file before seeding
 - `--chat` (optional): Include a starter chat session + single message (default: true)
 
@@ -1723,7 +1723,7 @@ aosctl db health [OPTIONS]
 ```
 
 **Parameters**:
-- `--db-path` (optional): Database path (defaults to DATABASE_URL or ./var/aos-cp.sqlite3)
+- `--db-path` (optional): Database path (defaults to DATABASE_URL or var/aos-cp.sqlite3)
 - `--json` (optional): Emit JSON instead of human-readable output
 
 ### `db verify-seed`
@@ -1736,7 +1736,7 @@ aosctl db verify-seed [OPTIONS]
 ```
 
 **Parameters**:
-- `--db-path` (optional): Database path (defaults to DATABASE_URL or ./var/aos-cp.sqlite3)
+- `--db-path` (optional): Database path (defaults to DATABASE_URL or var/aos-cp.sqlite3)
 - `--tenant-id` (optional): Tenant to verify (defaults to tenant-test)
 
 **Examples**:
@@ -1745,7 +1745,7 @@ aosctl db verify-seed [OPTIONS]
 aosctl db verify-seed
 
 # Verify custom database
-aosctl db verify-seed --db-path ./var/custom.db
+aosctl db verify-seed --db-path var/custom.db
 
 # Verify a different tenant id
 aosctl db verify-seed --tenant-id tenant-test
@@ -1761,7 +1761,7 @@ aosctl db repair-bootstrap [OPTIONS]
 ```
 
 **Parameters**:
-- `--db-path` (optional): Database path (defaults to DATABASE_URL or ./var/aos-cp.sqlite3)
+- `--db-path` (optional): Database path (defaults to DATABASE_URL or var/aos-cp.sqlite3)
 - `--dry-run` (optional): Check only, don't repair
 - `--json` (optional): Output JSON instead of human-readable
 
@@ -1774,7 +1774,7 @@ aosctl db repair-bootstrap --dry-run
 aosctl db repair-bootstrap
 
 # Check/repair custom database
-aosctl db repair-bootstrap --db-path ./var/custom.db
+aosctl db repair-bootstrap --db-path var/custom.db
 ```
 
 This command validates that the system tenant and core policies are properly seeded. Issues detected include:
@@ -1796,7 +1796,7 @@ aosctl storage mode [OPTIONS]
 ```
 
 **Parameters**:
-- `--db-path` (optional): Database path (defaults to DATABASE_URL or ./var/aos-cp.sqlite3)
+- `--db-path` (optional): Database path (defaults to DATABASE_URL or var/aos-cp.sqlite3)
 
 **Examples**:
 ```bash
@@ -1824,8 +1824,8 @@ aosctl storage set-mode <MODE> [OPTIONS]
 
 **Parameters**:
 - `MODE` (required): Storage mode (sql_only, dual_write, kv_primary, kv_only)
-- `--db-path` (optional): Database path (defaults to DATABASE_URL or ./var/aos-cp.sqlite3)
-- `--kv-path` (optional): KV database path (default: ./var/aos-kv.redb)
+- `--db-path` (optional): Database path (defaults to DATABASE_URL or var/aos-cp.sqlite3)
+- `--kv-path` (optional): KV database path (default: var/aos-kv.redb)
 - `--init-kv` (optional): Initialize KV backend if not exists
 
 **Examples**:
@@ -1843,7 +1843,7 @@ aosctl storage set-mode kv_only
 aosctl storage set-mode sql_only
 
 # Set mode with custom database path
-aosctl storage set-mode dual_write --db-path ./var/custom.db --kv-path ./var/custom.redb
+aosctl storage set-mode dual_write --db-path var/custom.db --kv-path var/custom.redb
 ```
 
 ### `storage migrate`
@@ -1856,15 +1856,15 @@ aosctl storage migrate [OPTIONS]
 ```
 
 **Parameters**:
-- `--db-path` (optional): Database path (defaults to DATABASE_URL or ./var/aos-cp.sqlite3)
-- `--kv-path` (optional): KV database path (default: ./var/aos-kv.redb)
+- `--db-path` (optional): Database path (defaults to DATABASE_URL or var/aos-cp.sqlite3)
+- `--kv-path` (optional): KV database path (default: var/aos-kv.redb)
 - `--dry-run` (optional): Show what would be migrated without making changes
 - `--verify` (optional): Verify consistency after migration
 - `--force` (optional): Force migration even if KV backend already has data
 - `--tenant` (optional): Migrate a single tenant only
 - `--batch-size` (optional): Batch size for migrations (default: 100)
 - `--resume` (optional): Resume from checkpoint (requires --checkpoint-path)
-- `--checkpoint-path` (optional): Path to checkpoint file (default: ./var/aos-migrate.checkpoint.json)
+- `--checkpoint-path` (optional): Path to checkpoint file (default: var/aos-migrate.checkpoint.json)
 - `--domains` (optional): Comma-separated domains (adapters, tenants, stacks, plans, auth_sessions, runtime_sessions, rag_artifacts)
 
 **Examples**:
@@ -1873,7 +1873,7 @@ aosctl storage migrate [OPTIONS]
 aosctl storage migrate
 
 # Migrate with custom paths
-aosctl storage migrate --db-path ./var/aos-cp.sqlite3 --kv-path ./var/aos-kv.redb
+aosctl storage migrate --db-path var/aos-cp.sqlite3 --kv-path var/aos-kv.redb
 
 # Dry run to preview migration
 aosctl storage migrate --dry-run
@@ -1892,8 +1892,8 @@ aosctl storage verify [OPTIONS]
 ```
 
 **Parameters**:
-- `--db-path` (optional): Database path (defaults to DATABASE_URL or ./var/aos-cp.sqlite3)
-- `--kv-path` (optional): KV database path (default: ./var/aos-kv.redb)
+- `--db-path` (optional): Database path (defaults to DATABASE_URL or var/aos-cp.sqlite3)
+- `--kv-path` (optional): KV database path (default: var/aos-kv.redb)
 - `--adapters-only` (optional): Verify adapters only
 - `--tenants-only` (optional): Verify tenants only
 - `--stacks-only` (optional): Verify stacks only
@@ -1907,7 +1907,7 @@ aosctl storage verify [OPTIONS]
 aosctl storage verify
 
 # Verify with custom paths
-aosctl storage verify --db-path ./var/aos-cp.sqlite3 --kv-path ./var/aos-kv.redb
+aosctl storage verify --db-path var/aos-cp.sqlite3 --kv-path var/aos-kv.redb
 
 # Verify specific entities
 aosctl storage verify --adapters-only
@@ -1926,14 +1926,14 @@ aosctl storage validate-consistency --tenant <TENANT> [OPTIONS]
 
 **Parameters**:
 - `--tenant` (required): Tenant ID to validate
-- `--db-path` (optional): Database path (defaults to DATABASE_URL or ./var/aos-cp.sqlite3)
-- `--kv-path` (optional): KV database path (default: ./var/aos-kv.redb)
+- `--db-path` (optional): Database path (defaults to DATABASE_URL or var/aos-cp.sqlite3)
+- `--kv-path` (optional): KV database path (default: var/aos-kv.redb)
 - `--repair` (optional): Repair drift by syncing SQL -> KV
 
 **Examples**:
 ```bash
 aosctl storage validate-consistency --tenant default --repair
-aosctl storage validate-consistency --tenant default --db-path ./var/aos-cp.sqlite3 --kv-path ./var/aos-kv.redb
+aosctl storage validate-consistency --tenant default --db-path var/aos-cp.sqlite3 --kv-path var/aos-kv.redb
 ```
 
 ### `storage kv-isolation-scan`
@@ -1978,7 +1978,7 @@ aosctl storage kv status [OPTIONS]
 
 **Parameters**:
 - `--db-path` (optional): Database path
-- `--kv-path` (optional): KV database path (default: ./var/aos-kv.redb)
+- `--kv-path` (optional): KV database path (default: var/aos-kv.redb)
 - `--tenant` (optional): Tenant to include in checksum evidence
 
 ### `storage kv cutover`
@@ -1993,7 +1993,7 @@ aosctl storage kv cutover [OPTIONS]
 **Parameters**:
 - `--to` (optional): Target mode (kv_primary or kv_only, default: kv_only)
 - `--db-path` (optional): Database path
-- `--kv-path` (optional): KV database path (default: ./var/aos-kv.redb)
+- `--kv-path` (optional): KV database path (default: var/aos-kv.redb)
 
 ### `storage kv rollback`
 
@@ -2006,7 +2006,7 @@ aosctl storage kv rollback [OPTIONS]
 
 **Parameters**:
 - `--db-path` (optional): Database path
-- `--kv-path` (optional): KV database path (default: ./var/aos-kv.redb)
+- `--kv-path` (optional): KV database path (default: var/aos-kv.redb)
 
 ---
 
@@ -2204,8 +2204,8 @@ aosctl registry-sync --directory <DIRECTORY> [OPTIONS]
 
 **Parameters**:
 - `--directory` (required): Directory containing adapters with SBOM and signatures
-- `--cas-root` (optional): CAS root directory (default: ./var/cas)
-- `--registry-db` (optional): Registry database path (default: ./var/registry.db)
+- `--cas-root` (optional): CAS root directory (default: var/cas)
+- `--registry-db` (optional): Registry database path (default: var/registry.db)
 
 ### `build-plan`
 
@@ -2266,7 +2266,7 @@ aosctl federation-verify --bundle-dir <DIRECTORY> [OPTIONS]
 
 **Parameters**:
 - `--bundle-dir` (required): Telemetry bundle directory
-- `--database` (optional): Database path (default: ./var/cp.db)
+- `--database` (optional): Database path (default: var/cp.db)
 
 ### `verify-cancellation-receipt`
 
@@ -2420,20 +2420,20 @@ The `chat` command supports a local mode that runs inference directly without re
 
 **Prerequisites**:
 - CLI built with `multi-backend` feature: `cargo build --release -p adapteros-cli --features multi-backend`
-- A model directory with `tokenizer.json` (e.g., `./var/models/Qwen2.5-7B-Instruct`)
+- A model directory with `tokenizer.json` (e.g., `/var/models/Llama-3.2-3B-Instruct-4bit`)
 
 **Commands**:
 
 ```bash
 # Interactive local chat
-aosctl chat interactive --local --model-path ./var/models/Qwen2.5-7B-Instruct
+aosctl chat interactive --local --model-path /var/models/Llama-3.2-3B-Instruct-4bit
 
 # Single prompt local inference
-aosctl chat prompt --text "Hello" --local --model-path ./var/models/Qwen2.5-7B-Instruct
+aosctl chat prompt --text "Hello" --local --model-path /var/models/Llama-3.2-3B-Instruct-4bit
 
 # With custom parameters
 aosctl chat interactive --local \
-  --model-path ./var/models/Qwen2.5-7B-Instruct \
+  --model-path /var/models/Llama-3.2-3B-Instruct-4bit \
   --temperature 0.8 \
   --max-tokens 1024
 ```
@@ -2565,7 +2565,7 @@ aosctl secd-status [OPTIONS]
 - `--pid-file` (optional): PID file path (default: /var/run/aos-secd.pid)
 - `--heartbeat-file` (optional): Heartbeat file path (default: /var/run/aos-secd.heartbeat)
 - `--socket` (optional): Socket path (default: /var/run/aos-secd.sock)
-- `--database` (optional): Database path (default: ./var/aos-cp.sqlite3)
+- `--database` (optional): Database path (default: var/aos-cp.sqlite3)
 
 ### `secd-audit`
 
@@ -2577,7 +2577,7 @@ aosctl secd-audit [OPTIONS]
 ```
 
 **Parameters**:
-- `--database` (optional): Database path (default: ./var/aos-cp.sqlite3)
+- `--database` (optional): Database path (default: var/aos-cp.sqlite3)
 - `--limit` (optional): Number of operations to show (default: 50)
 - `--filter` (optional): Filter by operation type (sign, seal, unseal, get_public_key)
 

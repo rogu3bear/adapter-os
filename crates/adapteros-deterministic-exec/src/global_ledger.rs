@@ -238,10 +238,33 @@ impl GlobalTickLedger {
         let timestamp_us = if self.use_deterministic_timestamps {
             tick * 1000 // Deterministic: 1ms per tick
         } else {
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_micros() as u64
+            // P1-1 Fix: In strict-determinism mode, panic on wall-clock access
+            #[cfg(feature = "strict-determinism")]
+            {
+                panic!(
+                    "DETERMINISM VIOLATION: Wall-clock time access attempted in global_ledger. \
+                     Use deterministic timestamps (tick * 1000) or set use_deterministic_timestamps=true. \
+                     This panic is enabled by the 'strict-determinism' feature flag."
+                );
+            }
+
+            // P1-1 Fix: Log warning when wall-clock fallback is used
+            #[cfg(not(feature = "strict-determinism"))]
+            {
+                warn!(
+                    tick = tick,
+                    tenant_id = %self.tenant_id,
+                    host_id = %self.host_id,
+                    "DETERMINISM WARNING: Using wall-clock timestamp instead of logical tick. \
+                     This may cause non-deterministic behavior across replay runs. \
+                     Consider using GlobalTickLedger::with_deterministic_timestamps() or \
+                     enabling 'strict-determinism' feature for validation."
+                );
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_micros() as u64
+            }
         };
 
         // Serialize event type
@@ -838,9 +861,7 @@ mod tests {
     use tempfile::TempDir;
 
     fn new_test_tempdir() -> TempDir {
-        let root = std::path::PathBuf::from("var").join("tmp");
-        std::fs::create_dir_all(&root).expect("create var/tmp");
-        TempDir::new_in(&root).expect("tempdir")
+        TempDir::with_prefix("aos-test-").expect("tempdir")
     }
 
     async fn setup_test_db() -> (Db, TempDir) {

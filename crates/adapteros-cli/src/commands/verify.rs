@@ -63,10 +63,10 @@ pub enum VerifyCommand {
     /// Verify telemetry bundle chain
     #[command(after_help = r#"Examples:
   # Verify telemetry bundles
-  aosctl verify telemetry --bundle-dir ./var/telemetry
+  aosctl verify telemetry --bundle-dir var/telemetry
 
   # JSON output
-  aosctl verify telemetry --bundle-dir ./var/telemetry --json
+  aosctl verify telemetry --bundle-dir var/telemetry --json
 "#)]
     Telemetry {
         /// Telemetry bundle directory
@@ -77,10 +77,10 @@ pub enum VerifyCommand {
     /// Verify a fused CoreML package hash against expected metadata
     #[command(after_help = r#"Examples:
   # Verify CoreML package against metadata file
-  aosctl verify coreml --package ./var/models/qwen-coreml --metadata ./var/models/qwen-coreml/adapteros_coreml_fusion.json
+  aosctl verify coreml --package var/models/qwen-coreml --metadata var/models/qwen-coreml/adapteros_coreml_fusion.json
 
   # Verify CoreML package against explicit hash
-  aosctl verify coreml --package ./var/models/qwen-coreml --expected-hash <HEX>
+  aosctl verify coreml --package var/models/qwen-coreml --expected-hash <HEX>
 "#)]
     Coreml {
         /// Path to CoreML package directory or Manifest.json
@@ -99,10 +99,10 @@ pub enum VerifyCommand {
     /// Verify cross-host federation signatures
     #[command(after_help = r#"Examples:
   # Verify federation signatures
-  aosctl verify federation --bundle-dir ./var/telemetry
+  aosctl verify federation --bundle-dir var/telemetry
 
   # Custom database path
-  aosctl verify federation --bundle-dir ./var/telemetry --database ./var/cp.db
+  aosctl verify federation --bundle-dir var/telemetry --database var/cp.db
 "#)]
     Federation {
         /// Telemetry bundle directory
@@ -110,7 +110,7 @@ pub enum VerifyCommand {
         bundle_dir: PathBuf,
 
         /// Database path
-        #[arg(long, default_value = "./var/cp.db")]
+        #[arg(long, default_value = "var/cp.db")]
         database: PathBuf,
     },
 

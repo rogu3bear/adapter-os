@@ -1455,10 +1455,12 @@ mod tests {
     fn preprocess_config_hash_changes_with_output_feature() {
         let mut cfg = base_config();
         let model_path = temp_model_path();
-        let hash_a = compute_preprocess_config_hash(&cfg, &model_path, 7).expect("hash a");
+        let hash_a = compute_preprocess_config_hash(&cfg, &model_path, 7)
+            .expect("failed to compute preprocessing config hash for base configuration - model path should be valid");
 
         cfg.output_feature = PreprocessOutputFeature::Embedding;
-        let hash_b = compute_preprocess_config_hash(&cfg, &model_path, 7).expect("hash b");
+        let hash_b = compute_preprocess_config_hash(&cfg, &model_path, 7)
+            .expect("failed to compute preprocessing config hash with Embedding feature - model path should be valid");
 
         assert_ne!(hash_a, hash_b);
     }
@@ -1485,21 +1487,27 @@ mod tests {
 
     #[test]
     fn preprocessing_errors_on_hidden_dim_mismatch() {
-        let temp = tempfile::tempdir().expect("tempdir");
+        let temp = tempfile::tempdir()
+            .expect("failed to create temporary directory for preprocessing test - check disk space");
         let base_model_path = temp.path().join("model");
-        fs::create_dir_all(&base_model_path).expect("create model dir");
+        fs::create_dir_all(&base_model_path)
+            .expect("failed to create model directory - temp directory should be writable");
 
         let mut model_cfg = ModelConfig::dev_fixture();
         model_cfg.path = base_model_path.clone();
         model_cfg.hidden_size = 8;
         model_cfg.vocab_size = 16;
-        let cfg_bytes = serde_json::to_vec_pretty(&model_cfg).expect("serialize config");
-        fs::write(base_model_path.join("config.json"), cfg_bytes).expect("write config");
-        fs::write(base_model_path.join("tokenizer.json"), b"{}").expect("write tokenizer");
+        let cfg_bytes = serde_json::to_vec_pretty(&model_cfg)
+            .expect("failed to serialize model config - ModelConfig should always be serializable");
+        fs::write(base_model_path.join("config.json"), cfg_bytes)
+            .expect("failed to write config.json - model directory should be writable");
+        fs::write(base_model_path.join("tokenizer.json"), b"{}")
+            .expect("failed to write tokenizer.json - model directory should be writable");
 
         // CoreML model placeholder
         let coreml_path = base_model_path.join("preprocess.mlpackage");
-        fs::write(&coreml_path, b"coreml").expect("write coreml stub");
+        fs::write(&coreml_path, b"coreml")
+            .expect("failed to write CoreML stub file - model directory should be writable");
 
         let cfg = PreprocessingConfig {
             enabled: true,
@@ -1534,7 +1542,8 @@ mod tests {
     }
 
     fn manifest_hash(manifest: &PreprocessManifest) -> B3Hash {
-        let bytes = serde_json::to_vec(manifest).expect("serialize manifest");
+        let bytes = serde_json::to_vec(manifest)
+            .expect("failed to serialize PreprocessManifest - manifest should always be serializable");
         B3Hash::hash(&bytes)
     }
 
@@ -1604,7 +1613,8 @@ mod tests {
             Err(_) => return,
         };
 
-        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let temp_dir = tempfile::tempdir()
+            .expect("failed to create temporary directory for CoreML preprocessing test - check disk space");
         let cfg = PreprocessingConfig {
             enabled: true,
             coreml_model_path: Some(coreml_model_path),
@@ -1641,7 +1651,7 @@ mod tests {
             None,
             0,
         )
-        .expect("preprocess first");
+        .expect("first preprocessing run should succeed with valid model and config");
         let second = preprocess_examples(
             &examples,
             &contract,
@@ -1654,7 +1664,7 @@ mod tests {
             None,
             0,
         )
-        .expect("preprocess second");
+        .expect("second preprocessing run should succeed and use cached features from first run");
 
         assert_eq!(first.stats.cache_key, second.stats.cache_key);
         assert_eq!(

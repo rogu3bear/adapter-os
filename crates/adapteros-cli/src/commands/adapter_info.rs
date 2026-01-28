@@ -8,7 +8,7 @@ pub async fn run(adapter_id: &str) -> Result<()> {
     println!("==================\n");
 
     // Query registry for adapter info
-    let registry = adapteros_model_hub::registry::Registry::open("./var/registry.db")?;
+    let registry = adapteros_model_hub::registry::Registry::open("var/registry.db")?;
 
     if let Some(adapter) = registry.get_adapter(adapter_id)? {
         println!("Adapter: {}", adapter.id);

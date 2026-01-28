@@ -9,18 +9,16 @@ use std::path::PathBuf;
 use tempfile::TempDir;
 use tracing::debug;
 
+/// Create a temporary directory in OS temp space (not var/tmp)
+/// This ensures automatic cleanup and doesn't pollute the repo.
 fn new_test_tempdir_result() -> Result<TempDir> {
-    let root = PathBuf::from("var").join("tmp");
-    std::fs::create_dir_all(&root).map_err(|e| {
-        adapteros_core::AosError::Internal(format!("Failed to create var/tmp: {}", e))
-    })?;
-    TempDir::new_in(&root).map_err(|e| {
+    TempDir::with_prefix("aos-db-test-").map_err(|e| {
         adapteros_core::AosError::Internal(format!("Failed to create temp directory: {}", e))
     })
 }
 
 fn new_test_tempdir() -> TempDir {
-    new_test_tempdir_result().expect("create temp directory under var/tmp")
+    new_test_tempdir_result().expect("Failed to create temporary test directory for database testing")
 }
 
 /// Test database wrapper with cleanup support
@@ -79,13 +77,13 @@ impl TestDb {
     async fn new_in_memory_with_mode(mode: StorageMode) -> Self {
         let db = Db::new_in_memory()
             .await
-            .expect("Failed to create in-memory database");
+            .expect("Failed to create in-memory test database for TestDb");
 
         // Apply migrations
-        db.migrate().await.expect("Failed to apply migrations");
+        db.migrate().await.expect("Failed to apply database migrations to in-memory test database");
 
         // Seed with default tenant
-        db.seed_dev_data().await.expect("Failed to seed dev data");
+        db.seed_dev_data().await.expect("Failed to seed dev data (default tenant) into test database");
 
         // Set storage mode if different from default
         if mode != StorageMode::SqlOnly {
@@ -113,21 +111,21 @@ impl TestDb {
         let kv_path = temp_dir.path().join("test.kv");
 
         // Open SQLite database
-        let db_url = db_path.to_str().expect("Invalid db path");
+        let db_url = db_path.to_str().expect("Failed to convert test database path to valid UTF-8 string");
         let mut db = Db::connect(db_url)
             .await
-            .expect("Failed to connect to database");
+            .expect("Failed to connect to persistent test database for TestDb");
 
         // Apply migrations
-        db.migrate().await.expect("Failed to apply migrations");
+        db.migrate().await.expect("Failed to apply database migrations to persistent test database");
 
         // Seed with default tenant
-        db.seed_dev_data().await.expect("Failed to seed dev data");
+        db.seed_dev_data().await.expect("Failed to seed dev data (default tenant) into persistent test database");
 
         // Initialize KV backend if needed
         if mode.write_to_kv() {
             debug!(kv_path = ?kv_path, "Initializing KV backend for test");
-            let kv = KvDb::init_redb(&kv_path).expect("Failed to initialize KV backend");
+            let kv = KvDb::init_redb(&kv_path).expect("Failed to initialize KV backend for persistent test database");
             db.attach_kv_backend(kv);
         }
 

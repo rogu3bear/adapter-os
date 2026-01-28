@@ -6,8 +6,8 @@
 //! 【2025-01-20†modularity†tenant_handlers】
 
 use super::utils::aos_error_to_response;
+use crate::api_error::ApiError;
 use crate::auth::Claims;
-use crate::error_helpers::{db_error_msg, db_error_with_details};
 use crate::handlers::event_applier::{apply_event, parse_event, TenantEvent};
 use crate::middleware::require_role;
 use crate::permissions::{require_permission, Permission};
@@ -38,7 +38,7 @@ pub async fn list_tenants(
         .db
         .list_tenants_paginated(pagination.limit as i64, offset as i64)
         .await
-        .map_err(db_error_with_details)?;
+        .map_err(ApiError::db_error)?;
 
     let data: Vec<TenantResponse> = tenants
         .into_iter()
@@ -74,13 +74,13 @@ pub async fn create_tenant(
         .db
         .create_tenant(&req.name, req.itar_flag)
         .await
-        .map_err(|e| db_error_msg("failed to create tenant", e))?;
+        .map_err(|e| ApiError::internal("failed to create tenant").with_details(e.to_string()))?;
 
     let tenant = state
         .db
         .get_tenant(&id)
         .await
-        .map_err(db_error_with_details)?;
+        .map_err(ApiError::db_error)?;
 
     let tenant = tenant.ok_or_else(|| {
         (
@@ -141,7 +141,7 @@ pub async fn get_default_stack(
         .db
         .get_default_stack(&tenant_id)
         .await
-        .map_err(db_error_with_details)?;
+        .map_err(ApiError::db_error)?;
 
     let stack_id = stack_id.ok_or_else(|| {
         (
@@ -207,7 +207,7 @@ pub async fn set_default_stack(
                     ),
                 )
             } else {
-                db_error_with_details(error_str)
+                ApiError::db_error(error_str).into()
             }
         })?;
 
@@ -257,7 +257,7 @@ pub async fn clear_default_stack(
         .db
         .clear_default_stack(&tenant_id)
         .await
-        .map_err(db_error_with_details)?;
+        .map_err(ApiError::db_error)?;
 
     // Audit log: default stack cleared
     if let Err(e) = crate::audit_helper::log_success(
@@ -304,7 +304,7 @@ pub async fn update_tenant(
             .db
             .rename_tenant(&tenant_id, &name)
             .await
-            .map_err(|e| db_error_msg("failed to update tenant name", e))?;
+            .map_err(|e| ApiError::internal("failed to update tenant name").with_details(e.to_string()))?;
     }
 
     // Update ITAR flag if provided
@@ -313,7 +313,7 @@ pub async fn update_tenant(
             .db
             .update_tenant_itar_flag(&tenant_id, itar_flag)
             .await
-            .map_err(|e| db_error_msg("failed to update ITAR flag", e))?;
+            .map_err(|e| ApiError::internal("failed to update ITAR flag").with_details(e.to_string()))?;
     }
 
     // Update limits if any provided
@@ -332,7 +332,7 @@ pub async fn update_tenant(
                 req.rate_limit_rpm,
             )
             .await
-            .map_err(|e| db_error_msg("failed to update tenant limits", e))?;
+            .map_err(|e| ApiError::internal("failed to update tenant limits").with_details(e.to_string()))?;
     }
 
     // Fetch updated tenant
@@ -340,7 +340,7 @@ pub async fn update_tenant(
         .db
         .get_tenant(&tenant_id)
         .await
-        .map_err(db_error_with_details)?;
+        .map_err(ApiError::db_error)?;
 
     let tenant = tenant.ok_or_else(|| {
         (
@@ -393,7 +393,7 @@ pub async fn pause_tenant(
         .db
         .pause_tenant(&tenant_id)
         .await
-        .map_err(|e| db_error_msg("failed to pause tenant", e))?;
+        .map_err(|e| ApiError::internal("failed to pause tenant").with_details(e.to_string()))?;
 
     // Invalidate tenant from dashboard cache so middleware re-validates on next request
     state.dashboard_cache.invalidate_tenant(&tenant_id).await;
@@ -402,7 +402,7 @@ pub async fn pause_tenant(
         .db
         .get_tenant(&tenant_id)
         .await
-        .map_err(db_error_with_details)?;
+        .map_err(ApiError::db_error)?;
 
     let tenant = tenant.ok_or_else(|| {
         (
@@ -456,7 +456,7 @@ pub async fn archive_tenant(
         .db
         .archive_tenant(&tenant_id)
         .await
-        .map_err(|e| db_error_msg("failed to archive tenant", e))?;
+        .map_err(|e| ApiError::internal("failed to archive tenant").with_details(e.to_string()))?;
 
     // Invalidate tenant from dashboard cache so middleware rejects stale tokens
     state.dashboard_cache.invalidate_tenant(&tenant_id).await;
@@ -465,7 +465,7 @@ pub async fn archive_tenant(
         .db
         .get_tenant(&tenant_id)
         .await
-        .map_err(db_error_with_details)?;
+        .map_err(ApiError::db_error)?;
 
     let tenant = tenant.ok_or_else(|| {
         (
@@ -526,14 +526,14 @@ pub async fn get_tenant_usage(
         .db
         .get_tenant_usage(&tenant_id)
         .await
-        .map_err(|e| db_error_msg("failed to get tenant usage", e))?;
+        .map_err(|e| ApiError::internal("failed to get tenant usage").with_details(e.to_string()))?;
 
     // Get real resource metrics from TenantMetricsService
     let resource_metrics = state
         .tenant_metrics_service
         .get_metrics(&state.db, &tenant_id)
         .await
-        .map_err(|e| db_error_msg("failed to get tenant resource metrics", e))?;
+        .map_err(|e| ApiError::internal("failed to get tenant resource metrics").with_details(e.to_string()))?;
 
     Ok(Json(TenantUsageResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
@@ -588,14 +588,14 @@ pub async fn get_tenant_metrics(
         .tenant_metrics_service
         .get_metrics(&state.db, &tenant_id)
         .await
-        .map_err(|e| db_error_msg("failed to get tenant resource metrics", e))?;
+        .map_err(|e| ApiError::internal("failed to get tenant resource metrics").with_details(e.to_string()))?;
 
     // Get tenant quota (if configured)
     let tenant = state
         .db
         .get_tenant(&tenant_id)
         .await
-        .map_err(db_error_with_details)?
+        .map_err(ApiError::db_error)?
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
@@ -658,7 +658,7 @@ pub async fn assign_policies_to_tenant(
             .db
             .assign_policy_to_tenant(&tenant_id, &policy_id, &assigned_by)
             .await
-            .map_err(|e| db_error_msg("failed to assign policy", e))?;
+            .map_err(|e| ApiError::internal("failed to assign policy").with_details(e.to_string()))?;
     }
 
     // Audit log: policies assigned
@@ -707,7 +707,7 @@ pub async fn assign_adapters_to_tenant(
             .db
             .assign_adapter_to_tenant(&tenant_id, &adapter_id, &assigned_by)
             .await
-            .map_err(|e| db_error_msg("failed to assign adapter", e))?;
+            .map_err(|e| ApiError::internal("failed to assign adapter").with_details(e.to_string()))?;
     }
 
     // Audit log: adapters assigned

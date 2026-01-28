@@ -155,9 +155,7 @@ fn make_request(name: &str, repo_id: String, base_model_id: &str) -> StartTraini
 async fn setup_training_state() -> (AppState, TempDir, String, bool) {
     std::env::set_var("AOS_ALLOW_NONDET_TRAINING", "1");
     let mut state = common::setup_state(None).await.expect("state");
-    let tmp_root = std::path::PathBuf::from("var").join("tmp");
-    std::fs::create_dir_all(&tmp_root).expect("create var/tmp");
-    let temp_dir = tempfile::tempdir_in(&tmp_root).expect("tempdir");
+    let temp_dir = tempfile::TempDir::with_prefix("aos-test-").expect("tempdir");
 
     if let Some(service) = Arc::get_mut(&mut state.training_service) {
         service.set_db(state.db.raw().clone());

@@ -6,6 +6,7 @@ use crate::auth::Claims;
 use crate::middleware::require_role;
 use crate::state::AppState;
 use crate::types::*;
+use adapteros_core::defaults::DEFAULT_SERVER_URL;
 use adapteros_db::users::Role;
 use axum::{extract::Extension, extract::State, http::StatusCode, response::Json};
 
@@ -50,7 +51,7 @@ pub async fn get_settings(
                 .general
                 .as_ref()
                 .and_then(|g| g.api_base_url.clone())
-                .unwrap_or_else(|| "http://localhost:8080".to_string()),
+                .unwrap_or_else(|| DEFAULT_SERVER_URL.to_string()),
         },
         server: ServerSettings {
             http_port: config.server.http_port.unwrap_or(8080),

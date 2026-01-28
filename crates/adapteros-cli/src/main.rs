@@ -117,8 +117,8 @@ enum TraceCommand {
     /// Export an offline trace bundle for replay verification
     #[command(after_help = "\
 Examples:
-  aosctl trace export --request basic --out ./var/trace/basic
-  aosctl trace export --request cross-worker --out ./var/trace/cross --fixtures ./test_data/replay_fixtures
+  aosctl trace export --request basic --out var/trace/basic
+  aosctl trace export --request cross-worker --out var/trace/cross --fixtures ./test_data/replay_fixtures
 ")]
     Export {
         /// Request identifier (maps to fixture directory)
@@ -140,13 +140,13 @@ enum LogCommand {
     #[command(after_help = "\
 Examples:
   # Summarize logs from the last hour
-  aosctl log digest ./var/logs --since 1h
+  aosctl log digest var/logs --since 1h
 
   # Include INFO level, output as JSON
-  aosctl log digest ./var/logs --include-info --json
+  aosctl log digest var/logs --include-info --json
 
   # Filter by component
-  aosctl log digest ./var/logs --component adapteros-server
+  aosctl log digest var/logs --component adapteros-server
 ")]
     Digest(commands::log_digest::LogDigestArgs),
 
@@ -154,13 +154,13 @@ Examples:
     #[command(after_help = "\
 Examples:
   # Basic triage
-  aosctl log triage ./var/logs
+  aosctl log triage var/logs
 
   # With detailed remediation steps
-  aosctl log triage ./var/logs --detailed
+  aosctl log triage var/logs --detailed
 
   # Use custom rules
-  aosctl log triage ./var/logs --rules ./custom_rules.json
+  aosctl log triage var/logs --rules ./custom_rules.json
 ")]
     Triage(commands::log_triage::LogTriageArgs),
 
@@ -168,16 +168,16 @@ Examples:
     #[command(after_help = "\
 Examples:
   # Generate markdown prompt
-  aosctl log prompt ./var/logs --format markdown
+  aosctl log prompt var/logs --format markdown
 
   # Write to file
-  aosctl log prompt ./var/logs -o prompt.md
+  aosctl log prompt var/logs -o prompt.md
 
   # Focus on memory issues
-  aosctl log prompt ./var/logs --focus memory
+  aosctl log prompt var/logs --focus memory
 
   # Include system context
-  aosctl log prompt ./var/logs --include-system
+  aosctl log prompt var/logs --include-system
 ")]
     Prompt(commands::log_prompt::LogPromptArgs),
 }
@@ -611,7 +611,7 @@ Examples:
         after_help = "\
 Examples:
   # Verify a run receipt bundle from a directory
-  aosctl verify-receipt --bundle ./var/receipts/run-123
+  aosctl verify-receipt --bundle var/receipts/run-123
 
   # Verify a single bundle file directly
   aosctl verify-receipt --bundle ./run_receipt.json
@@ -720,7 +720,7 @@ Examples:
   aosctl serve --tenant tenant_dev --plan cp_abc123
 
   # Custom socket path (development)
-  aosctl serve --tenant tenant_dev --plan cp_abc123 --socket ./var/run/aos.sock
+  aosctl serve --tenant tenant_dev --plan cp_abc123 --socket var/run/aos.sock
 ")]
     Serve {
         /// Tenant ID
@@ -836,10 +836,10 @@ Examples:
     #[command(after_help = "\
 Examples:
   # Replay exported trace (writes replay_report.json)
-  aosctl replay --dir ./var/trace/basic --verify
+  aosctl replay --dir var/trace/basic --verify
 
   # Replay with custom report path
-  aosctl replay --dir ./var/trace/basic --report ./var/trace/result.json
+  aosctl replay --dir var/trace/basic --report var/trace/result.json
 ")]
     Replay {
         /// Directory containing exported trace artifacts
@@ -919,13 +919,13 @@ Examples:
     #[command(after_help = "\
 Examples:
   # Generate HTML report
-  aosctl report ./var/bundles/bundle_001.zip --output report.html
+  aosctl report var/bundles/bundle_001.zip --output report.html
 
   # Generate report with custom template
-  aosctl report ./var/bundles/bundle_001.zip --output report.html --template custom.html
+  aosctl report var/bundles/bundle_001.zip --output report.html --template custom.html
 
   # Generate report and open in browser
-  aosctl report ./var/bundles/bundle_001.zip --output report.html --open
+  aosctl report var/bundles/bundle_001.zip --output report.html --open
 ")]
     Report {
         /// Bundle path
@@ -1021,13 +1021,13 @@ Examples:
         after_help = "\
 Examples:
   # Generate a WARN/ERROR log digest
-  aosctl log digest ./var/logs --since 1h
+  aosctl log digest var/logs --since 1h
 
   # Triage logs with remediation hints
-  aosctl log triage ./var/logs --detailed
+  aosctl log triage var/logs --detailed
 
   # Build an LLM prompt from logs
-  aosctl log prompt ./var/logs --format markdown -o prompt.md
+  aosctl log prompt var/logs --format markdown -o prompt.md
 "
     )]
     Log(LogCommand),
@@ -1348,7 +1348,7 @@ Examples:
     #[command(name = "telemetry-list", hide = true)]
     TelemetryListDeprecated {
         /// Database path
-        #[arg(long, default_value = "./var/aos-cp.sqlite3")]
+        #[arg(long, default_value = "var/aos-cp.sqlite3")]
         database: PathBuf,
         /// Filter by stack ID
         #[arg(long)]
@@ -1373,10 +1373,10 @@ Examples:
         #[arg(short, long)]
         dir: PathBuf,
         /// CAS root directory
-        #[arg(long, default_value = "./var/cas")]
+        #[arg(long, default_value = "var/cas")]
         cas_root: PathBuf,
         /// Registry database path
-        #[arg(long, default_value = "./var/registry.db")]
+        #[arg(long, default_value = "var/registry.db")]
         registry: PathBuf,
     },
 
@@ -1404,7 +1404,7 @@ Examples:
         #[arg(short, long)]
         bundle_dir: PathBuf,
         /// Database path
-        #[arg(long, default_value = "./var/cp.db")]
+        #[arg(long, default_value = "var/cp.db")]
         database: PathBuf,
     },
 
@@ -1463,7 +1463,7 @@ Examples:
         #[arg(long, default_value = "/var/run/aos-secd.sock")]
         socket: PathBuf,
         /// Database path
-        #[arg(long, default_value = "./var/aos-cp.sqlite3")]
+        #[arg(long, default_value = "var/aos-cp.sqlite3")]
         database: PathBuf,
     },
 
@@ -1472,7 +1472,7 @@ Examples:
     #[command(name = "secd-audit", hide = true)]
     SecdAuditDeprecated {
         /// Database path
-        #[arg(long, default_value = "./var/aos-cp.sqlite3")]
+        #[arg(long, default_value = "var/aos-cp.sqlite3")]
         database: PathBuf,
         /// Number of operations to show
         #[arg(short, long, default_value = "50")]

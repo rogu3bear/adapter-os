@@ -32,7 +32,7 @@
 //! bind_and_serve(mode, app, config).await?;
 //! ```
 
-use crate::shutdown::{ShutdownCoordinator, ShutdownError};
+use crate::shutdown::{shutdown_signal_with_drain, ShutdownCoordinator, ShutdownError};
 use adapteros_boot::EXIT_CONFIG_ERROR;
 use adapteros_server_api::boot_state::BootStateManager;
 use axum::Router;
@@ -353,76 +353,6 @@ async fn handle_coordinated_shutdown(
             }
         }
     }
-}
-
-/// Shutdown signal handler with request draining.
-///
-/// Waits for SIGINT/SIGTERM, transitions boot state to draining,
-/// and waits for in-flight requests to complete (with timeout).
-async fn shutdown_signal_with_drain(
-    boot_state: BootStateManager,
-    in_flight_requests: Arc<AtomicUsize>,
-    drain_timeout: Duration,
-) {
-    use std::sync::atomic::Ordering;
-    use tokio::signal;
-
-    let ctrl_c = async {
-        signal::ctrl_c()
-            .await
-            .expect("failed to install Ctrl+C handler");
-    };
-
-    #[cfg(unix)]
-    let terminate = async {
-        signal::unix::signal(signal::unix::SignalKind::terminate())
-            .expect("failed to install signal handler")
-            .recv()
-            .await;
-    };
-
-    #[cfg(not(unix))]
-    let terminate = std::future::pending::<()>();
-
-    tokio::select! {
-        _ = ctrl_c => {
-            info!("Received Ctrl+C, initiating graceful shutdown");
-        },
-        _ = terminate => {
-            info!("Received SIGTERM, initiating graceful shutdown");
-        },
-    }
-
-    // Transition to draining state
-    boot_state.drain().await;
-
-    // Wait for in-flight requests to complete (with timeout)
-    let start = std::time::Instant::now();
-    loop {
-        let in_flight = in_flight_requests.load(Ordering::Acquire);
-        if in_flight == 0 {
-            info!("All in-flight requests completed");
-            break;
-        }
-
-        if start.elapsed() > drain_timeout {
-            warn!(
-                in_flight = in_flight,
-                timeout_secs = drain_timeout.as_secs(),
-                "Drain timeout reached with requests still in flight"
-            );
-            break;
-        }
-
-        info!(
-            in_flight = in_flight,
-            "Waiting for in-flight requests to complete"
-        );
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-
-    // Mark shutdown complete
-    boot_state.stop().await;
 }
 
 #[cfg(test)]

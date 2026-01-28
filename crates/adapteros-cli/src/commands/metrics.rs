@@ -468,7 +468,7 @@ async fn show_current_metrics(mode: &crate::output::OutputMode) -> Result<()> {
                 "load_5min": load_avg.1,
                 "load_15min": load_avg.2
             },
-            "timestamp": SystemTime::now().duration_since(UNIX_EPOCH).expect("System time before UNIX epoch").as_secs()
+            "timestamp": SystemTime::now().duration_since(UNIX_EPOCH).expect("BUG: System time is before UNIX epoch (1970-01-01). This indicates a severe system clock issue or invalid system state.").as_secs()
         });
         println!("{}", serde_json::to_string_pretty(&response)?);
     } else {
@@ -988,7 +988,7 @@ async fn set_config(mode: &crate::output::OutputMode, key: &str, value: &str) ->
     let db = connect_db().await?;
     let mut config = MetricsConfig::default();
     apply_config_value(&mut config, key, value)?;
-    db.set_config(key, &value.to_string()).await?;
+    db.set_config(key, value).await?;
 
     if mode.is_json() {
         let response = serde_json::json!({

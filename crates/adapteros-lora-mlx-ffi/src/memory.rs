@@ -16,6 +16,9 @@ use crate::*;
 /// memory::gc_collect();
 /// ```
 pub fn gc_collect() {
+    // SAFETY: mlx_gc_collect() is a side-effect-only FFI call that hints the
+    // MLX memory manager to reclaim unused buffers. It does not return data
+    // or modify Rust state. The FFI function handles its own synchronization.
     unsafe {
         mlx_gc_collect();
     }
@@ -33,6 +36,9 @@ pub fn gc_collect() {
 /// println!("Memory usage: {:.2} MB", mb);
 /// ```
 pub fn memory_usage() -> usize {
+    // SAFETY: mlx_memory_usage() is a pure query function that returns the
+    // current allocation size. It does not modify state and returns a simple
+    // usize value (no pointers or complex types to validate).
     unsafe { mlx_memory_usage() }
 }
 
@@ -47,6 +53,9 @@ pub fn memory_usage() -> usize {
 /// println!("Active allocations: {}", count);
 /// ```
 pub fn allocation_count() -> usize {
+    // SAFETY: mlx_allocation_count() is a pure query function that returns
+    // the number of tracked allocations. It does not modify state and returns
+    // a simple usize value (no pointers or complex types to validate).
     unsafe { mlx_allocation_count() }
 }
 
@@ -62,6 +71,10 @@ pub fn allocation_count() -> usize {
 pub fn memory_stats() -> (usize, usize) {
     let mut total_bytes = 0;
     let mut allocation_count = 0;
+    // SAFETY: mlx_memory_stats() writes to the provided pointers. We pass
+    // valid mutable references to stack-allocated variables. The FFI function
+    // is expected to write exactly one usize to each pointer. The variables
+    // are initialized to 0 as a defensive measure in case the FFI fails.
     unsafe {
         mlx_memory_stats(&mut total_bytes, &mut allocation_count);
     }
@@ -83,6 +96,9 @@ pub fn memory_stats() -> (usize, usize) {
 /// println!("Memory used in this scope: {}", stats.total_bytes);
 /// ```
 pub fn reset() {
+    // SAFETY: mlx_memory_reset() clears internal tracking state in the C++
+    // wrapper. It does not free actual memory or invalidate any Rust-held
+    // references (we don't hold raw MLX pointers across this call boundary).
     unsafe {
         mlx_memory_reset();
     }

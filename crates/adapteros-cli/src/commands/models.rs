@@ -17,7 +17,7 @@ pub enum ModelsCommand {
   aosctl models seed
 
   # Seed a specific model path
-  aosctl models seed --model-path ./var/models/Qwen2.5-7B-Instruct-4bit
+  aosctl models seed --model-path /var/models/Llama-3.2-3B-Instruct-4bit
 
   # Force re-seed even if models exist
   aosctl models seed --force
@@ -27,7 +27,7 @@ pub enum ModelsCommand {
         #[arg(long = "model-path")]
         path: Option<PathBuf>,
 
-        /// Database path (defaults to DATABASE_URL or ./var/aos-cp.sqlite3)
+        /// Database path (defaults to DATABASE_URL or var/aos-cp.sqlite3)
         #[arg(long)]
         db_path: Option<PathBuf>,
 
@@ -45,7 +45,7 @@ pub enum ModelsCommand {
   aosctl models list --json
 "#)]
     List {
-        /// Database path (defaults to DATABASE_URL or ./var/aos-cp.sqlite3)
+        /// Database path (defaults to DATABASE_URL or var/aos-cp.sqlite3)
         #[arg(long)]
         db_path: Option<PathBuf>,
 
@@ -57,7 +57,7 @@ pub enum ModelsCommand {
     /// Validate a tokenizer.json file
     #[command(after_help = r#"Examples:
   # Check a tokenizer file
-  aosctl models check-tokenizer ./var/models/Qwen2.5-7B-Instruct/tokenizer.json
+  aosctl models check-tokenizer /var/models/Llama-3.2-3B-Instruct-4bit/tokenizer.json
 
   # Validate tokenizer with JSON output
   aosctl models check-tokenizer ./tokenizer.json --json
@@ -101,7 +101,7 @@ async fn run_seed(
     // Resolve model path: CLI arg > AOS_MODEL_PATH env > default
     let model_path = model_path
         .or_else(|| std::env::var("AOS_MODEL_PATH").ok().map(PathBuf::from))
-        .unwrap_or_else(|| PathBuf::from("var/models"));
+        .unwrap_or_else(|| adapteros_core::rebase_var_path("var/models"));
 
     if !model_path.exists() {
         output.warning(format!(
@@ -117,7 +117,7 @@ async fn run_seed(
     } else if let Ok(url) = std::env::var("DATABASE_URL") {
         url
     } else {
-        "sqlite://./var/aos-cp.sqlite3".to_string()
+        "sqlite://var/aos-cp.sqlite3".to_string()
     };
 
     output.progress(format!(
@@ -242,7 +242,7 @@ async fn run_list(db_path: Option<PathBuf>, json: bool, output: &OutputWriter) -
     } else if let Ok(url) = std::env::var("DATABASE_URL") {
         url
     } else {
-        "sqlite://./var/aos-cp.sqlite3".to_string()
+        "sqlite://var/aos-cp.sqlite3".to_string()
     };
 
     let db = Db::connect(&db_url).await?;

@@ -3,8 +3,8 @@
 //! This module provides the API endpoint for converting uploaded documents
 //! into structured training datasets using the synthesis model.
 
+use crate::api_error::ApiError;
 use crate::auth::Claims;
-use crate::error_helpers::{bad_request, internal_error, service_unavailable};
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use crate::types::ErrorResponse;
@@ -45,7 +45,7 @@ async fn get_or_init_synthesis_engine(
             // Load the model once
             engine.load_model().await.map_err(|e| {
                 tracing::warn!(error = %e, "Failed to load synthesis model");
-                service_unavailable(&format!(
+                ApiError::service_unavailable(format!(
                     "Synthesis model not available: {}. Ensure a model is deployed at the configured path.",
                     e
                 ))
@@ -206,21 +206,22 @@ pub async fn synthesize_dataset(
 
     // Validate request
     if request.chunks.is_empty() {
-        return Err(bad_request("At least one document chunk is required"));
+        return Err(ApiError::bad_request("At least one document chunk is required").into());
     }
 
     if request.name.trim().is_empty() {
-        return Err(bad_request("Dataset name is required"));
+        return Err(ApiError::bad_request("Dataset name is required").into());
     }
 
     // Limit chunks per request
     const MAX_CHUNKS_PER_REQUEST: usize = 100;
     if request.chunks.len() > MAX_CHUNKS_PER_REQUEST {
-        return Err(bad_request(format!(
+        return Err(ApiError::bad_request(format!(
             "Maximum {} chunks per request, got {}",
             MAX_CHUNKS_PER_REQUEST,
             request.chunks.len()
-        )));
+        ))
+        .into());
     }
 
     // Get synthesis config
@@ -259,7 +260,7 @@ pub async fn synthesize_dataset(
         engine_guard
             .synthesize_batch(synthesis_requests)
             .await
-            .map_err(|e| internal_error(format!("Synthesis failed: {}", e)))?
+            .map_err(|e| ApiError::internal(format!("Synthesis failed: {}", e)))?
     };
 
     // Convert synthesis results to training examples, applying config filters
@@ -348,7 +349,7 @@ pub async fn synthesize_dataset(
         workspace_id,
     )
     .await
-    .map_err(|e| internal_error(format!("Failed to persist dataset: {}", e)))?;
+    .map_err(|e| ApiError::internal(format!("Failed to persist dataset: {}", e)))?;
 
     let response = SynthesizeDatasetResponse {
         dataset_id: dataset_id.clone(),
@@ -405,7 +406,7 @@ async fn resolve_synthesis_model_path(
     // Check config paths
     let config = state.config.read().map_err(|e| {
         tracing::error!(error = %e, "Failed to read synthesis config");
-        internal_error("Failed to load synthesis config")
+        ApiError::internal("Failed to load synthesis config")
     })?;
 
     // Use configured synthesis_model_path if set
@@ -440,9 +441,10 @@ async fn resolve_synthesis_model_path(
         }
     }
 
-    Err(service_unavailable(
+    Err(ApiError::service_unavailable(
         "No synthesis model found. Set AOS_SYNTHESIS_MODEL_PATH, configure paths.synthesis_model_path, or deploy a model to var/models/synthesis_model",
-    ))
+    )
+    .into())
 }
 
 /// Persist synthesis results to storage and database

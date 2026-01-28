@@ -20,7 +20,7 @@ use std::{fs, io};
 use tracing::{error, info};
 
 pub async fn run_review_tui(dir: Option<PathBuf>, output: &OutputWriter) -> Result<()> {
-    let dir = dir.unwrap_or_else(|| PathBuf::from("var/active_learning"));
+    let dir = dir.unwrap_or_else(|| adapteros_core::rebase_var_path("var/active_learning"));
     let queue_path = dir.join("abstain_queue.ndjson");
 
     if !queue_path.exists() {

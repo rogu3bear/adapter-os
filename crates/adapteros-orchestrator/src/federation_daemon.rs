@@ -582,13 +582,16 @@ impl FederationDaemon {
 mod tests {
     use super::*;
     use adapteros_crypto::Keypair;
-    use adapteros_storage::platform::common::PlatformUtils;
     use tempfile::TempDir;
 
     fn new_test_tempdir() -> TempDir {
-        let root = PlatformUtils::temp_dir();
-        std::fs::create_dir_all(&root).expect("create var/tmp");
-        TempDir::new_in(&root).expect("tempdir")
+        TempDir::with_prefix("aos-test-").expect(
+            "Failed to create temporary directory for federation daemon tests. \
+             Expected: OS should allow temp directory creation with 'aos-test-' prefix. \
+             Context: Tests require writable temp space for isolated database instances and telemetry data. \
+             This typically fails only when: (1) /tmp is full, (2) permissions are restricted, \
+             or (3) OS temp directory is misconfigured."
+        )
     }
 
     async fn setup_test_daemon() -> (FederationDaemon, TempDir) {

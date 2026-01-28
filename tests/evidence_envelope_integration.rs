@@ -81,8 +81,8 @@ async fn create_test_trace(
         .finalize(TraceFinalization {
             output_tokens: &output_tokens,
             logical_prompt_tokens: 10,
-            prefix_cached_token_count: 2,
-            billed_input_tokens: 8,
+            prefix_cached_token_count: 0,
+            billed_input_tokens: 10,
             logical_output_tokens: output_tokens.len() as u32,
             billed_output_tokens: output_tokens.len() as u32,
             stop_reason_code: Some("end_turn".to_string()),
@@ -103,6 +103,9 @@ async fn create_test_trace(
             crypto_receipt_digest_b3: None,
             receipt_parity_verified: None,
             tenant_id: None,
+            // P0-1: Cache attestation (not needed when prefix_cached_token_count = 0)
+            cache_attestation: None,
+            worker_public_key: None,
         })
         .await?;
 
@@ -301,8 +304,8 @@ async fn test_receipt_digest_includes_envelope_ref() -> anyhow::Result<()> {
 
     // Verify token accounting fields are included
     assert_eq!(receipt_ref.logical_prompt_tokens, 10);
-    assert_eq!(receipt_ref.prefix_cached_token_count, 2);
-    assert_eq!(receipt_ref.billed_input_tokens, 8);
+    assert_eq!(receipt_ref.prefix_cached_token_count, 0); // No cache credits in this test
+    assert_eq!(receipt_ref.billed_input_tokens, 10); // All tokens billed (no cache)
 
     // Verify stop controller fields are included
     assert_eq!(receipt_ref.stop_reason_code, Some("end_turn".to_string()));

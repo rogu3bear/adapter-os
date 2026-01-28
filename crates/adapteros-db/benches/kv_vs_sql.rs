@@ -36,10 +36,8 @@ struct BenchDb {
 impl BenchDb {
     /// Create a new test database with migrations and seed data
     async fn new(mode: StorageMode) -> Self {
-        let tmp_root = std::path::PathBuf::from("var").join("tmp");
-        std::fs::create_dir_all(&tmp_root).expect("create var/tmp for benches");
-        let temp_sql_dir = TempDir::new_in(&tmp_root).expect("Failed to create temp SQL dir");
-        let temp_kv_dir = TempDir::new_in(&tmp_root).expect("Failed to create temp KV dir");
+        let temp_sql_dir = TempDir::with_prefix("aos-bench-sql-").expect("Failed to create temp SQL dir");
+        let temp_kv_dir = TempDir::with_prefix("aos-bench-kv-").expect("Failed to create temp KV dir");
 
         let db_path = temp_sql_dir.path().join("bench.db");
         let kv_path = temp_kv_dir.path().join("bench.redb");

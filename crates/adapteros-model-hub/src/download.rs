@@ -18,7 +18,7 @@
 //! use std::path::PathBuf;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let manager = DownloadManager::new(PathBuf::from("./var/downloads"), 3)?;
+//! let manager = DownloadManager::new(PathBuf::from("var/downloads"), 3)?;
 //!
 //! let task = DownloadTask {
 //!     model_id: "llama-2-7b".to_string(),
@@ -439,9 +439,7 @@ mod tests {
     use tempfile::TempDir;
 
     fn new_test_tempdir() -> TempDir {
-        let root = std::path::PathBuf::from("var").join("tmp");
-        std::fs::create_dir_all(&root).expect("create var/tmp");
-        TempDir::new_in(&root).expect("tempdir")
+        TempDir::with_prefix("aos-test-").expect("tempdir")
     }
 
     #[tokio::test]

@@ -4,15 +4,14 @@
 //! patterns across the system with consistent setup, teardown, and assertions.
 
 pub mod kernel_testing;
-pub mod unified_framework;
 
-// Re-export unified framework types
-pub use unified_framework::{
-    AssertionResult, AssertionType, CoverageReport, EnvironmentState, FileCoverage,
-    PerformanceMetrics, StepResult, TestAction, TestAssertion, TestCase, TestConfig,
-    TestEnvironment, TestEnvironmentType, TestPriority, TestResult, TestStatus, TestStep,
-    TestSuite, TestSuiteResult, TestSummary, TestType, TestingFramework, UnifiedTestingFramework,
-};
+// NOTE: unified_framework module is preserved for potential future use but is not
+// currently used anywhere in the codebase. It is not part of the public API.
+// If needed in the future, uncomment the following lines:
+// pub mod unified_framework;
+// pub use unified_framework::{...};
+#[allow(dead_code)]
+mod unified_framework;
 
 // Re-export kernel testing utilities
 pub use kernel_testing::{

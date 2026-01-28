@@ -215,7 +215,7 @@ async fn test_e2e_inference_with_audit_trail() {
     // =============================================================================
 
     // Create UDS socket in current directory (not /tmp - path security)
-    let uds_dir = TempDir::new_in(".").expect("Failed to create tempdir");
+    let uds_dir = TempDir::with_prefix("aos-test-").expect("Failed to create tempdir");
     let uds_path = uds_dir
         .path()
         .join("aos-e2e-worker.sock")
@@ -840,7 +840,7 @@ async fn test_training_job_adapter_infer_wiring() {
     .await
     .expect("seed plan");
 
-    let uds_dir = TempDir::new_in(".").expect("tempdir");
+    let uds_dir = TempDir::with_prefix("aos-test-").expect("tempdir");
     let uds_path = uds_dir
         .path()
         .join("aos-wiring-worker.sock")

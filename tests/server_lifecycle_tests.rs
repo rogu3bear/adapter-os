@@ -27,9 +27,7 @@ use tempfile::TempDir;
 use tokio::time::{sleep, timeout};
 
 fn new_test_tempdir() -> Result<TempDir> {
-    let tmp_root = PathBuf::from("var").join("tmp");
-    fs::create_dir_all(&tmp_root)?;
-    Ok(TempDir::new_in(&tmp_root)?)
+    Ok(TempDir::with_prefix("aos-test-")?)
 }
 
 /// Test configuration for lifecycle tests

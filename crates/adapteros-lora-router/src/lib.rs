@@ -51,7 +51,7 @@ pub(crate) use quantization::quantize_gate;
 pub use quantization::{
     GateQuantFormat, Q15_FORMAT_NAME, ROUTER_GATE_Q15_DENOM, ROUTER_GATE_Q15_MAX,
 };
-pub use router::{sort_scores_deterministic, AbstainContext, Router, TieEvent};
+pub use router::{sort_scores_deterministic, AbstainContext, BackendContext, Router, TieEvent};
 pub use router_diag::{NoopRouterDiagEmitter, RouterDiag, RouterDiagEmitter};
 pub use types::{
     AdapterInfo, Decision, DecisionCandidate, DecisionHash, RouterAbstainReason,

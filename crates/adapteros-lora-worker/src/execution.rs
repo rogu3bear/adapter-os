@@ -93,6 +93,61 @@ impl ExecutionContext {
         self
     }
 
+    /// Check if backend identity is set and non-empty.
+    ///
+    /// Returns `true` if `backend_id` is `Some` and the string is non-empty.
+    /// This is used to validate that backend binding is configured before
+    /// committing routing decisions.
+    #[inline]
+    pub fn has_backend_id(&self) -> bool {
+        self.backend_id
+            .as_ref()
+            .map(|id| !id.is_empty())
+            .unwrap_or(false)
+    }
+
+    /// Get the backend_id if set.
+    #[inline]
+    pub fn backend_id(&self) -> Option<&str> {
+        self.backend_id.as_deref()
+    }
+
+    /// Create a verified backend context that guarantees backend_id is present.
+    ///
+    /// This method returns a `VerifiedBackendContext` that provides compile-time
+    /// guarantees that the backend identity has been validated. Use this before
+    /// committing decisions when backend binding is required.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `backend_id` is `None` or empty.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let ctx = ExecutionContext::new(digest, 100)
+    ///     .with_backend("mlx".to_string(), Some("0.21.0".to_string()));
+    ///
+    /// let verified = ctx.with_verified_backend()?;
+    /// // Now we have compile-time guarantee that backend_id is present
+    /// ```
+    #[must_use = "the verified context should be used for commit_decision_verified"]
+    pub fn with_verified_backend(&self) -> Result<VerifiedBackendContext<'_>> {
+        match &self.backend_id {
+            None => Err(adapteros_core::AosError::DeterminismViolation(
+                "Backend identity is required for V5+ receipts but was not set. \
+                 Use with_backend() to set the backend_id before committing decisions."
+                    .to_string(),
+            )),
+            Some(id) if id.is_empty() => Err(adapteros_core::AosError::DeterminismViolation(
+                "Backend identity cannot be empty for V5+ receipts. \
+                 Provide a valid backend identifier (e.g., 'mlx', 'coreml', 'metal')."
+                    .to_string(),
+            )),
+            Some(_) => Ok(VerifiedBackendContext { ctx: self }),
+        }
+    }
+
     /// Get the context digest.
     pub fn context_digest(&self) -> &B3Hash {
         &self.context_digest
@@ -174,6 +229,98 @@ impl ExecutionContext {
             receipt_digest::update_run_head(&self.run_head, token_index, &decision_hash);
 
         decision_hash
+    }
+
+    /// Commit a routing decision with backend validation.
+    ///
+    /// This method validates that `backend_id` is set and non-empty before
+    /// committing the decision. Use this when backend binding is required
+    /// for deterministic replay verification.
+    ///
+    /// # Arguments
+    /// * `adapter_ids` - Real adapter IDs (not indices) for this decision
+    /// * `decision` - The routing decision with adapter indices and Q15 gates
+    /// * `policy_mask` - The policy mask that was applied
+    ///
+    /// # Returns
+    /// * `Ok(B3Hash)` - The decision hash for this token position
+    /// * `Err` - If backend_id is not set or empty
+    ///
+    /// # Example
+    /// ```ignore
+    /// let ctx = ExecutionContext::new(digest, 100)
+    ///     .with_backend("mlx".to_string(), Some("0.21.0".to_string()));
+    ///
+    /// let hash = ctx.commit_decision_checked(&adapter_ids, &decision, &mask)?;
+    /// ```
+    #[must_use = "this returns a Result that must be handled"]
+    pub fn commit_decision_checked(
+        &mut self,
+        adapter_ids: &[String],
+        decision: &Decision,
+        policy_mask: &PolicyMask,
+    ) -> Result<B3Hash> {
+        // Validate backend_id is present and non-empty
+        if !self.has_backend_id() {
+            return Err(adapteros_core::AosError::DeterminismViolation(
+                "Backend identity is required for commit_decision_checked but was not set. \
+                 Use with_backend() to set the backend_id before committing decisions."
+                    .to_string(),
+            ));
+        }
+
+        Ok(self.commit_decision(adapter_ids, decision, policy_mask))
+    }
+}
+
+/// A scoped context with guaranteed backend identity.
+///
+/// This type provides compile-time guarantees that a backend identity has been
+/// validated. It is created via [`ExecutionContext::with_verified_backend()`]
+/// and can be used to commit decisions with the assurance that backend binding
+/// is properly configured.
+///
+/// # Safety Invariant
+///
+/// The referenced `ExecutionContext` is guaranteed to have a non-empty `backend_id`
+/// for the lifetime of this struct.
+#[derive(Debug)]
+pub struct VerifiedBackendContext<'a> {
+    ctx: &'a ExecutionContext,
+}
+
+impl<'a> VerifiedBackendContext<'a> {
+    /// Get the verified backend_id.
+    ///
+    /// This is guaranteed to return a non-empty string.
+    #[inline]
+    pub fn backend_id(&self) -> &str {
+        // SAFETY: The constructor validates that backend_id is Some and non-empty
+        self.ctx.backend_id.as_deref().unwrap()
+    }
+
+    /// Get the kernel version if set.
+    #[inline]
+    pub fn kernel_version_id(&self) -> Option<&str> {
+        self.ctx.kernel_version_id.as_deref()
+    }
+
+    /// Get the context digest.
+    #[inline]
+    pub fn context_digest(&self) -> &B3Hash {
+        &self.ctx.context_digest
+    }
+
+    /// Get the current run_head hash.
+    #[inline]
+    pub fn run_head(&self) -> &B3Hash {
+        &self.ctx.run_head
+    }
+
+    /// Get the current token position.
+    #[inline]
+    pub fn position(&self) -> u32 {
+        self.ctx.position
     }
 }
 

@@ -44,7 +44,12 @@ static TUTORIALS_JSON: &str = include_str!("../../../../shared/tutorials.json");
 
 static TUTORIAL_DEFINITIONS: Lazy<Vec<TutorialDefinition>> = Lazy::new(|| {
     let config: TutorialsConfig =
-        serde_json::from_str(TUTORIALS_JSON).expect("Failed to parse shared/tutorials.json");
+        serde_json::from_str(TUTORIALS_JSON).expect(
+            "Failed to parse shared/tutorials.json at compile time: \
+             expected valid JSON structure with 'tutorials' array field, \
+             but deserialization failed. This indicates tutorials.json is malformed \
+             or incompatible with TutorialsConfig schema."
+        );
     config.tutorials
 });
 

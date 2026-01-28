@@ -1111,17 +1111,17 @@ aosctl storage verify --json --fail-on-drift
 ```bash
 # Run in CI pipeline
 mkdir -p var
-cargo run -p adapteros-cli -- db migrate --db-path ./var/aos-cp.sqlite3
+cargo run -p adapteros-cli -- db migrate --db-path var/aos-cp.sqlite3
 cargo run -p adapteros-cli -- storage migrate \
-  --db-path ./var/aos-cp.sqlite3 \
-  --kv-path ./var/aos-kv.redb \
+  --db-path var/aos-cp.sqlite3 \
+  --kv-path var/aos-kv.redb \
   --domains adapters,tenants,stacks,plans,auth_sessions,runtime_sessions,rag_artifacts,policy_audit,training_jobs,chat_sessions \
   --batch-size 200 \
   --force
 cargo run -p adapteros-cli -- storage verify \
   --json \
-  --db-path ./var/aos-cp.sqlite3 \
-  --kv-path ./var/aos-kv.redb \
+  --db-path var/aos-cp.sqlite3 \
+  --kv-path var/aos-kv.redb \
   --domains adapters,tenants,stacks,plans,auth_sessions,runtime_sessions,rag_artifacts,policy_audit,training_jobs,chat_sessions \
   --fail-on-drift
 
@@ -1160,7 +1160,7 @@ aosctl storage migrate \
   --domains adapters,tenants,stacks \
   --batch-size 200 \
   --resume \
-  --checkpoint-path ./var/aos-migrate.checkpoint.json \
+  --checkpoint-path var/aos-migrate.checkpoint.json \
   --dry-run
 
 # Execute migration
@@ -1168,7 +1168,7 @@ aosctl storage migrate \
   --domains adapters,tenants,stacks \
   --batch-size 200 \
   --resume \
-  --checkpoint-path ./var/aos-migrate.checkpoint.json
+  --checkpoint-path var/aos-migrate.checkpoint.json
 ```
 
 **Resume Semantics:**
@@ -1713,7 +1713,7 @@ aosctl storage verify --json --kv-path var/aos-kv.redb > drift-report.json
 aosctl storage migrate \
   --domains adapters,tenants,stacks \
   --batch-size 200 \
-  --checkpoint-path ./var/aos-migrate.checkpoint.json
+  --checkpoint-path var/aos-migrate.checkpoint.json
 ```
 
 ---

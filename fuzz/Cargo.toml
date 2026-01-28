@@ -4,15 +4,138 @@ version = "0.0.0"
 publish = false
 edition = "2021"
 
+[package.metadata]
+cargo-fuzz = true
+
 [dependencies]
 libfuzzer-sys = "0.4"
 arbitrary = { version = "1.3", features = ["derive"] }
 adapteros-core = { path = "../crates/adapteros-core" }
+adapteros-lora-router = { path = "../crates/adapteros-lora-router" }
 adapteros-lora-kernel-api = { path = "../crates/adapteros-lora-kernel-api" }
 adapteros-lora-worker = { path = "../crates/adapteros-lora-worker" }
+adapteros-db = { path = "../crates/adapteros-db" }
+adapteros-manifest = { path = "../crates/adapteros-manifest" }
+adapteros-policy = { path = "../crates/adapteros-policy" }
+blake3 = "1"
+rand = "0.8"
+rand_chacha = "0.3"
+tokio = { version = "1", features = ["rt", "macros"] }
+serde_json = "1"
+serde_yaml = "0.9"
+adapteros-api-types = { path = "../crates/adapteros-api-types" }
+adapteros-artifacts = { path = "../crates/adapteros-artifacts" }
 
+# Security-critical parsing fuzz targets
+[[bin]]
+name = "receipt_parsing"
+path = "fuzz_targets/receipt_parsing.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "router_input"
+path = "fuzz_targets/router_input.rs"
+test = false
+doc = false
+bench = false
+
+# Existing fuzz targets
 [[bin]]
 name = "model_cache_eviction"
 path = "fuzz_targets/model_cache_eviction.rs"
 test = false
 doc = false
+bench = false
+
+[[bin]]
+name = "receipt_verification"
+path = "fuzz_targets/receipt_verification.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "router_inputs"
+path = "fuzz_targets/router_inputs.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "router_route_with_adapter_info"
+path = "fuzz_targets/router_route_with_adapter_info.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "evidence_envelope"
+path = "fuzz_targets/evidence_envelope.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "evidence_chain_verification"
+path = "fuzz_targets/evidence_chain_verification.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "trace_encoding"
+path = "fuzz_targets/trace_encoding.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "stop_controller"
+path = "fuzz_targets/stop_controller.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "kv_quota_reservation"
+path = "fuzz_targets/kv_quota_reservation.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "adapter_name_parse"
+path = "fuzz_targets/adapter_name_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "stack_name_parse"
+path = "fuzz_targets/stack_name_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "manifest_parse"
+path = "fuzz_targets/manifest_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "policy_parse"
+path = "fuzz_targets/policy_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sbom_parse"
+path = "fuzz_targets/sbom_parse.rs"
+test = false
+doc = false
+bench = false

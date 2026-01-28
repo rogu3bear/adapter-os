@@ -125,7 +125,7 @@ async fn step_2_verify(ci_mode: bool) -> Result<()> {
 
     println!("Example commands:");
     println!("   aosctl verify <bundle.zip>");
-    println!("   aosctl verify-telemetry --bundle-dir ./var/telemetry");
+    println!("   aosctl verify-telemetry --bundle-dir var/telemetry");
     println!();
 
     println!("📦 Artifact verification ensures:");

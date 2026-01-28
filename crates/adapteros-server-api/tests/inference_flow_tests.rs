@@ -28,7 +28,7 @@ use common::{setup_state, test_admin_claims};
 async fn ready_model_happy_path_inference_and_routing() {
     let manifest_hash = "test-manifest-hash";
     let backend_name = "mlx";
-    let uds_dir = TempDir::new_in(".").expect("tempdir");
+    let uds_dir = TempDir::with_prefix("aos-test-").expect("tempdir");
     let uds_path = uds_dir
         .path()
         .join("aos-happy-worker.sock")

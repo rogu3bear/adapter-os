@@ -340,7 +340,7 @@ pub async fn run_preflight_checks(config: Arc<RwLock<Config>>, cli: &Cli) -> Res
         let current_fp = DeviceFingerprint::capture_current()
             .map_err(|e| anyhow::anyhow!("Failed to capture fingerprint: {}", e))?;
 
-        let baseline_path = std::path::PathBuf::from("var/baseline_fingerprint.json");
+        let baseline_path = adapteros_core::rebase_var_path("var/baseline_fingerprint.json");
 
         if baseline_path.exists() {
             // Load baseline and compare

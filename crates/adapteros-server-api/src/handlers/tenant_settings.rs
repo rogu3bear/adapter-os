@@ -7,8 +7,8 @@
 //! - GET /v1/tenants/{tenant_id}/settings - Get tenant settings
 //! - PUT /v1/tenants/{tenant_id}/settings - Update tenant settings
 
+use crate::api_error::ApiError;
 use crate::auth::Claims;
-use crate::error_helpers::db_error_with_details;
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::*;
@@ -38,7 +38,7 @@ pub async fn get_tenant_settings(
         .db
         .get_tenant_settings(&tenant_id)
         .await
-        .map_err(db_error_with_details)?;
+        .map_err(ApiError::db_error)?;
 
     // Load execution policy from tenant_execution_policies
     let determinism_policy = match state.db.get_execution_policy_or_default(&tenant_id).await {
@@ -135,7 +135,7 @@ pub async fn update_tenant_settings(
         .db
         .upsert_tenant_settings(&tenant_id, params)
         .await
-        .map_err(db_error_with_details)?;
+        .map_err(ApiError::db_error)?;
 
     info!(
         tenant_id = %tenant_id,

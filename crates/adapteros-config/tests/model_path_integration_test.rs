@@ -4,7 +4,7 @@
 //! all components (server, CLI, preflight) and that env var precedence is respected.
 //!
 //! Test coverage:
-//! 1. Default resolution uses ./var/model-cache/models/qwen2.5-7b-mlx
+//! 1. Default resolution uses var/model-cache/models/qwen2.5-7b-mlx
 //! 2. AOS_MODEL_CACHE_DIR + AOS_BASE_MODEL_ID takes precedence
 //! 3. Explicit overrides take highest precedence
 //! 4. Combinations work correctly
@@ -16,14 +16,11 @@ use adapteros_config::{
 };
 use adapteros_core::rebase_var_path;
 mod test_env;
-use std::path::PathBuf;
 use tempfile::TempDir;
 use test_env::TestEnvGuard;
 
 fn new_test_tempdir() -> TempDir {
-    let root = PathBuf::from("var").join("tmp");
-    std::fs::create_dir_all(&root).expect("create var/tmp");
-    TempDir::new_in(&root).expect("tempdir")
+    TempDir::with_prefix("aos-test-").expect("create temp dir")
 }
 
 /// Guard that ensures env vars are cleaned up even on panic
@@ -437,9 +434,9 @@ fn test_relative_and_absolute_cache_paths() {
     let _guard = EnvGuard::new();
 
     // Test relative path
-    _guard.set(Some("./var/custom-cache"), Some("test-model"));
+    _guard.set(Some("var/custom-cache"), Some("test-model"));
     let result1 = resolve_base_model_location(None, None, false).unwrap();
-    assert_eq!(result1.cache_root, rebase_var_path("./var/custom-cache"));
+    assert_eq!(result1.cache_root, rebase_var_path("var/custom-cache"));
 
     drop(_guard);
 

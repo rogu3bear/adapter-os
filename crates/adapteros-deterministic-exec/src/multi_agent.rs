@@ -44,6 +44,10 @@ pub type Result<T> = std::result::Result<T, CoordinationError>;
 /// - Added failure broadcast mechanism to prevent deadlock on timeout (Issue C-5)
 /// - Fixed CAS race condition handling (Issue C-1)
 /// - Fixed memory ordering from Relaxed to Acquire (Issue C-7)
+///
+/// ## Determinism Fix (P1-1)
+/// - Added tick-based timeout tracking as alternative to wall-clock
+/// - In strict-determinism mode, wall-clock Instant::now() is forbidden
 pub struct AgentBarrier {
     /// Expected agent IDs
     agent_ids: Vec<String>,
@@ -61,6 +65,11 @@ pub struct AgentBarrier {
     telemetry: Option<Arc<TelemetryWriter>>,
     /// Tenant ID for telemetry identity
     tenant_id: String,
+    /// Timeout in logical ticks (P1-1: deterministic timeout)
+    /// When set, uses tick-based timeout instead of wall-clock Duration
+    timeout_ticks: Option<u64>,
+    /// Global tick counter reference for tick-based timeouts (P1-1)
+    tick_counter: Option<Arc<AtomicU64>>,
 }
 
 impl std::fmt::Debug for AgentBarrier {
@@ -111,6 +120,52 @@ impl AgentBarrier {
             dead_agents: Arc::new(Mutex::new(HashSet::new())),
             telemetry,
             tenant_id,
+            timeout_ticks: None, // P1-1: Default to wall-clock timeout
+            tick_counter: None,
+        }
+    }
+
+    /// Create a new agent barrier with tick-based timeout (P1-1: deterministic)
+    ///
+    /// Uses logical ticks instead of wall-clock Duration for timeout detection.
+    /// This ensures deterministic behavior across replay runs.
+    ///
+    /// ## Arguments
+    /// * `agent_ids` - List of agent IDs that must synchronize
+    /// * `telemetry` - Optional telemetry writer for barrier events
+    /// * `tenant_id` - Tenant ID for telemetry identity
+    /// * `tick_counter` - Reference to the global tick counter
+    /// * `timeout_ticks` - Number of ticks before timeout (e.g., 30000 for ~30s at 1ms/tick)
+    pub fn with_tick_timeout(
+        agent_ids: Vec<String>,
+        telemetry: Option<Arc<TelemetryWriter>>,
+        tenant_id: String,
+        tick_counter: Arc<AtomicU64>,
+        timeout_ticks: u64,
+    ) -> Self {
+        info!(
+            "Creating agent barrier with {} agents and tick-based timeout ({} ticks): {:?}",
+            agent_ids.len(),
+            timeout_ticks,
+            agent_ids
+        );
+
+        let mut agent_ticks = HashMap::new();
+        for agent_id in &agent_ids {
+            agent_ticks.insert(agent_id.clone(), 0);
+        }
+
+        Self {
+            agent_ids,
+            agent_ticks: Arc::new(Mutex::new(agent_ticks)),
+            generation: Arc::new(AtomicU64::new(0)),
+            notify: Arc::new(Notify::new()),
+            failed: Arc::new(AtomicBool::new(false)),
+            dead_agents: Arc::new(Mutex::new(HashSet::new())),
+            telemetry,
+            tenant_id,
+            timeout_ticks: Some(timeout_ticks),
+            tick_counter: Some(tick_counter),
         }
     }
 
@@ -214,6 +269,10 @@ impl AgentBarrier {
     /// - Properly handles CAS losers when advancing generation
     /// - Broadcasts failure on timeout to prevent deadlock
     /// - Uses Acquire ordering to ensure memory visibility
+    ///
+    /// ## Determinism (P1-1)
+    /// - When tick_counter and timeout_ticks are configured, uses logical tick-based timeout
+    /// - In strict-determinism mode, wall-clock Instant::now() is forbidden
     pub async fn wait(&self, agent_id: &str, current_tick: u64) -> Result<()> {
         // Check if barrier already failed (Issue C-5: failure broadcast)
         if self.failed.load(Ordering::Acquire) {
@@ -228,7 +287,37 @@ impl AgentBarrier {
             "Agent entering barrier"
         );
 
-        let wait_start = tokio::time::Instant::now();
+        // P1-1: Track wait start - use tick if available, else wall-clock
+        let wait_start_tick = self
+            .tick_counter
+            .as_ref()
+            .map(|tc| tc.load(Ordering::Acquire));
+
+        // P1-1: In strict-determinism mode, require tick-based timeout
+        #[cfg(feature = "strict-determinism")]
+        let wait_start_instant: Option<tokio::time::Instant> = {
+            if self.tick_counter.is_none() {
+                panic!(
+                    "DETERMINISM VIOLATION: AgentBarrier::wait() called without tick_counter in strict-determinism mode. \
+                     Use AgentBarrier::with_tick_timeout() to configure tick-based timeout."
+                );
+            }
+            None
+        };
+
+        // P1-1: In non-strict mode, use wall-clock as fallback but warn
+        #[cfg(not(feature = "strict-determinism"))]
+        let wait_start_instant: Option<tokio::time::Instant> = if self.tick_counter.is_none() {
+            warn!(
+                agent_id = %agent_id,
+                tick = current_tick,
+                "DETERMINISM WARNING: Using wall-clock timeout in AgentBarrier::wait(). \
+                 For deterministic behavior, use AgentBarrier::with_tick_timeout()."
+            );
+            Some(tokio::time::Instant::now())
+        } else {
+            None
+        };
 
         // Emit barrier.wait_start telemetry
         if let Some(ref telemetry) = self.telemetry {
@@ -253,6 +342,7 @@ impl AgentBarrier {
                 "tick": current_tick,
                 "generation": self.generation.load(Ordering::Acquire),
                 "total_agents": self.agent_ids.len(),
+                "timeout_mode": if self.timeout_ticks.is_some() { "tick-based" } else { "wall-clock" },
             }))
             .build()
             .map_err(|e| {
@@ -285,15 +375,43 @@ impl AgentBarrier {
 
         // Issue C-7 fix: Use Acquire ordering instead of Relaxed
         let gen = self.generation.load(Ordering::Acquire);
-        let timeout_duration = Duration::from_secs(30); // 30 second timeout
-        let start = tokio::time::Instant::now();
+
+        // P1-1: Use tick-based or wall-clock timeout depending on configuration
+        let timeout_duration = Duration::from_secs(30); // 30 second wall-clock timeout (fallback)
 
         loop {
+            // P1-1: Check for timeout using tick-based or wall-clock depending on configuration
+            let is_timeout = if let (Some(ref tc), Some(timeout_ticks)) =
+                (&self.tick_counter, self.timeout_ticks)
+            {
+                // Tick-based timeout (deterministic)
+                let current_global_tick = tc.load(Ordering::Acquire);
+                let start_tick = wait_start_tick.unwrap_or(current_global_tick);
+                let elapsed_ticks = current_global_tick.saturating_sub(start_tick);
+                elapsed_ticks >= timeout_ticks
+            } else if let Some(start_instant) = wait_start_instant {
+                // Wall-clock timeout (non-deterministic fallback)
+                start_instant.elapsed() > timeout_duration
+            } else {
+                // No timeout configured (shouldn't happen in strict mode)
+                false
+            };
+
             // Check for timeout (Issue C-5: broadcast failure)
-            if start.elapsed() > timeout_duration {
+            if is_timeout {
+                // P1-1: Calculate wait duration for telemetry (tick-based if available)
+                let wait_duration_ticks = if let (Some(ref tc), Some(start_tick)) =
+                    (&self.tick_counter, wait_start_tick)
+                {
+                    Some(tc.load(Ordering::Acquire).saturating_sub(start_tick))
+                } else {
+                    None
+                };
+
                 warn!(
                     agent_id = %agent_id,
                     tick = current_tick,
+                    wait_duration_ticks = ?wait_duration_ticks,
                     "Barrier timeout - broadcasting failure to all agents"
                 );
 
@@ -309,8 +427,8 @@ impl AgentBarrier {
                         EventType::Custom("barrier.timeout".to_string()),
                         LogLevel::Error,
                         format!(
-                            "Agent {} timeout after {:?} at tick {}",
-                            agent_id, timeout_duration, current_tick
+                            "Agent {} timeout at tick {} (waited {} ticks)",
+                            agent_id, current_tick, wait_duration_ticks.unwrap_or(0)
                         ),
                         identity.clone(),
                     )
@@ -319,9 +437,10 @@ impl AgentBarrier {
                         "agent_id": agent_id,
                         "tick": current_tick,
                         "generation": self.generation.load(Ordering::Acquire),
-                        "wait_duration_ms": wait_start.elapsed().as_millis() as u64,
+                        "wait_duration_ticks": wait_duration_ticks,
+                        "timeout_ticks": self.timeout_ticks,
                         "total_agents": self.agent_ids.len(),
-                        "timeout_seconds": timeout_duration.as_secs(),
+                        "timeout_mode": if self.timeout_ticks.is_some() { "tick-based" } else { "wall-clock" },
                     }))
                     .build();
 
@@ -398,7 +517,7 @@ impl AgentBarrier {
                                     "agent_id": agent_id,
                                     "tick": current_tick,
                                     "generation": gen + 1,
-                                    "wait_duration_ms": wait_start.elapsed().as_millis() as u64,
+                                    "wait_duration_ticks": self.compute_wait_duration_ticks(wait_start_tick),
                                     "total_agents": self.agent_ids.len(),
                                     "living_agents": living_count,
                                     "dead_agents": dead_count,
@@ -447,7 +566,7 @@ impl AgentBarrier {
                                     "tick": current_tick,
                                     "expected_gen": gen,
                                     "actual_gen": actual_gen,
-                                    "wait_duration_ms": wait_start.elapsed().as_millis() as u64,
+                                    "wait_duration_ticks": self.compute_wait_duration_ticks(wait_start_tick),
                                 }))
                                 .build();
 
@@ -489,6 +608,17 @@ impl AgentBarrier {
     /// Get current tick for an agent
     pub fn agent_tick(&self, agent_id: &str) -> Option<u64> {
         self.agent_ticks.lock().get(agent_id).copied()
+    }
+
+    /// Compute wait duration in logical ticks (P1-1: deterministic telemetry)
+    ///
+    /// Returns the number of ticks elapsed since wait_start_tick, or 0 if
+    /// tick tracking is not available.
+    fn compute_wait_duration_ticks(&self, wait_start_tick: Option<u64>) -> u64 {
+        match (&self.tick_counter, wait_start_tick) {
+            (Some(tc), Some(start_tick)) => tc.load(Ordering::Acquire).saturating_sub(start_tick),
+            _ => 0, // No tick tracking available
+        }
     }
 
     /// Reset barrier (for testing)

@@ -401,7 +401,7 @@ impl CoreMLBackend {
             cached_path.clone()
         } else {
             // Write plan bytes to a temporary .mlmodelc file
-            let cache_root = PlatformUtils::temp_dir().join("adapteros-coremlc");
+            let cache_root = PlatformUtils::aos_model_cache_dir().join("coreml");
             fs::create_dir_all(&cache_root).map_err(|e| {
                 AosError::Io(format!(
                     "Failed to create CoreML cache dir {}: {}",

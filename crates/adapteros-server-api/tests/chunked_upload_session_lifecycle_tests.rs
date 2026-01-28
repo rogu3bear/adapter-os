@@ -38,11 +38,8 @@ async fn cleanup_marks_stale_session_failed() {
     let claims = common::test_admin_claims();
 
     let session_id = Uuid::new_v4().to_string();
-    let temp_dir = PathBuf::from("var")
-        .join("tmp")
-        .join("session-cleanup-test")
-        .join(&session_id);
-    std::fs::create_dir_all(&temp_dir).expect("temp dir");
+    let temp_dir_obj = tempfile::TempDir::with_prefix("aos-test-session-cleanup-").expect("temp dir");
+    let temp_dir = temp_dir_obj.path().to_path_buf();
 
     adapteros_db::sqlx::query(
         "INSERT INTO dataset_upload_sessions (

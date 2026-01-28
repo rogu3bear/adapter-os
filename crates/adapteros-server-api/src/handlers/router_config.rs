@@ -1,5 +1,5 @@
+use crate::api_error::ApiError;
 use crate::auth::Claims;
-use crate::error_helpers::db_error_with_details;
 use crate::middleware::require_any_role;
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
@@ -104,7 +104,7 @@ pub async fn get_router_config(
         .db
         .get_execution_policy_or_default(&tenant_id)
         .await
-        .map_err(db_error_with_details)?;
+        .map_err(ApiError::db_error)?;
 
     // Active manifest (aligns with worker/router configuration)
     let manifest_hash = state.manifest_hash.clone();
@@ -131,7 +131,7 @@ pub async fn get_router_config(
         .db
         .get_default_stack(&tenant_id)
         .await
-        .map_err(db_error_with_details)?;
+        .map_err(ApiError::db_error)?;
 
     let (stack_summary, effective_adapter_ids) = if let Some(stack_id) = default_stack_id.as_ref() {
         match state.db.get_stack(&tenant_id, stack_id).await {
@@ -161,7 +161,7 @@ pub async fn get_router_config(
         .db
         .list_adapters_for_tenant(&tenant_id)
         .await
-        .map_err(db_error_with_details)?;
+        .map_err(ApiError::db_error)?;
     let adapter_map: HashMap<String, Adapter> = adapters
         .into_iter()
         .map(|a| {

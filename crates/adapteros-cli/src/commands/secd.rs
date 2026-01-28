@@ -16,7 +16,7 @@ pub enum SecdCommand {
     /// Show aos-secd daemon status
     #[command(after_help = r#"Examples:
   aosctl secd status
-  aosctl secd status --database ./var/custom.db
+  aosctl secd status --database var/custom.db
   aosctl secd status --pid-file /custom/path/aos-secd.pid
 "#)]
     Status {
@@ -33,7 +33,7 @@ pub enum SecdCommand {
         socket: PathBuf,
 
         /// Database path
-        #[arg(long, default_value = "./var/aos-cp.sqlite3")]
+        #[arg(long, default_value = "var/aos-cp.sqlite3")]
         database: PathBuf,
     },
 
@@ -42,11 +42,11 @@ pub enum SecdCommand {
   aosctl secd audit
   aosctl secd audit --limit 100
   aosctl secd audit --operation sign
-  aosctl secd audit --database ./var/custom.db
+  aosctl secd audit --database var/custom.db
 "#)]
     Audit {
         /// Database path
-        #[arg(long, default_value = "./var/aos-cp.sqlite3")]
+        #[arg(long, default_value = "var/aos-cp.sqlite3")]
         database: PathBuf,
 
         /// Number of operations to show
@@ -122,12 +122,12 @@ mod tests {
             pid_file: PathBuf::from("/var/run/aos-secd.pid"),
             heartbeat_file: PathBuf::from("/var/run/aos-secd.heartbeat"),
             socket: PathBuf::from("/var/run/aos-secd.sock"),
-            database: PathBuf::from("./var/aos-cp.sqlite3"),
+            database: PathBuf::from("var/aos-cp.sqlite3"),
         };
         assert_eq!(get_secd_command_name(&status_cmd), "secd_status");
 
         let audit_cmd = SecdCommand::Audit {
-            database: PathBuf::from("./var/aos-cp.sqlite3"),
+            database: PathBuf::from("var/aos-cp.sqlite3"),
             limit: 50,
             operation: None,
         };
@@ -141,11 +141,11 @@ mod tests {
             pid_file: PathBuf::from("/var/run/aos-secd.pid"),
             heartbeat_file: PathBuf::from("/var/run/aos-secd.heartbeat"),
             socket: PathBuf::from("/var/run/aos-secd.sock"),
-            database: PathBuf::from("./var/aos-cp.sqlite3"),
+            database: PathBuf::from("var/aos-cp.sqlite3"),
         };
 
         let _audit = SecdCommand::Audit {
-            database: PathBuf::from("./var/aos-cp.sqlite3"),
+            database: PathBuf::from("var/aos-cp.sqlite3"),
             limit: 100,
             operation: Some("sign".to_string()),
         };

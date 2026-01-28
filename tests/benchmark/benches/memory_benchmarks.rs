@@ -253,13 +253,10 @@ fn bench_memory_mapped_files(c: &mut Criterion) {
 
     rt.block_on(async {
         use std::fs;
-        use std::path::PathBuf;
         use tempfile::NamedTempFile;
 
         // Create temporary file for benchmarking
-        let root = PathBuf::from("var").join("tmp");
-        std::fs::create_dir_all(&root).unwrap();
-        let temp_file = NamedTempFile::new_in(&root).unwrap();
+        let temp_file = NamedTempFile::with_prefix("aos-bench-").unwrap();
         let file_size = 64 * 1024 * 1024; // 64MB
 
         // Write test data to file

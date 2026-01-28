@@ -37,6 +37,46 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 
 // =============================================================================
+// Compile-Time Parsing Utilities
+// =============================================================================
+
+/// Parse a string slice to u32 at compile time
+///
+/// Used by DATABASE_SCHEMA_VERSION to parse the build-time env var.
+/// Returns None if the string is not a valid u32.
+const fn const_parse_u32(s: &str) -> Option<u32> {
+    let bytes = s.as_bytes();
+    if bytes.is_empty() {
+        return None;
+    }
+
+    let mut result: u32 = 0;
+    let mut i = 0;
+    while i < bytes.len() {
+        let byte = bytes[i];
+        if byte < b'0' || byte > b'9' {
+            return None;
+        }
+        let digit = (byte - b'0') as u32;
+
+        // Check for overflow before multiplying
+        if let Some(temp) = result.checked_mul(10) {
+            if let Some(new_result) = temp.checked_add(digit) {
+                result = new_result;
+            } else {
+                return None; // Overflow on add
+            }
+        } else {
+            return None; // Overflow on multiply
+        }
+
+        i += 1;
+    }
+
+    Some(result)
+}
+
+// =============================================================================
 // Algorithm Version Constants for Determinism Tracking
 // =============================================================================
 
@@ -281,10 +321,26 @@ pub const API_SCHEMA_VERSION: &str = "1.0.0";
 /// Database schema version (migration sequence number)
 ///
 /// This represents the latest migration number in /migrations/.
-/// Updated automatically when new migrations are added.
+/// Automatically computed from the migrations directory at build time.
 /// Check against `_sqlx_migrations` table for current database version.
-/// TODO: Consider computing this from migrations directory at build time.
-pub const DATABASE_SCHEMA_VERSION: u32 = 212;
+///
+/// # Implementation
+///
+/// The version is computed by the build script (build.rs) which scans
+/// the migrations/ directory and finds the highest numeric migration prefix.
+/// Supports both formats:
+/// - Four-digit: `0001_init.sql` through `0297_embedding_benchmarks.sql`
+/// - Timestamp: `20260112125636_add_dataset_validation_json.sql`
+///
+/// The build script sets the `DATABASE_SCHEMA_VERSION` environment variable,
+/// which is consumed here via `env!()`.
+pub const DATABASE_SCHEMA_VERSION: u32 = match option_env!("DATABASE_SCHEMA_VERSION") {
+    Some(v) => match const_parse_u32(v) {
+        Some(n) => n,
+        None => panic!("DATABASE_SCHEMA_VERSION env var is not a valid u32"),
+    },
+    None => panic!("DATABASE_SCHEMA_VERSION not set by build script. Run cargo build."),
+};
 
 /// RNG module version for determinism tracking
 ///
@@ -490,6 +546,15 @@ mod tests {
             !RNG_MODULE_VERSION.is_empty(),
             "RNG_MODULE_VERSION must not be empty"
         );
+
+        // DATABASE_SCHEMA_VERSION should be computed from migrations at build time
+        // It should be at least 297 (as of Jan 2026)
+        println!("DATABASE_SCHEMA_VERSION computed at build time: {}", DATABASE_SCHEMA_VERSION);
+        assert!(
+            DATABASE_SCHEMA_VERSION >= 297,
+            "DATABASE_SCHEMA_VERSION ({}) should be >= 297 (computed from migrations/)",
+            DATABASE_SCHEMA_VERSION
+        );
     }
 
     #[test]
@@ -675,5 +740,35 @@ mod tests {
         assert!(display.contains("v1"));
         assert!(display.contains("v2"));
         assert!(display.contains("test reason"));
+    }
+
+    // =========================================================================
+    // Const Parse Tests
+    // =========================================================================
+
+    #[test]
+    fn test_const_parse_u32_valid() {
+        assert_eq!(const_parse_u32("0"), Some(0));
+        assert_eq!(const_parse_u32("1"), Some(1));
+        assert_eq!(const_parse_u32("297"), Some(297));
+        assert_eq!(const_parse_u32("1234"), Some(1234));
+        assert_eq!(const_parse_u32("4294967295"), Some(u32::MAX));
+    }
+
+    #[test]
+    fn test_const_parse_u32_invalid() {
+        assert_eq!(const_parse_u32(""), None);
+        assert_eq!(const_parse_u32("abc"), None);
+        assert_eq!(const_parse_u32("12a34"), None);
+        assert_eq!(const_parse_u32("-123"), None);
+        assert_eq!(const_parse_u32("1.23"), None);
+    }
+
+    #[test]
+    fn test_const_parse_u32_overflow() {
+        // u32::MAX + 1
+        assert_eq!(const_parse_u32("4294967296"), None);
+        // Much larger number
+        assert_eq!(const_parse_u32("999999999999999"), None);
     }
 }

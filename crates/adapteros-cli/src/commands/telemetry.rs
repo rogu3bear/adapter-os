@@ -35,7 +35,7 @@ pub enum TelemetryCommand {
 "#)]
     List {
         /// Database path
-        #[arg(long, default_value = "./var/aos-cp.sqlite3")]
+        #[arg(long, default_value = "var/aos-cp.sqlite3")]
         database: PathBuf,
 
         /// Filter by stack ID
@@ -53,8 +53,8 @@ pub enum TelemetryCommand {
 
     /// Verify telemetry bundle chain integrity
     #[command(after_help = r#"Examples:
-  aosctl telemetry verify --bundle-dir ./var/telemetry
-  aosctl telemetry verify --bundle-dir ./var/telemetry --json > verify.json
+  aosctl telemetry verify --bundle-dir var/telemetry
+  aosctl telemetry verify --bundle-dir var/telemetry --json > verify.json
 "#)]
     Verify {
         /// Telemetry bundle directory
@@ -528,7 +528,7 @@ mod tests {
     #[test]
     fn test_telemetry_command_clone() {
         let cmd = TelemetryCommand::List {
-            database: PathBuf::from("./var/aos-cp.sqlite3"),
+            database: PathBuf::from("var/aos-cp.sqlite3"),
             by_stack: Some("stack-prod-001".to_string()),
             event_type: Some("router.decision".to_string()),
             limit: 100,
@@ -542,7 +542,7 @@ mod tests {
                 event_type,
                 limit,
             } => {
-                assert_eq!(database, PathBuf::from("./var/aos-cp.sqlite3"));
+                assert_eq!(database, PathBuf::from("var/aos-cp.sqlite3"));
                 assert_eq!(by_stack, Some("stack-prod-001".to_string()));
                 assert_eq!(event_type, Some("router.decision".to_string()));
                 assert_eq!(limit, 100);
@@ -554,13 +554,13 @@ mod tests {
     #[test]
     fn test_verify_command_clone() {
         let cmd = TelemetryCommand::Verify {
-            bundle_dir: PathBuf::from("./var/telemetry"),
+            bundle_dir: PathBuf::from("var/telemetry"),
         };
 
         let cloned = cmd.clone();
         match cloned {
             TelemetryCommand::Verify { bundle_dir } => {
-                assert_eq!(bundle_dir, PathBuf::from("./var/telemetry"));
+                assert_eq!(bundle_dir, PathBuf::from("var/telemetry"));
             }
             _ => panic!("Expected Verify variant"),
         }

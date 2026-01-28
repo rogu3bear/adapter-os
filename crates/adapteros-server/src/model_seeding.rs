@@ -54,7 +54,7 @@ pub async fn download_priority_models(boot_state: Option<&BootStateManager>) {
 
     // Create ModelHub client configuration
     let cache_dir = std::env::var("AOS_MODEL_CACHE_DIR").unwrap_or_else(|_| {
-        let default = std::path::PathBuf::from("var/model-cache");
+        let default = adapteros_core::rebase_var_path("var/model-cache");
         default.to_string_lossy().to_string()
     });
 
@@ -230,7 +230,7 @@ pub async fn seed_models_from_cache_if_empty(db: &Db) -> Result<()> {
     let mut errors = 0usize;
 
     for root in model_dirs {
-        // If this root is a single model directory (like var/models/Qwen2.5...), seed it directly.
+        // If this root is a single model directory (like /var/models/Llama-3.2-3B-Instruct-4bit), seed it directly.
         let entries: Vec<PathBuf> = if root.join("config.json").exists() {
             vec![root.clone()]
         } else {

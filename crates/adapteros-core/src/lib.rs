@@ -90,6 +90,9 @@ pub mod validation;
 pub mod version;
 pub mod worker_status;
 
+#[cfg(feature = "cache-attestation")]
+pub mod cache_attestation;
+
 #[cfg(test)]
 pub(crate) mod test_support;
 
@@ -102,6 +105,8 @@ pub use adapter_store::{
 };
 pub use adapter_type::{AdapterType, AdapterTypeParseError};
 pub use adapteros_infra_common as constants;
+/// Re-export hash module for compatibility with `adapteros_core::hash::B3Hash` imports
+pub use adapteros_infra_common::hash;
 pub use adapteros_infra_common::{
     bytes_to_gb, bytes_to_mb, canonical_adapter_sort, canonical_score_comparator,
     cosine_similarity, decode_q15_gate, dot_product, encode_q15_gate,
@@ -227,6 +232,12 @@ pub use version::{
     PATH_NORMALIZATION_VERSION,
 };
 pub use worker_status::{WorkerStatus, WorkerStatusTransition};
+
+#[cfg(feature = "cache-attestation")]
+pub use cache_attestation::{
+    create_cache_attestation, CacheAttestation, CacheAttestationBuilder,
+    CACHE_ATTESTATION_SCHEMA_VERSION,
+};
 
 /// RNG module version for determinism tracking
 /// @deprecated Use `version::RNG_MODULE_VERSION` instead

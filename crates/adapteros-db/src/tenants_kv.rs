@@ -80,6 +80,9 @@ pub struct CreateTenantParams {
     pub itar_flag: bool,
 }
 
+// From<Tenant> for TenantKv and From<TenantKv> for Tenant implementations
+// are defined in adapteros-storage/src/entities/tenant.rs due to Rust's orphan rules.
+
 /// KV backend implementation for tenant operations
 pub struct TenantKvRepository {
     backend: Arc<dyn KvBackend>,

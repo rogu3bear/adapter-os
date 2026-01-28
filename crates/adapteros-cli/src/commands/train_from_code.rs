@@ -220,13 +220,10 @@ impl TrainFromCodeArgs {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use adapteros_storage::platform::common::PlatformUtils;
     use tempfile::TempDir;
 
     fn new_test_tempdir() -> TempDir {
-        let root = PlatformUtils::temp_dir();
-        std::fs::create_dir_all(&root).expect("create var/tmp");
-        TempDir::new_in(&root).expect("create temp dir")
+        TempDir::with_prefix("aos-test-").expect("create temp dir")
     }
 
     #[tokio::test]

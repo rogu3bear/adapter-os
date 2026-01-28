@@ -1,6 +1,6 @@
 use super::fs_utils::ensure_dirs;
 use super::paths::DatasetPaths;
-use crate::error_helpers::{internal_error, not_found};
+use crate::api_error::ApiError;
 use crate::handlers::chunked_upload::{
     ChunkAssembler, ChunkWriter, CompressionFormat, ResumeToken, UploadSession,
     UploadSessionManager,
@@ -79,7 +79,10 @@ pub async fn prepare_session_with_workspace(
             workspace_id,
         )
         .await
-        .map_err(internal_error)?;
+        .map_err(|e| {
+            let err: (StatusCode, Json<ErrorResponse>) = ApiError::internal(e.to_string()).into();
+            err
+        })?;
 
     Ok((session, expected_chunks(total_size, chunk_size)))
 }
@@ -97,9 +100,13 @@ pub async fn persist_chunk(
         .upload_session_manager
         .get_session(session_id)
         .await
-        .map_err(|_| not_found("Upload session"))?;
+        .map_err(|_| {
+            let err: (StatusCode, Json<ErrorResponse>) = ApiError::not_found("Upload session").into();
+            err
+        })?;
     if UploadSessionManager::is_session_expired(&session) {
-        return Err(not_found("Upload session"));
+        let err: (StatusCode, Json<ErrorResponse>) = ApiError::not_found("Upload session").into();
+        return Err(err);
     }
 
     let expected_chunks = expected_chunks(session.total_size, session.chunk_size);
@@ -202,17 +209,17 @@ pub async fn persist_chunk(
     let chunk_path = session.temp_dir.join(format!("chunk_{:08}", chunk_index));
     let mut writer = ChunkWriter::new(&chunk_path).await.map_err(|e| {
         error!("Failed to create chunk writer: {}", e);
-        internal_error(format!("Failed to create chunk file: {}", e))
+        ApiError::internal(format!("Failed to create chunk file: {}", e))
     })?;
 
     writer.write_chunk(body).await.map_err(|e| {
         error!("Failed to write chunk data: {}", e);
-        internal_error(format!("Failed to write chunk: {}", e))
+        ApiError::internal(format!("Failed to write chunk: {}", e))
     })?;
 
     let chunk_hash = writer.finalize().await.map_err(|e| {
         error!("Failed to finalize chunk: {}", e);
-        internal_error(format!("Failed to finalize chunk: {}", e))
+        ApiError::internal(format!("Failed to finalize chunk: {}", e))
     })?;
 
     state
@@ -221,14 +228,14 @@ pub async fn persist_chunk(
         .await
         .map_err(|e| {
             error!("Failed to update session: {}", e);
-            internal_error(format!("Failed to update session: {}", e))
+            ApiError::internal(format!("Failed to update session: {}", e))
         })?;
 
     let updated_session = state
         .upload_session_manager
         .get_session(session_id)
         .await
-        .map_err(internal_error)?;
+        .map_err(|e| ApiError::internal(e.to_string()))?;
 
     let chunks_received = updated_session.received_chunks.len();
     let is_complete = state
@@ -279,5 +286,5 @@ pub async fn assemble_chunks(
     assembler
         .assemble()
         .await
-        .map_err(|e| internal_error(format!("Failed to assemble file: {}", e)))
+        .map_err(|e| ApiError::internal(format!("Failed to assemble file: {}", e)).into())
 }

@@ -1,0 +1,40 @@
+[package]
+name = "adapteros-server-api-admin"
+version = "0.1.0"
+edition = "2021"
+description = "Admin and policy endpoints for AdapterOS control plane"
+
+[lib]
+doctest = false
+
+[dependencies]
+# Web framework
+axum = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Async runtime
+tokio = { workspace = true }
+futures-util = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# OpenAPI
+utoipa = { workspace = true }
+
+# Utilities
+uuid = { version = "1.0", features = ["v4", "v7", "serde"] }
+chrono = { workspace = true }
+
+# AdapterOS crates
+adapteros-api-types = { path = "../adapteros-api-types", features = ["server"] }
+adapteros-boot = { path = "../adapteros-boot" }
+adapteros-core = { path = "../adapteros-core" }
+adapteros-db = { path = "../adapteros-db" }
+adapteros-server-api = { path = "../adapteros-server-api" }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "macros"] }

@@ -5,8 +5,8 @@
 //!
 //! Citation: PRD-06 - Per-tenant policy customization
 
+use crate::api_error::ApiError;
 use crate::auth::Claims;
-use crate::error_helpers::db_error_msg;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
@@ -153,7 +153,7 @@ pub async fn list_tenant_policy_bindings(
         .db
         .list_tenant_policy_bindings(&tenant_id)
         .await
-        .map_err(|e| db_error_msg("failed to list policy bindings", e))?;
+        .map_err(|e| ApiError::internal("failed to list policy bindings").with_details(e.to_string()))?;
 
     let response: Vec<TenantPolicyBindingResponse> = bindings
         .into_iter()
@@ -232,7 +232,9 @@ pub async fn toggle_tenant_policy(
                     Json(ErrorResponse::new("Policy binding not found").with_code("NOT_FOUND")),
                 )
             } else {
-                db_error_msg("failed to toggle policy binding", e)
+                ApiError::internal("failed to toggle policy binding")
+                    .with_details(e.to_string())
+                    .into()
             }
         })?;
 
@@ -260,7 +262,7 @@ pub async fn toggle_tenant_policy(
         .db
         .list_tenant_policy_bindings(&tenant_id)
         .await
-        .map_err(|e| db_error_msg("failed to fetch updated binding", e))?;
+        .map_err(|e| ApiError::internal("failed to fetch updated binding").with_details(e.to_string()))?;
 
     let binding = bindings
         .into_iter()
@@ -381,7 +383,7 @@ pub async fn query_policy_decisions(
     let rows = query_builder
         .fetch_all(state.db.pool())
         .await
-        .map_err(|e| db_error_msg("failed to query policy decisions", e))?;
+        .map_err(|e| ApiError::internal("failed to query policy decisions").with_details(e.to_string()))?;
 
     let decisions: Vec<PolicyAuditDecision> = rows
         .into_iter()
@@ -474,7 +476,7 @@ pub async fn verify_policy_audit_chain(
     let rows = query_builder
         .fetch_all(state.db.pool())
         .await
-        .map_err(|e| db_error_msg("failed to fetch audit chain", e))?;
+        .map_err(|e| ApiError::internal("failed to fetch audit chain").with_details(e.to_string()))?;
 
     let total_entries = rows.len() as i64;
     let mut verified_entries = 0i64;

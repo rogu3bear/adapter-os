@@ -1,8 +1,9 @@
 use adapteros_core::defaults::DEFAULT_SUPERVISOR_SIGNING_KEY_PATH;
 pub use adapteros_core::defaults::{
     DEFAULT_ADAPTERS_ROOT, DEFAULT_BASE_MODEL_ID, DEFAULT_CP_WORKER_SOCKET, DEFAULT_DB_PATH,
-    DEFAULT_EMBEDDING_MODEL_PATH, DEFAULT_INDEX_ROOT, DEFAULT_MANIFEST_CACHE_DIR,
-    DEFAULT_MODEL_CACHE_ROOT, DEFAULT_QWEN_INT4_MANIFEST_DIR, DEFAULT_STATUS_PATH,
+    DEFAULT_EMBEDDING_MODEL_PATH, DEFAULT_INDEX_ROOT, DEFAULT_KV_PATH, DEFAULT_LOG_LEVEL,
+    DEFAULT_MANIFEST_CACHE_DIR, DEFAULT_MODEL_BACKEND, DEFAULT_MODEL_CACHE_ROOT,
+    DEFAULT_QWEN_INT4_MANIFEST_DIR, DEFAULT_SERVER_HOST, DEFAULT_SERVER_PORT, DEFAULT_STATUS_PATH,
     DEFAULT_TELEMETRY_DIR, DEFAULT_WORKER_SOCKET_DEV, DEFAULT_WORKER_SOCKET_PROD_ROOT,
     DEV_MANIFEST_PATH, DEV_MODEL_PATH,
 };
@@ -397,8 +398,8 @@ pub fn resolve_database_url() -> Result<ResolvedPath> {
 /// Precedence:
 /// 1) CLI override (already parsed into `override_path`)
 /// 2) AOS_WORKER_SOCKET
-/// 3) ./var/run/aos/{tenant}/worker.sock (attempts to create parent)
-/// 4) ./var/run/worker.sock (dev fallback)
+/// 3) var/run/aos/{tenant}/worker.sock (attempts to create parent)
+/// 4) var/run/worker.sock (dev fallback)
 pub fn resolve_worker_socket_for_worker(
     tenant_id: &str,
     override_path: Option<&Path>,
@@ -479,7 +480,7 @@ pub fn resolve_worker_socket_for_worker(
 ///
 /// Precedence:
 /// 1) AOS_WORKER_SOCKET
-/// 2) ./var/run/adapteros.sock
+/// 2) var/run/adapteros.sock
 pub fn resolve_worker_socket_for_cp() -> Result<ResolvedPath> {
     crate::model::load_dotenv();
     if let Ok(env_path) = std::env::var("AOS_WORKER_SOCKET") {
@@ -931,9 +932,7 @@ mod tests {
     use tempfile::TempDir;
 
     fn new_test_tempdir() -> TempDir {
-        let root = PathBuf::from("var").join("tmp");
-        std::fs::create_dir_all(&root).expect("create var/tmp");
-        TempDir::new_in(&root).expect("tempdir")
+        TempDir::with_prefix("aos-test-").expect("create temp dir")
     }
 
     #[test]
@@ -1081,9 +1080,9 @@ mod tests {
     #[test]
     fn telemetry_dir_prefers_env() {
         let _env = TestEnvGuard::new();
-        std::env::set_var("AOS_TELEMETRY_DIR", "./var/aos-telemetry-env");
+        std::env::set_var("AOS_TELEMETRY_DIR", "var/aos-telemetry-env");
         let resolved = resolve_telemetry_dir().unwrap();
-        assert_eq!(resolved.path, rebase_var_path("./var/aos-telemetry-env"));
+        assert_eq!(resolved.path, rebase_var_path("var/aos-telemetry-env"));
         assert_eq!(resolved.source, PathSource::Env("AOS_TELEMETRY_DIR"));
         std::env::remove_var("AOS_TELEMETRY_DIR");
     }
@@ -1241,8 +1240,8 @@ mod tests {
     #[test]
     fn worker_socket_prefers_cli_over_env() {
         let _env = TestEnvGuard::new();
-        let cli_path = PathBuf::from("./var/test-cli.worker.sock");
-        std::env::set_var("AOS_WORKER_SOCKET", "./var/test-env.worker.sock");
+        let cli_path = PathBuf::from("var/test-cli.worker.sock");
+        std::env::set_var("AOS_WORKER_SOCKET", "var/test-env.worker.sock");
 
         let resolved =
             resolve_worker_socket_for_worker("tenant-x", Some(cli_path.as_path())).unwrap();
@@ -1255,12 +1254,12 @@ mod tests {
     #[test]
     fn worker_socket_prefers_env_when_cli_missing() {
         let _env = TestEnvGuard::new();
-        std::env::set_var("AOS_WORKER_SOCKET", "./var/test-env-only.worker.sock");
+        std::env::set_var("AOS_WORKER_SOCKET", "var/test-env-only.worker.sock");
 
         let resolved = resolve_worker_socket_for_worker("tenant-x", None).unwrap();
         assert_eq!(
             resolved.path,
-            rebase_var_path("./var/test-env-only.worker.sock")
+            rebase_var_path("var/test-env-only.worker.sock")
         );
         assert_eq!(resolved.source, PathSource::Env("AOS_WORKER_SOCKET"));
 
@@ -1312,7 +1311,7 @@ mod tests {
     #[test]
     fn prepare_socket_removes_stale_and_creates_parent() {
         let _env = TestEnvGuard::new();
-        let tmp = TempDir::new_in(".").unwrap();
+        let tmp = TempDir::with_prefix("aos-test-").unwrap();
         let socket_path = tmp.path().join("nested/worker.sock");
         std::fs::create_dir_all(socket_path.parent().unwrap()).unwrap();
         std::fs::write(&socket_path, b"stale").unwrap();
@@ -1351,7 +1350,7 @@ mod tests {
     #[test]
     fn status_path_rebases_under_var_dir() {
         let _env = TestEnvGuard::new();
-        std::env::set_var("AOS_VAR_DIR", "./var/custom-root");
+        std::env::set_var("AOS_VAR_DIR", "var/custom-root");
         let resolved = resolve_status_path().unwrap();
         assert_eq!(
             resolved.path,
@@ -1363,7 +1362,7 @@ mod tests {
     #[test]
     fn control_plane_socket_rebases_under_var_dir() {
         let _env = TestEnvGuard::new();
-        std::env::set_var("AOS_VAR_DIR", "./var/custom-root");
+        std::env::set_var("AOS_VAR_DIR", "var/custom-root");
         let resolved = resolve_worker_socket_for_cp().unwrap();
         assert_eq!(resolved.path, resolve_var_dir().join("run/adapteros.sock"));
         assert_eq!(resolved.source, PathSource::Default("worker-socket-cp"));

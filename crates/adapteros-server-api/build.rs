@@ -6,9 +6,9 @@
 use std::process::Command;
 
 fn main() {
-    // Rerun if git HEAD changes
+    // Rerun only on branch changes, not every git operation
+    // Removed .git/index watching - it changes on every git add/commit
     println!("cargo:rerun-if-changed=.git/HEAD");
-    println!("cargo:rerun-if-changed=.git/index");
 
     let git_hash = get_git_hash();
     let timestamp = get_build_timestamp();

@@ -127,8 +127,8 @@ mod tests {
             tenant_id: "test-tenant".to_string(),
             uid: 1001,
             gid: 1001,
-            root_dir: PathBuf::from("./var/aos/test-tenant"),
-            socket_path: PathBuf::from("./var/run/aos/test-tenant/aos.sock"),
+            root_dir: PathBuf::from("var/aos/test-tenant"),
+            socket_path: PathBuf::from("var/run/aos/test-tenant/aos.sock"),
         };
 
         assert_eq!(isolation.uid, 1001);

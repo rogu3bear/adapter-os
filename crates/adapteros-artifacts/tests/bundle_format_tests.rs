@@ -13,9 +13,7 @@ use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
 fn new_test_tempdir() -> TempDir {
-    let root = PathBuf::from("var/tmp");
-    fs::create_dir_all(&root).expect("create var/tmp");
-    TempDir::new_in(&root).expect("tempdir")
+    TempDir::with_prefix("aos-test-").expect("create temp dir")
 }
 
 /// Create a test bundle directory with weights, manifest, and metadata

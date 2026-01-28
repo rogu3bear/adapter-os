@@ -139,7 +139,7 @@ pub fn init_runtime_config() -> std::result::Result<(), ConfigError> {
 pub fn config() -> &'static RuntimeConfig {
     RUNTIME_CONFIG
         .get()
-        .expect("Runtime configuration not initialized. Call init_runtime_config() first.")
+        .expect("Global runtime configuration access failed: RUNTIME_CONFIG OnceCell is not initialized. Expected state: init_runtime_config() should have been called during application bootstrap. Context: Configuration must be initialized before any code attempts to access it via config(). Use try_config() if initialization status is uncertain.")
 }
 
 /// Try to get the global runtime configuration

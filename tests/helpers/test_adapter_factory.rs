@@ -49,9 +49,7 @@ pub async fn create_minimal_test_adapter(rank: usize, alpha: f32) -> Result<Vec<
     let result = trainer.train(&examples, "test_adapter").await?;
 
     // Package adapter
-    let tmp_root = PathBuf::from("var").join("tmp");
-    std::fs::create_dir_all(&tmp_root).map_err(|e| AosError::Io(e.to_string()))?;
-    let temp_dir = TempDir::new_in(&tmp_root).map_err(|e| AosError::Io(e.to_string()))?;
+    let temp_dir = TempDir::with_prefix("aos-test-").map_err(|e| AosError::Io(e.to_string()))?;
     let packager = AdapterPackager::new(temp_dir.path().to_path_buf());
 
     // Quantize and package

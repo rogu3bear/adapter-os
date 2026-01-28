@@ -26,8 +26,6 @@ pub struct CoreMLConfig {
     pub max_batch_size: usize,
     /// Enable profiling
     pub enable_profiling: bool,
-    /// Model cache directory
-    pub cache_dir: Option<String>,
     /// Require ANE availability (enforced in production mode)
     #[serde(default)]
     pub require_ane: bool,
@@ -59,7 +57,6 @@ impl Default for CoreMLConfig {
             compute_units: ComputeUnitsConfig::CpuAndNeuralEngine,
             max_batch_size: 32,
             enable_profiling: false,
-            cache_dir: None,
             require_ane: false,
         }
     }

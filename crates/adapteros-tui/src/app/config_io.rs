@@ -27,7 +27,7 @@ pub struct TuiConfig {
 }
 
 fn default_server_url() -> String {
-    "http://localhost:8080".to_string()
+    adapteros_api_types::defaults::DEFAULT_SERVER_URL.to_string()
 }
 
 fn default_refresh_interval() -> u64 {

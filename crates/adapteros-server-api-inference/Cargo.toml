@@ -1,0 +1,36 @@
+[package]
+name = "adapteros-server-api-inference"
+version = "0.1.0"
+edition = "2021"
+description = "Inference and streaming endpoints for AdapterOS server"
+
+[lib]
+doctest = false
+
+[dependencies]
+# Core dependencies
+axum = { version = "0.8", features = ["macros"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tracing = "0.1"
+tokio = { version = "1.0", features = ["full"] }
+tokio-stream = "0.1"
+tokio-util = { version = "0.7", features = ["io", "codec"] }
+uuid = { version = "1.0", features = ["v4", "v7", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+futures = "0.3"
+futures-util = "0.3"
+thiserror = "2.0"
+
+# AdapterOS internal crates
+adapteros-api-types = { path = "../adapteros-api-types", features = ["server"] }
+adapteros-types = { path = "../adapteros-types" }
+
+# OpenAPI documentation
+utoipa = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3.0"
+
+[features]
+default = []

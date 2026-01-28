@@ -106,9 +106,7 @@ fn base_request(repo_id: String, base_model_id: &str) -> StartTrainingRequest {
 }
 
 async fn seed_base_model(state: &adapteros_server_api::state::AppState) -> (String, TempDir) {
-    let tmp_root = PathBuf::from("var").join("tmp");
-    std::fs::create_dir_all(&tmp_root).expect("create var/tmp");
-    let temp_dir = tempfile::tempdir_in(&tmp_root).expect("tempdir");
+    let temp_dir = tempfile::TempDir::with_prefix("aos-test-").expect("tempdir");
     let model_path = temp_dir.path().join("model.safetensors");
     std::fs::write(&model_path, b"stub").expect("write model stub");
     let model_id = register_test_model(state, &model_path)

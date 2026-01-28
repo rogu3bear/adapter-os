@@ -230,6 +230,14 @@ pub fn extract_buffer_data(buffer: &metal::Buffer, length: usize) -> Result<Vec<
             AosError::Kernel("Element count overflow while reading Metal buffer".into())
         })?;
 
+    // SAFETY: Pointer arithmetic and slice creation are safe because:
+    // 1. `ptr` is non-null (checked at line 216 above)
+    // 2. `byte_len` is obtained from the Metal buffer's reported length
+    // 3. `f32_bytes` and `f16_bytes` are computed with checked_mul (overflow returns error)
+    // 4. We verify `byte_len >= required_bytes` before creating the slice
+    // 5. Metal buffers with StorageModeShared are CPU-accessible and properly aligned
+    // 6. The buffer contents remain valid for the duration of this function
+    //    (caller must ensure buffer is not modified concurrently)
     unsafe {
         if byte_len >= f32_bytes {
             let slice = std::slice::from_raw_parts(ptr as *const f32, length);

@@ -9,7 +9,7 @@
 //!
 //! ## Available Models
 //!
-//! The benchmark auto-detects models in `./var/models/`:
+//! The benchmark auto-detects models in `var/models/`:
 //! - `Qwen2.5-7B-Instruct-4bit` - Dense 7B model
 //! - `Qwen3-Coder-30B-A3B-Instruct-MLX-4bit` - MoE model (128 experts, 8 active)
 //! - `Qwen2.5-VL-7B-Instruct-8bit` - Vision-Language model
@@ -23,7 +23,7 @@
 //! cargo bench --package adapteros-lora-worker --bench mlx_bridge_streaming
 //!
 //! # Specific model
-//! MLX_BENCHMARK_MODEL=./var/models/Qwen3-Coder-30B-A3B-Instruct-MLX-4bit \
+//! MLX_BENCHMARK_MODEL=/var/models/Llama-3.2-3B-Instruct-4bit \
 //!   cargo bench --package adapteros-lora-worker --bench mlx_bridge_streaming
 //! ```
 //!
@@ -89,7 +89,7 @@ fn find_model_path() -> Option<ModelInfo> {
     ];
 
     // Try different base paths
-    let base_paths = ["./var/models", "../var/models", "../../var/models"];
+    let base_paths = ["var/models", ".var/models", "../.var/models"];
 
     for base in base_paths {
         for (model_name, is_moe) in &candidates {
@@ -116,7 +116,7 @@ fn find_all_models() -> Vec<ModelInfo> {
         ("Qwen3-Coder-30B-A3B-Instruct-MLX-4bit", true),
     ];
 
-    let base_paths = ["./var/models", "../var/models", "../../var/models"];
+    let base_paths = ["var/models", ".var/models", "../.var/models"];
 
     for base in base_paths {
         for (model_name, is_moe) in &candidates {
@@ -311,7 +311,7 @@ fn bench_mlx_bridge_streaming(c: &mut Criterion) {
         Some(m) => m,
         None => {
             eprintln!("⚠️  Skipping MLX bridge benchmarks: no model found");
-            eprintln!("   Set MLX_BENCHMARK_MODEL or place model at ./var/models/Qwen2.5-7B-Instruct-4bit");
+            eprintln!("   Set MLX_BENCHMARK_MODEL or place model at /var/models/Llama-3.2-3B-Instruct-4bit");
             return;
         }
     };

@@ -689,14 +689,11 @@ mod tests {
     use adapteros_core::AosError;
     use adapteros_db::sqlx;
     use adapteros_db::Db;
-    use adapteros_storage::platform::common::PlatformUtils;
     use std::path::PathBuf;
     use tempfile::TempDir;
 
     fn new_test_tempdir() -> TempDir {
-        let root = PlatformUtils::temp_dir();
-        std::fs::create_dir_all(&root).expect("create var/tmp");
-        TempDir::new_in(&root).expect("tempdir")
+        TempDir::with_prefix("aos-test-").expect("create temp dir")
     }
 
     fn fixture_tokenizer_path() -> PathBuf {

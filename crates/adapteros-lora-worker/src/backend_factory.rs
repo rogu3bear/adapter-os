@@ -88,7 +88,7 @@ pub type BackendChoice = adapteros_core::backend::BackendKind;
 /// use std::path::PathBuf;
 ///
 /// # fn main() -> Result<(), adapteros_core::AosError> {
-/// let mut config = ModelConfig::new(PathBuf::from("./var/model-cache/models/qwen2.5-7b-instruct-bf16"));
+/// let mut config = ModelConfig::new(PathBuf::from("var/model-cache/models/qwen2.5-7b-instruct-bf16"));
 /// config.backend = BackendPreference::CoreML;
 /// let backend = create_backend_from_config(&config)?;
 /// # Ok(())
@@ -355,7 +355,7 @@ pub fn create_backend_with_model(choice: BackendChoice, model_path: &Path) -> Re
 /// let hash = B3Hash::hash(b"model-manifest");
 /// let backend = create_backend_with_model_and_hash(
 ///     BackendChoice::Mlx,
-///     Path::new("./var/model-cache/models/qwen2.5-7b-instruct-bf16"),
+///     Path::new("var/model-cache/models/qwen2.5-7b-instruct-bf16"),
 ///     Some(&hash)
 /// )?;
 /// ```
@@ -1258,9 +1258,10 @@ mod tests {
     use tempfile::TempDir;
 
     fn new_test_tempdir() -> TempDir {
-        let root = PlatformUtils::temp_dir();
-        std::fs::create_dir_all(&root).expect("create var/tmp");
-        TempDir::new_in(&root).expect("create temp dir")
+        tempfile::Builder::new()
+            .prefix("aos-test-")
+            .tempdir()
+            .expect("create temp dir")
     }
 
     #[test]

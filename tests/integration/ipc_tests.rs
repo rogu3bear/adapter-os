@@ -281,7 +281,7 @@ async fn test_ipc_performance_baseline() {
     println!("🧪 Establishing IPC performance baseline...");
 
     use std::time::Instant;
-    let temp_dir = TempDir::new_in(".").expect("tempdir");
+    let temp_dir = TempDir::with_prefix("aos-test-").expect("tempdir");
 
     // Test signal creation performance
     let start = Instant::now();
@@ -319,7 +319,7 @@ async fn test_ipc_performance_baseline() {
 async fn prepare_socket_listener(
     pool_size: usize,
 ) -> (TempDir, PathBuf, Arc<Mutex<Vec<UnixStream>>>) {
-    let tempdir = TempDir::new_in(".").expect("tempdir");
+    let tempdir = TempDir::with_prefix("aos-test-").expect("tempdir");
     let socket_path = tempdir.path().join("worker.sock");
 
     // Ensure no stale socket exists

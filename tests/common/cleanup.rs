@@ -185,20 +185,22 @@ pub fn restore_env_vars(
 }
 
 /// Create a test database path with unique identifier
+/// Uses OS temp directory to avoid polluting the repo.
 pub fn create_test_db_path(prefix: &str) -> PathBuf {
     use uuid::Uuid;
     let uuid = Uuid::new_v4().simple();
-    let base_dir = PathBuf::from("var").join("tmp");
+    let base_dir = std::env::temp_dir().join("adapteros-tests");
     let _ = fs::create_dir_all(&base_dir);
     base_dir.join(format!("{}_{}.db", prefix, uuid))
 }
 
 /// Create a test temporary directory with unique identifier
+/// Uses OS temp directory to avoid polluting the repo.
 pub fn create_test_temp_dir(prefix: &str) -> Result<PathBuf, Box<dyn std::error::Error>> {
     use uuid::Uuid;
     let uuid = Uuid::new_v4().simple();
-    let path = PathBuf::from("var")
-        .join("tmp")
+    let path = std::env::temp_dir()
+        .join("adapteros-tests")
         .join(format!("{}_{}", prefix, uuid));
     fs::create_dir_all(&path)?;
     Ok(path)

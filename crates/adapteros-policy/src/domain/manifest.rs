@@ -247,13 +247,10 @@ pub fn save_manifest<P: AsRef<Path>>(manifest: &AdapterManifest, path: P) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
     use tempfile::NamedTempFile;
 
     fn new_test_tempfile() -> NamedTempFile {
-        let root = PathBuf::from("var").join("tmp");
-        std::fs::create_dir_all(&root).expect("create var/tmp");
-        NamedTempFile::new_in(&root).expect("create temp file")
+        NamedTempFile::with_prefix("aos-test-").expect("create temp file")
     }
 
     fn create_test_manifest() -> AdapterManifest {

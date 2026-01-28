@@ -24,10 +24,10 @@ async fn create_test_tenant(db: &Db, tenant_id: &str) -> Result<()> {
 async fn create_test_adapter(db: &Db, adapter_id: &str, tenant_id: &str, name: &str) -> Result<()> {
     // Generate unique hash based on adapter_id to avoid UNIQUE constraint violation
     let hash = format!("hash_{}_12345678901234567890123456", adapter_id);
-    let adapter_dir = std::path::PathBuf::from("var").join("adapters");
-    std::fs::create_dir_all(&adapter_dir).map_err(|e| {
-        adapteros_core::AosError::Io(format!("Failed to create adapter dir: {}", e))
+    let adapter_tempdir = tempfile::TempDir::with_prefix("aos-test-adapters-").map_err(|e| {
+        adapteros_core::AosError::Io(format!("Failed to create adapter temp dir: {}", e))
     })?;
+    let adapter_dir = adapter_tempdir.into_path();
     let adapter_path = adapter_dir.join(format!("{}.aos", adapter_id));
     std::fs::write(&adapter_path, b"test").map_err(|e| {
         adapteros_core::AosError::Io(format!("Failed to create adapter file: {}", e))

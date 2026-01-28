@@ -495,9 +495,7 @@ mod tests {
     #[tokio::test]
     async fn test_validation_too_small() {
         let loader = AosLoader::new().unwrap();
-        let temp_root = std::path::PathBuf::from("var/tmp");
-        std::fs::create_dir_all(&temp_root).unwrap();
-        let temp_file = NamedTempFile::new_in(&temp_root).unwrap();
+        let temp_file = NamedTempFile::with_prefix("aos-test-").unwrap();
 
         std::fs::write(temp_file.path(), b"TINY").unwrap();
 
@@ -510,9 +508,7 @@ mod tests {
     #[tokio::test]
     async fn test_validation_bad_magic() {
         let loader = AosLoader::new().unwrap();
-        let temp_root = std::path::PathBuf::from("var/tmp");
-        std::fs::create_dir_all(&temp_root).unwrap();
-        let temp_file = NamedTempFile::new_in(&temp_root).unwrap();
+        let temp_file = NamedTempFile::with_prefix("aos-test-").unwrap();
 
         let mut header = vec![0u8; HEADER_SIZE];
         header[0..4].copy_from_slice(b"BADM");
