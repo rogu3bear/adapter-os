@@ -1,0 +1,23 @@
+{
+  "bundle_hash": "44853168e218119f5d03f759205a512550b4d075b96531cd9bfd7031e8000886",
+  "merkle_root": "38e0445f06c0ace7307f39ab16cde6075292d20dab0ed32e785af4f12bdd9fd9",
+  "event_count": 4,
+  "signature": "c978a8e5e36ddfae5626e00843b866f276625e70b2e6ecc2726fde5b5d6260b4709e2acd682eac51a85512e34f1e0e7cadf84d8258711058db00732071634e02",
+  "public_key": "37b7f1a4cf6342426842cd9987d6d0a520e27eeda2e84a628fdd31386265b7b1",
+  "key_id": "923e30e0af5b09056829b280b46bc755",
+  "schema_version": 1,
+  "signed_at_us": 1769599208370362,
+  "cpid": null,
+  "tenant_id": null,
+  "sequence_no": null,
+  "created_at": {
+    "secs_since_epoch": 1769599208,
+    "nanos_since_epoch": 370362000
+  },
+  "prev_bundle_hash": null,
+  "is_incident_bundle": false,
+  "is_promotion_bundle": false,
+  "tags": [],
+  "stack_id": null,
+  "stack_version": null
+}

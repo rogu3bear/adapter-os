@@ -24,7 +24,10 @@ use adapteros_aos::{AosWriter, BackendTag};
 use adapteros_core::{AosError, RepoAdapterPaths, Result};
 use adapteros_crypto::Keypair;
 use adapteros_lora_router::ROUTER_GATE_Q15_DENOM;
-use adapteros_storage::{ByteStorage, FsByteStorage, StorageKey};
+use adapteros_storage::{
+    AdapterLayout, AdapterName, AdapterVersion, ByteStorage, FsByteStorage, FsRefStore, RefStore,
+    StorageKey, TrainingMetrics,
+};
 use safetensors::tensor::TensorView;
 use safetensors::SafeTensors;
 use std::collections::HashMap;
@@ -473,7 +476,6 @@ impl super::types::AdapterPackager {
         tokio::fs::create_dir_all(&adapter_dir).await.map_err(|e| {
             AosError::Training(format!("Failed to create adapter directory: {}", e))
         })?;
-        let storage = FsByteStorage::new(adapteros_core::rebase_var_path("var/datasets"), self.repo_root.clone());
 
         // Serialize weights to in-memory safetensors buffer (matches loader expectations)
         let weights_data = Self::build_safetensors_bytes(weights)?;
@@ -584,36 +586,125 @@ impl super::types::AdapterPackager {
             );
         }
 
-        // Resolve archive path via storage abstraction (tenant-scoped)
-        let aos_key = StorageKey::adapter_artifact(
-            Some(tenant_id.to_string()),
-            adapter_id,
-            None,
-            format!("{}.aos", adapter_id),
-        );
-        let aos_path = storage.path_for(&aos_key)?;
+        // Build the AOS archive in memory to compute final hash
         let mut writer = AosWriter::new();
         writer.add_segment(
             BackendTag::Canonical,
             Some(scope_path.clone()),
             &weights_data,
         )?;
-        writer.write_archive(&aos_path, &manifest)?;
+
+        // Write to a temporary location first to get the archive bytes
+        let temp_dir = tempfile::tempdir().map_err(|e| {
+            AosError::Training(format!("Failed to create temp directory: {}", e))
+        })?;
+        let temp_path = temp_dir.path().join("temp.aos");
+        writer.write_archive(&temp_path, &manifest)?;
+
+        // Read the archive and compute the final content hash
+        let archive_bytes = tokio::fs::read(&temp_path).await.map_err(|e| {
+            AosError::Training(format!("Failed to read temp archive: {}", e))
+        })?;
+        let archive_hash = blake3::hash(&archive_bytes).to_hex().to_string();
+
+        // Set up adapter layout for content-addressed storage
+        let adapter_layout = AdapterLayout::new(&self.repo_root);
+        let content_addressed_path = adapter_layout.object_path(&archive_hash);
+
+        // Create parent directories for the content-addressed path
+        if let Some(parent) = content_addressed_path.parent() {
+            tokio::fs::create_dir_all(parent).await.map_err(|e| {
+                AosError::Training(format!(
+                    "Failed to create objects directory {}: {}",
+                    parent.display(),
+                    e
+                ))
+            })?;
+        }
+
+        // Copy to content-addressed location
+        tokio::fs::copy(&temp_path, &content_addressed_path)
+            .await
+            .map_err(|e| {
+                AosError::Training(format!(
+                    "Failed to copy archive to {}: {}",
+                    content_addressed_path.display(),
+                    e
+                ))
+            })?;
 
         // Deterministic signature for the archive to allow reproducible verification
-        self.sign_archive(&aos_path, adapter_id).await?;
+        self.sign_archive(&content_addressed_path, adapter_id)
+            .await?;
+
+        // Create/update the draft ref pointing to the new hash
+        let adapter_name = AdapterName::subject(adapter_id);
+        let ref_store = FsRefStore::new(adapter_layout.clone());
+        ref_store
+            .update_ref(&adapter_name, tenant_id, "draft", &archive_hash)
+            .await
+            .map_err(|e| {
+                AosError::Training(format!("Failed to update draft ref: {}", e))
+            })?;
+
+        // Create AdapterVersion record with version metadata
+        let mut version = AdapterVersion::new(
+            archive_hash.clone(),
+            adapter_name.clone(),
+            manifest.version.clone(),
+        )
+        .with_size(archive_bytes.len() as u64)
+        .with_base_model(base_model);
+
+        // Add tenant_id to metadata for index lookups
+        version
+            .metadata
+            .insert("tenant_id".to_string(), tenant_id.to_string());
+
+        // Extract training metrics if available in manifest metadata
+        if let Some(final_loss) = manifest
+            .metadata
+            .get("final_loss")
+            .and_then(|v| v.parse::<f64>().ok())
+        {
+            version.training_metrics = Some(TrainingMetrics {
+                final_loss,
+                epochs: manifest
+                    .metadata
+                    .get("epochs")
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(config.epochs as u32),
+                steps: manifest
+                    .metadata
+                    .get("steps")
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(0),
+                learning_rate: Some(config.learning_rate as f64),
+                validation_loss: manifest
+                    .metadata
+                    .get("validation_loss")
+                    .and_then(|v| v.parse().ok()),
+            });
+        }
+
+        // Get parent hash from current ref if this is an update
+        if let Ok(Some(current_hash)) = ref_store.get_ref(&adapter_name, tenant_id, "current").await
+        {
+            version.parent_hash = Some(current_hash);
+        }
 
         info!(
-            path = %aos_path.display(),
-            size_kb = weights_data.len() / 1024,
-            "AOS archive created successfully"
+            path = %content_addressed_path.display(),
+            hash = %archive_hash,
+            size_kb = archive_bytes.len() / 1024,
+            "AOS archive stored in content-addressed location"
         );
 
         Ok(PackagedAdapter {
             adapter_id: adapter_id.to_string(),
             manifest,
-            weights_path: aos_path,
-            hash_b3,
+            weights_path: content_addressed_path,
+            hash_b3: archive_hash,
         })
     }
 
@@ -1806,5 +1897,198 @@ mod tests {
             fields.scope_meta.scope_repo,
             Some("multi-root-repo".to_string())
         );
+    }
+
+    #[tokio::test]
+    async fn test_package_aos_stores_in_content_addressed_path() {
+        use crate::training::quantizer::QuantizedLoRAWeights;
+
+        let temp_dir = tempfile::Builder::new()
+            .prefix("aos-versioning-test-")
+            .tempdir()
+            .expect("failed to create temporary directory for versioning test");
+
+        let packager = AdapterPackager::new(temp_dir.path());
+
+        // Create minimal quantized weights for testing (Q15 format)
+        let weights = QuantizedLoRAWeights {
+            lora_a_q15: vec![vec![100i16; 32]; 4], // rank=4, hidden=32
+            lora_b_q15: vec![vec![100i16; 4]; 32], // hidden=32, rank=4
+            scale_a: vec![1.0; 4],
+            scale_b: vec![1.0; 32],
+            modules: HashMap::new(),
+        };
+
+        let config = TrainingConfig {
+            rank: 4,
+            hidden_dim: 32,
+            ..Default::default()
+        };
+
+        // Add required metadata for lineage tracking
+        let mut metadata = HashMap::new();
+        metadata.insert("lineage_mode".to_string(), "legacy_unpinned".to_string());
+
+        let result = packager
+            .package_aos_with_metadata(
+                "test-tenant",
+                "versioning-test",
+                &weights,
+                &config,
+                "test-base-model",
+                metadata,
+            )
+            .await;
+
+        // Should succeed
+        let packaged = result.expect("packaging should succeed");
+
+        // Verify the weights_path is in objects directory (content-addressed)
+        let path_str = packaged.weights_path.to_string_lossy();
+        assert!(
+            path_str.contains("objects"),
+            "Archive should be in objects/ directory, got: {}",
+            path_str
+        );
+
+        // Verify the file exists
+        assert!(
+            packaged.weights_path.exists(),
+            "Archive file should exist at {}",
+            packaged.weights_path.display()
+        );
+
+        // Verify the hash is in the path
+        assert!(
+            path_str.contains(&packaged.hash_b3[0..2]),
+            "Path should contain hash prefix"
+        );
+
+        // Verify the draft ref was created
+        let layout = AdapterLayout::new(temp_dir.path());
+        let ref_store = FsRefStore::new(layout);
+        let adapter_name = AdapterName::subject("versioning-test");
+
+        let draft_hash = ref_store
+            .get_ref(&adapter_name, "test-tenant", "draft")
+            .await
+            .expect("getting ref should succeed");
+
+        assert_eq!(
+            draft_hash,
+            Some(packaged.hash_b3.clone()),
+            "draft ref should point to the archive hash"
+        );
+
+        // Verify the archive can be resolved via the draft ref
+        let resolved_path = ref_store
+            .resolve_ref(&adapter_name, "test-tenant", "draft")
+            .await
+            .expect("resolving ref should succeed");
+
+        assert_eq!(
+            resolved_path,
+            Some(packaged.weights_path.clone()),
+            "resolved path should match the archive path"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_package_aos_tracks_parent_version() {
+        use crate::training::quantizer::QuantizedLoRAWeights;
+
+        let temp_dir = tempfile::Builder::new()
+            .prefix("aos-parent-test-")
+            .tempdir()
+            .expect("failed to create temporary directory");
+
+        let packager = AdapterPackager::new(temp_dir.path());
+
+        let weights = QuantizedLoRAWeights {
+            lora_a_q15: vec![vec![100i16; 32]; 4],
+            lora_b_q15: vec![vec![100i16; 4]; 32],
+            scale_a: vec![1.0; 4],
+            scale_b: vec![1.0; 32],
+            modules: HashMap::new(),
+        };
+
+        let config = TrainingConfig {
+            rank: 4,
+            hidden_dim: 32,
+            ..Default::default()
+        };
+
+        // Add required metadata for lineage tracking
+        let mut metadata = HashMap::new();
+        metadata.insert("lineage_mode".to_string(), "legacy_unpinned".to_string());
+
+        // First version
+        let first = packager
+            .package_aos_with_metadata(
+                "test-tenant",
+                "parent-test",
+                &weights,
+                &config,
+                "test-model",
+                metadata.clone(),
+            )
+            .await
+            .expect("first packaging should succeed");
+
+        // Promote to current (simulate deployment)
+        let layout = AdapterLayout::new(temp_dir.path());
+        let ref_store = FsRefStore::new(layout.clone());
+        let adapter_name = AdapterName::subject("parent-test");
+
+        ref_store
+            .update_ref(&adapter_name, "test-tenant", "current", &first.hash_b3)
+            .await
+            .expect("promoting to current should succeed");
+
+        // Create slightly different weights for second version
+        let weights2 = QuantizedLoRAWeights {
+            lora_a_q15: vec![vec![200i16; 32]; 4], // different values
+            lora_b_q15: vec![vec![200i16; 4]; 32],
+            scale_a: vec![1.0; 4],
+            scale_b: vec![1.0; 32],
+            modules: HashMap::new(),
+        };
+
+        // Second version
+        let second = packager
+            .package_aos_with_metadata(
+                "test-tenant",
+                "parent-test",
+                &weights2,
+                &config,
+                "test-model",
+                metadata,
+            )
+            .await
+            .expect("second packaging should succeed");
+
+        // Verify hashes are different
+        assert_ne!(
+            first.hash_b3, second.hash_b3,
+            "Different weights should produce different hashes"
+        );
+
+        // Verify both files exist
+        assert!(first.weights_path.exists(), "First archive should exist");
+        assert!(second.weights_path.exists(), "Second archive should exist");
+
+        // Verify draft ref points to second version
+        let draft = ref_store
+            .get_ref(&adapter_name, "test-tenant", "draft")
+            .await
+            .expect("getting draft ref should succeed");
+        assert_eq!(draft, Some(second.hash_b3.clone()));
+
+        // Verify current still points to first version
+        let current = ref_store
+            .get_ref(&adapter_name, "test-tenant", "current")
+            .await
+            .expect("getting current ref should succeed");
+        assert_eq!(current, Some(first.hash_b3.clone()));
     }
 }
