@@ -51,7 +51,7 @@ hardware-residency = []             # Enable hardware residency tests (Mac Studi
 #   - Not intended for production use
 test-utils = []
 [dependencies]
-adapteros-core = { path = "../adapteros-core" }
+adapteros-core = { path = "../adapteros-core", features = ["cache-attestation"] }
 adapteros-config = { path = "../adapteros-config" }
 adapteros-lora-rag = { path = "../adapteros-lora-rag" }
 adapteros-storage = { path = "../adapteros-storage" }

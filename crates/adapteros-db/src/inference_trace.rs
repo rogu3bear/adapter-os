@@ -1,5 +1,6 @@
 use crate::Db;
 use adapteros_core::{
+    cache_attestation::CacheAttestation,
     compute_input_digest_v2, compute_output_digest, emit_observability_event, hash_token_decision,
     receipt_digest::{compute_receipt_digest, ReceiptDigestInput, RECEIPT_SCHEMA_V4},
     receipt_mismatch_event, update_run_head, AosError, B3Hash, EquipmentProfile, Result,
@@ -103,6 +104,11 @@ pub struct TraceFinalization<'a> {
     pub receipt_parity_verified: Option<bool>,
     /// Tenant ID for receipt binding (denormalized from inference_traces)
     pub tenant_id: Option<String>,
+    /// Cache attestation for provable cache credits (P0-1: prevents billing fraud)
+    /// Required when prefix_cached_token_count > 0
+    pub cache_attestation: Option<CacheAttestation>,
+    /// Worker public key for cache attestation verification (32 bytes Ed25519)
+    pub worker_public_key: Option<[u8; 32]>,
 }
 
 #[derive(Debug, Clone)]
@@ -529,6 +535,58 @@ impl TraceSink for SqlTraceSink {
             return Err(AosError::Validation(
                 "billed_output_tokens must equal logical_output_tokens (v1)".to_string(),
             ));
+        }
+
+        // P0-1: Cache Credit Provability - Verify attestation for non-zero cache credits
+        if finalization.prefix_cached_token_count > 0 {
+            // Attestation is required for any claimed cache credits
+            let attestation = finalization.cache_attestation.as_ref().ok_or_else(|| {
+                AosError::Validation(
+                    "cache_attestation required when prefix_cached_token_count > 0 (P0-1: billing fraud prevention)"
+                        .to_string(),
+                )
+            })?;
+
+            // Worker public key is required for verification
+            let worker_public_key = finalization.worker_public_key.as_ref().ok_or_else(|| {
+                AosError::Validation(
+                    "worker_public_key required for cache attestation verification".to_string(),
+                )
+            })?;
+
+            // Verify the attestation signature
+            attestation.verify(worker_public_key).map_err(|e| {
+                AosError::Validation(format!(
+                    "cache attestation verification failed: {} (P0-1: potential billing fraud)",
+                    e
+                ))
+            })?;
+
+            // Verify attestation token count matches claimed cache credits
+            if attestation.token_count != finalization.prefix_cached_token_count {
+                return Err(AosError::Validation(format!(
+                    "cache attestation token_count ({}) does not match prefix_cached_token_count ({}) (P0-1: billing mismatch)",
+                    attestation.token_count, finalization.prefix_cached_token_count
+                )));
+            }
+
+            // Verify cache key matches prefix_kv_key if present
+            if let Some(prefix_kv_key) = &finalization.prefix_kv_key_b3 {
+                if attestation.cache_key_hash != *prefix_kv_key.as_bytes() {
+                    return Err(AosError::Validation(
+                        "cache attestation cache_key_hash does not match prefix_kv_key_b3 (P0-1: cache key mismatch)"
+                            .to_string(),
+                    ));
+                }
+            }
+
+            tracing::debug!(
+                trace_id = %self.start.trace_id,
+                worker_id = %attestation.worker_id,
+                cached_tokens = attestation.token_count,
+                tick = attestation.timestamp_tick,
+                "Cache attestation verified successfully"
+            );
         }
 
         let output_digest = Self::output_digest(finalization.output_tokens);

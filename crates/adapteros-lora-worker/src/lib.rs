@@ -1133,7 +1133,7 @@ mod adapter_path_tests {
 
     #[test]
     fn worker_paths_respect_env_override() {
-        std::env::set_var("AOS_ADAPTERS_ROOT", "./var/test-adapters-repo");
+        std::env::set_var("AOS_ADAPTERS_ROOT", "var/test-adapters-repo");
         let paths = resolve_worker_adapter_paths();
         // Paths are absolutized by resolve_adapter_roots_from_strings, so check suffix
         assert!(
@@ -3518,6 +3518,9 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                         crypto_receipt_digest_b3,
                         receipt_parity_verified: None, // Computed post-hoc by comparing stored values
                         tenant_id: Some(request.cpid.clone()),
+                        // P0-1: Cache attestation for billing fraud prevention
+                        cache_attestation: None,
+                        worker_public_key: None,
                     })
                     .await
                 {
@@ -4296,6 +4299,9 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                     crypto_receipt_digest_b3,
                     receipt_parity_verified: None, // Computed post-hoc by comparing stored values
                     tenant_id: Some(request.cpid.clone()),
+                    // P0-1: Cache attestation for billing fraud prevention
+                    cache_attestation: None,
+                    worker_public_key: None,
                 })
                 .await
             {
