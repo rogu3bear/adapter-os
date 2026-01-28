@@ -1,7 +1,5 @@
+use crate::api_error::ApiError;
 use crate::auth::Claims;
-use crate::error_helpers::{
-    conflict, db_error_msg, db_error_with_details, internal_error_msg, not_found,
-};
 use crate::middleware::require_any_role;
 use crate::state::AppState;
 use crate::types::*;
@@ -19,7 +17,7 @@ pub async fn list_nodes(
 ) -> Result<Json<Vec<NodeResponse>>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator])?;
 
-    let nodes = state.db.list_nodes().await.map_err(db_error_with_details)?;
+    let nodes = state.db.list_nodes().await.map_err(ApiError::db_error)?;
 
     let response: Vec<NodeResponse> = nodes
         .into_iter()
@@ -48,11 +46,11 @@ pub async fn register_node(
         .db
         .register_node(&req.hostname, &req.agent_endpoint)
         .await
-        .map_err(|e| db_error_msg("failed to register node", e))?;
+        .map_err(|e| ApiError::internal("failed to register node").with_details(e.to_string()))?;
 
-    let node = state.db.get_node(&id).await.map_err(db_error_with_details)?;
+    let node = state.db.get_node(&id).await.map_err(ApiError::db_error)?;
 
-    let node = node.ok_or_else(|| internal_error_msg("node not found after registration", "Node was registered but could not be retrieved"))?;
+    let node = node.ok_or_else(|| ApiError::internal("node not found after registration").with_details("Node was registered but could not be retrieved"))?;
 
     // Audit log: node registered
     if let Err(e) = crate::audit_helper::log_success(
@@ -91,8 +89,8 @@ pub async fn test_node_connection(
         .db
         .get_node(&node_id)
         .await
-        .map_err(db_error_with_details)?
-        .ok_or_else(|| not_found("Node"))?;
+        .map_err(ApiError::db_error)?
+        .ok_or_else(|| ApiError::not_found("Node"))?;
 
     // Try to ping the node agent
     let start = std::time::Instant::now();
@@ -100,7 +98,7 @@ pub async fn test_node_connection(
         .connect_timeout(std::time::Duration::from_millis(500))
         .timeout(std::time::Duration::from_secs(5))
         .build()
-        .map_err(|e| internal_error_msg("Failed to create HTTP client", e))?;
+        .map_err(|e| ApiError::internal("Failed to create HTTP client").with_details(e.to_string()))?;
 
     let ping_url = format!("{}/health", node.agent_endpoint);
     let max_attempts = 3u32;
@@ -155,7 +153,7 @@ pub async fn mark_node_offline(
         .db
         .update_node_status(&node_id, "offline")
         .await
-        .map_err(|e| internal_error_msg("Failed to update node status", e))?;
+        .map_err(|e| ApiError::internal("Failed to update node status").with_details(e.to_string()))?;
 
     // Audit log: node marked offline
     if let Err(e) = crate::audit_helper::log_success(
@@ -183,16 +181,16 @@ pub async fn evict_node(
     require_any_role(&claims, &[Role::Operator])?;
 
     // Check for running workers on this node
-    let workers = state.db.list_all_workers().await.map_err(db_error_with_details)?;
+    let workers = state.db.list_all_workers().await.map_err(ApiError::db_error)?;
 
     let node_has_workers = workers.iter().any(|w| w.node_id == node_id);
 
     if node_has_workers {
-        return Err(conflict("Node has running workers; stop all workers before evicting node"));
+        return Err(ApiError::conflict("Node has running workers; stop all workers before evicting node"));
     }
 
     // Delete node using Db trait method
-    state.db.delete_node(&node_id).await.map_err(|e| internal_error_msg("Failed to delete node", e))?;
+    state.db.delete_node(&node_id).await.map_err(|e| ApiError::internal("Failed to delete node").with_details(e.to_string()))?;
 
     // Audit log: node evicted
     if let Err(e) = crate::audit_helper::log_success(
@@ -224,11 +222,11 @@ pub async fn get_node_details(
         .db
         .get_node(&node_id)
         .await
-        .map_err(db_error_with_details)?
-        .ok_or_else(|| not_found("Node"))?;
+        .map_err(ApiError::db_error)?
+        .ok_or_else(|| ApiError::not_found("Node"))?;
 
     // Get workers running on this node
-    let all_workers = state.db.list_all_workers().await.map_err(db_error_with_details)?;
+    let all_workers = state.db.list_all_workers().await.map_err(ApiError::db_error)?;
 
     let workers: Vec<WorkerInfo> = all_workers
         .iter()

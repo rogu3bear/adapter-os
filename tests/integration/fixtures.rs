@@ -10,9 +10,7 @@ use serde_json::json;
 use std::path::PathBuf;
 
 fn test_temp_root() -> PathBuf {
-    let root = PathBuf::from("var/tmp");
-    let _ = std::fs::create_dir_all(&root);
-    root
+    std::env::temp_dir().join("aos-test-fixtures")
 }
 
 /// Standard test repositories for different tenants

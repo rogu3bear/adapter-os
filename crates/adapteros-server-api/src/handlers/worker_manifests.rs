@@ -1,4 +1,4 @@
-use crate::error_helpers::{db_error_msg, internal_error_msg, not_found_with_details};
+use crate::api_error::ApiError;
 use crate::state::AppState;
 use adapteros_api_types::workers::WorkerManifestFetchResponse;
 use adapteros_core::B3Hash;
@@ -50,18 +50,17 @@ pub async fn fetch_manifest_by_hash(
         .db
         .get_manifest_by_hash(&manifest_hash)
         .await
-        .map_err(|e| db_error_msg("failed to fetch manifest", e))?;
+        .map_err(|e| ApiError::internal("failed to fetch manifest").with_details(e.to_string()))?;
 
     let manifest = match record {
         Some(rec) if rec.tenant_id == tenant_id => rec,
         Some(_) | None => {
-            return Err(not_found_with_details(
-                "manifest not found",
-                format!(
+            return Err(ApiError::not_found("manifest not found")
+                .with_details(format!(
                     "No manifest for tenant_id={} with hash={}",
                     tenant_id, manifest_hash
-                ),
-            ))
+                ))
+                .into())
         }
     };
 
@@ -73,21 +72,18 @@ pub async fn fetch_manifest_by_hash(
             computed_hash = %computed_hash,
             "Manifest hash mismatch for stored record"
         );
-        return Err(internal_error_msg(
-            "manifest hash mismatch",
-            "stored manifest hash does not match computed hash",
-        ));
+        return Err(ApiError::internal("manifest hash mismatch")
+            .with_details("stored manifest hash does not match computed hash")
+            .into());
     }
 
     // Parse and emit YAML for consumers while preserving canonical JSON for hashing
     let manifest_struct: ManifestV3 = serde_json::from_str(&manifest.body_json).map_err(|e| {
-        internal_error_msg(
-            "failed to parse manifest JSON",
-            format!("Manifest parse error: {}", e),
-        )
+        ApiError::internal("failed to parse manifest JSON")
+            .with_details(format!("Manifest parse error: {}", e))
     })?;
     let manifest_yaml = serde_yaml::to_string(&manifest_struct)
-        .map_err(|e| internal_error_msg("failed to render manifest YAML", e.to_string()))?;
+        .map_err(|e| ApiError::internal("failed to render manifest YAML").with_details(e.to_string()))?;
 
     info!(
         tenant_id = %tenant_id,

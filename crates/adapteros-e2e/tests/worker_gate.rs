@@ -765,7 +765,7 @@ fn gate_manifest_json() -> Value {
             },
             "isolation": {
                 "process_model": "shared",
-                "uds_root": "./var/run/aos",
+                "uds_root": "var/run/aos",
                 "forbid_shm": false
             },
             "performance": {

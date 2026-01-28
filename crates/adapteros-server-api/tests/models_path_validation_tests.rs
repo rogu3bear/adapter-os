@@ -11,11 +11,9 @@ mod common;
 #[tokio::test]
 async fn load_model_returns_404_when_model_path_missing() {
     let _env_guard = common::env_lock().await;
-    // Ensure the worker socket lookup succeeds (even if the socket is fake) so we reach path validation.
-    let fake_socket = std::path::PathBuf::from("./var/run/nonexistent.sock");
-    if let Some(parent) = fake_socket.parent() {
-        std::fs::create_dir_all(parent).expect("create fake socket dir");
-    }
+    // Use a temp directory to avoid polluting the var/ directory and ensure test isolation.
+    let temp_dir = TempDir::with_prefix("aos-test-socket-").expect("create temp socket dir");
+    let fake_socket = temp_dir.path().join("nonexistent.sock");
     std::fs::write(&fake_socket, b"").expect("touch fake socket");
     std::env::set_var("AOS_WORKER_SOCKET", fake_socket.to_str().unwrap());
 
@@ -72,24 +70,21 @@ async fn load_model_returns_404_when_model_path_missing() {
         status_row.error_message
     );
 
-    let _ = std::fs::remove_file(fake_socket);
+    // temp_dir auto-cleans on drop
     std::env::remove_var("AOS_WORKER_SOCKET");
 }
 
 #[tokio::test]
 async fn load_model_rejects_path_outside_allowed_root() {
     let _env_guard = common::env_lock().await;
-    let fake_socket = std::path::PathBuf::from("./var/run/nonexistent.sock");
-    if let Some(parent) = fake_socket.parent() {
-        std::fs::create_dir_all(parent).expect("create fake socket dir");
-    }
+    // Use a temp directory to avoid polluting the var/ directory and ensure test isolation.
+    let temp_socket_dir = TempDir::with_prefix("aos-test-socket-").expect("create temp socket dir");
+    let fake_socket = temp_socket_dir.path().join("nonexistent.sock");
     std::fs::write(&fake_socket, b"").expect("touch fake socket");
     std::env::set_var("AOS_WORKER_SOCKET", fake_socket.to_str().unwrap());
 
-    let temp_root = std::path::PathBuf::from("var").join("tmp");
-    std::fs::create_dir_all(&temp_root).expect("create var/tmp");
-    let allowed_root = TempDir::new_in(&temp_root).expect("allowed root");
-    let disallowed_root = TempDir::new_in(&temp_root).expect("disallowed root");
+    let allowed_root = TempDir::with_prefix("aos-test-allowed-").expect("allowed root");
+    let disallowed_root = TempDir::with_prefix("aos-test-disallowed-").expect("disallowed root");
     std::env::set_var(
         "AOS_MODEL_CACHE_DIR",
         allowed_root.path().to_string_lossy().to_string(),
@@ -138,7 +133,7 @@ async fn load_model_rejects_path_outside_allowed_root() {
     assert_eq!(err.status, StatusCode::FORBIDDEN);
     assert_eq!(err.code, "MODEL_PATH_FORBIDDEN");
 
-    let _ = std::fs::remove_file(fake_socket);
+    // temp_socket_dir auto-cleans on drop
     std::env::remove_var("AOS_MODEL_CACHE_DIR");
     std::env::remove_var("AOS_WORKER_SOCKET");
 }

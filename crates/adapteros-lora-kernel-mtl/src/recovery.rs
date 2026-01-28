@@ -212,6 +212,9 @@ impl RecoveryWrapper {
         let test_buffer = device.new_buffer(4, MTLResourceOptions::StorageModeShared);
 
         // Initialize buffer to zero
+        // SAFETY: The buffer was just created with StorageModeShared (line 212),
+        // so contents() returns a valid, CPU-accessible pointer. The buffer is
+        // 4 bytes which is sufficient for one u32. No other references exist.
         unsafe {
             let ptr = test_buffer.contents() as *mut u32;
             *ptr = 0;

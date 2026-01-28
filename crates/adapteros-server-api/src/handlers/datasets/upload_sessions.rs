@@ -1,4 +1,4 @@
-use crate::error_helpers::{bad_request, db_error, internal_error};
+use crate::api_error::ApiError;
 use crate::types::ErrorResponse;
 use axum::http::StatusCode;
 use axum::Json;
@@ -108,7 +108,7 @@ pub async fn fetch_session_by_key(
     .bind(session_key)
     .fetch_optional(db.pool())
     .await
-    .map_err(|e| db_error(format!("Failed to query upload session: {}", e)))?;
+    .map_err(|e| ApiError::db_error(format!("Failed to query upload session: {}", e)))?;
 
     match row {
         Some(row) => Ok(Some(parse_session_row(&row)?)),
@@ -131,7 +131,7 @@ pub async fn fetch_session_by_id(
     .bind(session_id)
     .fetch_optional(db.pool())
     .await
-    .map_err(|e| db_error(format!("Failed to query upload session: {}", e)))?;
+    .map_err(|e| ApiError::db_error(format!("Failed to query upload session: {}", e)))?;
 
     match row {
         Some(row) => Ok(Some(parse_session_row(&row)?)),
@@ -173,7 +173,7 @@ pub async fn insert_session(
     .bind(record.temp_dir.to_string_lossy().to_string())
     .execute(db.pool())
     .await
-    .map_err(|e| db_error(format!("Failed to insert upload session: {}", e)))?;
+    .map_err(|e| ApiError::db_error(format!("Failed to insert upload session: {}", e)))?;
 
     Ok(())
 }
@@ -199,7 +199,7 @@ pub async fn update_session_chunks(
     .bind(received_chunks.len() as i64)
     .execute(db.pool())
     .await
-    .map_err(|e| db_error(format!("Failed to update upload session chunks: {}", e)))?;
+    .map_err(|e| ApiError::db_error(format!("Failed to update upload session chunks: {}", e)))?;
 
     Ok(result.rows_affected() > 0)
 }
@@ -221,7 +221,7 @@ pub async fn mark_session_complete(
     .bind(session_id)
     .execute(db.pool())
     .await
-    .map_err(|e| db_error(format!("Failed to mark upload session complete: {}", e)))?;
+    .map_err(|e| ApiError::db_error(format!("Failed to mark upload session complete: {}", e)))?;
 
     Ok(result.rows_affected() > 0)
 }
@@ -240,7 +240,7 @@ pub async fn mark_session_failed(
     .bind(session_id)
     .execute(db.pool())
     .await
-    .map_err(|e| db_error(format!("Failed to mark upload session failed: {}", e)))?;
+    .map_err(|e| ApiError::db_error(format!("Failed to mark upload session failed: {}", e)))?;
 
     Ok(result.rows_affected() > 0)
 }
@@ -254,7 +254,7 @@ pub async fn delete_session(
         .bind(session_id)
         .execute(db.pool())
         .await
-        .map_err(|e| db_error(format!("Failed to delete upload session: {}", e)))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to delete upload session: {}", e)))?;
 
     Ok(())
 }
@@ -275,7 +275,7 @@ pub async fn fetch_expired_sessions(
     .bind(cutoff)
     .fetch_all(db.pool())
     .await
-    .map_err(|e| db_error(format!("Failed to query expired upload sessions: {}", e)))?;
+    .map_err(|e| ApiError::db_error(format!("Failed to query expired upload sessions: {}", e)))?;
 
     rows.iter().map(parse_session_row).collect()
 }
@@ -285,20 +285,20 @@ fn parse_session_row(
 ) -> Result<UploadSessionRecord, (StatusCode, Json<ErrorResponse>)> {
     let received_chunks_json: String = row
         .try_get("received_chunks_json")
-        .map_err(|e| internal_error(format!("Failed to read upload session chunk state: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to read upload session chunk state: {}", e)))?;
     let received_chunks = if received_chunks_json.trim().is_empty() {
         HashMap::new()
     } else {
         serde_json::from_str::<ReceivedChunksPayload>(&received_chunks_json)
             .map(|payload| payload.0)
             .map_err(|e| {
-                internal_error(format!("Failed to parse upload session chunk state: {}", e))
+                ApiError::internal(format!("Failed to parse upload session chunk state: {}", e))
             })?
     };
 
     let temp_dir: String = row
         .try_get("temp_dir")
-        .map_err(|e| internal_error(format!("Failed to read upload session temp dir: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to read upload session temp dir: {}", e)))?;
 
     Ok(UploadSessionRecord {
         schema_version: row.try_get("schema_version").map_err(map_row_error)?,
@@ -334,22 +334,23 @@ fn serialize_received_chunks(
 ) -> Result<String, (StatusCode, Json<ErrorResponse>)> {
     let payload = ReceivedChunksPayload(received_chunks.clone());
     serde_json::to_string(&payload)
-        .map_err(|e| internal_error(format!("Failed to serialize chunk state: {}", e)))
+        .map_err(|e| ApiError::internal(format!("Failed to serialize chunk state: {}", e)).into())
 }
 
 fn map_row_error(err: sqlx::Error) -> (StatusCode, Json<ErrorResponse>) {
-    internal_error(format!("Failed to parse upload session row: {}", err))
+    ApiError::internal(format!("Failed to parse upload session row: {}", err)).into()
 }
 
 pub fn validate_idempotency_key(value: &str) -> Result<String, (StatusCode, Json<ErrorResponse>)> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
-        return Err(bad_request("Idempotency key must not be empty"));
+        return Err(ApiError::bad_request("Idempotency key must not be empty").into());
     }
     if trimmed.len() > 256 {
-        return Err(bad_request(
+        return Err(ApiError::bad_request(
             "Idempotency key must be at most 256 characters",
-        ));
+        )
+        .into());
     }
     Ok(trimmed.to_string())
 }

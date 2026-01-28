@@ -1,5 +1,5 @@
+use crate::api_error::ApiError;
 use crate::auth::Claims;
-use crate::error_helpers::internal_error;
 use crate::middleware::require_any_role;
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
@@ -119,7 +119,7 @@ pub async fn create_api_key(
             &hash,
         )
         .await
-        .map_err(internal_error)?;
+        .map_err(|e| ApiError::internal(e.to_string()))?;
 
     Ok(Json(CreateApiKeyResponse {
         id,
@@ -148,7 +148,7 @@ pub async fn list_api_keys(
         .db
         .list_api_keys(&claims.tenant_id)
         .await
-        .map_err(internal_error)?;
+        .map_err(|e| ApiError::internal(e.to_string()))?;
 
     let api_keys = rows
         .into_iter()
@@ -196,7 +196,7 @@ pub async fn revoke_api_key(
         .db
         .revoke_api_key(&claims.tenant_id, &id)
         .await
-        .map_err(internal_error)?;
+        .map_err(|e| ApiError::internal(e.to_string()))?;
 
     Ok(Json(RevokeApiKeyResponse { id, revoked: true }))
 }

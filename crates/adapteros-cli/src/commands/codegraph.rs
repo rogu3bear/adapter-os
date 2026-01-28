@@ -63,13 +63,13 @@ pub enum CodegraphCommand {
     /// Export call graph to various formats (DOT, JSON, CSV)
     #[command(after_help = r#"Examples:
   # Export to DOT format for Graphviz visualization
-  aosctl codegraph export --codegraph-db ./var/codegraph.db --output graph.dot
+  aosctl codegraph export --codegraph-db var/codegraph.db --output graph.dot
 
   # Export to JSON format
-  aosctl codegraph export --codegraph-db ./var/codegraph.db --output graph.json --format json
+  aosctl codegraph export --codegraph-db var/codegraph.db --output graph.json --format json
 
   # Export to CSV format for spreadsheet analysis
-  aosctl codegraph export --codegraph-db ./var/codegraph.db --output edges.csv --format csv
+  aosctl codegraph export --codegraph-db var/codegraph.db --output edges.csv --format csv
 "#)]
     Export {
         /// CodeGraph database path
@@ -88,10 +88,10 @@ pub enum CodegraphCommand {
     /// Generate CodeGraph database statistics
     #[command(after_help = r#"Examples:
   # Generate statistics
-  aosctl codegraph stats --codegraph-db ./var/codegraph.db
+  aosctl codegraph stats --codegraph-db var/codegraph.db
 
   # Export statistics to JSON
-  aosctl codegraph stats --codegraph-db ./var/codegraph.db --json > stats.json
+  aosctl codegraph stats --codegraph-db var/codegraph.db --json > stats.json
 "#)]
     Stats {
         /// CodeGraph database path

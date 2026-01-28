@@ -6,9 +6,9 @@
 //! # Usage
 //!
 //! ```bash
-//! aosctl log prompt ./var/logs
-//! aosctl log prompt ./var/logs --format markdown
-//! aosctl log prompt ./var/logs --output prompt.txt
+//! aosctl log prompt var/logs
+//! aosctl log prompt var/logs --format markdown
+//! aosctl log prompt var/logs --output prompt.txt
 //! ```
 
 use crate::commands::log_digest::{LogEntry, LogLevel};
@@ -24,7 +24,7 @@ use std::path::PathBuf;
 #[derive(Debug, Args, Clone)]
 pub struct LogPromptArgs {
     /// Directory containing log files
-    #[arg(default_value = "./var/logs")]
+    #[arg(default_value = "var/logs")]
     pub log_dir: PathBuf,
 
     /// Only include entries from the last N hours/minutes (e.g., "1h", "30m")

@@ -359,7 +359,6 @@ mod tests {
     use adapteros_aos::{AosWriter, BackendTag};
     use adapteros_db::models::ModelRegistrationBuilder;
     use adapteros_db::Db;
-    use adapteros_storage::platform::common::PlatformUtils;
     use safetensors::tensor::TensorView;
     use safetensors::{serialize, Dtype};
     use serde_json::json;
@@ -373,9 +372,7 @@ mod tests {
         writer
             .add_segment(BackendTag::Canonical, None, weights)
             .expect("add canonical segment");
-        let root = PlatformUtils::temp_dir();
-        std::fs::create_dir_all(&root).expect("create var/tmp");
-        let temp = tempfile::NamedTempFile::new_in(&root).expect("tempfile");
+        let temp = tempfile::NamedTempFile::new().expect("tempfile");
         writer
             .write_archive(temp.path(), manifest)
             .expect("write aos");
@@ -403,9 +400,7 @@ mod tests {
     }
 
     fn new_test_tempdir() -> tempfile::TempDir {
-        let root = PlatformUtils::temp_dir();
-        std::fs::create_dir_all(&root).expect("create var/tmp");
-        tempfile::tempdir_in(&root).expect("tempdir")
+        tempfile::TempDir::with_prefix("aos-test-").expect("create temp dir")
     }
 
     #[tokio::test]

@@ -288,49 +288,25 @@ pub enum Commands {
     // ============================================================
     // Node & Cluster Management
     // ============================================================
-    /// List cluster nodes
+    /// Node management commands (list, verify, sync)
+    #[command(subcommand)]
     #[command(after_help = r#"Examples:
   # List all nodes
-  aosctl node-list
+  aosctl node list
+  aosctl node list --offline
 
-  # List nodes offline (cached)
-  aosctl node-list --offline
+  # Verify cross-node determinism
+  aosctl node verify --all
+  aosctl node verify --nodes node1,node2
 
-  # Check node status
-  aosctl node-status node1
+  # Sync adapters across nodes
+  aosctl node sync verify --from node1 --to node2
+  aosctl node sync push --to node2 --adapters adapter1,adapter2
+  aosctl node sync pull --from node1 --adapters adapter1
+  aosctl node sync export --file ./adapters-bundle.tar
+  aosctl node sync import --file ./adapters-bundle.tar
 "#)]
-    NodeList {
-        /// Offline mode (use cached database state)
-        #[arg(long)]
-        offline: bool,
-    },
-
-    /// Verify cross-node determinism
-    #[command(after_help = r#"Examples:
-  # Verify all nodes
-  aosctl node-verify --all
-
-  # Verify specific nodes
-  aosctl node-verify --nodes node1,node2
-
-  # Check determinism across cluster
-  aosctl node-verify --all --verbose
-"#)]
-    NodeVerify {
-        /// Verify all nodes
-        #[arg(long)]
-        all: bool,
-
-        /// Specific node IDs to verify (comma-separated)
-        #[arg(long, value_delimiter = ',')]
-        nodes: Option<Vec<String>>,
-    },
-
-    /// Sync adapters across nodes
-    NodeSync {
-        #[command(subcommand)]
-        mode: NodeSyncMode,
-    },
+    Node(node::NodeCommand),
 
     // ============================================================
     // Registry Management
@@ -341,10 +317,10 @@ pub enum Commands {
   aosctl sync-registry --dir ./adapters
 
   # Sync with custom CAS root
-  aosctl sync-registry --dir ./adapters --cas-root ./var/cas
+  aosctl sync-registry --dir ./adapters --cas-root var/cas
 
   # Sync to custom registry
-  aosctl sync-registry --dir ./adapters --registry ./var/custom.db
+  aosctl sync-registry --dir ./adapters --registry var/custom.db
 "#)]
     RegistrySync {
         /// Directory containing adapters with SBOM and signatures
@@ -356,11 +332,11 @@ pub enum Commands {
         public_key: Option<PathBuf>,
 
         /// CAS root directory
-        #[arg(long, default_value = "./var/cas")]
+        #[arg(long, default_value = "var/cas")]
         cas_root: PathBuf,
 
         /// Registry database path
-        #[arg(long, default_value = "./var/registry.db")]
+        #[arg(long, default_value = "var/registry.db")]
         registry: PathBuf,
     },
 
@@ -531,8 +507,8 @@ pub enum Commands {
     /// Export call graph to various formats
     #[cfg(feature = "codegraph")]
     #[command(after_help = r#"Examples:
-  aosctl callgraph-export --codegraph-db ./var/codegraph.db --output graph.dot
-  aosctl callgraph-export --codegraph-db ./var/codegraph.db --output graph.json --format json
+  aosctl callgraph-export --codegraph-db var/codegraph.db --output graph.dot
+  aosctl callgraph-export --codegraph-db var/codegraph.db --output graph.json --format json
 "#)]
     CallgraphExport {
         /// CodeGraph database path
@@ -552,10 +528,10 @@ pub enum Commands {
     #[cfg(feature = "codegraph")]
     #[command(after_help = r#"Examples:
   # Generate statistics
-  aosctl codegraph-stats --codegraph-db ./var/codegraph.db
+  aosctl codegraph-stats --codegraph-db var/codegraph.db
 
   # Export statistics to JSON
-  aosctl codegraph-stats --codegraph-db ./var/codegraph.db --json > stats.json
+  aosctl codegraph-stats --codegraph-db var/codegraph.db --json > stats.json
 "#)]
     CodegraphStats {
         /// CodeGraph database path
@@ -567,7 +543,7 @@ pub enum Commands {
     #[cfg(feature = "secd-support")]
     #[command(after_help = r#"Examples:
   aosctl secd-status
-  aosctl secd-status --database ./var/custom.db
+  aosctl secd-status --database var/custom.db
   aosctl secd-status --json > secd.json
 "#)]
     SecdStatus {
@@ -584,7 +560,7 @@ pub enum Commands {
         socket: PathBuf,
 
         /// Database path
-        #[arg(long, default_value = "./var/aos-cp.sqlite3")]
+        #[arg(long, default_value = "var/aos-cp.sqlite3")]
         database: PathBuf,
     },
 
@@ -592,7 +568,7 @@ pub enum Commands {
     #[cfg(feature = "secd-support")]
     SecdAudit {
         /// Database path
-        #[arg(long, default_value = "./var/aos-cp.sqlite3")]
+        #[arg(long, default_value = "var/aos-cp.sqlite3")]
         database: PathBuf,
 
         /// Number of operations to show
@@ -675,7 +651,7 @@ pub enum Commands {
   aosctl serve --tenant tenant_dev --plan cp_abc123
 
   # Custom socket path (development)
-  aosctl serve --tenant tenant_dev --plan cp_abc123 --socket ./var/run/aos.sock
+  aosctl serve --tenant tenant_dev --plan cp_abc123 --socket var/run/aos.sock
 "#)]
     Serve {
         /// Tenant ID
@@ -794,13 +770,13 @@ pub enum Commands {
     #[cfg(feature = "replay")]
     #[command(after_help = r#"Examples:
   # Replay bundle
-  aosctl replay ./var/bundles/bundle_001.zip
+  aosctl replay var/bundles/bundle_001.zip
 
   # Replay with verbose output
-  aosctl replay ./var/bundles/bundle_001.zip --verbose
+  aosctl replay var/bundles/bundle_001.zip --verbose
 
   # Replay and check determinism
-  aosctl replay ./var/bundles/bundle_001.zip --check-determinism
+  aosctl replay var/bundles/bundle_001.zip --check-determinism
 "#)]
     Replay {
         /// Bundle path
@@ -892,13 +868,13 @@ pub enum Commands {
     /// Generate HTML report from bundle
     #[command(after_help = r#"Examples:
   # Generate HTML report
-  aosctl report ./var/bundles/bundle_001.zip --output report.html
+  aosctl report var/bundles/bundle_001.zip --output report.html
 
   # Generate report with custom template
-  aosctl report ./var/bundles/bundle_001.zip --output report.html --template custom.html
+  aosctl report var/bundles/bundle_001.zip --output report.html --template custom.html
 
   # Generate report and open in browser
-  aosctl report ./var/bundles/bundle_001.zip --output report.html --open
+  aosctl report var/bundles/bundle_001.zip --output report.html --open
 "#)]
     Report {
         /// Bundle path
@@ -1369,55 +1345,6 @@ pub enum Commands {
     },
 }
 
-#[derive(Subcommand)]
-pub enum NodeSyncMode {
-    /// Verify sync between two nodes
-    Verify {
-        /// Source node ID
-        #[arg(long)]
-        from: String,
-
-        /// Target node ID
-        #[arg(long)]
-        to: String,
-    },
-
-    /// Push adapters to target node
-    Push {
-        /// Target node ID
-        #[arg(long)]
-        to: String,
-
-        /// Adapter IDs to push (comma-separated)
-        #[arg(long, value_delimiter = ',')]
-        adapters: Vec<String>,
-    },
-
-    /// Pull adapters from source node
-    Pull {
-        /// Source node ID
-        #[arg(long)]
-        from: String,
-
-        /// Adapter IDs to pull (comma-separated)
-        #[arg(long, value_delimiter = ',')]
-        adapters: Vec<String>,
-    },
-
-    /// Export adapters for air-gap transfer
-    Export {
-        /// Output file path
-        #[arg(long)]
-        file: PathBuf,
-    },
-
-    /// Import adapters from air-gap bundle
-    Import {
-        /// Input file path
-        #[arg(long)]
-        file: PathBuf,
-    },
-}
 
 pub async fn run() -> Result<()> {
     // Initialize unified logging
@@ -1540,31 +1467,8 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
         }
 
         // Node & Cluster Management
-        Commands::NodeList { offline } => {
-            node_list::run(*offline).await?;
-        }
-        Commands::NodeVerify { all, nodes } => {
-            node_verify::run(*all, nodes.clone()).await?;
-        }
-        Commands::NodeSync { mode } => {
-            use node_sync::SyncMode;
-            let sync_mode = match mode {
-                NodeSyncMode::Verify { from, to } => SyncMode::Verify {
-                    from: from.clone(),
-                    to: to.clone(),
-                },
-                NodeSyncMode::Push { to, adapters } => SyncMode::Push {
-                    to: to.clone(),
-                    adapters: adapters.clone(),
-                },
-                NodeSyncMode::Pull { from, adapters } => SyncMode::Pull {
-                    from: from.clone(),
-                    adapters: adapters.clone(),
-                },
-                NodeSyncMode::Export { file } => SyncMode::Export { file: file.clone() },
-                NodeSyncMode::Import { file } => SyncMode::Import { file: file.clone() },
-            };
-            node_sync::run(sync_mode).await?;
+        Commands::Node(cmd) => {
+            node::handle_node_command(cmd.clone(), output).await?;
         }
 
         // Registry Management
@@ -1977,9 +1881,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::AdapterInfo { .. } => "adapter-info",
         Commands::Adapter(_) => "adapter",
         Commands::Adapters(_) => "adapters",
-        Commands::NodeList { .. } => "node-list",
-        Commands::NodeVerify { .. } => "node-verify",
-        Commands::NodeSync { .. } => "node-sync",
+        Commands::Node(_) => "node",
         Commands::PlanBuild { .. } => "build-plan",
         Commands::ModelImport { .. } => "import-model",
         #[cfg(feature = "trace")]

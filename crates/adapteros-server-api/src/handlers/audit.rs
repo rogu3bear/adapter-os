@@ -687,12 +687,17 @@ pub async fn verify_audit_chain(
             limit: Some(1),
             ..Default::default()
         };
-        state
-            .db
-            .query_policy_decisions(filters)
-            .await
-            .ok()
-            .and_then(|decisions| decisions.first().map(|d| d.entry_hash.clone()))
+        match state.db.query_policy_decisions(filters).await {
+            Ok(decisions) => decisions.first().map(|d| d.entry_hash.clone()),
+            Err(e) => {
+                tracing::warn!(
+                    tenant_id = %claims.tenant_id,
+                    error = %e,
+                    "Failed to retrieve merkle root for valid chain"
+                );
+                None
+            }
+        }
     } else {
         None
     };

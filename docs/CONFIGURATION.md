@@ -265,7 +265,7 @@ RUST_LOG=debug,adapteros=trace
 AOS_SERVER_PRODUCTION_MODE=false
 AOS_SECURITY_JWT_MODE=hs256
 AOS_DATABASE_URL=sqlite:var/aos-cp.sqlite3
-AOS_MODEL_PATH=./var/models/Qwen2.5-7B-Instruct-4bit
+AOS_MODEL_PATH=/var/models/Llama-3.2-3B-Instruct-4bit
 AOS_WORKER_MANIFEST=./manifests/qwen32b-coder-mlx.yaml
 AOS_MANIFEST_HASH=756be0c4434c3fe5e1198fcf417c52a662e7a24d0716dbf12aae6246bea84f9e
 AOS_MODEL_BACKEND=mlx
@@ -289,7 +289,7 @@ AOS_MODEL_BACKEND=mlx
 **.env setup:**
 ```bash
 AOS_MODEL_BACKEND=mlx
-AOS_MODEL_PATH=./var/models/Qwen2.5-7B-Instruct-4bit
+AOS_MODEL_PATH=/var/models/Llama-3.2-3B-Instruct-4bit
 AOS_WORKER_MANIFEST=./manifests/qwen32b-coder-mlx.yaml
 AOS_MANIFEST_HASH=756be0c4434c3fe5e1198fcf417c52a662e7a24d0716dbf12aae6246bea84f9e
 AOS_MLX_PRECISION=float16
@@ -345,7 +345,7 @@ AOS_TELEMETRY_ENABLED=true
 
 | Variable | Default | Purpose | Example |
 |----------|---------|---------|---------|
-| `AOS_MODEL_PATH` | `./var/models/Qwen2.5-7B-Instruct-4bit` | Base model directory | `./var/models/Qwen2.5-7B-Instruct-4bit` |
+| `AOS_MODEL_PATH` | `/var/models/Llama-3.2-3B-Instruct-4bit` | Base model directory | `/var/models/Llama-3.2-3B-Instruct-4bit` |
 | `AOS_MANIFEST_HASH` | `756be0c4434c3fe5e1198fcf417c52a662e7a24d0716dbf12aae6246bea84f9e` | Manifest hash (preferred contract) | Same as default |
 | `AOS_MODEL_BACKEND` | `mlx` | Backend selection | `mlx`, `coreml`, `metal`, `auto` |
 | `AOS_MODEL_ARCHITECTURE` | Auto-detect | Model type (Qwen2, Llama, etc.) | `qwen2`, `llama2` |
@@ -454,17 +454,17 @@ The system validates backend compatibility at startup:
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `AOS_MODEL_CACHE_DIR` | `./var/model-cache/models` | Base model cache root (joins with `AOS_BASE_MODEL_ID`) |
-| `AOS_ADAPTERS_ROOT` | `./var/adapters` (legacy: `AOS_ADAPTERS_DIR`) | Root for .aos artifacts/registry |
-| `DATABASE_URL` | `./var/cp.db` | Control plane SQLite path (used if `AOS_DATABASE_URL` unset) |
-| `AOS_TELEMETRY_DIR` | `./var/telemetry` | Telemetry bundle output (workers + CLI serve) |
-| `AOS_INDEX_DIR` | `./var/indices` | RAG index root (`<tenant>` appended) |
-| `AOS_MANIFEST_CACHE_DIR` | `./var/manifest-cache` | Worker manifest cache location |
-| `AOS_WORKER_SOCKET` | `/var/run/aos/<tenant>/worker.sock` (fallback `./var/run/worker.sock`) | Worker UDS path; training cancel falls back to `/var/run/adapteros.sock` |
+| `AOS_MODEL_CACHE_DIR` | `var/model-cache/models` | Base model cache root (joins with `AOS_BASE_MODEL_ID`) |
+| `AOS_ADAPTERS_ROOT` | `var/adapters` (legacy: `AOS_ADAPTERS_DIR`) | Root for .aos artifacts/registry |
+| `DATABASE_URL` | `var/cp.db` | Control plane SQLite path (used if `AOS_DATABASE_URL` unset) |
+| `AOS_TELEMETRY_DIR` | `var/telemetry` | Telemetry bundle output (workers + CLI serve) |
+| `AOS_INDEX_DIR` | `var/indices` | RAG index root (`<tenant>` appended) |
+| `AOS_MANIFEST_CACHE_DIR` | `var/manifest-cache` | Worker manifest cache location |
+| `AOS_WORKER_SOCKET` | `/var/run/aos/<tenant>/worker.sock` (fallback `var/run/worker.sock`) | Worker UDS path; training cancel falls back to `/var/run/adapteros.sock` |
 | `AOS_STATUS_PATH` | `/var/run/adapteros_status.json` (fallback `var/adapteros_status.json`) | Menu bar status file target |
-| `AOS_EMBEDDING_MODEL_PATH` | `./var/model-cache/models/bge-small-en-v1.5` | Embedding model location (tokenizer at `<path>/tokenizer.json`) |
+| `AOS_EMBEDDING_MODEL_PATH` | `var/model-cache/models/bge-small-en-v1.5` | Embedding model location (tokenizer at `<path>/tokenizer.json`) |
 
-**Behavior:** When unset, runtime logs the chosen default path and source (env vs default) at startup to remove ambiguity between `./var/...` and `/var/...`.
+**Behavior:** When unset, runtime logs the chosen default path and source (env vs default) at startup to remove ambiguity between `var/...` and `/var/...`.
 
 #### Embedding / RAG Paths
 
@@ -574,7 +574,7 @@ AOS_MEMORY_EVICTION_THRESHOLD=0.85
 
 | Variable | Default | Purpose | Example |
 |----------|---------|---------|---------|
-| `AOS_MLX_FFI_MODEL` | unset | MLX model directory | `./var/models/Qwen2.5-7B-Instruct-4bit` |
+| `AOS_MLX_FFI_MODEL` | unset | MLX model directory | `/var/models/Llama-3.2-3B-Instruct-4bit` |
 | `AOS_MLX_IMPL` | `auto` | MLX implementation override (`auto`, `ffi`, `rs`) | `ffi` |
 | `AOS_MLX_MAX_MEMORY` | `0` (unlimited) | Max memory (bytes) | `16000000000` (16GB) |
 | `AOS_MLX_MEMORY_POOL_ENABLED` | `true` | Enable memory pool | `false` to disable |
@@ -590,7 +590,7 @@ AOS_MEMORY_EVICTION_THRESHOLD=0.85
 enabled = true
 max_memory = 0              # 0 = unlimited, or bytes (e.g., 16000000000 for 16GB)
 memory_pool_enabled = true  # Enable unified memory pool
-model_path = "./var/models/Qwen2.5-7B-Instruct-4bit"
+model_path = "/var/models/Llama-3.2-3B-Instruct-4bit"
 ```
 
 #### Backend Selection Priority
@@ -647,7 +647,7 @@ export AOS_DOWNLOAD_TIMEOUT_SECS=600
 ```
 
 **Notes:**
-- Models are downloaded to `AOS_MODEL_CACHE_DIR` (default: `./var/model-cache/models`)
+- Models are downloaded to `AOS_MODEL_CACHE_DIR` (default: `var/model-cache/models`)
 - The HF token is required for gated models (Llama, Mistral, etc.) - generate at https://huggingface.co/settings/tokens
 - Downloads are cached; subsequent startups skip already-downloaded models
 - Use `AOS_HF_REGISTRY_URL` for air-gapped environments with a local HuggingFace mirror
@@ -659,7 +659,7 @@ Model seeding automatically registers cached models in the database on startup.
 | Variable | Default | Purpose | Example |
 |----------|---------|---------|---------|
 | `AOS_SEED_MODEL_CACHE` | `true` (debug), `false` (release) | Enable auto-seeding models from cache to DB | `true` |
-| `AOS_MODEL_CACHE_DIR` | `./var/model-cache/models` | Model cache directory location | `/data/models` |
+| `AOS_MODEL_CACHE_DIR` | `var/model-cache/models` | Model cache directory location | `/data/models` |
 
 **Behavior:**
 - In **debug builds**, model seeding is enabled by default for developer convenience
@@ -681,7 +681,7 @@ export AOS_MODEL_CACHE_DIR=/data/aos-models
 **Directory Structure:**
 ```
 $AOS_MODEL_CACHE_DIR/
-├── Qwen2.5-7B-Instruct-4bit/
+├── Llama-3.2-3B-Instruct-4bit/
 │   ├── config.json
 │   ├── tokenizer.json
 │   └── model-*.safetensors
@@ -977,7 +977,7 @@ cargo run -p adapteros-orchestrator -- db migrate
 
 #### Model Not Found
 
-**Problem:** `Error: model not found at ./var/models/Qwen2.5-7B-Instruct-4bit`
+**Problem:** `Error: model not found at /var/models/Llama-3.2-3B-Instruct-4bit`
 
 **Solution:**
 ```bash
@@ -988,7 +988,7 @@ echo $AOS_MODEL_PATH
 ./scripts/download_model.sh
 
 # Check model directory
-ls -la var/models/Qwen2.5-7B-Instruct-4bit/
+ls -la /var/models/Llama-3.2-3B-Instruct-4bit/
 # Should contain: config.json, tokenizer.json, model weights
 ```
 

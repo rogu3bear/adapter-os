@@ -3,7 +3,7 @@ use tempfile::TempDir;
 
 #[tokio::test]
 async fn stale_socket_is_removed_and_binding_succeeds() {
-    let tmp = TempDir::new_in(".").expect("tmp dir");
+    let tmp = TempDir::with_prefix("aos-test-").expect("tmp dir");
     let socket_path = tmp.path().join("worker.sock");
     std::fs::create_dir_all(socket_path.parent().unwrap()).expect("mkdirs");
     std::fs::write(&socket_path, b"stale").expect("write stale socket");

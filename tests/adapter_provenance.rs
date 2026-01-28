@@ -150,9 +150,7 @@ fn test_telemetry_event_for_adapter_registration() {
     use std::path::PathBuf;
     use tempfile::TempDir;
 
-    let root = PathBuf::from("var").join("tmp");
-    std::fs::create_dir_all(&root).expect("create var/tmp");
-    let temp_dir = TempDir::new_in(&root).unwrap();
+    let temp_dir = TempDir::with_prefix("aos-test-").unwrap();
     let telemetry = TelemetryWriter::new(temp_dir.path(), 1000, 1024 * 1024).unwrap();
 
     #[derive(serde::Serialize)]

@@ -2831,7 +2831,7 @@ impl<'a> InferenceCore<'a> {
         // Load golden baseline from disk/database
         // Note: Currently golden baselines are stored as filesystem archives
         // (see adapteros-verify crate). Future: migrate to database storage.
-        let golden_runs_dir = std::path::PathBuf::from("var/golden_runs/baselines");
+        let golden_runs_dir = adapteros_core::rebase_var_path("var/golden_runs/baselines");
         let baseline_path = golden_runs_dir.join(baseline_id);
 
         if !baseline_path.exists() {

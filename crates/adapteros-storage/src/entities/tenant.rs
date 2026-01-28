@@ -3,6 +3,7 @@
 //! This module defines the canonical tenant entity for key-value storage,
 //! replacing the SQL `tenants` table.
 
+use adapteros_types::tenants::Tenant;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -67,6 +68,55 @@ impl TenantKv {
             current >= max
         } else {
             false
+        }
+    }
+}
+
+/// Convert from SQL Tenant to KV TenantKv
+impl From<Tenant> for TenantKv {
+    fn from(tenant: Tenant) -> Self {
+        TenantKv {
+            id: tenant.id,
+            name: tenant.name,
+            itar_flag: tenant.itar_flag,
+            created_at: chrono::DateTime::parse_from_rfc3339(&tenant.created_at)
+                .map(|dt| dt.with_timezone(&Utc))
+                .unwrap_or_else(|_| Utc::now()),
+            status: tenant.status.unwrap_or_else(|| "active".to_string()),
+            updated_at: tenant
+                .updated_at
+                .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
+                .map(|dt| dt.with_timezone(&Utc))
+                .unwrap_or_else(Utc::now),
+            default_stack_id: tenant.default_stack_id,
+            max_adapters: tenant.max_adapters,
+            max_training_jobs: tenant.max_training_jobs,
+            max_storage_gb: tenant.max_storage_gb,
+            rate_limit_rpm: tenant.rate_limit_rpm,
+            default_pinned_adapter_ids: tenant.default_pinned_adapter_ids,
+        }
+    }
+}
+
+/// Convert from KV TenantKv to SQL Tenant
+impl From<TenantKv> for Tenant {
+    fn from(kv: TenantKv) -> Self {
+        Tenant {
+            id: kv.id,
+            name: kv.name,
+            itar_flag: kv.itar_flag,
+            created_at: kv.created_at.to_rfc3339(),
+            status: Some(kv.status),
+            updated_at: Some(kv.updated_at.to_rfc3339()),
+            default_stack_id: kv.default_stack_id,
+            max_adapters: kv.max_adapters,
+            max_training_jobs: kv.max_training_jobs,
+            max_storage_gb: kv.max_storage_gb,
+            rate_limit_rpm: kv.rate_limit_rpm,
+            default_pinned_adapter_ids: kv.default_pinned_adapter_ids,
+            // KV quota fields - default to None for KV backend (not yet supported in KV)
+            max_kv_cache_bytes: None,
+            kv_residency_policy_id: None,
         }
     }
 }

@@ -125,7 +125,7 @@ mod tests {
 
     #[test]
     fn uds_infer_url_has_expected_shape() {
-        let url = uds_infer_url_string(Path::new("./var/run/worker.sock"));
+        let url = uds_infer_url_string(Path::new("var/run/worker.sock"));
         let parsed = reqwest::Url::parse(&url).expect("uds url should parse");
         assert!(
             !url.contains(' '),

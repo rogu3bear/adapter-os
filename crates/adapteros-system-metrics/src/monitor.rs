@@ -393,7 +393,7 @@ mod tests {
     use tempfile::TempDir;
 
     fn test_telemetry_writer() -> (TempDir, Arc<TelemetryWriter>) {
-        let dir = TempDir::new_in(".").expect("test telemetry dir");
+        let dir = TempDir::with_prefix("aos-test-").expect("test telemetry dir");
         let writer = TelemetryWriter::new(dir.path(), 1000, 1024 * 1024)
             .expect("Test telemetry writer creation should succeed");
         (dir, Arc::new(writer))

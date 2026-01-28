@@ -9,11 +9,11 @@ async fn stores_ciphertext_and_recovers_plaintext() {
     std::env::set_var("AOS_CRYPTO_AT_REST", "1");
     std::env::set_var("AOS_CRYPTO_FAKE", "1");
 
-    let db = Db::new_in_memory().await.expect("db init");
+    let db = Db::new_in_memory().await.expect("Failed to create in-memory database for replay metadata crypto test");
     let tenant_id = db
         .create_tenant("Crypto Tenant", false)
         .await
-        .expect("tenant create");
+        .expect("Failed to create tenant for replay metadata crypto test");
 
     let params = CreateReplayMetadataParams {
         inference_id: "crypto-inference-1".to_string(),

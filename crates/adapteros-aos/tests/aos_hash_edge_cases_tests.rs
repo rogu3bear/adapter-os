@@ -16,13 +16,10 @@ use adapteros_core::{AosError, B3Hash, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
 use tempfile::NamedTempFile;
 
-fn new_test_tempdir() -> PathBuf {
-    let root = PathBuf::from("var/tmp");
-    fs::create_dir_all(&root).expect("create var/tmp");
-    root
+fn new_test_tempfile() -> NamedTempFile {
+    NamedTempFile::new().expect("create temp file")
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -69,9 +66,7 @@ fn test_scope_hash_computation() {
 /// the archive should be considered corrupted.
 #[test]
 fn test_scope_hash_mismatch_with_manifest() -> Result<()> {
-    let temp_root = new_test_tempdir();
-    let temp_file =
-        NamedTempFile::new_in(&temp_root).map_err(|e| AosError::Io(format!("temp file: {}", e)))?;
+    let temp_file = new_test_tempfile();
 
     let manifest = TestManifest {
         adapter_id: "scope-test".to_string(),
@@ -110,9 +105,7 @@ fn test_scope_hash_mismatch_with_manifest() -> Result<()> {
 /// When the payload doesn't match the recorded hash, loading should fail.
 #[test]
 fn test_weights_hash_mismatch_detection() -> Result<()> {
-    let temp_root = new_test_tempdir();
-    let temp_file =
-        NamedTempFile::new_in(&temp_root).map_err(|e| AosError::Io(format!("temp file: {}", e)))?;
+    let temp_file = new_test_tempfile();
 
     let manifest = TestManifest {
         adapter_id: "hash-test".to_string(),
@@ -177,9 +170,7 @@ fn test_zero_length_segment_hash() {
 /// Corrupting one segment should not affect other segments' validation.
 #[test]
 fn test_multi_segment_independent_hash_verification() -> Result<()> {
-    let temp_root = new_test_tempdir();
-    let temp_file =
-        NamedTempFile::new_in(&temp_root).map_err(|e| AosError::Io(format!("temp file: {}", e)))?;
+    let temp_file = new_test_tempfile();
 
     let manifest = TestManifest {
         adapter_id: "multi-segment".to_string(),

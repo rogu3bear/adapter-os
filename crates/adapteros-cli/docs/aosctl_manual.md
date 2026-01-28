@@ -580,7 +580,7 @@ Determinism and adapter deliverable checks are fronted through `aosctl`.
   - With `--json`, emits `VerifyAdaptersResult { ok, exit_code, stdout_head, stderr_head }`.
 
 - Telemetry verification
-  - `aosctl telemetry-verify --bundle-dir ./var/telemetry`
+  - `aosctl telemetry-verify --bundle-dir var/telemetry`
   - Validates the **Merkle chain** and Ed25519 signatures of **Telemetry** bundles.
   - See [docs/CONCEPTS.md#telemetry](../../../docs/CONCEPTS.md#6-telemetry) for bundle format.
 
@@ -608,7 +608,7 @@ Maintenance commands manage long‑term storage and housekeeping.
 - `aosctl db unlock`
   - Clears dirty `_sqlx_migrations` rows and truncates SQLite WAL/SHM files after failed or interrupted migrations.
   - Key flags:
-    - `--db-path` (default `./var/aos-cp.sqlite3` or `DATABASE_URL` if set)
+    - `--db-path` (default `var/aos-cp.sqlite3` or `DATABASE_URL` if set)
   - Safe to run after disk guard fallback (`AOS_VAR_DIR` redirect) or when migrations time out; successful migrations remain intact.
 
 - `aosctl maintenance gc-bundles`
@@ -705,7 +705,7 @@ These commands inspect system health, metrics, and diagnostics.
 aosctl secd-status --json > secd-status.json
 
 # Full system diagnostics bundle
-aosctl diag --full --bundle ./var/diag-bundle.zip
+aosctl diag --full --bundle var/diag-bundle.zip
 ```
 
 ---

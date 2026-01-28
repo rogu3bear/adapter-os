@@ -962,13 +962,10 @@ pub use signature::{BundleSignatureExchange, QuorumManager, QuorumStatus, Verifi
 mod tests {
     use super::*;
     use adapteros_core::B3Hash;
-    use std::path::PathBuf;
     use tempfile::TempDir;
 
     fn new_test_tempdir() -> TempDir {
-        let root = PathBuf::from("var").join("tmp");
-        std::fs::create_dir_all(&root).expect("create var/tmp");
-        TempDir::new_in(&root).expect("create temp dir")
+        TempDir::with_prefix("aos-test-").expect("failed to create temporary directory for federation daemon test: system tmp directory should be writable")
     }
 
     async fn setup_test_db() -> Result<Db> {

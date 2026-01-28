@@ -56,7 +56,7 @@ fuzz_target!(|data: &[u8]| {
                 token_index: idx as u32,
                 adapter_ids: adapters,
                 gates_q15: gates,
-                policy_mask_digest: if rng.gen_bool(0.3) {
+                policy_mask_digest_b3: if rng.gen_bool(0.3) {
                     Some(B3Hash::hash(&rng.gen::<u128>().to_le_bytes()).to_bytes())
                 } else {
                     None
@@ -101,6 +101,9 @@ fuzz_target!(|data: &[u8]| {
                 crypto_receipt_digest_b3: None,
                 receipt_parity_verified: None,
                 tenant_id: None,
+                // P0-1: Cache attestation for provable cache credits
+                cache_attestation: None,
+                worker_public_key: None,
             })
             .await;
 

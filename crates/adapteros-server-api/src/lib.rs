@@ -88,7 +88,6 @@ pub mod citations;
 pub mod config;
 pub mod determinism_context;
 pub mod embedding_resilience;
-pub mod error_helpers;
 pub mod event_bus;
 pub mod execution_profile;
 pub mod handlers;

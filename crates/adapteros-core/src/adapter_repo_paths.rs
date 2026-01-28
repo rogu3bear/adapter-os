@@ -342,9 +342,7 @@ mod tests {
     use crate::test_support::env_lock;
 
     fn new_test_tempdir() -> tempfile::TempDir {
-        let root = PathBuf::from("var").join("tmp");
-        fs::create_dir_all(&root).expect("create var/tmp");
-        tempfile::tempdir_in(&root).expect("tempdir")
+        tempfile::Builder::new().prefix("aos-test-").tempdir().expect("tempdir")
     }
 
     #[test]

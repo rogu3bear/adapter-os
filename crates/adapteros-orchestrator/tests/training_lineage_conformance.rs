@@ -77,7 +77,7 @@ fn minimal_config() -> TrainingConfig {
 async fn orch_rejects_synthetic_with_dataset_versions() {
     let mut db = DbFactory::create_in_memory().await.expect("db");
     db.migrate().await.expect("migrate");
-    let temp_dir = TempDir::new_in(".").expect("tempdir");
+    let temp_dir = TempDir::with_prefix("aos-test-").expect("tempdir");
     let service = TrainingService::with_db(db.clone(), temp_dir.path().to_path_buf());
 
     let cfg = minimal_config();
@@ -129,7 +129,7 @@ async fn orch_rejects_synthetic_with_dataset_versions() {
 async fn orch_rejects_non_synthetic_without_datasets() {
     let mut db = DbFactory::create_in_memory().await.expect("db");
     db.migrate().await.expect("migrate");
-    let temp_dir = TempDir::new_in(".").expect("tempdir");
+    let temp_dir = TempDir::with_prefix("aos-test-").expect("tempdir");
     let service = TrainingService::with_db(db.clone(), temp_dir.path().to_path_buf());
 
     let cfg = minimal_config();
@@ -187,7 +187,7 @@ async fn orch_rejects_blocked_trust_state() {
         "hash-block",
     )
     .await;
-    let temp_dir = TempDir::new_in(".").expect("tempdir");
+    let temp_dir = TempDir::with_prefix("aos-test-").expect("tempdir");
     let service = TrainingService::with_db(db.clone(), temp_dir.path().to_path_buf());
 
     let cfg = minimal_config();
@@ -248,7 +248,7 @@ async fn orch_rejects_unknown_trust_as_needs_approval() {
         "hash-unknown",
     )
     .await;
-    let temp_dir = TempDir::new_in(".").expect("tempdir");
+    let temp_dir = TempDir::with_prefix("aos-test-").expect("tempdir");
     let service = TrainingService::with_db(db.clone(), temp_dir.path().to_path_buf());
 
     let cfg = minimal_config();
@@ -301,7 +301,7 @@ async fn orch_rejects_data_spec_hash_mismatch() {
     let mut db = DbFactory::create_in_memory().await.expect("db");
     db.migrate().await.expect("migrate");
     seed_dataset_version(&db, "ds-hash", "dsv-hash", "tenant-1", "allowed", "hash-ok").await;
-    let temp_dir = TempDir::new_in(".").expect("tempdir");
+    let temp_dir = TempDir::with_prefix("aos-test-").expect("tempdir");
     let service = TrainingService::with_db(db.clone(), temp_dir.path().to_path_buf());
 
     let cfg = minimal_config();

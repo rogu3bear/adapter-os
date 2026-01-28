@@ -2,9 +2,9 @@
 //!
 //! Provides REST endpoints for managing evidence entries linked to datasets and adapters.
 
+use crate::api_error::ApiError;
 use crate::audit_helper::{actions, log_failure_or_warn, log_success_or_warn, resources};
 use crate::auth::Claims;
-use crate::error_helpers::{db_error, internal_error, not_found};
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
@@ -126,8 +126,8 @@ pub async fn list_evidence(
             .db
             .get_training_dataset(dataset_id)
             .await
-            .map_err(db_error)?
-            .ok_or_else(|| not_found("Dataset"))?;
+            .map_err(ApiError::db_error)?
+            .ok_or_else(|| ApiError::not_found("Dataset"))?;
 
         if let Some(ref tenant_id) = dataset.tenant_id {
             validate_tenant_isolation(&claims, tenant_id)?;
@@ -141,8 +141,8 @@ pub async fn list_evidence(
             .db
             .get_adapter_by_id(&claims.tenant_id, adapter_id)
             .await
-            .map_err(db_error)?
-            .ok_or_else(|| not_found("Adapter"))?;
+            .map_err(ApiError::db_error)?
+            .ok_or_else(|| ApiError::not_found("Adapter"))?;
     }
 
     // NOTE: If no dataset_id or adapter_id filter is provided, this query could potentially
@@ -162,7 +162,7 @@ pub async fn list_evidence(
         .db
         .list_evidence_entries(&filter)
         .await
-        .map_err(db_error)?;
+        .map_err(ApiError::db_error)?;
 
     let responses: Vec<EvidenceResponse> = entries.into_iter().map(Into::into).collect();
     Ok(Json(responses))
@@ -246,8 +246,8 @@ pub async fn create_evidence(
             .db
             .get_training_dataset(dataset_id)
             .await
-            .map_err(db_error)?
-            .ok_or_else(|| not_found("Dataset"))?;
+            .map_err(ApiError::db_error)?
+            .ok_or_else(|| ApiError::not_found("Dataset"))?;
 
         if let Some(ref tenant_id) = dataset.tenant_id {
             validate_tenant_isolation(&claims, tenant_id)?;
@@ -260,8 +260,8 @@ pub async fn create_evidence(
             .db
             .get_adapter_by_id(&claims.tenant_id, adapter_id)
             .await
-            .map_err(db_error)?
-            .ok_or_else(|| not_found("Adapter"))?;
+            .map_err(ApiError::db_error)?
+            .ok_or_else(|| ApiError::not_found("Adapter"))?;
     }
 
     let params = CreateEvidenceParams {
@@ -291,15 +291,15 @@ pub async fn create_evidence(
         )
         .await;
     }
-    let entry_id = create_result.map_err(internal_error)?;
+    let entry_id = create_result.map_err(|e| ApiError::internal(e.to_string()))?;
 
     // Retrieve the created entry
     let entry = state
         .db
         .get_evidence_entry(&entry_id)
         .await
-        .map_err(db_error)?
-        .ok_or_else(|| internal_error("Evidence entry not found after creation"))?;
+        .map_err(ApiError::db_error)?
+        .ok_or_else(|| ApiError::internal("Evidence entry not found after creation"))?;
 
     log_success_or_warn(
         &state.db,
@@ -349,8 +349,8 @@ pub async fn get_evidence(
         .db
         .get_evidence_entry(&id)
         .await
-        .map_err(db_error)?
-        .ok_or_else(|| not_found("Evidence entry"))?;
+        .map_err(ApiError::db_error)?
+        .ok_or_else(|| ApiError::not_found("Evidence entry"))?;
 
     // CRITICAL: Validate tenant isolation via linked dataset or adapter
     if let Some(ref dataset_id) = entry.dataset_id {
@@ -358,8 +358,8 @@ pub async fn get_evidence(
             .db
             .get_training_dataset(dataset_id)
             .await
-            .map_err(db_error)?
-            .ok_or_else(|| not_found("Dataset"))?;
+            .map_err(ApiError::db_error)?
+            .ok_or_else(|| ApiError::not_found("Dataset"))?;
 
         if let Some(ref tenant_id) = dataset.tenant_id {
             validate_tenant_isolation(&claims, tenant_id)?;
@@ -370,8 +370,8 @@ pub async fn get_evidence(
             .db
             .get_adapter_by_id(&claims.tenant_id, adapter_id)
             .await
-            .map_err(db_error)?
-            .ok_or_else(|| not_found("Adapter"))?;
+            .map_err(ApiError::db_error)?
+            .ok_or_else(|| ApiError::not_found("Adapter"))?;
     }
 
     Ok(Json(EvidenceResponse::from(entry)))
@@ -406,8 +406,8 @@ pub async fn delete_evidence(
         .db
         .get_evidence_entry(&id)
         .await
-        .map_err(db_error)?
-        .ok_or_else(|| not_found("Evidence entry"))?;
+        .map_err(ApiError::db_error)?
+        .ok_or_else(|| ApiError::not_found("Evidence entry"))?;
 
     // CRITICAL: Validate tenant isolation via linked dataset or adapter
     if let Some(ref dataset_id) = entry.dataset_id {
@@ -415,8 +415,8 @@ pub async fn delete_evidence(
             .db
             .get_training_dataset(dataset_id)
             .await
-            .map_err(db_error)?
-            .ok_or_else(|| not_found("Dataset"))?;
+            .map_err(ApiError::db_error)?
+            .ok_or_else(|| ApiError::not_found("Dataset"))?;
 
         if let Some(ref tenant_id) = dataset.tenant_id {
             validate_tenant_isolation(&claims, tenant_id)?;
@@ -427,8 +427,8 @@ pub async fn delete_evidence(
             .db
             .get_adapter_by_id(&claims.tenant_id, adapter_id)
             .await
-            .map_err(db_error)?
-            .ok_or_else(|| not_found("Adapter"))?;
+            .map_err(ApiError::db_error)?
+            .ok_or_else(|| ApiError::not_found("Adapter"))?;
     }
 
     let delete_result = state.db.delete_evidence_entry(&id).await;
@@ -447,7 +447,7 @@ pub async fn delete_evidence(
         )
         .await;
     }
-    delete_result.map_err(internal_error)?;
+    delete_result.map_err(|e| ApiError::internal(e.to_string()))?;
 
     log_success_or_warn(
         &state.db,
@@ -494,8 +494,8 @@ pub async fn get_dataset_evidence(
         .db
         .get_training_dataset(&dataset_id)
         .await
-        .map_err(db_error)?
-        .ok_or_else(|| not_found("Dataset"))?;
+        .map_err(ApiError::db_error)?
+        .ok_or_else(|| ApiError::not_found("Dataset"))?;
 
     if let Some(ref tenant_id) = dataset.tenant_id {
         validate_tenant_isolation(&claims, tenant_id)?;
@@ -505,7 +505,7 @@ pub async fn get_dataset_evidence(
         .db
         .get_dataset_evidence(&dataset_id)
         .await
-        .map_err(db_error)?;
+        .map_err(ApiError::db_error)?;
 
     let responses: Vec<EvidenceResponse> = entries.into_iter().map(Into::into).collect();
     debug!(
@@ -545,14 +545,14 @@ pub async fn get_adapter_evidence(
         .db
         .get_adapter_by_id(&claims.tenant_id, &adapter_id)
         .await
-        .map_err(db_error)?
-        .ok_or_else(|| not_found("Adapter"))?;
+        .map_err(ApiError::db_error)?
+        .ok_or_else(|| ApiError::not_found("Adapter"))?;
 
     let entries = state
         .db
         .get_adapter_evidence(&adapter_id)
         .await
-        .map_err(db_error)?;
+        .map_err(ApiError::db_error)?;
 
     let responses: Vec<EvidenceResponse> = entries.into_iter().map(Into::into).collect();
     debug!(

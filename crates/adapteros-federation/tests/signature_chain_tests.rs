@@ -17,27 +17,20 @@ use adapteros_federation::{
 use adapteros_telemetry::StoredBundleMetadata;
 use chrono::{DateTime, Duration, Utc};
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::Arc;
 use tempfile::TempDir;
 
-// Helper to create a test temp directory
-fn new_test_tempdir() -> TempDir {
-    let root = PathBuf::from("var").join("tmp");
-    std::fs::create_dir_all(&root).expect("create var/tmp");
-    TempDir::new_in(&root).expect("create temp dir")
-}
-
-// Helper to setup a test database
-async fn setup_test_db() -> Result<Db> {
-    let temp_dir = new_test_tempdir();
+// Helper to setup a test database with proper cleanup
+// Returns (Db, TempDir) - caller must hold TempDir to keep DB files alive
+async fn setup_test_db() -> Result<(Db, TempDir)> {
+    let temp_dir = TempDir::with_prefix("aos-federation-test-")
+        .expect("create temp dir");
     let db_path = temp_dir
         .path()
         .join(format!("test_{}.db", uuid::Uuid::new_v4()));
     let db = Db::connect(db_path.to_str().unwrap()).await?;
     db.migrate().await?;
-    std::mem::forget(temp_dir);
-    Ok(db)
+    Ok((db, temp_dir))
 }
 
 // Helper to create test bundle metadata
@@ -95,7 +88,7 @@ mod chain_validation_missing_hosts {
 
     #[tokio::test]
     async fn test_empty_chain_is_valid() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let keypair = Keypair::generate();
         let manager = FederationManager::with_host_id(
             db,
@@ -114,7 +107,7 @@ mod chain_validation_missing_hosts {
 
     #[tokio::test]
     async fn test_single_signature_chain_is_valid() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let keypair = Keypair::generate();
         let manager = FederationManager::with_host_id(
             db,
@@ -140,7 +133,7 @@ mod chain_validation_missing_hosts {
 
     #[tokio::test]
     async fn test_chain_with_gap_in_hosts() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let keypair = Keypair::generate();
         let manager = FederationManager::with_host_id(
             db,
@@ -174,7 +167,7 @@ mod chain_validation_missing_hosts {
 
     #[tokio::test]
     async fn test_chain_with_missing_prev_hash_warning() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let keypair = Keypair::generate();
         let manager = FederationManager::with_host_id(
             db,
@@ -215,7 +208,7 @@ mod clock_skew_handling {
 
     #[tokio::test]
     async fn test_future_timestamp_in_chain_fails() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let keypair = Keypair::generate();
         let manager = FederationManager::with_host_id(
             db,
@@ -256,7 +249,7 @@ mod clock_skew_handling {
 
     #[tokio::test]
     async fn test_past_timestamp_within_tolerance() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let keypair = Keypair::generate();
         let manager = FederationManager::with_host_id(
             db,
@@ -285,7 +278,7 @@ mod clock_skew_handling {
 
     #[tokio::test]
     async fn test_same_timestamp_is_valid() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let keypair = Keypair::generate();
         let manager = FederationManager::with_host_id(
             db,
@@ -318,7 +311,7 @@ mod clock_skew_handling {
 
     #[tokio::test]
     async fn test_millisecond_difference_ordering() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let keypair = Keypair::generate();
         let manager = FederationManager::with_host_id(
             db,
@@ -357,7 +350,7 @@ mod chain_continuity {
 
     #[tokio::test]
     async fn test_valid_chain_linkage() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let keypair = Keypair::generate();
         let manager = FederationManager::with_host_id(
             db,
@@ -395,7 +388,7 @@ mod chain_continuity {
 
     #[tokio::test]
     async fn test_chain_break_detection() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let keypair = Keypair::generate();
         let manager = FederationManager::with_host_id(
             db,
@@ -429,7 +422,7 @@ mod chain_continuity {
 
     #[tokio::test]
     async fn test_long_chain_validation() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let keypair = Keypair::generate();
         let manager = FederationManager::with_host_id(
             db,
@@ -464,7 +457,7 @@ mod chain_continuity {
 
     #[tokio::test]
     async fn test_chain_break_in_middle() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let keypair = Keypair::generate();
         let manager = FederationManager::with_host_id(
             db,
@@ -523,7 +516,7 @@ mod invalid_signature_detection {
 
     #[tokio::test]
     async fn test_verify_valid_signature() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let keypair = Keypair::generate();
         let manager = FederationManager::with_host_id(
             db,
@@ -555,7 +548,7 @@ mod invalid_signature_detection {
 
     #[tokio::test]
     async fn test_verify_invalid_signature() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let keypair = Keypair::generate();
         let manager = FederationManager::with_host_id(
             db,
@@ -582,7 +575,7 @@ mod invalid_signature_detection {
 
     #[tokio::test]
     async fn test_verify_signature_wrong_key() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let keypair1 = Keypair::generate();
         let keypair2 = Keypair::generate();
         let manager = FederationManager::with_host_id(
@@ -615,7 +608,7 @@ mod invalid_signature_detection {
 
     #[tokio::test]
     async fn test_verify_signature_invalid_hex() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let keypair = Keypair::generate();
         let manager = FederationManager::with_host_id(
             db,
@@ -646,7 +639,7 @@ mod invalid_signature_detection {
 
     #[tokio::test]
     async fn test_verify_signature_wrong_length() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let keypair = Keypair::generate();
         let manager = FederationManager::with_host_id(
             db,
@@ -678,7 +671,7 @@ mod invalid_signature_detection {
 
     #[tokio::test]
     async fn test_verify_signature_tampered_metadata() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let keypair = Keypair::generate();
         let manager = FederationManager::with_host_id(
             db,
@@ -722,7 +715,7 @@ mod quorum_tests {
 
     #[tokio::test]
     async fn test_quorum_init_and_status() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let manager = QuorumManager::new(Arc::new(db));
 
         let bundle_hash = B3Hash::hash(b"test bundle");
@@ -738,7 +731,7 @@ mod quorum_tests {
 
     #[tokio::test]
     async fn test_quorum_not_reached_with_insufficient_signatures() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let manager = QuorumManager::new(Arc::new(db));
 
         let bundle_hash = B3Hash::hash(b"test bundle");
@@ -762,7 +755,7 @@ mod quorum_tests {
 
     #[tokio::test]
     async fn test_quorum_reached_with_exact_threshold() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let manager = QuorumManager::new(Arc::new(db));
 
         let bundle_hash = B3Hash::hash(b"test bundle");
@@ -791,7 +784,7 @@ mod quorum_tests {
 
     #[tokio::test]
     async fn test_quorum_build_exchange() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let manager = QuorumManager::new(Arc::new(db));
 
         let bundle_hash = B3Hash::hash(b"test bundle");
@@ -824,7 +817,7 @@ mod quorum_tests {
 
     #[tokio::test]
     async fn test_verify_exchange_all_valid() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let manager = QuorumManager::new(Arc::new(db));
 
         let bundle_hash = B3Hash::hash(b"test bundle");
@@ -855,7 +848,7 @@ mod quorum_tests {
 
     #[tokio::test]
     async fn test_verify_exchange_one_invalid() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let manager = QuorumManager::new(Arc::new(db));
 
         let bundle_hash = B3Hash::hash(b"test bundle");
@@ -888,7 +881,7 @@ mod quorum_tests {
 
     #[tokio::test]
     async fn test_verify_exchange_missing_pubkey() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let manager = QuorumManager::new(Arc::new(db));
 
         let bundle_hash = B3Hash::hash(b"test bundle");
@@ -919,7 +912,7 @@ mod quorum_tests {
 
     #[tokio::test]
     async fn test_quorum_status_for_nonexistent_bundle() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let manager = QuorumManager::new(Arc::new(db));
 
         let bundle_hash = B3Hash::hash(b"nonexistent");
@@ -944,7 +937,7 @@ mod bundle_signing {
 
     #[tokio::test]
     async fn test_sign_bundle_creates_record() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let keypair = Keypair::generate();
         let manager = FederationManager::with_host_id(
             db.clone(),
@@ -971,7 +964,7 @@ mod bundle_signing {
 
     #[tokio::test]
     async fn test_sign_bundle_with_prev_hash() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let keypair = Keypair::generate();
         let manager = FederationManager::with_host_id(
             db,
@@ -990,7 +983,7 @@ mod bundle_signing {
 
     #[tokio::test]
     async fn test_get_host_chain() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let keypair = Keypair::generate();
         let manager = FederationManager::with_host_id(
             db,
@@ -1018,7 +1011,7 @@ mod bundle_signing {
 
     #[tokio::test]
     async fn test_mark_signature_verified() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let keypair = Keypair::generate();
         let manager = FederationManager::with_host_id(
             db,

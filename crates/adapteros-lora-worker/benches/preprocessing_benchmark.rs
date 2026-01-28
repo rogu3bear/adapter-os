@@ -1,9 +1,9 @@
 //! CoreML preprocessing benchmark for tokenized datasets.
 //!
 //! Run with:
-//!   AOS_MODEL_PATH=./var/models/<model> cargo bench --bench preprocessing_benchmark
+//!   AOS_MODEL_PATH=var/models/<model> cargo bench --bench preprocessing_benchmark
 //! Optional CoreML model:
-//!   AOS_COREML_PREPROCESS_MODEL=./var/models/<model>.mlpackage
+//!   AOS_COREML_PREPROCESS_MODEL=var/models/<model>.mlpackage
 
 use adapteros_config::ModelConfig;
 use adapteros_lora_worker::training::preprocessing::preprocess_examples;

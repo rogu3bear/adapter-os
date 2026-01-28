@@ -14,9 +14,7 @@ use tempfile::TempDir;
 #[tokio::test]
 async fn test_orchestrator_gate_run() -> Result<()> {
     // Create temporary directory for test
-    let root = PathBuf::from("var").join("tmp");
-    std::fs::create_dir_all(&root)?;
-    let temp_dir = TempDir::new_in(&root)?;
+    let temp_dir = TempDir::with_prefix("aos-test-")?;
     let temp_path = temp_dir.path();
 
     // Create test database
@@ -199,9 +197,7 @@ seeds:
 #[tokio::test]
 async fn test_orchestrator_gate_failure() -> Result<()> {
     // Test orchestrator behavior when gates fail
-    let root = PathBuf::from("var").join("tmp");
-    std::fs::create_dir_all(&root)?;
-    let temp_dir = TempDir::new_in(&root)?;
+    let temp_dir = TempDir::with_prefix("aos-test-")?;
     let temp_path = temp_dir.path();
 
     // Create test database

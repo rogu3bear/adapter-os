@@ -1,0 +1,38 @@
+[package]
+name = "adapteros-server-api-training"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+doctest = false
+
+[dependencies]
+# Workspace crates
+adapteros-api-types = { path = "../adapteros-api-types", features = ["server"] }
+adapteros-client = { path = "../adapteros-client" }
+adapteros-config = { path = "../adapteros-config" }
+adapteros-core = { path = "../adapteros-core", features = ["sqlx"] }
+adapteros-db = { path = "../adapteros-db", features = ["utoipa"] }
+adapteros-lora-worker = { path = "../adapteros-lora-worker" }
+adapteros-orchestrator = { path = "../adapteros-orchestrator" }
+adapteros-storage = { path = "../adapteros-storage" }
+adapteros-types = { path = "../adapteros-types" }
+
+# External dependencies
+axum = { workspace = true }
+blake3 = { workspace = true }
+chrono = "0.4"
+futures-util = "0.3"
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+utoipa = { workspace = true }
+uuid = { workspace = true }
+
+[features]
+default = []
+coreml-backend = [
+    "adapteros-lora-worker/coreml-backend",
+    "adapteros-orchestrator/coreml-backend"
+]

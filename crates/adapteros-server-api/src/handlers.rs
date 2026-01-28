@@ -3898,18 +3898,18 @@ pub async fn get_next_revision(
     State(state): State<AppState>,
     Path((tenant, domain, purpose)): Path<(String, String, String)>,
 ) -> Result<Json<NextRevisionResponse>, (StatusCode, Json<ErrorResponse>)> {
-    use crate::error_helpers::internal_error;
+    use crate::api_error::ApiError;
 
     // Get registry from database
     let registry = state
         .registry
         .as_ref()
-        .ok_or_else(|| internal_error("Registry not available"))?;
+        .ok_or_else(|| ApiError::internal("Registry not available"))?;
 
     // Get next revision number
     let next_rev = registry
         .next_revision_number(&tenant, &domain, &purpose)
-        .map_err(internal_error)?;
+        .map_err(|e| ApiError::internal(e.to_string()))?;
 
     // Format the suggested name
     let suggested_name = format!("{}/{}/{}/r{:03}", tenant, domain, purpose, next_rev);

@@ -554,28 +554,24 @@ pub enum DriftType {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
     use tempfile::TempDir;
 
-    fn new_test_tempdir() -> TempDir {
-        let root = PathBuf::from("var").join("tmp");
-        std::fs::create_dir_all(&root).expect("create var/tmp");
-        TempDir::new_in(&root).expect("create temp dir")
-    }
-
-    async fn setup_test_db() -> Result<Db> {
-        let temp_dir = new_test_tempdir();
+    // Helper to setup a test database with proper cleanup
+    // Returns (Db, TempDir) - caller must hold TempDir to keep DB files alive
+    async fn setup_test_db() -> Result<(Db, TempDir)> {
+        let temp_dir = TempDir::with_prefix("aos-tick-ledger-test-")
+            .expect("failed to create temporary directory for tick ledger manager test database: system tmp directory should be writable");
         let db_path = temp_dir
             .path()
             .join(format!("test_{}.db", std::process::id()));
         let db = Db::connect(db_path.to_str().unwrap()).await?;
         db.migrate().await?;
-        Ok(db)
+        Ok((db, temp_dir))
     }
 
     #[tokio::test]
     async fn test_tick_ledger_manager_creation() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let manager = TickLedgerManager::new(db, "tenant-001".to_string(), "host-001".to_string());
 
         // Should not error on creation
@@ -587,7 +583,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_latest_tick_hash_empty() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let manager = TickLedgerManager::new(db, "tenant-001".to_string(), "host-001".to_string());
 
         // Should return None when no entries exist
@@ -599,7 +595,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_link_bundle_to_tick() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let manager =
             TickLedgerManager::new(db.clone(), "tenant-001".to_string(), "host-001".to_string());
 
@@ -641,7 +637,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_verify_chain_continuity_valid() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let manager =
             TickLedgerManager::new(db.clone(), "tenant-001".to_string(), "host-001".to_string());
 
@@ -702,7 +698,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_verify_chain_continuity_broken() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let manager =
             TickLedgerManager::new(db.clone(), "tenant-001".to_string(), "host-001".to_string());
 
@@ -764,7 +760,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_detect_tick_drift() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let manager =
             TickLedgerManager::new(db.clone(), "tenant-001".to_string(), "host-001".to_string());
 

@@ -1158,7 +1158,13 @@ impl AppState {
             policy_watcher: None,
             telemetry_bundle_store: Arc::new(std::sync::RwLock::new(
                 BundleStore::new("var/telemetry/bundles", RetentionPolicy::default())
-                    .expect("Failed to create telemetry bundle store"),
+                    .expect(
+                        "Failed to initialize telemetry bundle store at var/telemetry/bundles: \
+                         expected directory to be accessible and writable, but BundleStore::new() \
+                         returned an error. This should not happen during normal AppState initialization \
+                         as the directory should have been created during boot. Check filesystem permissions \
+                         and disk space."
+                    ),
             )),
             // Default to 1000 max concurrent upload sessions
             upload_session_manager: Arc::new(UploadSessionManager::new(1000)),

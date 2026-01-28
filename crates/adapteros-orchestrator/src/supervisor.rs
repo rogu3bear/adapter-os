@@ -49,7 +49,7 @@ impl Default for SupervisorConfig {
             policy_check_interval_secs: 30,
             adapter_check_interval_secs: 60,
             memory_check_interval_secs: 10,
-            db_path: PathBuf::from("var/aos.db"),
+            db_path: adapteros_core::rebase_var_path("var/aos.db"),
             auto_quarantine_enabled: true,
             hot_reload_enabled: true,
         }
@@ -768,13 +768,16 @@ async fn spawn_worker_process(tenant_id: &str, db_path: &std::path::Path) -> Res
 mod tests {
     use super::*;
     use crate::test_support::TestEnvGuard;
-    use adapteros_storage::platform::common::PlatformUtils;
     use tempfile::TempDir;
 
     fn new_test_tempdir() -> TempDir {
-        let root = PlatformUtils::temp_dir();
-        std::fs::create_dir_all(&root).expect("create var/tmp");
-        TempDir::new_in(&root).expect("tempdir")
+        TempDir::with_prefix("aos-test-").expect(
+            "Failed to create temporary directory for supervisor tests. \
+             Expected: OS should allow temp directory creation with 'aos-test-' prefix. \
+             Context: Tests require writable temp space for isolated database instances. \
+             This typically fails only when: (1) /tmp is full, (2) permissions are restricted, \
+             or (3) OS temp directory is misconfigured."
+        )
     }
 
     #[tokio::test]

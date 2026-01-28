@@ -14,9 +14,10 @@ use std::collections::HashMap;
 use tempfile::TempDir;
 
 fn new_test_tempdir() -> TempDir {
-    let root = PlatformUtils::temp_dir();
-    std::fs::create_dir_all(&root).expect("create var/tmp");
-    TempDir::new_in(&root).expect("temp dir creation")
+    tempfile::Builder::new()
+        .prefix("aos-test-")
+        .tempdir()
+        .expect("temp dir creation")
 }
 
 fn create_examples(n: usize) -> Vec<TrainingExample> {

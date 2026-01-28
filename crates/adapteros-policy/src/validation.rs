@@ -1260,7 +1260,7 @@ mod tests {
 
     #[test]
     fn test_validate_egress_enum_values() {
-        let valid_json = r#"{"mode": "deny_all", "serve_requires_pf": true, "allow_tcp": false, "allow_udp": false, "uds_paths": ["./var/run/aos/tenant/*.sock"]}"#;
+        let valid_json = r#"{"mode": "deny_all", "serve_requires_pf": true, "allow_tcp": false, "allow_udp": false, "uds_paths": ["var/run/aos/tenant/*.sock"]}"#;
         let result = validate_customization("egress", valid_json).unwrap();
         assert!(result.valid);
 
@@ -1339,11 +1339,11 @@ mod tests {
 
     #[test]
     fn test_validate_isolation_process_model() {
-        let valid_json = r#"{"process_model": "per_tenant", "uds_root": "./var/run/aos/tenant", "forbid_shm": true}"#;
+        let valid_json = r#"{"process_model": "per_tenant", "uds_root": "var/run/aos/tenant", "forbid_shm": true}"#;
         let result = validate_customization("isolation", valid_json).unwrap();
         assert!(result.valid);
 
-        let invalid_json = r#"{"process_model": "shared_all", "uds_root": "./var/run/aos/tenant", "forbid_shm": true}"#;
+        let invalid_json = r#"{"process_model": "shared_all", "uds_root": "var/run/aos/tenant", "forbid_shm": true}"#;
         let result = validate_customization("isolation", invalid_json).unwrap();
         assert!(!result.valid);
     }

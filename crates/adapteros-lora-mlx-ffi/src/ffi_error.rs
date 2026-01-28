@@ -28,6 +28,14 @@ use crate::{mlx_array_free, mlx_array_t, mlx_clear_error, mlx_get_last_error};
 /// ```
 #[inline]
 pub fn get_and_clear_ffi_error() -> Option<String> {
+    // SAFETY: FFI error handling contract:
+    // 1. mlx_get_last_error() returns either null (no error) or a pointer to
+    //    a static or thread-local C string that remains valid until the next
+    //    FFI call or mlx_clear_error().
+    // 2. We copy the string immediately via to_string_lossy().to_string()
+    //    before any other FFI calls, so the pointer remains valid.
+    // 3. CStr::from_ptr() is safe because we check for null first.
+    // 4. mlx_clear_error() resets internal error state; safe to call anytime.
     unsafe {
         let error_msg = mlx_get_last_error();
         if error_msg.is_null() {
@@ -118,6 +126,9 @@ pub fn check_ffi_result(result: i32, context: &str) -> Result<(), AosError> {
 /// Call this before FFI operations to ensure a clean error state.
 #[inline]
 pub fn clear_ffi_error() {
+    // SAFETY: mlx_clear_error() resets internal error state in the C++ wrapper.
+    // It has no return value and does not access any Rust state. This is a
+    // simple state reset that is always safe to call.
     unsafe {
         mlx_clear_error();
     }
@@ -212,6 +223,10 @@ impl MlxArrayGuard {
 impl Drop for MlxArrayGuard {
     fn drop(&mut self) {
         if !self.ptr.is_null() {
+            // SAFETY: The pointer was obtained from an MLX FFI function during
+            // construction (new/new_with_context). The null check ensures we
+            // don't double-free. mlx_array_free() is idempotent for valid
+            // pointers and handles cleanup of the underlying MLX array.
             unsafe {
                 mlx_array_free(self.ptr);
             }
@@ -262,6 +277,9 @@ impl Drop for MlxArrayVecGuard {
     fn drop(&mut self) {
         for ptr in &self.arrays {
             if !ptr.is_null() {
+                // SAFETY: Each pointer was added via push() which rejects null
+                // pointers. The pointers were obtained from MLX FFI functions.
+                // mlx_array_free() is safe to call for any valid MLX array pointer.
                 unsafe {
                     mlx_array_free(*ptr);
                 }

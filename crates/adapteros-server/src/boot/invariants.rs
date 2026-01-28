@@ -502,6 +502,7 @@ pub fn validate_boot_invariants(
     // =========================================================================
     {
         let env_var_dir = std::env::var("AOS_VAR_DIR").ok();
+        // Canonical form is "var" (not "./var"). Accept both for backwards compatibility.
         let override_active = env_var_dir
             .as_deref()
             .map(|val| {

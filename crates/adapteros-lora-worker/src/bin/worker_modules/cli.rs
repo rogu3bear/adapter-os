@@ -15,8 +15,8 @@ pub struct Args {
     pub plan_id: String,
 
     /// UDS socket path for communication
-    /// Standard production path: ./var/run/aos/{tenant_id}/worker.sock
-    /// Development path: ./var/run/worker.sock (relative to cwd)
+    /// Standard production path: var/run/aos/{tenant_id}/worker.sock
+    /// Development path: var/run/worker.sock (relative to cwd)
     #[arg(long, env = "AOS_WORKER_SOCKET")]
     pub uds_path: Option<std::path::PathBuf>,
 

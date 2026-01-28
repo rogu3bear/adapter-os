@@ -258,6 +258,9 @@ async fn run_trace_once(
         crypto_receipt_digest_b3: None,
         receipt_parity_verified: None,
         tenant_id: None,
+        // P0-1: Cache attestation (not needed when prefix_cached_token_count = 0)
+        cache_attestation: None,
+        worker_public_key: None,
     };
 
     let receipt = sink.finalize(finalization).await?;

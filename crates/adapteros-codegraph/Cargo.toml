@@ -4,34 +4,22 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
+description = "Thin wrapper around adapteros-retrieval::codegraph for backwards compatibility"
 
 [dependencies]
+# Core dependencies - re-exports from retrieval
 adapteros-core = { path = "../adapteros-core" }
 adapteros-retrieval = { path = "../adapteros-retrieval" }
-serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
-thiserror = { workspace = true }
-tracing = { workspace = true }
-tree-sitter = "0.26.3"
-tree-sitter-rust = "0.24.0"
-tree-sitter-python = "0.25.0"
-tree-sitter-typescript = "0.23.2"
-tree-sitter-javascript = "0.25.0"
-tree-sitter-go = "0.25.0"
-sqlx = { workspace = true, features = ["runtime-tokio", "sqlite"] }
-tokio = { workspace = true, features = ["fs"] }
-walkdir = { workspace = true }
-bincode = { workspace = true }
-blake3 = { workspace = true }
-streaming-iterator = "0.1"
+
+# Binary dependencies
 clap = { version = "4.0", features = ["derive"] }
 env_logger = "0.11"
-regex = "1.10"
-toml = "0.8"
-git2 = "0.18"
+tokio = { workspace = true, features = ["fs", "rt-multi-thread", "macros"] }
+
 [[bin]]
 name = "aos-codegraph"
 path = "src/bin/codegraph.rs"
+
 [dev-dependencies]
 tempfile = { workspace = true }
 tokio-test = "0.4"

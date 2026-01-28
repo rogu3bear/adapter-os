@@ -112,12 +112,8 @@ impl E2eHarness {
 
         let uds_path = match worker_mode {
             WorkerMode::Spawn => {
-                let base = PathBuf::from("var")
-                    .join("tmp")
-                    .join("e2e-harness")
-                    .join("run")
-                    .join(Uuid::new_v4().to_string());
-                std::fs::create_dir_all(&base).context("failed to create run dir")?;
+                let base_tempdir = tempfile::TempDir::with_prefix("aos-test-e2e-harness-run-")?;
+                let base = base_tempdir.into_path();
                 base.join("worker.sock")
             }
             WorkerMode::External => {
@@ -374,10 +370,8 @@ fn resolve_manifest_path() -> Option<PathBuf> {
 }
 
 fn build_paths() -> Result<HarnessPaths> {
-    let root = PathBuf::from("var")
-        .join("tmp")
-        .join("e2e-harness")
-        .join(Uuid::new_v4().to_string());
+    let root_tempdir = tempfile::TempDir::with_prefix("aos-test-e2e-harness-")?;
+    let root = root_tempdir.into_path();
     let artifacts_root = root.join("artifacts");
     let bundles_root = root.join("bundles");
     let adapters_root = root.join("adapters");

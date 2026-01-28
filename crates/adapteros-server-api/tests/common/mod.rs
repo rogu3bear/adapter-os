@@ -153,12 +153,10 @@ pub async fn setup_state(_uds_path: Option<&PathBuf>) -> anyhow::Result<AppState
     // 3. Create test JWT secret
     let jwt_secret = b"test-jwt-secret-for-integration-tests-32bytes!".to_vec();
 
-    // 4. Create isolated filesystem roots for tests (never under /tmp)
-    let base_dir = PathBuf::from("var")
-        .join("tmp")
-        .join("server-api-tests")
-        .join(uuid::Uuid::new_v4().to_string());
-    std::fs::create_dir_all(&base_dir)?;
+    // 4. Create isolated filesystem roots for tests in OS temp directory
+    // Leak the TempDir to prevent cleanup during test - OS will clean on reboot
+    let base_tempdir = tempfile::TempDir::with_prefix("aos-test-server-api-")?;
+    let base_dir = base_tempdir.into_path();
     let artifacts_root = base_dir.join("artifacts");
     let bundles_root = base_dir.join("bundles");
     let adapters_root = base_dir.join("adapters");

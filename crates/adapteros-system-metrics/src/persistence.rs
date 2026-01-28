@@ -512,7 +512,7 @@ mod tests {
                 .expect("Failed to create test database"),
         );
 
-        let temp_dir = TempDir::new_in(".").unwrap();
+        let temp_dir = TempDir::with_prefix("aos-test-").unwrap();
         let telemetry_writer = Arc::new(
             TelemetryWriter::new(temp_dir.path(), 1000, 1024 * 1024)
                 .expect("Failed to create telemetry writer"),

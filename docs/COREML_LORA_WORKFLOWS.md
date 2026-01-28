@@ -134,7 +134,7 @@ fuse_lora_into_model(&multi_config)?;
 
 // Example 3: Content-addressable caching
 let cache = FusedModelCache::new(
-    Path::new("./var/cache/fused_models"),
+    Path::new("var/cache/fused_models"),
     10.0  // 10GB max cache
 );
 
@@ -159,19 +159,19 @@ if let Some(cached_path) = cache.get(&config) {
 
 # Step 3: Convert fused weights to CoreML
 python scripts/convert_mlx_to_coreml.py \
-  --input ./var/models/fused_weights.safetensors \
-  --output ./var/models/fused-coreml.mlpackage \
+  --input var/models/fused_weights.safetensors \
+  --output var/models/fused-coreml.mlpackage \
   --seq-len 2048
 
 # Step 4: Verify fusion metadata
 cargo run --bin aosctl -- verify coreml \
-  --package ./var/models/fused-coreml.mlpackage \
-  --metadata ./var/models/fused-coreml.mlpackage/adapteros_coreml_fusion.json
+  --package var/models/fused-coreml.mlpackage \
+  --metadata var/models/fused-coreml.mlpackage/adapteros_coreml_fusion.json
 
 # Step 5: Deploy
 ./target/release/aos-worker \
   --backend coreml \
-  --model-path ./var/models/fused-coreml.mlpackage \
+  --model-path var/models/fused-coreml.mlpackage \
   --production
 ```
 

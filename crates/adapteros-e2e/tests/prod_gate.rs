@@ -128,6 +128,10 @@ fn write_report(report: &GateReport) -> Result<PathBuf, String> {
     Ok(path)
 }
 
+/// Get the path for the gate report.
+///
+/// Reports are intentionally written to `target/` (gitignored) for post-test
+/// inspection. Override with `AOS_PROD_GATE_REPORT` environment variable.
 fn report_path() -> Result<PathBuf, String> {
     if let Ok(value) = std::env::var("AOS_PROD_GATE_REPORT") {
         return Ok(PathBuf::from(value));

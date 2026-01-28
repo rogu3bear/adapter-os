@@ -261,7 +261,7 @@ async fn test_gold_standard_e2e_inference() {
     // =========================================================================
     let stage1_timer = StageTimer::start("boot_server_state");
 
-    let uds_dir = TempDir::new_in(".").expect("create temp dir");
+    let uds_dir = TempDir::with_prefix("aos-test-").expect("create temp dir");
     let uds_path = uds_dir
         .path()
         .join("gold-standard-worker.sock")

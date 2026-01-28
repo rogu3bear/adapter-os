@@ -423,7 +423,7 @@ Upload → Validation → Storage (BLAKE3) → Registry → Loading
 
 - **Platform**: macOS with Apple Silicon (M1/M2/M3/M4)
 - **Database**: SQLite at `var/aos-cp.sqlite3`
-- **Default Model**: Qwen2.5-7B (4-bit quantized)
+- **Default Model**: Llama-3.2-3B-Instruct-4bit (4-bit quantized)
 - **Rust**: Nightly (see `rust-toolchain.toml`)
 - **UI**: Leptos 0.7 + Tailwind CSS + WASM (Client-Side Rendering)
 

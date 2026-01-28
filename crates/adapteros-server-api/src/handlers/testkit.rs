@@ -794,7 +794,7 @@ pub async fn create_evidence_fixture(
     .bind(&tenant_id)
     .bind("Fixture Document")
     .bind("b3_doc_fixture_hash")
-    .bind("./var/testkit/doc-fixture.txt")
+    .bind("var/testkit/doc-fixture.txt")
     .bind(1024_i64)
     .bind("text/plain")
     .bind(1_i64)

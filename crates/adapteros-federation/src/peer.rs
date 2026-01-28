@@ -1451,29 +1451,24 @@ impl PeerRegistry {
 mod tests {
     use super::*;
     use adapteros_crypto::Keypair;
-    use std::path::PathBuf;
     use tempfile::TempDir;
 
-    fn new_test_tempdir() -> TempDir {
-        let root = PathBuf::from("var").join("tmp");
-        std::fs::create_dir_all(&root).expect("create var/tmp");
-        TempDir::new_in(&root).expect("create temp dir")
-    }
-
-    async fn setup_test_db() -> Result<Db> {
-        let temp_dir = new_test_tempdir();
+    // Helper to setup a test database with proper cleanup
+    // Returns (Db, TempDir) - caller must hold TempDir to keep DB files alive
+    async fn setup_test_db() -> Result<(Db, TempDir)> {
+        let temp_dir = TempDir::with_prefix("aos-peer-test-")
+            .expect("failed to create temporary directory for peer registry test database: system tmp directory should be writable");
         let db_path = temp_dir
             .path()
             .join(format!("test_{}.db", uuid::Uuid::new_v4()));
         let db = Db::connect(db_path.to_str().unwrap()).await?;
         db.migrate().await?;
-        std::mem::forget(temp_dir);
-        Ok(db)
+        Ok((db, temp_dir))
     }
 
     #[tokio::test]
     async fn test_register_and_get_peer() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let registry = PeerRegistry::new(Arc::new(db));
 
         let keypair = Keypair::generate();
@@ -1502,7 +1497,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_active_peers() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let registry = PeerRegistry::new(Arc::new(db));
 
         let keypair1 = Keypair::generate();
@@ -1524,7 +1519,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_deactivate_peer() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let registry = PeerRegistry::new(Arc::new(db));
 
         let keypair = Keypair::generate();
@@ -1544,7 +1539,7 @@ mod tests {
     /// Multi-peer discovery test
     #[tokio::test]
     async fn test_discovery_announcement() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let registry = PeerRegistry::new(Arc::new(db));
 
         // Register initial peers
@@ -1578,7 +1573,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_discovery_rejected_on_clock_drift() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let registry = PeerRegistry::new(Arc::new(db));
 
         let announcement = DiscoveryAnnouncement {
@@ -1605,7 +1600,7 @@ mod tests {
     /// Multi-peer health check test
     #[tokio::test]
     async fn test_health_check_recording() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let registry = PeerRegistry::new(Arc::new(db));
 
         let keypair = Keypair::generate();
@@ -1642,7 +1637,7 @@ mod tests {
     /// Health history retrieval test
     #[tokio::test]
     async fn test_health_history() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let registry = PeerRegistry::new(Arc::new(db));
 
         let keypair = Keypair::generate();
@@ -1676,7 +1671,7 @@ mod tests {
     /// Consensus voting test
     #[tokio::test]
     async fn test_consensus_quorum() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let registry = PeerRegistry::new(Arc::new(db));
 
         // Register 3 peers for voting
@@ -1714,7 +1709,7 @@ mod tests {
     /// Network partition detection test
     #[tokio::test]
     async fn test_partition_detection() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let registry = PeerRegistry::new(Arc::new(db));
 
         // Register 5 peers
@@ -1752,7 +1747,7 @@ mod tests {
     /// Network partition recovery test
     #[tokio::test]
     async fn test_partition_recovery() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let registry = PeerRegistry::new(Arc::new(db));
 
         // Register peers
@@ -1824,7 +1819,7 @@ mod tests {
     /// Multi-peer list by health status test
     #[tokio::test]
     async fn test_list_peers_by_health() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let registry = PeerRegistry::new(Arc::new(db));
 
         // Register peers with different health statuses
@@ -1858,7 +1853,7 @@ mod tests {
     /// Discovery with multiple peers test
     #[tokio::test]
     async fn test_multi_peer_discovery_cascade() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let registry = PeerRegistry::new(Arc::new(db));
         let now = time::unix_timestamp_secs();
 
@@ -1919,7 +1914,7 @@ mod tests {
     /// Test failed heartbeat threshold
     #[tokio::test]
     async fn test_failed_heartbeat_threshold() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let registry = PeerRegistry::with_config(Arc::new(db), 2, 30, 2);
 
         let keypair = Keypair::generate();
@@ -1958,7 +1953,7 @@ mod tests {
     /// Test peer cache loading
     #[tokio::test]
     async fn test_load_cache_from_db() -> Result<()> {
-        let db = setup_test_db().await?;
+        let (db, _temp) = setup_test_db().await?;
         let registry1 = PeerRegistry::new(Arc::new(db.clone()));
 
         // Register peers

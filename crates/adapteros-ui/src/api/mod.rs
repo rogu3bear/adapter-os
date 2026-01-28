@@ -88,7 +88,8 @@ pub fn api_base_url_checked() -> Result<String, ApiBaseUrlError> {
 }
 
 pub fn api_base_url() -> String {
-    api_base_url_checked().unwrap_or_else(|_| String::from("http://localhost:8080"))
+    api_base_url_checked()
+        .unwrap_or_else(|_| adapteros_api_types::defaults::DEFAULT_SERVER_URL.to_string())
 }
 
 /// UI build version for version skew detection against backend.

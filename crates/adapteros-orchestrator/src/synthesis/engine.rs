@@ -37,7 +37,7 @@ pub struct SynthesisEngineConfig {
 impl Default for SynthesisEngineConfig {
     fn default() -> Self {
         Self {
-            model_path: PathBuf::from("var/models/synthesis_model.mlpackage"),
+            model_path: adapteros_core::rebase_var_path("var/models/synthesis_model.mlpackage"),
             max_new_tokens: 1024,
             temperature: 0.7,
             top_p: 0.9,

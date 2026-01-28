@@ -268,7 +268,7 @@ Use SCREAMING_SNAKE_CASE:
 ```rust
 // GOOD
 pub const ROUTER_GATE_Q15_DENOM: f32 = 32767.0;
-pub const DEFAULT_DB_PATH: &str = "./var/adapteros.sqlite3";
+pub const DEFAULT_DB_PATH: &str = "var/adapteros.sqlite3";
 pub const MAX_RETRY_ATTEMPTS: u32 = 3;
 
 // BAD

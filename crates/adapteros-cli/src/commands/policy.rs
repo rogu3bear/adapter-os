@@ -1,6 +1,6 @@
 //! Policy management commands
 
-use adapteros_core::{AosError, B3Hash, Result};
+use adapteros_core::{defaults::DEFAULT_SERVER_URL, AosError, B3Hash, Result};
 use adapteros_db::Db;
 use adapteros_policy::{
     explain_policy, list_policies,
@@ -677,7 +677,7 @@ fn quarantine_clear(pack_id: &str, cpid: Option<&str>, force: bool) -> Result<()
     }
 
     let server_url =
-        std::env::var("AOS_SERVER_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
+        std::env::var("AOS_SERVER_URL").unwrap_or_else(|_| DEFAULT_SERVER_URL.to_string());
     let operator = std::env::var("AOS_OPERATOR")
         .or_else(|_| std::env::var("USER"))
         .unwrap_or_else(|_| "unknown".to_string());
@@ -760,7 +760,7 @@ fn quarantine_rollback(cpid: Option<&str>, force: bool) -> Result<()> {
     }
 
     let server_url =
-        std::env::var("AOS_SERVER_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
+        std::env::var("AOS_SERVER_URL").unwrap_or_else(|_| DEFAULT_SERVER_URL.to_string());
     let operator = std::env::var("AOS_OPERATOR")
         .or_else(|_| std::env::var("USER"))
         .unwrap_or_else(|_| "unknown".to_string());

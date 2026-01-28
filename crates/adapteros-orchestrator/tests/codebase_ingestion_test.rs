@@ -10,7 +10,67 @@
 //! - Code ingestion with custom scan roots
 //! - Edge cases and configuration validation
 //!
-//! Run ignored tests with: cargo test --test codebase_ingestion_test -- --ignored
+//! ## Tokenizer Requirements for E2E Tests
+//!
+//! Some tests in this file require a tokenizer file to run. These tests are marked with
+//! `#[ignore]` and will be skipped by default in CI environments.
+//!
+//! ### What You Need
+//!
+//! - **tokenizer.json**: A HuggingFace-compatible tokenizer file
+//!
+//! ### Where to Get Tokenizers
+//!
+//! 1. **From HuggingFace**: Download from model repositories (e.g., Qwen/Qwen2.5-7B-Instruct)
+//!    ```bash
+//!    # Example: Download Qwen2.5-7B-Instruct tokenizer
+//!    mkdir -p var/models/Qwen2.5-7B-Instruct
+//!    cd var/models/Qwen2.5-7B-Instruct
+//!    wget https://huggingface.co/Qwen/Qwen2.5-7B-Instruct/resolve/main/tokenizer.json
+//!    ```
+//!
+//! 2. **From Local Model Directory**: If you already have a model downloaded, the tokenizer
+//!    should be in the model's directory alongside the model weights.
+//!
+//! ### Configuration Options
+//!
+//! The tests discover tokenizers in the following order:
+//!
+//! 1. **AOS_TOKENIZER_PATH**: Explicit path to tokenizer.json
+//!    ```bash
+//!    export AOS_TOKENIZER_PATH=var/models/Qwen2.5-7B-Instruct/tokenizer.json
+//!    ```
+//!
+//! 2. **AOS_MODEL_PATH**: Model directory (looks for tokenizer.json inside)
+//!    ```bash
+//!    export AOS_MODEL_PATH=var/models/Qwen2.5-7B-Instruct
+//!    ```
+//!
+//! 3. **Default Location**: Uses `DEFAULT_MODEL_CACHE_ROOT/DEFAULT_BASE_MODEL_ID/tokenizer.json`
+//!    (typically `var/model-cache/Qwen2.5-7B-Instruct/tokenizer.json`)
+//!
+//! ### Validation
+//!
+//! To validate your tokenizer file before running tests:
+//! ```bash
+//! ./aosctl models check-tokenizer ./path/to/tokenizer.json
+//! ```
+//!
+//! ### Running Tests with Tokenizer
+//!
+//! Once a tokenizer is available:
+//! ```bash
+//! # Run all ignored tests (requires tokenizer)
+//! cargo test --test codebase_ingestion_test -- --ignored
+//!
+//! # Run specific test
+//! cargo test --test codebase_ingestion_test test_codebase_ingestion_end_to_end -- --ignored
+//! ```
+//!
+//! ### Known Working Tokenizers
+//!
+//! - Qwen2.5-7B-Instruct: `var/models/Qwen2.5-7B-Instruct/tokenizer.json`
+//! - Llama-3-8B: `var/models/Llama-3-8B/tokenizer.json`
 
 #![allow(unused_imports)]
 #![allow(clippy::absurd_extreme_comparisons)]
@@ -25,16 +85,13 @@ use adapteros_orchestrator::code_ingestion::{
     CodeDatasetConfig, CodeIngestionPipeline, CodeIngestionRequest, CodeIngestionSource,
 };
 use adapteros_orchestrator::codebase_ingestion::{CodebaseIngestion, IngestionConfig};
-use adapteros_storage::platform::common::PlatformUtils;
 use git2::{Repository, Signature};
 use std::io::Write;
 use std::path::PathBuf;
 use tempfile::TempDir;
 
 fn new_test_tempdir() -> TempDir {
-    let root = PlatformUtils::temp_dir();
-    std::fs::create_dir_all(&root).expect("create var/tmp");
-    TempDir::new_in(&root).expect("tempdir")
+    TempDir::with_prefix("aos-test-").expect("create temp dir")
 }
 
 fn canonical_tokenizer_path() -> PathBuf {
@@ -44,7 +101,8 @@ fn canonical_tokenizer_path() -> PathBuf {
 }
 
 /// Test end-to-end codebase ingestion pipeline
-/// TODO: Requires tokenizer and model files, skipped in CI
+///
+/// See module-level documentation for tokenizer requirements and setup instructions.
 #[tokio::test]
 #[ignore = "Requires tokenizer and model files not available in CI [tracking: STAB-IGN-0060]"]
 async fn test_codebase_ingestion_end_to_end() {
@@ -160,7 +218,8 @@ It contains basic math utilities.
 }
 
 /// Test determinism: same codebase should produce same hash
-/// TODO: Requires tokenizer and model files, skipped in CI
+///
+/// See module-level documentation for tokenizer requirements and setup instructions.
 #[tokio::test]
 #[ignore = "Requires tokenizer and model files not available in CI [tracking: STAB-IGN-0061]"]
 async fn test_determinism() {
@@ -302,7 +361,8 @@ fn test_seed_inputs_include_commit_dataset_training_config() {
 }
 
 /// Test that pipeline handles repositories with no documentation
-/// TODO: Requires tokenizer and model files, skipped in CI
+///
+/// See module-level documentation for tokenizer requirements and setup instructions.
 #[tokio::test]
 #[ignore = "Requires tokenizer and model files not available in CI [tracking: STAB-IGN-0062]"]
 async fn test_no_documentation() {

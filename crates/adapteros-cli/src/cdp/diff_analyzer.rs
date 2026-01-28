@@ -359,14 +359,14 @@ mod tests {
 
     #[test]
     fn test_diff_analyzer_creation() {
-        let temp_dir = TempDir::new_in(".").unwrap();
+        let temp_dir = TempDir::with_prefix("aos-test-").unwrap();
         let analyzer = DiffAnalyzer::new(temp_dir.path());
         assert_eq!(analyzer.repo_path, temp_dir.path());
     }
 
     #[test]
     fn test_parse_function_name() {
-        let temp_dir = TempDir::new_in(".").unwrap();
+        let temp_dir = TempDir::with_prefix("aos-test-").unwrap();
         let analyzer = DiffAnalyzer::new(temp_dir.path());
 
         assert_eq!(
@@ -384,7 +384,7 @@ mod tests {
 
     #[test]
     fn test_parse_struct_name() {
-        let temp_dir = TempDir::new_in(".").unwrap();
+        let temp_dir = TempDir::with_prefix("aos-test-").unwrap();
         let analyzer = DiffAnalyzer::new(temp_dir.path());
 
         assert_eq!(
@@ -402,7 +402,7 @@ mod tests {
 
     #[test]
     fn test_detect_language() {
-        let temp_dir = TempDir::new_in(".").unwrap();
+        let temp_dir = TempDir::with_prefix("aos-test-").unwrap();
         let analyzer = DiffAnalyzer::new(temp_dir.path());
 
         assert_eq!(

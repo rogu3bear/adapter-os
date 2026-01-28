@@ -649,11 +649,7 @@ mod tests {
 
     #[test]
     fn test_write_and_read_archive_with_segments() -> Result<()> {
-        let temp_root = std::path::PathBuf::from("var/tmp");
-        std::fs::create_dir_all(&temp_root).map_err(|e| {
-            AosError::Io(format!("Failed to create adapterOS temp directory: {}", e))
-        })?;
-        let temp_file = NamedTempFile::new_in(&temp_root)
+        let temp_file = NamedTempFile::with_prefix("aos-test-")
             .map_err(|e| AosError::Io(format!("Failed to create temp file: {}", e)))?;
 
         let manifest = TestManifest {
@@ -732,9 +728,7 @@ mod tests {
 
     #[test]
     fn test_magic_validation() {
-        let temp_root = std::path::PathBuf::from("var/tmp");
-        std::fs::create_dir_all(&temp_root).unwrap();
-        let temp_file = NamedTempFile::new_in(&temp_root).unwrap();
+        let temp_file = NamedTempFile::with_prefix("aos-test-").unwrap();
 
         // Write full header with invalid magic bytes
         let mut invalid_header = vec![0u8; HEADER_SIZE];

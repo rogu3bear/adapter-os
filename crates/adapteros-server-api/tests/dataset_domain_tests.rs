@@ -50,7 +50,7 @@ async fn create_dataset(state: &AppState) -> String {
 }
 
 async fn write_jsonl(lines: &[&str]) -> (tempfile::TempDir, std::path::PathBuf) {
-    let dir = tempfile::TempDir::new_in(".").expect("tempdir");
+    let dir = tempfile::TempDir::with_prefix("aos-test-").expect("tempdir");
     let path = dir.path().join("data.jsonl");
     let mut file = fs::File::create(&path).await.expect("file create");
     for line in lines {

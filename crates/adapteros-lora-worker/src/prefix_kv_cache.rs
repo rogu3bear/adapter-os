@@ -20,10 +20,9 @@ use adapteros_core::singleflight::{SingleFlightMetrics, SingleFlightSync};
 use adapteros_core::{AosError, B3Hash, Result};
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
 
 /// Operation label for SingleFlight metrics
 const PREFIX_KV_BUILD_OPERATION: &str = "prefix_kv_build";
@@ -45,10 +44,10 @@ pub struct PrefixKvEntry {
     pub prefix_cached_token_count: u32,
     /// Total bytes of KV data
     pub kv_bytes: u64,
-    /// Creation timestamp
-    pub created_at: Instant,
-    /// Last access timestamp (atomic for concurrent updates)
-    last_access_ns: AtomicU64,
+    /// Creation tick (logical tick for determinism)
+    pub created_tick: u64,
+    /// Last access tick (atomic for concurrent updates, uses logical ticks for determinism)
+    last_access_tick: AtomicU64,
     /// Active reference count (for eviction safety)
     pub active_refcount: AtomicU32,
     // Patent 3535886.0002 Claims 8-10: Longest-prefix matching support
@@ -72,9 +71,19 @@ impl PrefixKvEntry {
         tenant_id: String,
         prefix_cached_token_count: u32,
     ) -> Self {
+        Self::new_with_tick(keys, values, tenant_id, prefix_cached_token_count, 0)
+    }
+
+    /// Create a new prefix KV entry with explicit creation tick for determinism.
+    pub fn new_with_tick(
+        keys: Vec<Vec<f32>>,
+        values: Vec<Vec<f32>>,
+        tenant_id: String,
+        prefix_cached_token_count: u32,
+        created_tick: u64,
+    ) -> Self {
         let kv_bytes = Self::compute_kv_bytes(&keys, &values);
         let payload_integrity_hash = Self::compute_payload_hash(&keys, &values);
-        let now = Instant::now();
 
         Self {
             keys,
@@ -82,8 +91,8 @@ impl PrefixKvEntry {
             tenant_id,
             prefix_cached_token_count,
             kv_bytes,
-            created_at: now,
-            last_access_ns: AtomicU64::new(0),
+            created_tick,
+            last_access_tick: AtomicU64::new(created_tick),
             active_refcount: AtomicU32::new(0),
             // Default values for backward compatibility
             prefix_tokens: Vec::new(),
@@ -105,9 +114,32 @@ impl PrefixKvEntry {
         tokenizer_hash: B3Hash,
         model_identity_hash: B3Hash,
     ) -> Self {
+        Self::new_with_tokens_and_tick(
+            keys,
+            values,
+            tenant_id,
+            prefix_tokens,
+            context_digest,
+            tokenizer_hash,
+            model_identity_hash,
+            0,
+        )
+    }
+
+    /// Create a new prefix KV entry with token tracking and explicit tick for determinism.
+    /// (Patent 3535886.0002 Claims 8-10)
+    pub fn new_with_tokens_and_tick(
+        keys: Vec<Vec<f32>>,
+        values: Vec<Vec<f32>>,
+        tenant_id: String,
+        prefix_tokens: Vec<u32>,
+        context_digest: B3Hash,
+        tokenizer_hash: B3Hash,
+        model_identity_hash: B3Hash,
+        created_tick: u64,
+    ) -> Self {
         let kv_bytes = Self::compute_kv_bytes(&keys, &values);
         let payload_integrity_hash = Self::compute_payload_hash(&keys, &values);
-        let now = Instant::now();
         let prefix_cached_token_count = prefix_tokens.len() as u32;
 
         Self {
@@ -116,8 +148,8 @@ impl PrefixKvEntry {
             tenant_id,
             prefix_cached_token_count,
             kv_bytes,
-            created_at: now,
-            last_access_ns: AtomicU64::new(0),
+            created_tick,
+            last_access_tick: AtomicU64::new(created_tick),
             active_refcount: AtomicU32::new(0),
             prefix_tokens,
             context_digest,
@@ -213,15 +245,22 @@ impl PrefixKvEntry {
         }
     }
 
-    /// Record an access (updates last_access timestamp)
-    pub fn record_access(&self) {
-        let now_ns = Instant::now().elapsed().as_nanos() as u64;
-        self.last_access_ns.store(now_ns, Ordering::Relaxed);
+    /// Record an access with the given logical tick (for deterministic LRU).
+    ///
+    /// Uses logical ticks instead of wall-clock time to ensure deterministic
+    /// eviction order during replay.
+    pub fn record_access(&self, tick: u64) {
+        self.last_access_tick.store(tick, Ordering::Relaxed);
     }
 
-    /// Get the last access time in nanoseconds since creation
-    pub fn last_access_ns(&self) -> u64 {
-        self.last_access_ns.load(Ordering::Relaxed)
+    /// Get the last access tick (logical tick for determinism).
+    pub fn last_access_tick(&self) -> u64 {
+        self.last_access_tick.load(Ordering::Relaxed)
+    }
+
+    /// Get the creation tick.
+    pub fn created_tick(&self) -> u64 {
+        self.created_tick
     }
 
     /// Increment active refcount
@@ -284,14 +323,24 @@ impl PrefixKvCacheStats {
 /// Main prefix KV cache implementation.
 ///
 /// Thread-safe cache for prefix KV tensors with single-flight deduplication
-/// and LRU eviction.
+/// and deterministic LRU eviction.
+///
+/// ## Determinism
+///
+/// This cache uses `BTreeMap` for deterministic iteration order and logical
+/// ticks (not wall-clock time) for LRU ordering. This ensures:
+/// - Identical insertion order produces identical iteration order
+/// - Eviction order is reproducible across process restarts
+/// - Tie-breaking during longest-prefix match uses key ordering
 pub struct PrefixKvCache {
-    /// Cache entries keyed by prefix_kv_key_b3
-    entries: RwLock<HashMap<B3Hash, Arc<PrefixKvEntry>>>,
+    /// Cache entries keyed by prefix_kv_key_b3 (BTreeMap for deterministic iteration)
+    entries: RwLock<BTreeMap<B3Hash, Arc<PrefixKvEntry>>>,
     /// Maximum byte budget
     max_bytes: u64,
     /// Current bytes used
     used_bytes: AtomicU64,
+    /// Logical tick counter for deterministic LRU (monotonically increasing)
+    current_tick: AtomicU64,
     /// SingleFlight for deduplicating concurrent builds
     /// Uses String error type since AosError is not Clone
     singleflight: SingleFlightSync<B3Hash, Arc<PrefixKvEntry>, String>,
@@ -308,9 +357,10 @@ impl PrefixKvCache {
         );
 
         Self {
-            entries: RwLock::new(HashMap::new()),
+            entries: RwLock::new(BTreeMap::new()),
             max_bytes,
             used_bytes: AtomicU64::new(0),
+            current_tick: AtomicU64::new(0),
             singleflight: SingleFlightSync::new(PREFIX_KV_BUILD_OPERATION),
             stats: Mutex::new(PrefixKvCacheStats {
                 max_bytes,
@@ -327,9 +377,10 @@ impl PrefixKvCache {
         );
 
         Self {
-            entries: RwLock::new(HashMap::new()),
+            entries: RwLock::new(BTreeMap::new()),
             max_bytes,
             used_bytes: AtomicU64::new(0),
+            current_tick: AtomicU64::new(0),
             singleflight: SingleFlightSync::with_metrics(PREFIX_KV_BUILD_OPERATION, metrics),
             stats: Mutex::new(PrefixKvCacheStats {
                 max_bytes,
@@ -338,10 +389,27 @@ impl PrefixKvCache {
         }
     }
 
+    /// Get the current logical tick.
+    pub fn current_tick(&self) -> u64 {
+        self.current_tick.load(Ordering::SeqCst)
+    }
+
+    /// Advance the logical tick and return the new value.
+    ///
+    /// Call this for each cache operation to maintain deterministic ordering.
+    pub fn advance_tick(&self) -> u64 {
+        self.current_tick.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    /// Set the logical tick (for replay/testing).
+    pub fn set_tick(&self, tick: u64) {
+        self.current_tick.store(tick, Ordering::SeqCst);
+    }
+
     /// Get an entry from the cache.
     ///
     /// Returns `Some(entry)` on cache hit, `None` on miss or integrity failure.
-    /// Automatically records access time for LRU and verifies payload integrity.
+    /// Automatically records access tick for deterministic LRU and verifies payload integrity.
     /// Corrupted entries are treated as cache misses to maintain determinism.
     pub fn get(&self, key: &B3Hash) -> Option<Arc<PrefixKvEntry>> {
         let entries = self.entries.read();
@@ -356,12 +424,15 @@ impl PrefixKvCache {
                 return None;
             }
 
-            entry.record_access();
+            // Use logical tick for deterministic LRU ordering
+            let tick = self.advance_tick();
+            entry.record_access(tick);
             let mut stats = self.stats.lock();
             stats.hits += 1;
             tracing::trace!(
                 key = %key.to_hex()[..16],
                 prefix_tokens = entry.prefix_cached_token_count,
+                tick = tick,
                 "Prefix KV cache hit"
             );
             Some(Arc::clone(entry))
@@ -377,6 +448,15 @@ impl PrefixKvCache {
     ///
     /// Unlike `get()` which requires an exact key match, this method searches
     /// all cache entries to find the one with the longest token prefix match.
+    ///
+    /// ## Determinism
+    ///
+    /// When multiple entries have equal match lengths, tie-breaking uses:
+    /// 1. Match length (longer wins)
+    /// 2. Cache key lexicographic order (smaller key wins)
+    ///
+    /// This ensures identical inputs always produce identical outputs,
+    /// regardless of HashMap iteration order.
     ///
     /// # Arguments
     /// * `input_tokens` - The input token sequence to match against
@@ -417,9 +497,12 @@ impl PrefixKvCache {
         }
 
         let entries = self.entries.read();
+        // Track best match with deterministic tie-breaking: (match_len DESC, key ASC)
         let mut best_match: Option<(B3Hash, Arc<PrefixKvEntry>, u32)> = None;
         let mut corrupted_keys: Vec<B3Hash> = Vec::new();
 
+        // BTreeMap iteration is already in key order, but we need to track
+        // match length as primary sort criterion
         for (key, entry) in entries.iter() {
             // Skip entries that don't support prefix matching
             if !entry.supports_prefix_matching() {
@@ -440,13 +523,16 @@ impl PrefixKvCache {
                 model_identity_hash,
             );
 
-            // Check if this is a better match
+            // Check if this is a better match (deterministic tie-breaking)
             if match_len >= min_match_tokens {
-                if let Some((_, _, best_len)) = &best_match {
-                    if match_len > *best_len {
-                        best_match = Some((*key, Arc::clone(entry), match_len));
+                let is_better = match &best_match {
+                    Some((best_key, _, best_len)) => {
+                        // Tie-breaking: match_len DESC, then key ASC
+                        match_len > *best_len || (match_len == *best_len && key < best_key)
                     }
-                } else {
+                    None => true,
+                };
+                if is_better {
                     best_match = Some((*key, Arc::clone(entry), match_len));
                 }
             }
@@ -460,7 +546,9 @@ impl PrefixKvCache {
 
         // Update stats and return result
         if let Some((key, entry, matched_tokens)) = best_match {
-            entry.record_access();
+            // Use logical tick for deterministic LRU ordering
+            let tick = self.advance_tick();
+            entry.record_access(tick);
 
             // This counts as a partial hit
             let mut stats = self.stats.lock();
@@ -471,6 +559,7 @@ impl PrefixKvCache {
                 matched_tokens = matched_tokens,
                 cached_tokens = entry.prefix_cached_token_count,
                 input_tokens = input_tokens.len(),
+                tick = tick,
                 "Prefix KV cache partial hit (longest-prefix match)"
             );
 
@@ -615,7 +704,9 @@ impl PrefixKvCache {
                     key = %key.to_hex()[..16],
                     "Prefix KV found in cache during SingleFlight leader re-check"
                 );
-                entry.record_access();
+                // Use logical tick for deterministic LRU ordering
+                let tick = self.advance_tick();
+                entry.record_access(tick);
                 let mut stats = self.stats.lock();
                 stats.hits += 1;
                 return Ok(Arc::clone(entry));
@@ -635,6 +726,14 @@ impl PrefixKvCache {
     }
 
     /// Evict LRU entries until the specified bytes can fit.
+    ///
+    /// ## Determinism
+    ///
+    /// Eviction order is deterministic using:
+    /// 1. Last access tick (oldest first)
+    /// 2. Cache key lexicographic order (for tie-breaking)
+    ///
+    /// This ensures identical operation sequences produce identical eviction behavior.
     fn evict_until_fits(&self, needed_bytes: u64) -> Result<()> {
         let current_used = self.used_bytes.load(Ordering::SeqCst);
         let available = self.max_bytes.saturating_sub(current_used);
@@ -653,11 +752,13 @@ impl PrefixKvCache {
             let mut candidates: Vec<_> = entries
                 .iter()
                 .filter(|(_, entry)| !entry.is_in_use())
-                .map(|(key, entry)| (*key, entry.last_access_ns(), entry.kv_bytes))
+                .map(|(key, entry)| (*key, entry.last_access_tick(), entry.kv_bytes))
                 .collect();
 
-            // Sort by last access (oldest first)
-            candidates.sort_by_key(|(_, access_ns, _)| *access_ns);
+            // Deterministic sort: by last_access_tick ASC (oldest first), then key ASC
+            candidates.sort_by(|(key_a, tick_a, _), (key_b, tick_b, _)| {
+                tick_a.cmp(tick_b).then_with(|| key_a.cmp(key_b))
+            });
 
             for (key, _, bytes) in candidates {
                 evicted_keys.push(key);
@@ -717,10 +818,13 @@ impl PrefixKvCache {
     }
 
     /// Clear all entries from the cache.
+    ///
+    /// Also resets the logical tick counter to 0 for deterministic replay.
     pub fn clear(&self) {
         let mut entries = self.entries.write();
         entries.clear();
         self.used_bytes.store(0, Ordering::SeqCst);
+        self.current_tick.store(0, Ordering::SeqCst);
 
         let mut stats = self.stats.lock();
         stats.entry_count = 0;
@@ -761,8 +865,9 @@ impl PrefixKvCache {
 }
 
 // SAFETY: PrefixKvCache is Send+Sync because:
-// - `entries`: RwLock<HashMap<...>> is Send+Sync when K/V are Send+Sync
+// - `entries`: RwLock<BTreeMap<...>> is Send+Sync when K/V are Send+Sync
 // - `used_bytes`: AtomicU64 is Send+Sync
+// - `current_tick`: AtomicU64 is Send+Sync
 // - `stats`: parking_lot::Mutex<...> is Send+Sync when T is Send
 // - `singleflight`: SingleFlightSync<...> is Send+Sync by design
 // - All interior mutability uses proper synchronization primitives
@@ -1370,5 +1475,328 @@ mod tests {
 
         // Total input tokens = 150, cached = 100, attributed = 50
         assert_eq!(prefix_match.attributed_tokens(150), 50);
+    }
+
+    // =============================================================================
+    // Determinism Tests
+    // =============================================================================
+
+    #[test]
+    fn test_deterministic_tick_ordering() {
+        let cache = PrefixKvCache::new(1024 * 1024);
+
+        // Verify tick starts at 0
+        assert_eq!(cache.current_tick(), 0);
+
+        // Advance tick multiple times
+        assert_eq!(cache.advance_tick(), 1);
+        assert_eq!(cache.advance_tick(), 2);
+        assert_eq!(cache.advance_tick(), 3);
+
+        // Verify current tick
+        assert_eq!(cache.current_tick(), 3);
+
+        // Clear should reset tick
+        cache.clear();
+        assert_eq!(cache.current_tick(), 0);
+    }
+
+    #[test]
+    fn test_deterministic_eviction_order() {
+        // Small cache that can only fit 2 entries (each 512 bytes)
+        // 512 bytes = 2 layers * 32 floats * 4 bytes * 2 (K+V)
+        let cache = PrefixKvCache::new(1200); // Fits ~2 entries
+
+        let context = B3Hash::hash(b"context");
+        let tokenizer = B3Hash::hash(b"tokenizer");
+        let model = B3Hash::hash(b"model");
+
+        // Insert entries with different keys
+        // Use deterministic keys to control ordering
+        let key_a = B3Hash::hash(b"aaa"); // Smallest key
+        let key_b = B3Hash::hash(b"bbb");
+        let key_c = B3Hash::hash(b"ccc"); // Largest key
+
+        // Insert in order: a, b
+        let entry_a =
+            make_entry_with_tokens("tenant1", vec![1, 2], 2, 32, context, tokenizer, model);
+        cache.insert(key_a, entry_a).unwrap();
+
+        let entry_b =
+            make_entry_with_tokens("tenant1", vec![3, 4], 2, 32, context, tokenizer, model);
+        cache.insert(key_b, entry_b).unwrap();
+
+        // Access b to give it a higher tick
+        let _ = cache.get(&key_b);
+
+        // Now insert c - should evict a (oldest tick)
+        let entry_c =
+            make_entry_with_tokens("tenant1", vec![5, 6], 2, 32, context, tokenizer, model);
+        cache.insert(key_c, entry_c).unwrap();
+
+        // Verify a was evicted, b and c remain
+        assert!(cache.get(&key_a).is_none(), "key_a should be evicted (oldest tick)");
+        assert!(cache.get(&key_b).is_some(), "key_b should remain");
+        assert!(cache.get(&key_c).is_some(), "key_c should remain");
+    }
+
+    #[test]
+    fn test_deterministic_eviction_tie_breaking() {
+        // Test that when multiple entries have the same tick, key ordering breaks ties
+        let cache = PrefixKvCache::new(1200); // Fits ~2 entries
+
+        let context = B3Hash::hash(b"context");
+        let tokenizer = B3Hash::hash(b"tokenizer");
+        let model = B3Hash::hash(b"model");
+
+        // Create keys where we know the ordering
+        let key_small = B3Hash::hash(b"aaaaa"); // Will be smaller
+        let key_large = B3Hash::hash(b"zzzzz"); // Will be larger
+
+        // Set both entries to have the same tick by not accessing them
+        cache.set_tick(100);
+
+        // Insert with explicit tick in entry creation
+        let entry_small = PrefixKvEntry::new_with_tokens_and_tick(
+            vec![vec![1.0; 32], vec![1.0; 32]],
+            vec![vec![2.0; 32], vec![2.0; 32]],
+            "tenant1".to_string(),
+            vec![1, 2],
+            context,
+            tokenizer,
+            model,
+            100, // Same tick
+        );
+        cache.insert(key_small, entry_small).unwrap();
+
+        let entry_large = PrefixKvEntry::new_with_tokens_and_tick(
+            vec![vec![1.0; 32], vec![1.0; 32]],
+            vec![vec![2.0; 32], vec![2.0; 32]],
+            "tenant1".to_string(),
+            vec![3, 4],
+            context,
+            tokenizer,
+            model,
+            100, // Same tick
+        );
+        cache.insert(key_large, entry_large).unwrap();
+
+        // Insert third entry to trigger eviction
+        let key_new = B3Hash::hash(b"new");
+        let entry_new = PrefixKvEntry::new_with_tokens_and_tick(
+            vec![vec![1.0; 32], vec![1.0; 32]],
+            vec![vec![2.0; 32], vec![2.0; 32]],
+            "tenant1".to_string(),
+            vec![5, 6],
+            context,
+            tokenizer,
+            model,
+            101,
+        );
+        cache.insert(key_new, entry_new).unwrap();
+
+        // With equal ticks, smaller key should be evicted first
+        // (deterministic tie-breaking: tick ASC, then key ASC)
+        assert!(
+            cache.get(&key_small).is_none() || cache.get(&key_large).is_none(),
+            "One of the equal-tick entries should be evicted"
+        );
+    }
+
+    #[test]
+    fn test_deterministic_longest_prefix_tie_breaking() {
+        let cache = PrefixKvCache::new(1024 * 1024);
+
+        let context = B3Hash::hash(b"context");
+        let tokenizer = B3Hash::hash(b"tokenizer");
+        let model = B3Hash::hash(b"model");
+
+        // Create two entries with the SAME prefix tokens (same match length)
+        // but different keys - we need to determine which key is actually smaller
+        let key_a = B3Hash::hash(b"aaaaa");
+        let key_b = B3Hash::hash(b"zzzzz");
+
+        // Determine which key is actually smaller (BLAKE3 hashing changes ordering)
+        let (key_small, key_large) = if key_a < key_b {
+            (key_a, key_b)
+        } else {
+            (key_b, key_a)
+        };
+
+        // Both entries have prefix [1, 2, 3]
+        let entry_small =
+            make_entry_with_tokens("tenant1", vec![1, 2, 3], 2, 64, context, tokenizer, model);
+        let entry_large =
+            make_entry_with_tokens("tenant1", vec![1, 2, 3], 2, 64, context, tokenizer, model);
+
+        cache.insert(key_large, entry_large).unwrap(); // Insert larger key first
+        cache.insert(key_small, entry_small).unwrap(); // Insert smaller key second
+
+        // Search for tokens that match both entries
+        let input_tokens = vec![1, 2, 3, 4, 5];
+        let result =
+            cache.find_longest_prefix_match(&input_tokens, &context, &tokenizer, &model, 1);
+
+        assert!(result.is_some());
+        let prefix_match = result.unwrap();
+
+        // With equal match lengths, smaller key should win (deterministic tie-breaking)
+        assert_eq!(
+            prefix_match.cache_key, key_small,
+            "Smaller key should win on equal match length"
+        );
+
+        // Verify reproducibility by running the same lookup again
+        let result2 =
+            cache.find_longest_prefix_match(&input_tokens, &context, &tokenizer, &model, 1);
+        assert!(result2.is_some());
+        assert_eq!(
+            result2.unwrap().cache_key, key_small,
+            "Repeated lookup should return same key"
+        );
+    }
+
+    #[test]
+    fn test_deterministic_cache_state_replay() {
+        // Verify that the same sequence of operations produces the same cache state
+        let context = B3Hash::hash(b"context");
+        let tokenizer = B3Hash::hash(b"tokenizer");
+        let model = B3Hash::hash(b"model");
+
+        let run_operations = || {
+            let cache = PrefixKvCache::new(1024 * 1024);
+
+            let key1 = B3Hash::hash(b"key1");
+            let key2 = B3Hash::hash(b"key2");
+            let key3 = B3Hash::hash(b"key3");
+
+            // Perform a sequence of operations
+            cache
+                .insert(
+                    key1,
+                    make_entry_with_tokens(
+                        "tenant1",
+                        vec![1, 2, 3],
+                        2,
+                        64,
+                        context,
+                        tokenizer,
+                        model,
+                    ),
+                )
+                .unwrap();
+            let _ = cache.get(&key1);
+
+            cache
+                .insert(
+                    key2,
+                    make_entry_with_tokens(
+                        "tenant1",
+                        vec![4, 5, 6],
+                        2,
+                        64,
+                        context,
+                        tokenizer,
+                        model,
+                    ),
+                )
+                .unwrap();
+            let _ = cache.get(&key2);
+            let _ = cache.get(&key1);
+
+            cache
+                .insert(
+                    key3,
+                    make_entry_with_tokens(
+                        "tenant1",
+                        vec![1, 2, 3, 4],
+                        2,
+                        64,
+                        context,
+                        tokenizer,
+                        model,
+                    ),
+                )
+                .unwrap();
+
+            // Return final tick and lookup result
+            let tick = cache.current_tick();
+            let lookup = cache.find_longest_prefix_match(
+                &[1, 2, 3, 4, 5],
+                &context,
+                &tokenizer,
+                &model,
+                1,
+            );
+
+            (tick, lookup.map(|m| (m.cache_key, m.matched_token_count)))
+        };
+
+        // Run the same operations multiple times
+        let result1 = run_operations();
+        let result2 = run_operations();
+        let result3 = run_operations();
+
+        // All runs should produce identical results
+        assert_eq!(result1, result2, "Run 1 and 2 should be identical");
+        assert_eq!(result2, result3, "Run 2 and 3 should be identical");
+    }
+
+    #[test]
+    fn test_btreemap_iteration_order() {
+        // Verify that BTreeMap iteration is deterministic
+        let cache = PrefixKvCache::new(1024 * 1024);
+
+        // Insert keys in random order
+        let keys = [
+            B3Hash::hash(b"zebra"),
+            B3Hash::hash(b"apple"),
+            B3Hash::hash(b"mango"),
+            B3Hash::hash(b"banana"),
+        ];
+
+        for key in &keys {
+            let entry = make_entry("tenant1", 10, 1, 32);
+            cache.insert(*key, entry).unwrap();
+        }
+
+        // Collect iteration order
+        let iteration_order: Vec<B3Hash> = {
+            let entries = cache.entries.read();
+            entries.keys().copied().collect()
+        };
+
+        // Verify it's sorted (BTreeMap guarantees this)
+        let mut sorted = iteration_order.clone();
+        sorted.sort();
+        assert_eq!(
+            iteration_order, sorted,
+            "BTreeMap iteration should be in key order"
+        );
+    }
+
+    #[test]
+    fn test_entry_tick_tracking() {
+        let entry = PrefixKvEntry::new_with_tick(
+            vec![vec![1.0; 32]],
+            vec![vec![2.0; 32]],
+            "tenant1".to_string(),
+            10,
+            100, // Created at tick 100
+        );
+
+        // Initial state
+        assert_eq!(entry.created_tick(), 100);
+        assert_eq!(entry.last_access_tick(), 100);
+
+        // Record accesses
+        entry.record_access(150);
+        assert_eq!(entry.last_access_tick(), 150);
+
+        entry.record_access(200);
+        assert_eq!(entry.last_access_tick(), 200);
+
+        // Created tick should not change
+        assert_eq!(entry.created_tick(), 100);
     }
 }

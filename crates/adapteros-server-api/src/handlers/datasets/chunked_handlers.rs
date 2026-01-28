@@ -28,7 +28,6 @@ use crate::api_error::ApiError;
 use crate::audit_helper::{actions, log_failure_or_warn, log_success_or_warn, resources};
 use crate::auth::Claims;
 use crate::citations::build_dataset_index;
-use crate::error_helpers::{bad_request, forbidden, internal_error, not_found};
 use crate::handlers::chunked_upload::{
     ChunkWriter, CompressionFormat, FileValidator, UploadSession, UploadSessionManager,
     MAX_CHUNK_SIZE, UPLOAD_TIMEOUT_SECS,
@@ -79,12 +78,13 @@ async fn ensure_session_loaded(
 ) -> Result<UploadSessionRecord, (StatusCode, Json<ErrorResponse>)> {
     let record = fetch_session_by_id(&state.db, session_id)
         .await?
-        .ok_or_else(|| not_found("Upload session"))?;
+        .ok_or_else(|| ApiError::not_found("Upload session"))?;
 
     if record.tenant_id != claims.tenant_id {
-        return Err(forbidden(
+        return Err(ApiError::forbidden(
             "Access denied: upload session belongs to a different tenant",
-        ));
+        )
+        .into());
     }
 
     if state
@@ -320,7 +320,7 @@ pub async fn complete_chunked_upload(
             .await
             .map_err(|e| ApiError::db_error(format!("Failed to fetch completed dataset: {}", e)))?
             .ok_or_else(|| {
-                internal_error(format!(
+                ApiError::internal(format!(
                     "Completed session {} references missing dataset {}",
                     session_id, session_record.dataset_id
                 ))
@@ -593,7 +593,7 @@ pub async fn complete_chunked_upload(
     let (soft_quota, hard_quota) = dataset_quota_limits();
     let usage = compute_tenant_storage_usage(&state, &claims.tenant_id)
         .await
-        .map_err(|e| internal_error(format!("Failed to compute storage usage: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to compute storage usage: {}", e)))?;
     let predicted_usage = usage.total_bytes() + total_bytes;
     if predicted_usage > hard_quota {
         return Err(quota_error(format!(
@@ -788,7 +788,7 @@ pub async fn complete_chunked_upload(
 
     let dataset_params = dataset_builder.build().map_err(|e| {
         error!("Failed to build dataset params: {}", e);
-        bad_request(format!("Invalid dataset parameters: {}", e))
+        ApiError::bad_request(format!("Invalid dataset parameters: {}", e))
     })?;
 
     if let Err(e) = state
@@ -1616,17 +1616,17 @@ pub async fn retry_chunk(
     let chunk_path = session.temp_dir.join(format!("chunk_{:08}", chunk_index));
     let mut writer = ChunkWriter::new(&chunk_path).await.map_err(|e| {
         error!("Failed to create chunk writer: {}", e);
-        internal_error(format!("Failed to create chunk file: {}", e))
+        ApiError::internal(format!("Failed to create chunk file: {}", e))
     })?;
 
     writer.write_chunk(&body).await.map_err(|e| {
         error!("Failed to write chunk data: {}", e);
-        internal_error(format!("Failed to write chunk: {}", e))
+        ApiError::internal(format!("Failed to write chunk: {}", e))
     })?;
 
     let chunk_hash = writer.finalize().await.map_err(|e| {
         error!("Failed to finalize chunk: {}", e);
-        internal_error(format!("Failed to finalize chunk: {}", e))
+        ApiError::internal(format!("Failed to finalize chunk: {}", e))
     })?;
 
     // Validate expected hash if provided
@@ -1659,7 +1659,7 @@ pub async fn retry_chunk(
         .await
         .map_err(|e| {
             error!("Failed to update session: {}", e);
-            internal_error(format!("Failed to update session: {}", e))
+            ApiError::internal(format!("Failed to update session: {}", e))
         })?;
 
     // Get updated session state
@@ -1826,7 +1826,7 @@ pub async fn cleanup_expired_sessions(
         .await
         .map_err(|e| {
             error!("Failed to cleanup expired sessions: {}", e);
-            internal_error(format!("Failed to cleanup expired sessions: {}", e))
+            ApiError::internal(format!("Failed to cleanup expired sessions: {}", e))
         })?;
 
     let expired_records = fetch_expired_sessions(&state.db, UPLOAD_TIMEOUT_SECS).await?;

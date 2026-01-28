@@ -13,9 +13,7 @@ use adapteros_config::{DEFAULT_BASE_MODEL_ID, DEFAULT_MODEL_CACHE_ROOT};
 
 #[tokio::test]
 async fn test_aos_complete_workflow() -> Result<()> {
-    let root = PathBuf::from("var").join("tmp");
-    std::fs::create_dir_all(&root)?;
-    let temp_dir = TempDir::new_in(&root)?;
+    let temp_dir = TempDir::with_prefix("aos-test-")?;
     let manifest_path = "training/datasets/base/code/adapteros/manifest.json";
     let tokenizer_path = std::env::var("AOS_TOKENIZER_PATH")
         .unwrap_or_else(|_| {

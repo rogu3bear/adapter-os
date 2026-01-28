@@ -99,7 +99,7 @@ async fn push_adapters(to: &str, adapters: &[String]) -> Result<()> {
         .ok_or_else(|| anyhow::anyhow!("Target node not found: {}", to))?;
 
     // Use replication module to push
-    let cas_store = adapteros_artifacts::CasStore::new(rebase_var_path("./var/cas"))?;
+    let cas_store = adapteros_artifacts::CasStore::new(rebase_var_path("var/cas"))?;
 
     println!("Creating replication manifest...");
     let manifest = create_replication_manifest(&cas_store, adapters).await?;
@@ -134,7 +134,7 @@ async fn pull_adapters(from: &str, adapters: &[String]) -> Result<()> {
     println!("Pulling {} artifacts...", manifest.artifacts.len());
 
     // Download artifacts
-    let cas_store = adapteros_artifacts::CasStore::new(rebase_var_path("./var/cas"))?;
+    let cas_store = adapteros_artifacts::CasStore::new(rebase_var_path("var/cas"))?;
     pull_from_node(&from_node.agent_endpoint, &manifest, &cas_store).await?;
 
     println!("\n✓ Pull complete");
@@ -159,7 +159,7 @@ async fn export_air_gap(file: &Path) -> Result<()> {
     println!("Found {} adapters to export", adapters.len());
 
     // Initialize CAS store
-    let cas_store = adapteros_artifacts::CasStore::new(rebase_var_path("./var/cas"))?;
+    let cas_store = adapteros_artifacts::CasStore::new(rebase_var_path("var/cas"))?;
 
     // Build manifest with actual artifact data
     let mut artifacts: Vec<ArtifactInfo> = Vec::new();
@@ -292,7 +292,7 @@ async fn import_air_gap(file: &Path) -> Result<()> {
     println!("Bundle contains {} artifacts", manifest.artifacts.len());
 
     // Initialize CAS store
-    let cas_store = adapteros_artifacts::CasStore::new(rebase_var_path("./var/cas"))?;
+    let cas_store = adapteros_artifacts::CasStore::new(rebase_var_path("var/cas"))?;
 
     // Import artifacts
     let artifacts_dir = temp_dir.path().join("artifacts");

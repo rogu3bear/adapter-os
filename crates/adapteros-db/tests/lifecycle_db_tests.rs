@@ -27,14 +27,12 @@ async fn promote_adapter_to_active(db: &Db, adapter_id: &str) -> Result<(), sqlx
 }
 
 async fn create_test_db_persistent() -> (Db, TempDir) {
-    let root = PathBuf::from("var").join("tmp");
-    std::fs::create_dir_all(&root).expect("Failed to create var/tmp");
-    let temp_dir = TempDir::new_in(&root).expect("Failed to create temp directory");
+    let temp_dir = TempDir::with_prefix("aos-test-").expect("Failed to create temporary directory for lifecycle database test");
     let db_path = temp_dir.path().join("test.db");
-    let db = Db::connect(db_path.to_str().expect("Invalid db path"))
+    let db = Db::connect(db_path.to_str().expect("Failed to convert database path to valid UTF-8 string for lifecycle test"))
         .await
-        .expect("Failed to connect to test database");
-    db.migrate().await.expect("Failed to apply migrations");
+        .expect("Failed to connect to persistent test database for lifecycle operations");
+    db.migrate().await.expect("Failed to apply database migrations to lifecycle test database");
     (db, temp_dir)
 }
 
@@ -46,7 +44,7 @@ async fn test_adapter_lifecycle_transition() {
     let tenant_id = db
         .create_tenant("Test Tenant", false)
         .await
-        .expect("Failed to create tenant");
+        .expect("Failed to create tenant for lifecycle transition test");
 
     // Register a test adapter
     // NOTE: Adapters default to 'draft' lifecycle_state
@@ -62,12 +60,12 @@ async fn test_adapter_lifecycle_transition() {
 
     db.register_adapter(params)
         .await
-        .expect("Failed to register adapter");
+        .expect("Failed to register test adapter for lifecycle transition test");
 
     // Move through allowed transitions to reach active (triggers enforce lifecycle rules).
     promote_adapter_to_active(&db, "test-adapter-001")
         .await
-        .expect("Failed to update adapter state");
+        .expect("Failed to promote test adapter to active state for lifecycle transition test");
 
     // Test Active → Deprecated transition
     let result = db

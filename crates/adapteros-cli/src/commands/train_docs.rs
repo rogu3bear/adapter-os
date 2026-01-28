@@ -658,8 +658,7 @@ impl TrainDocsArgs {
 mod tests {
     use super::*;
     use adapteros_config::DEFAULT_BASE_MODEL_ID;
-    use adapteros_core::paths::{AOS_ADAPTERS_DIR_ENV, DEFAULT_ADAPTERS_DIR};
-    use adapteros_storage::platform::common::PlatformUtils;
+    use adapteros_core::paths::{get_default_adapters_root, AOS_ADAPTERS_DIR_ENV};
     use clap::Parser;
     use serial_test::serial;
     use std::path::PathBuf;
@@ -679,9 +678,7 @@ mod tests {
     }
 
     fn new_test_tempdir() -> tempfile::TempDir {
-        let root = PlatformUtils::temp_dir();
-        std::fs::create_dir_all(&root).expect("create var/tmp");
-        tempfile::tempdir_in(&root).expect("tempdir")
+        tempfile::TempDir::with_prefix("aos-test-").expect("create temp dir")
     }
 
     #[test]
@@ -717,10 +714,7 @@ mod tests {
             std::env::remove_var(AOS_ADAPTERS_DIR_ENV);
         }
         let resolved = TrainDocsArgs::default_output_dir();
-        assert_eq!(
-            resolved,
-            PathBuf::from(DEFAULT_ADAPTERS_DIR).join("docs-assistant")
-        );
+        assert_eq!(resolved, get_default_adapters_root().join("docs-assistant"));
     }
 
     #[test]

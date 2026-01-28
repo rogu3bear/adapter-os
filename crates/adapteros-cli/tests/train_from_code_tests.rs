@@ -6,7 +6,6 @@ use adapteros_cli::commands::training_common::{CommonTrainingArgs, TokenizerArg}
 use adapteros_cli::output::{OutputMode, OutputWriter};
 use adapteros_config::{DEFAULT_BASE_MODEL_ID, DEFAULT_MODEL_CACHE_ROOT};
 use adapteros_db::Db;
-use adapteros_storage::platform::common::PlatformUtils;
 use blake3::Hasher;
 use git2::{IndexAddOption, Repository, Signature};
 use std::fs;
@@ -74,9 +73,7 @@ fn aos_hash(path: &Path) -> String {
 fn train_from_code_pipeline_is_deterministic() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
-        let root = PlatformUtils::temp_dir();
-        std::fs::create_dir_all(&root).expect("create var/tmp");
-        let temp = TempDir::new_in(&root).unwrap();
+        let temp = TempDir::with_prefix("aos-test-").unwrap();
         let repo_dir = temp.path().join("repo");
         fs::create_dir_all(&repo_dir).unwrap();
         copy_fixture(&fixture_repo_path(), &repo_dir);

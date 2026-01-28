@@ -12,9 +12,10 @@ use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
 fn new_test_tempdir() -> TempDir {
-    let root = PlatformUtils::temp_dir();
-    std::fs::create_dir_all(&root).expect("create var/tmp");
-    TempDir::new_in(&root).expect("create temp dir")
+    tempfile::Builder::new()
+        .prefix("aos-test-")
+        .tempdir()
+        .expect("create temp dir")
 }
 
 fn make_prepared(example: &TrainingExample, hidden_dim: usize) -> coreml_pipeline::PreparedExample {
@@ -77,7 +78,7 @@ fn resolve_test_model_path() -> Option<PathBuf> {
         }
     }
 
-    let base_paths = ["./var/models", "../var/models", "../../var/models"];
+    let base_paths = ["var/models", ".var/models", "../.var/models"];
     for base in base_paths {
         if let Some(model_dir) = find_model_dir(Path::new(base)) {
             return Some(model_dir);
@@ -91,7 +92,7 @@ fn load_test_model_path_or_skip() -> Option<PathBuf> {
     let model_path = resolve_test_model_path();
     if model_path.is_none() {
         eprintln!(
-            "SKIPPED: model path not found. Set AOS_TEST_MODEL_PATH or AOS_MODEL_PATH (e.g. ./var/models/<model>)."
+            "SKIPPED: model path not found. Set AOS_TEST_MODEL_PATH or AOS_MODEL_PATH (e.g. var/models/<model>)."
         );
     }
     model_path
@@ -975,13 +976,13 @@ fn spawn_determinism_child(
 /// Requirements:
 /// - MLX hardware (Apple Silicon)
 /// - AOS_TEST_MODEL_PATH or AOS_MODEL_PATH pointing to a valid model directory
-///   (defaults to ./var/models/<model> when present)
+///   (defaults to var/models/<model> when present)
 ///
 /// Known limitation: Full 28-layer transformer forward pass through quantized weights
 /// has shape handling issues that need to be resolved. Currently uses test_for_test
 /// to validate the training infrastructure without full model inference.
 ///
-/// Run with: AOS_MODEL_PATH=./var/models/<model> cargo test -p adapteros-lora-worker test_gpu_backward_determinism -- --ignored --nocapture
+/// Run with: AOS_MODEL_PATH=var/models/<model> cargo test -p adapteros-lora-worker test_gpu_backward_determinism -- --ignored --nocapture
 #[tokio::test]
 #[ignore] // Requires MLX hardware and test model
 async fn test_gpu_backward_determinism() {
@@ -1099,7 +1100,7 @@ async fn test_gpu_backward_determinism() {
 /// Requirements:
 /// - MLX hardware (Apple Silicon)
 /// - AOS_TEST_MODEL_PATH or AOS_MODEL_PATH pointing to a valid model directory
-///   (defaults to ./var/models/<model> when present)
+///   (defaults to var/models/<model> when present)
 #[tokio::test]
 #[ignore] // Requires MLX hardware and test model
 async fn test_determinism_across_processes() {
@@ -1193,9 +1194,9 @@ async fn test_determinism_child_process() {
 /// Requirements:
 /// - MLX hardware (Apple Silicon)
 /// - AOS_TEST_MODEL_PATH or AOS_MODEL_PATH pointing to a valid model directory
-///   (defaults to ./var/models/<model> when present)
+///   (defaults to var/models/<model> when present)
 ///
-/// Run with: AOS_MODEL_PATH=./var/models/<model> cargo test -p adapteros-lora-worker test_gpu_cpu_loss_equivalence -- --ignored --nocapture
+/// Run with: AOS_MODEL_PATH=var/models/<model> cargo test -p adapteros-lora-worker test_gpu_cpu_loss_equivalence -- --ignored --nocapture
 #[tokio::test]
 #[ignore] // Requires MLX hardware and test model
 async fn test_gpu_cpu_loss_equivalence() {

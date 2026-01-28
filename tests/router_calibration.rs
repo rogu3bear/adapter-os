@@ -106,9 +106,7 @@ fn test_weights_save_load() -> Result<()> {
     let weights = adapteros_lora_router::RouterWeights::new(0.3, 0.25, 0.2, 0.15, 0.1);
 
     // Save to temp file
-    let tmp_root = PathBuf::from("var").join("tmp");
-    std::fs::create_dir_all(&tmp_root)?;
-    let temp_dir = tempfile::tempdir_in(&tmp_root)?;
+    let temp_dir = tempfile::TempDir::with_prefix("aos-test-calibration-")?;
     let weights_path = temp_dir.path().join("test_weights.json");
     weights.save(&weights_path)?;
 

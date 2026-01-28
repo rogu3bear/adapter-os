@@ -45,7 +45,7 @@ SECD_SOCKET="$PROJECT_ROOT/var/run/aos-secd.sock"
 NODE_PORT="${AOS_NODE_PORT:-9443}"
 
 # Canonical dev model (single source of truth)
-DEFAULT_MODEL_DIR="$PROJECT_ROOT/var/models/mistral-7b-instruct-v0.3-4bit"
+DEFAULT_MODEL_DIR="/var/models/Llama-3.2-3B-Instruct-4bit"
 DEFAULT_MANIFEST_PATH="$PROJECT_ROOT/manifests/mistral7b-4bit-mlx.yaml"
 # Must match DEFAULT_MANIFEST_HASH in adapteros-server/src/boot/app_state.rs for worker routing
 # This is the hash of mistral7b-4bit-mlx.yaml computed via ManifestV3::compute_hash()

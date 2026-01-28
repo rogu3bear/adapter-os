@@ -8,6 +8,10 @@
 //! - Computes a configuration hash for reproducibility
 
 use crate::schema::{default_schema, parse_bool, validate_value, ConfigSchema, ConfigType};
+use adapteros_core::defaults::{
+    DEFAULT_DB_PATH, DEFAULT_LOG_LEVEL, DEFAULT_MODEL_BACKEND, DEFAULT_SERVER_HOST,
+    DEFAULT_SERVER_PORT,
+};
 use adapteros_core::{AosError, Result};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -345,12 +349,13 @@ impl RuntimeConfig {
 
     /// Get server port
     pub fn server_port(&self) -> u16 {
-        self.get_i64("AOS_SERVER_PORT").unwrap_or(8080) as u16
+        self.get_i64("AOS_SERVER_PORT")
+            .unwrap_or(DEFAULT_SERVER_PORT as i64) as u16
     }
 
     /// Get server host
     pub fn server_host(&self) -> &str {
-        self.get_string("AOS_SERVER_HOST").unwrap_or("127.0.0.1")
+        self.get_string("AOS_SERVER_HOST").unwrap_or(DEFAULT_SERVER_HOST)
     }
 
     /// Get model path
@@ -361,18 +366,17 @@ impl RuntimeConfig {
     /// Get model backend preference
     pub fn model_backend(&self) -> &str {
         // Schema default is "mlx" (canonical)
-        self.get_string("AOS_MODEL_BACKEND").unwrap_or("mlx")
+        self.get_string("AOS_MODEL_BACKEND").unwrap_or(DEFAULT_MODEL_BACKEND)
     }
 
     /// Get database URL
     pub fn database_url(&self) -> &str {
-        self.get_string("AOS_DATABASE_URL")
-            .unwrap_or("sqlite://var/aos-cp.sqlite3")
+        self.get_string("AOS_DATABASE_URL").unwrap_or(DEFAULT_DB_PATH)
     }
 
     /// Get log level
     pub fn log_level(&self) -> &str {
-        self.get_string("AOS_LOG_LEVEL").unwrap_or("info")
+        self.get_string("AOS_LOG_LEVEL").unwrap_or(DEFAULT_LOG_LEVEL)
     }
 
     /// Get var directory
@@ -441,14 +445,14 @@ impl RuntimeConfig {
     pub fn kv_path(&self) -> PathBuf {
         self.get_path("AOS_KV_PATH")
             .map(|p| p.to_path_buf())
-            .unwrap_or_else(|| PathBuf::from("var/aos-kv.redb"))
+            .unwrap_or_else(|| adapteros_core::rebase_var_path("var/aos-kv.redb"))
     }
 
     /// Get Tantivy search index path
     pub fn tantivy_path(&self) -> PathBuf {
         self.get_path("AOS_TANTIVY_PATH")
             .map(|p| p.to_path_buf())
-            .unwrap_or_else(|| PathBuf::from("var/aos-search"))
+            .unwrap_or_else(|| adapteros_core::rebase_var_path("var/aos-search"))
     }
 
     // =========================================================================

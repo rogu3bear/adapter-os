@@ -268,6 +268,9 @@ async fn test_stop_controller_budget_max_persisted_to_receipt() -> Result<()> {
         crypto_receipt_digest_b3: None,
         receipt_parity_verified: None,
         tenant_id: None,
+        // P0-1: Cache attestation (not needed when prefix_cached_token_count = 0)
+        cache_attestation: None,
+        worker_public_key: None,
     };
 
     let receipt = sink.finalize(finalization).await?;
@@ -366,6 +369,9 @@ async fn test_stop_controller_completion_confident_persisted() -> Result<()> {
         crypto_receipt_digest_b3: None,
         receipt_parity_verified: None,
         tenant_id: None,
+        // P0-1: Cache attestation (not needed when prefix_cached_token_count = 0)
+        cache_attestation: None,
+        worker_public_key: None,
     };
 
     sink.finalize(finalization).await?;
@@ -456,6 +462,9 @@ async fn test_stop_controller_repetition_guard_persisted() -> Result<()> {
         crypto_receipt_digest_b3: None,
         receipt_parity_verified: None,
         tenant_id: None,
+        // P0-1: Cache attestation (not needed when prefix_cached_token_count = 0)
+        cache_attestation: None,
+        worker_public_key: None,
     };
 
     sink.finalize(finalization).await?;
@@ -543,6 +552,9 @@ async fn test_stop_controller_length_eos_persisted() -> Result<()> {
         crypto_receipt_digest_b3: None,
         receipt_parity_verified: None,
         tenant_id: None,
+        // P0-1: Cache attestation (not needed when prefix_cached_token_count = 0)
+        cache_attestation: None,
+        worker_public_key: None,
     };
 
     sink.finalize(finalization).await?;
@@ -637,6 +649,9 @@ async fn test_determinism_same_policy_same_receipt_digest() -> Result<()> {
         crypto_receipt_digest_b3: None,
         receipt_parity_verified: None,
         tenant_id: None,
+        // P0-1: Cache attestation (not needed when prefix_cached_token_count = 0)
+        cache_attestation: None,
+        worker_public_key: None,
     };
     let receipt1 = sink1.finalize(finalization1).await?;
 
@@ -683,6 +698,9 @@ async fn test_determinism_same_policy_same_receipt_digest() -> Result<()> {
         crypto_receipt_digest_b3: None,
         receipt_parity_verified: None,
         tenant_id: None,
+        // P0-1: Cache attestation (not needed when prefix_cached_token_count = 0)
+        cache_attestation: None,
+        worker_public_key: None,
     };
     let receipt2 = sink2.finalize(finalization2).await?;
 
@@ -870,6 +888,9 @@ async fn test_stop_policy_digest_committed_to_merkle_bundle() -> Result<()> {
         crypto_receipt_digest_b3: None,
         receipt_parity_verified: None,
         tenant_id: None,
+        // P0-1: Cache attestation (not needed when prefix_cached_token_count = 0)
+        cache_attestation: None,
+        worker_public_key: None,
     };
 
     let receipt = sink.finalize(finalization).await?;
@@ -954,6 +975,9 @@ async fn test_stop_policy_digest_committed_to_merkle_bundle() -> Result<()> {
         crypto_receipt_digest_b3: None,
         receipt_parity_verified: None,
         tenant_id: None,
+        // P0-1: Cache attestation (not needed when prefix_cached_token_count = 0)
+        cache_attestation: None,
+        worker_public_key: None,
     };
 
     sink2.finalize(finalization2).await?;

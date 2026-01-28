@@ -39,7 +39,7 @@ pub enum StorageCommand {
   aosctl storage mode --json
 "#)]
     Mode {
-        /// Database path (defaults to DATABASE_URL or ./var/aos-cp.sqlite3)
+        /// Database path (defaults to DATABASE_URL or var/aos-cp.sqlite3)
         #[arg(long)]
         db_path: Option<PathBuf>,
     },
@@ -65,18 +65,18 @@ pub enum StorageCommand {
   aosctl storage set-mode sql_only
 
   # Set mode with custom database path
-  aosctl storage set-mode dual_write --db-path ./var/custom.db --kv-path ./var/custom.redb
+  aosctl storage set-mode dual_write --db-path var/custom.db --kv-path var/custom.redb
 "#)]
     SetMode {
         /// Storage mode to set (sql_only, dual_write, kv_primary, kv_only)
         mode: String,
 
-        /// Database path (defaults to DATABASE_URL or ./var/aos-cp.sqlite3)
+        /// Database path (defaults to DATABASE_URL or var/aos-cp.sqlite3)
         #[arg(long)]
         db_path: Option<PathBuf>,
 
         /// KV database path (required for kv modes)
-        #[arg(long, default_value = "./var/aos-kv.redb")]
+        #[arg(long, default_value = "var/aos-kv.redb")]
         kv_path: PathBuf,
 
         /// Initialize KV backend if not exists
@@ -93,7 +93,7 @@ pub enum StorageCommand {
   aosctl storage migrate
 
   # Migrate with custom paths
-  aosctl storage migrate --db-path ./var/aos-cp.sqlite3 --kv-path ./var/aos-kv.redb
+  aosctl storage migrate --db-path var/aos-cp.sqlite3 --kv-path var/aos-kv.redb
 
   # Dry run to preview migration
   aosctl storage migrate --dry-run
@@ -102,12 +102,12 @@ pub enum StorageCommand {
   aosctl storage migrate --verify
 "#)]
     Migrate {
-        /// Database path (defaults to DATABASE_URL or ./var/aos-cp.sqlite3)
+        /// Database path (defaults to DATABASE_URL or var/aos-cp.sqlite3)
         #[arg(long)]
         db_path: Option<PathBuf>,
 
         /// KV database path
-        #[arg(long, default_value = "./var/aos-kv.redb")]
+        #[arg(long, default_value = "var/aos-kv.redb")]
         kv_path: PathBuf,
 
         /// Dry run - show what would be migrated without making changes
@@ -135,7 +135,7 @@ pub enum StorageCommand {
         resume: bool,
 
         /// Path to checkpoint file (JSON)
-        #[arg(long, default_value = "./var/aos-migrate.checkpoint.json")]
+        #[arg(long, default_value = "var/aos-migrate.checkpoint.json")]
         checkpoint_path: PathBuf,
 
         /// Comma-separated domains (adapters,tenants,stacks,plans,auth_sessions,runtime_sessions,rag_artifacts)
@@ -152,7 +152,7 @@ pub enum StorageCommand {
   aosctl storage verify
 
   # Verify with custom paths
-  aosctl storage verify --db-path ./var/aos-cp.sqlite3 --kv-path ./var/aos-kv.redb
+  aosctl storage verify --db-path var/aos-cp.sqlite3 --kv-path var/aos-kv.redb
 
   # Detailed verification report
   aosctl storage verify --verbose
@@ -163,12 +163,12 @@ pub enum StorageCommand {
   aosctl storage verify --stacks-only
 "#)]
     Verify {
-        /// Database path (defaults to DATABASE_URL or ./var/aos-cp.sqlite3)
+        /// Database path (defaults to DATABASE_URL or var/aos-cp.sqlite3)
         #[arg(long)]
         db_path: Option<PathBuf>,
 
         /// KV database path
-        #[arg(long, default_value = "./var/aos-kv.redb")]
+        #[arg(long, default_value = "var/aos-kv.redb")]
         kv_path: PathBuf,
 
         /// Verify adapters only
@@ -202,18 +202,18 @@ pub enum StorageCommand {
     /// syncing SQL → KV using ensure_consistency().
     #[command(after_help = r#"Examples:
   aosctl storage validate-consistency --tenant default --repair
-  aosctl storage validate-consistency --tenant default --db-path ./var/aos-cp.sqlite3 --kv-path ./var/aos-kv.redb"#)]
+  aosctl storage validate-consistency --tenant default --db-path var/aos-cp.sqlite3 --kv-path var/aos-kv.redb"#)]
     ValidateConsistency {
         /// Tenant ID to validate
         #[arg(long)]
         tenant: String,
 
-        /// Database path (defaults to DATABASE_URL or ./var/aos-cp.sqlite3)
+        /// Database path (defaults to DATABASE_URL or var/aos-cp.sqlite3)
         #[arg(long)]
         db_path: Option<PathBuf>,
 
         /// KV database path
-        #[arg(long, default_value = "./var/aos-kv.redb")]
+        #[arg(long, default_value = "var/aos-kv.redb")]
         kv_path: PathBuf,
 
         /// Repair drift by syncing SQL → KV
@@ -285,7 +285,7 @@ pub enum KvAction {
         db_path: Option<PathBuf>,
 
         /// KV database path
-        #[arg(long, default_value = "./var/aos-kv.redb")]
+        #[arg(long, default_value = "var/aos-kv.redb")]
         kv_path: PathBuf,
 
         /// Tenant to include in checksum evidence
@@ -304,7 +304,7 @@ pub enum KvAction {
         db_path: Option<PathBuf>,
 
         /// KV database path
-        #[arg(long, default_value = "./var/aos-kv.redb")]
+        #[arg(long, default_value = "var/aos-kv.redb")]
         kv_path: PathBuf,
     },
 
@@ -315,7 +315,7 @@ pub enum KvAction {
         db_path: Option<PathBuf>,
 
         /// KV database path
-        #[arg(long, default_value = "./var/aos-kv.redb")]
+        #[arg(long, default_value = "var/aos-kv.redb")]
         kv_path: PathBuf,
     },
 }
@@ -583,7 +583,7 @@ async fn show_mode(db_path: Option<PathBuf>, output: &OutputWriter) -> Result<()
             has_kv_backend: has_kv,
             db_path: db_url,
             kv_path: if has_kv {
-                Some("./var/aos-kv.redb".to_string())
+                Some("var/aos-kv.redb".to_string())
             } else {
                 None
             },
@@ -1452,7 +1452,7 @@ fn get_db_url(db_path: Option<&PathBuf>) -> String {
     } else if let Ok(url) = std::env::var("DATABASE_URL") {
         url
     } else {
-        "sqlite://./var/aos-cp.sqlite3".to_string()
+        "sqlite://var/aos-cp.sqlite3".to_string()
     }
 }
 
@@ -1670,7 +1670,7 @@ mod tests {
             get_storage_command_name(&StorageCommand::SetMode {
                 mode: "dual_write".to_string(),
                 db_path: None,
-                kv_path: PathBuf::from("./var/aos-kv.redb"),
+                kv_path: PathBuf::from("var/aos-kv.redb"),
                 init_kv: false,
             }),
             "storage_set_mode"
@@ -1678,14 +1678,14 @@ mod tests {
         assert_eq!(
             get_storage_command_name(&StorageCommand::Migrate {
                 db_path: None,
-                kv_path: PathBuf::from("./var/aos-kv.redb"),
+                kv_path: PathBuf::from("var/aos-kv.redb"),
                 dry_run: false,
                 verify: false,
                 force: false,
                 tenant: None,
                 batch_size: 100,
                 resume: false,
-                checkpoint_path: PathBuf::from("./var/aos-migrate.checkpoint.json"),
+                checkpoint_path: PathBuf::from("var/aos-migrate.checkpoint.json"),
                 domains: None,
             }),
             "storage_migrate"
@@ -1693,7 +1693,7 @@ mod tests {
         assert_eq!(
             get_storage_command_name(&StorageCommand::Verify {
                 db_path: None,
-                kv_path: PathBuf::from("./var/aos-kv.redb"),
+                kv_path: PathBuf::from("var/aos-kv.redb"),
                 adapters_only: false,
                 tenants_only: false,
                 stacks_only: false,
@@ -1706,7 +1706,7 @@ mod tests {
         assert_eq!(
             get_storage_command_name(&StorageCommand::Kv(KvAction::Status {
                 db_path: None,
-                kv_path: PathBuf::from("./var/aos-kv.redb"),
+                kv_path: PathBuf::from("var/aos-kv.redb"),
                 tenant: None
             })),
             "storage_kv"

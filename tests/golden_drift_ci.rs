@@ -300,9 +300,7 @@ fn test_empty_baselines_graceful() {
     use std::path::PathBuf;
     use tempfile::TempDir;
 
-    let root = PathBuf::from("var").join("tmp");
-    std::fs::create_dir_all(&root).expect("create var/tmp");
-    let temp_dir = TempDir::new_in(&root).unwrap();
+    let temp_dir = TempDir::with_prefix("aos-test-").unwrap();
     let results = run_drift_checks(temp_dir.path()).expect("Should handle empty dir gracefully");
     assert!(results.is_empty());
 }

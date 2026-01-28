@@ -56,6 +56,10 @@ struct InferRequest {
     max_tokens: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    adapters: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    backend: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -361,6 +365,8 @@ async fn test_infer_non_stream(
         seed: Some(seed),
         max_tokens: Some(50),
         temperature: Some(0.0),
+        adapters: None,
+        backend: None,
     };
 
     match client.post::<_, InferResponse>("/v1/infer", &req).await {
@@ -414,6 +420,8 @@ async fn test_infer_stream(client: &SmokeClient, thinking: bool, seed: u64) -> T
         seed: Some(seed),
         max_tokens: Some(50),
         temperature: Some(0.0),
+        adapters: None,
+        backend: None,
     };
 
     match client.post_stream("/v1/infer/stream", &req).await {
@@ -428,6 +436,61 @@ async fn test_infer_stream(client: &SmokeClient, thinking: bool, seed: u64) -> T
                 receipt_verified: None,
                 error: None,
                 details: Some(format!("output_len: {}", text.len())),
+            }
+        }
+        Err(e) => TestResult {
+            name,
+            passed: false,
+            duration_ms: start.elapsed().as_millis() as u64,
+            trace_id: None,
+            receipt_verified: None,
+            error: Some(e.to_string()),
+            details: None,
+        },
+    }
+}
+
+/// Tests base-only inference with zero adapters using default backend.
+/// Verifies: default backend (mlx) is used, adapters_used == [], non-empty output.
+async fn test_infer_base_only(client: &SmokeClient, seed: u64) -> TestResult {
+    let start = std::time::Instant::now();
+    let name = "infer_base_only".to_string();
+
+    let req = InferRequest {
+        prompt: "What is 2+2? Answer with just the number.".to_string(),
+        reasoning_mode: Some(false),
+        seed: Some(seed),
+        max_tokens: Some(50),
+        temperature: Some(0.0),
+        adapters: Some(vec![]), // Explicitly empty - base model only
+        backend: None,          // Use default (mlx)
+    };
+
+    match client.post::<_, InferResponse>("/v1/infer", &req).await {
+        Ok(resp) => {
+            let trace_id = resp
+                .trace
+                .as_ref()
+                .and_then(|t| t.trace_id.clone())
+                .or_else(|| resp.id.clone());
+
+            let has_output = resp.text.as_ref().map(|t| !t.is_empty()).unwrap_or(false);
+            let backend_is_mlx = resp.backend_used.as_deref() == Some("mlx");
+            let adapters_empty = resp.adapters_used.is_empty();
+
+            let passed = has_output && backend_is_mlx && adapters_empty && resp.error.is_none();
+
+            TestResult {
+                name,
+                passed,
+                duration_ms: start.elapsed().as_millis() as u64,
+                trace_id,
+                receipt_verified: None,
+                error: resp.error,
+                details: Some(format!(
+                    "backend_used: {:?}, adapters_used: {:?}, has_output: {}",
+                    resp.backend_used, resp.adapters_used, has_output
+                )),
             }
         }
         Err(e) => TestResult {
@@ -546,6 +609,13 @@ async fn run_smoke_tests(args: &Args) -> SmokeTestResults {
 
     // Stream, thinking on
     let r = test_infer_stream(&client, true, seed + 3).await;
+    if let Some(ref tid) = r.trace_id {
+        trace_ids.push(tid.clone());
+    }
+    results.push(r);
+
+    // Base-only inference (zero adapters, default backend)
+    let r = test_infer_base_only(&client, seed + 4).await;
     if let Some(ref tid) = r.trace_id {
         trace_ids.push(tid.clone());
     }

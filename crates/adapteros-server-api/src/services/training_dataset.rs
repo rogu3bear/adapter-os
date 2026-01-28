@@ -3,11 +3,9 @@
 //! Provides reusable helpers to build training datasets from existing
 //! documents or collections so HTTP handlers can stay thin.
 
+use crate::api_error::ApiError;
 use crate::audit_helper::{actions, log_success_or_warn, resources};
 use crate::citations::build_dataset_index;
-#[cfg(feature = "embeddings")]
-use crate::error_helpers::payload_too_large;
-use crate::error_helpers::{bad_request, db_error, internal_error, not_found};
 use crate::handlers::chunked_upload::FileValidator;
 use crate::handlers::datasets::{
     bind_dataset_to_tenant, clean_dataset_dir, dataset_quota_limits, ensure_dirs, hash_file,
@@ -137,20 +135,20 @@ impl DefaultTrainingDatasetService {
             .db
             .get_chunks_for_documents(&claims.tenant_id, document_ids)
             .await
-            .map_err(|e| db_error(format!("Failed to get document chunks: {}", e)))?;
+            .map_err(|e| ApiError::db_error(format!("Failed to get document chunks: {}", e)))?;
 
         if chunks.is_empty() {
-            return Err(bad_request(
+            return Err(ApiError::bad_request(
                 "No text chunks found in the selected documents",
-            ));
+            ).into());
         }
 
         if chunks.len() > MAX_CHUNKS {
-            return Err(bad_request(format!(
+            return Err(ApiError::bad_request(format!(
                 "Too many chunks ({}). Maximum allowed is {}. Try selecting fewer documents.",
                 chunks.len(),
                 MAX_CHUNKS
-            )));
+            )).into());
         }
 
         // Build JSONL lines
@@ -165,9 +163,9 @@ impl DefaultTrainingDatasetService {
         }
 
         if jsonl_lines.is_empty() {
-            return Err(bad_request(
+            return Err(ApiError::bad_request(
                 "No non-empty text chunks found in the selected documents",
-            ));
+            ).into());
         }
 
         let jsonl_content = jsonl_lines.join("\n");
@@ -175,14 +173,14 @@ impl DefaultTrainingDatasetService {
         let file_size = content_bytes.len() as i64;
 
         if file_size > MAX_JSONL_SIZE {
-            return Err(bad_request(format!(
+            return Err(ApiError::bad_request(format!(
                 "Generated dataset too large ({} bytes). Maximum allowed is {} bytes.",
                 file_size, MAX_JSONL_SIZE
-            )));
+            )).into());
         }
 
         let content_hash = hash_file(content_bytes);
-        let dataset_root = resolve_dataset_root(&self.state).map_err(internal_error)?;
+        let dataset_root = resolve_dataset_root(&self.state).map_err(|e| ApiError::internal(e.to_string()))?;
         let dataset_paths = DatasetPaths::new(dataset_root);
         let allowed_roots = [dataset_paths.root().to_path_buf()];
         ensure_dirs([
@@ -210,7 +208,7 @@ impl DefaultTrainingDatasetService {
                 None,
             )
             .await
-            .map_err(|e| db_error(format!("Failed to create dataset record: {}", e)))?;
+            .map_err(|e| ApiError::db_error(format!("Failed to create dataset record: {}", e)))?;
 
         // Create directory for dataset
         let dataset_path = dataset_paths.dataset_dir(&claims.tenant_id, &dataset_id);
@@ -219,7 +217,7 @@ impl DefaultTrainingDatasetService {
             return Err(e);
         }
         let dataset_path = canonicalize_strict_in_allowed_roots(&dataset_path, &allowed_roots)
-            .map_err(|e| internal_error(format!("Dataset path rejected: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Dataset path rejected: {}", e)))?;
 
         let file_name = "training.jsonl";
         let file_path = dataset_path.join(file_name);
@@ -227,7 +225,7 @@ impl DefaultTrainingDatasetService {
         let (soft_quota, hard_quota) = dataset_quota_limits();
         let usage = compute_tenant_storage_usage(&self.state, &claims.tenant_id)
             .await
-            .map_err(|e| internal_error(format!("Failed to compute storage usage: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to compute storage usage: {}", e)))?;
         let predicted_usage = usage.total_bytes().saturating_add(file_size as u64);
         if predicted_usage > hard_quota {
             return Err(quota_error(format!(
@@ -247,10 +245,10 @@ impl DefaultTrainingDatasetService {
         // Write JSONL file
         if let Err(e) = fs::write(&file_path, content_bytes).await {
             self.cleanup_dataset(&dataset_id, &dataset_path).await;
-            return Err(internal_error(format!(
+            return Err(ApiError::internal(format!(
                 "Failed to write dataset file: {}",
                 e
-            )));
+            )).into());
         }
 
         // Update storage path now that the file is written
@@ -261,7 +259,7 @@ impl DefaultTrainingDatasetService {
             .await
         {
             self.cleanup_dataset(&dataset_id, &dataset_path).await;
-            return Err(db_error(format!("Failed to update storage path: {}", e)));
+            return Err(ApiError::db_error(format!("Failed to update storage path: {}", e)).into());
         }
 
         // Bind dataset to tenant for isolation
@@ -286,7 +284,7 @@ impl DefaultTrainingDatasetService {
             .await
         {
             self.cleanup_dataset(&dataset_id, &dataset_path).await;
-            return Err(db_error(format!("Failed to add file record: {}", e)));
+            return Err(ApiError::db_error(format!("Failed to add file record: {}", e)).into());
         }
 
         // Validate generated JSONL
@@ -306,7 +304,7 @@ impl DefaultTrainingDatasetService {
                 None,
             )
             .await
-            .map_err(|e| db_error(format!("Failed to update validation status: {}", e)))?;
+            .map_err(|e| ApiError::db_error(format!("Failed to update validation status: {}", e)))?;
 
         // Create initial dataset version
         let dataset_version_id = self
@@ -323,7 +321,7 @@ impl DefaultTrainingDatasetService {
                 Some(&claims.sub),
             )
             .await
-            .map_err(|e| db_error(format!("Failed to create dataset version: {}", e)))?;
+            .map_err(|e| ApiError::db_error(format!("Failed to create dataset version: {}", e)))?;
 
         // Derive trust_state from the newly created version for consistency with list/get endpoints
         let trust_state = self
@@ -331,7 +329,7 @@ impl DefaultTrainingDatasetService {
             .db
             .get_latest_trusted_dataset_version_for_dataset(&dataset_id)
             .await
-            .map_err(|e| db_error(format!("Failed to get trust state: {}", e)))?
+            .map_err(|e| ApiError::db_error(format!("Failed to get trust state: {}", e)))?
             .map(|(_, trust)| trust);
 
         let response_validation_status = map_validation_status(&validation_status);
@@ -417,7 +415,7 @@ impl DefaultTrainingDatasetService {
 
         // Get embedding model from state
         let embedding_model = self.state.embedding_model.as_ref().ok_or_else(|| {
-            db_error("Embedding model not configured - enable embeddings feature")
+            ApiError::db_error("Embedding model not configured - enable embeddings feature")
         })?;
 
         let ingestor = DocumentIngestor::new(default_ingest_options(), None);
@@ -426,12 +424,12 @@ impl DefaultTrainingDatasetService {
         } else if mime_type.contains("markdown") || document_name.ends_with(".md") {
             ingestor.ingest_markdown_bytes(file_data, document_name)
         } else {
-            return Err(bad_request(&format!(
+            return Err(ApiError::bad_request(&format!(
                 "Unsupported document type: {}",
                 mime_type
-            )));
+            )).into());
         }
-        .map_err(|e| db_error(format!("Failed to parse document: {}", e)))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to parse document: {}", e)))?;
 
         info!(
             document_id = %document_id,
@@ -455,7 +453,7 @@ impl DefaultTrainingDatasetService {
             let (embedding_json, rag_embedding) = match embedding {
                 Ok(vector) => {
                     let serialized = serde_json::to_string(&vector)
-                        .map_err(|e| db_error(format!("Failed to serialize embedding: {}", e)))?;
+                        .map_err(|e| ApiError::db_error(format!("Failed to serialize embedding: {}", e)))?;
                     (Some(serialized), Some(vector))
                 }
                 Err(e) => {
@@ -490,7 +488,7 @@ impl DefaultTrainingDatasetService {
             .bind(embedding_json.as_deref())
             .execute(&*self.state.db.pool())
             .await
-            .map_err(|e| db_error(format!("Failed to create document chunk: {}", e)))?;
+            .map_err(|e| ApiError::db_error(format!("Failed to create document chunk: {}", e)))?;
 
             if let Some(rag_embedding) = rag_embedding {
                 let rag_doc_id = format!("{}__chunk_{}", document_id, chunk.chunk_index);
@@ -509,7 +507,7 @@ impl DefaultTrainingDatasetService {
                         embedding_dimension: dimension,
                     })
                     .await
-                    .map_err(|e| db_error(format!("Failed to index chunk in RAG: {}", e)))?;
+                    .map_err(|e| ApiError::db_error(format!("Failed to index chunk in RAG: {}", e)))?;
             }
         }
 
@@ -525,7 +523,7 @@ impl DefaultTrainingDatasetService {
             .db
             .update_document_status(document_id, "indexed")
             .await
-            .map_err(db_error)?;
+            .map_err(ApiError::db_error)?;
 
         if let Some(page_count) = ingested_doc.page_count {
             sqlx::query("UPDATE documents SET page_count = ? WHERE id = ?")
@@ -533,7 +531,7 @@ impl DefaultTrainingDatasetService {
                 .bind(document_id)
                 .execute(&*self.state.db.pool())
                 .await
-                .map_err(|e| db_error(format!("Failed to update page count: {}", e)))?;
+                .map_err(|e| ApiError::db_error(format!("Failed to update page count: {}", e)))?;
         }
 
         info!(
@@ -563,9 +561,9 @@ impl TrainingDatasetService for DefaultTrainingDatasetService {
         params: DatasetFromDocumentIdsParams,
     ) -> Result<DatasetResponse, (StatusCode, Json<ErrorResponse>)> {
         if params.document_ids.is_empty() {
-            return Err(bad_request(
+            return Err(ApiError::bad_request(
                 "Must provide at least one document_id or document_ids entry",
-            ));
+            ).into());
         }
 
         let mut document_ids = params
@@ -578,9 +576,9 @@ impl TrainingDatasetService for DefaultTrainingDatasetService {
         document_ids.dedup();
 
         if document_ids.is_empty() {
-            return Err(bad_request(
+            return Err(ApiError::bad_request(
                 "Must provide at least one non-empty document_id",
-            ));
+            ).into());
         }
 
         // Validate documents and derive default name
@@ -591,18 +589,18 @@ impl TrainingDatasetService for DefaultTrainingDatasetService {
                 .db
                 .get_document(&claims.tenant_id, doc_id)
                 .await
-                .map_err(|e| db_error(format!("Failed to get document: {}", e)))?
-                .ok_or_else(|| not_found("Document"))?;
+                .map_err(|e| ApiError::db_error(format!("Failed to get document: {}", e)))?
+                .ok_or_else(|| ApiError::not_found("Document"))?;
 
             // Tenant isolation check
             validate_tenant_isolation(claims, &doc.tenant_id)?;
 
             // Ensure document is indexed
             if doc.status != "indexed" {
-                return Err(bad_request(format!(
+                return Err(ApiError::bad_request(format!(
                     "Document must be indexed before conversion. Current status: {}",
                     doc.status
-                )));
+                )).into());
             }
 
             doc_names.push(doc.name);
@@ -630,8 +628,8 @@ impl TrainingDatasetService for DefaultTrainingDatasetService {
             .db
             .get_collection(&claims.tenant_id, &params.collection_id)
             .await
-            .map_err(|e| db_error(format!("Failed to get collection: {}", e)))?
-            .ok_or_else(|| not_found("Collection"))?;
+            .map_err(|e| ApiError::db_error(format!("Failed to get collection: {}", e)))?
+            .ok_or_else(|| ApiError::not_found("Collection"))?;
 
         validate_tenant_isolation(claims, &collection.tenant_id)?;
 
@@ -641,10 +639,10 @@ impl TrainingDatasetService for DefaultTrainingDatasetService {
             .db
             .get_collection_documents(&claims.tenant_id, &params.collection_id)
             .await
-            .map_err(|e| db_error(format!("Failed to get collection documents: {}", e)))?;
+            .map_err(|e| ApiError::db_error(format!("Failed to get collection documents: {}", e)))?;
 
         if docs.is_empty() {
-            return Err(bad_request("Collection is empty - no documents to convert"));
+            return Err(ApiError::bad_request("Collection is empty - no documents to convert").into());
         }
 
         // Filter to indexed documents and sort deterministically
@@ -652,9 +650,9 @@ impl TrainingDatasetService for DefaultTrainingDatasetService {
         indexed_docs.sort_by(|a, b| a.id.cmp(&b.id));
 
         if indexed_docs.is_empty() {
-            return Err(bad_request(
+            return Err(ApiError::bad_request(
                 "No indexed documents in collection. Documents must be indexed before conversion.",
-            ));
+            ).into());
         }
 
         let document_ids: Vec<String> = indexed_docs.iter().map(|d| d.id.clone()).collect();
@@ -677,16 +675,16 @@ impl TrainingDatasetService for DefaultTrainingDatasetService {
             .db
             .get_document(&claims.tenant_id, &params.document_id)
             .await
-            .map_err(|e| db_error(format!("Failed to get document: {}", e)))?
-            .ok_or_else(|| not_found("Document"))?;
+            .map_err(|e| ApiError::db_error(format!("Failed to get document: {}", e)))?
+            .ok_or_else(|| ApiError::not_found("Document"))?;
 
         validate_tenant_isolation(claims, &doc.tenant_id)?;
 
         if doc.status != "indexed" {
-            return Err(bad_request(format!(
+            return Err(ApiError::bad_request(format!(
                 "Document must be indexed before conversion. Current status: {}",
                 doc.status
-            )));
+            )).into());
         }
 
         self.create_from_document_ids(
@@ -707,14 +705,14 @@ impl TrainingDatasetService for DefaultTrainingDatasetService {
         params: DatasetFromUploadParams,
     ) -> Result<DatasetResponse, (StatusCode, Json<ErrorResponse>)> {
         if params.data.is_empty() {
-            return Err(bad_request("No file uploaded"));
+            return Err(ApiError::bad_request("No file uploaded").into());
         }
 
         if params.data.len() > MAX_DOCUMENT_SIZE {
-            return Err(payload_too_large(&format!(
+            return Err(ApiError::payload_too_large(&format!(
                 "Document exceeds maximum size of {}MB",
                 MAX_DOCUMENT_SIZE / 1024 / 1024
-            )));
+            )).into());
         }
 
         let document_id = Uuid::now_v7().to_string();
@@ -739,10 +737,10 @@ impl TrainingDatasetService for DefaultTrainingDatasetService {
                 .unwrap_or_else(|_| StdPath::new("/").to_path_buf())
                 .join(root)
         };
-        reject_forbidden_tmp_path(&root, "documents-root").map_err(internal_error)?;
+        reject_forbidden_tmp_path(&root, "documents-root").map_err(ApiError::internal)?;
 
         let tenant_path = root.join(&claims.tenant_id);
-        fs::create_dir_all(&tenant_path).await.map_err(db_error)?;
+        fs::create_dir_all(&tenant_path).await.map_err(ApiError::db_error)?;
 
         let mut document_name = params
             .name
@@ -763,7 +761,7 @@ impl TrainingDatasetService for DefaultTrainingDatasetService {
             .db
             .find_document_by_content_hash(&claims.tenant_id, &file_hash)
             .await
-            .map_err(db_error)?
+            .map_err(ApiError::db_error)?
         {
             validate_tenant_isolation(claims, &existing_doc.tenant_id)?;
 
@@ -771,7 +769,7 @@ impl TrainingDatasetService for DefaultTrainingDatasetService {
             if existing_doc.status != "indexed" {
                 let file_bytes = fs::read(&existing_doc.file_path)
                     .await
-                    .map_err(|e| db_error(format!("Failed to read document file: {}", e)))?;
+                    .map_err(|e| ApiError::db_error(format!("Failed to read document file: {}", e)))?;
 
                 self.process_and_index_document(
                     claims,
@@ -806,9 +804,9 @@ impl TrainingDatasetService for DefaultTrainingDatasetService {
 
         let file_path = tenant_path.join(format!("{}.{}", document_id, ext));
 
-        let mut file = fs::File::create(&file_path).await.map_err(db_error)?;
-        file.write_all(&params.data).await.map_err(db_error)?;
-        file.flush().await.map_err(db_error)?;
+        let mut file = fs::File::create(&file_path).await.map_err(ApiError::db_error)?;
+        file.write_all(&params.data).await.map_err(ApiError::db_error)?;
+        file.flush().await.map_err(ApiError::db_error)?;
 
         if document_name.is_empty() {
             document_name = format!("Document {}", &document_id[0..8]);
@@ -828,7 +826,7 @@ impl TrainingDatasetService for DefaultTrainingDatasetService {
                 page_count: None,
             })
             .await
-            .map_err(db_error)?;
+            .map_err(ApiError::db_error)?;
 
         info!(
             "Uploaded document {} ({} bytes) for tenant {}",

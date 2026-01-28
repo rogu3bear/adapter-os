@@ -99,13 +99,10 @@ pub fn verify_cross_language_imports(result: &ParseResult, expected_import_count
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
     use tempfile::TempDir;
 
     fn new_test_tempdir() -> TempDir {
-        let root = PathBuf::from("var").join("tmp");
-        std::fs::create_dir_all(&root).expect("create var/tmp");
-        TempDir::new_in(&root).expect("create temp dir")
+        TempDir::with_prefix("aos-test-").expect("create temp dir")
     }
 
     #[test]

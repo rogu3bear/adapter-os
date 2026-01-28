@@ -4,8 +4,8 @@
 //!
 //! 【2025-11-30†feature†admin_users_endpoint】
 
+use crate::api_error::ApiError;
 use crate::auth::Claims;
-use crate::error_helpers::db_error_with_details;
 use crate::middleware::require_role;
 use crate::state::AppState;
 use crate::types::*;
@@ -70,7 +70,7 @@ pub async fn list_users(
             params.tenant_id.as_deref(),
         )
         .await
-        .map_err(db_error_with_details)?;
+        .map_err(ApiError::db_error)?;
 
     let user_responses: Vec<UserResponse> = users.into_iter().map(user_to_response).collect();
 

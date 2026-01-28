@@ -78,7 +78,7 @@ fn placement_spec_applies_to_stub_backend() {
 #[cfg(target_os = "macos")]
 fn stub_lora_preserves_coreml_model_bytes() -> Result<()> {
     let manifest_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../var/model-cache/models/qwen2.5-7b-instruct-fp16-512.mlpackage/Manifest.json");
+        .join("../.var/model-cache/models/qwen2.5-7b-instruct-fp16-512.mlpackage/Manifest.json");
     if !manifest_path.exists() {
         eprintln!(
             "Skipping CoreML bytes preservation test; fixture missing at {}",

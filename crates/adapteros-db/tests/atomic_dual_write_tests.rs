@@ -382,7 +382,7 @@ mod integration_tests {
     }
 
     fn create_kv_repo(db: &Db, tenant_id: &str) -> AdapterKvRepository {
-        let kv = db.kv_backend().expect("KV backend should be attached");
+        let kv = db.kv_backend().expect("Failed to get KV backend - backend must be attached to database for integration test");
         let storage_repo = AdapterRepository::new(kv.backend().clone(), kv.index_manager().clone());
         AdapterKvRepository::new(Arc::new(storage_repo), tenant_id.to_string())
     }

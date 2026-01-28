@@ -14,9 +14,7 @@ use std::fs;
 use tempfile::TempDir;
 
 fn new_test_tempdir() -> Result<TempDir> {
-    let root = std::path::PathBuf::from("var").join("tmp");
-    std::fs::create_dir_all(&root)?;
-    Ok(TempDir::new_in(&root)?)
+    Ok(TempDir::with_prefix("aos-test-")?)
 }
 
 /// Test that bundle signatures can be verified with the stored public key

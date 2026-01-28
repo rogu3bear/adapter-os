@@ -411,7 +411,7 @@ impl DiagnosticRunner {
     fn check_disk_space(&mut self) {
         use std::process::Command;
 
-        let paths_to_check = vec!["./var", "."];
+        let paths_to_check = vec!["var", "."];
 
         for path in paths_to_check {
             let output = Command::new("df").arg("-h").arg(path).output();
@@ -467,7 +467,7 @@ impl DiagnosticRunner {
     }
 
     fn check_permissions(&mut self) {
-        let paths_to_check = vec![("./var", true), ("./var/cas", true), ("./configs", false)];
+        let paths_to_check = vec![("var", true), ("var/cas", true), ("configs", false)];
 
         for (path, should_be_writable) in paths_to_check {
             let path_obj = Path::new(path);
@@ -524,7 +524,7 @@ impl DiagnosticRunner {
     }
 
     async fn check_database(&mut self) -> Result<()> {
-        let db_path = Path::new("./var/aos-cp.sqlite3");
+        let db_path = Path::new("var/aos-cp.sqlite3");
 
         if !db_path.exists() {
             self.check(
@@ -631,7 +631,7 @@ impl DiagnosticRunner {
     }
 
     async fn check_tenant_registry(&mut self, tenant_id: &str) -> Result<()> {
-        let db_path = Path::new("./var/aos-cp.sqlite3");
+        let db_path = Path::new("var/aos-cp.sqlite3");
 
         if !db_path.exists() {
             self.check(
@@ -702,7 +702,7 @@ impl DiagnosticRunner {
     }
 
     fn check_telemetry(&mut self, tenant_id: &str) {
-        let telemetry_dir = PathBuf::from(format!("./var/telemetry/{}", tenant_id));
+        let telemetry_dir = PathBuf::from(format!("var/telemetry/{}", tenant_id));
 
         if !telemetry_dir.exists() {
             self.check(
@@ -787,7 +787,7 @@ impl DiagnosticRunner {
     }
 
     fn check_heartbeat(&mut self) {
-        let heartbeat_path = Path::new("./var/aos-secd.heartbeat");
+        let heartbeat_path = Path::new("var/aos-secd.heartbeat");
 
         if !heartbeat_path.exists() {
             self.check(
@@ -1352,8 +1352,8 @@ async fn create_diag_bundle(
     collect_database_state(&mut zip, full_db).await?;
 
     // Add recent logs if they exist
-    if Path::new("./var/logs").exists() {
-        add_log_files(&mut zip, "./var/logs").await?;
+    if Path::new("var/logs").exists() {
+        add_log_files(&mut zip, "var/logs").await?;
     }
 
     if let Some(cpid) = cpid {
@@ -1434,7 +1434,7 @@ pub async fn run_determinism_check(
     } else {
         // Default tenant-based path (matches adapter.rs pattern)
         let tenant = std::env::var("AOS_TENANT_ID").unwrap_or_else(|_| "default".to_string());
-        PathBuf::from(format!("./var/run/aos/{}/worker.sock", tenant))
+        PathBuf::from(format!("var/run/aos/{}/worker.sock", tenant))
     };
 
     if !socket_path.exists() {
@@ -1608,7 +1608,7 @@ pub async fn run_determinism_check(
 
     // Open database and persist results
     let db_path =
-        std::env::var("DATABASE_URL").unwrap_or_else(|_| "./var/aos-cp.sqlite3".to_string());
+        std::env::var("DATABASE_URL").unwrap_or_else(|_| "var/aos-cp.sqlite3".to_string());
 
     match Db::connect(&db_path).await {
         Ok(db) => {
@@ -1659,7 +1659,7 @@ pub async fn run_quarantine_check(
 
     // Open database
     let db_path = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "sqlite://./var/aos-cp.sqlite3".to_string());
+        .unwrap_or_else(|_| "sqlite://var/aos-cp.sqlite3".to_string());
     let db = Db::connect(&db_path)
         .await
         .map_err(|e| AosError::Database(format!("Failed to connect to database: {}", e)))?;

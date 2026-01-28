@@ -507,13 +507,10 @@ pub struct ValidationStatistics {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use adapteros_storage::platform::common::PlatformUtils;
     use tempfile::TempDir;
 
     fn new_test_tempdir() -> Result<TempDir> {
-        let root = PlatformUtils::temp_dir();
-        std::fs::create_dir_all(&root)?;
-        Ok(TempDir::new_in(&root)?)
+        Ok(TempDir::with_prefix("aos-test-")?)
     }
 
     #[tokio::test]

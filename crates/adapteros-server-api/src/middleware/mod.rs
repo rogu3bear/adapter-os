@@ -192,6 +192,7 @@ fn build_principal_from_claims(
 
 pub mod audit;
 pub mod caching;
+pub mod chain_builder;
 pub mod compression;
 pub mod context;
 pub mod error_code_enforcement;
@@ -203,6 +204,10 @@ pub mod trace_context;
 pub mod versioning;
 
 pub use caching::{caching_middleware, CacheControl};
+pub use chain_builder::{
+    api_key_chain, internal_chain, optional_auth_chain, protected_chain, MiddlewareChainConfig,
+    ProtectedMiddlewareChain,
+};
 pub use compression::compression_middleware;
 pub use error_code_enforcement::ErrorCodeEnforcementLayer;
 pub use observability::observability_middleware;

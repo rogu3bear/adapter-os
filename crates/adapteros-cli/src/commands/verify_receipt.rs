@@ -982,7 +982,7 @@ pub async fn run_with_seed_options(
         fetch_online_bundle(trace_id, server_url).await?
     } else {
         let bundle_path = resolve_bundle_path(
-            bundle.expect("bundle path should be present when online_trace is None"),
+            bundle.expect("BUG: bundle path argument must be provided when --online-trace is not set. This is a CLI argument parsing error that should have been caught by clap validation."),
         )?;
         load_bundle(&bundle_path)?
     };
@@ -1017,15 +1017,12 @@ pub fn verify_bundle_from_path(bundle: &Path) -> Result<ReceiptVerificationRepor
 mod tests {
     use super::*;
     use adapteros_crypto::signature::Keypair;
-    use adapteros_storage::platform::common::PlatformUtils;
     use base64::engine::general_purpose::STANDARD;
     use rand::RngCore;
     use tempfile::TempDir;
 
     fn new_test_tempdir() -> TempDir {
-        let root = PlatformUtils::temp_dir();
-        std::fs::create_dir_all(&root).expect("create var/tmp");
-        TempDir::new_in(&root).expect("tempdir")
+        TempDir::with_prefix("aos-test-").expect("create temp dir")
     }
 
     fn make_keypair() -> Keypair {

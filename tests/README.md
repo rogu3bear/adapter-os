@@ -2,7 +2,7 @@
 
 Comprehensive test coverage for deterministic inference, hot-swap, concurrency, and policy enforcement.
 
-**Last Updated**: 2025-01-18
+**Last Updated**: 2026-01-27
 **Coverage**: Unit tests, integration tests, concurrency tests, schema validation
 **Status**: 75%+ code coverage, all critical paths tested
 
@@ -291,22 +291,134 @@ fn my_test() {
 
 ## Feature-Gated Tests
 
+### Feature Flag Matrix
+
+AdapterOS uses feature flags to gate tests with special requirements. This prevents CI failures and allows opt-in testing for hardware-dependent or long-running tests.
+
+| Feature Flag | Purpose | Test Count | Enabled By | Prerequisites |
+|--------------|---------|------------|------------|---------------|
+| `extended-tests` | Long-running/intensive tests | 150+ | Default in full CI | None |
+| `hardware-residency` | Metal GPU residency tests | ~10 | Manual | macOS + Metal GPU |
+| `loom` | Concurrency model checking | ~5 | Manual | None (CPU-only) |
+| `prod-gate` | Pre-deployment validation | ~10 | Manual/deploy CI | None |
+
+---
+
 ### Extended Tests
 
 **Feature Flag**: `extended-tests`
 
-**Purpose**: Long-running or resource-intensive tests.
+**Purpose**: Long-running, resource-intensive, or comprehensive integration tests.
 
-**Enabled**:
+**Enabled by default in CI**: Yes (most workflows)
+
+**Run locally**:
 ```bash
 cargo test --features extended-tests
+
+# Specific test file
+cargo test --test server_lifecycle_tests --features extended-tests
+```
+
+**Gated Test Files** (157+ files total):
+- `tests/adapter_stress_tests.rs` - Stress testing
+- `tests/orchestrator_integration.rs` - Full orchestration
+- `tests/server_lifecycle_tests.rs` - Server startup/shutdown
+- `tests/single_file_training_cli.rs` - CLI training workflows
+- `tests/mlx_import_integration.rs` - MLX backend integration
+- `tests/e2e/*` - End-to-end workflow tests
+- `tests/determinism/*` - Determinism validation suite
+- `tests/security/*` - Security and isolation tests
+- And 140+ more test files
+
+**Why gated**: These tests take longer to run and may require specific configurations, but don't need special hardware.
+
+---
+
+### Hardware Residency Tests
+
+**Feature Flag**: `hardware-residency`
+
+**Purpose**: Tests requiring actual Metal GPU hardware and memory residency tracking.
+
+**Enabled by default in CI**: No (hardware-specific)
+
+**Run locally**:
+```bash
+# Full residency test suite
+cargo test --features hardware-residency
+
+# Specific residency tests
+cargo test --test kv_residency_quota_integration --features hardware-residency
+cargo test -p adapteros-lora-worker --features hardware-residency --test residency_probe
 ```
 
 **Gated Tests**:
-- `tests/adapter_hotswap.rs` - Hot-swap stress tests
-- `tests/worker_mocked_components.rs` - Worker integration tests
+- `tests/kv_residency_quota_integration.rs` - KV store with Metal buffer tracking
+- `crates/adapteros-lora-worker/tests/residency_probe.rs` - GPU memory residency
+- `crates/adapteros-memory/tests/metal_heap_tests.rs` - Metal heap operations
 
-**Why gated**: These tests are slower and may require specific hardware (Metal GPU).
+**Prerequisites**:
+- macOS with Metal support
+- Apple Silicon or AMD GPU
+- Metal device available at runtime
+
+**Why gated**: Requires real GPU hardware; cannot run in CI or on non-GPU systems.
+
+---
+
+### Loom Concurrency Tests
+
+**Feature Flag**: `loom`
+
+**Purpose**: Exhaustive concurrency model checking via the Loom framework.
+
+**Enabled by default in CI**: No (too slow for regular CI)
+
+**Run locally**:
+```bash
+# Set preemption bound to control exploration depth
+LOOM_MAX_PREEMPTIONS=3 cargo test --features loom
+
+# With debug output
+LOOM_LOG=1 cargo test --features loom test_hotswap_loom
+```
+
+**Gated Tests**:
+- `tests/adapter_hotswap.rs::test_hotswap_loom` - Hot-swap concurrency
+- Lock-free data structure tests
+- Atomic operation verification
+
+**What Loom does**:
+- Explores 5000+ thread interleavings
+- Detects data races and deadlocks
+- Validates atomic operations
+- Proves absence of use-after-free
+
+**Why gated**: Very slow (minutes per test); used for deep concurrency validation.
+
+---
+
+### Production Gate Tests
+
+**Feature Flag**: `prod-gate`
+
+**Purpose**: Pre-deployment validation tests that must pass before production release.
+
+**Enabled by default in CI**: Only in dedicated `prod-gate` workflow
+
+**Run locally**:
+```bash
+cargo test -p adapteros-e2e --features prod-gate
+```
+
+**Gated Tests**:
+- `crates/adapteros-e2e/tests/prod_gate.rs` - Comprehensive E2E validation
+- Determinism verification
+- Policy enforcement validation
+- Telemetry integrity checks
+
+**Why gated**: High-value smoke tests run before deployment; too expensive for every PR.
 
 ---
 
@@ -314,7 +426,7 @@ cargo test --features extended-tests
 
 **Feature Flag**: `metal-backend`
 
-**Purpose**: Tests requiring Metal GPU acceleration.
+**Purpose**: Tests requiring Metal GPU acceleration (separate from hardware-residency).
 
 **Enabled**:
 ```bash
@@ -325,22 +437,436 @@ cargo test --features metal-backend
 - `tests/gpu_verification_integration.rs` - Metal buffer fingerprinting
 - Metal kernel determinism tests
 
-**Platform**: macOS 13.0+ with Apple Silicon only
+**Platform**: macOS 13.0+ with Apple Silicon or AMD GPU
 
 ---
 
-### Mock Backend Tests
+### MLX Backend Tests
 
-**Feature Flag**: `mock-backend`
+**Feature Flag**: `mlx` or `multi-backend`
 
-**Purpose**: CPU-only tests without GPU requirements.
+**Purpose**: Tests requiring MLX C++ FFI backend.
 
 **Enabled**:
 ```bash
-cargo test --features mock-backend
+cargo test --features mlx
+
+# Or with multi-backend (default)
+cargo test --features multi-backend
 ```
 
-**Usage**: CI/CD environments without GPU access.
+**Gated Tests**:
+- `tests/mlx_import_integration.rs` - MLX model loading
+- `tests/training_resume_e2e.rs::training_resume_e2e` - MLX training
+- `crates/adapteros-lora-mlx-ffi/tests/*` - MLX FFI layer
+
+**Prerequisites**: Homebrew MLX installed (`brew install mlx`)
+
+---
+
+## Ignored Tests Catalogue
+
+Tests marked with `#[ignore]` require special setup and are not run by default. Run them explicitly with `cargo test -- --ignored`.
+
+**Last Audited**: 2026-01-27
+
+### Summary Statistics
+
+| Metric | Count |
+|--------|-------|
+| **Total ignored tests** | 143 |
+| Tests in `crates/` | 103 |
+| Tests in `tests/` | 40 |
+| Tests with tracking IDs | 63 |
+| Tests missing tracking IDs | 80 |
+
+### By Category
+
+| Category | Count | Hardware Required | CI Safe | Tracking Coverage |
+|----------|-------|-------------------|---------|-------------------|
+| Model/MLX Backend | 45 | No | Yes (with setup) | Partial |
+| Network Security (root/PF) | 24 | Yes (root) | No | None |
+| Server/Fixture Setup | 23 | No | Yes (with setup) | Partial |
+| API Updates Pending | 8 | No | Yes (when fixed) | Full |
+| Metal/GPU Hardware | 6 | Yes | No | Full |
+| Tokenizer | 4 | No | Yes (with files) | Full |
+| GCP KMS | 4 | No (emulator) | Yes (with emulator) | None |
+| Benchmarks/Long-Running | 5 | No | No (too slow) | Partial |
+| Fixture Generation | 2 | No | Manual only | None |
+
+### Tracking ID Audit
+
+Ignored tests use tracking IDs in the format `[tracking: STAB-IGN-XXXX]` or `[tracking: TRAIN-TEST-XXXX]`.
+
+**Current ID ranges**:
+- `STAB-IGN-0021` through `STAB-IGN-0230` (with gaps)
+- `TRAIN-TEST-0001` through `TRAIN-TEST-0007`
+
+**Next available IDs**:
+- `STAB-IGN-0231` for general stability tests
+- `TRAIN-TEST-0008` for training-specific tests
+
+**Gap analysis**: IDs are not sequential. Major gaps exist at:
+- 0022-0025, 0029-0037, 0039, 0045, 0050-0059, 0069-0159, 0164-0169, 0172-0187, 0194-0196, 0202-0209, 0213, 0215-0217
+
+---
+
+### Category Details
+
+#### 1. Model/MLX Backend Tests (45 tests)
+
+**Location**: Multiple crates and workspace tests
+
+**Prerequisites**:
+- `TEST_MLX_MODEL_PATH` or `AOS_TEST_BASE_MODEL` environment variable set
+- Valid model files (e.g., Qwen2.5-7B-Instruct)
+- MLX backend compiled (`--features mlx`)
+- Python mlx-lm installed (for bridge tests)
+
+**Key Locations**:
+- `tests/e2e_inference_harness.rs` - 11 MLX inference tests
+- `crates/adapteros-lora-worker/src/training/trainer/tests.rs` - 11 training tests (7 with `TRAIN-TEST-*` tracking)
+- `crates/adapteros-lora-mlx-ffi/tests/resilience_tests.rs` - 17 resilience tests
+- `crates/adapteros-lora-mlx-ffi/tests/memory_pool_integration.rs` - 3 tests
+- `crates/adapteros-lora-worker/tests/mlx_bridge_integration.rs` - 2 tests
+
+**Run**:
+```bash
+export TEST_MLX_MODEL_PATH=/var/models/Qwen2.5-7B-Instruct
+cargo test --features mlx -- --ignored
+
+# Or for training tests specifically
+export AOS_TEST_BASE_MODEL=/var/models/Llama-3.2-3B-Instruct-4bit
+cargo test -p adapteros-lora-worker -- --ignored
+```
+
+---
+
+#### 2. Network Security Tests (24 tests)
+
+**Location**: `crates/adapteros-node/tests/`
+
+**Prerequisites**:
+- Root/sudo privileges
+- PF (Packet Filter) rules enabled
+- `aos-worker` binary built and in PATH
+- Specific system configurations
+
+**Key Locations**:
+- `isolation_tests.rs` - 13 tests
+- `spawn_worker_tests.rs` - 11 tests
+
+**Run**:
+```bash
+# Enable PF first
+sudo pfctl -e
+
+# Run isolation tests
+sudo cargo test -p adapteros-node --test isolation_tests -- --ignored
+
+# Run worker spawn tests
+sudo cargo test -p adapteros-node --test spawn_worker_tests -- --ignored
+
+# For egress blocking tests
+echo 'block out all' | sudo pfctl -f -
+cargo test -p adapteros-node -- --ignored egress
+```
+
+**Note**: These tests require root privileges and cannot run in standard CI environments.
+
+---
+
+#### 3. Server/Fixture Setup Tests (23 tests)
+
+**Location**: `crates/adapteros-server-api/tests/`
+
+**Prerequisites**:
+- Full server setup with authentication enabled
+- Database initialized and migrations run
+- Tenant-specific fixtures
+- Base model fixtures for some tests
+
+**Key Locations**:
+- `tenant_isolation_adapters.rs` - 5 tests
+- `model_handlers_integration.rs` - 4 tests
+- `model_status_contract.rs` - 3 tests
+- `rag_retrieval_test.rs` - 2 tests
+- `tests/auth_integration_test.rs` - 4 tests (workspace level)
+- `tests/telemetry_endpoints.rs` - 3 tests (workspace level)
+
+**Run**:
+```bash
+# Start server first
+./aosctl db migrate
+AOS_DEV_NO_AUTH=1 cargo run -p adapteros-server -- --config configs/cp.toml &
+
+# Run fixture-dependent tests
+cargo test -p adapteros-server-api -- --ignored
+```
+
+---
+
+#### 4. API Updates Pending (8 tests)
+
+**Location**: Various crates
+
+These tests are temporarily disabled pending API refactoring. They have full tracking coverage.
+
+**Tests**:
+- `STAB-IGN-0040`: `memory_management_integration.rs` - memory module functions
+- `STAB-IGN-0046`: `concurrency.rs` - MockKernels not exported
+- `STAB-IGN-0047`: `gpu_training_integration.rs` - select_optimal_backend private
+- `STAB-IGN-0048`: `gpu_training_integration.rs` - detect_available_backends private
+- `STAB-IGN-0064`: `secure_fs_integration_tests.rs` - SecureFsConfig fields
+- `STAB-IGN-0068`: `telemetry/mod.rs` - prometheus Registry metric_count
+- `STAB-IGN-0197-0201`: `policy_enforcement_integration.rs` - policy API updates
+
+**Run** (when APIs are updated):
+```bash
+cargo test -- --ignored "STAB-IGN-0040\|STAB-IGN-0046"
+```
+
+---
+
+#### 5. Metal/GPU Hardware Tests (6 tests)
+
+**Location**: `tests/lora_buffer_population_integration.rs`
+
+**Prerequisites**:
+- macOS with Metal support
+- Signed Metal kernel library
+- Metal device available
+- Hardware-residency feature enabled
+
+**Tests** (all have `STAB-IGN-0188` through `STAB-IGN-0193` tracking):
+- `test_lora_buffer_population_basic`
+- `test_lora_buffer_population_multi_adapter`
+- `test_lora_buffer_hash_determinism`
+- `test_lora_buffer_memory_pressure`
+- `test_lora_buffer_concurrent_population`
+- `test_lora_buffer_error_recovery`
+
+**Run**:
+```bash
+cargo test --features hardware-residency --test lora_buffer_population_integration -- --ignored
+```
+
+---
+
+#### 6. Tokenizer Tests (4 tests)
+
+**Location**: `crates/adapteros-ingest-docs/src/embeddings.rs`, `crates/adapteros-lora-worker/src/tokenizer.rs`
+
+**Prerequisites**:
+- Tokenizer model files installed
+- `AOS_TOKENIZER_PATH` environment variable set
+
+**Tests** (all have `STAB-IGN-0026-0028`, `STAB-IGN-0044` tracking):
+- `test_tokenizer_encode` (embeddings)
+- `test_tokenizer_decode` (embeddings)
+- `test_tokenizer_batch` (embeddings)
+- `test_tokenizer_integration` (worker)
+
+**Run**:
+```bash
+export AOS_TOKENIZER_PATH=./var/models/Qwen2.5-7B-Instruct/tokenizer.json
+cargo test --release -- --ignored tokenizer
+```
+
+---
+
+#### 7. GCP KMS Tests (4 tests)
+
+**Location**: `crates/adapteros-crypto/src/providers/kms.rs`
+
+**Prerequisites**:
+- GCP KMS emulator running on localhost:9011
+- `GCP_KMS_EMULATOR_HOST` environment variable set
+
+**Tests** (no tracking IDs - need to be added):
+- `test_kms_sign`
+- `test_kms_verify`
+- `test_kms_encrypt`
+- `test_kms_decrypt`
+
+**Run**:
+```bash
+# Start emulator (in separate terminal)
+docker run -p 9011:9011 gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators gcloud beta emulators kms start --host-port=0.0.0.0:9011
+
+# Run tests
+export GCP_KMS_EMULATOR_HOST=localhost:9011
+cargo test -p adapteros-crypto -- --ignored kms
+```
+
+---
+
+#### 8. Benchmarks/Long-Running Tests (5 tests)
+
+**Location**: `tests/training_pipeline.rs`, `tests/load_hot_swap.rs`, `tests/cross_platform_determinism.rs`
+
+**Prerequisites**:
+- Extended test time (1+ hours for some)
+- Optional: valgrind or profiler tools
+- Baseline reference outputs for determinism tests
+
+**Tests**:
+- `test_training_performance_benchmark` (`STAB-IGN-0214`) - ~1 hour
+- `test_load_hot_swap_1h_soak` - 1 hour soak test
+- `test_cross_platform_determinism` - requires baseline
+- `generate_reference_outputs` - manual fixture generation
+
+**Run**:
+```bash
+# Long benchmark (release mode recommended)
+cargo test --release --test training_pipeline -- --ignored
+
+# Soak test with profiler
+valgrind --tool=memcheck cargo test --test load_hot_swap -- --ignored
+
+# Generate baselines first
+cargo test --test cross_platform_determinism -- --ignored generate_reference
+# Then run comparison
+cargo test --test cross_platform_determinism -- --ignored
+```
+
+---
+
+#### 9. Fixture Generation Tests (2 tests)
+
+**Location**: `tests/determinism_replay_harness.rs`, `tests/cross_platform_determinism.rs`
+
+**Purpose**: Regenerate golden test data for determinism verification.
+
+**Run** (manual only):
+```bash
+cargo test -- --ignored manual_fixture_regeneration
+cargo test -- --ignored generate_reference_outputs
+```
+
+---
+
+### Running Ignored Tests Locally
+
+#### Quick Reference
+
+```bash
+# Run ALL ignored tests (requires all prerequisites)
+cargo test --workspace -- --ignored
+
+# Run ignored tests for a specific crate
+cargo test -p adapteros-lora-mlx-ffi -- --ignored
+
+# Run ignored tests matching a pattern
+cargo test -- --ignored "mlx\|model"
+
+# Run with output for debugging
+cargo test -- --ignored --nocapture
+
+# Run ignored tests in release mode (recommended for benchmarks)
+cargo test --release -- --ignored
+```
+
+#### Environment Variables Cheatsheet
+
+```bash
+# MLX model path
+export TEST_MLX_MODEL_PATH=/var/models/Qwen2.5-7B-Instruct
+export AOS_TEST_BASE_MODEL=/var/models/Llama-3.2-3B-Instruct-4bit
+
+# Tokenizer
+export AOS_TOKENIZER_PATH=/var/models/Qwen2.5-7B-Instruct/tokenizer.json
+
+# GCP KMS emulator
+export GCP_KMS_EMULATOR_HOST=localhost:9011
+
+# Determinism debugging
+export AOS_DEBUG_DETERMINISM=1
+```
+
+---
+
+### Tests Missing Tracking IDs
+
+The following test files have ignored tests without tracking IDs and should be updated:
+
+| File | Test Count | Priority |
+|------|------------|----------|
+| `crates/adapteros-node/tests/isolation_tests.rs` | 13 | Low (root required) |
+| `crates/adapteros-node/tests/spawn_worker_tests.rs` | 11 | Low (root required) |
+| `crates/adapteros-lora-mlx-ffi/tests/resilience_tests.rs` | 17 | Medium |
+| `crates/adapteros-crypto/src/providers/kms.rs` | 4 | Medium |
+| `crates/adapteros-server-api/tests/` (various) | 15 | Medium |
+| `tests/e2e_inference_harness.rs` | 11 | Medium |
+| `crates/adapteros-lora-worker/src/training/trainer/tests.rs` | 4 | Low (partial coverage) |
+
+To add tracking IDs, use the format:
+```rust
+#[ignore = "Reason for ignoring [tracking: STAB-IGN-XXXX]"]
+```
+
+Next available ID: `STAB-IGN-0231`
+
+---
+
+## Standard Test Commands by Scenario
+
+### Quick Development Cycle
+```bash
+# Run unit tests only (fast, ~30s)
+cargo test --lib
+
+# Run specific crate tests
+cargo test -p adapteros-lora-router
+```
+
+### Full Local Validation
+```bash
+# Run all non-ignored tests (includes extended-tests)
+cargo test --workspace --features extended-tests
+
+# With verbose output
+cargo test --workspace --features extended-tests -- --nocapture
+```
+
+### Hardware-Dependent Testing (macOS only)
+```bash
+# Metal residency tests
+cargo test --features hardware-residency -- --ignored
+
+# MLX backend tests
+export TEST_MLX_MODEL_PATH=./var/models/Qwen2.5-7B-Instruct
+cargo test --features mlx -- --ignored
+```
+
+### Concurrency Validation
+```bash
+# Standard concurrency tests (fast)
+cargo test --test concurrency
+
+# Deep concurrency checking with Loom (slow)
+LOOM_MAX_PREEMPTIONS=3 cargo test --features loom
+```
+
+### Pre-Deployment Gate
+```bash
+# Production gate tests
+cargo test -p adapteros-e2e --features prod-gate
+
+# Full extended suite
+cargo test --workspace --features extended-tests --release
+```
+
+### Network Security Validation (requires root)
+```bash
+# Enable PF and run isolation tests
+sudo pfctl -e
+cargo test -p adapteros-node -- --ignored spawn_worker
+
+# Egress blocking tests
+echo 'block out all' | sudo pfctl -f -
+cargo test -p adapteros-node -- --ignored egress
+```
 
 ---
 
@@ -354,7 +880,7 @@ cargo test --features mock-backend
 
 **Run**:
 ```bash
-LOOM_MAX_PREEMPTIONS=3 cargo test test_hotswap_loom
+LOOM_MAX_PREEMPTIONS=3 cargo test --features loom
 ```
 
 **What it does**:
@@ -531,14 +1057,11 @@ fn test_with_deterministic_data() {
 
 **Use RAII guards** for cleanup:
 ```rust
-use std::path::PathBuf;
 use tempfile::TempDir;
 
 #[test]
 fn test_with_temp_dir() {
-    let tmp_root = PathBuf::from("var").join("tmp");
-    std::fs::create_dir_all(&tmp_root).unwrap();
-    let temp_dir = TempDir::new_in(&tmp_root).unwrap();  // Auto-deleted on drop
+    let temp_dir = TempDir::with_prefix("aos-test-").unwrap();  // Auto-deleted on drop
     let db_path = temp_dir.path().join("test.db");
     // ...
 }

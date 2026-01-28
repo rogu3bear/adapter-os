@@ -1,8 +1,8 @@
 //! Handler for creating datasets from existing documents.
 
 use super::types::CreateDatasetFromDocumentsRequest;
+use crate::api_error::ApiError;
 use crate::auth::Claims;
-use crate::error_helpers::bad_request;
 use crate::permissions::{require_permission, Permission};
 use crate::services::{
     DatasetFromCollectionParams, DatasetFromDocumentIdsParams, DefaultTrainingDatasetService,
@@ -45,9 +45,10 @@ pub async fn create_dataset_from_documents(
     let multiple_sources = request.collection_id.is_some()
         && (request.document_id.is_some() || request.document_ids.is_some());
     if multiple_sources {
-        return Err(bad_request(
+        return Err(ApiError::bad_request(
             "Cannot specify both document_id/document_ids and collection_id. Provide exactly one.",
-        ));
+        )
+        .into());
     }
 
     let service = DefaultTrainingDatasetService::new(Arc::new(state.clone()));
@@ -94,14 +95,16 @@ pub async fn create_dataset_from_documents(
                 .await?
         }
         (None, None, None) => {
-            return Err(bad_request(
+            return Err(ApiError::bad_request(
                 "Must provide either document_id, document_ids, or collection_id",
-            ));
+            )
+            .into());
         }
         _ => {
-            return Err(bad_request(
+            return Err(ApiError::bad_request(
                 "Cannot specify both document_id/document_ids and collection_id. Provide exactly one.",
-            ));
+            )
+            .into());
         }
     };
 
