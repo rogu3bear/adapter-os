@@ -1663,7 +1663,7 @@ pub async fn validate_dataset(
                     )
                     .await;
             });
-            crate::error_helpers::internal_error(format!(
+            crate::api_error::ApiError::internal(format!(
                 "Failed to update validation status: {}",
                 e
             ))

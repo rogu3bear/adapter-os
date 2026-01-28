@@ -232,7 +232,9 @@ pub async fn toggle_tenant_policy(
                     Json(ErrorResponse::new("Policy binding not found").with_code("NOT_FOUND")),
                 )
             } else {
-                ApiError::internal("failed to toggle policy binding").with_details(e.to_string())
+                ApiError::internal("failed to toggle policy binding")
+                    .with_details(e.to_string())
+                    .into()
             }
         })?;
 

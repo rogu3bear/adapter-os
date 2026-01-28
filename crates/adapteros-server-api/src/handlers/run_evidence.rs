@@ -1,6 +1,5 @@
 use crate::api_error::ApiError;
 use crate::auth::Claims;
-use crate::error_helpers::internal_error;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
@@ -285,7 +284,7 @@ pub async fn download_run_evidence(
     }
     let boot_state_json = boot_snapshot
         .as_ref()
-        .map(|snapshot| serde_json::to_vec_pretty(snapshot).map_err(internal_error))
+        .map(|snapshot| serde_json::to_vec_pretty(snapshot).map_err(|e| ApiError::internal(e.to_string())))
         .transpose()?;
 
     // Model status snapshot (tenant scoped)

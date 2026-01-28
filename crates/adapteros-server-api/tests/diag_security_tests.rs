@@ -126,7 +126,7 @@ async fn test_path_traversal_blocked() -> anyhow::Result<()> {
         "..\\..\\..\\windows\\system32",
         "valid/../../../etc/shadow",
         "trace-id/../../../../root/.ssh/id_rsa",
-        "export/../../../var/secrets",
+        "export/../../.var/secrets",
         "%2e%2e%2f%2e%2e%2f", // URL-encoded ../
         "..%2f..%2f..%2f",
         "....//....//",

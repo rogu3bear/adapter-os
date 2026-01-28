@@ -288,7 +288,13 @@ pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
 
     let db_start = Instant::now();
     let db_probe = timeout(db_timeout, async {
-        let mut conn = state.db.pool().acquire().await?;
+        // STABILITY: Use pool_opt() to avoid panic if database is in KV-only mode
+        let Some(pool) = state.db.pool_opt() else {
+            return Err(sqlx::Error::Configuration(
+                "SQL pool not available (kv-only mode)".into(),
+            ));
+        };
+        let mut conn = pool.acquire().await?;
         query("SELECT 1").execute(&mut *conn).await?;
         Ok::<(), sqlx::Error>(())
     })
@@ -376,11 +382,19 @@ pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
         };
 
         let models_start = Instant::now();
-        let models_probe = timeout(
-            models_timeout,
-            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM models").fetch_one(state.db.pool()),
-        )
-        .await;
+        // STABILITY: Use pool_opt() for defense-in-depth (should be Some if we reached here)
+        let models_probe = match state.db.pool_opt() {
+            Some(pool) => {
+                timeout(
+                    models_timeout,
+                    sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM models").fetch_one(pool),
+                )
+                .await
+            }
+            None => Ok(Err(sqlx::Error::Configuration(
+                "SQL pool not available".into(),
+            ))),
+        };
         let models_latency = models_start.elapsed().as_millis() as u64;
 
         match models_probe {

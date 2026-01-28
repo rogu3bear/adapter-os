@@ -6,7 +6,6 @@
 use crate::api_error::ApiError;
 use crate::audit_helper::{actions, log_success_or_warn, resources};
 use crate::auth::Claims;
-use crate::error_helpers::{bad_request, db_error, internal_error, not_found, not_implemented, payload_too_large};
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
@@ -173,12 +172,12 @@ pub async fn upload_document(
             .join(root)
     };
     reject_forbidden_tmp_path(&root, "documents-root")
-        .map_err(|e| internal_error(e.to_string()))?;
+        .map_err(|e| ApiError::internal(e.to_string()))?;
 
     // Create tenant-specific document directory
     let tenant_path = root.join(&claims.tenant_id);
     fs::create_dir_all(&tenant_path).await
-        .map_err(db_error)?;
+        .map_err(ApiError::db_error)?;
 
     let mut document_name = String::new();
     let mut file_data: Option<Vec<u8>> = None;
@@ -186,19 +185,19 @@ pub async fn upload_document(
 
     // Process multipart form
     while let Some(field) = multipart.next_field().await
-        .map_err(|e| bad_request(e.to_string()))?
+        .map_err(|e| ApiError::bad_request(e.to_string()))?
     {
         let name = field.name().unwrap_or("").to_string();
 
         match name.as_str() {
             "name" => {
                 document_name = field.text().await
-                    .map_err(|e| bad_request(e.to_string()))?;
+                    .map_err(|e| ApiError::bad_request(e.to_string()))?;
             }
             "file" => {
                 let file_name = field
                     .file_name()
-                    .ok_or_else(|| bad_request("File must have a name"))?
+                    .ok_or_else(|| ApiError::bad_request("File must have a name"))?
                     .to_string();
 
                 if document_name.is_empty() {
@@ -210,13 +209,13 @@ pub async fn upload_document(
                 }
 
                 let data = field.bytes().await
-                    .map_err(|e| bad_request(e.to_string()))?;
+                    .map_err(|e| ApiError::bad_request(e.to_string()))?;
 
                 if data.len() > MAX_DOCUMENT_SIZE {
-                    return Err(payload_too_large(&format!(
+                    return Err(ApiError::payload_too_large(&format!(
                         "Document exceeds maximum size of {}MB",
                         MAX_DOCUMENT_SIZE / 1024 / 1024
-                    )));
+                    )).into());
                 }
 
                 file_data = Some(data.to_vec());
@@ -227,7 +226,7 @@ pub async fn upload_document(
         }
     }
 
-    let file_data = file_data.ok_or_else(|| bad_request("No file uploaded"))?;
+    let file_data = file_data.ok_or_else(|| ApiError::bad_request("No file uploaded"))?;
 
     if document_name.is_empty() {
         document_name = format!("Document {}", &document_id[0..8]);
@@ -242,7 +241,7 @@ pub async fn upload_document(
         .db
         .find_document_by_content_hash(&claims.tenant_id, &file_hash)
         .await
-        .map_err(db_error)?
+        .map_err(ApiError::db_error)?
     {
         info!(
             existing_id = %existing_doc.id,
@@ -267,11 +266,11 @@ pub async fn upload_document(
 
     // Save file to disk (only for new documents)
     let file_path = tenant_path.join(format!("{}.pdf", document_id));
-    let mut file = fs::File::create(&file_path).await.map_err(db_error)?;
+    let mut file = fs::File::create(&file_path).await.map_err(ApiError::db_error)?;
 
-    file.write_all(&file_data).await.map_err(db_error)?;
+    file.write_all(&file_data).await.map_err(ApiError::db_error)?;
 
-    file.flush().await.map_err(db_error)?;
+    file.flush().await.map_err(ApiError::db_error)?;
 
     // Create database record
     use adapteros_db::documents::CreateDocumentParams;
@@ -288,7 +287,7 @@ pub async fn upload_document(
             page_count: None,
         })
         .await
-        .map_err(db_error)?;
+        .map_err(ApiError::db_error)?;
 
     info!(
         "Uploaded document {} ({} bytes) for tenant {}",
@@ -361,7 +360,7 @@ pub async fn list_documents(
         .db
         .list_documents_paginated(&claims.tenant_id, i64::MAX, 0)
         .await
-        .map_err(db_error)?;
+        .map_err(ApiError::db_error)?;
 
     // Apply status filter if provided
     let filtered: Vec<_> = if let Some(ref status) = params.status {
@@ -426,9 +425,9 @@ pub async fn get_document(
         .db
         .get_document(&claims.tenant_id, &id)
         .await
-        .map_err(db_error)?;
+        .map_err(ApiError::db_error)?;
 
-    let document = document.ok_or_else(|| not_found("Document"))?;
+    let document = document.ok_or_else(|| ApiError::not_found("Document"))?;
 
     // Validate tenant isolation
     validate_tenant_isolation(&claims, &document.tenant_id)?;
@@ -464,15 +463,15 @@ pub async fn delete_document(
         .db
         .get_document(&claims.tenant_id, &id)
         .await
-        .map_err(db_error)?;
+        .map_err(ApiError::db_error)?;
 
-    let document = document.ok_or_else(|| not_found("Document"))?;
+    let document = document.ok_or_else(|| ApiError::not_found("Document"))?;
 
     // Validate tenant isolation
     validate_tenant_isolation(&claims, &document.tenant_id)?;
 
     // Delete from database (cascades to chunks)
-    state.db.delete_document(&id).await.map_err(db_error)?;
+    state.db.delete_document(&id).await.map_err(ApiError::db_error)?;
 
     // Delete file from filesystem
     if tokio::fs::try_exists(&document.file_path)
@@ -534,9 +533,9 @@ pub async fn list_document_chunks(
         .db
         .get_document(&claims.tenant_id, &id)
         .await
-        .map_err(db_error)?;
+        .map_err(ApiError::db_error)?;
 
-    let document = document.ok_or_else(|| not_found("Document"))?;
+    let document = document.ok_or_else(|| ApiError::not_found("Document"))?;
 
     // Validate tenant isolation
     validate_tenant_isolation(&claims, &document.tenant_id)?;
@@ -545,7 +544,7 @@ pub async fn list_document_chunks(
         .db
         .get_document_chunks(&claims.tenant_id, &id)
         .await
-        .map_err(db_error)?;
+        .map_err(ApiError::db_error)?;
 
     let responses: Vec<ChunkResponse> = chunks
         .into_iter()
@@ -608,15 +607,15 @@ pub async fn download_document(
         .db
         .get_document(&claims.tenant_id, &id)
         .await
-        .map_err(db_error)?;
+        .map_err(ApiError::db_error)?;
 
-    let document = document.ok_or_else(|| not_found("Document"))?;
+    let document = document.ok_or_else(|| ApiError::not_found("Document"))?;
 
     // Validate tenant isolation
     validate_tenant_isolation(&claims, &document.tenant_id)?;
 
     // Read file
-    let file_data = fs::read(&document.file_path).await.map_err(db_error)?;
+    let file_data = fs::read(&document.file_path).await.map_err(ApiError::db_error)?;
 
     // Return file with appropriate headers
     use axum::http::header;
@@ -686,8 +685,8 @@ pub async fn process_document(
         .db
         .get_document(&claims.tenant_id, &id)
         .await
-        .map_err(db_error)?;
-    let document = document.ok_or_else(|| not_found("Document"))?;
+        .map_err(ApiError::db_error)?;
+    let document = document.ok_or_else(|| ApiError::not_found("Document"))?;
 
     // Validate tenant isolation
     validate_tenant_isolation(&claims, &document.tenant_id)?;
@@ -695,16 +694,16 @@ pub async fn process_document(
     // Check document state - validate current status
     match document.status.as_str() {
         "indexed" => {
-            return Err(bad_request("Document is already indexed"));
+            return Err(ApiError::bad_request("Document is already indexed"));
         }
         "processing" => {
-            return Err(bad_request("Document is currently being processed"));
+            return Err(ApiError::bad_request("Document is currently being processed"));
         }
         "pending" | "failed" => {
             // Allowed to process - will acquire lock
         }
         _ => {
-            return Err(bad_request(format!(
+            return Err(ApiError::bad_request(format!(
                 "Unknown document status: {}",
                 document.status
             )));
@@ -716,10 +715,10 @@ pub async fn process_document(
         .db
         .try_acquire_processing_lock(&claims.tenant_id, &id)
         .await
-        .map_err(db_error)?;
+        .map_err(ApiError::db_error)?;
 
     if !acquired {
-        return Err(bad_request(
+        return Err(ApiError::bad_request(
             "Failed to acquire processing lock (document may be processing by another request)",
         ));
     }
@@ -754,12 +753,12 @@ async fn process_document_inner(
     let embedding_model = state
         .embedding_model
         .as_ref()
-        .ok_or_else(|| db_error("Embedding model not configured - enable embeddings feature"))?;
+        .ok_or_else(|| ApiError::db_error("Embedding model not configured - enable embeddings feature"))?;
 
     // Read document file
     let file_data = fs::read(&document.file_path)
         .await
-        .map_err(|e| db_error(format!("Failed to read document file: {}", e)))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to read document file: {}", e)))?;
 
     // Parse document into chunks - use resilient processing for PDFs
     let ingestor = DocumentIngestor::new(default_ingest_options(), None);
@@ -767,7 +766,7 @@ async fn process_document_inner(
         // Use resilient PDF processing that continues on page errors
         let result = ingestor
             .ingest_pdf_bytes_resilient(&file_data, &document.name)
-            .map_err(|e| db_error(format!("Failed to parse PDF: {}", e)))?;
+            .map_err(|e| ApiError::db_error(format!("Failed to parse PDF: {}", e)))?;
 
         // Log any page errors
         if result.successful_pages < result.total_pages {
@@ -783,9 +782,9 @@ async fn process_document_inner(
     } else if document.mime_type.contains("markdown") || document.name.ends_with(".md") {
         ingestor
             .ingest_markdown_bytes(&file_data, &document.name)
-            .map_err(|e| db_error(format!("Failed to parse markdown: {}", e)))?
+            .map_err(|e| ApiError::db_error(format!("Failed to parse markdown: {}", e)))?
     } else {
-        return Err(bad_request(format!(
+        return Err(ApiError::bad_request(format!(
             "Unsupported document type: {}",
             document.mime_type
         )));
@@ -805,7 +804,7 @@ async fn process_document_inner(
     let mut tx = pool
         .begin()
         .await
-        .map_err(|e| db_error(format!("Failed to start transaction: {}", e)))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to start transaction: {}", e)))?;
 
     let mut chunk_count = 0;
     let mut failed_embeddings = 0;
@@ -832,7 +831,7 @@ async fn process_document_inner(
         let (embedding_json, rag_embedding) = match embedding {
             Ok(vector) => {
                 let serialized = serde_json::to_string(&vector)
-                    .map_err(|e| db_error(format!("Failed to serialize embedding: {}", e)))?;
+                    .map_err(|e| ApiError::db_error(format!("Failed to serialize embedding: {}", e)))?;
                 (Some(serialized), Some(vector))
             }
             Err(e) => {
@@ -869,7 +868,7 @@ async fn process_document_inner(
         .execute(&mut *tx)
         .await
         .map_err(|e| {
-            db_error(format!(
+            ApiError::db_error(format!(
                 "Failed to insert chunk {}: {}",
                 chunk.chunk_index, e
             ))
@@ -893,7 +892,7 @@ async fn process_document_inner(
             .bind(&claims.tenant_id)
             .bind(&chunk.text)
             .bind(&serde_json::to_string(&embedding_vec).map_err(|e| {
-                db_error(format!(
+                ApiError::db_error(format!(
                     "Failed to serialize embedding for rag_documents: {}",
                     e
                 ))
@@ -902,7 +901,7 @@ async fn process_document_inner(
             .execute(&mut *tx)
             .await
             .map_err(|e| {
-                db_error(format!(
+                ApiError::db_error(format!(
                     "Failed to insert RAG chunk {}: {}",
                     chunk.chunk_index, e
                 ))
@@ -943,12 +942,12 @@ async fn process_document_inner(
     .bind(&claims.tenant_id)
     .execute(&mut *tx)
     .await
-    .map_err(|e| db_error(format!("Failed to update document status: {}", e)))?;
+    .map_err(|e| ApiError::db_error(format!("Failed to update document status: {}", e)))?;
 
     // Commit transaction - all chunks and status update together
     tx.commit()
         .await
-        .map_err(|e| db_error(format!("Failed to commit transaction: {}", e)))?;
+        .map_err(|e| ApiError::db_error(format!("Failed to commit transaction: {}", e)))?;
 
     info!(
         document_id = %document_id,
@@ -1020,9 +1019,9 @@ pub async fn process_document(
     Extension(_claims): Extension<Claims>,
     Path(_id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    Err::<(), _>(not_implemented(
+    Err::<(), _>(ApiError::not_implemented(
         "Document processing requires the 'embeddings' feature to be enabled",
-    ))
+    ).into())
 }
 
 /// Retry a failed document processing.
@@ -1053,18 +1052,18 @@ pub async fn retry_document(
         .db
         .get_document(&claims.tenant_id, &id)
         .await
-        .map_err(db_error)?
-        .ok_or_else(|| not_found("Document"))?;
+        .map_err(ApiError::db_error)?
+        .ok_or_else(|| ApiError::not_found("Document"))?;
 
     // Validate tenant isolation
     validate_tenant_isolation(&claims, &document.tenant_id)?;
 
     // Only failed documents can be retried
     if document.status != "failed" {
-        return Err(bad_request(format!(
+        return Err(ApiError::bad_request(format!(
             "Only failed documents can be retried. Current status: {}",
             document.status
-        )));
+        )).into());
     }
 
     // Prepare document for retry (increments retry_count, resets to pending)
@@ -1072,10 +1071,10 @@ pub async fn retry_document(
         .db
         .prepare_document_retry(&claims.tenant_id, &id)
         .await
-        .map_err(db_error)?;
+        .map_err(ApiError::db_error)?;
 
     if !prepared {
-        return Err(bad_request("Document has exceeded maximum retry attempts"));
+        return Err(ApiError::bad_request("Document has exceeded maximum retry attempts").into());
     }
 
     info!(
@@ -1089,8 +1088,8 @@ pub async fn retry_document(
         .db
         .get_document(&claims.tenant_id, &id)
         .await
-        .map_err(db_error)?
-        .ok_or_else(|| not_found("Document"))?;
+        .map_err(ApiError::db_error)?
+        .ok_or_else(|| ApiError::not_found("Document"))?;
 
     // Audit log
     log_success_or_warn(
@@ -1140,7 +1139,7 @@ pub async fn list_failed_documents(
         .db
         .get_retryable_documents(&claims.tenant_id, limit)
         .await
-        .map_err(db_error)?;
+        .map_err(ApiError::db_error)?;
 
     let response: Vec<DocumentResponse> =
         documents.into_iter().map(DocumentResponse::from).collect();
