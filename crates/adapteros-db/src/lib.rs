@@ -932,7 +932,7 @@ impl Db {
     /// Create a new Db instance with configuration from environment variables
     ///
     /// This constructor reads configuration from the following environment variables:
-    /// - `AOS_DATABASE_URL` or `DATABASE_URL` - Database connection URL (default: "./var/cp.db")
+    /// - `AOS_DATABASE_URL` or `DATABASE_URL` - Database connection URL (default: "var/cp.db")
     /// - `AOS_STORAGE_BACKEND` or `AOS_STORAGE_MODE` - Storage mode (default: "sql_only")
     /// - `AOS_KV_PATH` - Path to KV database file (default: "var/aos-kv.redb")
     ///

@@ -63,7 +63,7 @@ async fn test_tiny_bert_loading_mock() -> Result<()> {
 async fn test_tiny_bert_loading_real() -> Result<()> {
     // Path to the downloaded model from script
     let repo_root = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".into()); // This might be wrong in workspace
-    let model_path = PathBuf::from("../../var/models/tiny-bert-4bit-ane.mlpackage");
+    let model_path = PathBuf::from("../.var/models/tiny-bert-4bit-ane.mlpackage");
 
     if !model_path.exists() {
         println!("Skipping real test: Model not found at {:?}", model_path);

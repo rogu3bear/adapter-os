@@ -2586,12 +2586,12 @@ impl LifecycleManager {
         let repo = repo_id.unwrap_or(model_id);
         let cache_root = std::env::var("AOS_MODEL_CACHE_DIR")
             .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from("var/model-cache"));
+            .unwrap_or_else(|_| adapteros_core::rebase_var_path("var/model-cache"));
 
         let candidates = [
             cache_root.join("models").join(repo),
             cache_root.join(repo),
-            PathBuf::from("var/models").join(repo),
+            adapteros_core::rebase_var_path("var/models").join(repo),
         ];
 
         for candidate in candidates {
@@ -2613,7 +2613,7 @@ impl LifecycleManager {
     fn build_model_hub_config(&self) -> ModelHubConfig {
         let cache_dir = std::env::var("AOS_MODEL_CACHE_DIR")
             .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from("var/model-cache"));
+            .unwrap_or_else(|_| adapteros_core::rebase_var_path("var/model-cache"));
 
         let max_concurrent_downloads = {
             let raw = std::env::var("AOS_MAX_CONCURRENT_DOWNLOADS").ok();

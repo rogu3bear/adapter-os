@@ -601,7 +601,7 @@ pub async fn run_worker() -> Result<()> {
         Option<CoremlVerificationSnapshot>,
     ) = (None, None);
 
-    // Create telemetry writer - use env var or ./var/telemetry
+    // Create telemetry writer - use env var or var/telemetry
     let resolved_telemetry = resolve_telemetry_dir()?;
     if let Err(e) = std::fs::create_dir_all(&resolved_telemetry.path) {
         warn!(

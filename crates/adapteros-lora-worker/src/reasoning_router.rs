@@ -68,7 +68,7 @@ impl ReasoningRouterConfig {
                     .as_ref()
                     .map(std::path::PathBuf::from)
                     .unwrap_or_else(|| {
-                        std::path::PathBuf::from("var/models/tiny-bert-4bit-ane.mlpackage")
+                        adapteros_core::rebase_var_path("var/models/tiny-bert-4bit-ane.mlpackage")
                     });
 
                 // Attempt to load TinyBert

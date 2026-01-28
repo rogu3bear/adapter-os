@@ -51,15 +51,15 @@ impl Default for AgentSpawnConfig {
         Self {
             agent_count: 20,
             agent_binary: None,
-            socket_dir: PathBuf::from("./var/run/agents"),
-            pid_dir: PathBuf::from("./var/run/agents/pids"),
+            socket_dir: adapteros_core::rebase_var_path("var/run/agents"),
+            pid_dir: adapteros_core::rebase_var_path("var/run/agents/pids"),
             distribution_strategy: DistributionStrategy::Semantic,
             spawn_timeout_secs: 60,
             task_timeout_secs: 600,
             barrier_timeout_secs: 30,
             deterministic_mode: false,
             global_seed: None,
-            worker_socket: PathBuf::from("./var/run/aos-worker.sock"),
+            worker_socket: adapteros_core::rebase_var_path("var/run/aos-worker.sock"),
             max_agent_restarts: 3,
             health_check_interval_ms: 5000,
         }
