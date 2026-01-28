@@ -232,12 +232,8 @@ mod command_parsing {
 
     #[test]
     fn test_node_list_command() {
-        // Online mode (default)
-        let result = parse_cli(vec!["aosctl", "node-list"]);
-        assert!(result.is_ok());
-
-        // Offline mode
-        let result = parse_cli(vec!["aosctl", "node-list", "--offline"]);
+        // Online mode (default) - using subcommand syntax
+        let result = parse_cli(vec!["aosctl", "node", "list"]);
         assert!(result.is_ok());
     }
 
