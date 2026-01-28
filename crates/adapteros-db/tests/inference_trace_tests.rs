@@ -84,8 +84,8 @@ async fn trace_persistence_and_receipt_verification() -> anyhow::Result<()> {
         .finalize(TraceFinalization {
             output_tokens: &output_tokens,
             logical_prompt_tokens: 10,
-            prefix_cached_token_count: 2,
-            billed_input_tokens: 8,
+            prefix_cached_token_count: 0,
+            billed_input_tokens: 10,
             logical_output_tokens: output_tokens.len() as u32,
             billed_output_tokens: output_tokens.len() as u32,
             stop_reason_code: None,
@@ -106,6 +106,9 @@ async fn trace_persistence_and_receipt_verification() -> anyhow::Result<()> {
             crypto_receipt_digest_b3: None,
             receipt_parity_verified: None,
             tenant_id: None,
+            // P0-1: Cache attestation (not needed when prefix_cached_token_count = 0)
+            cache_attestation: None,
+            worker_public_key: None,
         })
         .await?;
 
@@ -169,8 +172,8 @@ async fn trace_persistence_and_receipt_verification() -> anyhow::Result<()> {
         .finalize(TraceFinalization {
             output_tokens: &output_tokens,
             logical_prompt_tokens: 10,
-            prefix_cached_token_count: 2,
-            billed_input_tokens: 8,
+            prefix_cached_token_count: 0,
+            billed_input_tokens: 10,
             logical_output_tokens: output_tokens.len() as u32,
             billed_output_tokens: output_tokens.len() as u32,
             stop_reason_code: None,
@@ -191,6 +194,9 @@ async fn trace_persistence_and_receipt_verification() -> anyhow::Result<()> {
             crypto_receipt_digest_b3: None,
             receipt_parity_verified: None,
             tenant_id: None,
+            // P0-1: Cache attestation (not needed when prefix_cached_token_count = 0)
+            cache_attestation: None,
+            worker_public_key: None,
         })
         .await?;
     assert_eq!(
