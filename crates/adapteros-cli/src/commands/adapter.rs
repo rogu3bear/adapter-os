@@ -67,7 +67,7 @@ pub struct ActivationWindow {
 /// Get worker socket path for tenant
 fn get_worker_socket_path(tenant_id: Option<&str>) -> std::path::PathBuf {
     let tenant = tenant_id.unwrap_or("default");
-    std::path::PathBuf::from(format!("./var/run/aos/{}/worker.sock", tenant))
+    std::path::PathBuf::from(format!("var/run/aos/{}/worker.sock", tenant))
 }
 
 /// Upsert directory adapter via HTTP API

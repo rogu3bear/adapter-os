@@ -27,7 +27,7 @@ pub enum ModelsCommand {
         #[arg(long = "model-path")]
         path: Option<PathBuf>,
 
-        /// Database path (defaults to DATABASE_URL or ./var/aos-cp.sqlite3)
+        /// Database path (defaults to DATABASE_URL or var/aos-cp.sqlite3)
         #[arg(long)]
         db_path: Option<PathBuf>,
 
@@ -45,7 +45,7 @@ pub enum ModelsCommand {
   aosctl models list --json
 "#)]
     List {
-        /// Database path (defaults to DATABASE_URL or ./var/aos-cp.sqlite3)
+        /// Database path (defaults to DATABASE_URL or var/aos-cp.sqlite3)
         #[arg(long)]
         db_path: Option<PathBuf>,
 
@@ -101,7 +101,7 @@ async fn run_seed(
     // Resolve model path: CLI arg > AOS_MODEL_PATH env > default
     let model_path = model_path
         .or_else(|| std::env::var("AOS_MODEL_PATH").ok().map(PathBuf::from))
-        .unwrap_or_else(|| PathBuf::from("var/models"));
+        .unwrap_or_else(|| adapteros_core::rebase_var_path("var/models"));
 
     if !model_path.exists() {
         output.warning(format!(
@@ -117,7 +117,7 @@ async fn run_seed(
     } else if let Ok(url) = std::env::var("DATABASE_URL") {
         url
     } else {
-        "sqlite://./var/aos-cp.sqlite3".to_string()
+        "sqlite://var/aos-cp.sqlite3".to_string()
     };
 
     output.progress(format!(
@@ -242,7 +242,7 @@ async fn run_list(db_path: Option<PathBuf>, json: bool, output: &OutputWriter) -
     } else if let Ok(url) = std::env::var("DATABASE_URL") {
         url
     } else {
-        "sqlite://./var/aos-cp.sqlite3".to_string()
+        "sqlite://var/aos-cp.sqlite3".to_string()
     };
 
     let db = Db::connect(&db_url).await?;

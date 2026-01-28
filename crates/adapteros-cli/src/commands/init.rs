@@ -211,7 +211,7 @@ pub async fn run(args: InitArgs, output: &OutputWriter) -> Result<()> {
     let db_url = args
         .database_url
         .clone()
-        .unwrap_or_else(|| "sqlite://./var/aos-cp.sqlite3".to_string());
+        .unwrap_or_else(|| "sqlite://var/aos-cp.sqlite3".to_string());
     debug!(db_url = %db_url, "Using database URL");
 
     // Step 2: Check if already initialized (unless --yes)

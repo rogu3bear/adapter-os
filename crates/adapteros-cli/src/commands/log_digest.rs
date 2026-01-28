@@ -6,9 +6,9 @@
 //! # Usage
 //!
 //! ```bash
-//! aosctl log digest ./var/logs --since 1h
-//! aosctl log digest ./var/logs --json
-//! aosctl log digest ./var/logs --max-entries 100
+//! aosctl log digest var/logs --since 1h
+//! aosctl log digest var/logs --json
+//! aosctl log digest var/logs --max-entries 100
 //! ```
 
 use crate::output::OutputWriter;
@@ -26,7 +26,7 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Args, Clone)]
 pub struct LogDigestArgs {
     /// Directory containing log files
-    #[arg(default_value = "./var/logs")]
+    #[arg(default_value = "var/logs")]
     pub log_dir: PathBuf,
 
     /// Only include entries from the last N hours/minutes (e.g., "1h", "30m")
