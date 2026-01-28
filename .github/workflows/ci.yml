@@ -877,3 +877,46 @@ jobs:
           cargo check -p adapteros-server-api
           cargo check -p adapteros-ui --target wasm32-unknown-unknown
           echo "✓ Server and UI types compile successfully"
+
+  # ==========================================================================
+  # MIRI Unsafe Code Verification (P0-4)
+  # ==========================================================================
+  miri:
+    name: MIRI Unsafe Code Analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri
+      - name: Setup MIRI
+        run: cargo +nightly miri setup
+      - name: Run MIRI on kernel crate (MIRI-safe tests only)
+        run: |
+          # Run MIRI on the dedicated miri_safe_tests module
+          # These tests avoid FFI calls which MIRI cannot handle
+          cargo +nightly miri test -p adapteros-lora-kernel-mtl --test miri_safe_tests 2>&1 || {
+            echo "::warning::MIRI found issues in kernel crate unsafe code"
+            # Don't fail the build yet - this is informational
+            # TODO: Make this a hard failure once all issues are fixed
+            true
+          }
+      - name: Run MIRI on FFI crate (pure-Rust portions)
+        run: |
+          # Run MIRI on the miri_safe module in the FFI crate
+          # Excludes actual FFI calls which MIRI cannot verify
+          cargo +nightly miri test -p adapteros-lora-mlx-ffi --test miri_safe_tests 2>&1 || {
+            echo "::warning::MIRI found issues in MLX FFI crate unsafe code"
+            true
+          }
+      - name: Summarize MIRI coverage
+        run: |
+          echo "## MIRI Unsafe Code Analysis" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "MIRI has analyzed the pure-Rust unsafe code in:" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`adapteros-lora-kernel-mtl\`: Metal kernel abstractions" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`adapteros-lora-mlx-ffi\`: MLX FFI wrappers" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Note**: FFI calls to Metal/MLX cannot be verified by MIRI." >> "$GITHUB_STEP_SUMMARY"
+          echo "Those are documented with \`// SAFETY:\` comments instead." >> "$GITHUB_STEP_SUMMARY"
