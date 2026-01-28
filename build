@@ -1,0 +1,124 @@
+#!/bin/bash
+# Tasteful cargo build wrapper
+# Shows clean progress instead of verbose "Compiling..." spam
+
+set -e
+
+# Colors (match ./start aesthetic)
+CYAN='\033[0;36m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+BOLD='\033[1m'
+RESET='\033[0m'
+
+SPINNER="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
+# Parse arguments - pass through to cargo
+CARGO_ARGS=("$@")
+if [ ${#CARGO_ARGS[@]} -eq 0 ]; then
+    CARGO_ARGS=("--release" "--workspace")
+fi
+
+# State files (to persist across subshell)
+state_dir=$(mktemp -d)
+trap "rm -rf '$state_dir'" EXIT
+
+echo "0" > "$state_dir/compiled"
+echo "0" > "$state_dir/warnings"
+echo "0" > "$state_dir/errors"
+echo "" > "$state_dir/current"
+echo "" > "$state_dir/warn_log"
+echo "" > "$state_dir/err_log"
+
+spinner_idx=0
+start_time=$(date +%s)
+
+# Update the progress line
+update_progress() {
+    local compiled=$(cat "$state_dir/compiled")
+    local current=$(cat "$state_dir/current")
+    local char="${SPINNER:$spinner_idx:1}"
+    spinner_idx=$(( (spinner_idx + 1) % ${#SPINNER} ))
+
+    # Clear line and print progress
+    printf "\r\033[K  ${CYAN}%s${RESET} Building ${BOLD}%s${RESET} (%d crates)" \
+        "$char" "$current" "$compiled"
+}
+
+# Run cargo with JSON output and parse it
+cargo build "${CARGO_ARGS[@]}" --message-format=json 2>&1 | while IFS= read -r line; do
+    # Try to parse as JSON
+    if echo "$line" | jq -e . >/dev/null 2>&1; then
+        reason=$(echo "$line" | jq -r '.reason // empty')
+
+        case "$reason" in
+            "compiler-artifact")
+                crate=$(echo "$line" | jq -r '.package_id' | sed 's/ .*//' | sed 's/.*#//')
+                echo "$crate" > "$state_dir/current"
+                echo $(( $(cat "$state_dir/compiled") + 1 )) > "$state_dir/compiled"
+                update_progress
+                ;;
+            "compiler-message")
+                level=$(echo "$line" | jq -r '.message.level // empty')
+                msg=$(echo "$line" | jq -r '.message.rendered // empty')
+                case "$level" in
+                    "warning")
+                        echo $(( $(cat "$state_dir/warnings") + 1 )) > "$state_dir/warnings"
+                        echo "$msg" >> "$state_dir/warn_log"
+                        ;;
+                    "error")
+                        echo $(( $(cat "$state_dir/errors") + 1 )) > "$state_dir/errors"
+                        echo "$msg" >> "$state_dir/err_log"
+                        # Show errors immediately
+                        printf "\r\033[K"
+                        echo -e "$msg"
+                        ;;
+                esac
+                ;;
+        esac
+    else
+        # Non-JSON output (fallback for non-JSON builds)
+        if [[ "$line" =~ ^[[:space:]]*Compiling ]]; then
+            current=$(echo "$line" | sed 's/.*Compiling //' | sed 's/ v.*//')
+            echo "$current" > "$state_dir/current"
+            echo $(( $(cat "$state_dir/compiled") + 1 )) > "$state_dir/compiled"
+            update_progress
+        elif [[ "$line" =~ ^error ]]; then
+            printf "\r\033[K"
+            echo -e "${RED}$line${RESET}"
+            echo $(( $(cat "$state_dir/errors") + 1 )) > "$state_dir/errors"
+        fi
+    fi
+done
+
+# Read final state
+compiled=$(cat "$state_dir/compiled")
+warnings=$(cat "$state_dir/warnings")
+errors=$(cat "$state_dir/errors")
+
+# Calculate duration
+end_time=$(date +%s)
+duration=$((end_time - start_time))
+
+# Clear progress line
+printf "\r\033[K"
+
+if [ "$errors" -gt 0 ]; then
+    echo -e "  ${RED}✗${RESET} Build failed (${duration}s)"
+    [ -s "$state_dir/err_log" ] && cat "$state_dir/err_log"
+    exit 1
+else
+    # Build summary
+    parts=("Built in ${duration}s")
+    [ "$compiled" -gt 0 ] && parts+=("$compiled crates")
+    [ "$warnings" -gt 0 ] && parts+=("${YELLOW}$warnings warnings${RESET}")
+
+    # Join with comma-space
+    summary=""
+    for i in "${!parts[@]}"; do
+        [ $i -gt 0 ] && summary+=", "
+        summary+="${parts[$i]}"
+    done
+    echo -e "  ${GREEN}✓${RESET} $summary"
+fi
