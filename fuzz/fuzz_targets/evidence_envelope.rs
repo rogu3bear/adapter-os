@@ -170,6 +170,19 @@ fuzz_target!(|data: &[u8]| {
                 None
             };
 
+            let seed_lineage_hash = if u.arbitrary::<bool>().unwrap_or(false) {
+                let bytes: [u8; 32] = u.arbitrary().unwrap_or([0u8; 32]);
+                Some(B3Hash::from_bytes(bytes))
+            } else {
+                None
+            };
+            let adapter_training_lineage_digest = if u.arbitrary::<bool>().unwrap_or(false) {
+                let bytes: [u8; 32] = u.arbitrary().unwrap_or([0u8; 32]);
+                Some(B3Hash::from_bytes(bytes))
+            } else {
+                None
+            };
+
             let inference_ref = InferenceReceiptRef {
                 trace_id,
                 run_head_hash: B3Hash::from_bytes(run_head_hash),
@@ -186,6 +199,8 @@ fuzz_target!(|data: &[u8]| {
                 model_cache_identity_v2_digest_b3,
                 backend_used,
                 backend_attestation_b3,
+                seed_lineage_hash,
+                adapter_training_lineage_digest,
             };
 
             EvidenceEnvelope::new_inference(

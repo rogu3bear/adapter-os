@@ -48,7 +48,7 @@ fuzz_target!(|data: &[u8]| {
             token_index: 0,
             adapter_ids: adapter_ids.clone(),
             gates_q15: gates_q15.clone(),
-            policy_mask_digest: None,
+            policy_mask_digest_b3: None,
             allowed_mask: Some(vec![true, true]),
             policy_overrides_applied: None,
             backend_id: Some("coreml".to_string()),
@@ -92,6 +92,9 @@ fuzz_target!(|data: &[u8]| {
                 crypto_receipt_digest_b3: None,
                 receipt_parity_verified: None,
                 tenant_id: None,
+                // P0-1: Cache attestation for provable cache credits
+                cache_attestation: None,
+                worker_public_key: None,
             })
             .await;
 

@@ -43,6 +43,7 @@ fuzz_target!(|data: &[u8]| {
     let adapter_info: Vec<AdapterInfo> = (0..adapter_count)
         .map(|idx| AdapterInfo {
             id: format!("adapter-{idx}"),
+            stable_id: idx as u64,
             framework: Some(if rng.gen_bool(0.5) { "coreml" } else { "mlx" }.to_string()),
             languages: vec![rng.gen_range(0..8)],
             tier: if rng.gen_bool(0.5) {
@@ -57,6 +58,11 @@ fuzz_target!(|data: &[u8]| {
             },
             lora_tier: None,
             base_model: None,
+            recommended_for_moe: false,
+            reasoning_specialties: vec![],
+            adapter_type: None,
+            stream_session_id: None,
+            base_adapter_id: None,
         })
         .collect();
 
@@ -70,8 +76,14 @@ fuzz_target!(|data: &[u8]| {
     let mut router_a = Router::new_with_weights(RouterWeights::default(), k, 1.0, 0.05);
     let mut router_b = Router::new_with_weights(RouterWeights::default(), k, 1.0, 0.05);
 
-    let decision_a = router_a.route_with_adapter_info(&features, &priors, &adapter_info, &mask);
-    let decision_b = router_b.route_with_adapter_info(&features, &priors, &adapter_info, &mask);
+    let decision_a = match router_a.route_with_adapter_info(&features, &priors, &adapter_info, &mask) {
+        Ok(d) => d,
+        Err(_) => return, // Skip on routing errors (e.g., validation failures)
+    };
+    let decision_b = match router_b.route_with_adapter_info(&features, &priors, &adapter_info, &mask) {
+        Ok(d) => d,
+        Err(_) => return,
+    };
 
     // Determinism check: same inputs should yield identical indices and gates
     assert_eq!(decision_a.indices, decision_b.indices);
