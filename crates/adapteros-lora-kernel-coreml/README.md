@@ -14,7 +14,7 @@ use adapteros_lora_kernel_api::FusedKernels;
 let mut backend = CoreMLBackend::new(ComputeUnits::CpuAndNeuralEngine, false)?;
 
 // Load base model
-backend.load_model(Path::new("./var/models/qwen-coreml.mlpackage"))?;
+backend.load_model(Path::new("var/models/qwen-coreml.mlpackage"))?;
 
 // Load adapter (sidecar path)
 let adapter_bytes = std::fs::read("adapter.aos")?;
@@ -95,14 +95,14 @@ println!("Fused {} layers, modified {} params",
 ```bash
 # Use the export pipeline to create fused packages
 python scripts/convert_mlx_to_coreml.py \
-  --input ./var/models/base-model-mlx \
-  --output ./var/models/base-coreml.mlpackage
+  --input var/models/base-model-mlx \
+  --output var/models/base-coreml.mlpackage
 
 # Fusion happens via the Rust API (see examples/fusion_example.rs)
 cargo run --example fusion_example \
-  --base ./var/models/base-coreml.mlpackage \
-  --adapter ./var/adapters/my_adapter.aos \
-  --output ./var/models/fused-coreml.mlpackage
+  --base var/models/base-coreml.mlpackage \
+  --adapter var/adapters/my_adapter.aos \
+  --output var/models/fused-coreml.mlpackage
 ```
 
 **Metadata & Verification:**

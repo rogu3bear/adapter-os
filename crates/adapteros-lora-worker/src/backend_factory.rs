@@ -88,7 +88,7 @@ pub type BackendChoice = adapteros_core::backend::BackendKind;
 /// use std::path::PathBuf;
 ///
 /// # fn main() -> Result<(), adapteros_core::AosError> {
-/// let mut config = ModelConfig::new(PathBuf::from("./var/model-cache/models/qwen2.5-7b-instruct-bf16"));
+/// let mut config = ModelConfig::new(PathBuf::from("var/model-cache/models/qwen2.5-7b-instruct-bf16"));
 /// config.backend = BackendPreference::CoreML;
 /// let backend = create_backend_from_config(&config)?;
 /// # Ok(())
@@ -355,7 +355,7 @@ pub fn create_backend_with_model(choice: BackendChoice, model_path: &Path) -> Re
 /// let hash = B3Hash::hash(b"model-manifest");
 /// let backend = create_backend_with_model_and_hash(
 ///     BackendChoice::Mlx,
-///     Path::new("./var/model-cache/models/qwen2.5-7b-instruct-bf16"),
+///     Path::new("var/model-cache/models/qwen2.5-7b-instruct-bf16"),
 ///     Some(&hash)
 /// )?;
 /// ```

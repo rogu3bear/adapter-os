@@ -473,7 +473,7 @@ impl super::types::AdapterPackager {
         tokio::fs::create_dir_all(&adapter_dir).await.map_err(|e| {
             AosError::Training(format!("Failed to create adapter directory: {}", e))
         })?;
-        let storage = FsByteStorage::new(PathBuf::from("var/datasets"), self.repo_root.clone());
+        let storage = FsByteStorage::new(adapteros_core::rebase_var_path("var/datasets"), self.repo_root.clone());
 
         // Serialize weights to in-memory safetensors buffer (matches loader expectations)
         let weights_data = Self::build_safetensors_bytes(weights)?;

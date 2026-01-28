@@ -951,7 +951,7 @@ impl AdapterTable {
     /// Uses atomic write (temp file + rename) to ensure consistency.
     ///
     /// # Arguments
-    /// * `path` - Path to save checkpoints (e.g., `./var/run/aos/stack_checkpoints.json`)
+    /// * `path` - Path to save checkpoints (e.g., `var/run/aos/stack_checkpoints.json`)
     ///
     /// # Returns
     /// Ok(()) on success, error if write fails

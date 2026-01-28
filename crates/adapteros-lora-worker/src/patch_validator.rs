@@ -1165,7 +1165,7 @@ mod tests {
                 serve_requires_pf: true,
                 allow_tcp: false,
                 allow_udp: false,
-                uds_paths: vec!["./var/run/aos/*.sock".to_string()],
+                uds_paths: vec!["var/run/aos/*.sock".to_string()],
             },
             drift: DriftPolicy::default(),
             determinism: DeterminismPolicy {
@@ -1198,7 +1198,7 @@ mod tests {
             },
             isolation: IsolationPolicy {
                 process_model: "per_tenant".to_string(),
-                uds_root: "./var/run/aos".to_string(),
+                uds_root: "var/run/aos".to_string(),
                 forbid_shm: true,
             },
             performance: PerformancePolicy {

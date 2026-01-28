@@ -295,7 +295,7 @@ impl Db {
     ///     .tenant_id("tenant-456")
     ///     .node_id("node-789")
     ///     .plan_id("plan-101")
-    ///     .uds_path("./var/run/worker.sock")
+    ///     .uds_path("var/run/worker.sock")
     ///     .pid(12345)
     ///     .status("running")
     ///     .build()

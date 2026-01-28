@@ -321,7 +321,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use adapteros_storage::platform::common::PlatformUtils;
     use tempfile::TempDir;
 
     fn new_test_tempdir() -> Result<TempDir> {
