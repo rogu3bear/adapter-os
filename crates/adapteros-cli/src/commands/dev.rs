@@ -10,10 +10,10 @@ use std::process::{Command, Stdio};
 use tokio::process::Command as TokioCommand;
 use tracing::{error, info, warn};
 
-const PID_DIR: &str = "./var/run";
-const API_SERVER_PID: &str = "./var/run/api-server.pid";
-const UI_SERVER_PID: &str = "./var/run/ui-server.pid";
-const WORKER_PID: &str = "./var/run/aos-worker.pid";
+const PID_DIR: &str = "var/run";
+const API_SERVER_PID: &str = "var/run/api-server.pid";
+const UI_SERVER_PID: &str = "var/run/ui-server.pid";
+const WORKER_PID: &str = "var/run/aos-worker.pid";
 
 #[derive(Debug, Subcommand, Clone)]
 pub enum DevCommand {
@@ -305,13 +305,13 @@ async fn dev_logs(service: Option<String>, lines: usize, output: &OutputWriter) 
     info!(service = ?service, lines = lines, "Showing development logs");
 
     let log_files = match service.as_deref() {
-        Some("api") => vec!["./var/logs/api-server.log"],
-        Some("ui") => vec!["./var/logs/ui-server.log"],
-        Some("worker") => vec!["./var/logs/worker.log"],
+        Some("api") => vec!["var/logs/api-server.log"],
+        Some("ui") => vec!["var/logs/ui-server.log"],
+        Some("worker") => vec!["var/logs/worker.log"],
         None => vec![
-            "./var/logs/api-server.log",
-            "./var/logs/ui-server.log",
-            "./var/logs/worker.log",
+            "var/logs/api-server.log",
+            "var/logs/ui-server.log",
+            "var/logs/worker.log",
         ],
         Some(other) => {
             return Err(AosError::Validation(format!(
@@ -350,7 +350,7 @@ async fn dev_logs(service: Option<String>, lines: usize, output: &OutputWriter) 
 
 /// Reset database (dev only)
 fn reset_database(output: &OutputWriter) -> Result<()> {
-    let db_path = Path::new("./var/aos-cp.sqlite3");
+    let db_path = Path::new("var/aos-cp.sqlite3");
     if db_path.exists() {
         fs::remove_file(db_path)
             .map_err(|e| AosError::Io(format!("Failed to remove database: {}", e)))?;
@@ -379,7 +379,7 @@ fn run_migrations(_output: &OutputWriter) -> Result<()> {
 /// Start API server
 async fn start_api_server(output: &OutputWriter) -> Result<()> {
     // Ensure log directory exists
-    fs::create_dir_all("./var/logs")
+    fs::create_dir_all("var/logs")
         .map_err(|e| AosError::Io(format!("Failed to create log directory: {}", e)))?;
 
     // Redirect output to log file
@@ -387,12 +387,12 @@ async fn start_api_server(output: &OutputWriter) -> Result<()> {
     let stdout_file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open("./var/logs/api-server.log")
+        .open("var/logs/api-server.log")
         .map_err(|e| AosError::Io(format!("Failed to open log file: {}", e)))?;
     let stderr_file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open("./var/logs/api-server.log")
+        .open("var/logs/api-server.log")
         .map_err(|e| AosError::Io(format!("Failed to open log file: {}", e)))?;
 
     let mut child = TokioCommand::new("cargo")
@@ -423,18 +423,18 @@ async fn start_api_server(output: &OutputWriter) -> Result<()> {
 }
 
 async fn start_worker(output: &OutputWriter) -> Result<()> {
-    fs::create_dir_all("./var/logs")
+    fs::create_dir_all("var/logs")
         .map_err(|e| AosError::Io(format!("Failed to create log directory: {}", e)))?;
 
     let stdout_file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open("./var/logs/worker.log")
+        .open("var/logs/worker.log")
         .map_err(|e| AosError::Io(format!("Failed to open worker log file: {}", e)))?;
     let stderr_file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open("./var/logs/worker.log")
+        .open("var/logs/worker.log")
         .map_err(|e| AosError::Io(format!("Failed to open worker log file: {}", e)))?;
 
     let mut child = TokioCommand::new("cargo")
@@ -476,7 +476,7 @@ async fn start_ui_server(output: &OutputWriter) -> Result<()> {
     }
 
     // Ensure log directory exists
-    fs::create_dir_all("./var/logs")
+    fs::create_dir_all("var/logs")
         .map_err(|e| AosError::Io(format!("Failed to create log directory: {}", e)))?;
 
     // Redirect output to log file
@@ -484,12 +484,12 @@ async fn start_ui_server(output: &OutputWriter) -> Result<()> {
     let stdout_file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open("./var/logs/ui-server.log")
+        .open("var/logs/ui-server.log")
         .map_err(|e| AosError::Io(format!("Failed to open log file: {}", e)))?;
     let stderr_file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open("./var/logs/ui-server.log")
+        .open("var/logs/ui-server.log")
         .map_err(|e| AosError::Io(format!("Failed to open log file: {}", e)))?;
 
     let mut child = TokioCommand::new("pnpm")

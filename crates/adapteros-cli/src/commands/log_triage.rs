@@ -6,9 +6,9 @@
 //! # Usage
 //!
 //! ```bash
-//! aosctl log triage ./var/logs
-//! aosctl log triage ./var/logs --rules ./custom_rules.json
-//! aosctl log triage ./var/logs --json
+//! aosctl log triage var/logs
+//! aosctl log triage var/logs --rules ./custom_rules.json
+//! aosctl log triage var/logs --json
 //! ```
 
 use crate::commands::log_digest::{LogDigest, LogEntry, LogLevel};
@@ -24,7 +24,7 @@ use std::path::PathBuf;
 #[derive(Debug, Args, Clone)]
 pub struct LogTriageArgs {
     /// Directory containing log files (uses digest internally)
-    #[arg(default_value = "./var/logs")]
+    #[arg(default_value = "var/logs")]
     pub log_dir: PathBuf,
 
     /// Custom rules file (JSON format)

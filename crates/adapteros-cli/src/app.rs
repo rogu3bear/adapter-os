@@ -317,10 +317,10 @@ pub enum Commands {
   aosctl sync-registry --dir ./adapters
 
   # Sync with custom CAS root
-  aosctl sync-registry --dir ./adapters --cas-root ./var/cas
+  aosctl sync-registry --dir ./adapters --cas-root var/cas
 
   # Sync to custom registry
-  aosctl sync-registry --dir ./adapters --registry ./var/custom.db
+  aosctl sync-registry --dir ./adapters --registry var/custom.db
 "#)]
     RegistrySync {
         /// Directory containing adapters with SBOM and signatures
@@ -332,11 +332,11 @@ pub enum Commands {
         public_key: Option<PathBuf>,
 
         /// CAS root directory
-        #[arg(long, default_value = "./var/cas")]
+        #[arg(long, default_value = "var/cas")]
         cas_root: PathBuf,
 
         /// Registry database path
-        #[arg(long, default_value = "./var/registry.db")]
+        #[arg(long, default_value = "var/registry.db")]
         registry: PathBuf,
     },
 
@@ -507,8 +507,8 @@ pub enum Commands {
     /// Export call graph to various formats
     #[cfg(feature = "codegraph")]
     #[command(after_help = r#"Examples:
-  aosctl callgraph-export --codegraph-db ./var/codegraph.db --output graph.dot
-  aosctl callgraph-export --codegraph-db ./var/codegraph.db --output graph.json --format json
+  aosctl callgraph-export --codegraph-db var/codegraph.db --output graph.dot
+  aosctl callgraph-export --codegraph-db var/codegraph.db --output graph.json --format json
 "#)]
     CallgraphExport {
         /// CodeGraph database path
@@ -528,10 +528,10 @@ pub enum Commands {
     #[cfg(feature = "codegraph")]
     #[command(after_help = r#"Examples:
   # Generate statistics
-  aosctl codegraph-stats --codegraph-db ./var/codegraph.db
+  aosctl codegraph-stats --codegraph-db var/codegraph.db
 
   # Export statistics to JSON
-  aosctl codegraph-stats --codegraph-db ./var/codegraph.db --json > stats.json
+  aosctl codegraph-stats --codegraph-db var/codegraph.db --json > stats.json
 "#)]
     CodegraphStats {
         /// CodeGraph database path
@@ -543,7 +543,7 @@ pub enum Commands {
     #[cfg(feature = "secd-support")]
     #[command(after_help = r#"Examples:
   aosctl secd-status
-  aosctl secd-status --database ./var/custom.db
+  aosctl secd-status --database var/custom.db
   aosctl secd-status --json > secd.json
 "#)]
     SecdStatus {
@@ -560,7 +560,7 @@ pub enum Commands {
         socket: PathBuf,
 
         /// Database path
-        #[arg(long, default_value = "./var/aos-cp.sqlite3")]
+        #[arg(long, default_value = "var/aos-cp.sqlite3")]
         database: PathBuf,
     },
 
@@ -568,7 +568,7 @@ pub enum Commands {
     #[cfg(feature = "secd-support")]
     SecdAudit {
         /// Database path
-        #[arg(long, default_value = "./var/aos-cp.sqlite3")]
+        #[arg(long, default_value = "var/aos-cp.sqlite3")]
         database: PathBuf,
 
         /// Number of operations to show
@@ -651,7 +651,7 @@ pub enum Commands {
   aosctl serve --tenant tenant_dev --plan cp_abc123
 
   # Custom socket path (development)
-  aosctl serve --tenant tenant_dev --plan cp_abc123 --socket ./var/run/aos.sock
+  aosctl serve --tenant tenant_dev --plan cp_abc123 --socket var/run/aos.sock
 "#)]
     Serve {
         /// Tenant ID
@@ -770,13 +770,13 @@ pub enum Commands {
     #[cfg(feature = "replay")]
     #[command(after_help = r#"Examples:
   # Replay bundle
-  aosctl replay ./var/bundles/bundle_001.zip
+  aosctl replay var/bundles/bundle_001.zip
 
   # Replay with verbose output
-  aosctl replay ./var/bundles/bundle_001.zip --verbose
+  aosctl replay var/bundles/bundle_001.zip --verbose
 
   # Replay and check determinism
-  aosctl replay ./var/bundles/bundle_001.zip --check-determinism
+  aosctl replay var/bundles/bundle_001.zip --check-determinism
 "#)]
     Replay {
         /// Bundle path
@@ -868,13 +868,13 @@ pub enum Commands {
     /// Generate HTML report from bundle
     #[command(after_help = r#"Examples:
   # Generate HTML report
-  aosctl report ./var/bundles/bundle_001.zip --output report.html
+  aosctl report var/bundles/bundle_001.zip --output report.html
 
   # Generate report with custom template
-  aosctl report ./var/bundles/bundle_001.zip --output report.html --template custom.html
+  aosctl report var/bundles/bundle_001.zip --output report.html --template custom.html
 
   # Generate report and open in browser
-  aosctl report ./var/bundles/bundle_001.zip --output report.html --open
+  aosctl report var/bundles/bundle_001.zip --output report.html --open
 "#)]
     Report {
         /// Bundle path

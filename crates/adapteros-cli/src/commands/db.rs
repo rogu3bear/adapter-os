@@ -37,13 +37,13 @@ pub enum DbCommand {
   aosctl db migrate
 
   # Run migrations on custom database
-  aosctl db migrate --db-path ./var/custom.db
+  aosctl db migrate --db-path var/custom.db
 
   # Verify signatures only (don't run migrations)
   aosctl db migrate --verify-only
 "#)]
     Migrate {
-        /// Database path (defaults to DATABASE_URL or ./var/aos-cp.sqlite3)
+        /// Database path (defaults to DATABASE_URL or var/aos-cp.sqlite3)
         #[arg(long)]
         db_path: Option<PathBuf>,
 
@@ -58,10 +58,10 @@ pub enum DbCommand {
   aosctl db unlock
 
   # Unlock custom database
-  aosctl db unlock --db-path ./var/custom.db
+  aosctl db unlock --db-path var/custom.db
 "#)]
     Unlock {
-        /// Database path (defaults to DATABASE_URL or ./var/aos-cp.sqlite3)
+        /// Database path (defaults to DATABASE_URL or var/aos-cp.sqlite3)
         #[arg(long)]
         db_path: Option<PathBuf>,
     },
@@ -72,7 +72,7 @@ pub enum DbCommand {
   aosctl db reset
 
   # Reset custom database
-  aosctl db reset --db-path ./var/custom.db
+  aosctl db reset --db-path var/custom.db
 
   # Skip confirmation prompt (dangerous!)
   aosctl db reset --force
@@ -81,7 +81,7 @@ WARNING: This command DELETES the database file and recreates it with all migrat
          All data will be PERMANENTLY LOST. Only use in development environments.
 "#)]
     Reset {
-        /// Database path (defaults to DATABASE_URL or ./var/aos-cp.sqlite3)
+        /// Database path (defaults to DATABASE_URL or var/aos-cp.sqlite3)
         #[arg(long)]
         db_path: Option<PathBuf>,
 
@@ -102,7 +102,7 @@ WARNING: This command DELETES the database file and recreates it with all migrat
   aosctl db seed-fixtures --skip-reset --no-chat
 "#)]
     SeedFixtures {
-        /// Database path (defaults to DATABASE_URL or ./var/aos-cp.sqlite3)
+        /// Database path (defaults to DATABASE_URL or var/aos-cp.sqlite3)
         #[arg(long)]
         db_path: Option<PathBuf>,
 
@@ -117,7 +117,7 @@ WARNING: This command DELETES the database file and recreates it with all migrat
 
     /// Health check for migration signatures and DB integrity
     Health {
-        /// Database path (defaults to DATABASE_URL or ./var/aos-cp.sqlite3)
+        /// Database path (defaults to DATABASE_URL or var/aos-cp.sqlite3)
         #[arg(long)]
         db_path: Option<PathBuf>,
 
@@ -132,13 +132,13 @@ WARNING: This command DELETES the database file and recreates it with all migrat
   aosctl db verify-seed
 
   # Verify custom database
-  aosctl db verify-seed --db-path ./var/custom.db
+  aosctl db verify-seed --db-path var/custom.db
 
   # Verify a different tenant id
   aosctl db verify-seed --tenant-id tenant-test
 "#)]
     VerifySeed {
-        /// Database path (defaults to DATABASE_URL or ./var/aos-cp.sqlite3)
+        /// Database path (defaults to DATABASE_URL or var/aos-cp.sqlite3)
         #[arg(long)]
         db_path: Option<PathBuf>,
 
@@ -156,7 +156,7 @@ WARNING: This command DELETES the database file and recreates it with all migrat
   aosctl db repair-bootstrap
 
   # Check/repair custom database
-  aosctl db repair-bootstrap --db-path ./var/custom.db
+  aosctl db repair-bootstrap --db-path var/custom.db
 
 This command validates that the system tenant and core policies are properly
 seeded. This is important for fresh installs or when KV and SQL stores may
@@ -168,7 +168,7 @@ Issues detected:
 - KV/SQL inconsistency for system tenant
 "#)]
     RepairBootstrap {
-        /// Database path (defaults to DATABASE_URL or ./var/aos-cp.sqlite3)
+        /// Database path (defaults to DATABASE_URL or var/aos-cp.sqlite3)
         #[arg(long)]
         db_path: Option<PathBuf>,
 
@@ -219,7 +219,7 @@ async fn run_verify_seed(
     } else if let Ok(url) = std::env::var("DATABASE_URL") {
         url
     } else {
-        "sqlite://./var/aos-cp.sqlite3".to_string()
+        "sqlite://var/aos-cp.sqlite3".to_string()
     };
 
     let db = Db::connect(&db_url).await?;
@@ -308,7 +308,7 @@ async fn run_migrate(
     } else if let Ok(url) = std::env::var("DATABASE_URL") {
         url
     } else {
-        "sqlite://./var/aos-cp.sqlite3".to_string()
+        "sqlite://var/aos-cp.sqlite3".to_string()
     };
 
     if verify_only {
@@ -355,7 +355,7 @@ async fn run_health(db_path: Option<PathBuf>, json: bool, output: &OutputWriter)
     } else if let Ok(url) = std::env::var("DATABASE_URL") {
         url
     } else {
-        "sqlite://./var/aos-cp.sqlite3".to_string()
+        "sqlite://var/aos-cp.sqlite3".to_string()
     };
 
     // Verify migration signatures (stale or missing signatures fail fast)
@@ -421,7 +421,7 @@ async fn run_unlock(db_path: Option<PathBuf>, output: &OutputWriter) -> Result<(
     } else if let Ok(url) = std::env::var("DATABASE_URL") {
         url
     } else {
-        "sqlite://./var/aos-cp.sqlite3".to_string()
+        "sqlite://var/aos-cp.sqlite3".to_string()
     };
 
     let db_file_path = if let Some(path) = db_path.clone() {
@@ -502,7 +502,7 @@ async fn run_reset(db_path: Option<PathBuf>, force: bool, output: &OutputWriter)
         // Extract path from sqlite:// URL
         PathBuf::from(url.trim_start_matches("sqlite://"))
     } else {
-        PathBuf::from("./var/aos-cp.sqlite3")
+        adapteros_core::rebase_var_path("var/aos-cp.sqlite3")
     };
 
     // Safety check: ensure this is not being run in production
@@ -559,7 +559,7 @@ async fn run_reset(db_path: Option<PathBuf>, force: bool, output: &OutputWriter)
     } else if let Ok(url) = std::env::var("DATABASE_URL") {
         url
     } else {
-        "sqlite://./var/aos-cp.sqlite3".to_string()
+        "sqlite://var/aos-cp.sqlite3".to_string()
     };
 
     let db = Db::connect(&db_url).await?;
@@ -617,7 +617,7 @@ async fn run_seed_fixtures(
     const VERSION_BRANCH_CLASS: &str = "protected";
     const VERSION_HISTORY_ID: &str = "avh-e2e";
     const GIT_REPO_ROW_ID: &str = "git-repo-e2e";
-    const GIT_REPO_PATH: &str = "./var/reference_repos/e2e-repo";
+    const GIT_REPO_PATH: &str = "var/reference_repos/e2e-repo";
     const TRAINING_JOB_ID: &str = "training-job-e2e";
     const CHAT_SESSION_ID: &str = "chat-session-test";
     const CHAT_MESSAGE_ID: &str = "chat-message-test";
@@ -629,7 +629,7 @@ async fn run_seed_fixtures(
     } else if let Ok(url) = std::env::var("DATABASE_URL") {
         PathBuf::from(url.trim_start_matches("sqlite://"))
     } else {
-        PathBuf::from("./var/aos-cp.sqlite3")
+        adapteros_core::rebase_var_path("var/aos-cp.sqlite3")
     };
 
     // Optionally reset DB before seeding
@@ -654,7 +654,7 @@ async fn run_seed_fixtures(
     } else if let Ok(url) = std::env::var("DATABASE_URL") {
         url
     } else {
-        "sqlite://./var/aos-cp.sqlite3".to_string()
+        "sqlite://var/aos-cp.sqlite3".to_string()
     };
 
     output.info(format!("Seeding deterministic fixtures into {}", db_url));
@@ -1181,7 +1181,7 @@ async fn run_repair_bootstrap(
     } else if let Ok(url) = std::env::var("DATABASE_URL") {
         url
     } else {
-        "sqlite://./var/aos-cp.sqlite3".to_string()
+        "sqlite://var/aos-cp.sqlite3".to_string()
     };
 
     let db = Db::connect(&db_url).await?;

@@ -17,9 +17,9 @@ use tracing::info;
 pub enum FederationCommand {
     /// Verify cross-host federation signatures
     #[command(after_help = r#"Examples:
-  aosctl federation verify --bundle-dir ./var/telemetry
-  aosctl federation verify --bundle-dir ./var/telemetry --database ./var/cp.db
-  aosctl federation verify --bundle-dir ./var/telemetry --json > federation.json
+  aosctl federation verify --bundle-dir var/telemetry
+  aosctl federation verify --bundle-dir var/telemetry --database var/cp.db
+  aosctl federation verify --bundle-dir var/telemetry --json > federation.json
 "#)]
     Verify {
         /// Telemetry bundle directory
@@ -27,7 +27,7 @@ pub enum FederationCommand {
         bundle_dir: PathBuf,
 
         /// Database path
-        #[arg(long, default_value = "./var/cp.db")]
+        #[arg(long, default_value = "var/cp.db")]
         database: PathBuf,
     },
 }
@@ -153,8 +153,8 @@ mod tests {
     fn test_get_federation_command_name() {
         assert_eq!(
             get_federation_command_name(&FederationCommand::Verify {
-                bundle_dir: PathBuf::from("./var/telemetry"),
-                database: PathBuf::from("./var/cp.db"),
+                bundle_dir: PathBuf::from("var/telemetry"),
+                database: PathBuf::from("var/cp.db"),
             }),
             "federation_verify"
         );

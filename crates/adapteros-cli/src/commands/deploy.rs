@@ -9,6 +9,7 @@
 //! [source: scripts/deploy_adapters.sh L1-L120]
 
 use crate::output::OutputWriter;
+use adapteros_core::defaults::DEFAULT_API_URL;
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
 use serde::Serialize;
@@ -246,7 +247,7 @@ async fn deploy_directory_adapter(
             name: None,
             rank: None,
             tier: None,
-            base_url: "http://127.0.0.1:8080/api".to_string(),
+            base_url: DEFAULT_API_URL.to_string(),
         };
         let reg_output = OutputWriter::new(output.mode(), output.is_verbose());
         if crate::commands::adapters::run(
@@ -356,7 +357,7 @@ async fn deploy_aos_adapter(
         let load_args = crate::commands::aos::LoadArgs {
             path: target_path.clone(),
             adapter_id: None,
-            base_url: "http://127.0.0.1:8080/api".to_string(),
+            base_url: DEFAULT_API_URL.to_string(),
         };
         let load_output = OutputWriter::new(output.mode(), output.is_verbose());
         if crate::commands::aos::load_aos(load_args, &load_output)

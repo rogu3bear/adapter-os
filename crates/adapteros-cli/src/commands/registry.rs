@@ -47,7 +47,7 @@ pub enum RegistryCommand {
     /// SBOM and signature files, validates them, and imports into the
     /// Content-Addressable Store (CAS) and registry database.
     #[command(
-        after_help = "Examples:\n  aosctl registry sync --dir ./adapters\n  aosctl registry sync --dir ./adapters --cas-root ./var/cas\n  aosctl registry sync --dir ./adapters --registry ./var/custom.db"
+        after_help = "Examples:\n  aosctl registry sync --dir ./adapters\n  aosctl registry sync --dir ./adapters --cas-root var/cas\n  aosctl registry sync --dir ./adapters --registry var/custom.db"
     )]
     Sync {
         /// Directory containing adapters with SBOM and signatures
@@ -59,11 +59,11 @@ pub enum RegistryCommand {
         public_key: Option<PathBuf>,
 
         /// CAS root directory
-        #[arg(long, default_value = "./var/cas")]
+        #[arg(long, default_value = "var/cas")]
         cas_root: PathBuf,
 
         /// Registry database path
-        #[arg(long, default_value = "./var/registry.db")]
+        #[arg(long, default_value = "var/registry.db")]
         registry: PathBuf,
     },
 
@@ -763,8 +763,8 @@ mod tests {
             get_registry_command_name(&RegistryCommand::Sync {
                 dir: PathBuf::from("./adapters"),
                 public_key: None,
-                cas_root: PathBuf::from("./var/cas"),
-                registry: PathBuf::from("./var/registry.db"),
+                cas_root: PathBuf::from("var/cas"),
+                registry: PathBuf::from("var/registry.db"),
             }),
             "registry_sync"
         );
@@ -784,8 +784,8 @@ mod tests {
         let cmd = RegistryCommand::Sync {
             dir: PathBuf::from("./adapters"),
             public_key: None,
-            cas_root: PathBuf::from("./var/cas"),
-            registry: PathBuf::from("./var/registry.db"),
+            cas_root: PathBuf::from("var/cas"),
+            registry: PathBuf::from("var/registry.db"),
         };
         let cloned = cmd.clone();
         if let RegistryCommand::Sync { dir, .. } = cloned {

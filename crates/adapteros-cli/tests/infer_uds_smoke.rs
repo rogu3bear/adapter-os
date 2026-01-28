@@ -28,10 +28,9 @@ use tokio::sync::oneshot;
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[serial]
 async fn infer_over_uds_smoke() {
-    let socket_path = PathBuf::from("./var/run/worker.sock");
-    if let Some(parent) = socket_path.parent() {
-        std::fs::create_dir_all(parent).expect("create socket dir");
-    }
+    // Use a temp directory to avoid polluting the var/ directory and ensure test isolation.
+    let temp_dir = tempfile::TempDir::with_prefix("aos-test-uds-").expect("create temp uds dir");
+    let socket_path = temp_dir.path().join("worker.sock");
     let _ = std::fs::remove_file(&socket_path);
 
     let server = StubUdsServer::start_at(
@@ -165,8 +164,11 @@ async fn infer_over_worker_uds_smoke() -> Result<()> {
         return Ok(());
     };
 
-    let uds_path =
-        std::env::var("AOS_E2E_UDS").unwrap_or_else(|_| "./var/run/worker.sock".to_string());
+    // Use a temp directory by default to avoid polluting var/ and ensure test isolation.
+    // Override with AOS_E2E_UDS env var if needed for specific test setups.
+    let temp_uds_dir = tempfile::TempDir::with_prefix("aos-e2e-uds-")?;
+    let uds_path = std::env::var("AOS_E2E_UDS")
+        .unwrap_or_else(|_| temp_uds_dir.path().join("worker.sock").to_string_lossy().to_string());
 
     if let Some(parent) = Path::new(&uds_path).parent() {
         fs::create_dir_all(parent)?;
