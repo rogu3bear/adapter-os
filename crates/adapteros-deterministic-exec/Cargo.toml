@@ -7,6 +7,13 @@ license.workspace = true
 repository.workspace = true
 description = "Deterministic async executor for adapterOS with serial task execution and event logging"
 
+[features]
+default = []
+# Strict determinism mode: panics on any wall-clock time access.
+# Use this for testing and validation of deterministic behavior.
+# In production, this should be off to allow graceful degradation.
+strict-determinism = []
+
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
 adapteros-db = { path = "../adapteros-db" }

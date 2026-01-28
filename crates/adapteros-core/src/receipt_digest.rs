@@ -273,6 +273,44 @@ pub fn compute_receipt_digest(input: &ReceiptDigestInput, schema_version: u8) ->
     }
 }
 
+/// Compute receipt digest for V5 with backend_id validation.
+///
+/// This is the checked version that ensures V5 receipts include a valid backend_id.
+/// Use this function when creating new V5 receipts to enforce the backend binding
+/// requirement at compile time.
+///
+/// # Arguments
+/// * `input` - Receipt fields to hash
+/// * `backend_id` - Required backend identifier (must be non-empty)
+///
+/// # Returns
+/// * `Ok(B3Hash)` - BLAKE3 hash of the canonicalized V5 receipt fields
+/// * `Err(ReceiptDigestError)` - If backend_id validation fails
+///
+/// # Example
+/// ```ignore
+/// use adapteros_core::receipt_digest::{compute_v5_digest_checked, ReceiptDigestInput};
+///
+/// let input = ReceiptDigestInput::new(...);
+/// let digest = compute_v5_digest_checked(&input, "mlx")?;
+/// ```
+#[must_use = "this returns a Result that must be handled"]
+pub fn compute_v5_digest_checked(
+    input: &ReceiptDigestInput,
+    backend_id: &str,
+) -> std::result::Result<B3Hash, ReceiptDigestError> {
+    // Validate backend_id is non-empty
+    if backend_id.is_empty() {
+        return Err(ReceiptDigestError::EmptyBackendId);
+    }
+
+    // Create a modified input with the validated backend_id
+    let mut validated_input = input.clone();
+    validated_input.backend_used = Some(backend_id.to_string());
+
+    Ok(compute_v5_digest(&validated_input))
+}
+
 /// Compute V1 receipt digest (original format).
 ///
 /// Fields: context_digest, run_head_hash, output_digest, billing counts
@@ -432,14 +470,69 @@ fn compute_v4_digest(input: &ReceiptDigestInput) -> B3Hash {
     ])
 }
 
+/// Error returned when V5 receipt digest validation fails.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReceiptDigestError {
+    /// Backend ID is required for V5+ receipts but was not provided
+    MissingBackendId,
+    /// Backend ID was provided but is empty
+    EmptyBackendId,
+}
+
+impl std::fmt::Display for ReceiptDigestError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MissingBackendId => {
+                write!(f, "Backend ID is required for V5+ receipts")
+            }
+            Self::EmptyBackendId => {
+                write!(f, "Backend ID cannot be empty for V5+ receipts")
+            }
+        }
+    }
+}
+
+impl std::error::Error for ReceiptDigestError {}
+
+/// Validate backend_id for V5+ receipts.
+///
+/// V5+ receipts MUST include a non-empty backend_id to prevent replay attacks
+/// where receipts from one backend are replayed against another.
+///
+/// # Arguments
+/// * `backend_id` - The backend identifier to validate
+///
+/// # Returns
+/// * `Ok(())` if backend_id is valid (non-empty string)
+/// * `Err(ReceiptDigestError::MissingBackendId)` if backend_id is None
+/// * `Err(ReceiptDigestError::EmptyBackendId)` if backend_id is Some but empty
+pub fn validate_backend_id_for_v5(
+    backend_id: Option<&str>,
+) -> std::result::Result<(), ReceiptDigestError> {
+    match backend_id {
+        None => Err(ReceiptDigestError::MissingBackendId),
+        Some(id) if id.is_empty() => Err(ReceiptDigestError::EmptyBackendId),
+        Some(_) => Ok(()),
+    }
+}
+
 /// Compute V5 receipt digest (Patent 3535886.0002 compliance).
 ///
 /// V5 extends V4 with:
 /// - Equipment profile digest (processor ID, MLX version, ANE version)
 /// - Citation binding (Merkle root of citation IDs)
+/// - **Required backend_id**: V5+ receipts MUST include backend_id to prevent
+///   cross-backend replay attacks
 ///
 /// **IMPORTANT**: This must stay in sync with `inference_trace.rs::compute_receipt_digest`.
 fn compute_v5_digest(input: &ReceiptDigestInput) -> B3Hash {
+    // Backend identity (V5 requires backend binding for replay prevention)
+    let backend_bytes = input.backend_used.as_deref().unwrap_or("").as_bytes();
+    let attestation_bytes = input
+        .backend_attestation_b3
+        .map(|b| b.to_vec())
+        .unwrap_or_default();
+
     // Stop controller fields
     let stop_reason_bytes = input.stop_reason_code.as_deref().unwrap_or("").as_bytes();
     let stop_token_index_bytes = input
@@ -493,6 +586,11 @@ fn compute_v5_digest(input: &ReceiptDigestInput) -> B3Hash {
         &input.billed_input_tokens.to_le_bytes(),
         &input.logical_output_tokens.to_le_bytes(),
         &input.billed_output_tokens.to_le_bytes(),
+        // Backend identity (V5 requires backend binding for replay prevention)
+        &(backend_bytes.len() as u32).to_le_bytes(),
+        backend_bytes,
+        &(attestation_bytes.len() as u32).to_le_bytes(),
+        &attestation_bytes,
         // Stop controller fields
         &(stop_reason_bytes.len() as u32).to_le_bytes(),
         stop_reason_bytes,
