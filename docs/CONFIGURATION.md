@@ -454,17 +454,17 @@ The system validates backend compatibility at startup:
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `AOS_MODEL_CACHE_DIR` | `./var/model-cache/models` | Base model cache root (joins with `AOS_BASE_MODEL_ID`) |
-| `AOS_ADAPTERS_ROOT` | `./var/adapters` (legacy: `AOS_ADAPTERS_DIR`) | Root for .aos artifacts/registry |
-| `DATABASE_URL` | `./var/cp.db` | Control plane SQLite path (used if `AOS_DATABASE_URL` unset) |
-| `AOS_TELEMETRY_DIR` | `./var/telemetry` | Telemetry bundle output (workers + CLI serve) |
-| `AOS_INDEX_DIR` | `./var/indices` | RAG index root (`<tenant>` appended) |
-| `AOS_MANIFEST_CACHE_DIR` | `./var/manifest-cache` | Worker manifest cache location |
-| `AOS_WORKER_SOCKET` | `/var/run/aos/<tenant>/worker.sock` (fallback `./var/run/worker.sock`) | Worker UDS path; training cancel falls back to `/var/run/adapteros.sock` |
+| `AOS_MODEL_CACHE_DIR` | `var/model-cache/models` | Base model cache root (joins with `AOS_BASE_MODEL_ID`) |
+| `AOS_ADAPTERS_ROOT` | `var/adapters` (legacy: `AOS_ADAPTERS_DIR`) | Root for .aos artifacts/registry |
+| `DATABASE_URL` | `var/cp.db` | Control plane SQLite path (used if `AOS_DATABASE_URL` unset) |
+| `AOS_TELEMETRY_DIR` | `var/telemetry` | Telemetry bundle output (workers + CLI serve) |
+| `AOS_INDEX_DIR` | `var/indices` | RAG index root (`<tenant>` appended) |
+| `AOS_MANIFEST_CACHE_DIR` | `var/manifest-cache` | Worker manifest cache location |
+| `AOS_WORKER_SOCKET` | `/var/run/aos/<tenant>/worker.sock` (fallback `var/run/worker.sock`) | Worker UDS path; training cancel falls back to `/var/run/adapteros.sock` |
 | `AOS_STATUS_PATH` | `/var/run/adapteros_status.json` (fallback `var/adapteros_status.json`) | Menu bar status file target |
-| `AOS_EMBEDDING_MODEL_PATH` | `./var/model-cache/models/bge-small-en-v1.5` | Embedding model location (tokenizer at `<path>/tokenizer.json`) |
+| `AOS_EMBEDDING_MODEL_PATH` | `var/model-cache/models/bge-small-en-v1.5` | Embedding model location (tokenizer at `<path>/tokenizer.json`) |
 
-**Behavior:** When unset, runtime logs the chosen default path and source (env vs default) at startup to remove ambiguity between `./var/...` and `/var/...`.
+**Behavior:** When unset, runtime logs the chosen default path and source (env vs default) at startup to remove ambiguity between `var/...` and `/var/...`.
 
 #### Embedding / RAG Paths
 
@@ -647,7 +647,7 @@ export AOS_DOWNLOAD_TIMEOUT_SECS=600
 ```
 
 **Notes:**
-- Models are downloaded to `AOS_MODEL_CACHE_DIR` (default: `./var/model-cache/models`)
+- Models are downloaded to `AOS_MODEL_CACHE_DIR` (default: `var/model-cache/models`)
 - The HF token is required for gated models (Llama, Mistral, etc.) - generate at https://huggingface.co/settings/tokens
 - Downloads are cached; subsequent startups skip already-downloaded models
 - Use `AOS_HF_REGISTRY_URL` for air-gapped environments with a local HuggingFace mirror
@@ -659,7 +659,7 @@ Model seeding automatically registers cached models in the database on startup.
 | Variable | Default | Purpose | Example |
 |----------|---------|---------|---------|
 | `AOS_SEED_MODEL_CACHE` | `true` (debug), `false` (release) | Enable auto-seeding models from cache to DB | `true` |
-| `AOS_MODEL_CACHE_DIR` | `./var/model-cache/models` | Model cache directory location | `/data/models` |
+| `AOS_MODEL_CACHE_DIR` | `var/model-cache/models` | Model cache directory location | `/data/models` |
 
 **Behavior:**
 - In **debug builds**, model seeding is enabled by default for developer convenience

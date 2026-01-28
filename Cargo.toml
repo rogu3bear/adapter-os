@@ -85,7 +85,6 @@ members = [
     "crates/adapteros-single-file-adapter",
     "crates/adapteros-api-types",
     "crates/adapteros-secd",
-    "crates/adapteros-secure-fs",
     "crates/adapteros-ui",  # Leptos UI frontend
     "crates/adapteros-telemetry-types",  # Shared telemetry metric types
     "crates/adapteros-diagnostics",  # Diagnostic event contract and producer API

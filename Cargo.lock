@@ -345,6 +345,7 @@ dependencies = [
  "adapteros-policy",
  "adapteros-replay",
  "adapteros-retrieval",
+ "adapteros-scenarios",
  "adapteros-secd",
  "adapteros-storage",
  "adapteros-telemetry",
@@ -435,29 +436,11 @@ version = "0.13.1"
 dependencies = [
  "adapteros-core",
  "adapteros-retrieval",
- "bincode",
- "blake3",
  "clap",
  "env_logger",
- "git2",
- "regex",
- "serde",
- "serde_json",
- "sqlx",
- "streaming-iterator",
  "tempfile",
- "thiserror 2.0.17",
  "tokio",
  "tokio-test",
- "toml 0.8.23",
- "tracing",
- "tree-sitter",
- "tree-sitter-go",
- "tree-sitter-javascript",
- "tree-sitter-python",
- "tree-sitter-rust",
- "tree-sitter-typescript",
- "walkdir",
 ]
 
 [[package]]
@@ -783,11 +766,23 @@ dependencies = [
 name = "adapteros-fuzz"
 version = "0.0.0"
 dependencies = [
+ "adapteros-api-types",
+ "adapteros-artifacts",
  "adapteros-core",
+ "adapteros-db",
  "adapteros-lora-kernel-api",
+ "adapteros-lora-router",
  "adapteros-lora-worker",
+ "adapteros-manifest",
+ "adapteros-policy",
  "arbitrary",
+ "blake3",
  "libfuzzer-sys",
+ "rand 0.8.5",
+ "rand_chacha 0.3.1",
+ "serde_json",
+ "serde_yaml",
+ "tokio",
 ]
 
 [[package]]
@@ -1574,23 +1569,6 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
-]
-
-[[package]]
-name = "adapteros-secure-fs"
-version = "0.13.1"
-dependencies = [
- "adapteros-core",
- "adapteros-crypto",
- "adapteros-storage",
- "cap-std",
- "chrono",
- "regex",
- "serde",
- "serde_json",
- "tempfile",
- "tokio-test",
- "tracing",
 ]
 
 [[package]]

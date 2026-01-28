@@ -2,10 +2,12 @@
 
 This document defines the **anchor** for var/ directory contents. Any files/directories not listed here are considered ephemeral and may be deleted.
 
+> **Path Format**: The canonical form is `var/` (NOT `./var/`). All code and config must use `var/...` without the leading `./`. This is enforced project-wide.
+
 ## Environment Control
 
 ```bash
-AOS_VAR_DIR=/path/to/var  # Override var/ location (default: ./var)
+AOS_VAR_DIR=/path/to/var  # Override var/ location (default: var)
 ```
 
 ## Canonical Structure
@@ -57,13 +59,13 @@ These patterns indicate test/development artifacts that should be cleaned:
 find ./crates -type d -name "var" -not -path "*/target/*" -exec rm -rf {} +
 
 # Clean test databases
-rm -f ./var/*-test.sqlite3* ./var/*_test.sqlite3*
+rm -f var/*-test.sqlite3* var/*_test.sqlite3*
 
 # Clean var/tmp if present
-rm -rf ./var/tmp
+rm -rf var/tmp
 
 # Clean old logs (keep last 3 days)
-find ./var/logs -name "aos-cp.*" -mtime +3 -delete
+find var/logs -name "aos-cp.*" -mtime +3 -delete
 ```
 
 ## Size Budget
