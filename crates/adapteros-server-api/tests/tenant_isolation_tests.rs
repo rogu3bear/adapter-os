@@ -10,18 +10,17 @@
 #![allow(clippy::clone_on_copy)]
 
 use adapteros_api_types::adapters::PromoteVersionRequest;
+use adapteros_api_types::code_repositories::{ListRepositoriesQuery, RegisterRepositoryRequest};
 use adapteros_api_types::training::ValidateDatasetRequest;
 use adapteros_core::{AosError, Result};
 use adapteros_db::adapter_repositories::CreateRepositoryParams;
 use adapteros_db::adapters::AdapterRegistrationBuilder;
 use adapteros_db::sqlx;
+use adapteros_db::traits::AdapterRecordRow;
 use adapteros_db::users::Role;
 use adapteros_db::Db;
 use adapteros_server_api::auth::{AuthMode, Claims, PrincipalType};
-use adapteros_server_api::handlers::code::{
-    get_repository, list_repositories, register_repo, ListRepositoriesQuery,
-    RegisterRepositoryRequest,
-};
+use adapteros_server_api::handlers::code::{get_repository, list_repositories, register_repo};
 use adapteros_server_api::handlers::datasets::validate_dataset;
 use adapteros_server_api::handlers::promote_adapter_version_handler;
 use adapteros_server_api::permissions::{require_permission, Permission};
@@ -637,7 +636,7 @@ async fn test_cross_tenant_adapter_access_denied() -> Result<()> {
 
     // Verify tenant A cannot load tenant B's adapter
     // (This would be enforced by handler-level checks, not just database queries)
-    let adapter_b_from_db = sqlx::query_as::<_, adapteros_db::traits::AdapterRecord>(
+    let adapter_b_row = sqlx::query_as::<_, AdapterRecordRow>(
         "SELECT * FROM adapters WHERE id = ?",
     )
     .bind(&adapter_b_id)
@@ -645,7 +644,7 @@ async fn test_cross_tenant_adapter_access_denied() -> Result<()> {
     .await?;
 
     assert_eq!(
-        adapter_b_from_db.tenant_id, "tenant-b",
+        adapter_b_row.tenant_id, "tenant-b",
         "Adapter should belong to tenant-b"
     );
 
