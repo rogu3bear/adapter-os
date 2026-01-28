@@ -1,290 +1,378 @@
 //! Unit tests for adapteros-server-api-models handlers
 //!
-//! Tests verify placeholder handler behavior and type serialization.
+//! Tests verify type serialization for model API types.
+//! Note: Some types only implement Serialize (not Deserialize) as they are
+//! response-only types. Tests focus on serialization and structural correctness.
 
 use adapteros_server_api_models::handlers::{
-    delete_model, get_model, get_model_status, list_models, register_model, ModelInfo,
-    RegisterModelRequest, RegisterModelResponse,
+    AneMemoryStatus, ModelDownloadProgress, ModelStatusResponse, ModelValidationResponse,
+    SeedModelRequest, SeedModelResponse, ValidationIssue,
 };
-use axum::{extract::Path, http::StatusCode, Json};
-use chrono::Utc;
+use adapteros_api_types::ModelLoadStatus;
 use serde_json;
-use uuid::Uuid;
 
-/// Test that list_models returns an empty Vec (placeholder behavior)
-#[tokio::test]
-async fn test_list_models_returns_empty() {
-    let result = list_models().await;
-    let Json(models) = result;
-    assert_eq!(models.len(), 0, "Expected empty model list");
-}
-
-/// Test that get_model returns NOT_FOUND (placeholder behavior)
-#[tokio::test]
-async fn test_get_model_returns_not_found() {
-    let model_id = Uuid::new_v4();
-    let result = get_model(Path(model_id)).await;
-    assert_eq!(
-        result,
-        Err(StatusCode::NOT_FOUND),
-        "Expected NOT_FOUND for placeholder get_model"
-    );
-}
-
-/// Test that register_model returns NOT_IMPLEMENTED (placeholder behavior)
-#[tokio::test]
-async fn test_register_model_returns_not_implemented() {
-    let request = RegisterModelRequest {
-        name: "test-model".to_string(),
-        version: "1.0.0".to_string(),
-        path: Some("/path/to/model".to_string()),
-        metadata: None,
-    };
-    let result = register_model(Json(request)).await;
-    assert_eq!(
-        result,
-        Err(StatusCode::NOT_IMPLEMENTED),
-        "Expected NOT_IMPLEMENTED for placeholder register_model"
-    );
-}
-
-/// Test that delete_model returns NOT_IMPLEMENTED (placeholder behavior)
-#[tokio::test]
-async fn test_delete_model_returns_not_implemented() {
-    let model_id = Uuid::new_v4();
-    let result = delete_model(Path(model_id)).await;
-    assert_eq!(
-        result,
-        StatusCode::NOT_IMPLEMENTED,
-        "Expected NOT_IMPLEMENTED for placeholder delete_model"
-    );
-}
-
-/// Test that get_model_status returns NOT_FOUND (placeholder behavior)
-#[tokio::test]
-async fn test_get_model_status_returns_not_found() {
-    let model_id = Uuid::new_v4();
-    let result = get_model_status(Path(model_id)).await;
-    assert_eq!(
-        result,
-        Err(StatusCode::NOT_FOUND),
-        "Expected NOT_FOUND for placeholder get_model_status"
-    );
-}
-
-/// Test ModelInfo serialization and deserialization
+/// Test SeedModelRequest serialization and deserialization
 #[test]
-fn test_model_info_serde() {
-    let model_info = ModelInfo {
-        id: Uuid::new_v4(),
-        name: "Qwen2.5-7B-Instruct".to_string(),
-        version: "1.0.0".to_string(),
-        status: "ready".to_string(),
-        created_at: Utc::now(),
+fn test_seed_model_request_serde() {
+    let request = SeedModelRequest {
+        model_name: "Llama-3-8B".to_string(),
+        model_path: "/var/models/llama-3-8b".to_string(),
+        format: "mlx".to_string(),
+        backend: "mlx".to_string(),
+        capabilities: Some(vec!["chat".to_string(), "completion".to_string()]),
+        metadata: Some(serde_json::json!({"quantization": "q4"})),
     };
 
     // Serialize to JSON
-    let json = serde_json::to_string(&model_info).expect("Failed to serialize ModelInfo");
-    assert!(json.contains("Qwen2.5-7B-Instruct"));
-    assert!(json.contains("1.0.0"));
-    assert!(json.contains("ready"));
-
-    // Deserialize back
-    let deserialized: ModelInfo =
-        serde_json::from_str(&json).expect("Failed to deserialize ModelInfo");
-    assert_eq!(deserialized.id, model_info.id);
-    assert_eq!(deserialized.name, model_info.name);
-    assert_eq!(deserialized.version, model_info.version);
-    assert_eq!(deserialized.status, model_info.status);
-}
-
-/// Test RegisterModelRequest serialization and deserialization
-#[test]
-fn test_register_model_request_serde() {
-    let request = RegisterModelRequest {
-        name: "Llama-3-8B".to_string(),
-        version: "2.0.0".to_string(),
-        path: Some("/var/models/llama-3-8b".to_string()),
-        metadata: Some(serde_json::json!({"backend": "mlx", "quantization": "q4"})),
-    };
-
-    // Serialize to JSON
-    let json = serde_json::to_string(&request).expect("Failed to serialize RegisterModelRequest");
+    let json = serde_json::to_string(&request).expect("Failed to serialize SeedModelRequest");
     assert!(json.contains("Llama-3-8B"));
-    assert!(json.contains("2.0.0"));
     assert!(json.contains("/var/models/llama-3-8b"));
     assert!(json.contains("mlx"));
+    assert!(json.contains("chat"));
 
     // Deserialize back
-    let deserialized: RegisterModelRequest =
-        serde_json::from_str(&json).expect("Failed to deserialize RegisterModelRequest");
-    assert_eq!(deserialized.name, request.name);
-    assert_eq!(deserialized.version, request.version);
-    assert_eq!(deserialized.path, request.path);
-    assert_eq!(deserialized.metadata, request.metadata);
+    let deserialized: SeedModelRequest =
+        serde_json::from_str(&json).expect("Failed to deserialize SeedModelRequest");
+    assert_eq!(deserialized.model_name, request.model_name);
+    assert_eq!(deserialized.model_path, request.model_path);
+    assert_eq!(deserialized.format, request.format);
+    assert_eq!(deserialized.backend, request.backend);
+    assert_eq!(deserialized.capabilities, request.capabilities);
 }
 
-/// Test RegisterModelRequest with minimal fields (optional path and metadata)
+/// Test SeedModelRequest with minimal fields
 #[test]
-fn test_register_model_request_minimal_serde() {
-    let request = RegisterModelRequest {
-        name: "minimal-model".to_string(),
-        version: "0.1.0".to_string(),
-        path: None,
+fn test_seed_model_request_minimal_serde() {
+    let request = SeedModelRequest {
+        model_name: "minimal-model".to_string(),
+        model_path: "/models/minimal".to_string(),
+        format: "safetensors".to_string(),
+        backend: "metal".to_string(),
+        capabilities: None,
         metadata: None,
     };
 
     // Serialize to JSON
-    let json = serde_json::to_string(&request).expect("Failed to serialize RegisterModelRequest");
+    let json = serde_json::to_string(&request).expect("Failed to serialize SeedModelRequest");
     assert!(json.contains("minimal-model"));
-    assert!(json.contains("0.1.0"));
 
     // Deserialize back
-    let deserialized: RegisterModelRequest =
-        serde_json::from_str(&json).expect("Failed to deserialize RegisterModelRequest");
-    assert_eq!(deserialized.name, request.name);
-    assert_eq!(deserialized.version, request.version);
-    assert!(deserialized.path.is_none());
+    let deserialized: SeedModelRequest =
+        serde_json::from_str(&json).expect("Failed to deserialize SeedModelRequest");
+    assert_eq!(deserialized.model_name, request.model_name);
+    assert!(deserialized.capabilities.is_none());
     assert!(deserialized.metadata.is_none());
 }
 
-/// Test RegisterModelResponse serialization and deserialization
+/// Test SeedModelResponse serialization and deserialization
 #[test]
-fn test_register_model_response_serde() {
-    let response = RegisterModelResponse {
-        id: Uuid::new_v4(),
-        name: "registered-model".to_string(),
-        status: "pending".to_string(),
+fn test_seed_model_response_serde() {
+    let response = SeedModelResponse {
+        import_id: "import-12345".to_string(),
+        status: "available".to_string(),
+        message: "Model import completed".to_string(),
+        progress: Some(100),
     };
 
     // Serialize to JSON
-    let json =
-        serde_json::to_string(&response).expect("Failed to serialize RegisterModelResponse");
-    assert!(json.contains("registered-model"));
-    assert!(json.contains("pending"));
+    let json = serde_json::to_string(&response).expect("Failed to serialize SeedModelResponse");
+    assert!(json.contains("import-12345"));
+    assert!(json.contains("available"));
+    assert!(json.contains("100"));
 
     // Deserialize back
-    let deserialized: RegisterModelResponse =
-        serde_json::from_str(&json).expect("Failed to deserialize RegisterModelResponse");
-    assert_eq!(deserialized.id, response.id);
-    assert_eq!(deserialized.name, response.name);
+    let deserialized: SeedModelResponse =
+        serde_json::from_str(&json).expect("Failed to deserialize SeedModelResponse");
+    assert_eq!(deserialized.import_id, response.import_id);
     assert_eq!(deserialized.status, response.status);
+    assert_eq!(deserialized.message, response.message);
+    assert_eq!(deserialized.progress, Some(100));
 }
 
-/// Test ModelInfo can be constructed properly with valid values
+/// Test ModelStatusResponse serialization and deserialization
 #[test]
-fn test_model_info_construction() {
-    let model_id = Uuid::new_v4();
-    let created_at = Utc::now();
-
-    let model_info = ModelInfo {
-        id: model_id,
-        name: "Test Model".to_string(),
-        version: "1.2.3".to_string(),
-        status: "active".to_string(),
-        created_at,
+fn test_model_status_response_serde() {
+    let response = ModelStatusResponse {
+        model_id: "qwen-7b".to_string(),
+        model_name: "Qwen2.5-7B-Instruct".to_string(),
+        model_path: Some("/var/models/qwen2.5-7b".to_string()),
+        status: ModelLoadStatus::Ready,
+        loaded_at: Some("2025-01-28T12:00:00Z".to_string()),
+        error_message: None,
+        memory_usage_mb: Some(4096),
+        is_loaded: true,
+        ane_memory: None,
+        uma_pressure_level: Some("low".to_string()),
     };
 
-    assert_eq!(model_info.id, model_id);
-    assert_eq!(model_info.name, "Test Model");
-    assert_eq!(model_info.version, "1.2.3");
-    assert_eq!(model_info.status, "active");
-    assert_eq!(model_info.created_at, created_at);
+    // Serialize to JSON
+    let json = serde_json::to_string(&response).expect("Failed to serialize ModelStatusResponse");
+    assert!(json.contains("qwen-7b"));
+    assert!(json.contains("Qwen2.5-7B-Instruct"));
+    assert!(json.contains("4096"));
+
+    // Deserialize back
+    let deserialized: ModelStatusResponse =
+        serde_json::from_str(&json).expect("Failed to deserialize ModelStatusResponse");
+    assert_eq!(deserialized.model_id, response.model_id);
+    assert_eq!(deserialized.model_name, response.model_name);
+    assert_eq!(deserialized.is_loaded, true);
+    assert_eq!(deserialized.memory_usage_mb, Some(4096));
 }
 
-/// Test ModelInfo with different status values
+/// Test ModelStatusResponse with all optional fields
 #[test]
-fn test_model_info_various_statuses() {
-    let statuses = vec!["ready", "pending", "error", "loading", "unloaded"];
-
-    for status in statuses {
-        let model_info = ModelInfo {
-            id: Uuid::new_v4(),
-            name: format!("{}-model", status),
-            version: "1.0.0".to_string(),
-            status: status.to_string(),
-            created_at: Utc::now(),
-        };
-
-        assert_eq!(model_info.status, status);
-    }
-}
-
-/// Test RegisterModelRequest with complex metadata
-#[test]
-fn test_register_model_request_complex_metadata() {
-    let metadata = serde_json::json!({
-        "backend": "mlx",
-        "quantization": "q4",
-        "context_length": 4096,
-        "features": ["chat", "completion"],
-        "config": {
-            "temperature": 0.7,
-            "top_p": 0.9
-        }
-    });
-
-    let request = RegisterModelRequest {
-        name: "complex-model".to_string(),
-        version: "3.0.0".to_string(),
-        path: Some("/models/complex".to_string()),
-        metadata: Some(metadata.clone()),
+fn test_model_status_response_with_ane_memory() {
+    let ane_memory = AneMemoryStatus {
+        allocated_mb: 2048,
+        used_mb: 1024,
+        available_mb: 1024,
+        usage_pct: 50.0,
     };
 
-    // Serialize and deserialize
-    let json = serde_json::to_string(&request).expect("Failed to serialize");
-    let deserialized: RegisterModelRequest =
-        serde_json::from_str(&json).expect("Failed to deserialize");
+    let response = ModelStatusResponse {
+        model_id: "test-model".to_string(),
+        model_name: "Test Model".to_string(),
+        model_path: None,
+        status: ModelLoadStatus::Loading,
+        loaded_at: None,
+        error_message: None,
+        memory_usage_mb: None,
+        is_loaded: false,
+        ane_memory: Some(ane_memory),
+        uma_pressure_level: Some("medium".to_string()),
+    };
 
-    assert_eq!(deserialized.metadata, Some(metadata));
+    let json = serde_json::to_string(&response).expect("Failed to serialize");
+    assert!(json.contains("allocated_mb"));
+    assert!(json.contains("2048"));
+    assert!(json.contains("usage_pct"));
 }
 
-/// Test that UUID fields serialize correctly
+/// Test AneMemoryStatus serialization and deserialization
 #[test]
-fn test_uuid_serialization() {
-    let uuid = Uuid::new_v4();
-    let model_info = ModelInfo {
-        id: uuid,
-        name: "uuid-test".to_string(),
-        version: "1.0.0".to_string(),
+fn test_ane_memory_status_serde() {
+    let status = AneMemoryStatus {
+        allocated_mb: 4096,
+        used_mb: 2048,
+        available_mb: 2048,
+        usage_pct: 50.0,
+    };
+
+    let json = serde_json::to_string(&status).expect("Failed to serialize AneMemoryStatus");
+    assert!(json.contains("4096"));
+    assert!(json.contains("50"));
+
+    let deserialized: AneMemoryStatus =
+        serde_json::from_str(&json).expect("Failed to deserialize AneMemoryStatus");
+    assert_eq!(deserialized.allocated_mb, 4096);
+    assert_eq!(deserialized.used_mb, 2048);
+    assert_eq!(deserialized.available_mb, 2048);
+    assert!((deserialized.usage_pct - 50.0).abs() < f32::EPSILON);
+}
+
+/// Test ModelValidationResponse serialization
+/// Note: ModelValidationResponse only implements Serialize, not Deserialize
+#[test]
+fn test_model_validation_response_serialize() {
+    let response = ModelValidationResponse {
+        model_id: "test-model".to_string(),
         status: "ready".to_string(),
-        created_at: Utc::now(),
+        valid: true,
+        can_load: true,
+        reason: None,
+        issues: vec![],
+        errors: vec![],
     };
 
-    let json = serde_json::to_string(&model_info).expect("Failed to serialize");
-    let uuid_str = uuid.to_string();
-    assert!(
-        json.contains(&uuid_str),
-        "JSON should contain UUID as string"
-    );
+    let json = serde_json::to_string(&response).expect("Failed to serialize");
+    assert!(json.contains("test-model"));
+    assert!(json.contains("ready"));
+    assert!(json.contains("true"));
+
+    // Verify JSON structure
+    let value: serde_json::Value = serde_json::from_str(&json).expect("Invalid JSON");
+    assert_eq!(value["model_id"], "test-model");
+    assert_eq!(value["valid"], true);
+    assert_eq!(value["can_load"], true);
+}
+
+/// Test ModelValidationResponse with issues
+/// Note: ModelValidationResponse only implements Serialize, not Deserialize
+#[test]
+fn test_model_validation_response_with_issues() {
+    let issues = vec![
+        ValidationIssue {
+            issue_type: "hash_mismatch".to_string(),
+            message: "Config hash does not match".to_string(),
+        },
+        ValidationIssue {
+            issue_type: "missing_file".to_string(),
+            message: "Tokenizer config not found".to_string(),
+        },
+    ];
+
+    let response = ModelValidationResponse {
+        model_id: "invalid-model".to_string(),
+        status: "invalid".to_string(),
+        valid: false,
+        can_load: false,
+        reason: Some("Validation failed".to_string()),
+        issues,
+        errors: vec!["Config hash does not match".to_string()],
+    };
+
+    let json = serde_json::to_string(&response).expect("Failed to serialize");
+    assert!(json.contains("invalid-model"));
+    assert!(json.contains("hash_mismatch"));
+    assert!(json.contains("missing_file"));
+
+    // Verify JSON structure
+    let value: serde_json::Value = serde_json::from_str(&json).expect("Invalid JSON");
+    assert_eq!(value["valid"], false);
+    assert_eq!(value["issues"].as_array().unwrap().len(), 2);
+    assert_eq!(value["errors"].as_array().unwrap().len(), 1);
+}
+
+/// Test ValidationIssue serialization
+/// Note: ValidationIssue only implements Serialize, not Deserialize
+#[test]
+fn test_validation_issue_serialize() {
+    let issue = ValidationIssue {
+        issue_type: "validation_error".to_string(),
+        message: "Model weights hash is missing".to_string(),
+    };
+
+    let json = serde_json::to_string(&issue).expect("Failed to serialize ValidationIssue");
+    // Note: issue_type is renamed to "type" in JSON
+    assert!(json.contains("type"));
+    assert!(json.contains("validation_error"));
+    assert!(json.contains("Model weights hash is missing"));
+
+    // Verify JSON structure
+    let value: serde_json::Value = serde_json::from_str(&json).expect("Invalid JSON");
+    assert_eq!(value["type"], "validation_error");
+    assert_eq!(value["message"], "Model weights hash is missing");
+}
+
+/// Test ModelDownloadProgress serialization
+#[test]
+fn test_model_download_progress_serde() {
+    let progress = ModelDownloadProgress {
+        model_id: "qwen-7b".to_string(),
+        operation_id: "op-12345".to_string(),
+        operation: "import".to_string(),
+        status: "in_progress".to_string(),
+        started_at: "2025-01-28T12:00:00Z".to_string(),
+        progress_pct: Some(50),
+        speed_mbps: Some(100.5),
+        eta_seconds: Some(120),
+        error_message: None,
+    };
+
+    let json = serde_json::to_string(&progress).expect("Failed to serialize ModelDownloadProgress");
+    assert!(json.contains("qwen-7b"));
+    assert!(json.contains("op-12345"));
+    assert!(json.contains("50"));
+
+    // Verify JSON structure
+    let value: serde_json::Value = serde_json::from_str(&json).expect("Invalid JSON");
+    assert_eq!(value["model_id"], "qwen-7b");
+    assert_eq!(value["progress_pct"], 50);
+    assert_eq!(value["eta_seconds"], 120);
+}
+
+/// Test ModelDownloadProgress with error
+#[test]
+fn test_model_download_progress_with_error() {
+    let progress = ModelDownloadProgress {
+        model_id: "failed-model".to_string(),
+        operation_id: "op-failed".to_string(),
+        operation: "import".to_string(),
+        status: "failed".to_string(),
+        started_at: "2025-01-28T12:00:00Z".to_string(),
+        progress_pct: None,
+        speed_mbps: None,
+        eta_seconds: None,
+        error_message: Some("Download failed: connection reset".to_string()),
+    };
+
+    let json = serde_json::to_string(&progress).expect("Failed to serialize");
+    assert!(json.contains("failed"));
+    assert!(json.contains("connection reset"));
+
+    // Verify JSON structure
+    let value: serde_json::Value = serde_json::from_str(&json).expect("Invalid JSON");
+    assert_eq!(value["status"], "failed");
+    assert!(value["error_message"].is_string());
 }
 
 /// Test Debug trait implementation for all types
 #[test]
 fn test_debug_implementation() {
-    let model_info = ModelInfo {
-        id: Uuid::new_v4(),
-        name: "debug-test".to_string(),
-        version: "1.0.0".to_string(),
-        status: "ready".to_string(),
-        created_at: Utc::now(),
-    };
-
-    let request = RegisterModelRequest {
-        name: "debug-test".to_string(),
-        version: "1.0.0".to_string(),
-        path: None,
+    let request = SeedModelRequest {
+        model_name: "debug-test".to_string(),
+        model_path: "/test".to_string(),
+        format: "mlx".to_string(),
+        backend: "mlx".to_string(),
+        capabilities: None,
         metadata: None,
     };
 
-    let response = RegisterModelResponse {
-        id: Uuid::new_v4(),
-        name: "debug-test".to_string(),
+    let response = SeedModelResponse {
+        import_id: "test".to_string(),
         status: "pending".to_string(),
+        message: "Testing".to_string(),
+        progress: None,
+    };
+
+    let status = ModelStatusResponse {
+        model_id: "test".to_string(),
+        model_name: "Test".to_string(),
+        model_path: None,
+        status: ModelLoadStatus::NoModel,
+        loaded_at: None,
+        error_message: None,
+        memory_usage_mb: None,
+        is_loaded: false,
+        ane_memory: None,
+        uma_pressure_level: None,
     };
 
     // Should not panic - Debug trait is properly derived
-    let _ = format!("{:?}", model_info);
     let _ = format!("{:?}", request);
     let _ = format!("{:?}", response);
+    let _ = format!("{:?}", status);
+}
+
+/// Test various ModelLoadStatus values
+#[test]
+fn test_model_load_status_variants() {
+    let statuses = vec![
+        ModelLoadStatus::NoModel,
+        ModelLoadStatus::Loading,
+        ModelLoadStatus::Ready,
+        ModelLoadStatus::Unloading,
+        ModelLoadStatus::Error,
+    ];
+
+    for status in statuses {
+        let response = ModelStatusResponse {
+            model_id: format!("{}-model", status.as_str()),
+            model_name: "Test".to_string(),
+            model_path: None,
+            status: status.clone(),
+            loaded_at: None,
+            error_message: None,
+            memory_usage_mb: None,
+            is_loaded: status.is_ready(),
+            ane_memory: None,
+            uma_pressure_level: None,
+        };
+
+        let json = serde_json::to_string(&response).expect("Failed to serialize");
+        let deserialized: ModelStatusResponse =
+            serde_json::from_str(&json).expect("Failed to deserialize");
+        assert_eq!(deserialized.status, status);
+    }
 }
