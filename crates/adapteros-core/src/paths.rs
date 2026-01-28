@@ -3,6 +3,11 @@
 //! This module provides a single source of truth for .aos adapter file locations
 //! and other critical path resolution throughout the system.
 //!
+//! # Canonical Path Format
+//!
+//! The canonical var directory form is `var/` (NOT `./var/`).
+//! All paths under var must use `var/...` without the leading `./`.
+//!
 //! # Choosing a Path Type
 //!
 //! | Need | Use |
@@ -20,7 +25,7 @@
 //! 1. Environment variable `AOS_ADAPTERS_ROOT` (preferred)
 //! 2. Environment variable `AOS_ADAPTERS_DIR` (legacy)
 //! 3. Configuration file `paths.adapters_root`
-//! 4. Default: `./var/adapters/`
+//! 4. Default: `var/adapters/`
 //!
 //! Explicit paths provided via `new()` always take precedence over all other sources.
 //!
@@ -32,12 +37,12 @@
 //! // Create with default paths
 //! let paths = AdapterPaths::default();
 //! let adapter_path = paths.get_adapter_path("my-adapter");
-//! // Returns: ./var/adapters/my-adapter.aos
+//! // Returns: var/adapters/my-adapter.aos
 //!
 //! // Create with custom root
-//! let paths = AdapterPaths::new("./var/adapters");
+//! let paths = AdapterPaths::new("var/adapters");
 //! let adapter_path = paths.get_adapter_path("my-adapter");
-//! // Returns: ./var/adapters/my-adapter.aos
+//! // Returns: var/adapters/my-adapter.aos
 //! ```
 
 use std::path::{Path, PathBuf};
@@ -51,7 +56,7 @@ pub use crate::adapter_repo_paths::{
 pub const DEFAULT_ADAPTERS_DIR: &str = crate::defaults::DEFAULT_ADAPTERS_ROOT;
 
 /// Production adapters directory (repo-local path)
-pub const PRODUCTION_ADAPTERS_DIR: &str = "./var/adapters";
+pub const PRODUCTION_ADAPTERS_DIR: &str = "var/adapters";
 
 /// Simple flat-layout path resolution for adapter files.
 ///
@@ -87,7 +92,7 @@ impl AdapterPaths {
     /// Resolution order:
     /// 1. `AOS_ADAPTERS_ROOT` environment variable (preferred)
     /// 2. `AOS_ADAPTERS_DIR` environment variable (legacy)
-    /// 3. Default: `./var/adapters/`
+    /// 3. Default: `var/adapters/`
     pub fn from_env() -> Self {
         let adapters_root = std::env::var(AOS_ADAPTERS_ROOT_ENV)
             .or_else(|_| std::env::var(AOS_ADAPTERS_DIR_ENV))
@@ -103,7 +108,7 @@ impl AdapterPaths {
     /// Resolution order (following standard precedence):
     /// 1. `AOS_ADAPTERS_DIR` environment variable (highest priority)
     /// 2. Provided config value (if Some)
-    /// 3. Default: `./var/adapters/`
+    /// 3. Default: `var/adapters/`
     pub fn from_config(config_value: Option<&str>) -> Self {
         // Check ENV first (highest priority)
         if let Ok(env_path) = std::env::var(AOS_ADAPTERS_ROOT_ENV) {

@@ -249,7 +249,7 @@ fn test_adapters_root_default_value() {
     std::env::remove_var("AOS_ADAPTERS_DIR");
 
     let resolved = resolve_adapters_root().unwrap();
-    assert_eq!(resolved.path, PathBuf::from("./var/adapters"));
+    assert_eq!(resolved.path, PathBuf::from("var/adapters"));
 }
 
 #[test]
@@ -260,7 +260,7 @@ fn test_embedding_model_default_value() {
     let resolved = resolve_embedding_model_path().unwrap();
     assert_eq!(
         resolved.path,
-        PathBuf::from("./var/model-cache/models/bge-small-en-v1.5")
+        PathBuf::from("var/model-cache/models/bge-small-en-v1.5")
     );
 }
 
@@ -574,10 +574,10 @@ fn test_schema_get_sensitive() {
 #[test]
 fn test_env_var_precedence_over_default() {
     let _env = setup_test_env();
-    std::env::set_var("AOS_TELEMETRY_DIR", "./var/custom-telemetry");
+    std::env::set_var("AOS_TELEMETRY_DIR", "var/custom-telemetry");
 
     let resolved = resolve_telemetry_dir().unwrap();
-    assert_eq!(resolved.path, PathBuf::from("./var/custom-telemetry"));
+    assert_eq!(resolved.path, PathBuf::from("var/custom-telemetry"));
 
     std::env::remove_var("AOS_TELEMETRY_DIR");
 }

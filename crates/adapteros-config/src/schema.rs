@@ -20,7 +20,8 @@
 //! ```
 
 use crate::path_resolver::{
-    DEFAULT_BASE_MODEL_ID, DEFAULT_MODEL_CACHE_ROOT, DEV_MANIFEST_PATH, DEV_MODEL_PATH,
+    DEFAULT_BASE_MODEL_ID, DEFAULT_LOG_LEVEL, DEFAULT_MODEL_BACKEND, DEFAULT_MODEL_CACHE_ROOT,
+    DEFAULT_SERVER_HOST, DEFAULT_SERVER_PORT, DEV_MANIFEST_PATH, DEV_MODEL_PATH,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -764,7 +765,7 @@ pub fn default_schema() -> ConfigSchema {
                     "mlx".to_string(),
                 ],
             })
-            .default_value("mlx")
+            .default_value(DEFAULT_MODEL_BACKEND)
             .description("Model backend selection: mlx (default), coreml (ANE production), metal (fallback), auto (detect best)")
             .category("MODEL")
             .build(),
@@ -949,7 +950,7 @@ pub fn default_schema() -> ConfigSchema {
     schema.add_variable(
         ConfigVariable::new("AOS_SERVER_HOST")
             .config_type(ConfigType::String)
-            .default_value("127.0.0.1")
+            .default_value(DEFAULT_SERVER_HOST)
             .description("Server bind address (IP address or hostname)")
             .category("SERVER")
             .build(),
@@ -961,7 +962,7 @@ pub fn default_schema() -> ConfigSchema {
                 min: Some(1),
                 max: Some(65535),
             })
-            .default_value("8080")
+            .default_value(&DEFAULT_SERVER_PORT.to_string())
             .description("Server port number (1-65535)")
             .category("SERVER")
             .build(),
@@ -1167,7 +1168,7 @@ pub fn default_schema() -> ConfigSchema {
                     "error".to_string(),
                 ],
             })
-            .default_value("info")
+            .default_value(DEFAULT_LOG_LEVEL)
             .description("Logging level: trace, debug, info, warn, error")
             .category("LOGGING")
             .build(),

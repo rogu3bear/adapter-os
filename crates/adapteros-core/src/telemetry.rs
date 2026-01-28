@@ -628,7 +628,7 @@ mod tests {
             "bundle-1",
             "expected-hash",
             "observed-hash",
-            Some("./var/export.json".into()),
+            Some("var/export.json".into()),
             Some("tenant-b".into()),
         );
 

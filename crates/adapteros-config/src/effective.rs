@@ -812,38 +812,39 @@ impl EffectiveConfig {
     }
 
     fn build_paths_section(config: &DeterministicConfig) -> Result<PathsSection> {
+        use adapteros_core::rebase_var_path;
         Ok(PathsSection {
             var_dir: config
                 .get("var.dir")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("var")),
+                .map(|p| rebase_var_path(p))
+                .unwrap_or_else(|| rebase_var_path("var")),
             adapters_root: config
                 .get("adapters.dir")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("var/adapters/repo")),
+                .map(|p| rebase_var_path(p))
+                .unwrap_or_else(|| rebase_var_path("var/adapters/repo")),
             artifacts_root: config
                 .get("artifacts.dir")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("var/artifacts")),
+                .map(|p| rebase_var_path(p))
+                .unwrap_or_else(|| rebase_var_path("var/artifacts")),
             datasets_root: config
                 .get("paths.datasets.root")
                 .or_else(|| config.get("datasets.root"))
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("var/datasets")),
+                .map(|p| rebase_var_path(p))
+                .unwrap_or_else(|| rebase_var_path("var/datasets")),
             documents_root: config
                 .get("paths.documents.root")
                 .or_else(|| config.get("documents.root"))
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("var/documents")),
+                .map(|p| rebase_var_path(p))
+                .unwrap_or_else(|| rebase_var_path("var/documents")),
             bundles_root: config
                 .get("paths.bundles.root")
                 .or_else(|| config.get("bundles.root"))
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("var/bundles")),
+                .map(|p| rebase_var_path(p))
+                .unwrap_or_else(|| rebase_var_path("var/bundles")),
             model_cache_dir: config
                 .get("model.cache.dir")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("var/models")),
+                .map(|p| rebase_var_path(p))
+                .unwrap_or_else(|| rebase_var_path("var/models")),
         })
     }
 
@@ -915,8 +916,8 @@ impl EffectiveConfig {
                 .unwrap_or(true),
             alert_dir: config
                 .get("alerting.alert.dir")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("var/alerts")),
+                .map(|p| adapteros_core::rebase_var_path(p))
+                .unwrap_or_else(|| adapteros_core::rebase_var_path("var/alerts")),
             max_alerts_per_file: config
                 .get("alerting.max.alerts.per.file")
                 .and_then(|v| v.parse().ok())
@@ -1387,36 +1388,29 @@ mod tests {
             "Production mode should accept absolute paths"
         );
 
-        // Test case 3: Production mode with relative paths - should fail
-        let mut prod_rel_values = HashMap::new();
-        prod_rel_values.insert("server.production.mode".to_string(), "true".to_string());
-        prod_rel_values.insert(
+        // Test case 3: Production mode with relative database URL - should fail
+        // Note: Path configs (adapters.dir, paths.*) are auto-rebased to absolute via
+        // rebase_var_path, but database.url is a URL string that keeps relative paths.
+        let mut prod_rel_db_values = HashMap::new();
+        prod_rel_db_values.insert("server.production.mode".to_string(), "true".to_string());
+        prod_rel_db_values.insert(
             "database.url".to_string(),
-            "sqlite://var/aos-cp.sqlite3".to_string(),
+            "sqlite://var/aos-cp.sqlite3".to_string(), // Relative path in URL
         );
-        prod_rel_values.insert("adapters.dir".to_string(), "var/adapters/repo".to_string());
-        prod_rel_values.insert(
-            "paths.datasets.root".to_string(),
-            "var/datasets".to_string(),
-        );
-        prod_rel_values.insert(
-            "paths.documents.root".to_string(),
-            "var/documents".to_string(),
-        );
-        prod_rel_values.insert(
+        prod_rel_db_values.insert(
             "security.jwt.secret".to_string(),
             VALID_JWT_SECRET.to_string(),
         );
-        prod_rel_values.insert("inference.backend.profile".to_string(), "metal".to_string());
+        prod_rel_db_values.insert("inference.backend.profile".to_string(), "metal".to_string());
 
-        let prod_rel_config = DeterministicConfig::new_for_test(prod_rel_values);
-        let prod_rel_effective = EffectiveConfig::from_deterministic(prod_rel_config);
+        let prod_rel_db_config = DeterministicConfig::new_for_test(prod_rel_db_values);
+        let prod_rel_db_effective = EffectiveConfig::from_deterministic(prod_rel_db_config);
         assert!(
-            prod_rel_effective.is_err(),
-            "Production mode should reject relative paths"
+            prod_rel_db_effective.is_err(),
+            "Production mode should reject relative database URL"
         );
 
-        let err = prod_rel_effective.unwrap_err();
+        let err = prod_rel_db_effective.unwrap_err();
         let err_msg = format!("{}", err);
         assert!(
             err_msg.contains("Production mode requires absolute path"),
@@ -1426,34 +1420,36 @@ mod tests {
             err_msg.contains("database.url"),
             "Error should mention database.url"
         );
-        assert!(
-            err_msg.contains("paths.adapters_root"),
-            "Error should mention paths.adapters_root"
-        );
         assert!(err_msg.contains("Hint:"), "Error should include hints");
 
-        // Test case 4: Production mode with mixed paths - should fail
-        let mut prod_mixed_values = HashMap::new();
-        prod_mixed_values.insert("server.production.mode".to_string(), "true".to_string());
-        prod_mixed_values.insert(
+        // Test case 4: Production mode with auto-rebased paths - should pass
+        // Path configs are auto-rebased to absolute, so this should now succeed.
+        let mut prod_rebased_values = HashMap::new();
+        prod_rebased_values.insert("server.production.mode".to_string(), "true".to_string());
+        prod_rebased_values.insert(
             "database.url".to_string(),
-            "sqlite:///adapter-os/var/aos-cp.sqlite3".to_string(),
+            "sqlite:///adapter-os/var/aos-cp.sqlite3".to_string(), // Absolute
         );
-        prod_mixed_values.insert("adapters.dir".to_string(), "var/adapters/repo".to_string()); // Relative
-        prod_mixed_values.insert(
+        prod_rebased_values.insert("adapters.dir".to_string(), "var/adapters/repo".to_string()); // Auto-rebased
+        prod_rebased_values.insert(
             "paths.datasets.root".to_string(),
-            "/adapter-os/var/datasets".to_string(),
+            "var/datasets".to_string(), // Auto-rebased
         );
-        prod_mixed_values.insert(
+        prod_rebased_values.insert(
             "paths.documents.root".to_string(),
-            "/adapter-os/var/documents".to_string(),
+            "var/documents".to_string(), // Auto-rebased
         );
+        prod_rebased_values.insert(
+            "security.jwt.secret".to_string(),
+            VALID_JWT_SECRET.to_string(),
+        );
+        prod_rebased_values.insert("inference.backend.profile".to_string(), "metal".to_string());
 
-        let prod_mixed_config = DeterministicConfig::new_for_test(prod_mixed_values);
-        let prod_mixed_effective = EffectiveConfig::from_deterministic(prod_mixed_config);
+        let prod_rebased_config = DeterministicConfig::new_for_test(prod_rebased_values);
+        let prod_rebased_effective = EffectiveConfig::from_deterministic(prod_rebased_config);
         assert!(
-            prod_mixed_effective.is_err(),
-            "Production mode should reject mixed paths"
+            prod_rebased_effective.is_ok(),
+            "Production mode should accept auto-rebased paths"
         );
     }
 
