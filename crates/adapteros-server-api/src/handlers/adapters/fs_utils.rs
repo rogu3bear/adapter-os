@@ -1,4 +1,4 @@
-use crate::error_helpers::internal_error;
+use crate::api_error::ApiError;
 use crate::types::ErrorResponse;
 use axum::http::StatusCode;
 use axum::Json;
@@ -20,19 +20,19 @@ pub async fn ensure_repo_dirs(
         paths.repo_root.join(tenant_id).join(adapter_name).as_path(),
     ] {
         if let Err(e) = fs::create_dir_all(dir).await {
-            return Err(internal_error(format!(
+            return Err(ApiError::internal(format!(
                 "Failed to create adapter directory {}: {}",
                 dir.display(),
                 e
-            )));
+            )).into());
         }
     }
     if let Err(e) = fs::create_dir_all(&paths.cache_root).await {
-        return Err(internal_error(format!(
+        return Err(ApiError::internal(format!(
             "Failed to create adapter cache directory {}: {}",
             paths.cache_root.display(),
             e
-        )));
+        )).into());
     }
     Ok(())
 }
@@ -42,16 +42,16 @@ pub async fn write_temp_bundle(
 ) -> Result<(PathBuf, fs::File), (StatusCode, Json<ErrorResponse>)> {
     let temp_dir = paths.repo_root.join("temp");
     if let Err(e) = fs::create_dir_all(&temp_dir).await {
-        return Err(internal_error(format!(
+        return Err(ApiError::internal(format!(
             "Failed to create temp adapter directory {}: {}",
             temp_dir.display(),
             e
-        )));
+        )).into());
     }
 
     let temp_path = temp_dir.join(format!("{}.aos.tmp", Uuid::now_v7()));
     let file = fs::File::create(&temp_path).await.map_err(|e| {
-        internal_error(format!(
+        ApiError::internal(format!(
             "Failed to create temp file {}: {}",
             temp_path.display(),
             e
@@ -67,11 +67,11 @@ pub async fn finalize_bundle_move(
 ) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
     if let Some(parent) = to.parent() {
         if let Err(e) = fs::create_dir_all(parent).await {
-            return Err(internal_error(format!(
+            return Err(ApiError::internal(format!(
                 "Failed to create final adapter directory {}: {}",
                 parent.display(),
                 e
-            )));
+            )).into());
         }
     }
 
@@ -85,7 +85,7 @@ pub async fn finalize_bundle_move(
         Ok(_) => Ok(()),
         Err(e) if is_cross_device(&e) => {
             fs::copy(from, to).await.map_err(|copy_err| {
-                internal_error(format!(
+                ApiError::internal(format!(
                     "Failed to copy adapter bundle to {}: {}",
                     to.display(),
                     copy_err
@@ -99,11 +99,11 @@ pub async fn finalize_bundle_move(
             let _ = fs::remove_file(from).await;
             Ok(())
         }
-        Err(e) => Err(internal_error(format!(
+        Err(e) => Err(ApiError::internal(format!(
             "Failed to move adapter bundle to {}: {}",
             to.display(),
             e
-        ))),
+        )).into()),
     }
 }
 

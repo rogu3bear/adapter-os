@@ -1,7 +1,6 @@
 use crate::api_error::ApiError;
 use crate::audit_helper::{log_failure_or_warn, log_success_or_warn, resources};
 use crate::auth::Claims;
-use crate::error_helpers::{db_error, internal_error, not_found};
 use crate::handlers::guard_in_flight_requests;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
@@ -404,7 +403,7 @@ pub async fn list_stacks(
         .db
         .list_stacks_for_tenant(&tenant_id)
         .await
-        .map_err(db_error)?;
+        .map_err(ApiError::db_error)?;
 
     let mut stacks = Vec::new();
     for row in rows {
@@ -470,8 +469,8 @@ pub async fn get_stack(
         .db
         .get_stack(&tenant_id, &id)
         .await
-        .map_err(db_error)?
-        .ok_or_else(|| not_found("Stack"))?;
+        .map_err(ApiError::db_error)?
+        .ok_or_else(|| ApiError::not_found("Stack"))?;
 
     // CRITICAL: Validate tenant isolation to prevent cross-tenant access
     validate_tenant_isolation(&claims, &row.tenant_id)?;
@@ -568,8 +567,8 @@ pub async fn update_stack(
         .db
         .get_stack(&tenant_id, &id)
         .await
-        .map_err(db_error)?
-        .ok_or_else(|| not_found("Stack"))?;
+        .map_err(ApiError::db_error)?
+        .ok_or_else(|| ApiError::not_found("Stack"))?;
 
     // CRITICAL: Validate tenant isolation
     validate_tenant_isolation(&claims, &existing.tenant_id)?;
@@ -632,7 +631,7 @@ pub async fn update_stack(
         .db
         .update_stack(&id, &update_req)
         .await
-        .map_err(db_error)?;
+        .map_err(ApiError::db_error)?;
 
     // Audit log: stack update success
     log_success_or_warn(
@@ -649,8 +648,8 @@ pub async fn update_stack(
         .db
         .get_stack(&tenant_id, &id)
         .await
-        .map_err(db_error)?
-        .ok_or_else(|| internal_error("Stack disappeared after update"))?;
+        .map_err(ApiError::db_error)?
+        .ok_or_else(|| ApiError::internal("Stack disappeared after update"))?;
 
     let default_stack_id = state.db.get_default_stack(&tenant_id).await.unwrap_or(None);
     let is_default = default_stack_id.as_ref() == Some(&updated.id);
@@ -717,7 +716,7 @@ pub async fn delete_stack(
                 &format!("Failed to delete stack: {}", e),
             )
             .await;
-            return Err(db_error(e));
+            return Err(ApiError::db_error(e).into());
         }
     };
 
@@ -732,7 +731,7 @@ pub async fn delete_stack(
             "Stack not found",
         )
         .await;
-        return Err(not_found("Stack"));
+        return Err(ApiError::not_found("Stack").into());
     }
 
     // Audit log: stack deletion success
@@ -780,14 +779,14 @@ pub async fn activate_stack(
                 "Database error while fetching stack {} for tenant {}: {}",
                 id, tenant_id, e
             );
-            db_error(e)
+            ApiError::db_error(e)
         })?
         .ok_or_else(|| {
             warn!(
                 "Attempted to activate non-existent stack: {} for tenant {}",
                 id, tenant_id
             );
-            not_found("Stack")
+            ApiError::not_found("Stack")
         })?;
 
     // CRITICAL: Validate tenant isolation to prevent cross-tenant access
@@ -799,7 +798,7 @@ pub async fn activate_stack(
     // Parse adapter IDs to ensure they're valid
     let adapter_ids: Vec<String> = serde_json::from_str(&stack.adapter_ids_json).map_err(|e| {
         warn!("Failed to parse adapter_ids_json for stack {}: {}", name, e);
-        internal_error(format!("Invalid adapter list in stack '{}': {}", name, e))
+        ApiError::internal(format!("Invalid adapter list in stack '{}': {}", name, e))
     })?;
 
     // Validate attach mode for each adapter in the stack
@@ -815,7 +814,7 @@ pub async fn activate_stack(
                     error = %e,
                     "Failed to get attach mode for adapter"
                 );
-                db_error(e)
+                ApiError::db_error(e)
             })?
         {
             if attach_mode == "requires_dataset" {
@@ -889,7 +888,7 @@ pub async fn activate_stack(
                 error = %e,
                 "Failed to mark stack active in database"
             );
-            db_error(e)
+            ApiError::db_error(e)
         })?;
 
     // Store the active stack ID in application state
@@ -897,7 +896,7 @@ pub async fn activate_stack(
     let previous_stack = {
         let mut active_stack = state.active_stack.write().map_err(|e| {
             warn!("Failed to acquire write lock for active_stack: {}", e);
-            internal_error("Internal synchronization error")
+            ApiError::internal("Internal synchronization error")
         })?;
         let prev = active_stack.get(&tenant_id).cloned().flatten();
         active_stack.insert(tenant_id.clone(), Some(id.clone()));
@@ -922,12 +921,12 @@ pub async fn activate_stack(
                     .db
                     .get_stack(&tenant_id, old_id)
                     .await
-                    .map_err(db_error)?
+                    .map_err(ApiError::db_error)?
                     .ok_or_else(|| {
-                        internal_error(format!("Previous stack {} not found", old_id))
+                        ApiError::internal(format!("Previous stack {} not found", old_id))
                     })?;
                 serde_json::from_str::<Vec<String>>(&stack.adapter_ids_json)
-                    .map_err(|e| internal_error(format!("Parse old: {}", e)))?
+                    .map_err(|e| ApiError::internal(format!("Parse old: {}", e)))?
             } else {
                 vec![]
             };
@@ -947,7 +946,7 @@ pub async fn activate_stack(
             hotswap
                 .swap_with_expected_hash(&add_ids, &remove_ids, Some(new_hash))
                 .await
-                .map_err(db_error)?;
+                .map_err(ApiError::db_error)?;
 
             // KV cache zeroization: method not yet available on Worker
             // if let Some(kv_cache) = worker.kv_cache_mut() {
@@ -965,7 +964,7 @@ pub async fn activate_stack(
                     "stack_id": id,
                     "stack_version": stack_version, // Include version in telemetry
                     "trace_id": tracing::Span::current().id().map(|id| format!("{:x}", id.into_u64())).unwrap_or("unknown".to_string()),
-                })).map_err(|e| internal_error(e.to_string()))?;
+                })).map_err(|e| ApiError::internal(e.to_string()))?;
             }
         }
     }
@@ -1058,7 +1057,7 @@ pub async fn activate_stack(
                 error = %e,
                 "Failed to activate stack in lifecycle manager"
             );
-            internal_error("Failed to activate stack in lifecycle manager")
+            ApiError::internal("Failed to activate stack in lifecycle manager")
         })?;
 
         let mut promotion_results = Vec::new();
@@ -1147,15 +1146,15 @@ pub async fn clear_stack_adapters(
         .db
         .get_stack(&tenant_id, &id)
         .await
-        .map_err(db_error)?
-        .ok_or_else(|| not_found("Stack"))?;
+        .map_err(ApiError::db_error)?
+        .ok_or_else(|| ApiError::not_found("Stack"))?;
 
     // CRITICAL: Validate tenant isolation to prevent cross-tenant access
     validate_tenant_isolation(&claims, &stack.tenant_id)?;
 
     // Parse current adapter IDs
     let previous_adapter_ids: Vec<String> = serde_json::from_str(&stack.adapter_ids_json)
-        .map_err(|e| internal_error(format!("Failed to parse adapter IDs: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to parse adapter IDs: {}", e)))?;
 
     let previous_adapter_count = previous_adapter_ids.len();
 
@@ -1182,7 +1181,7 @@ pub async fn clear_stack_adapters(
         .db
         .update_stack(&id, &update_req)
         .await
-        .map_err(db_error)?;
+        .map_err(ApiError::db_error)?;
 
     info!(
         tenant_id = %tenant_id,
@@ -1239,7 +1238,7 @@ pub async fn deactivate_stack(
         let mut active = state
             .active_stack
             .write()
-            .map_err(|e| internal_error(format!("Lock poisoned: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Lock poisoned: {}", e)))?;
         let prev = active.get(&tenant_id).cloned().flatten();
         active.insert(tenant_id.clone(), None);
         prev
@@ -1318,11 +1317,11 @@ async fn compute_stack_hash(
         .db
         .get_stack(tenant_id, stack_id)
         .await
-        .map_err(db_error)?
-        .ok_or_else(|| not_found("Stack"))?;
+        .map_err(ApiError::db_error)?
+        .ok_or_else(|| ApiError::not_found("Stack"))?;
 
     let adapter_ids: Vec<String> = serde_json::from_str(&stack.adapter_ids_json)
-        .map_err(|e| internal_error(format!("Parse error: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Parse error: {}", e)))?;
 
     let mut pairs = vec![];
 
@@ -1331,10 +1330,10 @@ async fn compute_stack_hash(
             .db
             .get_adapter_by_id(tenant_id, id)
             .await
-            .map_err(db_error)?
-            .ok_or_else(|| not_found(&format!("Adapter {}", id)))?;
+            .map_err(ApiError::db_error)?
+            .ok_or_else(|| ApiError::not_found(&format!("Adapter {}", id)))?;
 
-        let hash = adapteros_core::B3Hash::from_hex(&adapter.hash_b3).map_err(db_error)?;
+        let hash = adapteros_core::B3Hash::from_hex(&adapter.hash_b3).map_err(ApiError::db_error)?;
         pairs.push((id.clone(), hash));
     }
 
@@ -1399,9 +1398,9 @@ pub async fn get_stack_history(
         .db
         .get_stack(&tenant_id, &id)
         .await
-        .map_err(db_error)?
+        .map_err(ApiError::db_error)?
         .ok_or_else(|| {
-            not_found(&format!(
+            ApiError::not_found(&format!(
                 "Stack with id '{}' not found for tenant '{}'",
                 id, tenant_id
             ))
@@ -1415,7 +1414,7 @@ pub async fn get_stack_history(
         .db
         .get_stack_lifecycle_history(&id)
         .await
-        .map_err(db_error)?;
+        .map_err(ApiError::db_error)?;
 
     let response: Vec<LifecycleHistoryResponse> = history.into_iter().map(Into::into).collect();
 
@@ -1449,9 +1448,9 @@ pub async fn get_stack_policies(
         .db
         .get_stack(&tenant_id, &id)
         .await
-        .map_err(db_error)?
+        .map_err(ApiError::db_error)?
         .ok_or_else(|| {
-            not_found(&format!(
+            ApiError::not_found(&format!(
                 "Stack with id '{}' not found for tenant '{}'",
                 id, tenant_id
             ))
@@ -1465,7 +1464,7 @@ pub async fn get_stack_policies(
         .db
         .get_policy_assignments_for_stack(&id)
         .await
-        .map_err(db_error)?;
+        .map_err(ApiError::db_error)?;
 
     // Convert to detailed assignment info with policy pack details
     let mut assignment_details = Vec::new();
@@ -1475,7 +1474,7 @@ pub async fn get_stack_policies(
             .db
             .get_policy_pack(&assignment.policy_pack_id)
             .await
-            .map_err(db_error)?;
+            .map_err(ApiError::db_error)?;
 
         let (policy_type, policy_name, version, status) = if let Some(p) = pack {
             (
@@ -1515,7 +1514,7 @@ pub async fn get_stack_policies(
         .db
         .calculate_stack_compliance(&id, &tenant_id)
         .await
-        .map_err(db_error)?;
+        .map_err(ApiError::db_error)?;
 
     // Convert db type to API response type
     let compliance = crate::types::StackComplianceSummary {
@@ -1543,7 +1542,7 @@ pub async fn get_stack_policies(
         .db
         .get_recent_stack_violations(&id, 24)
         .await
-        .map_err(db_error)?;
+        .map_err(ApiError::db_error)?;
 
     let recent_violations: Vec<crate::types::PolicyViolationSummary> = violations
         .into_iter()

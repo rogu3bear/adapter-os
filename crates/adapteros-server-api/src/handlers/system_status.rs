@@ -149,15 +149,23 @@ async fn collect_readiness(state: &AppState) -> ReadinessStatus {
     // which covers the entire query operation.
     const ACQUIRE_TIMEOUT_MS: u64 = 500;
     let acquire_timeout = Duration::from_millis(ACQUIRE_TIMEOUT_MS);
-    let db_probe = timeout(db_timeout, async {
-        let conn_result = timeout(acquire_timeout, state.db.pool().acquire()).await;
-        match conn_result {
-            Ok(Ok(mut conn)) => query("SELECT 1").execute(&mut *conn).await,
-            Ok(Err(e)) => Err(e),
-            Err(_) => Err(sqlx::Error::PoolTimedOut),
+    // STABILITY: Use pool_opt() to avoid panic if database is in KV-only mode
+    let db_probe = match state.db.pool_opt() {
+        Some(pool) => {
+            timeout(db_timeout, async {
+                let conn_result = timeout(acquire_timeout, pool.acquire()).await;
+                match conn_result {
+                    Ok(Ok(mut conn)) => query("SELECT 1").execute(&mut *conn).await,
+                    Ok(Err(e)) => Err(e),
+                    Err(_) => Err(sqlx::Error::PoolTimedOut),
+                }
+            })
+            .await
         }
-    })
-    .await;
+        None => Ok(Err(sqlx::Error::Configuration(
+            "SQL pool not available (kv-only mode)".into(),
+        ))),
+    };
     let db_latency = db_start.elapsed().as_millis() as u64;
     match db_probe {
         Ok(Ok(_)) => {
@@ -264,11 +272,19 @@ async fn collect_readiness(state: &AppState) -> ReadinessStatus {
 
     if db_check.status == StatusIndicator::Ready {
         let models_start = Instant::now();
-        let models_probe = timeout(
-            models_timeout,
-            query_scalar::<_, i64>("SELECT COUNT(*) FROM models").fetch_one(state.db.pool()),
-        )
-        .await;
+        // STABILITY: Use pool_opt() for defense-in-depth
+        let models_probe = match state.db.pool_opt() {
+            Some(pool) => {
+                timeout(
+                    models_timeout,
+                    query_scalar::<_, i64>("SELECT COUNT(*) FROM models").fetch_one(pool),
+                )
+                .await
+            }
+            None => Ok(Err(sqlx::Error::Configuration(
+                "SQL pool not available".into(),
+            ))),
+        };
         let models_latency = models_start.elapsed().as_millis() as u64;
         match models_probe {
             Ok(Ok(count)) if count > 0 => {
@@ -467,7 +483,9 @@ async fn collect_kernel_status(
     let mut adapter_inventory = None;
     let mut model_inventory = None;
 
-    if db_ready && !state.db.pool().is_closed() {
+    // STABILITY: Use pool_opt() to avoid panic if database is in KV-only mode
+    let pool_available = state.db.pool_opt().is_some_and(|p| !p.is_closed());
+    if db_ready && pool_available {
         match state.db.list_base_model_statuses().await {
             Ok(statuses) if !statuses.is_empty() => {
                 let aggregated = aggregate_status(statuses.iter());
@@ -595,15 +613,21 @@ async fn collect_kernel_status(
         };
 
         // Count total registered models for the new model inventory
-        let total_models_count = match query_scalar::<_, i64>("SELECT COUNT(*) FROM models")
-            .fetch_one(state.db.pool())
-            .await
-        {
-            Ok(v) => Some(v),
-            Err(e) => {
-                warn!(error = %e, "Failed to count total models");
-                None
+        // STABILITY: Use pool_opt() for defense-in-depth (should be Some if we reached here)
+        let total_models_count = match state.db.pool_opt() {
+            Some(pool) => {
+                match query_scalar::<_, i64>("SELECT COUNT(*) FROM models")
+                    .fetch_one(pool)
+                    .await
+                {
+                    Ok(v) => Some(v),
+                    Err(e) => {
+                        warn!(error = %e, "Failed to count total models");
+                        None
+                    }
+                }
             }
+            None => None,
         };
 
         // Populate adapter inventory with renamed field (backward compat)

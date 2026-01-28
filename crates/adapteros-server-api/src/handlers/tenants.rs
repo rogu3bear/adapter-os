@@ -8,7 +8,6 @@
 use super::utils::aos_error_to_response;
 use crate::api_error::ApiError;
 use crate::auth::Claims;
-use crate::error_helpers::db_error_with_details;
 use crate::handlers::event_applier::{apply_event, parse_event, TenantEvent};
 use crate::middleware::require_role;
 use crate::permissions::{require_permission, Permission};
@@ -596,7 +595,7 @@ pub async fn get_tenant_metrics(
         .db
         .get_tenant(&tenant_id)
         .await
-        .map_err(db_error_with_details)?
+        .map_err(ApiError::db_error)?
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,

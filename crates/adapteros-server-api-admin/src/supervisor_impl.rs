@@ -14,7 +14,7 @@ impl SupervisorClientTrait for SupervisorClient {
     ) -> std::result::Result<String, SupervisorError> {
         self.start_service(service_id)
             .await
-            .map_err(|e| map_aos_error_to_supervisor_error(e))
+            .map_err(map_aos_error_to_supervisor_error)
     }
 
     async fn stop_service(
@@ -23,7 +23,7 @@ impl SupervisorClientTrait for SupervisorClient {
     ) -> std::result::Result<String, SupervisorError> {
         self.stop_service(service_id)
             .await
-            .map_err(|e| map_aos_error_to_supervisor_error(e))
+            .map_err(map_aos_error_to_supervisor_error)
     }
 
     async fn restart_service(
@@ -32,19 +32,19 @@ impl SupervisorClientTrait for SupervisorClient {
     ) -> std::result::Result<String, SupervisorError> {
         self.restart_service(service_id)
             .await
-            .map_err(|e| map_aos_error_to_supervisor_error(e))
+            .map_err(map_aos_error_to_supervisor_error)
     }
 
     async fn start_essential_services(&self) -> std::result::Result<String, SupervisorError> {
         self.start_essential_services()
             .await
-            .map_err(|e| map_aos_error_to_supervisor_error(e))
+            .map_err(map_aos_error_to_supervisor_error)
     }
 
     async fn stop_essential_services(&self) -> std::result::Result<String, SupervisorError> {
         self.stop_essential_services()
             .await
-            .map_err(|e| map_aos_error_to_supervisor_error(e))
+            .map_err(map_aos_error_to_supervisor_error)
     }
 
     async fn get_service_logs(
@@ -54,7 +54,7 @@ impl SupervisorClientTrait for SupervisorClient {
     ) -> std::result::Result<Vec<String>, SupervisorError> {
         self.get_service_logs(service_id, lines)
             .await
-            .map_err(|e| map_aos_error_to_supervisor_error(e))
+            .map_err(map_aos_error_to_supervisor_error)
     }
 }
 

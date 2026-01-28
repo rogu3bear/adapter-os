@@ -157,7 +157,7 @@ pub async fn list_adapters(
             hash_b3: adapter.hash_b3.clone(),
             rank: adapter.rank,
             tier: adapter.tier.clone(),
-            assurance_tier: None,
+            assurance_tier: None, // No DB column exists - kept for API compat
             languages,
             framework: adapter.framework.clone(),
             category: Some(adapter.category.clone()),
@@ -181,23 +181,25 @@ pub async fn list_adapters(
             version: adapter.version.clone(),
             lifecycle_state: adapter.lifecycle_state.clone(),
             runtime_state: Some(adapter.current_state.clone()),
-            pinned: None,
-            memory_bytes: None,
-            deduplicated: None,
-            drift_reference_backend: None,
-            drift_baseline_backend: None,
-            drift_test_backend: None,
-            drift_tier: None,
-            drift_metric: None,
-            drift_loss_metric: None,
-            drift_slice_size: None,
-            drift_slice_offset: None,
-            // Codebase adapter fields
-            adapter_type: None,
-            base_adapter_id: None,
-            stream_session_id: None,
-            versioning_threshold: None,
-            coreml_package_hash: None,
+            // Populate fields from DB that were previously hardcoded to None
+            pinned: Some(adapter.pinned != 0),
+            memory_bytes: Some(adapter.memory_bytes),
+            deduplicated: None, // Set during registration, not stored in DB
+            // Drift tracking fields from DB
+            drift_reference_backend: adapter.drift_reference_backend.clone(),
+            drift_baseline_backend: adapter.drift_baseline_backend.clone(),
+            drift_test_backend: adapter.drift_test_backend.clone(),
+            drift_tier: adapter.drift_tier.clone(),
+            drift_metric: adapter.drift_metric,
+            drift_loss_metric: adapter.drift_loss_metric,
+            drift_slice_size: None, // Not stored in DB
+            drift_slice_offset: None, // Not stored in DB
+            // Codebase adapter fields from DB
+            adapter_type: adapter.adapter_type.clone(),
+            base_adapter_id: adapter.base_adapter_id.clone(),
+            stream_session_id: adapter.stream_session_id.clone(),
+            versioning_threshold: adapter.versioning_threshold,
+            coreml_package_hash: adapter.coreml_package_hash.clone(),
         });
     }
 
@@ -1254,7 +1256,7 @@ pub async fn promote_adapter_version_handler(
         hash_b3: adapter.hash_b3.clone(),
         rank: adapter.rank,
         tier: adapter.tier.clone(),
-        assurance_tier: None,
+        assurance_tier: None, // No DB column exists - kept for API compat
         languages,
         framework: adapter.framework.clone(),
         category: Some(adapter.category.clone()),
@@ -1278,22 +1280,24 @@ pub async fn promote_adapter_version_handler(
         version: adapter.version.clone(),
         lifecycle_state: adapter.lifecycle_state.clone(),
         runtime_state: Some(adapter.current_state),
-        pinned: None,
-        memory_bytes: None,
-        deduplicated: None,
-        drift_reference_backend: None,
-        drift_baseline_backend: None,
-        drift_test_backend: None,
-        drift_tier: None,
-        drift_metric: None,
-        drift_loss_metric: None,
-        drift_slice_size: None,
-        drift_slice_offset: None,
-        // Codebase adapter fields
-        adapter_type: None,
-        base_adapter_id: None,
-        stream_session_id: None,
-        versioning_threshold: None,
-        coreml_package_hash: None,
+        // Populate fields from DB that were previously hardcoded to None
+        pinned: Some(adapter.pinned != 0),
+        memory_bytes: Some(adapter.memory_bytes),
+        deduplicated: None, // Set during registration, not stored in DB
+        // Drift tracking fields from DB
+        drift_reference_backend: adapter.drift_reference_backend.clone(),
+        drift_baseline_backend: adapter.drift_baseline_backend.clone(),
+        drift_test_backend: adapter.drift_test_backend.clone(),
+        drift_tier: adapter.drift_tier.clone(),
+        drift_metric: adapter.drift_metric,
+        drift_loss_metric: adapter.drift_loss_metric,
+        drift_slice_size: None, // Not stored in DB
+        drift_slice_offset: None, // Not stored in DB
+        // Codebase adapter fields from DB
+        adapter_type: adapter.adapter_type.clone(),
+        base_adapter_id: adapter.base_adapter_id.clone(),
+        stream_session_id: adapter.stream_session_id.clone(),
+        versioning_threshold: adapter.versioning_threshold,
+        coreml_package_hash: adapter.coreml_package_hash.clone(),
     }))
 }

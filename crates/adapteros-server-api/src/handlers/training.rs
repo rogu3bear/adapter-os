@@ -4304,7 +4304,7 @@ pub async fn get_training_report(
             )
         })?;
         if cfg.paths.artifacts_root.is_empty() {
-            PathBuf::from("var/artifacts")
+            adapteros_core::rebase_var_path("var/artifacts")
         } else {
             PathBuf::from(cfg.paths.artifacts_root.clone())
         }

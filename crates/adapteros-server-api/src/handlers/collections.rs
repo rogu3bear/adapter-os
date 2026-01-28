@@ -6,7 +6,6 @@
 use crate::api_error::ApiError;
 use crate::audit_helper::{actions, log_success_or_warn, resources};
 use crate::auth::Claims;
-use crate::error_helpers::db_error;
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
 use crate::types::{ErrorResponse, PaginatedResponse};
