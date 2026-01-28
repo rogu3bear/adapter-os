@@ -874,6 +874,9 @@ mod tests {
             backend_attestation_b3: Some(B3Hash::hash(b"metal-attestation")),
             seed_lineage_hash: None, // PRD-DET-001: PR-A
             adapter_training_lineage_digest: None,
+            // Patent 3535886.0002 Claims 7-8: Cross-run lineage
+            previous_receipt_digest: None,
+            session_sequence: 0,
         }
     }
 

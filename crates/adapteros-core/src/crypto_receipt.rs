@@ -989,6 +989,9 @@ impl CryptographicReceipt {
             // Citations (not tracked)
             citations_merkle_root_b3: None,
             citation_count: 0,
+            // V6 cross-run lineage (not tracked in CryptographicReceipt)
+            previous_receipt_digest: None,
+            session_sequence: 0,
         }
     }
 }

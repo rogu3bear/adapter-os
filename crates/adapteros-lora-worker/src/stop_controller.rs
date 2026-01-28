@@ -629,4 +629,28 @@ mod tests {
         controller.reset();
         assert_eq!(controller.generated_count(), 0);
     }
+
+    #[test]
+    fn test_cancelled_and_system_error_stop_codes() {
+        // Patent 3535886.0002 Claim 6: Verify Cancelled and SystemError codes
+        // are valid and can be used for receipt binding (even though they're
+        // not returned by StopController.check_stop() directly).
+
+        // Verify the codes are valid enum variants with correct string representation
+        assert_eq!(StopReasonCode::Cancelled.to_string(), "CANCELLED");
+        assert_eq!(StopReasonCode::SystemError.to_string(), "SYSTEM_ERROR");
+
+        // Verify they can be serialized/deserialized for receipt persistence
+        let cancelled_json = serde_json::to_string(&StopReasonCode::Cancelled).unwrap();
+        let system_error_json = serde_json::to_string(&StopReasonCode::SystemError).unwrap();
+
+        assert_eq!(cancelled_json, "\"CANCELLED\"");
+        assert_eq!(system_error_json, "\"SYSTEM_ERROR\"");
+
+        let parsed_cancelled: StopReasonCode = serde_json::from_str(&cancelled_json).unwrap();
+        let parsed_system_error: StopReasonCode = serde_json::from_str(&system_error_json).unwrap();
+
+        assert_eq!(parsed_cancelled, StopReasonCode::Cancelled);
+        assert_eq!(parsed_system_error, StopReasonCode::SystemError);
+    }
 }

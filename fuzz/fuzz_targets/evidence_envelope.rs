@@ -201,6 +201,9 @@ fuzz_target!(|data: &[u8]| {
                 backend_attestation_b3,
                 seed_lineage_hash,
                 adapter_training_lineage_digest,
+                // V6 cross-run lineage
+                previous_receipt_digest: None,
+                session_sequence: 0,
             };
 
             EvidenceEnvelope::new_inference(

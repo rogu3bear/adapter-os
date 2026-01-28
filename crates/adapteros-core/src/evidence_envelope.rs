@@ -38,7 +38,8 @@ use std::convert::TryFrom;
 /// - v2: Added backend_used and backend_attestation_b3 to InferenceReceiptRef (PRD-DET-001)
 /// - v3: Added seed_lineage_hash to InferenceReceiptRef (PRD-DET-001: determinism hardening)
 /// - v4: Added adapter_training_lineage_digest for training data provenance (patent rectification)
-pub const EVIDENCE_ENVELOPE_SCHEMA_VERSION: u8 = 4;
+/// - v5: Added cross-run lineage (Patent 3535886.0002 Claims 7-8)
+pub const EVIDENCE_ENVELOPE_SCHEMA_VERSION: u8 = 5;
 
 /// Evidence scope discriminator
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -197,6 +198,23 @@ pub struct InferenceReceiptRef {
     /// Adapters are sorted by adapter_id for determinism.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub adapter_training_lineage_digest: Option<B3Hash>,
+
+    // --- Cross-run lineage (Patent 3535886.0002 Claims 7-8: Temporal Ordering) ---
+    /// Previous receipt digest for cross-run lineage.
+    ///
+    /// Links this receipt to the prior inference in the same session/tenant,
+    /// forming a cryptographic chain that proves temporal ordering of inferences.
+    /// None for the first inference in a session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_receipt_digest: Option<B3Hash>,
+
+    /// Session sequence number for temporal ordering.
+    ///
+    /// Monotonically increasing counter within a session, starting at 0.
+    /// Combined with previous_receipt_digest, enables verification of
+    /// inference ordering without access to the full trace.
+    #[serde(default)]
+    pub session_sequence: u64,
 }
 
 /// Unified evidence envelope with cryptographic chain linking
@@ -448,6 +466,29 @@ impl EvidenceEnvelope {
                             bytes.push(0); // absent marker
                         }
                     }
+
+                    // Adapter training lineage (v4 schema addition)
+                    match &r.adapter_training_lineage_digest {
+                        Some(h) => {
+                            bytes.push(1); // present marker
+                            bytes.extend_from_slice(h.as_bytes());
+                        }
+                        None => {
+                            bytes.push(0); // absent marker
+                        }
+                    }
+
+                    // Cross-run lineage (Patent 3535886.0002 Claims 7-8: v5 schema addition)
+                    match &r.previous_receipt_digest {
+                        Some(h) => {
+                            bytes.push(1); // present marker
+                            bytes.extend_from_slice(h.as_bytes());
+                        }
+                        None => {
+                            bytes.push(0); // absent marker
+                        }
+                    }
+                    encode_u64(bytes, r.session_sequence);
                 }
             }
         }
@@ -684,6 +725,8 @@ mod tests {
             backend_attestation_b3: Some(B3Hash::hash(b"metal-attestation")),
             seed_lineage_hash: None, // PRD-DET-001: PR-A
             adapter_training_lineage_digest: None,
+            previous_receipt_digest: None, // Patent 3535886.0002 Claims 7-8
+            session_sequence: 0,
         }
     }
 
@@ -942,5 +985,95 @@ mod tests {
 
         assert_eq!(ref_data.backend_used, "metal");
         assert!(ref_data.backend_attestation_b3.is_some());
+    }
+
+    // ==========================================================================
+    // Patent 3535886.0002 Claims 7-8: Cross-run lineage tests
+    // ==========================================================================
+
+    #[test]
+    fn test_cross_run_lineage_changes_envelope_digest() {
+        // Patent 3535886.0002 Claims 7-8: Different previous_receipt_digest must produce different digest
+        let mut ref1 = sample_inference_ref();
+        ref1.previous_receipt_digest = Some(B3Hash::hash(b"receipt-1"));
+        ref1.session_sequence = 1;
+
+        let mut ref2 = sample_inference_ref();
+        ref2.previous_receipt_digest = Some(B3Hash::hash(b"receipt-2"));
+        ref2.session_sequence = 1;
+
+        let env1 = EvidenceEnvelope::new_inference("tenant-1".to_string(), ref1, None);
+        let mut env2 = EvidenceEnvelope::new_inference("tenant-1".to_string(), ref2, None);
+        env2.created_at = env1.created_at.clone();
+
+        assert_ne!(
+            env1.digest(),
+            env2.digest(),
+            "Different previous_receipt_digest must produce different digest"
+        );
+    }
+
+    #[test]
+    fn test_session_sequence_changes_envelope_digest() {
+        // Patent 3535886.0002 Claims 7-8: Different session_sequence must produce different digest
+        let mut ref1 = sample_inference_ref();
+        ref1.previous_receipt_digest = Some(B3Hash::hash(b"receipt-prev"));
+        ref1.session_sequence = 0;
+
+        let mut ref2 = sample_inference_ref();
+        ref2.previous_receipt_digest = Some(B3Hash::hash(b"receipt-prev"));
+        ref2.session_sequence = 1;
+
+        let env1 = EvidenceEnvelope::new_inference("tenant-1".to_string(), ref1, None);
+        let mut env2 = EvidenceEnvelope::new_inference("tenant-1".to_string(), ref2, None);
+        env2.created_at = env1.created_at.clone();
+
+        assert_ne!(
+            env1.digest(),
+            env2.digest(),
+            "Different session_sequence must produce different digest"
+        );
+    }
+
+    #[test]
+    fn test_first_receipt_has_no_previous() {
+        // First receipt in session should have None for previous_receipt_digest
+        let mut receipt_ref = sample_inference_ref();
+        receipt_ref.previous_receipt_digest = None;
+        receipt_ref.session_sequence = 0;
+
+        let env = EvidenceEnvelope::new_inference("tenant-1".to_string(), receipt_ref, None);
+
+        let ref_data = env.inference_receipt_ref.as_ref().unwrap();
+        assert!(ref_data.previous_receipt_digest.is_none());
+        assert_eq!(ref_data.session_sequence, 0);
+    }
+
+    #[test]
+    fn test_cross_run_lineage_backward_compat_deserialization() {
+        // V4 receipts without cross-run lineage fields should deserialize with defaults
+        let json = r#"{
+            "trace_id": "trace-old",
+            "run_head_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+            "output_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+            "receipt_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+            "logical_prompt_tokens": 10,
+            "prefix_cached_token_count": 0,
+            "billed_input_tokens": 10,
+            "logical_output_tokens": 5,
+            "billed_output_tokens": 5
+        }"#;
+
+        let parsed: InferenceReceiptRef =
+            serde_json::from_str(json).expect("v4 schema should deserialize");
+
+        assert!(
+            parsed.previous_receipt_digest.is_none(),
+            "previous_receipt_digest defaults to None"
+        );
+        assert_eq!(
+            parsed.session_sequence, 0,
+            "session_sequence defaults to 0"
+        );
     }
 }

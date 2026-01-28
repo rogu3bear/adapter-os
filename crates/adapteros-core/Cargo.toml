@@ -38,6 +38,7 @@ dashmap = "5.5"
 unicode-normalization = "0.1"
 tokenizers = { version = "0.15", default-features = false, features = ["onig"] }
 fs2 = { workspace = true }
+uuid = { workspace = true }
 walkdir.workspace = true
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

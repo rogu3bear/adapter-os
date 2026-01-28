@@ -3,6 +3,10 @@
 //! Handlers for audit logs, compliance, and federation auditing.
 //! Split from adapteros-server-api for faster incremental builds.
 
+use adapteros_core::third_party_verification::{
+    verify_receipt_with_precomputed, MismatchReason,
+};
+use adapteros_core::B3Hash;
 use adapteros_db::users::Role;
 use adapteros_server_api::auth::Claims;
 use adapteros_server_api::middleware::require_any_role;
@@ -57,6 +61,63 @@ pub struct ComplianceControl {
     pub last_checked: String,
     pub evidence: Vec<String>,
     pub findings: Vec<String>,
+}
+
+// ========== Receipt Verification Types (Patent 3535886.0002 Claims 14-15) ==========
+
+/// Request body for third-party receipt verification.
+///
+/// Enables air-gapped verification of inference receipts without system access.
+/// All fields are hex-encoded BLAKE3 digests except token counts.
+#[derive(Debug, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub struct ReceiptVerificationRequest {
+    /// Hex-encoded receipt digest to verify
+    pub receipt_digest: String,
+
+    /// Hex-encoded run head hash (hash chain over per-token routing decisions)
+    pub run_head_hash: String,
+
+    /// Hex-encoded output digest (BLAKE3 of output tokens)
+    pub output_digest: String,
+
+    /// Hex-encoded context digest (BLAKE3 of tenant + stack + prompt tokens)
+    pub context_digest: String,
+
+    /// Logical prompt tokens (input token count)
+    pub logical_prompt_tokens: u32,
+
+    /// Number of tokens served from prefix cache
+    pub prefix_cached_token_count: u32,
+
+    /// Billed input tokens (logical - cached)
+    pub billed_input_tokens: u32,
+
+    /// Logical output tokens (generated token count)
+    pub logical_output_tokens: u32,
+
+    /// Billed output tokens
+    pub billed_output_tokens: u32,
+
+    /// Receipt schema version (1-6, defaults to current if not specified)
+    #[serde(default)]
+    pub schema_version: Option<u8>,
+}
+
+/// Response from receipt verification.
+#[derive(Debug, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub struct ReceiptVerificationResponse {
+    /// Whether verification succeeded
+    pub verified: bool,
+
+    /// Hex-encoded computed digest (for debugging mismatches)
+    pub computed_digest: String,
+
+    /// Reason for mismatch (if verification failed)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mismatch_reason: Option<String>,
+
+    /// Schema version used for verification
+    pub schema_version: u8,
 }
 
 // ========== Handlers ==========
@@ -932,5 +993,137 @@ pub async fn verify_audit_chain(
         error_message: result.error_message,
         merkle_root,
         verification_timestamp: chrono::Utc::now().to_rfc3339(),
+    }))
+}
+
+// ========== Receipt Verification Handler (Patent 3535886.0002 Claims 14-15) ==========
+
+/// Verify an inference receipt
+///
+/// Public endpoint for third-party receipt verification. Enables air-gapped
+/// verification of inference receipts without system access.
+///
+/// This endpoint is unauthenticated (public) per Patent 3535886.0002 Claims 14-15
+/// to support independent verification by auditors and external parties.
+#[utoipa::path(
+    tag = "audit",
+    post,
+    path = "/v1/audit/receipts/verify",
+    request_body = ReceiptVerificationRequest,
+    responses(
+        (status = 200, description = "Verification result", body = ReceiptVerificationResponse),
+        (status = 400, description = "Invalid request (malformed hex, invalid schema)", body = ErrorResponse)
+    )
+)]
+pub async fn verify_receipt(
+    Json(req): Json<ReceiptVerificationRequest>,
+) -> Result<Json<ReceiptVerificationResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Default to current schema if not specified
+    let schema_version = req.schema_version.unwrap_or(
+        adapteros_core::receipt_digest::RECEIPT_SCHEMA_CURRENT,
+    );
+
+    // Parse hex-encoded digests
+    let receipt_digest = B3Hash::from_hex(&req.receipt_digest).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("invalid receipt_digest hex")
+                    .with_code("INVALID_HEX")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    let run_head_hash = B3Hash::from_hex(&req.run_head_hash).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("invalid run_head_hash hex")
+                    .with_code("INVALID_HEX")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    let output_digest = B3Hash::from_hex(&req.output_digest).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("invalid output_digest hex")
+                    .with_code("INVALID_HEX")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    let context_digest = B3Hash::from_hex(&req.context_digest).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("invalid context_digest hex")
+                    .with_code("INVALID_HEX")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    // Perform verification using precomputed digests
+    let result = verify_receipt_with_precomputed(
+        &receipt_digest,
+        &context_digest,
+        &run_head_hash,
+        &output_digest,
+        req.logical_prompt_tokens,
+        req.prefix_cached_token_count,
+        req.billed_input_tokens,
+        req.logical_output_tokens,
+        req.billed_output_tokens,
+        schema_version,
+    )
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("verification failed")
+                    .with_code("VERIFICATION_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    // Convert mismatch reason to string
+    let mismatch_reason = result.mismatch_reason.map(|r| match r {
+        MismatchReason::ContextDigestMismatch { computed, expected } => {
+            format!(
+                "context digest mismatch: computed {} vs expected {:?}",
+                computed, expected
+            )
+        }
+        MismatchReason::OutputDigestMismatch { computed, expected } => {
+            format!(
+                "output digest mismatch: computed {} vs expected {:?}",
+                computed, expected
+            )
+        }
+        MismatchReason::ReceiptDigestMismatch { computed, claimed } => {
+            format!(
+                "receipt digest mismatch: computed {} vs claimed {}",
+                computed, claimed
+            )
+        }
+        MismatchReason::UnsupportedSchemaVersion { version } => {
+            format!("unsupported schema version: {}", version)
+        }
+        MismatchReason::ParseError { message } => {
+            format!("parse error: {}", message)
+        }
+    });
+
+    Ok(Json(ReceiptVerificationResponse {
+        verified: result.verified,
+        computed_digest: result.computed_receipt_digest.to_hex(),
+        mismatch_reason,
+        schema_version: result.schema_version,
     }))
 }

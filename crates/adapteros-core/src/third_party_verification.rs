@@ -93,7 +93,7 @@
 
 use crate::evidence_envelope::InferenceReceiptRef;
 use crate::receipt_digest::{
-    compute_output_digest, compute_receipt_digest, ReceiptDigestInput, RECEIPT_SCHEMA_V5,
+    compute_output_digest, compute_receipt_digest, ReceiptDigestInput, RECEIPT_SCHEMA_V6,
 };
 use crate::{AosError, B3Hash, Result};
 use serde::{Deserialize, Serialize};
@@ -189,6 +189,15 @@ pub struct ClaimedConfig {
     /// Citation count (V5+)
     #[serde(default)]
     pub citation_count: u32,
+
+    // --- V6 fields: Cross-run lineage (Patent 3535886.0002 Claims 7-8) ---
+    /// Previous receipt digest for cross-run lineage (V6+)
+    #[serde(default)]
+    pub previous_receipt_digest: Option<[u8; 32]>,
+
+    /// Session sequence number for temporal ordering (V6+)
+    #[serde(default)]
+    pub session_sequence: u64,
 }
 
 /// Values claimed by a third party for verification.
@@ -472,6 +481,12 @@ fn build_receipt_input(
         claimed.config.citation_count,
     );
 
+    // V6 fields: Cross-run lineage (Patent 3535886.0002 Claims 7-8)
+    input = input.with_cross_run_lineage(
+        claimed.config.previous_receipt_digest,
+        claimed.config.session_sequence,
+    );
+
     input
 }
 
@@ -486,7 +501,7 @@ fn build_receipt_input(
 /// # Arguments
 /// * `receipt_digest` - The receipt digest to verify against
 /// * `claimed` - The claimed values (input, output, config)
-/// * `schema_version` - Receipt schema version (1-5)
+/// * `schema_version` - Receipt schema version (1-6)
 ///
 /// # Returns
 /// * `Ok(VerificationResult)` - Verification completed (check `verified` field)
@@ -505,7 +520,7 @@ pub fn verify_receipt(
     schema_version: u8,
 ) -> Result<VerificationResult> {
     // Validate schema version
-    if schema_version > RECEIPT_SCHEMA_V5 {
+    if schema_version > RECEIPT_SCHEMA_V6 {
         return Ok(VerificationResult::failure(
             MismatchReason::UnsupportedSchemaVersion {
                 version: schema_version,
@@ -596,7 +611,7 @@ pub fn verify_receipt_with_precomputed(
     schema_version: u8,
 ) -> Result<VerificationResult> {
     // Validate schema version
-    if schema_version > RECEIPT_SCHEMA_V5 {
+    if schema_version > RECEIPT_SCHEMA_V6 {
         return Ok(VerificationResult::failure(
             MismatchReason::UnsupportedSchemaVersion {
                 version: schema_version,
@@ -1038,13 +1053,34 @@ mod tests {
         let context_digest = compute_context_digest(&claimed.config);
         let output_digest = compute_output_digest(&claimed.output_tokens);
         let receipt_input = build_receipt_input(&claimed, &context_digest, &output_digest);
-        let expected_receipt = compute_receipt_digest(&receipt_input, RECEIPT_SCHEMA_V5).unwrap();
+        let expected_receipt = compute_receipt_digest(&receipt_input, RECEIPT_SCHEMA_V6).unwrap();
 
         // Verify
-        let result = verify_receipt(&expected_receipt, &claimed, RECEIPT_SCHEMA_V5).unwrap();
+        let result = verify_receipt(&expected_receipt, &claimed, RECEIPT_SCHEMA_V6).unwrap();
 
         assert!(result.verified, "V5 verification should succeed");
-        assert_eq!(result.schema_version, RECEIPT_SCHEMA_V5);
+        assert_eq!(result.schema_version, RECEIPT_SCHEMA_V6);
+    }
+
+    #[test]
+    fn test_v6_verification_with_cross_run_lineage() {
+        let mut claimed = sample_claimed_values();
+
+        // Add V6 fields (cross-run lineage per Patent 3535886.0002 Claims 7-8)
+        claimed.config.previous_receipt_digest = Some([0x44u8; 32]);
+        claimed.config.session_sequence = 42;
+
+        // Compute V6 receipt
+        let context_digest = compute_context_digest(&claimed.config);
+        let output_digest = compute_output_digest(&claimed.output_tokens);
+        let receipt_input = build_receipt_input(&claimed, &context_digest, &output_digest);
+        let expected_receipt = compute_receipt_digest(&receipt_input, RECEIPT_SCHEMA_V6).unwrap();
+
+        // Verify
+        let result = verify_receipt(&expected_receipt, &claimed, RECEIPT_SCHEMA_V6).unwrap();
+
+        assert!(result.verified, "V6 verification with cross-run lineage should succeed");
+        assert_eq!(result.schema_version, RECEIPT_SCHEMA_V6);
     }
 
     #[test]
@@ -1069,10 +1105,12 @@ mod tests {
 
         let v1 = compute_receipt_digest(&receipt_input, RECEIPT_SCHEMA_V1).unwrap();
         let v4 = compute_receipt_digest(&receipt_input, RECEIPT_SCHEMA_V4).unwrap();
-        let v5 = compute_receipt_digest(&receipt_input, RECEIPT_SCHEMA_V5).unwrap();
+        let v5 = compute_receipt_digest(&receipt_input, crate::receipt_digest::RECEIPT_SCHEMA_V5).unwrap();
+        let v6 = compute_receipt_digest(&receipt_input, RECEIPT_SCHEMA_V6).unwrap();
 
         assert_ne!(v1, v4, "V1 and V4 should differ");
         assert_ne!(v4, v5, "V4 and V5 should differ");
+        assert_ne!(v5, v6, "V5 and V6 should differ");
     }
 
     #[test]
@@ -1147,6 +1185,9 @@ mod tests {
             backend_attestation_b3: None,
             seed_lineage_hash: None,
             adapter_training_lineage_digest: None,
+            // Patent 3535886.0002 Claims 7-8: Cross-run lineage
+            previous_receipt_digest: None,
+            session_sequence: 0,
         }
     }
 
@@ -1225,6 +1266,9 @@ mod tests {
             backend_attestation_b3: None,
             seed_lineage_hash: None,
             adapter_training_lineage_digest: None,
+            // Patent 3535886.0002 Claims 7-8: Cross-run lineage
+            previous_receipt_digest: None,
+            session_sequence: 0,
         };
 
         // Verify with correct output tokens

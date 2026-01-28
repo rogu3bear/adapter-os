@@ -367,4 +367,22 @@ pub struct RunReceipt<Hash = String> {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "utoipa", schema(value_type = Option<String>))]
     pub model_cache_identity_v2_digest_b3: Option<Hash>,
+    // =========================================================================
+    // Cross-Run Lineage (Patent 3535886.0002 Claims 7-8: Temporal Ordering)
+    // =========================================================================
+    /// Previous receipt digest for cross-run lineage.
+    ///
+    /// Links this receipt to the prior inference in the same session/tenant,
+    /// forming a cryptographic chain that proves temporal ordering of inferences.
+    /// None for the first inference in a session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "utoipa", schema(value_type = Option<String>))]
+    pub previous_receipt_digest: Option<Hash>,
+    /// Session sequence number for temporal ordering.
+    ///
+    /// Monotonically increasing counter within a session, starting at 0.
+    /// Combined with previous_receipt_digest, enables verification of
+    /// inference ordering without access to the full trace.
+    #[serde(default)]
+    pub session_sequence: u64,
 }

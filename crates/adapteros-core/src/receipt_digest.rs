@@ -9,6 +9,8 @@
 //! - **V2**: Adds backend identity (backend_used, backend_attestation)
 //! - **V3**: Adds seed lineage (root_seed_digest, seed_mode, has_manifest_binding)
 //! - **V4**: Production format with all fields (stop controller, KV, prefix cache, model cache)
+//! - **V5**: Equipment profile and citation binding (Patent 3535886.0002 Claims 6, 9-10)
+//! - **V6**: Cross-run lineage for temporal ordering (Patent 3535886.0002 Claims 7-8)
 //!
 //! # Digest Algorithm
 //!
@@ -30,8 +32,10 @@ pub const RECEIPT_SCHEMA_V3: u8 = 3;
 pub const RECEIPT_SCHEMA_V4: u8 = 4;
 /// V5: Patent 3535886.0002 compliance - adds equipment profile and citation binding
 pub const RECEIPT_SCHEMA_V5: u8 = 5;
+/// V6: Patent 3535886.0002 Claims 7-8 compliance - adds cross-run lineage for temporal ordering
+pub const RECEIPT_SCHEMA_V6: u8 = 6;
 /// Current schema version for new receipts
-pub const RECEIPT_SCHEMA_CURRENT: u8 = RECEIPT_SCHEMA_V5;
+pub const RECEIPT_SCHEMA_CURRENT: u8 = RECEIPT_SCHEMA_V6;
 
 /// Input fields for receipt digest computation.
 ///
@@ -112,6 +116,17 @@ pub struct ReceiptDigestInput {
     /// Count of citations for verification
     #[serde(default)]
     pub citation_count: u32,
+
+    // V6 fields: Cross-run lineage (Patent 3535886.0002 Claims 7-8)
+    /// Previous receipt digest for cross-run lineage.
+    /// Links this receipt to the prior inference in the same session/tenant.
+    /// None for the first inference in a session.
+    #[serde(default)]
+    pub previous_receipt_digest: Option<[u8; 32]>,
+    /// Session sequence number for temporal ordering.
+    /// Monotonically increasing counter within a session, starting at 0.
+    #[serde(default)]
+    pub session_sequence: u64,
 }
 
 impl ReceiptDigestInput {
@@ -241,6 +256,23 @@ impl ReceiptDigestInput {
         self.has_manifest_binding = has_manifest_binding;
         self
     }
+
+    /// Set cross-run lineage fields (V6+, Patent 3535886.0002 Claims 7-8)
+    ///
+    /// Links this receipt to the previous receipt in the same session for temporal ordering.
+    ///
+    /// # Arguments
+    /// * `previous_receipt_digest` - Digest of the previous receipt in this session (None for first)
+    /// * `session_sequence` - Monotonically increasing sequence number within the session
+    pub fn with_cross_run_lineage(
+        mut self,
+        previous_receipt_digest: Option<[u8; 32]>,
+        session_sequence: u64,
+    ) -> Self {
+        self.previous_receipt_digest = previous_receipt_digest;
+        self.session_sequence = session_sequence;
+        self
+    }
 }
 
 /// Compute receipt digest for the given schema version.
@@ -263,6 +295,7 @@ pub fn compute_receipt_digest(input: &ReceiptDigestInput, schema_version: u8) ->
         RECEIPT_SCHEMA_V3 => Some(compute_v3_digest(input)),
         RECEIPT_SCHEMA_V4 => Some(compute_v4_digest(input)),
         RECEIPT_SCHEMA_V5 => Some(compute_v5_digest(input)),
+        RECEIPT_SCHEMA_V6 => Some(compute_v6_digest(input)),
         _ => {
             tracing::warn!(
                 schema_version = schema_version,
@@ -620,6 +653,120 @@ fn compute_v5_digest(input: &ReceiptDigestInput) -> B3Hash {
         // V5: Citation binding
         &citations_merkle_bytes,
         &input.citation_count.to_le_bytes(),
+    ])
+}
+
+/// Compute V6 receipt digest (Patent 3535886.0002 Claims 7-8: Cross-Run Lineage).
+///
+/// V6 extends V5 with:
+/// - Previous receipt digest for cross-run lineage
+/// - Session sequence number for temporal ordering
+///
+/// **IMPORTANT**: This must stay in sync with `inference_trace.rs::compute_receipt_digest`.
+fn compute_v6_digest(input: &ReceiptDigestInput) -> B3Hash {
+    // Backend identity (V5 requires backend binding for replay prevention)
+    let backend_bytes = input.backend_used.as_deref().unwrap_or("").as_bytes();
+    let attestation_bytes = input
+        .backend_attestation_b3
+        .map(|b| b.to_vec())
+        .unwrap_or_default();
+
+    // Stop controller fields
+    let stop_reason_bytes = input.stop_reason_code.as_deref().unwrap_or("").as_bytes();
+    let stop_token_index_bytes = input
+        .stop_reason_token_index
+        .unwrap_or(0xFFFFFFFF)
+        .to_le_bytes();
+    let stop_policy_bytes = input
+        .stop_policy_digest_b3
+        .map(|b| b.to_vec())
+        .unwrap_or_else(|| vec![0u8; 32]);
+
+    // KV residency policy
+    let kv_residency_policy_id = input.kv_residency_policy_id.as_deref();
+
+    // Prefix KV cache
+    let prefix_kv_key_bytes = input
+        .prefix_kv_key_b3
+        .map(|b| b.to_vec())
+        .unwrap_or_else(|| vec![0u8; 32]);
+
+    // Model cache identity V2
+    let model_cache_identity_bytes = input
+        .model_cache_identity_v2_digest_b3
+        .map(|b| b.to_vec())
+        .unwrap_or_else(|| vec![0u8; 32]);
+
+    // V5: Equipment profile (Patent 3535886.0002 Claims 6, 9-10)
+    let equipment_profile_bytes = input
+        .equipment_profile_digest_b3
+        .map(|b| b.to_vec())
+        .unwrap_or_else(|| vec![0u8; 32]);
+    let processor_id_bytes = input.processor_id.as_deref().unwrap_or("").as_bytes();
+    let mlx_version_bytes = input.mlx_version.as_deref().unwrap_or("").as_bytes();
+    let ane_version_bytes = input.ane_version.as_deref().unwrap_or("").as_bytes();
+
+    // V5: Citation binding (Patent 3535886.0002 Claim 6 enhancement)
+    let citations_merkle_bytes = input
+        .citations_merkle_root_b3
+        .map(|b| b.to_vec())
+        .unwrap_or_else(|| vec![0u8; 32]);
+
+    // V6: Cross-run lineage (Patent 3535886.0002 Claims 7-8)
+    let previous_receipt_bytes = input
+        .previous_receipt_digest
+        .map(|b| b.to_vec())
+        .unwrap_or_else(|| vec![0u8; 32]);
+
+    B3Hash::hash_multi(&[
+        // Schema version marker
+        &[RECEIPT_SCHEMA_V6],
+        // Core fields
+        &input.context_digest[..],
+        &input.run_head_hash[..],
+        &input.output_digest[..],
+        &input.logical_prompt_tokens.to_le_bytes(),
+        &input.prefix_cached_token_count.to_le_bytes(),
+        &input.billed_input_tokens.to_le_bytes(),
+        &input.logical_output_tokens.to_le_bytes(),
+        &input.billed_output_tokens.to_le_bytes(),
+        // Backend identity (V5 requires backend binding for replay prevention)
+        &(backend_bytes.len() as u32).to_le_bytes(),
+        backend_bytes,
+        &(attestation_bytes.len() as u32).to_le_bytes(),
+        &attestation_bytes,
+        // Stop controller fields
+        &(stop_reason_bytes.len() as u32).to_le_bytes(),
+        stop_reason_bytes,
+        &stop_token_index_bytes,
+        &stop_policy_bytes,
+        // KV quota/residency fields
+        &input.tenant_kv_quota_bytes.to_le_bytes(),
+        &input.tenant_kv_bytes_used.to_le_bytes(),
+        &input.kv_evictions.to_le_bytes(),
+        &(kv_residency_policy_id.map(|s| s.len() as u32).unwrap_or(0)).to_le_bytes(),
+        kv_residency_policy_id.map(|s| s.as_bytes()).unwrap_or(&[]),
+        &[if input.kv_quota_enforced { 1u8 } else { 0u8 }],
+        // Prefix KV cache fields
+        &prefix_kv_key_bytes,
+        &[if input.prefix_cache_hit { 1u8 } else { 0u8 }],
+        &input.prefix_kv_bytes.to_le_bytes(),
+        // Model cache identity V2
+        &model_cache_identity_bytes,
+        // V5: Equipment profile (Patent 3535886.0002)
+        &equipment_profile_bytes,
+        &(processor_id_bytes.len() as u32).to_le_bytes(),
+        processor_id_bytes,
+        &(mlx_version_bytes.len() as u32).to_le_bytes(),
+        mlx_version_bytes,
+        &(ane_version_bytes.len() as u32).to_le_bytes(),
+        ane_version_bytes,
+        // V5: Citation binding
+        &citations_merkle_bytes,
+        &input.citation_count.to_le_bytes(),
+        // V6: Cross-run lineage (Patent 3535886.0002 Claims 7-8)
+        &previous_receipt_bytes,
+        &input.session_sequence.to_le_bytes(),
     ])
 }
 
@@ -1014,11 +1161,78 @@ mod tests {
         let v3 = compute_receipt_digest(&input, RECEIPT_SCHEMA_V3).unwrap();
         let v4 = compute_receipt_digest(&input, RECEIPT_SCHEMA_V4).unwrap();
         let v5 = compute_receipt_digest(&input, RECEIPT_SCHEMA_V5).unwrap();
+        let v6 = compute_receipt_digest(&input, RECEIPT_SCHEMA_V6).unwrap();
 
         assert_ne!(v1, v2, "V1 and V2 should differ");
         assert_ne!(v2, v3, "V2 and V3 should differ");
         assert_ne!(v3, v4, "V3 and V4 should differ");
         assert_ne!(v4, v5, "V4 and V5 should differ");
+        assert_ne!(v5, v6, "V5 and V6 should differ");
+    }
+
+    #[test]
+    fn test_v6_digest_deterministic() {
+        let input = ReceiptDigestInput::new([1u8; 32], [2u8; 32], [3u8; 32], 100, 10, 90, 50, 50)
+            .with_stop_controller(Some("EOS".to_string()), Some(45), Some([4u8; 32]))
+            .with_kv_quota(
+                1024 * 1024,
+                512 * 1024,
+                0,
+                Some("default".to_string()),
+                true,
+            )
+            .with_prefix_cache(Some([5u8; 32]), true, 256 * 1024)
+            .with_model_cache_identity(Some([6u8; 32]))
+            .with_equipment_profile(
+                Some([7u8; 32]),
+                Some("Apple M4 Max:stepping-1".to_string()),
+                Some("0.21.0".to_string()),
+                Some("ANEv4-38core".to_string()),
+            )
+            .with_citations(Some([8u8; 32]), 5)
+            .with_cross_run_lineage(Some([9u8; 32]), 42);
+
+        let d1 = compute_receipt_digest(&input, RECEIPT_SCHEMA_V6).unwrap();
+        let d2 = compute_receipt_digest(&input, RECEIPT_SCHEMA_V6).unwrap();
+        assert_eq!(d1, d2, "V6 digest should be deterministic");
+    }
+
+    #[test]
+    fn test_v6_cross_run_lineage_changes_digest() {
+        let base_input =
+            ReceiptDigestInput::new([1u8; 32], [2u8; 32], [3u8; 32], 100, 10, 90, 50, 50);
+
+        let with_lineage = base_input.clone().with_cross_run_lineage(Some([9u8; 32]), 42);
+        let without_lineage = base_input.clone();
+
+        let d1 = compute_receipt_digest(&with_lineage, RECEIPT_SCHEMA_V6).unwrap();
+        let d2 = compute_receipt_digest(&without_lineage, RECEIPT_SCHEMA_V6).unwrap();
+
+        assert_ne!(d1, d2, "Cross-run lineage should change V6 digest");
+    }
+
+    #[test]
+    fn test_v6_session_sequence_changes_digest() {
+        let base_input =
+            ReceiptDigestInput::new([1u8; 32], [2u8; 32], [3u8; 32], 100, 10, 90, 50, 50);
+
+        let seq_0 = base_input.clone().with_cross_run_lineage(Some([9u8; 32]), 0);
+        let seq_1 = base_input.clone().with_cross_run_lineage(Some([9u8; 32]), 1);
+
+        let d1 = compute_receipt_digest(&seq_0, RECEIPT_SCHEMA_V6).unwrap();
+        let d2 = compute_receipt_digest(&seq_1, RECEIPT_SCHEMA_V6).unwrap();
+
+        assert_ne!(d1, d2, "Different session_sequence should produce different digest");
+    }
+
+    #[test]
+    fn test_v6_first_receipt_has_no_previous() {
+        // First receipt in session should have None for previous_receipt_digest
+        let input = ReceiptDigestInput::new([1u8; 32], [2u8; 32], [3u8; 32], 100, 10, 90, 50, 50)
+            .with_cross_run_lineage(None, 0);
+
+        let digest = compute_receipt_digest(&input, RECEIPT_SCHEMA_V6).unwrap();
+        assert_ne!(digest, B3Hash::zero(), "First receipt should produce valid digest");
     }
 
     #[test]
