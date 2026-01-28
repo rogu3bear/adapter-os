@@ -33,6 +33,15 @@ AOS_DEV_NO_AUTH=1 cargo run -p adapteros-server -- --config configs/cp.toml
 
 # Build Metal shaders
 cd metal && bash build.sh
+
+# Build & Test Visibility (see .cargo/config.toml)
+cargo c         # Quick type check (workspace)
+cargo tb        # Timed build - generates HTML report
+cargo tbr       # Timed release build
+cargo bv        # Verbose build - shows each crate
+cargo nt        # Run tests with nextest (progress bar)
+cargo ntf       # Tests with immediate failure output
+sccache --show-stats  # View compilation cache stats
 ```
 
 ## Repo Info Preference
