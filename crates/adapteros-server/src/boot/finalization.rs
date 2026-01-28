@@ -314,7 +314,8 @@ fn enforce_no_default_var_write(report_path: &Path) -> Result<()> {
         }
     }
 
-    // Also check string-based defaults for cases where paths don't exist yet
+    // Also check string-based defaults for cases where paths don't exist yet.
+    // Canonical form is "var" (not "./var"). Accept both for backwards compatibility.
     if trimmed == "var" || trimmed == "./var" {
         return Ok(());
     }

@@ -54,7 +54,7 @@ pub async fn download_priority_models(boot_state: Option<&BootStateManager>) {
 
     // Create ModelHub client configuration
     let cache_dir = std::env::var("AOS_MODEL_CACHE_DIR").unwrap_or_else(|_| {
-        let default = std::path::PathBuf::from("var/model-cache");
+        let default = adapteros_core::rebase_var_path("var/model-cache");
         default.to_string_lossy().to_string()
     });
 

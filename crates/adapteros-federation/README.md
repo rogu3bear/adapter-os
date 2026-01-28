@@ -56,7 +56,7 @@ use adapteros_telemetry::StoredBundleMetadata;
 #[tokio::main]
 async fn main() -> Result<()> {
     // Connect to database
-    let db = Db::connect("./var/cp.db").await?;
+    let db = Db::connect("var/cp.db").await?;
     db.migrate().await?;
     
     // Create federation manager
@@ -80,7 +80,7 @@ use adapteros_federation::FederationManager;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let db = Db::connect("./var/cp.db").await?;
+    let db = Db::connect("var/cp.db").await?;
     let keypair = Keypair::generate();
     let manager = FederationManager::new(db, keypair)?;
     
@@ -106,11 +106,11 @@ use adapteros_telemetry::TelemetryWriter;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let db = Db::connect("./var/cp.db").await?;
+    let db = Db::connect("var/cp.db").await?;
     let keypair = Keypair::generate();
     
     // Create telemetry writer
-    let telemetry = TelemetryWriter::new("./var/telemetry", 500_000, 256 * 1024 * 1024)?;
+    let telemetry = TelemetryWriter::new("var/telemetry", 500_000, 256 * 1024 * 1024)?;
     
     // Create manager with telemetry
     let manager = FederationManager::with_telemetry(db, keypair, telemetry)?;
@@ -210,13 +210,13 @@ The `aosctl` CLI provides federation verification commands:
 
 ```bash
 # Verify cross-host federation signatures
-aosctl federation-verify --bundle-dir ./var/telemetry
+aosctl federation-verify --bundle-dir var/telemetry
 
 # Verify with custom database
-aosctl federation-verify --bundle-dir ./var/telemetry --database ./var/cp.db
+aosctl federation-verify --bundle-dir var/telemetry --database var/cp.db
 
 # JSON output
-aosctl federation-verify --bundle-dir ./var/telemetry --json > federation.json
+aosctl federation-verify --bundle-dir var/telemetry --json > federation.json
 ```
 
 ## Integration with adapteros-verify
@@ -228,8 +228,8 @@ use adapteros_verify::verify_cross_host;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let bundle_dir = Path::new("./var/telemetry");
-    let db = Db::connect("./var/cp.db").await?;
+    let bundle_dir = Path::new("var/telemetry");
+    let db = Db::connect("var/cp.db").await?;
     
     // Verify cross-host chain
     verify_cross_host(bundle_dir, &db).await?;
@@ -324,7 +324,7 @@ use adapteros_policy::PolicyHashWatcher;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let db = Db::connect("./var/cp.db").await?;
+    let db = Db::connect("var/cp.db").await?;
     let keypair = Keypair::generate();
     
     let federation = FederationManager::new(db.clone(), keypair)?;

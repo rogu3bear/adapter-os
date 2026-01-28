@@ -24,8 +24,8 @@
 //! 1. **From HuggingFace**: Download from model repositories (e.g., Qwen/Qwen2.5-7B-Instruct)
 //!    ```bash
 //!    # Example: Download Qwen2.5-7B-Instruct tokenizer
-//!    mkdir -p ./var/models/Qwen2.5-7B-Instruct
-//!    cd ./var/models/Qwen2.5-7B-Instruct
+//!    mkdir -p var/models/Qwen2.5-7B-Instruct
+//!    cd var/models/Qwen2.5-7B-Instruct
 //!    wget https://huggingface.co/Qwen/Qwen2.5-7B-Instruct/resolve/main/tokenizer.json
 //!    ```
 //!
@@ -38,16 +38,16 @@
 //!
 //! 1. **AOS_TOKENIZER_PATH**: Explicit path to tokenizer.json
 //!    ```bash
-//!    export AOS_TOKENIZER_PATH=./var/models/Qwen2.5-7B-Instruct/tokenizer.json
+//!    export AOS_TOKENIZER_PATH=var/models/Qwen2.5-7B-Instruct/tokenizer.json
 //!    ```
 //!
 //! 2. **AOS_MODEL_PATH**: Model directory (looks for tokenizer.json inside)
 //!    ```bash
-//!    export AOS_MODEL_PATH=./var/models/Qwen2.5-7B-Instruct
+//!    export AOS_MODEL_PATH=var/models/Qwen2.5-7B-Instruct
 //!    ```
 //!
 //! 3. **Default Location**: Uses `DEFAULT_MODEL_CACHE_ROOT/DEFAULT_BASE_MODEL_ID/tokenizer.json`
-//!    (typically `./var/model-cache/Qwen2.5-7B-Instruct/tokenizer.json`)
+//!    (typically `var/model-cache/Qwen2.5-7B-Instruct/tokenizer.json`)
 //!
 //! ### Validation
 //!
@@ -69,8 +69,8 @@
 //!
 //! ### Known Working Tokenizers
 //!
-//! - Qwen2.5-7B-Instruct: `./var/models/Qwen2.5-7B-Instruct/tokenizer.json`
-//! - Llama-3-8B: `./var/models/Llama-3-8B/tokenizer.json`
+//! - Qwen2.5-7B-Instruct: `var/models/Qwen2.5-7B-Instruct/tokenizer.json`
+//! - Llama-3-8B: `var/models/Llama-3-8B/tokenizer.json`
 
 #![allow(unused_imports)]
 #![allow(clippy::absurd_extreme_comparisons)]

@@ -198,7 +198,7 @@ impl PipelinePaths {
     pub fn for_job(storage_root: Option<&Path>, job_id: &str) -> Self {
         let root_dir = storage_root
             .map(|root| root.join("pipelines"))
-            .unwrap_or_else(|| PathBuf::from("var/training_pipeline"));
+            .unwrap_or_else(|| adapteros_core::rebase_var_path("var/training_pipeline"));
         let job_root = root_dir.join(job_id);
         let state_path = job_root.join("pipeline_state.json");
         let receipts_dir = job_root.join("receipts");

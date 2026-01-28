@@ -125,7 +125,7 @@ impl Default for IsolationConfig {
     fn default() -> Self {
         Self {
             process_model: ProcessModel::PerTenant,
-            uds_root: PathBuf::from("./var/run/aos"),
+            uds_root: adapteros_core::rebase_var_path("var/run/aos"),
             forbid_shm: true,
             keys: KeyConfig {
                 backend: KeyBackend::SecureEnclave,
@@ -138,7 +138,7 @@ impl Default for IsolationConfig {
             },
             filesystem: FilesystemIsolation {
                 enable: true,
-                root_dir: PathBuf::from("./var"),
+                root_dir: PathBuf::from("var"),
                 allowed_operations: vec![
                     FileOperation::Read,
                     FileOperation::Write,
@@ -451,7 +451,7 @@ mod tests {
             process_id: 1234,
             user_id: 1000,
             group_id: 1000,
-            working_directory: PathBuf::from("./var/run/aos/tenant1"),
+            working_directory: PathBuf::from("var/run/aos/tenant1"),
             environment: HashMap::new(),
         };
 
@@ -462,7 +462,7 @@ mod tests {
             process_id: 1234,
             user_id: 1000,
             group_id: 1000,
-            working_directory: PathBuf::from("./var/run/aos/tenant1"),
+            working_directory: PathBuf::from("var/run/aos/tenant1"),
             environment: HashMap::new(),
         };
 
@@ -480,7 +480,7 @@ mod tests {
                 process_id: 1234,
                 user_id: 1000,
                 group_id: 1000,
-                working_directory: PathBuf::from("./var/run/aos/tenant1"),
+                working_directory: PathBuf::from("var/run/aos/tenant1"),
                 environment: HashMap::new(),
             },
             TenantContext {
@@ -488,7 +488,7 @@ mod tests {
                 process_id: 5678,
                 user_id: 1001,
                 group_id: 1001,
-                working_directory: PathBuf::from("./var/run/aos/tenant2"),
+                working_directory: PathBuf::from("var/run/aos/tenant2"),
                 environment: HashMap::new(),
             },
         ];
@@ -501,7 +501,7 @@ mod tests {
                 process_id: 1234,
                 user_id: 1000,
                 group_id: 1000,
-                working_directory: PathBuf::from("./var/run/aos/tenant1"),
+                working_directory: PathBuf::from("var/run/aos/tenant1"),
                 environment: HashMap::new(),
             },
             TenantContext {
@@ -509,7 +509,7 @@ mod tests {
                 process_id: 1234, // Duplicate process ID
                 user_id: 1001,
                 group_id: 1001,
-                working_directory: PathBuf::from("./var/run/aos/tenant2"),
+                working_directory: PathBuf::from("var/run/aos/tenant2"),
                 environment: HashMap::new(),
             },
         ];
@@ -524,7 +524,7 @@ mod tests {
         let config = IsolationConfig::default();
         let policy = IsolationPolicy::new(config);
 
-        let valid_path = PathBuf::from("./var/run/aos/tenant1/socket.sock");
+        let valid_path = PathBuf::from("var/run/aos/tenant1/socket.sock");
         assert!(policy.validate_uds_path(&valid_path, "tenant1").is_ok());
 
         let invalid_path = PathBuf::from("/tmp/socket.sock");
@@ -575,9 +575,9 @@ mod tests {
         let policy = IsolationPolicy::new(config);
 
         let uds_path = policy.generate_tenant_uds_path("tenant1", "socket.sock");
-        assert_eq!(uds_path, PathBuf::from("./var/run/aos/tenant1/socket.sock"));
+        assert_eq!(uds_path, PathBuf::from("var/run/aos/tenant1/socket.sock"));
 
         let fs_path = policy.generate_tenant_fs_path("tenant1", "data/file.txt");
-        assert_eq!(fs_path, PathBuf::from("./var/tenant1/data/file.txt"));
+        assert_eq!(fs_path, PathBuf::from("var/tenant1/data/file.txt"));
     }
 }
