@@ -1925,9 +1925,12 @@ mod tests {
             ..Default::default()
         };
 
-        // Add required metadata for lineage tracking
+        // Add required metadata for lineage tracking (use legacy mode for tests)
         let mut metadata = HashMap::new();
-        metadata.insert("lineage_mode".to_string(), "legacy_unpinned".to_string());
+        metadata.insert(
+            "data_lineage_mode".to_string(),
+            "legacy_unpinned".to_string(),
+        );
 
         let result = packager
             .package_aos_with_metadata(
@@ -2018,9 +2021,12 @@ mod tests {
             ..Default::default()
         };
 
-        // Add required metadata for lineage tracking
+        // Add required metadata for lineage tracking (use legacy mode for tests)
         let mut metadata = HashMap::new();
-        metadata.insert("lineage_mode".to_string(), "legacy_unpinned".to_string());
+        metadata.insert(
+            "data_lineage_mode".to_string(),
+            "legacy_unpinned".to_string(),
+        );
 
         // First version
         let first = packager
