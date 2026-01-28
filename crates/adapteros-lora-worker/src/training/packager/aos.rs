@@ -1900,8 +1900,15 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial_test::serial]
     async fn test_package_aos_stores_in_content_addressed_path() {
         use crate::training::quantizer::QuantizedLoRAWeights;
+
+        // Save current quota env vars and set generous limits for this test
+        let old_hard = std::env::var("AOS_ARTIFACT_HARD_QUOTA_BYTES").ok();
+        let old_soft = std::env::var("AOS_ARTIFACT_SOFT_QUOTA_BYTES").ok();
+        std::env::set_var("AOS_ARTIFACT_HARD_QUOTA_BYTES", "1073741824"); // 1GB
+        std::env::set_var("AOS_ARTIFACT_SOFT_QUOTA_BYTES", "858993459"); // 0.8GB
 
         let temp_dir = tempfile::Builder::new()
             .prefix("aos-versioning-test-")
@@ -1994,11 +2001,28 @@ mod tests {
             Some(packaged.weights_path.clone()),
             "resolved path should match the archive path"
         );
+
+        // Restore original quota env vars
+        match old_hard {
+            Some(v) => std::env::set_var("AOS_ARTIFACT_HARD_QUOTA_BYTES", v),
+            None => std::env::remove_var("AOS_ARTIFACT_HARD_QUOTA_BYTES"),
+        }
+        match old_soft {
+            Some(v) => std::env::set_var("AOS_ARTIFACT_SOFT_QUOTA_BYTES", v),
+            None => std::env::remove_var("AOS_ARTIFACT_SOFT_QUOTA_BYTES"),
+        }
     }
 
     #[tokio::test]
+    #[serial_test::serial]
     async fn test_package_aos_tracks_parent_version() {
         use crate::training::quantizer::QuantizedLoRAWeights;
+
+        // Save current quota env vars and set generous limits for this test
+        let old_hard = std::env::var("AOS_ARTIFACT_HARD_QUOTA_BYTES").ok();
+        let old_soft = std::env::var("AOS_ARTIFACT_SOFT_QUOTA_BYTES").ok();
+        std::env::set_var("AOS_ARTIFACT_HARD_QUOTA_BYTES", "1073741824"); // 1GB
+        std::env::set_var("AOS_ARTIFACT_SOFT_QUOTA_BYTES", "858993459"); // 0.8GB
 
         let temp_dir = tempfile::Builder::new()
             .prefix("aos-parent-test-")
@@ -2096,5 +2120,15 @@ mod tests {
             .await
             .expect("getting current ref should succeed");
         assert_eq!(current, Some(first.hash_b3.clone()));
+
+        // Restore original quota env vars
+        match old_hard {
+            Some(v) => std::env::set_var("AOS_ARTIFACT_HARD_QUOTA_BYTES", v),
+            None => std::env::remove_var("AOS_ARTIFACT_HARD_QUOTA_BYTES"),
+        }
+        match old_soft {
+            Some(v) => std::env::set_var("AOS_ARTIFACT_SOFT_QUOTA_BYTES", v),
+            None => std::env::remove_var("AOS_ARTIFACT_SOFT_QUOTA_BYTES"),
+        }
     }
 }
