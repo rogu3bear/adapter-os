@@ -725,9 +725,11 @@ async fn test_prefix_template_tenant_isolation() {
 
 #[tokio::test]
 async fn test_prefix_kv_receipt_fields_persistence() {
+    use adapteros_core::cache_attestation::CacheAttestationBuilder;
     use adapteros_db::{
         Db, SqlTraceSink, TraceFinalization, TraceSink, TraceStart, TraceTokenInput,
     };
+    use ed25519_dalek::SigningKey;
     use std::sync::Arc;
 
     let db = Arc::new(Db::new_in_memory().await.expect("Failed to create test db"));
@@ -770,6 +772,20 @@ async fn test_prefix_kv_receipt_fields_persistence() {
     let prefix_kv_key = B3Hash::hash(b"prefix-kv-key-test");
     let model_identity_digest = B3Hash::hash(b"model-identity-v2");
 
+    // P0-1: Create cache attestation for billing fraud prevention
+    // When prefix_cached_token_count > 0, attestation is required
+    let test_signing_key_bytes: [u8; 32] = [0x42u8; 32];
+    let signing_key = SigningKey::from_bytes(&test_signing_key_bytes);
+    let worker_public_key = signing_key.verifying_key().to_bytes();
+
+    let cache_attestation = CacheAttestationBuilder::new()
+        .cache_key_b3(&prefix_kv_key)
+        .token_count(20) // Must match prefix_cached_token_count
+        .worker_id("test-worker")
+        .timestamp_tick(0)
+        .build_and_sign(&test_signing_key_bytes)
+        .expect("Failed to build cache attestation");
+
     let output_tokens = [10, 20, 30];
     let receipt = sink
         .finalize(TraceFinalization {
@@ -797,6 +813,9 @@ async fn test_prefix_kv_receipt_fields_persistence() {
             crypto_receipt_digest_b3: None,
             receipt_parity_verified: None,
             tenant_id: None,
+            // P0-1: Cache attestation (required when prefix_cached_token_count > 0)
+            cache_attestation: Some(cache_attestation),
+            worker_public_key: Some(worker_public_key),
         })
         .await
         .expect("Failed to finalize trace");
