@@ -7,6 +7,8 @@
 rustflags = [
     "-Cdebuginfo=0",
 ]
+# Enable sccache for faster rebuilds (caches across clean builds)
+rustc-wrapper = "sccache"
 
 # Target-specific configuration
 [target.aarch64-apple-darwin]
@@ -28,6 +30,8 @@ rustflags = []
 [env]
 # Enable incremental compilation for faster rebuilds
 CARGO_INCREMENTAL = "1"
+# Always show progress bar during builds
+CARGO_TERM_PROGRESS_WHEN = "always"
 CLANG_MODULE_CACHE_PATH = "target/clang-cache"
 MODULE_CACHE_DIR = "target/clang-cache"
 CFLAGS = "-fmodules-cache-path=target/clang-cache"
@@ -36,17 +40,12 @@ CXXFLAGS = "-fmodules-cache-path=target/clang-cache"
 SOURCE_DATE_EPOCH = "1704067200"
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# OPTIONAL: Advanced Build Performance Optimizations
+# Advanced Build Performance Optimizations
 # ═══════════════════════════════════════════════════════════════════════════════
 #
-# These are opt-in optimizations with trade-offs. Enable if you need faster builds.
-#
-# 1. SCCACHE (Shared Compilation Cache)
-#    - Caches compilation across clean builds and CI
-#    - Install: cargo install sccache
-#    - Enable: export RUSTC_WRAPPER=sccache
-#    - Or uncomment the line below to enable globally:
-# rustc-wrapper = "sccache"
+# 1. SCCACHE - ENABLED above in [build] section
+#    - Check stats: sccache --show-stats
+#    - Clear cache: sccache --zero-stats
 #
 # 2. PARALLEL FRONTEND (Nightly Only)
 #    - Parallelizes the Rust frontend across 8 threads
@@ -64,3 +63,17 @@ xtask = "run --package xtask --"
 # Check cache staleness (warns if >48h or >50GB)
 # Usage: cargo check-cache
 check-cache = "xtask check-cache"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Build & Test Visibility Aliases
+# ═══════════════════════════════════════════════════════════════════════════════
+# Timed builds - generates HTML report in target/cargo-timings/
+tb = "build --workspace --timings"
+tbr = "build --workspace --release --timings"
+# Verbose build - shows each crate being compiled
+bv = "build --workspace -v"
+# Test with nextest (install: cargo install cargo-nextest)
+nt = "nextest run --workspace"
+ntf = "nextest run --workspace --failure-output=immediate"
+# Quick check (faster than build, just type checking)
+c = "check --workspace"

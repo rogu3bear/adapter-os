@@ -1,0 +1,27 @@
+# Nextest configuration for AdapterOS
+# See: https://nexte.st/book/configuration.html
+
+[profile.default]
+# Fail fast - stop on first failure (override with --no-fail-fast)
+fail-fast = true
+# Show output for failed tests immediately
+failure-output = "immediate"
+# Show final summary
+final-status-level = "fail"
+# Retry flaky tests once
+retries = 1
+
+[profile.default.junit]
+# Generate JUnit XML for CI integration
+path = "target/nextest/junit.xml"
+
+[profile.ci]
+# CI profile - no retries, verbose output
+fail-fast = false
+failure-output = "immediate-final"
+retries = 0
+
+# Slow test warnings
+[profile.default.slow-timeout]
+period = "30s"
+terminate-after = 2
