@@ -3,10 +3,12 @@
 //! Provides disk quota enforcement, storage cleanup policies, and monitoring
 //! for adapterOS training and adapter storage.
 
+pub mod adapter_refs;
 pub mod byte_store;
 pub mod cleanup;
 pub mod entities;
 pub mod error;
+pub mod refs;
 pub mod index;
 pub mod kv;
 pub mod migration;
@@ -39,10 +41,17 @@ pub use models::{
 };
 pub use object_store::{FsObjectStore, ObjectStore, StoredObject};
 pub use repos::{
-    AdapterRepository, DatasetRepository, PaginatedResult, RagRepository, ReplayRepository,
-    TelemetryRepository,
+    AdapterRepository, AdapterVersionRepository, DatasetRepository, PaginatedResult,
+    RagRepository, ReplayRepository, TelemetryRepository,
 };
 pub use types::{KeyBuilder, VersionedRecord, CURRENT_SCHEMA_VERSION};
+
+// Adapter versioning types
+pub use adapter_refs::{
+    AdapterKind, AdapterLayout, AdapterName, AdapterNameError, AdapterRef, AdapterVersion,
+    StackComponent, StackDefinition, TrainingMetrics,
+};
+pub use refs::{FsRefStore, RefStore};
 
 use adapteros_core::Result;
 use fs2::available_space;
