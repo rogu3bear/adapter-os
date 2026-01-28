@@ -120,6 +120,11 @@ impl RingBuffer {
             .ok_or_else(|| AosError::Kernel("Buffer not initialized".to_string()))?;
 
         let contents = buffer.contents();
+        // SAFETY: Metal buffer was created with StorageModeShared (line 78) so
+        // contents() returns a valid CPU-accessible pointer. buffer.length()
+        // returns the actual allocation size. We hold &self immutably so no
+        // concurrent mutation is possible. The slice is used only within this
+        // function scope before any other buffer operations.
         let slice = unsafe {
             std::slice::from_raw_parts_mut(contents as *mut u8, buffer.length() as usize)
         };
