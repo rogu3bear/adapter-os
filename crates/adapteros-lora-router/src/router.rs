@@ -21,6 +21,93 @@ use std::sync::OnceLock;
 use crate::constants::{FRAMEWORK_SPECIALIZATION_MULTIPLIER, LANGUAGE_AFFINITY_MULTIPLIER, MAX_K};
 use crate::{framework_routing, path_routing, scoring};
 
+/// Backend context for routing decisions.
+///
+/// This struct encapsulates backend identity information that is used to bind
+/// routing decisions to a specific backend. For V5+ receipts, backend binding
+/// is required to prevent cross-backend replay attacks.
+///
+/// # Example
+///
+/// ```
+/// use adapteros_lora_router::BackendContext;
+///
+/// // Create with just backend_id
+/// let ctx = BackendContext::new("mlx");
+///
+/// // Create with backend_id and kernel version
+/// let ctx = BackendContext::with_kernel("coreml", "1.0.0");
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BackendContext {
+    /// Backend identifier (e.g., "mlx", "coreml", "metal")
+    pub backend_id: String,
+    /// Optional kernel version identifier
+    pub kernel_version_id: Option<String>,
+}
+
+impl BackendContext {
+    /// Create a new backend context with just a backend_id.
+    ///
+    /// # Arguments
+    /// * `backend_id` - The backend identifier (must be non-empty)
+    ///
+    /// # Panics
+    /// Panics if `backend_id` is empty.
+    pub fn new(backend_id: impl Into<String>) -> Self {
+        let id = backend_id.into();
+        assert!(!id.is_empty(), "backend_id must not be empty");
+        Self {
+            backend_id: id,
+            kernel_version_id: None,
+        }
+    }
+
+    /// Create a new backend context with backend_id and kernel version.
+    ///
+    /// # Arguments
+    /// * `backend_id` - The backend identifier (must be non-empty)
+    /// * `kernel_version_id` - The kernel version identifier
+    ///
+    /// # Panics
+    /// Panics if `backend_id` is empty.
+    pub fn with_kernel(backend_id: impl Into<String>, kernel_version_id: impl Into<String>) -> Self {
+        let id = backend_id.into();
+        assert!(!id.is_empty(), "backend_id must not be empty");
+        Self {
+            backend_id: id,
+            kernel_version_id: Some(kernel_version_id.into()),
+        }
+    }
+
+    /// Try to create a backend context, returning None if backend_id is empty.
+    pub fn try_new(backend_id: impl Into<String>) -> Option<Self> {
+        let id = backend_id.into();
+        if id.is_empty() {
+            None
+        } else {
+            Some(Self {
+                backend_id: id,
+                kernel_version_id: None,
+            })
+        }
+    }
+
+    /// Validate this backend context.
+    ///
+    /// # Returns
+    /// * `Ok(())` if the backend context is valid
+    /// * `Err` with a description of the validation failure
+    pub fn validate(&self) -> Result<()> {
+        if self.backend_id.is_empty() {
+            return Err(AosError::DeterminismViolation(
+                "Backend ID cannot be empty for routing decisions".to_string(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 fn determinism_debug_enabled() -> bool {
     static FLAG: OnceLock<bool> = OnceLock::new();
     *FLAG.get_or_init(|| match std::env::var("AOS_DEBUG_DETERMINISM") {
@@ -1821,6 +1908,77 @@ impl Router {
                 &decision.gates_q15,
                 Some(&reasoning_hash),
                 None, // backend_identity_hash (PRD-DET-001: pass actual hash when available)
+            ));
+        }
+
+        Ok(decision)
+    }
+
+    /// Route with required backend context for V5+ receipt binding.
+    ///
+    /// This method is the same as `route_with_adapter_info_with_ctx` but requires
+    /// a valid `BackendContext` to ensure that routing decisions can be properly
+    /// bound to a backend for replay verification.
+    ///
+    /// # Arguments
+    /// * `features` - Global feature vector from prompt/context
+    /// * `priors` - Prior scores for each adapter
+    /// * `adapter_info` - Metadata for each adapter
+    /// * `policy_mask` - Policy mask to filter adapters
+    /// * `backend` - Required backend context with backend_id
+    /// * `determinism` - Optional determinism context for seeded tie-breaking
+    ///
+    /// # Returns
+    /// * `Ok(Decision)` - The routing decision
+    /// * `Err` - If backend validation fails or routing fails
+    ///
+    /// # Example
+    /// ```ignore
+    /// use adapteros_lora_router::{BackendContext, Router};
+    ///
+    /// let backend = BackendContext::new("mlx");
+    /// let decision = router.route_with_backend_context(
+    ///     &features,
+    ///     &priors,
+    ///     &adapter_info,
+    ///     &policy_mask,
+    ///     &backend,
+    ///     Some(&determinism_ctx),
+    /// )?;
+    /// ```
+    #[must_use = "routing decisions should be committed to the execution context"]
+    pub fn route_with_backend_context(
+        &mut self,
+        features: &[f32],
+        priors: &[f32],
+        adapter_info: &[AdapterInfo],
+        policy_mask: &PolicyMask,
+        backend: &BackendContext,
+        determinism: Option<&DeterminismContext>,
+    ) -> Result<Decision> {
+        // Validate backend context
+        backend.validate()?;
+
+        // Perform routing with backend identity hash included in decision hash
+        let mut decision = self.route_with_adapter_info_and_scope_with_ctx(
+            features,
+            priors,
+            adapter_info,
+            policy_mask,
+            None,
+            determinism,
+        )?;
+
+        // Include backend identity in decision hash if hashing is enabled
+        if self.determinism_config.enable_decision_hashing {
+            let backend_identity_hash = B3Hash::hash(backend.backend_id.as_bytes());
+            decision.decision_hash = Some(self.compute_decision_hash(
+                features,
+                priors,
+                &decision.indices,
+                &decision.gates_q15,
+                None, // reasoning_hash
+                Some(&backend_identity_hash),
             ));
         }
 
