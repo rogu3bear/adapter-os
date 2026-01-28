@@ -3,11 +3,11 @@
 //! Router configuration for audit logging endpoints.
 
 use adapteros_server_api::state::AppState;
-use axum::{routing::get, Router};
+use axum::{routing::get, routing::post, Router};
 
 use crate::handlers::{
     get_audit_chain, get_compliance_audit, get_federation_audit, list_audits_extended,
-    query_audit_logs, verify_audit_chain,
+    query_audit_logs, verify_audit_chain, verify_receipt,
 };
 
 /// Build the audit logging router
@@ -19,6 +19,7 @@ use crate::handlers::{
 /// - `GET /v1/audit/compliance` - Get compliance audit report
 /// - `GET /v1/audit/chain` - Get audit chain entries
 /// - `GET /v1/audit/chain/verify` - Verify audit chain integrity
+/// - `POST /v1/audit/receipts/verify` - Third-party receipt verification (public)
 pub fn audit_routes() -> Router<AppState> {
     Router::new()
         .route("/v1/audits", get(list_audits_extended))
@@ -27,4 +28,5 @@ pub fn audit_routes() -> Router<AppState> {
         .route("/v1/audit/compliance", get(get_compliance_audit))
         .route("/v1/audit/chain", get(get_audit_chain))
         .route("/v1/audit/chain/verify", get(verify_audit_chain))
+        .route("/v1/audit/receipts/verify", post(verify_receipt))
 }

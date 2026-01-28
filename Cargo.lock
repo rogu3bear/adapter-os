@@ -501,6 +501,7 @@ dependencies = [
  "tracing",
  "unicode-normalization",
  "utoipa",
+ "uuid",
  "walkdir",
  "zip 1.1.4",
 ]
@@ -1766,6 +1767,7 @@ dependencies = [
 name = "adapteros-server-api-audit"
 version = "0.1.0"
 dependencies = [
+ "adapteros-core",
  "adapteros-db",
  "adapteros-server-api",
  "axum 0.8.8",

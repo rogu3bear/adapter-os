@@ -3574,6 +3574,9 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                             prefix_kv_bytes,
                             model_cache_identity_v2_digest_b3: receipt
                                 .model_cache_identity_v2_digest_b3,
+                            // V6 cross-run lineage (not tracked yet)
+                            previous_receipt_digest: None,
+                            session_sequence: 0,
                         });
                     }
                     Err(e) => {
@@ -4356,6 +4359,9 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                         // PRD-06: Model cache identity v2 digest (from receipt)
                         model_cache_identity_v2_digest_b3: receipt
                             .model_cache_identity_v2_digest_b3,
+                        // V6 cross-run lineage (not tracked yet)
+                        previous_receipt_digest: None,
+                        session_sequence: 0,
                     });
                 }
                 Err(e) => {

@@ -140,6 +140,10 @@ fn trace_receipt_to_ref(receipt: &TraceReceipt) -> InferenceReceiptRef {
         // Training lineage for adapter provenance (patent rectification)
         // Defaults to None for legacy traces.
         adapter_training_lineage_digest: None,
+        // Patent 3535886.0002 Claims 7-8: Cross-run lineage
+        // Defaults to None/0 for legacy traces.
+        previous_receipt_digest: None,
+        session_sequence: 0,
     }
 }
 
