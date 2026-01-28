@@ -204,3 +204,24 @@ pub mod dataset_indexes {
     /// Index dataset versions by content hash
     pub const VERSION_BY_HASH: &str = "dataset_versions_by_hash";
 }
+
+/// Index definitions for adapter versions (git-style versioning)
+pub mod adapter_version_indexes {
+    /// Index versions by content hash (primary lookup)
+    pub const BY_HASH: &str = "adapter_versions_by_hash";
+
+    /// Index versions by adapter name (list all versions of an adapter)
+    pub const BY_NAME: &str = "adapter_versions_by_name";
+
+    /// Index versions by parent hash (lineage traversal)
+    pub const BY_PARENT: &str = "adapter_versions_by_parent";
+
+    /// Index versions by tenant
+    pub const BY_TENANT: &str = "adapter_versions_by_tenant";
+
+    /// Compound index: tenant + adapter name
+    pub const BY_TENANT_NAME: &str = "adapter_versions_by_tenant_name";
+
+    /// Index versions by ref name (current, previous, draft, v1, etc.)
+    pub const BY_REF: &str = "adapter_versions_by_ref";
+}

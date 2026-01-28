@@ -38,7 +38,9 @@
 //!
 //! See [`DatasetStorageLayout`] for programmatic access to these paths.
 
+use crate::adapter_refs::{AdapterLayout, AdapterName};
 use crate::ensure_free_space;
+use crate::refs::{FsRefStore, RefStore};
 use adapteros_core::Result;
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -913,6 +915,94 @@ impl FsByteStorage {
         compute_deterministic_path(&self.datasets_root, content_hash, StorageKind::DatasetFile)
     }
 
+    /// Get the refs directory path for an adapter.
+    ///
+    /// Returns the path where refs (current, previous, v1, v2, etc.) are stored
+    /// for the given adapter and tenant.
+    ///
+    /// # Path Structure
+    ///
+    /// ```text
+    /// {adapters_root}/{kind}/{tenant}/{name}/refs/
+    /// ```
+    ///
+    /// Where `kind` is one of: subjects, domains, specialized, stacks
+    ///
+    /// # Arguments
+    ///
+    /// * `adapter` - The adapter name (parsed with kind classification)
+    /// * `tenant_id` - The tenant identifier
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let store = FsByteStorage::new("/data/datasets".into(), "/data/adapters".into());
+    /// let adapter = AdapterName::subject("developer");
+    /// let refs_path = store.adapter_refs_path(&adapter, "tenant-1");
+    /// // -> /data/adapters/subjects/tenant-1/developer/refs
+    /// ```
+    pub fn adapter_refs_path(&self, adapter: &AdapterName, tenant_id: &str) -> PathBuf {
+        let adapter_layout = AdapterLayout::new(&self.adapters_root);
+        adapter_layout.refs_dir(adapter, tenant_id)
+    }
+
+    /// Resolve a `name@ref` specifier to a content hash.
+    ///
+    /// This method parses an adapter reference specifier in the format `name@ref`
+    /// (e.g., "developer@current", "developer.aos@v1") and resolves it to the
+    /// content hash that the ref points to.
+    ///
+    /// # Arguments
+    ///
+    /// * `specifier` - An adapter specifier in `name@ref` format
+    /// * `tenant_id` - The tenant identifier
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Some(hash))` - The content hash the ref points to
+    /// * `Ok(None)` - The ref does not exist or the specifier is invalid
+    /// * `Err(...)` - An I/O error occurred
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let store = FsByteStorage::new("/data/datasets".into(), "/data/adapters".into());
+    ///
+    /// // Resolve "developer@current" to its content hash
+    /// let hash = store.resolve_ref("developer@current", "tenant-1").await?;
+    /// if let Some(hash) = hash {
+    ///     println!("Resolved to hash: {}", hash);
+    /// }
+    /// ```
+    pub async fn resolve_ref(&self, specifier: &str, tenant_id: &str) -> Result<Option<String>> {
+        // Parse the specifier: name@ref
+        let (name_part, ref_name) = match specifier.split_once('@') {
+            Some((name, r)) => (name, r),
+            None => {
+                // No @ found, treat as invalid specifier
+                return Ok(None);
+            }
+        };
+
+        // Parse the adapter name
+        let adapter = match AdapterName::parse(name_part) {
+            Ok(a) => a,
+            Err(_) => return Ok(None),
+        };
+
+        // Create the ref store and resolve
+        let adapter_layout = AdapterLayout::new(&self.adapters_root);
+        let ref_store = FsRefStore::new(adapter_layout);
+
+        match ref_store.get_ref(&adapter, tenant_id, ref_name).await {
+            Ok(hash) => Ok(hash),
+            Err(e) => Err(adapteros_core::AosError::Io(format!(
+                "Failed to resolve ref '{}': {}",
+                specifier, e
+            ))),
+        }
+    }
+
     /// Store canonical dataset bytes using the default JSONL filename.
     pub async fn store_canonical_dataset_bytes(
         &self,
@@ -1698,5 +1788,173 @@ mod tests {
         let path2 = compute_deterministic_path(Path::new("/root"), hash, StorageKind::DatasetFile);
 
         assert_eq!(path1, path2);
+    }
+
+    // =========================================================================
+    // Adapter refs integration tests
+    // =========================================================================
+
+    #[test]
+    fn adapter_refs_path_subject() {
+        use crate::adapter_refs::AdapterName;
+
+        let store = FsByteStorage::new("/data/datasets".into(), "/data/adapters".into());
+        let adapter = AdapterName::subject("developer");
+        let refs_path = store.adapter_refs_path(&adapter, "tenant-1");
+
+        assert_eq!(
+            refs_path,
+            PathBuf::from("/data/adapters/subjects/tenant-1/developer/refs")
+        );
+    }
+
+    #[test]
+    fn adapter_refs_path_domain() {
+        use crate::adapter_refs::AdapterName;
+
+        let store = FsByteStorage::new("/data/datasets".into(), "/data/adapters".into());
+        let adapter = AdapterName::domain("actions");
+        let refs_path = store.adapter_refs_path(&adapter, "tenant-1");
+
+        assert_eq!(
+            refs_path,
+            PathBuf::from("/data/adapters/domains/tenant-1/actions/refs")
+        );
+    }
+
+    #[test]
+    fn adapter_refs_path_specialized() {
+        use crate::adapter_refs::AdapterName;
+
+        let store = FsByteStorage::new("/data/datasets".into(), "/data/adapters".into());
+        let adapter = AdapterName::specialized("developer", "actions");
+        let refs_path = store.adapter_refs_path(&adapter, "tenant-1");
+
+        assert_eq!(
+            refs_path,
+            PathBuf::from("/data/adapters/specialized/tenant-1/developer.actions/refs")
+        );
+    }
+
+    #[test]
+    fn adapter_refs_path_stack() {
+        use crate::adapter_refs::AdapterName;
+
+        let store = FsByteStorage::new("/data/datasets".into(), "/data/adapters".into());
+        let adapter = AdapterName::stack("dev-full");
+        let refs_path = store.adapter_refs_path(&adapter, "tenant-1");
+
+        // Stacks use "versions" instead of "refs"
+        assert_eq!(
+            refs_path,
+            PathBuf::from("/data/adapters/stacks/tenant-1/dev-full/versions")
+        );
+    }
+
+    #[tokio::test]
+    async fn resolve_ref_returns_none_for_invalid_specifier() {
+        let dir = tempdir().unwrap();
+        let ds_root = dir.path().join("datasets");
+        let ad_root = dir.path().join("adapters");
+        let store = FsByteStorage::new(ds_root, ad_root);
+
+        // No @ sign - invalid specifier
+        let result = store.resolve_ref("developer", "tenant-1").await.unwrap();
+        assert!(result.is_none());
+
+        // Empty ref name
+        let result = store.resolve_ref("developer@", "tenant-1").await.unwrap();
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn resolve_ref_returns_none_for_nonexistent_ref() {
+        let dir = tempdir().unwrap();
+        let ds_root = dir.path().join("datasets");
+        let ad_root = dir.path().join("adapters");
+        let store = FsByteStorage::new(ds_root, ad_root);
+
+        // Valid specifier but ref doesn't exist
+        let result = store
+            .resolve_ref("developer@current", "tenant-1")
+            .await
+            .unwrap();
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn resolve_ref_with_existing_ref() {
+        use crate::adapter_refs::AdapterName;
+        use crate::refs::FsRefStore;
+
+        let dir = tempdir().unwrap();
+        let ds_root = dir.path().join("datasets");
+        let ad_root = dir.path().join("adapters");
+
+        // Create a ref first using FsRefStore directly
+        let adapter_layout = crate::adapter_refs::AdapterLayout::new(&ad_root);
+        let ref_store = FsRefStore::new(adapter_layout);
+        let adapter = AdapterName::subject("developer");
+
+        ref_store
+            .update_ref(&adapter, "tenant-1", "current", "abc123def456")
+            .await
+            .unwrap();
+
+        // Now resolve it through FsByteStorage
+        let store = FsByteStorage::new(ds_root, ad_root);
+        let result = store
+            .resolve_ref("developer@current", "tenant-1")
+            .await
+            .unwrap();
+
+        assert_eq!(result, Some("abc123def456".to_string()));
+
+        // Also test with full .aos extension
+        let result = store
+            .resolve_ref("developer.aos@current", "tenant-1")
+            .await
+            .unwrap();
+
+        assert_eq!(result, Some("abc123def456".to_string()));
+    }
+
+    #[tokio::test]
+    async fn resolve_ref_with_version_tag() {
+        use crate::adapter_refs::AdapterName;
+        use crate::refs::FsRefStore;
+
+        let dir = tempdir().unwrap();
+        let ds_root = dir.path().join("datasets");
+        let ad_root = dir.path().join("adapters");
+
+        // Create version refs
+        let adapter_layout = crate::adapter_refs::AdapterLayout::new(&ad_root);
+        let ref_store = FsRefStore::new(adapter_layout);
+        let adapter = AdapterName::subject("mymodel");
+
+        ref_store
+            .update_ref(&adapter, "tenant-1", "v1", "hash_v1_abc")
+            .await
+            .unwrap();
+        ref_store
+            .update_ref(&adapter, "tenant-1", "v2", "hash_v2_def")
+            .await
+            .unwrap();
+
+        // Resolve version refs
+        let store = FsByteStorage::new(ds_root, ad_root);
+
+        let v1_hash = store
+            .resolve_ref("mymodel@v1", "tenant-1")
+            .await
+            .unwrap();
+        assert_eq!(v1_hash, Some("hash_v1_abc".to_string()));
+
+        let v2_hash = store
+            .resolve_ref("mymodel@v2", "tenant-1")
+            .await
+            .unwrap();
+        assert_eq!(v2_hash, Some("hash_v2_def".to_string()));
     }
 }
