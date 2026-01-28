@@ -71,6 +71,9 @@ pub enum VersionStrategy {
     ExactOrError,
     LatestSemver,
     LatestLex,
+    /// Resolve via named ref (current, previous, v1, etc.)
+    /// Requires the new adapter versioning layout
+    RefBased,
 }
 
 #[derive(thiserror::Error, Debug, PartialEq, Eq)]
@@ -83,6 +86,27 @@ pub enum ResolveError {
     NotFound,
     #[error("semver parse error: {0}")]
     Semver(String),
+    #[error("ref not found: {0}")]
+    RefNotFound(String),
+    #[error("invalid ref name: {0}")]
+    InvalidRef(String),
+}
+
+/// Parse an adapter specifier with optional ref: "name@ref" or just "name"
+///
+/// Examples:
+/// - "developer.aos" -> ("developer.aos", None)
+/// - "developer.aos@current" -> ("developer.aos", Some("current"))
+/// - "developer.aos@v1" -> ("developer.aos", Some("v1"))
+pub fn parse_adapter_specifier(spec: &str) -> (&str, Option<&str>) {
+    if let Some(at_pos) = spec.rfind('@') {
+        let name = &spec[..at_pos];
+        let ref_name = &spec[at_pos + 1..];
+        if !ref_name.is_empty() {
+            return (name, Some(ref_name));
+        }
+    }
+    (spec, None)
 }
 
 impl RepoAdapterPaths {
@@ -137,6 +161,10 @@ impl RepoAdapterPaths {
             VersionStrategy::ExactOrError => Err(ResolveError::MissingVersion),
             VersionStrategy::LatestSemver => self.pick_latest_semver(tenant_id, adapter_name),
             VersionStrategy::LatestLex => self.pick_latest_lex(tenant_id, adapter_name),
+            VersionStrategy::RefBased => {
+                // For RefBased, default to "current" ref
+                self.resolve_by_ref(tenant_id, adapter_name, "current")
+            }
         }
     }
 
@@ -183,6 +211,164 @@ impl RepoAdapterPaths {
             config_root,
         )
     }
+
+    // =========================================================================
+    // Git-style versioning support (ref-based resolution)
+    // =========================================================================
+
+    /// Resolve an adapter specifier that may include a ref: "name@ref"
+    ///
+    /// This supports the git-inspired versioning system where adapters can be
+    /// referenced by named refs (current, previous, v1, etc.) in addition to
+    /// explicit version numbers.
+    ///
+    /// # Examples
+    ///
+    /// - "developer.aos" -> resolves "current" ref
+    /// - "developer.aos@current" -> resolves "current" ref
+    /// - "developer.aos@v1" -> resolves "v1" ref
+    /// - "developer.aos@draft" -> resolves "draft" ref
+    ///
+    /// # Layout
+    ///
+    /// This method expects the new versioning layout:
+    /// - `{repo_root}/objects/{hash[0:2]}/{hash[2:10]}/{hash}.aos` - content store
+    /// - `{repo_root}/subjects/{tenant}/{name}/refs/{ref_name}` - symlinks to objects
+    pub fn resolve_by_specifier(
+        &self,
+        tenant_id: &str,
+        specifier: &str,
+    ) -> Result<PathBuf, ResolveError> {
+        let (name, ref_name) = parse_adapter_specifier(specifier);
+        let ref_name = ref_name.unwrap_or("current");
+
+        self.resolve_by_ref(tenant_id, name, ref_name)
+    }
+
+    /// Resolve an adapter by its ref name
+    ///
+    /// Reads the symlink at the ref path to find the target object hash,
+    /// then returns the path to the object.
+    pub fn resolve_by_ref(
+        &self,
+        tenant_id: &str,
+        adapter_name: &str,
+        ref_name: &str,
+    ) -> Result<PathBuf, ResolveError> {
+        // Determine adapter kind from name
+        let (kind_dir, base_name) = determine_adapter_kind_and_name(adapter_name);
+
+        // Construct ref path: {repo_root}/{kind}/{tenant}/{base_name}/refs/{ref_name}
+        let ref_path = self
+            .repo_root
+            .join(kind_dir)
+            .join(tenant_id)
+            .join(base_name)
+            .join("refs")
+            .join(ref_name);
+
+        if !ref_path.exists() {
+            return Err(ResolveError::RefNotFound(ref_name.to_string()));
+        }
+
+        // Read symlink to get target hash
+        let target = fs::read_link(&ref_path).map_err(|_| {
+            // If not a symlink, try reading as plain file (fallback)
+            ResolveError::RefNotFound(ref_name.to_string())
+        })?;
+
+        // Extract hash from target path
+        let hash = target
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .ok_or_else(|| ResolveError::InvalidRef(ref_name.to_string()))?;
+
+        // Construct object path
+        let object_path = self.object_path(hash);
+        if object_path.exists() {
+            Ok(object_path)
+        } else {
+            Err(ResolveError::NotFound)
+        }
+    }
+
+    /// Get the objects directory (content-addressed store)
+    pub fn objects_dir(&self) -> PathBuf {
+        self.repo_root.join("objects")
+    }
+
+    /// Get the path for an object by hash
+    ///
+    /// Layout: `{repo_root}/objects/{hash[0:2]}/{hash[2:10]}/{hash}.aos`
+    pub fn object_path(&self, hash: &str) -> PathBuf {
+        let prefix_2 = hash.get(0..2).unwrap_or("00");
+        let prefix_8 = hash.get(2..10).unwrap_or("00000000");
+        self.objects_dir()
+            .join(prefix_2)
+            .join(prefix_8)
+            .join(format!("{}.aos", hash))
+    }
+
+    /// List all refs for an adapter
+    pub fn list_refs(&self, tenant_id: &str, adapter_name: &str) -> Vec<String> {
+        let (kind_dir, base_name) = determine_adapter_kind_and_name(adapter_name);
+        let refs_dir = self
+            .repo_root
+            .join(kind_dir)
+            .join(tenant_id)
+            .join(base_name)
+            .join("refs");
+
+        if !refs_dir.exists() {
+            return Vec::new();
+        }
+
+        fs::read_dir(&refs_dir)
+            .into_iter()
+            .flat_map(|entries| entries.flatten())
+            .filter_map(|entry| {
+                let name = entry.file_name().to_str()?.to_string();
+                // Skip temp files
+                if name.contains(".tmp.") {
+                    None
+                } else {
+                    Some(name)
+                }
+            })
+            .collect()
+    }
+}
+
+/// Determine the kind directory and base name from an adapter name
+///
+/// Supports the naming convention:
+/// - `developer.aos` -> ("subjects", "developer")
+/// - `actions.domain.aos` -> ("domains", "actions")
+/// - `developer.aos.actions` -> ("specialized", "developer.actions")
+/// - `dev-full.stack.aos` -> ("stacks", "dev-full")
+fn determine_adapter_kind_and_name(adapter_name: &str) -> (&'static str, String) {
+    // Stack: name.stack.aos
+    if adapter_name.ends_with(".stack.aos") {
+        let base = adapter_name.trim_end_matches(".stack.aos");
+        return ("stacks", base.to_string());
+    }
+
+    // Domain: name.domain.aos
+    if adapter_name.ends_with(".domain.aos") {
+        let base = adapter_name.trim_end_matches(".domain.aos");
+        return ("domains", base.to_string());
+    }
+
+    // Specialized: subject.aos.domain
+    if let Some(aos_pos) = adapter_name.find(".aos.") {
+        let subject = &adapter_name[..aos_pos];
+        let domain = &adapter_name[aos_pos + 5..];
+        return ("specialized", format!("{}.{}", subject, domain));
+    }
+
+    // Subject: name.aos or bare name
+    let base = adapter_name.trim_end_matches(".aos");
+    ("subjects", base.to_string())
 }
 
 fn absolutize(path: PathBuf) -> PathBuf {
@@ -583,5 +769,94 @@ mod tests {
         unsafe {
             std::env::remove_var(ENV_ADAPTERS_ROOT);
         }
+    }
+
+    // =========================================================================
+    // Git-style versioning tests
+    // =========================================================================
+
+    #[test]
+    fn parse_adapter_specifier_without_ref() {
+        let (name, ref_name) = parse_adapter_specifier("developer.aos");
+        assert_eq!(name, "developer.aos");
+        assert_eq!(ref_name, None);
+    }
+
+    #[test]
+    fn parse_adapter_specifier_with_ref() {
+        let (name, ref_name) = parse_adapter_specifier("developer.aos@current");
+        assert_eq!(name, "developer.aos");
+        assert_eq!(ref_name, Some("current"));
+    }
+
+    #[test]
+    fn parse_adapter_specifier_with_version_ref() {
+        let (name, ref_name) = parse_adapter_specifier("developer.aos@v1");
+        assert_eq!(name, "developer.aos");
+        assert_eq!(ref_name, Some("v1"));
+    }
+
+    #[test]
+    fn parse_adapter_specifier_trailing_at_sign() {
+        // Trailing @ should be treated as no ref
+        let (name, ref_name) = parse_adapter_specifier("developer.aos@");
+        assert_eq!(name, "developer.aos@");
+        assert_eq!(ref_name, None);
+    }
+
+    #[test]
+    fn determine_kind_subject() {
+        let (kind, name) = determine_adapter_kind_and_name("developer.aos");
+        assert_eq!(kind, "subjects");
+        assert_eq!(name, "developer");
+    }
+
+    #[test]
+    fn determine_kind_domain() {
+        let (kind, name) = determine_adapter_kind_and_name("actions.domain.aos");
+        assert_eq!(kind, "domains");
+        assert_eq!(name, "actions");
+    }
+
+    #[test]
+    fn determine_kind_specialized() {
+        let (kind, name) = determine_adapter_kind_and_name("developer.aos.actions");
+        assert_eq!(kind, "specialized");
+        assert_eq!(name, "developer.actions");
+    }
+
+    #[test]
+    fn determine_kind_stack() {
+        let (kind, name) = determine_adapter_kind_and_name("dev-full.stack.aos");
+        assert_eq!(kind, "stacks");
+        assert_eq!(name, "dev-full");
+    }
+
+    #[test]
+    fn object_path_has_correct_layout() {
+        let base = PathBuf::from("/var/adapters");
+        let paths = RepoAdapterPaths {
+            repo_root: base.clone(),
+            cache_root: base.join("cache"),
+        };
+
+        let hash = "abcdef1234567890";
+        let object_path = paths.object_path(hash);
+
+        assert_eq!(
+            object_path,
+            PathBuf::from("/var/adapters/objects/ab/cdef1234/abcdef1234567890.aos")
+        );
+    }
+
+    #[test]
+    fn objects_dir_path() {
+        let base = PathBuf::from("/var/adapters");
+        let paths = RepoAdapterPaths {
+            repo_root: base.clone(),
+            cache_root: base.join("cache"),
+        };
+
+        assert_eq!(paths.objects_dir(), PathBuf::from("/var/adapters/objects"));
     }
 }
