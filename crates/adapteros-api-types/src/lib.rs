@@ -31,6 +31,7 @@ pub mod code_repositories;
 pub mod codebase_adapters;
 pub mod dashboard;
 pub mod dataset_domain;
+pub mod defaults;
 pub mod diagnostics;
 pub mod domain_adapters;
 pub mod embeddings;
