@@ -863,6 +863,331 @@ async fn test_prefix_kv_receipt_fields_persistence() {
 }
 
 // =============================================================================
+// P0-1 Cache Attestation Negative Tests - Billing Fraud Prevention
+// =============================================================================
+
+/// Helper to create a trace sink with a recorded token for attestation tests
+async fn create_attestation_test_sink(
+    db: std::sync::Arc<adapteros_db::Db>,
+    trace_id: &str,
+) -> adapteros_db::SqlTraceSink {
+    use adapteros_db::{SqlTraceSink, TraceSink, TraceStart, TraceTokenInput};
+
+    let context_digest = B3Hash::hash(b"test-context").to_bytes();
+    let start = TraceStart {
+        trace_id: trace_id.to_string(),
+        tenant_id: "tenant-1".to_string(),
+        request_id: Some("req-attestation-test".to_string()),
+        context_digest,
+    };
+
+    let mut sink = SqlTraceSink::new(db, start, 32)
+        .await
+        .expect("Failed to create trace sink");
+
+    sink.record_token(TraceTokenInput {
+        token_index: 0,
+        adapter_ids: vec!["adapter-a".into()],
+        gates_q15: vec![100],
+        policy_mask_digest_b3: None,
+        allowed_mask: None,
+        policy_overrides_applied: None,
+        backend_id: Some("coreml".into()),
+        kernel_version_id: Some("v1".into()),
+    })
+    .await
+    .expect("Failed to record token");
+
+    sink
+}
+
+/// Test: Missing cache attestation when prefix_cached_token_count > 0 should fail
+/// This prevents billing fraud where a malicious actor claims cache credits without proof.
+#[tokio::test]
+async fn test_cache_attestation_required_when_cache_credits_claimed() {
+    use adapteros_db::{Db, TraceFinalization, TraceSink};
+    use std::sync::Arc;
+
+    let db = Arc::new(Db::new_in_memory().await.expect("Failed to create test db"));
+
+    sqlx::query("INSERT INTO tenants (id, name) VALUES ('tenant-1', 'Test Tenant')")
+        .execute(db.pool())
+        .await
+        .expect("Failed to create tenant");
+
+    let mut sink = create_attestation_test_sink(db.clone(), "trace-missing-attestation").await;
+
+    let prefix_kv_key = B3Hash::hash(b"prefix-kv-key-test");
+    let output_tokens = [10, 20, 30];
+
+    // Attempt to finalize with cache credits but NO attestation
+    let result = sink
+        .finalize(TraceFinalization {
+            output_tokens: &output_tokens,
+            logical_prompt_tokens: 50,
+            prefix_cached_token_count: 20, // Claiming 20 cached tokens
+            billed_input_tokens: 30,
+            logical_output_tokens: output_tokens.len() as u32,
+            billed_output_tokens: output_tokens.len() as u32,
+            stop_reason_code: None,
+            stop_reason_token_index: None,
+            stop_policy_digest_b3: None,
+            tenant_kv_quota_bytes: 0,
+            tenant_kv_bytes_used: 0,
+            kv_evictions: 0,
+            kv_residency_policy_id: None,
+            kv_quota_enforced: false,
+            prefix_kv_key_b3: Some(prefix_kv_key),
+            prefix_cache_hit: true,
+            prefix_kv_bytes: 4096,
+            model_cache_identity_v2_digest_b3: None,
+            attestation: None,
+            equipment_profile: None,
+            crypto_receipt_digest_b3: None,
+            receipt_parity_verified: None,
+            tenant_id: None,
+            // Missing attestation - should cause failure
+            cache_attestation: None,
+            worker_public_key: None,
+        })
+        .await;
+
+    assert!(result.is_err(), "Finalization should fail without attestation when claiming cache credits");
+    let err = result.unwrap_err();
+    assert!(
+        err.to_string().contains("cache_attestation required"),
+        "Error should mention missing attestation: {}",
+        err
+    );
+}
+
+/// Test: Invalid signature (attestation signed with wrong key) should fail
+/// This prevents forged attestations from being accepted.
+#[tokio::test]
+async fn test_cache_attestation_invalid_signature_rejected() {
+    use adapteros_core::cache_attestation::CacheAttestationBuilder;
+    use adapteros_db::{Db, TraceFinalization, TraceSink};
+    use ed25519_dalek::SigningKey;
+    use std::sync::Arc;
+
+    let db = Arc::new(Db::new_in_memory().await.expect("Failed to create test db"));
+
+    sqlx::query("INSERT INTO tenants (id, name) VALUES ('tenant-1', 'Test Tenant')")
+        .execute(db.pool())
+        .await
+        .expect("Failed to create tenant");
+
+    let mut sink = create_attestation_test_sink(db.clone(), "trace-invalid-sig").await;
+
+    let prefix_kv_key = B3Hash::hash(b"prefix-kv-key-test");
+
+    // Create attestation with one key
+    let signing_key_bytes: [u8; 32] = [0x42u8; 32];
+    let cache_attestation = CacheAttestationBuilder::new()
+        .cache_key_b3(&prefix_kv_key)
+        .token_count(20)
+        .worker_id("test-worker")
+        .timestamp_tick(0)
+        .build_and_sign(&signing_key_bytes)
+        .expect("Failed to build cache attestation");
+
+    // But provide a DIFFERENT public key for verification
+    let wrong_key_bytes: [u8; 32] = [0x99u8; 32];
+    let wrong_signing_key = SigningKey::from_bytes(&wrong_key_bytes);
+    let wrong_public_key = wrong_signing_key.verifying_key().to_bytes();
+
+    let output_tokens = [10, 20, 30];
+
+    let result = sink
+        .finalize(TraceFinalization {
+            output_tokens: &output_tokens,
+            logical_prompt_tokens: 50,
+            prefix_cached_token_count: 20,
+            billed_input_tokens: 30,
+            logical_output_tokens: output_tokens.len() as u32,
+            billed_output_tokens: output_tokens.len() as u32,
+            stop_reason_code: None,
+            stop_reason_token_index: None,
+            stop_policy_digest_b3: None,
+            tenant_kv_quota_bytes: 0,
+            tenant_kv_bytes_used: 0,
+            kv_evictions: 0,
+            kv_residency_policy_id: None,
+            kv_quota_enforced: false,
+            prefix_kv_key_b3: Some(prefix_kv_key),
+            prefix_cache_hit: true,
+            prefix_kv_bytes: 4096,
+            model_cache_identity_v2_digest_b3: None,
+            attestation: None,
+            equipment_profile: None,
+            crypto_receipt_digest_b3: None,
+            receipt_parity_verified: None,
+            tenant_id: None,
+            cache_attestation: Some(cache_attestation),
+            worker_public_key: Some(wrong_public_key), // Wrong key!
+        })
+        .await;
+
+    assert!(result.is_err(), "Finalization should fail with invalid signature");
+    let err = result.unwrap_err();
+    assert!(
+        err.to_string().contains("verification failed") || err.to_string().contains("billing fraud"),
+        "Error should mention verification failure: {}",
+        err
+    );
+}
+
+/// Test: Token count mismatch (attestation.token_count ≠ prefix_cached_token_count) should fail
+/// This prevents claiming more cache credits than the attestation proves.
+#[tokio::test]
+async fn test_cache_attestation_token_count_mismatch_rejected() {
+    use adapteros_core::cache_attestation::CacheAttestationBuilder;
+    use adapteros_db::{Db, TraceFinalization, TraceSink};
+    use ed25519_dalek::SigningKey;
+    use std::sync::Arc;
+
+    let db = Arc::new(Db::new_in_memory().await.expect("Failed to create test db"));
+
+    sqlx::query("INSERT INTO tenants (id, name) VALUES ('tenant-1', 'Test Tenant')")
+        .execute(db.pool())
+        .await
+        .expect("Failed to create tenant");
+
+    let mut sink = create_attestation_test_sink(db.clone(), "trace-token-mismatch").await;
+
+    let prefix_kv_key = B3Hash::hash(b"prefix-kv-key-test");
+
+    // Create attestation for 10 tokens
+    let signing_key_bytes: [u8; 32] = [0x42u8; 32];
+    let signing_key = SigningKey::from_bytes(&signing_key_bytes);
+    let worker_public_key = signing_key.verifying_key().to_bytes();
+
+    let cache_attestation = CacheAttestationBuilder::new()
+        .cache_key_b3(&prefix_kv_key)
+        .token_count(10) // Attesting to 10 tokens
+        .worker_id("test-worker")
+        .timestamp_tick(0)
+        .build_and_sign(&signing_key_bytes)
+        .expect("Failed to build cache attestation");
+
+    let output_tokens = [10, 20, 30];
+
+    // But claim 20 tokens in finalization
+    let result = sink
+        .finalize(TraceFinalization {
+            output_tokens: &output_tokens,
+            logical_prompt_tokens: 50,
+            prefix_cached_token_count: 20, // Claiming 20, but attestation says 10!
+            billed_input_tokens: 30,
+            logical_output_tokens: output_tokens.len() as u32,
+            billed_output_tokens: output_tokens.len() as u32,
+            stop_reason_code: None,
+            stop_reason_token_index: None,
+            stop_policy_digest_b3: None,
+            tenant_kv_quota_bytes: 0,
+            tenant_kv_bytes_used: 0,
+            kv_evictions: 0,
+            kv_residency_policy_id: None,
+            kv_quota_enforced: false,
+            prefix_kv_key_b3: Some(prefix_kv_key),
+            prefix_cache_hit: true,
+            prefix_kv_bytes: 4096,
+            model_cache_identity_v2_digest_b3: None,
+            attestation: None,
+            equipment_profile: None,
+            crypto_receipt_digest_b3: None,
+            receipt_parity_verified: None,
+            tenant_id: None,
+            cache_attestation: Some(cache_attestation),
+            worker_public_key: Some(worker_public_key),
+        })
+        .await;
+
+    assert!(result.is_err(), "Finalization should fail with token count mismatch");
+    let err = result.unwrap_err();
+    assert!(
+        err.to_string().contains("does not match") || err.to_string().contains("billing mismatch"),
+        "Error should mention token count mismatch: {}",
+        err
+    );
+}
+
+/// Test: Cache key mismatch (attestation.cache_key_hash ≠ prefix_kv_key_b3) should fail
+/// This prevents using an attestation from a different cache entry.
+#[tokio::test]
+async fn test_cache_attestation_cache_key_mismatch_rejected() {
+    use adapteros_core::cache_attestation::CacheAttestationBuilder;
+    use adapteros_db::{Db, TraceFinalization, TraceSink};
+    use ed25519_dalek::SigningKey;
+    use std::sync::Arc;
+
+    let db = Arc::new(Db::new_in_memory().await.expect("Failed to create test db"));
+
+    sqlx::query("INSERT INTO tenants (id, name) VALUES ('tenant-1', 'Test Tenant')")
+        .execute(db.pool())
+        .await
+        .expect("Failed to create tenant");
+
+    let mut sink = create_attestation_test_sink(db.clone(), "trace-cache-key-mismatch").await;
+
+    // Create attestation for ONE cache key
+    let attestation_cache_key = B3Hash::hash(b"attestation-cache-key");
+    let signing_key_bytes: [u8; 32] = [0x42u8; 32];
+    let signing_key = SigningKey::from_bytes(&signing_key_bytes);
+    let worker_public_key = signing_key.verifying_key().to_bytes();
+
+    let cache_attestation = CacheAttestationBuilder::new()
+        .cache_key_b3(&attestation_cache_key) // Attesting to THIS key
+        .token_count(20)
+        .worker_id("test-worker")
+        .timestamp_tick(0)
+        .build_and_sign(&signing_key_bytes)
+        .expect("Failed to build cache attestation");
+
+    // But use a DIFFERENT cache key in finalization
+    let different_cache_key = B3Hash::hash(b"different-cache-key");
+    let output_tokens = [10, 20, 30];
+
+    let result = sink
+        .finalize(TraceFinalization {
+            output_tokens: &output_tokens,
+            logical_prompt_tokens: 50,
+            prefix_cached_token_count: 20,
+            billed_input_tokens: 30,
+            logical_output_tokens: output_tokens.len() as u32,
+            billed_output_tokens: output_tokens.len() as u32,
+            stop_reason_code: None,
+            stop_reason_token_index: None,
+            stop_policy_digest_b3: None,
+            tenant_kv_quota_bytes: 0,
+            tenant_kv_bytes_used: 0,
+            kv_evictions: 0,
+            kv_residency_policy_id: None,
+            kv_quota_enforced: false,
+            prefix_kv_key_b3: Some(different_cache_key), // Different from attestation!
+            prefix_cache_hit: true,
+            prefix_kv_bytes: 4096,
+            model_cache_identity_v2_digest_b3: None,
+            attestation: None,
+            equipment_profile: None,
+            crypto_receipt_digest_b3: None,
+            receipt_parity_verified: None,
+            tenant_id: None,
+            cache_attestation: Some(cache_attestation),
+            worker_public_key: Some(worker_public_key),
+        })
+        .await;
+
+    assert!(result.is_err(), "Finalization should fail with cache key mismatch");
+    let err = result.unwrap_err();
+    assert!(
+        err.to_string().contains("cache_key") || err.to_string().contains("mismatch"),
+        "Error should mention cache key mismatch: {}",
+        err
+    );
+}
+
+// =============================================================================
 // Test: Cache invalidation on template changes
 // =============================================================================
 
