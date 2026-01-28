@@ -31,6 +31,7 @@ fn hash_prompt_completion(prompt: &str, completion: &str) -> String {
 }
 
 pub fn resolve_pad_token_id(tokenizer: &Tokenizer) -> Result<u32> {
+    // Standard pad tokens
     if let Some(id) = tokenizer.token_to_id("<|pad|>") {
         return Ok(id);
     }
@@ -38,6 +39,21 @@ pub fn resolve_pad_token_id(tokenizer: &Tokenizer) -> Result<u32> {
         return Ok(id);
     }
     if let Some(id) = tokenizer.token_to_id("[PAD]") {
+        return Ok(id);
+    }
+    // Qwen-style: uses endoftext as pad (per tokenizer_config.json)
+    if let Some(id) = tokenizer.token_to_id("<|endoftext|>") {
+        return Ok(id);
+    }
+    // Llama-style EOS tokens as fallback
+    if let Some(id) = tokenizer.token_to_id("<|end_of_text|>") {
+        return Ok(id);
+    }
+    if let Some(id) = tokenizer.token_to_id("</s>") {
+        return Ok(id);
+    }
+    // Mistral/general EOS
+    if let Some(id) = tokenizer.token_to_id("<eos>") {
         return Ok(id);
     }
     Err(AosError::Validation(
