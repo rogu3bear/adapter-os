@@ -62,6 +62,7 @@ async = []
 coreml-backend = []
 multi-backend = []  # MLX primary with CoreML fallback
 evidence-signing = ["ed25519-dalek"]
+cache-attestation = ["ed25519-dalek", "rand"]
 # Workspace feature passthroughs for build_info.rs
 # These are defined at workspace level and enabled via workspace dependencies
 deterministic-only = []
