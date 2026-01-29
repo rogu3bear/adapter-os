@@ -508,8 +508,8 @@ mod tests {
         // Should fallback to Hashed
         let embedder = config.create_embedder();
         match *embedder {
-            Embedder::Hashed(_) => assert!(true),
-            _ => assert!(false, "Should fallback to Hashed"),
+            Embedder::Hashed(_) => {}
+            _ => panic!("Should fallback to Hashed"),
         }
     }
 }

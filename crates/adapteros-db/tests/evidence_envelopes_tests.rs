@@ -80,6 +80,8 @@ fn sample_inference_ref(sequence: u32) -> InferenceReceiptRef {
         backend_attestation_b3: Some(B3Hash::hash(b"mock-attestation")),
         seed_lineage_hash: None,
         adapter_training_lineage_digest: None,
+        previous_receipt_digest: None,
+        session_sequence: 0,
     }
 }
 
