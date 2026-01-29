@@ -4,8 +4,8 @@
 
 use crate::api::{ApiClient, ApiKeyInfo, CreateApiKeyRequest};
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonVariant, Card, ErrorDisplay, Spinner, Table, TableBody,
-    TableCell, TableHead, TableHeader, TableRow,
+    Badge, BadgeVariant, Button, ButtonVariant, Card, ErrorDisplay, Input, Spinner, Table,
+    TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use leptos::prelude::*;
@@ -188,16 +188,11 @@ pub fn ApiKeysSection() -> impl IntoView {
                                 </div>
 
                                 <div class="space-y-3">
-                                    <div>
-                                        <label class="text-sm font-medium mb-1 block">"Key Name"</label>
-                                        <input
-                                            type="text"
-                                            class="w-full px-3 py-2 rounded-md border bg-background focus:outline-none focus:ring-2 focus:ring-primary"
-                                            placeholder="e.g., Production API, Development Key"
-                                            prop:value=move || new_key_name.get()
-                                            on:input=move |ev| new_key_name.set(event_target_value(&ev))
-                                        />
-                                    </div>
+                                    <Input
+                                        value=new_key_name
+                                        label="Key Name".to_string()
+                                        placeholder="e.g., Production API, Development Key".to_string()
+                                    />
 
                                     <div>
                                         <label class="text-sm font-medium mb-2 block">"Permissions"</label>

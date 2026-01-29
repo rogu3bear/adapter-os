@@ -136,9 +136,19 @@ fn CreateRuleForm(
     let client = use_api();
     let condition = RwSignal::new(String::new());
     let target_adapter_id = RwSignal::new(String::new());
-    let priority = RwSignal::new(1i64);
+    let priority = RwSignal::new("1".to_string());
     let saving = RwSignal::new(false);
     let error = RwSignal::new(Option::<String>::None);
+
+    // Build adapter options
+    let adapter_options = match &adapters {
+        LoadingState::Loaded(list) => {
+            let mut opts = vec![("".to_string(), "Select Adapter".to_string())];
+            opts.extend(list.iter().map(|a| (a.adapter_id.clone(), a.name.clone())));
+            opts
+        }
+        _ => vec![("".to_string(), "Select Adapter".to_string())],
+    };
 
     let handle_submit = move |_| {
         let cond = condition.get();
@@ -159,7 +169,7 @@ fn CreateRuleForm(
 
         let client = Arc::clone(&client);
         let ds_id = dataset_id.clone();
-        let p = priority.get();
+        let p = priority.get().parse::<i64>().unwrap_or(1);
 
         wasm_bindgen_futures::spawn_local(async move {
             let req = CreateRoutingRuleRequest {
@@ -187,46 +197,23 @@ fn CreateRuleForm(
         <Card>
             <h3 class="text-sm font-semibold mb-4">"Add New Rule"</h3>
             <div class="grid gap-4 md:grid-cols-4 items-end">
-                <div class="space-y-2 md:col-span-2">
-                    <label class="text-xs font-medium">"Condition (Outcome)"</label>
-                    <input
-                        type="text"
-                        class="w-full px-3 py-2 bg-background border rounded-md text-sm"
-                        placeholder="e.g. sentiment == 'negative'"
-                        prop:value=condition
-                        on:input=move |e| condition.set(event_target_value(&e))
+                <div class="md:col-span-2">
+                    <Input
+                        value=condition
+                        label="Condition (Outcome)".to_string()
+                        placeholder="e.g. sentiment == 'negative'".to_string()
                     />
                 </div>
-                <div class="space-y-2">
-                    <label class="text-xs font-medium">"Target Adapter"</label>
-                    <select
-                        class="w-full px-3 py-2 bg-background border rounded-md text-sm"
-                        on:change=move |e| target_adapter_id.set(event_target_value(&e))
-                    >
-                        <option value="">"Select Adapter"</option>
-                        {match adapters {
-                            LoadingState::Loaded(list) => {
-                                list.into_iter().map(|a| {
-                                    view! { <option value=a.adapter_id.clone()>{a.name}</option> }
-                                }).collect::<Vec<_>>().into_any()
-                            }
-                            _ => Vec::<AnyView>::new().into_any(),
-                        }}
-                    </select>
-                </div>
-                <div class="space-y-2">
-                    <label class="text-xs font-medium">"Priority"</label>
-                    <input
-                        type="number"
-                        class="w-full px-3 py-2 bg-background border rounded-md text-sm"
-                        prop:value=priority
-                        on:input=move |e| {
-                            if let Ok(p) = event_target_value(&e).parse::<i64>() {
-                                priority.set(p);
-                            }
-                        }
-                    />
-                </div>
+                <Select
+                    value=target_adapter_id
+                    label="Target Adapter".to_string()
+                    options=adapter_options
+                />
+                <Input
+                    value=priority
+                    label="Priority".to_string()
+                    input_type="number".to_string()
+                />
                 <Button
                     variant=ButtonVariant::Primary
                     loading=saving
