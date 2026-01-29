@@ -650,27 +650,19 @@ fn DebugPanel() -> impl IntoView {
         <Card title="Debug Router".to_string()>
             <div class="space-y-4">
                 // Prompt input
-                <div>
-                    <label class="text-sm font-medium mb-1 block">"Test Prompt"</label>
-                    <textarea
-                        class="w-full h-24 p-3 text-sm rounded-lg border border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-primary"
-                        placeholder="Enter a prompt to test routing..."
-                        prop:value=move || prompt.get()
-                        on:input=move |ev| prompt.set(event_target_value(&ev))
-                    />
-                </div>
+                <Textarea
+                    value=prompt
+                    label="Test Prompt".to_string()
+                    placeholder="Enter a prompt to test routing...".to_string()
+                    rows=4
+                />
 
                 // Context input
-                <div>
-                    <label class="text-sm font-medium mb-1 block">"Context"<span class="text-muted-foreground ml-1">"(optional)"</span></label>
-                    <input
-                        type="text"
-                        class="w-full h-10 px-3 text-sm rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary"
-                        placeholder="Additional context..."
-                        prop:value=move || context.get()
-                        on:input=move |ev| context.set(event_target_value(&ev))
-                    />
-                </div>
+                <Input
+                    value=context
+                    label="Context (optional)".to_string()
+                    placeholder="Additional context...".to_string()
+                />
 
                 // Submit button
                 {move || {
