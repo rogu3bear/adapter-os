@@ -774,6 +774,7 @@ pub async fn run_worker() -> Result<()> {
         coreml_package_hash_hex.clone(),
         coreml_verification.clone(),
         Some(quota_manager),
+        registration_result.kv_residency_policy_id.clone(),
         Some(adapter_cache_bytes),
         worker_id_u32,
     )
