@@ -164,6 +164,8 @@ fn create_deterministic_worker_response(
         prefix_cache_hit: false,
         prefix_kv_bytes: 0,
         model_cache_identity_v2_digest_b3: None,
+        previous_receipt_digest: None,
+        session_sequence: 0,
     };
 
     WorkerInferResponse {
