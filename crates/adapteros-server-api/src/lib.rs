@@ -110,6 +110,7 @@ pub mod pause_tracker;
 pub mod permissions;
 pub mod plugin_registry;
 pub mod prefix_resolver;
+pub mod progress_service;
 pub mod rate_limit;
 pub mod reconciler;
 pub mod request_id;
@@ -159,6 +160,12 @@ pub use uds_client::{
 };
 pub use worker_health::{
     HealthConfig, WorkerHealthMonitor, WorkerHealthStatus, WorkerHealthSummary,
+};
+
+// Progress tracking service
+pub use progress_service::{
+    ProgressConfig, ProgressEvent, ProgressEventType, ProgressFilter, ProgressOperation,
+    ProgressService, ProgressStatus,
 };
 
 // SSE event management for reliable streaming with replay support
