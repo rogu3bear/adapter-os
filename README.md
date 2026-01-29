@@ -337,7 +337,21 @@ Reproducible inference with:
 - Canonical JSON serialization (JCS)
 - Configuration freeze with BLAKE3 hashing
 
-### 5. **Adapter Lifecycle Management**
+### 5. **Token Caching Economics**
+
+Prefix caching reduces attributed tokens with auditable receipts:
+
+```text
+L = logical tokens (context size)
+C = cached tokens (prefix reused)
+A = attributed tokens (billed) = L − C
+```
+
+**Key insight**: The "free token" is not a discount — it is **negative work**. adapterOS receipts cryptographically commit cached token counts, making the reduction auditable and verifiable by third parties.
+
+See [docs/TOKEN_CACHING_ECONOMICS.md](docs/TOKEN_CACHING_ECONOMICS.md) for throughput curves, formula derivations, and receipt integration.
+
+### 6. **Adapter Lifecycle Management**
 
 Adapters transition through lifecycle states for efficient memory management:
 
