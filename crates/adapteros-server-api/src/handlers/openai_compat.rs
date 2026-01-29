@@ -109,6 +109,10 @@ pub struct OpenAiUsage {
     pub prompt_tokens: usize,
     pub completion_tokens: usize,
     pub total_tokens: usize,
+    /// Number of prompt tokens that were served from cache.
+    /// Present (Some) only for cache hits; None indicates fresh computation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cached_prefix_tokens: Option<usize>,
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
@@ -476,14 +480,15 @@ async fn chat_completions_non_streaming(
                 .clone()
                 .unwrap_or_else(|| req.model.clone().unwrap_or_else(|| "adapteros".to_string()));
 
-            // Usage includes cached_prefix_tokens to indicate cache hit
-            // For cached responses, prompt_tokens reflects the original computation
+            // For cached responses, cached_prefix_tokens indicates this was a cache hit
+            // and shows how many prompt tokens were served from cache
             let usage = Some(OpenAiUsage {
                 prompt_tokens: cached.prompt_tokens,
                 completion_tokens: cached.completion_tokens,
                 total_tokens: cached
                     .prompt_tokens
                     .saturating_add(cached.completion_tokens),
+                cached_prefix_tokens: Some(cached.prompt_tokens),
             });
 
             let response = OpenAiChatCompletionsResponse {
@@ -553,6 +558,7 @@ async fn chat_completions_non_streaming(
         prompt_tokens,
         completion_tokens: infer_resp.tokens_generated,
         total_tokens: prompt_tokens.saturating_add(infer_resp.tokens_generated),
+        cached_prefix_tokens: None, // Fresh computation, not from cache
     });
 
     // Extract receipt_digest from run_receipt for determinism tracking
@@ -737,6 +743,7 @@ pub async fn completions_openai(
         prompt_tokens,
         completion_tokens: infer_resp.tokens_generated,
         total_tokens: prompt_tokens.saturating_add(infer_resp.tokens_generated),
+        cached_prefix_tokens: None, // Fresh computation, not from cache
     });
 
     let receipt_digest_hex = infer_resp
