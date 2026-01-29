@@ -196,6 +196,16 @@ fuzz_target!(|data: &[u8]| {
                 stop_reason_code,
                 stop_reason_token_index,
                 stop_policy_digest_b3,
+                // KV quota/residency fields
+                tenant_kv_quota_bytes: 0,
+                tenant_kv_bytes_used: 0,
+                kv_evictions: 0,
+                kv_residency_policy_id: None,
+                kv_quota_enforced: false,
+                // Prefix KV cache fields
+                prefix_kv_key_b3: None,
+                prefix_cache_hit: false,
+                prefix_kv_bytes: 0,
                 model_cache_identity_v2_digest_b3,
                 backend_used,
                 backend_attestation_b3,
