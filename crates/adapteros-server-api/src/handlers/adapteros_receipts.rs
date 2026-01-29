@@ -138,7 +138,7 @@ pub async fn get_receipt_by_digest(
         LIMIT 1
         "#,
     )
-    .bind(digest.as_bytes())
+    .bind(&digest.as_bytes()[..])
     .fetch_optional(state.db.pool())
     .await
     .map_err(ApiError::db_error)?
@@ -249,7 +249,7 @@ pub async fn adapteros_replay(
         LIMIT 1
         "#,
     )
-    .bind(digest.as_bytes())
+    .bind(&digest.as_bytes()[..])
     .fetch_optional(state.db.pool())
     .await
     .map_err(ApiError::db_error)?
