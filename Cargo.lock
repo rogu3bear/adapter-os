@@ -1604,6 +1604,7 @@ dependencies = [
  "clap",
  "ed25519-dalek",
  "filetime",
+ "glob",
  "hyper 1.8.1",
  "hyper-util",
  "libc",

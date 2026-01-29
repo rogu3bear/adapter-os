@@ -1100,9 +1100,22 @@ impl Db {
         // CRITICAL: Verify all migration signatures before applying.
         // Bypass only for local emergency debugging via AOS_SKIP_MIGRATION_SIGNATURES=1.
         // CI and tests must run with verification enabled.
-        let skip_sig_verification = std::env::var("AOS_SKIP_MIGRATION_SIGNATURES").is_ok();
+        // SECURITY: This bypass is only available in debug builds.
+        let skip_sig_verification = {
+            #[cfg(debug_assertions)]
+            {
+                std::env::var("AOS_SKIP_MIGRATION_SIGNATURES").is_ok()
+            }
+            #[cfg(not(debug_assertions))]
+            {
+                if std::env::var("AOS_SKIP_MIGRATION_SIGNATURES").is_ok() {
+                    warn!("AOS_SKIP_MIGRATION_SIGNATURES is set but IGNORED in release builds for security");
+                }
+                false
+            }
+        };
         if skip_sig_verification {
-            warn!("Skipping migration signature verification (env override; local debugging only)");
+            warn!("Skipping migration signature verification (env override; debug build only)");
         } else {
             info!("Verifying migration signatures...");
 

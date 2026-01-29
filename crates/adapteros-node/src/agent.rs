@@ -131,6 +131,11 @@ impl NodeAgent {
             let warning_read_fd = warning_read.as_raw_fd();
             let warning_write_fd = warning_write.as_raw_fd();
 
+            // SAFETY: pre_exec is called between fork() and exec() in the child process.
+            // The closure captures file descriptors and UID/GID values by value (not references).
+            // All operations inside (close, setgroups, setgid, setuid) are async-signal-safe
+            // per POSIX requirements for this context. The file descriptors are valid at
+            // capture time and remain valid in the child's address space.
             unsafe {
                 cmd.pre_exec(move || {
                     let _ = close(warning_read_fd);

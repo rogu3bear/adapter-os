@@ -492,12 +492,11 @@ pub async fn generate_dataset_from_file(
     });
 
     let manifest_file = storage_path.join("manifest.json");
-    tokio::fs::write(
-        &manifest_file,
-        serde_json::to_string_pretty(&manifest_json).unwrap(),
-    )
-    .await
-    .map_err(|e| ApiError::internal(format!("Failed to write manifest: {}", e)))?;
+    let manifest_content = serde_json::to_string_pretty(&manifest_json)
+        .map_err(|e| ApiError::internal(format!("Failed to serialize manifest: {}", e)))?;
+    tokio::fs::write(&manifest_file, manifest_content)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to write manifest: {}", e)))?;
 
     // Create DB record
     let dataset_params = CreateDatasetParams::builder()

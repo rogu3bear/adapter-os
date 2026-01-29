@@ -15,11 +15,17 @@ use walkdir::WalkDir;
 /// Rust language definition
 fn language_from_ptr(ptr: *const c_void) -> Language {
     assert!(!ptr.is_null(), "tree_sitter_rust returned null language");
+    // SAFETY: Language is a wrapper around a raw pointer to a tree-sitter language.
+    // The tree_sitter_rust crate guarantees that the pointer returned from language()
+    // points to a valid, static language definition. The assert above ensures non-null.
     unsafe { mem::transmute::<*const c_void, Language>(ptr) }
 }
 
 fn rust_language() -> Language {
     let lang = tree_sitter_rust::language();
+    // SAFETY: tree_sitter::Language is a newtype wrapper around a raw pointer.
+    // This roundtrip through c_void is to handle the tree-sitter API which uses
+    // opaque pointers. The Language type has the same layout as a pointer.
     let raw = unsafe { mem::transmute::<_, *const c_void>(lang) };
     language_from_ptr(raw)
 }

@@ -78,12 +78,27 @@ fn build_integrity_status(state: &AppState) -> IntegrityStatus {
     let pf_required = cfg.security.require_pf_deny;
     let strict_mode = state.strict_mode;
 
+    // SECURITY: PF check skip flag is only available in debug builds.
+    let pf_skip_active = {
+        #[cfg(debug_assertions)]
+        {
+            std::env::var("AOS_SKIP_PF_CHECK").is_ok()
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            if std::env::var("AOS_SKIP_PF_CHECK").is_ok() {
+                tracing::warn!("AOS_SKIP_PF_CHECK is set but IGNORED in release builds for security");
+            }
+            false
+        }
+    };
+
     IntegrityStatus {
         mode: "local".to_string(),
         is_federated: state.federation_daemon.is_some(),
         strict_mode,
-        // Assume PF deny was enforced unless a skip flag was set for development.
-        pf_deny_ok: !pf_required || std::env::var("AOS_SKIP_PF_CHECK").is_err(),
+        // Assume PF deny was enforced unless a skip flag was set for development (debug builds only).
+        pf_deny_ok: !pf_required || !pf_skip_active,
         drift: DriftStatus {
             level: DriftLevel::Ok,
             summary: Some("no drift detected".to_string()),

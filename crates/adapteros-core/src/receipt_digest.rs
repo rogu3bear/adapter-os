@@ -544,7 +544,7 @@ pub fn validate_backend_id_for_v5(
 ) -> std::result::Result<(), ReceiptDigestError> {
     match backend_id {
         None => Err(ReceiptDigestError::MissingBackendId),
-        Some(id) if id.is_empty() => Err(ReceiptDigestError::EmptyBackendId),
+        Some("") => Err(ReceiptDigestError::EmptyBackendId),
         Some(_) => Ok(()),
     }
 }
