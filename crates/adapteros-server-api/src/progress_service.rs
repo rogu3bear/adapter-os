@@ -311,9 +311,6 @@ impl ProgressService {
                     ops.insert(operation_id.clone(), operation);
                 }
                 ProgressStorage::Database(ref db) => {
-                    // Store in database (when database methods are implemented)
-                    // NOTE: Currently database methods are stubbed in adapteros-db, so this will
-                    // fail gracefully and fall back to memory storage.
                     let event_type_str = match &operation.event_type {
                         ProgressEventType::Operation(s) => format!("operation:{}", s),
                         ProgressEventType::Training(s) => format!("training:{}", s),
@@ -324,7 +321,7 @@ impl ProgressService {
                     let metadata = operation.metadata.as_ref().map(|v| v.to_string());
 
                     // Create new progress event record (this is correct for starting an operation)
-                    if let Err(e) = db.create_progress_event(
+                    db.create_progress_event(
                         &operation.operation_id,
                         &operation.tenant_id,
                         &event_type_str,
@@ -332,12 +329,8 @@ impl ProgressService {
                         &operation.status.to_string().to_lowercase(),
                         operation.message.as_deref(),
                         metadata.as_deref(),
-                    ).await {
-                        // Database is stubbed or error occurred - fall back to memory storage
-                        warn!("Failed to store progress event in database (expected if stubbed): {}", e);
-                        // Fall back to memory storage for the duration of this operation
-                        // Note: This creates a hybrid storage model temporarily
-                    }
+                    )
+                    .await?;
                 }
             }
         }
@@ -390,51 +383,37 @@ impl ProgressService {
                     }
                 }
                 ProgressStorage::Database(ref db) => {
-                    // NOTE: Database progress events are currently stubbed in adapteros-db
-                    // to avoid SQLX compilation issues. Updates are skipped to prevent duplicate records.
-                    // Progress tracking will work correctly once database methods are properly implemented.
-                    //
-                    // Attempt to read operation info to get tenant_id and event_type
-                    // Since get_progress_events is stubbed and always returns empty, we need an alternative
-                    // For now, we'll use a best-effort lookup from in-memory cache if available,
-                    // or return an error indicating the operation must be created first.
                     let query = adapteros_db::progress_events::ProgressEventQuery {
                         operation_id: Some(operation_id.clone()),
                         limit: Some(1),
                         ..Default::default()
                     };
                     
-                    // Try to get operation record (will be empty if database is stubbed)
-                    if let Ok(records) = db.get_progress_events(query).await {
-                        if let Some(record) = records.first() {
-                            // Database record found - extract tenant_id and event_type
-                            // NOTE: We skip the update since update_progress_event doesn't exist
-                            // and create_progress_event would create duplicates. Once proper
-                            // update methods are implemented, this logic should be updated.
-                            let event_type = if record.event_type.starts_with("operation:") {
-                                ProgressEventType::Operation(record.event_type[10..].to_string())
-                            } else if record.event_type.starts_with("training:") {
-                                ProgressEventType::Training(record.event_type[9..].to_string())
-                            } else if record.event_type.starts_with("background:") {
-                                ProgressEventType::Background(record.event_type[11..].to_string())
-                            } else {
-                                ProgressEventType::Custom(record.event_type.clone())
-                            };
-                            (record.tenant_id.clone(), event_type)
-                        } else {
-                            // Database is stubbed (returns empty) or operation doesn't exist
-                            // This is expected when database methods are stubbed.
-                            // Return a meaningful error indicating the limitation.
-                            return Err(AosError::NotFound(format!(
-                                "Operation '{}' not found. Database progress tracking is currently disabled (stubbed). Use in-memory storage instead.",
-                                operation_id
-                            )));
-                        }
+                    let records = db.get_progress_events(query).await?;
+                    let record = records.first().ok_or_else(|| {
+                        AosError::NotFound(format!("Operation not found: {}", operation_id))
+                    })?;
+
+                    db.update_progress_event(
+                        &operation_id,
+                        progress_pct,
+                        "running",
+                        message.as_deref(),
+                    )
+                    .await?;
+
+                    let event_type = if record.event_type.starts_with("operation:") {
+                        ProgressEventType::Operation(record.event_type[10..].to_string())
+                    } else if record.event_type.starts_with("training:") {
+                        ProgressEventType::Training(record.event_type[9..].to_string())
+                    } else if record.event_type.starts_with("background:") {
+                        ProgressEventType::Background(record.event_type[11..].to_string())
+                    } else if record.event_type.starts_with("custom:") {
+                        ProgressEventType::Custom(record.event_type[7..].to_string())
                     } else {
-                        return Err(AosError::Database(
-                            format!("Failed to query progress events for operation '{}'", operation_id)
-                        ));
-                    }
+                        ProgressEventType::Custom(record.event_type.clone())
+                    };
+                    (record.tenant_id.clone(), event_type)
                 }
             }
         };
@@ -472,42 +451,40 @@ impl ProgressService {
                     }
                 }
                 ProgressStorage::Database(ref db) => {
-                    // NOTE: Database progress events are currently stubbed in adapteros-db.
-                    // We skip creating completion events to prevent duplicate records.
-                    // Once proper update methods are implemented, this should update the existing record.
                     let query = adapteros_db::progress_events::ProgressEventQuery {
                         operation_id: Some(operation_id.clone()),
                         limit: Some(1),
                         ..Default::default()
                     };
-                    if let Ok(records) = db.get_progress_events(query).await {
-                        if let Some(record) = records.first() {
-                            // Extract tenant_id and event_type from existing record
-                            // Skip creating new event since database is stubbed and update methods don't exist
-                            let event_type = if record.event_type.starts_with("operation:") {
-                                ProgressEventType::Operation(record.event_type[10..].to_string())
-                            } else if record.event_type.starts_with("training:") {
-                                ProgressEventType::Training(record.event_type[9..].to_string())
-                            } else if let Some(ind) = record.event_type.find(':') {
-                                ProgressEventType::Background(record.event_type[ind+1..].to_string())
-                            } else {
-                                ProgressEventType::Custom(record.event_type.clone())
-                            };
-                            // Calculate duration from created_at
-                            let duration_secs = (Utc::now() - record.created_at).num_milliseconds() as f64 / 1000.0;
-                            (record.tenant_id.clone(), event_type, duration_secs)
-                        } else {
-                            // Database is stubbed (returns empty) or operation doesn't exist
-                            return Err(AosError::NotFound(format!(
-                                "Operation '{}' not found. Database progress tracking is currently disabled (stubbed).",
-                                operation_id
-                            )));
-                        }
+                    let records = db.get_progress_events(query).await?;
+                    let record = records.first().ok_or_else(|| {
+                        AosError::NotFound(format!("Operation not found: {}", operation_id))
+                    })?;
+
+                    let final_status_str = final_status.to_string();
+                    db.update_progress_event(
+                        &operation_id,
+                        100.0,
+                        final_status_str.as_str(),
+                        Some(message),
+                    )
+                    .await?;
+
+                    let event_type = if record.event_type.starts_with("operation:") {
+                        ProgressEventType::Operation(record.event_type[10..].to_string())
+                    } else if record.event_type.starts_with("training:") {
+                        ProgressEventType::Training(record.event_type[9..].to_string())
+                    } else if record.event_type.starts_with("background:") {
+                        ProgressEventType::Background(record.event_type[11..].to_string())
+                    } else if record.event_type.starts_with("custom:") {
+                        ProgressEventType::Custom(record.event_type[7..].to_string())
                     } else {
-                        return Err(AosError::Database(
-                            format!("Failed to query progress events for operation '{}'", operation_id)
-                        ));
-                    }
+                        ProgressEventType::Custom(record.event_type.clone())
+                    };
+
+                    let created_at = record.created_at_datetime()?;
+                    let duration_secs = (Utc::now() - created_at).num_milliseconds() as f64 / 1000.0;
+                    (record.tenant_id.clone(), event_type, duration_secs)
                 }
             }
         };
@@ -569,6 +546,8 @@ impl ProgressService {
                             ProgressEventType::Training(record.event_type[9..].to_string())
                         } else if record.event_type.starts_with("background:") {
                             ProgressEventType::Background(record.event_type[11..].to_string())
+                        } else if record.event_type.starts_with("custom:") {
+                            ProgressEventType::Custom(record.event_type[7..].to_string())
                         } else {
                             ProgressEventType::Custom(record.event_type)
                         };
@@ -581,12 +560,15 @@ impl ProgressService {
                             _ => ProgressStatus::Running,
                         };
 
+                        let started_at = record.created_at_datetime()?;
+                        let last_updated = record.updated_at_datetime()?;
+
                         let operation = ProgressOperation {
                             operation_id: record.operation_id,
                             tenant_id: record.tenant_id,
                             event_type,
-                            started_at: record.created_at,
-                            last_updated: record.updated_at,
+                            started_at,
+                            last_updated,
                             progress_pct: record.progress_pct,
                             status,
                             message: record.message,
@@ -595,7 +577,7 @@ impl ProgressService {
 
                         Ok(Some(operation))
                     }
-                    Ok(None) => Ok(None),
+                    Ok(_) => Ok(None),
                     Err(e) => {
                         warn!("Failed to get progress from database: {}", e);
                         Ok(None)
@@ -684,37 +666,45 @@ impl ProgressService {
                 match db.get_progress_events(query.clone()).await {
                     Ok(records) => {
                         // Convert database records to ProgressOperation
-                        let operations: Vec<ProgressOperation> = records.into_iter().map(|record| {
-                            let event_type = if record.event_type.starts_with("operation:") {
-                                ProgressEventType::Operation(record.event_type[10..].to_string())
-                            } else if record.event_type.starts_with("training:") {
-                                ProgressEventType::Training(record.event_type[9..].to_string())
-                            } else if record.event_type.starts_with("background:") {
-                                ProgressEventType::Background(record.event_type[11..].to_string())
-                            } else {
-                                ProgressEventType::Custom(record.event_type)
-                            };
+                        let operations: Vec<ProgressOperation> = records
+                            .into_iter()
+                            .map(|record| {
+                                let event_type = if record.event_type.starts_with("operation:") {
+                                    ProgressEventType::Operation(record.event_type[10..].to_string())
+                                } else if record.event_type.starts_with("training:") {
+                                    ProgressEventType::Training(record.event_type[9..].to_string())
+                                } else if record.event_type.starts_with("background:") {
+                                    ProgressEventType::Background(record.event_type[11..].to_string())
+                                } else if record.event_type.starts_with("custom:") {
+                                    ProgressEventType::Custom(record.event_type[7..].to_string())
+                                } else {
+                                    ProgressEventType::Custom(record.event_type)
+                                };
 
-                            let status = match record.status.as_str() {
-                                "running" => ProgressStatus::Running,
-                                "completed" => ProgressStatus::Completed,
-                                "failed" => ProgressStatus::Failed,
-                                "cancelled" => ProgressStatus::Cancelled,
-                                _ => ProgressStatus::Running,
-                            };
+                                let status = match record.status.as_str() {
+                                    "running" => ProgressStatus::Running,
+                                    "completed" => ProgressStatus::Completed,
+                                    "failed" => ProgressStatus::Failed,
+                                    "cancelled" => ProgressStatus::Cancelled,
+                                    _ => ProgressStatus::Running,
+                                };
 
-                            ProgressOperation {
-                                operation_id: record.operation_id,
-                                tenant_id: record.tenant_id,
-                                event_type,
-                                started_at: record.created_at,
-                                last_updated: record.updated_at,
-                                progress_pct: record.progress_pct,
-                                status,
-                                message: record.message,
-                                metadata: record.metadata.and_then(|s| serde_json::from_str(&s).ok()),
-                            }
-                        }).collect();
+                                let started_at = record.created_at_datetime()?;
+                                let last_updated = record.updated_at_datetime()?;
+
+                                Ok(ProgressOperation {
+                                    operation_id: record.operation_id,
+                                    tenant_id: record.tenant_id,
+                                    event_type,
+                                    started_at,
+                                    last_updated,
+                                    progress_pct: record.progress_pct,
+                                    status,
+                                    message: record.message,
+                                    metadata: record.metadata.and_then(|s| serde_json::from_str(&s).ok()),
+                                })
+                            })
+                            .collect::<Result<Vec<_>>>()?;
 
                         Ok(operations)
                     }
@@ -876,8 +866,16 @@ impl ProgressService {
                     };
                     if let Ok(records) = db.get_progress_events(query).await {
                         if let Some(record) = records.first() {
-                            let elapsed = (Utc::now() - record.created_at).num_milliseconds() as f64 / 1000.0;
-                            (record.created_at.to_rfc3339(), elapsed)
+                            match record.created_at_datetime() {
+                                Ok(created_at) => {
+                                    let elapsed = (Utc::now() - created_at).num_milliseconds() as f64 / 1000.0;
+                                    (created_at.to_rfc3339(), elapsed)
+                                }
+                                Err(e) => {
+                                    warn!("Invalid progress event timestamp: {}", e);
+                                    (Utc::now().to_rfc3339(), 0.0)
+                                }
+                            }
                         } else {
                             (Utc::now().to_rfc3339(), 0.0)
                         }
@@ -924,10 +922,11 @@ impl ProgressService {
                 Ok(removed_count)
             }
             ProgressStorage::Database(ref db) => {
-                // cleanup_old_progress_events not available - skip database cleanup
-                // Database will handle retention internally
-                info!("Database cleanup skipped (method not available)");
-                Ok(0)
+                let removed = db.delete_old_progress_events(cutoff).await?;
+                if removed > 0 {
+                    info!("Cleaned up {} expired operations in database", removed);
+                }
+                Ok(removed as usize)
             }
         }
     }
