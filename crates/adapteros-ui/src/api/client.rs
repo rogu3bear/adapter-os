@@ -5,6 +5,7 @@
 use super::{api_base_url, ApiError, ApiResult};
 use gloo_net::http::{Request, RequestBuilder};
 use serde::{de::DeserializeOwned, Serialize};
+use web_sys::RequestCredentials;
 use std::sync::{Arc, RwLock};
 use urlencoding::encode;
 
@@ -151,7 +152,10 @@ impl ApiClient {
             _ => Request::get(&url),
         };
 
-        let mut req = req.header("Content-Type", "application/json");
+        // Include credentials (cookies) with all requests for httpOnly cookie auth
+        let mut req = req
+            .credentials(RequestCredentials::Include)
+            .header("Content-Type", "application/json");
 
         if matches!(method, "POST" | "PUT" | "PATCH" | "DELETE") {
             if let Some(token) = csrf_token_from_cookie() {
@@ -159,11 +163,13 @@ impl ApiClient {
             }
         }
 
+        // Only add Authorization header for real Bearer tokens, not the cookie_auth placeholder
         if let Some(token) = self.auth_token.read().ok().and_then(|t| t.clone()) {
-            req.header("Authorization", &format!("Bearer {}", token))
-        } else {
-            req
+            if token != "cookie_auth" {
+                return req.header("Authorization", &format!("Bearer {}", token));
+            }
         }
+        req
     }
 
     /// Perform a GET request

@@ -1,10 +1,13 @@
 //! Stack dialog components
 //!
 //! Create and edit dialogs for adapter stacks.
+//! Uses canonical Dialog component for ARIA compliance and keyboard handling.
 
 use crate::api::{ApiClient, CreateStackRequest, StackResponse, UpdateStackRequest, WorkflowType};
-use crate::components::{Button, ButtonVariant, Input, Select, Spinner, Textarea};
-use crate::hooks::{use_api, use_api_resource, LoadingState};
+use crate::components::{
+    AsyncBoundaryWithEmpty, Button, ButtonVariant, Dialog, Input, Select, Textarea,
+};
+use crate::hooks::{use_api, use_api_resource};
 use adapteros_api_types::AdapterResponse;
 use leptos::prelude::*;
 use std::sync::Arc;
@@ -82,124 +85,88 @@ pub fn CreateStackDialog(open: RwSignal<bool>, refetch_trigger: RwSignal<u32>) -
     };
 
     view! {
-        {move || {
-            if open.get() {
-                view! {
-                    // Backdrop
-                    <div
-                        class="fixed inset-0 z-50 bg-black/80"
-                        on:click=move |_| open.set(false)
+        <Dialog
+            open=open
+            title="Create Adapter Stack"
+            description="Create a new stack to compose multiple adapters for inference."
+        >
+            <div class="space-y-4 py-4">
+                <Input
+                    value=name
+                    label="Name".to_string()
+                    placeholder="my-stack".to_string()
+                />
+
+                <Textarea
+                    value=description
+                    label="Description"
+                    placeholder="Optional description for this stack".to_string()
+                />
+
+                <Select
+                    value=workflow_type
+                    label="Workflow Type"
+                    options=vec![
+                        ("parallel".to_string(), "Parallel".to_string()),
+                        ("sequential".to_string(), "Sequential".to_string()),
+                        ("upstream_downstream".to_string(), "Upstream/Downstream".to_string()),
+                    ]
+                />
+
+                <Select
+                    value=determinism_mode
+                    label="Determinism Mode"
+                    options=vec![
+                        ("strict".to_string(), "Strict".to_string()),
+                        ("besteffort".to_string(), "Best Effort".to_string()),
+                        ("relaxed".to_string(), "Relaxed".to_string()),
+                    ]
+                />
+
+                // Adapter selection
+                <div class="space-y-2">
+                    <label class="text-sm font-medium">"Select Adapters"</label>
+                    <AsyncBoundaryWithEmpty
+                        state=adapters
+                        is_empty={|list: &Vec<AdapterResponse>| list.is_empty()}
+                        empty_title="No adapters available"
+                        empty_description="Register adapters to add them to stacks."
+                        render={move |adapter_list| view! {
+                            <AdapterCheckboxList
+                                adapters=adapter_list
+                                selected=selected_adapter_ids
+                            />
+                        }}
                     />
+                    <p class="text-xs text-muted-foreground">
+                        {move || format!("{} adapter(s) selected", selected_adapter_ids.get().len())}
+                    </p>
+                </div>
 
-                    // Dialog content
-                    <div class="dialog-content dialog-scrollable">
-                        <div class="flex flex-col space-y-1.5">
-                            <h2 class="text-lg font-semibold">"Create Adapter Stack"</h2>
-                            <p class="text-sm text-muted-foreground">
-                                "Create a new stack to compose multiple adapters for inference."
-                            </p>
-                        </div>
-
-                        <div class="space-y-4 py-4">
-                            <Input
-                                value=name
-                                label="Name".to_string()
-                                placeholder="my-stack".to_string()
-                            />
-
-                            <Textarea
-                                value=description
-                                label="Description"
-                                placeholder="Optional description for this stack".to_string()
-                            />
-
-                            <Select
-                                value=workflow_type
-                                label="Workflow Type"
-                                options=vec![
-                                    ("parallel".to_string(), "Parallel".to_string()),
-                                    ("sequential".to_string(), "Sequential".to_string()),
-                                    ("upstream_downstream".to_string(), "Upstream/Downstream".to_string()),
-                                ]
-                            />
-
-                            <Select
-                                value=determinism_mode
-                                label="Determinism Mode"
-                                options=vec![
-                                    ("strict".to_string(), "Strict".to_string()),
-                                    ("besteffort".to_string(), "Best Effort".to_string()),
-                                    ("relaxed".to_string(), "Relaxed".to_string()),
-                                ]
-                            />
-
-                            // Adapter selection
-                            <div class="space-y-2">
-                                <label class="text-sm font-medium">"Select Adapters"</label>
-                                {move || {
-                                    match adapters.get() {
-                                        LoadingState::Loading | LoadingState::Idle => {
-                                            view! { <Spinner/> }.into_any()
-                                        }
-                                        LoadingState::Loaded(adapter_list) => {
-                                            if adapter_list.is_empty() {
-                                                view! {
-                                                    <p class="text-sm text-muted-foreground">
-                                                        "No adapters available"
-                                                    </p>
-                                                }.into_any()
-                                            } else {
-                                                view! {
-                                                    <AdapterCheckboxList
-                                                        adapters=adapter_list
-                                                        selected=selected_adapter_ids
-                                                    />
-                                                }.into_any()
-                                            }
-                                        }
-                                        LoadingState::Error(_) => {
-                                            view! {
-                                                <p class="text-sm text-destructive">
-                                                    "Failed to load adapters"
-                                                </p>
-                                            }.into_any()
-                                        }
-                                    }
-                                }}
-                                <p class="text-xs text-muted-foreground">
-                                    {move || format!("{} adapter(s) selected", selected_adapter_ids.get().len())}
-                                </p>
-                            </div>
-
-                            {move || error.get().map(|e| view! {
-                                <div class="text-sm text-destructive p-2 bg-destructive/10 rounded">
-                                    {e}
-                                </div>
-                            })}
-                        </div>
-
-                        <div class="flex justify-end gap-2">
-                            <Button
-                                variant=ButtonVariant::Outline
-                                on_click=Callback::new(move |_| open.set(false))
-                            >
-                                "Cancel"
-                            </Button>
-                            <Button
-                                variant=ButtonVariant::Primary
-                                loading=creating.get()
-                                disabled=creating.get()
-                                on_click=Callback::new(on_submit.clone())
-                            >
-                                "Create Stack"
-                            </Button>
-                        </div>
+                {move || error.get().map(|e| view! {
+                    <div class="rounded-md border border-destructive bg-destructive/10 p-3 text-sm text-destructive">
+                        {e}
                     </div>
-                }.into_any()
-            } else {
-                view! {}.into_any()
-            }
-        }}
+                })}
+            </div>
+
+            <div class="flex justify-end gap-2">
+                <Button
+                    variant=ButtonVariant::Outline
+                    on_click=Callback::new(move |_| open.set(false))
+                >
+                    "Cancel"
+                </Button>
+                <Button
+                    variant=ButtonVariant::Primary
+                    loading=creating.get()
+                    disabled=creating.get()
+                    on_click=Callback::new(on_submit.clone())
+                >
+                    "Create Stack"
+                </Button>
+            </div>
+        </Dialog>
     }
 }
 
@@ -328,116 +295,80 @@ pub fn EditStackDialog(
     };
 
     view! {
-        {move || {
-            if open.get() {
-                view! {
-                    // Backdrop
-                    <div
-                        class="fixed inset-0 z-50 bg-black/80"
-                        on:click=move |_| open.set(false)
+        <Dialog
+            open=open
+            title="Edit Adapter Stack"
+            description="Update the stack configuration and adapters."
+        >
+            <div class="space-y-4 py-4">
+                <Input
+                    value=name
+                    label="Name".to_string()
+                    placeholder="my-stack".to_string()
+                />
+
+                <Textarea
+                    value=description
+                    label="Description"
+                    placeholder="Optional description for this stack".to_string()
+                />
+
+                <Select
+                    value=workflow_type
+                    label="Workflow Type"
+                    options=vec![
+                        ("parallel".to_string(), "Parallel".to_string()),
+                        ("sequential".to_string(), "Sequential".to_string()),
+                        ("upstream_downstream".to_string(), "Upstream/Downstream".to_string()),
+                    ]
+                />
+
+                // Adapter selection
+                <div class="space-y-2">
+                    <label class="text-sm font-medium">"Select Adapters"</label>
+                    <p class="text-xs text-muted-foreground mb-2">
+                        "Select adapters to include in this stack"
+                    </p>
+                    <AsyncBoundaryWithEmpty
+                        state=adapters
+                        is_empty={|list: &Vec<AdapterResponse>| list.is_empty()}
+                        empty_title="No adapters available"
+                        empty_description="Register adapters to add them to stacks."
+                        render={move |adapter_list| view! {
+                            <AdapterCheckboxList
+                                adapters=adapter_list
+                                selected=selected_adapter_ids
+                            />
+                        }}
                     />
+                    <p class="text-xs text-muted-foreground">
+                        {move || format!("{} adapter(s) selected", selected_adapter_ids.get().len())}
+                    </p>
+                </div>
 
-                    // Dialog content
-                    <div class="dialog-content dialog-scrollable">
-                        <div class="flex flex-col space-y-1.5">
-                            <h2 class="text-lg font-semibold">"Edit Adapter Stack"</h2>
-                            <p class="text-sm text-muted-foreground">
-                                "Update the stack configuration and adapters."
-                            </p>
-                        </div>
-
-                        <div class="space-y-4 py-4">
-                            <Input
-                                value=name
-                                label="Name".to_string()
-                                placeholder="my-stack".to_string()
-                            />
-
-                            <Textarea
-                                value=description
-                                label="Description"
-                                placeholder="Optional description for this stack".to_string()
-                            />
-
-                            <Select
-                                value=workflow_type
-                                label="Workflow Type"
-                                options=vec![
-                                    ("parallel".to_string(), "Parallel".to_string()),
-                                    ("sequential".to_string(), "Sequential".to_string()),
-                                    ("upstream_downstream".to_string(), "Upstream/Downstream".to_string()),
-                                ]
-                            />
-
-                            // Adapter selection
-                            <div class="space-y-2">
-                                <label class="text-sm font-medium">"Select Adapters"</label>
-                                <p class="text-xs text-muted-foreground mb-2">
-                                    "Select adapters to include in this stack"
-                                </p>
-                                {move || {
-                                    match adapters.get() {
-                                        LoadingState::Loading | LoadingState::Idle => {
-                                            view! { <Spinner/> }.into_any()
-                                        }
-                                        LoadingState::Loaded(adapter_list) => {
-                                            if adapter_list.is_empty() {
-                                                view! {
-                                                    <p class="text-sm text-muted-foreground">
-                                                        "No adapters available"
-                                                    </p>
-                                                }.into_any()
-                                            } else {
-                                                view! {
-                                                    <AdapterCheckboxList
-                                                        adapters=adapter_list
-                                                        selected=selected_adapter_ids
-                                                    />
-                                                }.into_any()
-                                            }
-                                        }
-                                        LoadingState::Error(_) => {
-                                            view! {
-                                                <p class="text-sm text-destructive">
-                                                    "Failed to load adapters"
-                                                </p>
-                                            }.into_any()
-                                        }
-                                    }
-                                }}
-                                <p class="text-xs text-muted-foreground">
-                                    {move || format!("{} adapter(s) selected", selected_adapter_ids.get().len())}
-                                </p>
-                            </div>
-
-                            {move || error.get().map(|e| view! {
-                                <div class="text-sm text-destructive p-2 bg-destructive/10 rounded">
-                                    {e}
-                                </div>
-                            })}
-                        </div>
-
-                        <div class="flex justify-end gap-2">
-                            <Button
-                                variant=ButtonVariant::Outline
-                                on_click=Callback::new(move |_| open.set(false))
-                            >
-                                "Cancel"
-                            </Button>
-                            <Button
-                                variant=ButtonVariant::Primary
-                                loading=updating.get()
-                                disabled=updating.get()
-                                on_click=Callback::new(on_submit.clone())
-                            >
-                                "Save Changes"
-                            </Button>
-                        </div>
+                {move || error.get().map(|e| view! {
+                    <div class="rounded-md border border-destructive bg-destructive/10 p-3 text-sm text-destructive">
+                        {e}
                     </div>
-                }.into_any()
-            } else {
-                view! {}.into_any()
-            }
-        }}
+                })}
+            </div>
+
+            <div class="flex justify-end gap-2">
+                <Button
+                    variant=ButtonVariant::Outline
+                    on_click=Callback::new(move |_| open.set(false))
+                >
+                    "Cancel"
+                </Button>
+                <Button
+                    variant=ButtonVariant::Primary
+                    loading=updating.get()
+                    disabled=updating.get()
+                    on_click=Callback::new(on_submit.clone())
+                >
+                    "Save Changes"
+                </Button>
+            </div>
+        </Dialog>
     }
 }

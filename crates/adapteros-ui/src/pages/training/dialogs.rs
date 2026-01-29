@@ -1,11 +1,12 @@
 //! Training page dialog components
 //!
 //! Modal dialogs for creating training jobs.
+//! Uses canonical Dialog component for ARIA compliance and keyboard handling.
 
 use crate::api::ApiClient;
 #[cfg(target_arch = "wasm32")]
 use crate::api::ApiError;
-use crate::components::{Button, ButtonVariant, FormField, Input};
+use crate::components::{Button, ButtonVariant, Dialog, FormField, Input};
 use crate::pages::training::dataset_wizard::{DatasetUploadOutcome, DatasetUploadWizard};
 use crate::pages::training::generate_wizard::{GenerateDatasetOutcome, GenerateDatasetWizard};
 use crate::validation::{rules, use_form_errors, validate_field, ValidationRule};
@@ -522,51 +523,15 @@ pub fn CreateJobDialog(
     };
 
     view! {
-        {move || {
-            if !open.get() {
-                return view! {}.into_any();
-            }
-
-            view! {
-                // Backdrop
-                <div
-                    class="fixed inset-0 z-50 bg-black/80"
-                    on:click=move |_| close(())
-                />
-
-                // Dialog
-                <div class="dialog-content dialog-scrollable">
-                    // Header
-                    <div class="flex items-center justify-between mb-4">
-                        <div>
-                            <h2 class="text-lg font-semibold">"New Training Job"</h2>
-                            <p class="text-sm text-muted-foreground">"Configure and start a new adapter training job"</p>
-                        </div>
-                        <button
-                            class="rounded-sm opacity-70 hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                            aria-label="Close"
-                            type="button"
-                            on:click=move |_| close(())
-                        >
-                            <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                width="24"
-                                height="24"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                stroke-width="2"
-                            >
-                                <path d="M18 6 6 18"/>
-                                <path d="m6 6 12 12"/>
-                            </svg>
-                        </button>
-                    </div>
-
-                    // Error message
+        <Dialog
+            open=open
+            title="New Training Job"
+            description="Configure and start a new adapter training job"
+        >
+            // Error message
                     {move || error.get().map(|e| view! {
-                        <div class="mb-4 rounded-lg border border-destructive bg-destructive/10 p-3">
-                            <p class="text-sm text-destructive">{e}</p>
+                        <div class="mb-4 rounded-md border border-destructive bg-destructive/10 p-3 text-sm text-destructive">
+                            {e}
                         </div>
                     })}
 
@@ -1011,24 +976,22 @@ pub fn CreateJobDialog(
                         on_generated=Callback::new(on_dataset_generated.clone())
                     />
 
-                    // Footer
-                    <div class="flex justify-end gap-2 mt-6">
-                        <Button
-                            variant=ButtonVariant::Outline
-                            on_click=Callback::new(close.clone())
-                        >
-                            "Cancel"
-                        </Button>
-                        <Button
-                            variant=ButtonVariant::Primary
-                            loading=submitting.get()
-                            on_click=Callback::new(submit.clone())
-                        >
-                            "Start Training"
-                        </Button>
-                    </div>
-                </div>
-            }.into_any()
-        }}
+            // Footer
+            <div class="flex justify-end gap-2 mt-6">
+                <Button
+                    variant=ButtonVariant::Outline
+                    on_click=Callback::new(close.clone())
+                >
+                    "Cancel"
+                </Button>
+                <Button
+                    variant=ButtonVariant::Primary
+                    loading=submitting.get()
+                    on_click=Callback::new(submit.clone())
+                >
+                    "Start Training"
+                </Button>
+            </div>
+        </Dialog>
     }
 }

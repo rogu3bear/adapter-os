@@ -115,13 +115,13 @@ impl AuthAction {
 
     /// Get current attempt ID
     fn current_attempt(&self) -> u32 {
-        self.attempt_id.get()
+        self.attempt_id.get_untracked()
     }
 
     /// Increment attempt and return new ID
     fn next_attempt(&self) -> u32 {
         self.attempt_id.update(|id| *id += 1);
-        self.attempt_id.get()
+        self.attempt_id.get_untracked()
     }
 
     /// Login with credentials

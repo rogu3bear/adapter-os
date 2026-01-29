@@ -27,7 +27,7 @@ mod utils;
 mod wizard;
 
 use crate::api::ApiClient;
-use crate::components::{Button, ButtonVariant, ErrorDisplay, Spinner, SplitPanel};
+use crate::components::{AsyncBoundary, Button, ButtonVariant, SplitPanel};
 use crate::hooks::{use_api_resource, use_conditional_polling, LoadingState};
 use adapteros_api_types::TrainingListParams;
 use leptos::prelude::*;
@@ -126,44 +126,29 @@ pub fn Training() -> impl IntoView {
                             </p>
 
                             // Job list
-                            {move || {
-                                match jobs.get() {
-                                    LoadingState::Idle | LoadingState::Loading => {
-                                        view! {
-                                            <div class="flex items-center justify-center py-12">
-                                                <Spinner/>
-                                            </div>
-                                        }.into_any()
-                                    }
-                                    LoadingState::Loaded(data) => {
-                                        // Apply client-side CoreML filters
-                                        let filter_state = coreml_filter.get();
-                                        let filtered_jobs = data
-                                            .jobs
-                                            .clone()
-                                            .into_iter()
-                                            .filter(|job| matches_coreml_filters(job, &filter_state))
-                                            .collect::<Vec<_>>();
-                                        let on_create = Callback::new(move |_| create_dialog_open.set(true));
-                                        view! {
-                                            <TrainingJobList
-                                                jobs=filtered_jobs
-                                                selected_id=selected_job_id
-                                                on_select=on_job_select
-                                                on_create=on_create
-                                            />
-                                        }.into_any()
-                                    }
-                                    LoadingState::Error(e) => {
-                                        view! {
-                                            <ErrorDisplay
-                                                error=e
-                                                on_retry=Callback::new(move |_| refetch_jobs.run(()))
-                                            />
-                                        }.into_any()
+                            <AsyncBoundary
+                                state=jobs
+                                on_retry=Callback::new(move |_| refetch_jobs.run(()))
+                                render=move |data| {
+                                    // Apply client-side CoreML filters
+                                    let filter_state = coreml_filter.get();
+                                    let filtered_jobs = data
+                                        .jobs
+                                        .clone()
+                                        .into_iter()
+                                        .filter(|job| matches_coreml_filters(job, &filter_state))
+                                        .collect::<Vec<_>>();
+                                    let on_create = Callback::new(move |_| create_dialog_open.set(true));
+                                    view! {
+                                        <TrainingJobList
+                                            jobs=filtered_jobs
+                                            selected_id=selected_job_id
+                                            on_select=on_job_select
+                                            on_create=on_create
+                                        />
                                     }
                                 }
-                            }}
+                            />
                         </div>
                     }
                 }

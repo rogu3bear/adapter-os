@@ -144,7 +144,7 @@ pub fn Login() -> impl IntoView {
 
                     {move || {
                         error.get().map(|e| view! {
-                            <div class="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+                            <div class="rounded-md border border-destructive bg-destructive/10 p-3 text-sm text-destructive">
                                 {e}
                             </div>
                         })
@@ -152,7 +152,7 @@ pub fn Login() -> impl IntoView {
 
                     <Button
                         class="w-full".to_string()
-                        loading=loading.get()
+                        loading=loading
                         on_click=Callback::new({
                             let do_login = do_login.clone();
                             move |_| do_login()

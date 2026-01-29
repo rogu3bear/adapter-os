@@ -18,8 +18,9 @@
 
 use crate::api::ApiClient;
 use crate::components::{
-    AdapterDetailPanel, Badge, BadgeVariant, Card, EmptyState, EmptyStateVariant, ErrorDisplay,
-    SplitPanel, SplitRatio, Spinner, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    AdapterDetailPanel, AsyncBoundary, AsyncBoundaryWithErrorRender, Badge, BadgeVariant, Card,
+    EmptyState, EmptyStateVariant, ErrorDisplay, SplitPanel, SplitRatio, Table, TableBody,
+    TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use crate::signals::refetch::{use_refetch_signal, RefetchTopic};
@@ -89,55 +90,40 @@ pub fn Adapters() -> impl IntoView {
                 </button>
             </div>
 
-            {move || {
-                match adapters.get() {
-                    LoadingState::Idle | LoadingState::Loading => {
-                        view! {
-                            <div class="flex items-center justify-center py-12">
-                                <Spinner/>
-                            </div>
-                        }.into_any()
-                    }
-                    LoadingState::Loaded(data) => {
-                        let adapters_for_list = data.clone();
-                        view! {
-                            <SplitPanel
-                                has_selection=has_selection
-                                on_close=on_close_detail
-                                back_label="Back to Adapters"
-                                ratio=SplitRatio::TwoFifthsThreeFifths
-                                list_panel=move || {
-                                    let data = adapters_for_list.clone();
-                                    view! {
-                                        <AdaptersListInteractive
-                                            adapters=data
-                                            selected_id=selected_id
-                                            on_select=on_select
-                                        />
-                                    }
+            <AsyncBoundary
+                state=adapters
+                on_retry=Callback::new(move |_| refetch_signal.with_value(|f| f.run(())))
+                render=move |data| {
+                    let adapters_for_list = data.clone();
+                    view! {
+                        <SplitPanel
+                            has_selection=has_selection
+                            on_close=on_close_detail
+                            back_label="Back to Adapters"
+                            ratio=SplitRatio::TwoFifthsThreeFifths
+                            list_panel=move || {
+                                let data = adapters_for_list.clone();
+                                view! {
+                                    <AdaptersListInteractive
+                                        adapters=data
+                                        selected_id=selected_id
+                                        on_select=on_select
+                                    />
                                 }
-                                detail_panel=move || {
-                                    view! {
-                                        <AdapterDetailPanel
-                                            adapter=selected_adapter
-                                            loading=is_loading
-                                            on_close=on_close_detail
-                                        />
-                                    }
+                            }
+                            detail_panel=move || {
+                                view! {
+                                    <AdapterDetailPanel
+                                        adapter=selected_adapter
+                                        loading=is_loading
+                                        on_close=on_close_detail
+                                    />
                                 }
-                            />
-                        }.into_any()
-                    }
-                    LoadingState::Error(e) => {
-                        view! {
-                            <ErrorDisplay
-                                error=e
-                                on_retry=Callback::new(move |_| refetch_signal.with_value(|f| f.run(())))
-                            />
-                        }.into_any()
+                            }
+                        />
                     }
                 }
-            }}
+            />
         </div>
     }
 }
@@ -370,60 +356,31 @@ pub fn AdapterDetail() -> impl IntoView {
                 </button>
             </div>
 
-            {move || {
-                let state = adapter.get();
-                match state {
-                    LoadingState::Idle => {
-                        web_sys::console::log_1(&"[AdapterDetail] State: Idle".into());
+            <AsyncBoundaryWithErrorRender
+                state=adapter
+                on_retry=Callback::new(move |_| refetch_signal.with_value(|f| f.run(())))
+                render=move |data| view! { <AdapterDetailContent adapter=data /> }
+                render_error=move |e, retry| {
+                    if let crate::api::ApiError::Validation(msg) = &e {
+                        let error_msg = msg.clone();
                         view! {
                             <div class="flex items-center justify-center py-12">
-                                <Spinner/>
-                            </div>
-                        }.into_any()
-                    }
-                    LoadingState::Loading => {
-                        web_sys::console::log_1(&"[AdapterDetail] State: Loading".into());
-                        view! {
-                            <div class="flex items-center justify-center py-12">
-                                <Spinner/>
-                            </div>
-                        }.into_any()
-                    }
-                    LoadingState::Loaded(data) => {
-                        web_sys::console::log_1(
-                            &format!("[AdapterDetail] State: Loaded ({})", data.id).into()
-                        );
-                        view! { <AdapterDetailContent adapter=data/> }.into_any()
-                    }
-                    LoadingState::Error(e) => {
-                        web_sys::console::error_1(
-                            &format!("[AdapterDetail] State: Error ({:?})", e).into()
-                        );
-                        // Handle validation errors with user-friendly messages
-                        if let crate::api::ApiError::Validation(msg) = &e {
-                            let error_msg = msg.clone();
-                            view! {
-                                <div class="flex items-center justify-center py-12">
-                                    <div class="text-center">
-                                        <h2 class="text-xl font-semibold mb-2 text-destructive">"Invalid Adapter ID"</h2>
-                                        <p class="text-muted-foreground mb-4">{error_msg}</p>
-                                        <a href="/adapters" class="text-primary hover:underline">
-                                            "← Back to Adapters"
-                                        </a>
-                                    </div>
+                                <div class="text-center">
+                                    <h2 class="text-xl font-semibold mb-2 text-destructive">"Invalid Adapter ID"</h2>
+                                    <p class="text-muted-foreground mb-4">{error_msg}</p>
+                                    <a href="/adapters" class="text-primary hover:underline">
+                                        "← Back to Adapters"
+                                    </a>
                                 </div>
-                            }.into_any()
-                        } else {
-                            view! {
-                                <ErrorDisplay
-                                    error=e
-                                    on_retry=Callback::new(move |_| refetch_signal.with_value(|f| f.run(())))
-                                />
-                            }.into_any()
-                        }
+                            </div>
+                        }.into_any()
+                    } else if let Some(retry_cb) = retry {
+                        view! { <ErrorDisplay error=e on_retry=retry_cb /> }.into_any()
+                    } else {
+                        view! { <ErrorDisplay error=e /> }.into_any()
                     }
                 }
-            }}
+            />
         </div>
     }
 }

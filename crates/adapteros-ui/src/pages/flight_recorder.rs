@@ -11,8 +11,8 @@
 use crate::api::ApiClient;
 use crate::api::client::InferenceTraceDetailResponse;
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonVariant, Card, DiffResults, Spinner, Table, TableBody,
-    TableCell, TableHead, TableHeader, TableRow, TokenDecisions, TraceViewerWithData,
+    AsyncBoundary, Badge, BadgeVariant, Button, ButtonVariant, Card, DiffResults, Spinner, Table,
+    TableBody, TableCell, TableHead, TableHeader, TableRow, TokenDecisions, TraceViewerWithData,
 };
 use crate::hooks::{use_api_resource, use_polling, LoadingState};
 use adapteros_api_types::diagnostics::{
@@ -84,45 +84,29 @@ pub fn FlightRecorder() -> impl IntoView {
                     <StatusFilter filter=status_filter/>
                 </div>
 
-                {move || {
-                    match runs.get() {
-                        LoadingState::Idle | LoadingState::Loading => {
-                            view! {
-                                <div class="flex items-center justify-center py-12">
-                                    <Spinner/>
-                                </div>
-                            }.into_any()
-                        }
-                        LoadingState::Loaded(response) => {
-                            if response.runs.is_empty() {
-                                view! {
-                                    <Card>
-                                        <div class="text-center py-8 text-muted-foreground">
-                                            "No runs found"
-                                        </div>
-                                    </Card>
-                                }.into_any()
-                            } else {
-                                view! {
-                                    <RunsTable
-                                        runs=response.runs
-                                        selected_id=selected_run_id
-                                        on_select=Callback::new(on_run_select)
-                                    />
-                                }.into_any()
-                            }
-                        }
-                        LoadingState::Error(e) => {
+                <AsyncBoundary
+                    state=runs
+                    on_retry=Callback::new(move |_| refetch_runs.run(()))
+                    render=move |response: ListDiagRunsResponse| {
+                        if response.runs.is_empty() {
                             view! {
                                 <Card>
-                                    <div class="text-center py-8 text-destructive">
-                                        {format!("Error loading runs: {}", e)}
+                                    <div class="text-center py-8 text-muted-foreground">
+                                        "No runs found"
                                     </div>
                                 </Card>
                             }.into_any()
+                        } else {
+                            view! {
+                                <RunsTable
+                                    runs=response.runs
+                                    selected_id=selected_run_id
+                                    on_select=Callback::new(on_run_select)
+                                />
+                            }.into_any()
                         }
                     }
-                }}
+                />
             </div>
 
             // Right panel: Run detail (when selected)
@@ -421,62 +405,69 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
             </div>
 
             // Tab content
-            {move || {
-                match export_data.get() {
-                    LoadingState::Idle | LoadingState::Loading => {
-                        view! {
-                            <div class="flex items-center justify-center py-12">
-                                <Spinner/>
-                            </div>
-                        }.into_any()
-                    }
-                    LoadingState::Loaded(export) => {
-                        let export_clone = export.clone();
-                        let trace_id = export.run.trace_id.clone();
+            <AsyncBoundary
+                state=export_data
+                render=move |export: DiagExportResponse| {
+                    let trace_id = export.run.trace_id.clone();
 
-                        // Single fetch for trace detail - shared by all tabs that need it
-                        let (trace_detail, _) = use_api_resource({
-                            let tid = trace_id.clone();
-                            move |client: Arc<ApiClient>| {
-                                let tid = tid.clone();
-                                async move { client.get_inference_trace_detail(&tid).await }
-                            }
-                        });
-
-                        match active_tab.get() {
-                            RunDetailTab::Overview => {
-                                view! { <OverviewTab export=export_clone trace_detail=trace_detail/> }.into_any()
-                            }
-                            RunDetailTab::Trace => {
-                                view! { <TraceTab trace_detail=trace_detail/> }.into_any()
-                            }
-                            RunDetailTab::Receipt => {
-                                view! { <ReceiptsTab export=export_clone/> }.into_any()
-                            }
-                            RunDetailTab::Routing => {
-                                view! { <RoutingTab export=export_clone trace_detail=trace_detail/> }.into_any()
-                            }
-                            RunDetailTab::Tokens => {
-                                view! { <TokensTab export=export_clone trace_detail=trace_detail/> }.into_any()
-                            }
-                            RunDetailTab::Diff => {
-                                view! { <DiffTab export=export_clone compare_trace=compare_trace.clone()/> }.into_any()
-                            }
-                            RunDetailTab::Events => {
-                                view! { <EventsTab export=export_clone/> }.into_any()
-                            }
+                    // Single fetch for trace detail - shared by all tabs that need it
+                    let (trace_detail, _) = use_api_resource({
+                        let tid = trace_id.clone();
+                        move |client: Arc<ApiClient>| {
+                            let tid = tid.clone();
+                            async move { client.get_inference_trace_detail(&tid).await }
                         }
-                    }
-                    LoadingState::Error(e) => {
-                        view! {
-                            <div class="text-center py-8 text-destructive">
-                                {format!("Error loading run: {}", e)}
-                            </div>
-                        }.into_any()
+                    });
+
+                    view! {
+                        <TabContent
+                            export=export
+                            active_tab=active_tab
+                            trace_detail=trace_detail
+                            compare_trace=compare_trace.clone()
+                        />
                     }
                 }
-            }}
+            />
         </div>
+    }
+}
+
+/// Tab content router - renders the appropriate tab based on active selection
+#[component]
+fn TabContent(
+    export: DiagExportResponse,
+    active_tab: RwSignal<RunDetailTab>,
+    trace_detail: ReadSignal<crate::hooks::LoadingState<InferenceTraceDetailResponse>>,
+    compare_trace: Option<String>,
+) -> impl IntoView {
+    view! {
+        {move || {
+            let export = export.clone();
+            match active_tab.get() {
+                RunDetailTab::Overview => {
+                    view! { <OverviewTab export=export trace_detail=trace_detail/> }.into_any()
+                }
+                RunDetailTab::Trace => {
+                    view! { <TraceTab trace_detail=trace_detail/> }.into_any()
+                }
+                RunDetailTab::Receipt => {
+                    view! { <ReceiptsTab export=export/> }.into_any()
+                }
+                RunDetailTab::Routing => {
+                    view! { <RoutingTab export=export trace_detail=trace_detail/> }.into_any()
+                }
+                RunDetailTab::Tokens => {
+                    view! { <TokensTab export=export trace_detail=trace_detail/> }.into_any()
+                }
+                RunDetailTab::Diff => {
+                    view! { <DiffTab export=export compare_trace=compare_trace.clone()/> }.into_any()
+                }
+                RunDetailTab::Events => {
+                    view! { <EventsTab export=export/> }.into_any()
+                }
+            }
+        }}
     }
 }
 
@@ -960,19 +951,12 @@ fn RoutingTab(
             </p>
 
             // Token decisions from trace (primary view)
-            {move || {
-                match trace_detail.get() {
-                    LoadingState::Idle | LoadingState::Loading => {
-                        view! {
-                            <Card>
-                                <div class="flex items-center justify-center py-8">
-                                    <Spinner/>
-                                    <span class="ml-2 text-muted-foreground">"Loading token decisions..."</span>
-                                </div>
-                            </Card>
-                        }.into_any()
-                    }
-                    LoadingState::Loaded(detail) => {
+            <AsyncBoundary
+                state=trace_detail
+                loading_message="Loading token decisions...".to_string()
+                render={
+                    let routing_events = routing_events.clone();
+                    move |detail: InferenceTraceDetailResponse| {
                         if detail.token_decisions.is_empty() {
                             // Fall back to showing routing events
                             if routing_events.is_empty() {
@@ -1008,19 +992,8 @@ fn RoutingTab(
                             }.into_any()
                         }
                     }
-                    LoadingState::Error(e) => {
-                        // Show error message instead of silently falling back
-                        view! {
-                            <Card>
-                                <div class="text-center py-8">
-                                    <div class="text-destructive font-medium">"Failed to load routing data"</div>
-                                    <p class="text-sm text-muted-foreground mt-1">{e.to_string()}</p>
-                                </div>
-                            </Card>
-                        }.into_any()
-                    }
                 }
-            }}
+            />
 
             // Link to full routing debug
             <Card>
@@ -1077,95 +1050,58 @@ fn TokensTab(
             </p>
 
             // Token summary from trace receipt
-            {move || {
-                match trace_detail.get() {
-                    LoadingState::Idle | LoadingState::Loading => {
+            <AsyncBoundary
+                state=trace_detail
+                loading_message="Loading token summary...".to_string()
+                render=move |detail: InferenceTraceDetailResponse| {
+                    if let Some(receipt) = &detail.receipt {
+                        let prompt_tokens = receipt.logical_prompt_tokens;
+                        let output_tokens = receipt.logical_output_tokens;
+                        let cache_hit = receipt.prefix_cache_hit;
+                        let total_tokens = prompt_tokens + output_tokens;
+
                         view! {
                             <Card title="Token Summary".to_string()>
-                                <div class="grid grid-cols-3 gap-4">
+                                <div class="grid grid-cols-4 gap-4">
                                     <div class="text-center p-4 bg-muted/30 rounded-lg">
-                                        <div class="h-8 flex items-center justify-center">
-                                            <Spinner/>
-                                        </div>
+                                        <div class="text-2xl font-bold text-primary">{prompt_tokens.to_string()}</div>
                                         <div class="text-sm text-muted-foreground">"Input Tokens"</div>
                                     </div>
                                     <div class="text-center p-4 bg-muted/30 rounded-lg">
-                                        <div class="h-8 flex items-center justify-center">
-                                            <Spinner/>
-                                        </div>
+                                        <div class="text-2xl font-bold text-primary">{output_tokens.to_string()}</div>
                                         <div class="text-sm text-muted-foreground">"Output Tokens"</div>
                                     </div>
                                     <div class="text-center p-4 bg-muted/30 rounded-lg">
-                                        <div class="h-8 flex items-center justify-center">
-                                            <Spinner/>
+                                        <div class="text-2xl font-bold">{total_tokens.to_string()}</div>
+                                        <div class="text-sm text-muted-foreground">"Total Tokens"</div>
+                                    </div>
+                                    <div class="text-center p-4 bg-muted/30 rounded-lg">
+                                        <div class=move || {
+                                            if cache_hit {
+                                                "text-2xl font-bold text-success"
+                                            } else {
+                                                "text-2xl font-bold text-muted-foreground"
+                                            }
+                                        }>
+                                            {if cache_hit { "✓" } else { "—" }}
                                         </div>
                                         <div class="text-sm text-muted-foreground">"Cache Hit"</div>
                                     </div>
                                 </div>
                             </Card>
                         }.into_any()
-                    }
-                    LoadingState::Loaded(detail) => {
-                        if let Some(receipt) = &detail.receipt {
-                            let prompt_tokens = receipt.logical_prompt_tokens;
-                            let output_tokens = receipt.logical_output_tokens;
-                            let cache_hit = receipt.prefix_cache_hit;
-                            let total_tokens = prompt_tokens + output_tokens;
-
-                            view! {
-                                <Card title="Token Summary".to_string()>
-                                    <div class="grid grid-cols-4 gap-4">
-                                        <div class="text-center p-4 bg-muted/30 rounded-lg">
-                                            <div class="text-2xl font-bold text-primary">{prompt_tokens.to_string()}</div>
-                                            <div class="text-sm text-muted-foreground">"Input Tokens"</div>
-                                        </div>
-                                        <div class="text-center p-4 bg-muted/30 rounded-lg">
-                                            <div class="text-2xl font-bold text-primary">{output_tokens.to_string()}</div>
-                                            <div class="text-sm text-muted-foreground">"Output Tokens"</div>
-                                        </div>
-                                        <div class="text-center p-4 bg-muted/30 rounded-lg">
-                                            <div class="text-2xl font-bold">{total_tokens.to_string()}</div>
-                                            <div class="text-sm text-muted-foreground">"Total Tokens"</div>
-                                        </div>
-                                        <div class="text-center p-4 bg-muted/30 rounded-lg">
-                                            <div class=move || {
-                                                if cache_hit {
-                                                    "text-2xl font-bold text-success"
-                                                } else {
-                                                    "text-2xl font-bold text-muted-foreground"
-                                                }
-                                            }>
-                                                {if cache_hit { "✓" } else { "—" }}
-                                            </div>
-                                            <div class="text-sm text-muted-foreground">"Cache Hit"</div>
-                                        </div>
-                                    </div>
-                                </Card>
-                            }.into_any()
-                        } else {
-                            // No receipt data available
-                            view! {
-                                <Card title="Token Summary".to_string()>
-                                    <div class="text-center py-4 text-muted-foreground text-sm">
-                                        "Token data not available for this run"
-                                    </div>
-                                </Card>
-                            }.into_any()
-                        }
-                    }
-                    LoadingState::Error(e) => {
-                        // Show explicit error message instead of silent "—" placeholders
+                    } else {
+                        // No receipt data available
                         view! {
                             <Card title="Token Summary".to_string()>
-                                <div class="p-4 text-center">
-                                    <div class="text-destructive font-medium">"Failed to load token data"</div>
-                                    <p class="text-sm text-muted-foreground mt-1">{e.to_string()}</p>
+                                <div class="text-center py-4 text-muted-foreground text-sm">
+                                    "Token data not available for this run"
                                 </div>
                             </Card>
                         }.into_any()
                     }
                 }
-            }}
+            />
 
             // Token events
             {if !token_events.is_empty() {

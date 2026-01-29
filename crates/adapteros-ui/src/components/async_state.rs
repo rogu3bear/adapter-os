@@ -553,18 +553,18 @@ pub fn DetailRow(
 /// Async boundary component for handling LoadingState
 ///
 /// Replaces repetitive `match loading_state` patterns across pages.
-/// Automatically renders LoadingDisplay, ErrorDisplay, or children based on state.
+/// Automatically renders LoadingDisplay, ErrorDisplay, or loaded content based on state.
 ///
 /// # Example
 /// ```rust,ignore
 /// let (data, refetch) = use_api_resource(|client| async move { client.list_items().await });
 ///
 /// view! {
-///     <AsyncBoundary state=data on_retry=refetch>
-///         {move |items| view! {
-///             <ItemList items=items />
-///         }}
-///     </AsyncBoundary>
+///     <AsyncBoundary
+///         state=data
+///         on_retry=Callback::new(move |_| refetch.run(()))
+///         render=move |items| view! { <ItemList items=items /> }
+///     />
 /// }
 /// ```
 #[component]
@@ -577,19 +577,19 @@ pub fn AsyncBoundary<T, V, F>(
     /// Optional loading message
     #[prop(optional, into)]
     loading_message: Option<String>,
-    /// Children render function - receives the loaded data
-    children: F,
+    /// Render function called with loaded data
+    render: F,
 ) -> impl IntoView
 where
     T: Clone + Send + Sync + 'static,
     V: IntoView + 'static,
     F: Fn(T) -> V + Clone + Send + 'static,
 {
-    let children = children.clone();
+    let render = render.clone();
 
     view! {
         {move || {
-            let children = children.clone();
+            let render = render.clone();
             match state.get() {
                 crate::hooks::LoadingState::Idle | crate::hooks::LoadingState::Loading => {
                     match loading_message.clone() {
@@ -598,7 +598,7 @@ where
                     }
                 }
                 crate::hooks::LoadingState::Loaded(data) => {
-                    children(data).into_any()
+                    render(data).into_any()
                 }
                 crate::hooks::LoadingState::Error(e) => {
                     match on_retry {
@@ -611,10 +611,92 @@ where
     }
 }
 
+/// Async boundary with custom error rendering
+///
+/// Like AsyncBoundary but allows custom error rendering for cases where
+/// different error types need different UI treatment (e.g., validation errors).
+///
+/// # Example
+/// ```rust,ignore
+/// <AsyncBoundaryWithErrorRender
+///     state=data
+///     on_retry=Callback::new(move |_| refetch.run(()))
+///     render=move |data| view! { <DataView data=data /> }
+///     render_error=move |e, retry| {
+///         if let ApiError::Validation(msg) = &e {
+///             view! { <ValidationErrorView message=msg.clone() /> }.into_any()
+///         } else {
+///             view! { <ErrorDisplay error=e on_retry=retry /> }.into_any()
+///         }
+///     }
+/// />
+/// ```
+#[component]
+pub fn AsyncBoundaryWithErrorRender<T, V, F, EV, EF>(
+    /// The loading state signal
+    state: ReadSignal<crate::hooks::LoadingState<T>>,
+    /// Optional retry callback for error state
+    #[prop(optional)]
+    on_retry: Option<Callback<()>>,
+    /// Optional loading message
+    #[prop(optional, into)]
+    loading_message: Option<String>,
+    /// Render function called with loaded data
+    render: F,
+    /// Custom error render function - receives error and optional retry callback
+    render_error: EF,
+) -> impl IntoView
+where
+    T: Clone + Send + Sync + 'static,
+    V: IntoView + 'static,
+    F: Fn(T) -> V + Clone + Send + 'static,
+    EV: IntoView + 'static,
+    EF: Fn(ApiError, Option<Callback<()>>) -> EV + Clone + Send + 'static,
+{
+    let render = render.clone();
+    let render_error = render_error.clone();
+
+    view! {
+        {move || {
+            let render = render.clone();
+            let render_error = render_error.clone();
+            match state.get() {
+                crate::hooks::LoadingState::Idle | crate::hooks::LoadingState::Loading => {
+                    match loading_message.clone() {
+                        Some(msg) => view! { <LoadingDisplay message=msg /> }.into_any(),
+                        None => view! { <LoadingDisplay /> }.into_any(),
+                    }
+                }
+                crate::hooks::LoadingState::Loaded(data) => {
+                    render(data).into_any()
+                }
+                crate::hooks::LoadingState::Error(e) => {
+                    render_error(e, on_retry).into_any()
+                }
+            }
+        }}
+    }
+}
+
 /// Async boundary with empty state handling
 ///
 /// Like AsyncBoundary but also handles the case when loaded data is empty.
 /// Useful for list views where you want to show a specific empty state.
+///
+/// # Example
+/// ```rust,ignore
+/// let (data, _) = use_api_resource(|client| async move { client.list_items().await });
+///
+/// view! {
+///     <AsyncBoundaryWithEmpty
+///         state=data
+///         is_empty=|items: &Vec<Item>| items.is_empty()
+///         empty_title="No items"
+///         empty_description="Create your first item to get started."
+///         render=move |items| view! { <ItemList items=items /> }
+///     />
+/// }
+/// ```
 #[component]
 pub fn AsyncBoundaryWithEmpty<T, V, F, E>(
     /// The loading state signal
@@ -636,8 +718,8 @@ pub fn AsyncBoundaryWithEmpty<T, V, F, E>(
     /// Optional empty state variant
     #[prop(optional)]
     empty_variant: EmptyStateVariant,
-    /// Children render function - receives the loaded data
-    children: F,
+    /// Render function called with loaded data (when not empty)
+    render: F,
 ) -> impl IntoView
 where
     T: Clone + Send + Sync + 'static,
@@ -645,14 +727,14 @@ where
     F: Fn(T) -> V + Clone + Send + 'static,
     E: Fn(&T) -> bool + Clone + Send + 'static,
 {
-    let children = children.clone();
+    let render = render.clone();
     let is_empty = is_empty.clone();
     let empty_title = empty_title.clone();
     let empty_description = empty_description.clone();
 
     view! {
         {move || {
-            let children = children.clone();
+            let render = render.clone();
             let is_empty = is_empty.clone();
             let empty_title = empty_title.clone();
             let empty_desc = empty_description.clone();
@@ -682,7 +764,7 @@ where
                             }.into_any(),
                         }
                     } else {
-                        children(data).into_any()
+                        render(data).into_any()
                     }
                 }
                 crate::hooks::LoadingState::Error(e) => {
