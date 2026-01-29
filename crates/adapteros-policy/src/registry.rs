@@ -40,11 +40,12 @@ pub enum PolicyId {
     Language = 27,
     QueryIntent = 28,
     LiveData = 29,
+    ProductionReadiness = 30,
 }
 
 impl PolicyId {
     /// Get all policy IDs in order
-    pub fn all() -> &'static [PolicyId; 29] {
+    pub fn all() -> &'static [PolicyId; 30] {
         &[
             PolicyId::Egress,
             PolicyId::Determinism,
@@ -75,6 +76,7 @@ impl PolicyId {
             PolicyId::Language,
             PolicyId::QueryIntent,
             PolicyId::LiveData,
+            PolicyId::ProductionReadiness,
         ]
     }
 
@@ -115,6 +117,7 @@ impl PolicyId {
             PolicyId::Language => "Language",
             PolicyId::QueryIntent => "Query Intent",
             PolicyId::LiveData => "Live Data",
+            PolicyId::ProductionReadiness => "Production Readiness",
         }
     }
 
@@ -150,6 +153,7 @@ impl PolicyId {
             PolicyId::Language => "Enforce response language consistency with user input language",
             PolicyId::QueryIntent => "Classify queries requiring live data (recency, travel, politics, products, news)",
             PolicyId::LiveData => "Enforce browsing and citation requirements for queries needing fresh data",
+            PolicyId::ProductionReadiness => "Code hygiene: unwrap density, unsafe outside FFI, bypass gating, forbidden markers",
         }
     }
 
@@ -187,6 +191,7 @@ impl PolicyId {
             PolicyId::Language => "post-inference validation, response builder",
             PolicyId::QueryIntent => "pre-routing classification, inference routing",
             PolicyId::LiveData => "post-inference validation, grounding verification",
+            PolicyId::ProductionReadiness => "CI pipeline, code review, promotion gate",
         }
     }
 
@@ -222,6 +227,7 @@ impl PolicyId {
             PolicyId::Language => true,
             PolicyId::QueryIntent => true,
             PolicyId::LiveData => true,
+            PolicyId::ProductionReadiness => true,
         }
     }
 }
@@ -273,8 +279,8 @@ impl PolicySpec {
     }
 }
 
-/// The canonical registry of all 29 policy packs
-pub static POLICY_INDEX: once_cell::sync::Lazy<[PolicySpec; 29]> =
+/// The canonical registry of all 30 policy packs
+pub static POLICY_INDEX: once_cell::sync::Lazy<[PolicySpec; 30]> =
     once_cell::sync::Lazy::new(|| {
         [
             PolicySpec::from_id(PolicyId::Egress),
@@ -306,6 +312,7 @@ pub static POLICY_INDEX: once_cell::sync::Lazy<[PolicySpec; 29]> =
             PolicySpec::from_id(PolicyId::Language),
             PolicySpec::from_id(PolicyId::QueryIntent),
             PolicySpec::from_id(PolicyId::LiveData),
+            PolicySpec::from_id(PolicyId::ProductionReadiness),
         ]
     });
 
@@ -393,7 +400,7 @@ pub enum Severity {
 }
 
 /// List all policies
-pub fn list_policies() -> &'static [PolicySpec; 29] {
+pub fn list_policies() -> &'static [PolicySpec; 30] {
     &POLICY_INDEX
 }
 
@@ -428,7 +435,7 @@ mod tests {
 
     #[test]
     fn test_policy_count() {
-        assert_eq!(POLICY_INDEX.len(), 29, "Must have exactly 29 policy packs");
+        assert_eq!(POLICY_INDEX.len(), 30, "Must have exactly 30 policy packs");
     }
 
     #[test]

@@ -25,6 +25,7 @@ pub mod numeric;
 pub mod nvd_client;
 pub mod output;
 pub mod performance;
+pub mod production_readiness;
 pub mod query_intent;
 pub mod rag;
 pub mod refusal;
@@ -119,6 +120,13 @@ pub use telemetry::{
     TelemetryPolicy,
 };
 pub use version_matcher::{CpeVersionMatcher, OsvVersionRange, Version, VersionRange};
+
+// Production Readiness policy
+pub use production_readiness::{
+    scan_source_code, AnalysisResult, CodeAnalysisContext, MarkerLocation,
+    ProductionReadinessConfig, ProductionReadinessPolicy, ReadinessMetrics, ReadinessViolation,
+    UncommittedHandler, UngatedBypass, UnsafeBlock, ViolationCategory,
+};
 
 // Query Intent and Live Data policies
 pub use live_data::{
@@ -272,6 +280,16 @@ impl PolicyPackFactory {
     /// Create a live data policy with default configuration
     pub fn create_live_data_policy() -> LiveDataPolicy {
         LiveDataPolicy::new(LiveDataConfig::default())
+    }
+
+    /// Create a production readiness policy with default configuration
+    pub fn create_production_readiness_policy() -> ProductionReadinessPolicy {
+        ProductionReadinessPolicy::new(ProductionReadinessConfig::default())
+    }
+
+    /// Create a production readiness policy with production configuration
+    pub fn create_production_readiness_policy_strict() -> ProductionReadinessPolicy {
+        ProductionReadinessPolicy::new(ProductionReadinessConfig::production())
     }
 }
 
