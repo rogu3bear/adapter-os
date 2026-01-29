@@ -77,7 +77,12 @@ pub fn StyleAudit() -> impl IntoView {
     // Trace fetch state (live diagnostic)
     let trace_id_input = RwSignal::new(String::new());
     let requested_trace_id = RwSignal::new(String::new());
-    let has_requested_trace = RwSignal::new(false);
+
+    // Fetch recent traces on mount, auto-load the first one
+    let (recent_traces, _refetch_traces) = use_api_resource(move |client: Arc<ApiClient>| async move {
+        client.list_inference_traces(None, Some(5)).await
+    });
+
     let (trace_detail, refetch_trace) = use_api_resource({
         let requested_trace_id = requested_trace_id.clone();
         move |client: Arc<ApiClient>| {
@@ -88,6 +93,20 @@ pub fn StyleAudit() -> impl IntoView {
                     Ok(None)
                 } else {
                     client.get_inference_trace_detail(&trace_id).await.map(Some)
+                }
+            }
+        }
+    });
+
+    // Auto-populate with most recent trace when loaded
+    Effect::new(move || {
+        if let LoadingState::Loaded(traces) = recent_traces.get() {
+            if let Some(first) = traces.first() {
+                let tid = first.trace_id.clone();
+                if requested_trace_id.get_untracked().is_empty() {
+                    trace_id_input.set(tid.clone());
+                    requested_trace_id.set(tid);
+                    refetch_trace.run(());
                 }
             }
         }
@@ -172,7 +191,6 @@ pub fn StyleAudit() -> impl IntoView {
                                         on_click=Callback::new(move |_| {
                                             let trace_id = trace_id_input.get().trim().to_string();
                                             requested_trace_id.set(trace_id.clone());
-                                            has_requested_trace.set(true);
                                             if !trace_id.is_empty() {
                                                 refetch_trace.run(());
                                             }
@@ -195,20 +213,47 @@ pub fn StyleAudit() -> impl IntoView {
                                 </div>
                                 <div>
                                     {move || {
-                                        if !has_requested_trace.get() {
-                                            view! {
-                                                <div class="text-sm text-muted-foreground">
-                                                    "Enter a trace ID to load live trace data."
+                                        // Show loading state while fetching recent traces
+                                        if matches!(recent_traces.get(), LoadingState::Idle | LoadingState::Loading)
+                                            && requested_trace_id.get().is_empty()
+                                        {
+                                            return view! {
+                                                <div class="flex items-center gap-2 text-muted-foreground">
+                                                    <Spinner/>
+                                                    <span>"Loading recent traces..."</span>
                                                 </div>
                                             }
-                                            .into_any()
-                                        } else if requested_trace_id.get().trim().is_empty() {
+                                            .into_any();
+                                        }
+
+                                        // No traces available
+                                        if let LoadingState::Loaded(traces) = recent_traces.get() {
+                                            if traces.is_empty() && requested_trace_id.get().is_empty() {
+                                                return view! {
+                                                    <div class="text-sm text-muted-foreground">
+                                                        "No inference traces available. Run an inference to generate traces."
+                                                    </div>
+                                                }
+                                                .into_any();
+                                            }
+                                        }
+
+                                        // Error fetching recent traces
+                                        if let LoadingState::Error(err) = recent_traces.get() {
+                                            if requested_trace_id.get().is_empty() {
+                                                return view! {
+                                                    <ErrorDisplay error=err.clone()/>
+                                                }
+                                                .into_any();
+                                            }
+                                        }
+
+                                        // Show trace detail or loading state
+                                        if requested_trace_id.get().trim().is_empty() {
                                             view! {
-                                                <WarningBanner
-                                                    title="Trace ID required".to_string()
-                                                    message="Enter a trace ID and click Load Trace."
-                                                        .to_string()
-                                                />
+                                                <div class="text-sm text-muted-foreground">
+                                                    "Enter a trace ID to load trace data."
+                                                </div>
                                             }
                                             .into_any()
                                         } else {
