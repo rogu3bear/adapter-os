@@ -260,7 +260,10 @@ fn benchmark_bundle_writer(c: &mut Criterion) {
 
     group.bench_function("bundle_write_without_compression", |b| {
         b.iter(|| {
-            let temp_dir = tempfile::tempdir_in(&tmp_root).expect("tempdir");
+            let temp_dir = tempfile::Builder::new()
+                .prefix("aos-test-")
+                .tempdir()
+                .expect("tempdir");
             let config = CompressionConfig {
                 enabled: false,
                 ..Default::default()

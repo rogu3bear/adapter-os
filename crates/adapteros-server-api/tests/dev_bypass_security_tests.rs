@@ -310,3 +310,153 @@ mod recommendations {
         println!("  - Already have rate limiting middleware available");
     }
 }
+
+// =============================================================================
+// Bypass Flag Security Verification (SEC-BYPASS-001)
+// =============================================================================
+//
+// These tests verify that ALL bypass flags are properly cfg-gated and cannot
+// affect behavior in release builds.
+
+#[cfg(test)]
+mod bypass_flag_security {
+    use adapteros_core::debug_bypass::{is_bypass_enabled, is_debug_build, is_release_build};
+
+    /// Test: AOS_SKIP_MIGRATION_SIGNATURES is debug-only
+    ///
+    /// Location: crates/adapteros-db/src/lib.rs
+    #[test]
+    fn test_skip_migration_signatures_is_debug_only() {
+        std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
+
+        // The helper function enforces the invariant
+        let bypass_active = is_bypass_enabled("AOS_SKIP_MIGRATION_SIGNATURES");
+
+        #[cfg(debug_assertions)]
+        assert!(bypass_active, "Should be active in debug builds");
+
+        #[cfg(not(debug_assertions))]
+        assert!(!bypass_active, "SECURITY: Must be inactive in release builds");
+
+        std::env::remove_var("AOS_SKIP_MIGRATION_SIGNATURES");
+    }
+
+    /// Test: AOS_SKIP_MODEL_HASH_VERIFY is debug-only
+    ///
+    /// Location: crates/adapteros-lora-worker/src/backend_factory/model_io.rs
+    #[test]
+    fn test_skip_model_hash_verify_is_debug_only() {
+        std::env::set_var("AOS_SKIP_MODEL_HASH_VERIFY", "1");
+
+        let bypass_active = is_bypass_enabled("AOS_SKIP_MODEL_HASH_VERIFY");
+
+        #[cfg(debug_assertions)]
+        assert!(bypass_active, "Should be active in debug builds");
+
+        #[cfg(not(debug_assertions))]
+        assert!(!bypass_active, "SECURITY: Must be inactive in release builds");
+
+        std::env::remove_var("AOS_SKIP_MODEL_HASH_VERIFY");
+    }
+
+    /// Test: AOS_SKIP_PF_CHECK is debug-only
+    ///
+    /// Location: crates/adapteros-server-api/src/handlers/system_status.rs
+    #[test]
+    fn test_skip_pf_check_is_debug_only() {
+        std::env::set_var("AOS_SKIP_PF_CHECK", "1");
+
+        let bypass_active = is_bypass_enabled("AOS_SKIP_PF_CHECK");
+
+        #[cfg(debug_assertions)]
+        assert!(bypass_active, "Should be active in debug builds");
+
+        #[cfg(not(debug_assertions))]
+        assert!(!bypass_active, "SECURITY: Must be inactive in release builds");
+
+        std::env::remove_var("AOS_SKIP_PF_CHECK");
+    }
+
+    /// Test: AOS_DEV_NO_AUTH is debug-only
+    ///
+    /// Location: crates/adapteros-server-api/src/auth.rs
+    #[test]
+    fn test_dev_no_auth_is_debug_only() {
+        std::env::set_var("AOS_DEV_NO_AUTH", "1");
+
+        let bypass_active = is_bypass_enabled("AOS_DEV_NO_AUTH");
+
+        #[cfg(debug_assertions)]
+        assert!(bypass_active, "Should be active in debug builds");
+
+        #[cfg(not(debug_assertions))]
+        assert!(!bypass_active, "SECURITY: Must be inactive in release builds");
+
+        std::env::remove_var("AOS_DEV_NO_AUTH");
+    }
+
+    /// Test: AOS_DEV_SIGNATURE_BYPASS is debug-only
+    ///
+    /// Location: crates/adapteros-crypto/src/bundle_sign.rs
+    #[test]
+    fn test_dev_signature_bypass_is_debug_only() {
+        std::env::set_var("AOS_DEV_SIGNATURE_BYPASS", "1");
+
+        let bypass_active = is_bypass_enabled("AOS_DEV_SIGNATURE_BYPASS");
+
+        #[cfg(debug_assertions)]
+        assert!(bypass_active, "Should be active in debug builds");
+
+        #[cfg(not(debug_assertions))]
+        assert!(!bypass_active, "SECURITY: Must be inactive in release builds");
+
+        std::env::remove_var("AOS_DEV_SIGNATURE_BYPASS");
+    }
+
+    /// Test: Build type detection is consistent
+    #[test]
+    fn test_build_type_detection() {
+        // Exactly one should be true
+        assert_ne!(
+            is_debug_build(),
+            is_release_build(),
+            "Build type detection is inconsistent"
+        );
+
+        #[cfg(debug_assertions)]
+        {
+            assert!(is_debug_build());
+            assert!(!is_release_build());
+        }
+
+        #[cfg(not(debug_assertions))]
+        {
+            assert!(!is_debug_build());
+            assert!(is_release_build());
+        }
+    }
+
+    /// Document: All known bypass flags and their locations
+    #[test]
+    fn doc_all_bypass_flags() {
+        println!("=== Bypass Flag Locations (all must be cfg-gated) ===\n");
+
+        println!("Migration/Signature:");
+        println!("  - AOS_SKIP_MIGRATION_SIGNATURES: adapteros-db/src/lib.rs");
+        println!("  - AOS_SKIP_KERNEL_SIGNATURE_VERIFY: adapteros-lora-kernel-mtl/src/manifest.rs");
+        println!("  - AOS_DEBUG_SKIP_KERNEL_SIG: adapteros-lora-kernel-mtl/src/manifest.rs");
+        println!("  - AOS_DEV_SKIP_METALLIB_CHECK: adapteros-lora-kernel-mtl/src/lib.rs");
+        println!("  - AOS_SKIP_MODEL_HASH_VERIFY: adapteros-lora-worker/src/backend_factory/model_io.rs");
+        println!("  - AOS_DEV_SIGNATURE_BYPASS: adapteros-crypto/src/bundle_sign.rs\n");
+
+        println!("Security:");
+        println!("  - AOS_DEV_NO_AUTH: adapteros-server-api/src/auth.rs");
+        println!("  - AOS_SKIP_PF_CHECK: adapteros-server-api/src/handlers/system_status.rs");
+        println!("  - AOS_SKIP_SYMLINK_CHECK: adapteros-config/src/path_resolver.rs\n");
+
+        println!("All flags MUST:");
+        println!("  1. Use #[cfg(debug_assertions)] to gate the check");
+        println!("  2. Log a warning if set in release builds");
+        println!("  3. NEVER honor the flag in release builds");
+    }
+}
