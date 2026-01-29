@@ -511,6 +511,7 @@ fn create_test_config(global_determinism: Option<&str>, use_session_stack: bool)
         worker_id: 0,
         timeouts: Default::default(),
         rate_limit: None,
+        inference_cache: Default::default(),
     }
 }
 

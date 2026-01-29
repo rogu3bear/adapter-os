@@ -330,6 +330,9 @@ pub struct ApiConfig {
     /// Timeouts configuration for preventing hangs on blocking operations
     #[serde(default)]
     pub timeouts: TimeoutsConfig,
+    /// Semantic inference cache configuration
+    #[serde(default)]
+    pub inference_cache: crate::inference_cache::InferenceCacheConfig,
 }
 
 fn default_directory_analysis_timeout() -> u64 {
@@ -648,6 +651,7 @@ impl Default for ApiConfig {
             worker_id: 0,
             rate_limit: None,
             timeouts: Default::default(),
+            inference_cache: Default::default(),
         }
     }
 }
@@ -998,6 +1002,8 @@ pub struct AppState {
     pub inference_state_tracker: Option<Arc<crate::inference_state_tracker::InferenceStateTracker>>,
     // Tenant resource metrics service for CPU/GPU/storage tracking
     pub tenant_metrics_service: Arc<adapteros_db::TenantMetricsService>,
+    // Semantic inference cache for deterministic response reuse
+    pub inference_cache: Arc<crate::inference_cache::InferenceCache>,
 }
 
 impl AppState {
@@ -1111,6 +1117,20 @@ impl AppState {
         };
         let rate_limiter = Arc::new(RateLimiterState::new(rate_limiter_config, clock.clone()));
 
+        // Create inference cache with config
+        let inference_cache_config = {
+            let cfg = config.read().unwrap_or_else(|e| {
+                tracing::warn!(
+                    "Config lock was poisoned reading inference cache config, recovering"
+                );
+                e.into_inner()
+            });
+            cfg.inference_cache.clone()
+        };
+        let inference_cache = Arc::new(crate::inference_cache::InferenceCache::new(
+            inference_cache_config,
+        ));
+
         Self {
             db: db.clone(),
             jwt_secret: Arc::new(jwt_secret),
@@ -1217,6 +1237,8 @@ impl AppState {
                     "var/datasets".to_string(),
                 ),
             )),
+            // Semantic inference cache from config
+            inference_cache,
         }
     }
 
@@ -1585,6 +1607,20 @@ impl AppState {
     ) -> Self {
         self.tenant_metrics_service = service;
         self
+    }
+
+    /// Set inference cache with custom configuration
+    pub fn with_inference_cache(
+        mut self,
+        cache: Arc<crate::inference_cache::InferenceCache>,
+    ) -> Self {
+        self.inference_cache = cache;
+        self
+    }
+
+    /// Get inference cache reference
+    pub fn inference_cache(&self) -> &Arc<crate::inference_cache::InferenceCache> {
+        &self.inference_cache
     }
 
     /// Get a clone of the training signal sender for broadcasting events

@@ -205,6 +205,7 @@ pub async fn setup_state(_uds_path: Option<&PathBuf>) -> anyhow::Result<AppState
         worker_id: 0,
         timeouts: Default::default(),
         rate_limit: None,
+        inference_cache: Default::default(),
     }));
 
     // 5. Create metrics exporter with standard histogram buckets

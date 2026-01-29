@@ -93,6 +93,7 @@ pub mod execution_profile;
 pub mod handlers;
 pub mod health;
 pub mod idempotency;
+pub mod inference_cache;
 pub mod inference_core;
 pub mod inference_state_tracker;
 pub mod ip_extraction;
@@ -164,6 +165,12 @@ pub use sse::{SseEvent, SseEventManager, SseRingBuffer, SseStreamType};
 
 // Export the router builder function
 pub use routes::build as create_app;
+
+// Inference cache for semantic request deduplication
+pub use inference_cache::{
+    CachedInferenceResult, CachedInferenceResultBuilder, InferenceCache, InferenceCacheConfig,
+    InferenceCacheKey, InferenceCacheStats,
+};
 
 // HTTP utilities from adapteros-api
 pub mod http;

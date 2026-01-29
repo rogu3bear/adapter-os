@@ -170,7 +170,7 @@ impl From<(&StreamingInferRequest, &Claims)> for InferenceRequestInternal {
             max_tokens: req.max_tokens,
             temperature: req.temperature,
             top_k: req.top_k,
-            top_p: req.top_p,
+            top_p: Some(req.top_p.unwrap_or(1.0)),
             seed: req.seed,
             require_evidence: req.require_evidence,
             session_id: req.session_id.clone(),
@@ -195,7 +195,7 @@ fn default_max_tokens() -> usize {
 }
 
 fn default_temperature() -> f32 {
-    0.7
+    0.0
 }
 
 /// OpenAI-compatible streaming chunk response
@@ -2385,6 +2385,7 @@ mod tests {
             worker_id: 0,
             timeouts: Default::default(),
             rate_limit: None,
+            inference_cache: Default::default(),
         }));
         let metrics_exporter =
             Arc::new(MetricsExporter::new(vec![0.1, 1.0]).expect("metrics exporter"));
@@ -2435,7 +2436,7 @@ mod tests {
         let req: StreamingInferRequest = serde_json::from_str(json).unwrap();
         assert_eq!(req.prompt, "Hello");
         assert_eq!(req.max_tokens, 512);
-        assert!((req.temperature - 0.7).abs() < 0.01);
+        assert!((req.temperature - 0.0).abs() < 0.01);
     }
 
     #[test]
