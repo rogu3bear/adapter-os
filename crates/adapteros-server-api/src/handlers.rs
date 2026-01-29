@@ -22,10 +22,10 @@ use uuid::Uuid;
 pub mod activity;
 pub mod adapter_health;
 pub mod adapter_lifecycle;
-pub mod adapteros_receipts;
 pub mod adapter_stacks;
 pub mod adapter_utils;
 pub mod adapter_versions;
+pub mod adapteros_receipts;
 pub mod adapters;
 pub mod adapters_read;
 pub mod admin;
@@ -677,16 +677,19 @@ pub async fn worker_spawn(
         )
     })?;
 
-    let pid = spawn_response["pid"].as_i64().ok_or_else(|| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("invalid response from node agent")
-                    .with_code("BAD_REQUEST")
-                    .with_string_details("missing or invalid PID field"),
-            ),
-        )
-    })? as i32;
+    let pid = spawn_response["pid"]
+        .as_i64()
+        .map(|p| p as i32)
+        .ok_or_else(|| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("invalid response from node agent")
+                        .with_code("BAD_REQUEST")
+                        .with_string_details("missing or invalid PID field"),
+                ),
+            )
+        })?;
 
     // Create UDS path for worker
     let uds_path = format!("/var/run/aos/{}/worker.sock", req.tenant_id);
