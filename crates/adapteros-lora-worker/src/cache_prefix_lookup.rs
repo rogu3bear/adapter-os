@@ -157,6 +157,7 @@ impl CacheLookupResult {
     /// * `worker_id` - Worker identifier for attestation
     /// * `timestamp_tick` - Logical tick (not wall time)
     /// * `signing_key` - Worker's Ed25519 signing key (32-byte seed)
+    #[allow(clippy::too_many_arguments)]
     pub fn hit_with_attestation(
         cache_id: B3Hash,
         cached_token_count: u32,
@@ -430,6 +431,7 @@ pub struct AttestedLookupConfig {
 /// # Returns
 ///
 /// A `CacheLookupResult` with attestation on cache hits.
+#[allow(clippy::too_many_arguments)]
 pub fn cache_prefix_lookup_attested(
     cache: &PrefixKvCache,
     input_tokens: &[u32],
