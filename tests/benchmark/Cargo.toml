@@ -59,7 +59,7 @@ tempfile = { workspace = true }
 memmap2 = "0.9"
 
 # Command line interface
-clap = { version = "4.4", features = ["derive"] }
+clap = { version = "4.5", features = ["derive"] }
 
 
 

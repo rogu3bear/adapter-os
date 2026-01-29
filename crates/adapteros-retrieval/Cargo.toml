@@ -27,7 +27,7 @@ toml = "0.8"
 walkdir = { workspace = true }
 streaming-iterator = "0.1"
 env_logger = "0.11"
-clap = { version = "4.0", features = ["derive"] }
+clap = { version = "4.5", features = ["derive"] }
 # Shared dependencies
 async-trait = { workspace = true }
 serde = { workspace = true }

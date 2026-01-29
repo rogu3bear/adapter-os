@@ -12,7 +12,7 @@ adapteros-core = { path = "../adapteros-core" }
 adapteros-retrieval = { path = "../adapteros-retrieval" }
 
 # Binary dependencies
-clap = { version = "4.0", features = ["derive"] }
+clap = { version = "4.5", features = ["derive"] }
 env_logger = "0.11"
 tokio = { workspace = true, features = ["fs", "rt-multi-thread", "macros"] }
 
