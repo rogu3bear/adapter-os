@@ -72,21 +72,23 @@ impl TrainerMetricsExt for MicroLoRATrainer {
 }
 
 /// Helper function to create a metrics-enabled training session
+///
+/// # Errors
+/// Returns an error if TrainingMetrics initialization fails (e.g., telemetry unavailable).
 pub fn create_metrics_enabled_trainer(
     _trainer: &mut MicroLoRATrainer,
     _examples: &[TrainingExample],
     metrics_config: Option<MetricsConfig>,
-) -> TrainingMetricsSession {
+) -> Result<TrainingMetricsSession> {
     let config = metrics_config.unwrap_or_default();
-    let mut metrics = TrainingMetrics::new(config.clone())
-        .expect("failed to create TrainingMetrics - metrics config should be valid and telemetry should be accessible");
+    let mut metrics = TrainingMetrics::new(config)?;
     metrics.mark_training_start();
 
-    TrainingMetricsSession {
+    Ok(TrainingMetricsSession {
         metrics,
         batch_count: 0,
         epoch_count: 0,
-    }
+    })
 }
 
 /// Session management for metrics-tracked training

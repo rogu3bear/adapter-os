@@ -466,6 +466,9 @@ fn get_fd_limit() -> Result<u64> {
             rlim_cur: 0,
             rlim_max: 0,
         };
+        // SAFETY: getrlimit is a standard POSIX call that reads resource limits.
+        // RLIMIT_NOFILE is a valid resource specifier. rlim is properly initialized
+        // and aligned for the rlimit struct. The function only reads kernel state.
         unsafe {
             if getrlimit(RLIMIT_NOFILE, &mut rlim) == 0 {
                 return Ok(rlim.rlim_cur);

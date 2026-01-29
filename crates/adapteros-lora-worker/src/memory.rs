@@ -254,11 +254,17 @@ impl UmaPressureMonitor {
             static vm_kernel_page_size: vm_size_t;
         }
 
+        // SAFETY: mach_host_self() is a Mach API that returns the host port for the current task.
+        // It always succeeds and returns a valid port.
         let host: host_t = unsafe { mach_host_self() };
+        // SAFETY: vm_statistics64 is a plain C struct; zeroing it is safe initialization.
         let mut stats: vm_statistics64 = unsafe { std::mem::zeroed() };
         let mut count = (std::mem::size_of::<vm_statistics64>() / std::mem::size_of::<u32>())
             as mach_msg_type_number_t;
 
+        // SAFETY: host_statistics64 is a Mach API that populates the stats struct with VM info.
+        // The host port is valid (from mach_host_self), HOST_VM_INFO64 is a valid flavor,
+        // and stats is properly sized and aligned for vm_statistics64.
         let result = unsafe {
             host_statistics64(
                 host,
@@ -272,6 +278,7 @@ impl UmaPressureMonitor {
             return self.fallback_headroom(); // Use existing vm_stat
         }
 
+        // SAFETY: vm_kernel_page_size is a kernel-exported constant, always valid.
         let page_size = unsafe { vm_kernel_page_size as u64 };
         let total_bytes = self.get_total_memory_bytes()?; // sysctl hw.memsize
 

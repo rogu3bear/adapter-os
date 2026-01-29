@@ -272,6 +272,9 @@ impl GalaxyLoader {
                 e
             ))
         })?;
+        // SAFETY: File is successfully opened and valid. Mmap::map creates a memory mapping.
+        // The file must remain unchanged while mapped; the Arc<Mmap> ensures the mapping
+        // outlives any references to it. StandaloneMapping owns both the mapping and metadata.
         let mmap = unsafe {
             Mmap::map(&file).map_err(|e| {
                 AosError::Io(format!(
@@ -323,6 +326,8 @@ impl GalaxyMap {
                 e
             ))
         })?;
+        // SAFETY: File is successfully opened and valid. Mmap::map creates a memory mapping.
+        // The galaxy bundle is read-only and the GalaxyMap owns the mapping for its lifetime.
         let mmap = unsafe {
             Mmap::map(&file).map_err(|e| {
                 AosError::Io(format!(
