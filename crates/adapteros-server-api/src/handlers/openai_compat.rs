@@ -442,10 +442,9 @@ async fn chat_completions_non_streaming(
 
         // Use per-tenant caching if configured, otherwise global
         let cache = state.inference_cache();
-        let tenant_id = if cache.is_enabled() {
-            // Check if per-tenant caching is needed (from config)
-            // For now, we use global caching
-            None
+        let tenant_id = if cache.is_enabled() && cache.is_per_tenant() {
+            // Per-tenant caching enabled - extract tenant_id from claims
+            Some(claims.tenant_id.clone())
         } else {
             None
         };
