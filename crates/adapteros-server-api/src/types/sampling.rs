@@ -112,9 +112,9 @@ pub struct SamplingParams {
 impl Default for SamplingParams {
     fn default() -> Self {
         Self {
-            temperature: 0.7,
+            temperature: 0.0,
             top_k: Some(50),
-            top_p: Some(0.95),
+            top_p: Some(1.0),
             max_tokens: 512,
             seed: None,
             error_code: None,

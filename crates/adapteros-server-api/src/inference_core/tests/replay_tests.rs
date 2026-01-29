@@ -59,7 +59,7 @@ fn test_sampling_params_serialization_includes_run_envelope() {
     };
 
     let params = SamplingParams {
-        temperature: 0.7,
+        temperature: 0.0,
         top_k: Some(50),
         top_p: Some(0.9),
         max_tokens: 100,
@@ -74,7 +74,7 @@ fn test_sampling_params_serialization_includes_run_envelope() {
         dataset_hash_b3: None,
     };
     let json = serde_json::to_string(&params).unwrap();
-    assert!(json.contains("\"temperature\":0.7"));
+    assert!(json.contains("\"temperature\":0.0"));
     assert!(json.contains("\"seed\":42"));
     assert!(json.contains("\"top_k\":50"));
     assert!(json.contains("\"top_p\":0.9"));
@@ -91,7 +91,7 @@ fn test_sampling_params_serialization_includes_run_envelope() {
 
     // Verify round-trip
     let parsed: SamplingParams = serde_json::from_str(&json).unwrap();
-    assert_eq!(parsed.temperature, 0.7);
+    assert_eq!(parsed.temperature, 0.0);
     assert_eq!(parsed.seed, Some(42));
     assert_eq!(parsed.top_k, Some(50));
     assert_eq!(parsed.top_p, Some(0.9));
