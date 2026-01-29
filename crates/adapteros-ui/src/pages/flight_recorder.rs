@@ -153,20 +153,17 @@ pub fn FlightRecorderDetail() -> impl IntoView {
 #[component]
 fn StatusFilter(filter: RwSignal<String>) -> impl IntoView {
     view! {
-        <select
-            class="input h-9 w-40"
-            on:change=move |ev| {
-                let value = event_target_value(&ev);
-                filter.set(value);
-            }
-            prop:value=move || filter.get()
-        >
-            <option value="">"All Statuses"</option>
-            <option value="running">"Running"</option>
-            <option value="completed">"Completed"</option>
-            <option value="failed">"Failed"</option>
-            <option value="cancelled">"Cancelled"</option>
-        </select>
+        <Select
+            value=filter
+            options=vec![
+                ("".to_string(), "All Statuses".to_string()),
+                ("running".to_string(), "Running".to_string()),
+                ("completed".to_string(), "Completed".to_string()),
+                ("failed".to_string(), "Failed".to_string()),
+                ("cancelled".to_string(), "Cancelled".to_string()),
+            ]
+            class="w-40".to_string()
+        />
     }
 }
 
