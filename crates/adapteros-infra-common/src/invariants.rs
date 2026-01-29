@@ -105,15 +105,13 @@ pub fn validate_seed_bytes_soft(seed: &[u8], context: &str) -> Result<()> {
 /// Changing it would break determinism proofs and replay verification.
 pub const Q15_GATE_DENOMINATOR: f32 = 32767.0;
 
-// Compile-time validation that our constant matches the router's constant
-const _: () = {
-    // This will fail at compile time if the values differ
-    // Note: We can't import from adapteros-lora-router here due to dependency order,
-    // but we can validate our own constant is correct
-    if Q15_GATE_DENOMINATOR != 32767.0 {
-        panic!("Q15_GATE_DENOMINATOR must be 32767.0 for determinism");
-    }
-};
+// Compile-time assertion for Q15 denominator (determinism-critical)
+// Note: We can't import from adapteros-lora-router here due to dependency order,
+// but we validate our own constant matches the expected bit pattern.
+const _: () = assert!(
+    Q15_GATE_DENOMINATOR.to_bits() == 32767.0_f32.to_bits(),
+    "Q15 denominator must be 32767.0 for determinism"
+);
 
 /// Decodes a Q15-quantized gate value to f32.
 ///

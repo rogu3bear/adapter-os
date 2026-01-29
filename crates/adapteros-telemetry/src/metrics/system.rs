@@ -201,7 +201,7 @@ mod tests {
     fn test_collector_creation() {
         let collector = TelemetryMetricsCollector::new();
         // Should have at least one process (this test)
-        assert!(collector.sys.processes().len() > 0);
+        assert!(!collector.sys.processes().is_empty());
     }
 
     #[test]

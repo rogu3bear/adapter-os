@@ -25,14 +25,15 @@ pub const ROUTER_GATE_Q15_MAX: i16 = 32767;
 /// String identifier for Q15 format in metadata
 pub const Q15_FORMAT_NAME: &str = "Q15";
 
-const _: () = {
-    if ROUTER_GATE_Q15_DENOM != 32767.0 {
-        panic!("ROUTER_GATE_Q15_DENOM must remain 32767.0 for determinism");
-    }
-    if ROUTER_GATE_Q15_MAX != i16::MAX {
-        panic!("ROUTER_GATE_Q15_MAX must remain i16::MAX for determinism");
-    }
-};
+// Compile-time assertions for Q15 constants (determinism-critical)
+const _: () = assert!(
+    ROUTER_GATE_Q15_DENOM.to_bits() == 32767.0_f32.to_bits(),
+    "Q15 denominator must be 32767.0 for determinism"
+);
+const _: () = assert!(
+    ROUTER_GATE_Q15_MAX == i16::MAX,
+    "Q15 max must be i16::MAX for determinism"
+);
 
 // =============================================================================
 // GateQuantFormat - Quantization metadata for stored gates

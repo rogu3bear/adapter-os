@@ -216,12 +216,88 @@ pub use request_id::request_id_middleware;
 pub use trace_context::{trace_context_middleware, TraceContextExtension};
 pub use versioning::{versioning_middleware, ApiVersion, DeprecationInfo};
 
-/// SECURITY: Dev no-auth bypass is centralized in crate::auth so release builds
-/// always ignore AOS_DEV_NO_AUTH and log once there.
+/// Result of authentication resolution.
+///
+/// This enum represents the three possible outcomes of attempting to authenticate
+/// a request. The dev bypass path is only available in debug builds.
+#[derive(Debug, Clone)]
+pub enum AuthResolution {
+    /// Successfully authenticated via JWT/session/API key
+    Authenticated(Claims, Principal, AuthMode),
+    /// Dev bypass enabled (debug builds only) - synthetic admin claims
+    #[cfg(debug_assertions)]
+    DevBypassed(Claims, Principal),
+    /// No valid authentication present
+    Unauthenticated,
+}
+
+impl AuthResolution {
+    /// Returns true if the resolution represents an authenticated state
+    /// (either real auth or dev bypass).
+    #[allow(dead_code)]
+    pub fn is_authenticated(&self) -> bool {
+        match self {
+            AuthResolution::Authenticated(_, _, _) => true,
+            #[cfg(debug_assertions)]
+            AuthResolution::DevBypassed(_, _) => true,
+            AuthResolution::Unauthenticated => false,
+        }
+    }
+
+    /// Inject the auth state into request extensions.
+    ///
+    /// This applies the claims, principal, auth mode, and identity envelope
+    /// to the request for downstream handlers.
+    pub fn inject_into_request(self, req: &mut Request<axum::body::Body>) {
+        match self {
+            AuthResolution::Authenticated(claims, principal, auth_mode) => {
+                let tenant_id = claims.tenant_id.clone();
+                req.extensions_mut().insert(auth_mode);
+                req.extensions_mut().insert(principal);
+                req.extensions_mut().insert(claims);
+                req.extensions_mut().insert(IdentityEnvelope::new(
+                    tenant_id,
+                    "api".to_string(),
+                    "middleware".to_string(),
+                    IdentityEnvelope::default_revision(),
+                ));
+            }
+            #[cfg(debug_assertions)]
+            AuthResolution::DevBypassed(claims, principal) => {
+                let tenant_id = claims.tenant_id.clone();
+                req.extensions_mut().insert(AuthMode::DevBypass);
+                req.extensions_mut().insert(principal);
+                req.extensions_mut().insert(claims);
+                req.extensions_mut().insert(IdentityEnvelope::new(
+                    tenant_id,
+                    "api".to_string(),
+                    "middleware".to_string(),
+                    IdentityEnvelope::default_revision(),
+                ));
+            }
+            AuthResolution::Unauthenticated => {
+                req.extensions_mut().insert(AuthMode::Unauthenticated);
+            }
+        }
+    }
+}
+
+/// SECURITY: Dev no-auth bypass check is centralized here.
+///
+/// This is the SINGLE gateway for dev bypass - all auth middleware must use
+/// `resolve_dev_bypass()` which calls this internally. Release builds always
+/// return false, and debug builds only return true if AOS_DEV_NO_AUTH is set.
+#[cfg(debug_assertions)]
 fn dev_no_auth_enabled() -> bool {
     crate::auth::dev_no_auth_enabled()
 }
 
+#[cfg(not(debug_assertions))]
+fn dev_no_auth_enabled() -> bool {
+    false
+}
+
+#[cfg(debug_assertions)]
 fn dev_no_auth_claims() -> Claims {
     let now = Utc::now();
     Claims {
@@ -249,6 +325,7 @@ fn dev_no_auth_claims() -> Claims {
     }
 }
 
+#[cfg(debug_assertions)]
 fn dev_no_auth_tenant_override(headers: &HeaderMap) -> Option<String> {
     let tenant_id = headers
         .get("X-Tenant-Id")
@@ -267,37 +344,36 @@ fn dev_no_auth_tenant_override(headers: &HeaderMap) -> Option<String> {
     Some(tenant_id.to_string())
 }
 
-/// Inject dev bypass claims into request if bypass is enabled.
+/// Resolve dev bypass authentication.
 ///
-/// This consolidates the bypass logic used by all auth middleware functions.
-/// Returns `true` if bypass was applied (and caller should skip normal auth).
-fn inject_dev_bypass_claims(req: &mut Request<axum::body::Body>) -> bool {
+/// SECURITY: This is the SINGLE entry point for dev bypass injection.
+/// The `#[cfg(debug_assertions)]` gate ensures this code is completely
+/// compiled out in release builds.
+///
+/// Returns `Some(AuthResolution::DevBypassed(...))` if bypass is enabled,
+/// `None` otherwise.
+#[cfg(debug_assertions)]
+fn resolve_dev_bypass(headers: &HeaderMap) -> Option<AuthResolution> {
     if !dev_no_auth_enabled() {
-        return false;
+        return None;
     }
 
     let mut claims = dev_no_auth_claims();
-    if let Some(tenant_id) = dev_no_auth_tenant_override(req.headers()) {
+    if let Some(tenant_id) = dev_no_auth_tenant_override(headers) {
         tracing::debug!(tenant_id = %tenant_id, "Using dev no-auth tenant override");
         claims.tenant_id = tenant_id;
     }
 
-    let auth_mode = AuthMode::DevBypass;
     let principal =
-        build_principal_from_claims(&mut claims, PrincipalType::DevBypass, auth_mode.clone());
-    let tenant_id = claims.tenant_id.clone();
+        build_principal_from_claims(&mut claims, PrincipalType::DevBypass, AuthMode::DevBypass);
 
-    req.extensions_mut().insert(auth_mode);
-    req.extensions_mut().insert(principal);
-    req.extensions_mut().insert(claims);
-    req.extensions_mut().insert(IdentityEnvelope::new(
-        tenant_id,
-        "api".to_string(),
-        "middleware".to_string(),
-        IdentityEnvelope::default_revision(),
-    ));
+    Some(AuthResolution::DevBypassed(claims, principal))
+}
 
-    true
+#[cfg(not(debug_assertions))]
+fn resolve_dev_bypass(_headers: &HeaderMap) -> Option<AuthResolution> {
+    // Release builds: dev bypass is never available
+    None
 }
 
 fn extract_tenant_id_from_path(path: &str) -> Option<String> {
@@ -790,8 +866,10 @@ pub async fn auth_middleware(
     mut req: Request<axum::body::Body>,
     next: Next,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
-    if inject_dev_bypass_claims(&mut req) {
+    // Check dev bypass FIRST (only in debug builds)
+    if let Some(resolution) = resolve_dev_bypass(req.headers()) {
         tracing::info!("Dev no-auth bypass enabled; skipping authentication");
+        resolution.inject_into_request(&mut req);
         return Ok(next.run(req).await);
     }
 
@@ -973,8 +1051,10 @@ pub async fn dual_auth_middleware(
     mut req: Request<axum::body::Body>,
     next: Next,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
-    if inject_dev_bypass_claims(&mut req) {
+    // Check dev bypass FIRST (only in debug builds)
+    if let Some(resolution) = resolve_dev_bypass(req.headers()) {
         tracing::info!("Dev no-auth bypass enabled; skipping authentication");
+        resolution.inject_into_request(&mut req);
         return Ok(next.run(req).await);
     }
 
@@ -1148,8 +1228,10 @@ pub async fn optional_auth_middleware(
     mut req: Request<axum::body::Body>,
     next: Next,
 ) -> Response {
-    if inject_dev_bypass_claims(&mut req) {
+    // Check dev bypass FIRST (only in debug builds)
+    if let Some(resolution) = resolve_dev_bypass(req.headers()) {
         tracing::debug!("Dev no-auth bypass enabled; injecting dev claims");
+        resolution.inject_into_request(&mut req);
         return next.run(req).await;
     }
 

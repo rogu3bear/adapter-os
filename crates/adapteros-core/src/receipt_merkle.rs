@@ -124,7 +124,7 @@ pub fn batch_receipts(tenant_id: &str, receipt_digests: &[B3Hash]) -> Result<Rec
 
     // Sort by hex for deterministic ordering
     let mut sorted_digests = receipt_digests.to_vec();
-    sorted_digests.sort_by(|a, b| a.to_hex().cmp(&b.to_hex()));
+    sorted_digests.sort_by_key(|a| a.to_hex());
 
     // Compute Merkle root
     let merkle_root = compute_receipt_merkle_root(&sorted_digests);
@@ -239,7 +239,7 @@ fn collect_siblings(digests: &[B3Hash], target_index: usize) -> Vec<B3Hash> {
 
     while level.len() > 1 {
         // Find sibling at current level
-        let sibling_index = if index % 2 == 0 {
+        let sibling_index = if index.is_multiple_of(2) {
             // Target is left child, sibling is right
             if index + 1 < level.len() {
                 index + 1
@@ -299,7 +299,7 @@ pub fn verify_inclusion(proof: &ReceiptInclusionProof, receipt_digest: &B3Hash) 
     for sibling in &proof.siblings {
         let mut combined = Vec::with_capacity(64);
 
-        if index % 2 == 0 {
+        if index.is_multiple_of(2) {
             // Current is left child
             combined.extend_from_slice(current.as_bytes());
             combined.extend_from_slice(sibling.as_bytes());
