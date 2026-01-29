@@ -1324,6 +1324,8 @@ impl CoreMLRunner {
         };
 
         let path_str = model_path.to_string_lossy();
+        // SAFETY: CoreML FFI call to load model. path_str is a valid string, path_str.len()
+        // matches the string length, compute_unit_int is a valid compute unit specifier.
         let handle = unsafe {
             adapteros_lora_kernel_coreml::ffi::coreml_load_model(
                 path_str.as_ptr() as *const i8,
@@ -1333,6 +1335,7 @@ impl CoreMLRunner {
         };
         if handle.is_null() {
             let mut err_buf = [0i8; 512];
+            // SAFETY: err_buf is a valid 512-byte array for receiving error messages.
             let len = unsafe {
                 adapteros_lora_kernel_coreml::ffi::coreml_get_last_error(
                     err_buf.as_mut_ptr(),
@@ -1340,6 +1343,7 @@ impl CoreMLRunner {
                 )
             };
             let message = if len > 0 {
+                // SAFETY: len is returned from FFI and bounded by err_buf.len().
                 let bytes =
                     unsafe { std::slice::from_raw_parts(err_buf.as_ptr() as *const u8, len) };
                 String::from_utf8_lossy(bytes).to_string()
@@ -1381,6 +1385,9 @@ impl CoreMLRunner {
             ));
         }
         let mut output = vec![0.0f32; output_len];
+        // SAFETY: CoreML FFI inference call. handle is valid from load(), token_ids and output
+        // are valid slices with correct lengths, output_name is a valid byte string. The FFI
+        // writes results to output buffer within the specified bounds.
         let result = unsafe {
             adapteros_lora_kernel_coreml::ffi::coreml_run_inference_named_output(
                 self.handle,
@@ -1418,6 +1425,8 @@ impl Drop for CoreMLRunner {
             // Untrack model memory
             adapteros_lora_kernel_coreml::ffi::record_model_unload(&self.model_id);
 
+            // SAFETY: handle is valid from coreml_load_model and non-null.
+            // Drop is called exactly once, ensuring no double-free.
             unsafe {
                 adapteros_lora_kernel_coreml::ffi::coreml_unload_model(self.handle);
             }

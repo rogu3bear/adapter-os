@@ -91,12 +91,9 @@ impl PerplexityImprovement {
     /// # Returns
     /// None if curve is empty, otherwise improvement metrics.
     pub fn from_curve(ppl_curve: &[f32]) -> Option<Self> {
-        if ppl_curve.is_empty() {
-            return None;
-        }
-
-        let initial = ppl_curve[0];
-        let final_ppl = *ppl_curve.last().unwrap();
+        // Early return handled by first() returning None for empty slice
+        let &initial = ppl_curve.first()?;
+        let &final_ppl = ppl_curve.last()?;
 
         let (best_epoch, &best) = ppl_curve
             .iter()

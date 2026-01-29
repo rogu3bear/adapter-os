@@ -2365,8 +2365,10 @@ Use --force-resume to override (may produce incorrect results).",
         }
 
         // Use provided weights or initialize fresh
-        let mut weights =
-            initial_weights.unwrap_or_else(|| self.init_weights_deterministic().unwrap());
+        let mut weights = match initial_weights {
+            Some(w) => w,
+            None => self.init_weights_deterministic()?,
+        };
 
         // Training loop starting from resume point with cancellation support
         let mut final_loss = 0.0;
@@ -2775,8 +2777,10 @@ Use --force-resume to override (may produce incorrect results).",
         let adapter_id = Self::generate_adapter_id();
 
         // Use provided weights or initialize fresh
-        let mut weights =
-            initial_weights.unwrap_or_else(|| self.init_weights_deterministic().unwrap());
+        let mut weights = match initial_weights {
+            Some(w) => w,
+            None => self.init_weights_deterministic()?,
+        };
 
         // Training loop with telemetry and cancellation support
         let mut final_loss = 0.0;
@@ -5167,7 +5171,7 @@ Use --force-resume to override (may produce incorrect results).",
         use std::time::SystemTime;
         let timestamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs();
         format!("microlora_{}", timestamp)
     }

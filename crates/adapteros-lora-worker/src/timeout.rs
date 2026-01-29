@@ -111,7 +111,7 @@ impl TimeoutEvent {
             timed_out,
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .expect("System time before UNIX epoch")
+                .unwrap_or_default()
                 .as_secs(),
         }
     }

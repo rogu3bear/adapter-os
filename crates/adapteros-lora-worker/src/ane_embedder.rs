@@ -66,6 +66,9 @@ impl TinyBertEmbedder {
             // Pin to ANE (Neural Engine)
             let compute_units = ffi::ComputeUnitPreference::CpuAndNeuralEngine as i32;
 
+            // SAFETY: CoreML FFI call to load a model. c_path is a valid null-terminated C string,
+            // model_path_str.len() matches the string length, compute_units is a valid enum value.
+            // The FFI function allocates and returns a model handle (or null on failure).
             let handle = unsafe {
                 ffi::coreml_load_model(c_path.as_ptr(), model_path_str.len(), compute_units)
             };
@@ -139,6 +142,9 @@ impl TinyBertEmbedder {
             // For Tiny-BERT, this is usually 'pooled_output' or 'last_hidden_state' (at CLS)
             let output_name = b"pooled_output";
 
+            // SAFETY: CoreML FFI call for inference. model_handle is a valid handle from load(),
+            // token_ids and embedding are valid slices with correct lengths, output_name is a
+            // valid byte string. The FFI writes to embedding buffer within the specified bounds.
             let result = unsafe {
                 ffi::coreml_run_inference_named_output(
                     self.model_handle,
@@ -206,6 +212,8 @@ impl Drop for TinyBertEmbedder {
             // Untrack model memory using stored model_id
             ffi::record_model_unload(&self.model_id);
 
+            // SAFETY: model_handle was obtained from coreml_load_model and is non-null.
+            // This is called exactly once in Drop, ensuring no double-free.
             unsafe {
                 ffi::coreml_unload_model(self.model_handle);
             }

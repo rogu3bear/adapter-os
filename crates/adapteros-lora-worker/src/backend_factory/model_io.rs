@@ -246,8 +246,22 @@ pub(crate) fn verify_model_integrity(
     manifest_hash: Option<&B3Hash>,
     backend_name: &str,
 ) -> Result<()> {
-    if std::env::var("AOS_SKIP_MODEL_HASH_VERIFY").is_ok() {
-        warn!(backend = %backend_name, "Model hash verification SKIPPED");
+    // SECURITY: This bypass is only available in debug builds.
+    let skip_verification = {
+        #[cfg(debug_assertions)]
+        {
+            std::env::var("AOS_SKIP_MODEL_HASH_VERIFY").is_ok()
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            if std::env::var("AOS_SKIP_MODEL_HASH_VERIFY").is_ok() {
+                warn!(backend = %backend_name, "AOS_SKIP_MODEL_HASH_VERIFY is set but IGNORED in release builds for security");
+            }
+            false
+        }
+    };
+    if skip_verification {
+        warn!(backend = %backend_name, "Model hash verification SKIPPED (debug build only)");
         return Ok(());
     }
 
