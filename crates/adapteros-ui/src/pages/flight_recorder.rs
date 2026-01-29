@@ -16,6 +16,7 @@ use crate::components::{
     TableRow, TokenDecisions, TraceViewerWithData,
 };
 use crate::hooks::{use_api_resource, use_polling, LoadingState};
+use crate::signals::{use_notifications, NotificationAction};
 use adapteros_api_types::diagnostics::{
     DiagDiffRequest, DiagDiffResponse, DiagEventResponse, DiagExportResponse, DiagRunResponse,
     ListDiagRunsQuery, ListDiagRunsResponse, StageTiming,
@@ -520,16 +521,27 @@ fn QuickActionButton(
     action: QuickAction,
 ) -> impl IntoView {
     let (copied, set_copied) = signal(false);
+    let notifications = use_notifications();
 
     let on_click = move |_| {
         match action.clone() {
             QuickAction::CopyText(text) => {
-                copy_to_clipboard(&text, set_copied);
+                copy_to_clipboard(
+                    &text,
+                    set_copied,
+                    notifications.clone(),
+                    "Run ID",
+                );
             }
             QuickAction::CopyReceiptHash(run_id) => {
                 // For now, copy the run_id as placeholder
                 // In production, this would fetch the receipt hash
-                copy_to_clipboard(&format!("receipt:{}", run_id), set_copied);
+                copy_to_clipboard(
+                    &format!("receipt:{}", run_id),
+                    set_copied,
+                    notifications.clone(),
+                    "Receipt hash",
+                );
             }
             QuickAction::Export(run_id) => {
                 // Navigate to export endpoint or trigger download
@@ -556,12 +568,18 @@ fn QuickActionButton(
 }
 
 /// Copy text to clipboard and reset copied state after timeout
-fn copy_to_clipboard(text: &str, set_copied: WriteSignal<bool>) {
+fn copy_to_clipboard(
+    text: &str,
+    set_copied: WriteSignal<bool>,
+    notifications: NotificationAction,
+    label: &str,
+) {
     use wasm_bindgen::prelude::*;
     use wasm_bindgen::JsCast;
     use wasm_bindgen_futures::JsFuture;
 
     let text = text.to_string();
+    let label = label.to_string();
     spawn_local(async move {
         let success = async {
             let window = web_sys::window()?;
@@ -590,6 +608,10 @@ fn copy_to_clipboard(text: &str, set_copied: WriteSignal<bool>) {
 
         if success.is_some() {
             set_copied.set(true);
+            notifications.success(
+                "Copied to clipboard",
+                &format!("{} copied to clipboard.", label),
+            );
 
             // Reset after 2 seconds
             let window = web_sys::window();
@@ -605,6 +627,10 @@ fn copy_to_clipboard(text: &str, set_copied: WriteSignal<bool>) {
                 callback.forget();
             }
         } else {
+            notifications.error(
+                "Clipboard copy failed",
+                &format!("Could not copy {} to clipboard.", label),
+            );
             // Log clipboard failure for debugging
             web_sys::console::warn_1(
                 &"Clipboard copy failed - API unavailable or permission denied".into(),
