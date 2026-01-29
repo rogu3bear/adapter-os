@@ -50,6 +50,16 @@ pub struct TraceReceipt {
     pub stop_reason_code: Option<String>,
     pub stop_reason_token_index: Option<u32>,
     pub stop_policy_digest_b3: Option<B3Hash>,
+    // KV quota/residency fields (PRD: KvResidencyAndQuotas v1)
+    pub tenant_kv_quota_bytes: u64,
+    pub tenant_kv_bytes_used: u64,
+    pub kv_evictions: u32,
+    pub kv_residency_policy_id: Option<String>,
+    pub kv_quota_enforced: bool,
+    // Prefix KV cache fields (PRD: PrefixKvCache v1)
+    pub prefix_kv_key_b3: Option<B3Hash>,
+    pub prefix_cache_hit: bool,
+    pub prefix_kv_bytes: u64,
     // Model Cache Identity (PRD-06: ModelCacheIdentity v2)
     /// BLAKE3-256 digest of ModelCacheIdentityV2 canonical bytes
     pub model_cache_identity_v2_digest_b3: Option<B3Hash>,
@@ -678,6 +688,11 @@ impl TraceSink for SqlTraceSink {
                 stop_reason_code,
                 stop_reason_token_index,
                 stop_policy_digest_b3,
+                tenant_kv_quota_bytes,
+                tenant_kv_bytes_used,
+                kv_evictions,
+                kv_residency_policy_id,
+                kv_quota_enforced,
                 model_cache_identity_v2_digest_b3,
                 prefix_kv_key_b3,
                 prefix_cache_hit,
@@ -691,7 +706,7 @@ impl TraceSink for SqlTraceSink {
                 receipt_parity_verified,
                 tenant_id,
                 created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
             "#,
         )
         .bind(&self.start.trace_id)
@@ -708,6 +723,15 @@ impl TraceSink for SqlTraceSink {
         .bind(&finalization.stop_reason_code)
         .bind(finalization.stop_reason_token_index.map(|i| i as i64))
         .bind(stop_policy_digest_bytes.as_ref().map(|b| &b[..]))
+        .bind(finalization.tenant_kv_quota_bytes as i64)
+        .bind(finalization.tenant_kv_bytes_used as i64)
+        .bind(finalization.kv_evictions as i64)
+        .bind(&finalization.kv_residency_policy_id)
+        .bind(if finalization.kv_quota_enforced {
+            1i64
+        } else {
+            0i64
+        })
         .bind(
             model_cache_identity_v2_digest_bytes
                 .as_ref()
@@ -743,6 +767,14 @@ impl TraceSink for SqlTraceSink {
             stop_reason_code: finalization.stop_reason_code.clone(),
             stop_reason_token_index: finalization.stop_reason_token_index,
             stop_policy_digest_b3: finalization.stop_policy_digest_b3,
+            tenant_kv_quota_bytes: finalization.tenant_kv_quota_bytes,
+            tenant_kv_bytes_used: finalization.tenant_kv_bytes_used,
+            kv_evictions: finalization.kv_evictions,
+            kv_residency_policy_id: finalization.kv_residency_policy_id.clone(),
+            kv_quota_enforced: finalization.kv_quota_enforced,
+            prefix_kv_key_b3: finalization.prefix_kv_key_b3,
+            prefix_cache_hit: finalization.prefix_cache_hit,
+            prefix_kv_bytes: finalization.prefix_kv_bytes,
             model_cache_identity_v2_digest_b3: finalization.model_cache_identity_v2_digest_b3,
             input_digest_b3: self.input_digest_b3,
             equipment_profile: finalization.equipment_profile.clone(),
@@ -969,6 +1001,14 @@ pub async fn recompute_receipt(db: &Db, trace_id: &str) -> Result<TraceReceiptVe
                stop_reason_code,
                stop_reason_token_index,
                stop_policy_digest_b3,
+               tenant_kv_quota_bytes,
+               tenant_kv_bytes_used,
+               kv_evictions,
+               kv_residency_policy_id,
+               kv_quota_enforced,
+               prefix_kv_key_b3,
+               prefix_cache_hit,
+               prefix_kv_bytes,
                model_cache_identity_v2_digest_b3
         FROM inference_trace_receipts
         WHERE trace_id = ?
@@ -1000,6 +1040,35 @@ pub async fn recompute_receipt(db: &Db, trace_id: &str) -> Result<TraceReceiptVe
             }
             _ => None,
         };
+        // KV quota/residency fields
+        let tenant_kv_quota_bytes = row
+            .try_get::<i64, _>("tenant_kv_quota_bytes")
+            .unwrap_or(0)
+            .max(0) as u64;
+        let tenant_kv_bytes_used = row
+            .try_get::<i64, _>("tenant_kv_bytes_used")
+            .unwrap_or(0)
+            .max(0) as u64;
+        let kv_evictions = row
+            .try_get::<i64, _>("kv_evictions")
+            .unwrap_or(0)
+            .max(0) as u32;
+        let kv_residency_policy_id: Option<String> =
+            row.try_get("kv_residency_policy_id").ok().flatten();
+        let kv_quota_enforced = row
+            .try_get::<i64, _>("kv_quota_enforced")
+            .unwrap_or(0)
+            != 0;
+        // Prefix KV cache fields
+        let prefix_kv_key_hex: Option<String> = row.try_get("prefix_kv_key_b3").ok().flatten();
+        let prefix_kv_key_b3 = prefix_kv_key_hex
+            .as_deref()
+            .and_then(|hex| B3Hash::from_hex(hex).ok());
+        let prefix_cache_hit = row.try_get::<i64, _>("prefix_cache_hit").unwrap_or(0) != 0;
+        let prefix_kv_bytes = row
+            .try_get::<i64, _>("prefix_kv_bytes")
+            .unwrap_or(0)
+            .max(0) as u64;
         // Model cache identity v2 digest (PRD-06)
         let model_cache_identity_v2_digest_bytes: Option<Vec<u8>> = row
             .try_get("model_cache_identity_v2_digest_b3")
@@ -1052,6 +1121,14 @@ pub async fn recompute_receipt(db: &Db, trace_id: &str) -> Result<TraceReceiptVe
             stop_reason_code,
             stop_reason_token_index: stop_reason_token_index.map(|i| i as u32),
             stop_policy_digest_b3,
+            tenant_kv_quota_bytes,
+            tenant_kv_bytes_used,
+            kv_evictions,
+            kv_residency_policy_id: kv_residency_policy_id.clone(),
+            kv_quota_enforced,
+            prefix_kv_key_b3,
+            prefix_cache_hit,
+            prefix_kv_bytes,
             model_cache_identity_v2_digest_b3,
             input_digest_b3,
             equipment_profile,
@@ -1108,10 +1185,28 @@ pub async fn recompute_receipt(db: &Db, trace_id: &str) -> Result<TraceReceiptVe
         kv_evictions,
         kv_residency_policy_id,
         kv_quota_enforced,
-    ) = (0u64, 0u64, 0u32, None::<String>, false);
+    ) = if let Some(stored) = &stored {
+        (
+            stored.tenant_kv_quota_bytes,
+            stored.tenant_kv_bytes_used,
+            stored.kv_evictions,
+            stored.kv_residency_policy_id.clone(),
+            stored.kv_quota_enforced,
+        )
+    } else {
+        (0u64, 0u64, 0u32, None::<String>, false)
+    };
 
     // Extract prefix KV fields from stored receipt for recomputation (default to None/false/0 for backward compat)
-    let (prefix_kv_key_b3, prefix_cache_hit, prefix_kv_bytes) = (None::<B3Hash>, false, 0u64);
+    let (prefix_kv_key_b3, prefix_cache_hit, prefix_kv_bytes) = if let Some(stored) = &stored {
+        (
+            stored.prefix_kv_key_b3,
+            stored.prefix_cache_hit,
+            stored.prefix_kv_bytes,
+        )
+    } else {
+        (None::<B3Hash>, false, 0u64)
+    };
 
     // Extract model cache identity v2 digest from stored receipt (default to None for backward compat)
     let model_cache_identity_v2_digest_b3 = stored
@@ -1173,6 +1268,14 @@ pub async fn recompute_receipt(db: &Db, trace_id: &str) -> Result<TraceReceiptVe
         stop_reason_code,
         stop_reason_token_index,
         stop_policy_digest_b3,
+        tenant_kv_quota_bytes,
+        tenant_kv_bytes_used,
+        kv_evictions,
+        kv_residency_policy_id: kv_residency_policy_id.clone(),
+        kv_quota_enforced,
+        prefix_kv_key_b3,
+        prefix_cache_hit,
+        prefix_kv_bytes,
         model_cache_identity_v2_digest_b3,
         input_digest_b3: recomputed_input_digest_b3,
         equipment_profile: recomputed_equipment_profile,

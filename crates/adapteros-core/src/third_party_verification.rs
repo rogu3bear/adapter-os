@@ -715,6 +715,22 @@ pub fn verify_evidence_receipt_consistency(
         receipt_ref.stop_policy_digest_b3.map(|h| *h.as_bytes()),
     );
 
+    // Add KV quota/residency fields
+    input = input.with_kv_quota(
+        receipt_ref.tenant_kv_quota_bytes,
+        receipt_ref.tenant_kv_bytes_used,
+        receipt_ref.kv_evictions,
+        receipt_ref.kv_residency_policy_id.clone(),
+        receipt_ref.kv_quota_enforced,
+    );
+
+    // Add prefix KV cache fields
+    input = input.with_prefix_cache(
+        receipt_ref.prefix_kv_key_b3.map(|h| *h.as_bytes()),
+        receipt_ref.prefix_cache_hit,
+        receipt_ref.prefix_kv_bytes,
+    );
+
     // Add model cache identity
     input = input.with_model_cache_identity(
         receipt_ref
@@ -1192,6 +1208,14 @@ mod tests {
             stop_reason_code: None,
             stop_reason_token_index: None,
             stop_policy_digest_b3: None,
+            tenant_kv_quota_bytes: 0,
+            tenant_kv_bytes_used: 0,
+            kv_evictions: 0,
+            kv_residency_policy_id: None,
+            kv_quota_enforced: false,
+            prefix_kv_key_b3: None,
+            prefix_cache_hit: false,
+            prefix_kv_bytes: 0,
             model_cache_identity_v2_digest_b3: None,
             backend_used: String::new(),
             backend_attestation_b3: None,
@@ -1276,6 +1300,14 @@ mod tests {
             stop_reason_code: None,
             stop_reason_token_index: None,
             stop_policy_digest_b3: None,
+            tenant_kv_quota_bytes: 0,
+            tenant_kv_bytes_used: 0,
+            kv_evictions: 0,
+            kv_residency_policy_id: None,
+            kv_quota_enforced: false,
+            prefix_kv_key_b3: None,
+            prefix_cache_hit: false,
+            prefix_kv_bytes: 0,
             model_cache_identity_v2_digest_b3: None,
             backend_used: String::new(),
             backend_attestation_b3: None,

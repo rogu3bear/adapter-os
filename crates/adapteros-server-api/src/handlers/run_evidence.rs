@@ -128,6 +128,14 @@ fn trace_receipt_to_ref(receipt: &TraceReceipt) -> InferenceReceiptRef {
         stop_reason_code: receipt.stop_reason_code.clone(),
         stop_reason_token_index: receipt.stop_reason_token_index,
         stop_policy_digest_b3: receipt.stop_policy_digest_b3,
+        tenant_kv_quota_bytes: receipt.tenant_kv_quota_bytes,
+        tenant_kv_bytes_used: receipt.tenant_kv_bytes_used,
+        kv_evictions: receipt.kv_evictions,
+        kv_residency_policy_id: receipt.kv_residency_policy_id.clone(),
+        kv_quota_enforced: receipt.kv_quota_enforced,
+        prefix_kv_key_b3: receipt.prefix_kv_key_b3,
+        prefix_cache_hit: receipt.prefix_cache_hit,
+        prefix_kv_bytes: receipt.prefix_kv_bytes,
         model_cache_identity_v2_digest_b3: receipt.model_cache_identity_v2_digest_b3,
         // PRD-DET-001: Backend identity fields
         // These default to empty/None when converting from legacy TraceReceipt
