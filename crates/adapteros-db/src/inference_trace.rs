@@ -1320,6 +1320,34 @@ pub async fn recompute_receipt(db: &Db, trace_id: &str) -> Result<TraceReceiptVe
     })
 }
 
+pub async fn find_trace_by_receipt_digest(
+    db: &Db,
+    digest: &B3Hash,
+) -> Result<Option<(String, String)>> {
+    let Some(pool) = db.pool_opt() else {
+        return Err(AosError::Database(
+            "SQL backend unavailable - cannot lookup receipt digest".to_string(),
+        ));
+    };
+
+    let row = sqlx::query_as::<_, (String, String)>(
+        r#"
+        SELECT r.trace_id, t.tenant_id
+        FROM inference_trace_receipts r
+        JOIN inference_traces t ON r.trace_id = t.trace_id
+        WHERE r.receipt_digest = ? OR r.crypto_receipt_digest_b3 = ?
+        LIMIT 1
+        "#,
+    )
+    .bind(&digest.as_bytes()[..])
+    .bind(&digest.as_bytes()[..])
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| AosError::Database(format!("Failed to lookup receipt digest: {e}")))?;
+
+    Ok(row)
+}
+
 // =============================================================================
 // Provenance Chain (AUDIT)
 // =============================================================================
