@@ -609,7 +609,8 @@ fn bench_hash_file(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::new("file_size", label), &size, |b, &size| {
             use std::io::Write;
 
-            let file = tempfile::NamedTempFile::with_prefix("aos-bench-").expect("create temp file");
+            let file =
+                tempfile::NamedTempFile::with_prefix("aos-bench-").expect("create temp file");
             let path = file.path().to_path_buf();
 
             // Write test data

@@ -150,10 +150,7 @@ impl ProductionReadinessConfig {
             max_unsafe_outside_ffi: 10,
             require_committed_handlers: false,
             require_bypass_cfg_gated: false,
-            forbidden_markers: vec![
-                "XXX".to_string(),
-                "FIXME:security".to_string(),
-            ],
+            forbidden_markers: vec!["XXX".to_string(), "FIXME:security".to_string()],
             ffi_module_patterns: vec![
                 "*_ffi".to_string(),
                 "*_sys".to_string(),
@@ -467,7 +464,8 @@ impl ProductionReadinessPolicy {
                 file_path: ctx.file_path.clone(),
                 line: None,
                 suggestion: Some(
-                    "Replace unwrap() calls with proper error handling using ? or match".to_string(),
+                    "Replace unwrap() calls with proper error handling using ? or match"
+                        .to_string(),
                 ),
             });
         }
@@ -487,9 +485,14 @@ impl ProductionReadinessPolicy {
                         file_path: ctx.file_path.clone(),
                         line: Some(block.line),
                         suggestion: if block.safety_comment.is_none() {
-                            Some("Add a SAFETY comment explaining why unsafe is required".to_string())
+                            Some(
+                                "Add a SAFETY comment explaining why unsafe is required"
+                                    .to_string(),
+                            )
                         } else {
-                            Some("Consider moving unsafe code to a dedicated FFI module".to_string())
+                            Some(
+                                "Consider moving unsafe code to a dedicated FFI module".to_string(),
+                            )
                         },
                     });
                 }
@@ -551,7 +554,8 @@ impl ProductionReadinessPolicy {
                     file_path: ctx.file_path.clone(),
                     line: Some(bypass.line),
                     suggestion: Some(
-                        "Gate bypass code with #[cfg(debug_assertions)] or #[cfg(test)]".to_string(),
+                        "Gate bypass code with #[cfg(debug_assertions)] or #[cfg(test)]"
+                            .to_string(),
                     ),
                 });
             }
@@ -668,9 +672,7 @@ impl Policy for ProductionReadinessPolicy {
                             "Unwrap density {:.2} exceeds limit of {:.2}",
                             density, self.config.max_unwrap_density
                         ),
-                        details: Some(
-                            "Replace unwrap() with proper error handling".to_string(),
-                        ),
+                        details: Some("Replace unwrap() with proper error handling".to_string()),
                     });
                 }
             }
@@ -686,9 +688,7 @@ impl Policy for ProductionReadinessPolicy {
                             "Found {} unsafe blocks outside FFI (limit: {})",
                             count, self.config.max_unsafe_outside_ffi
                         ),
-                        details: Some(
-                            "Move unsafe code to dedicated FFI modules".to_string(),
-                        ),
+                        details: Some("Move unsafe code to dedicated FFI modules".to_string()),
                     });
                 }
             }
@@ -702,7 +702,8 @@ impl Policy for ProductionReadinessPolicy {
                         severity: self.config.marker_severity,
                         message: format!("Found {} forbidden markers in code", count),
                         details: Some(
-                            "Remove XXX, HACK, FIXME:security markers before production".to_string(),
+                            "Remove XXX, HACK, FIXME:security markers before production"
+                                .to_string(),
                         ),
                     });
                 }
@@ -735,7 +736,11 @@ fn truncate_string(s: &str, max_len: usize) -> String {
 /// This is a simple scanner that can be used to build CodeAnalysisContext
 /// from raw source code. For more sophisticated analysis, use tree-sitter
 /// or syn-based parsing.
-pub fn scan_source_code(file_path: &str, content: &str, config: &ProductionReadinessConfig) -> CodeAnalysisContext {
+pub fn scan_source_code(
+    file_path: &str,
+    content: &str,
+    config: &ProductionReadinessConfig,
+) -> CodeAnalysisContext {
     let mut ctx = CodeAnalysisContext::new(file_path);
 
     let lines: Vec<&str> = content.lines().collect();
@@ -743,7 +748,11 @@ pub fn scan_source_code(file_path: &str, content: &str, config: &ProductionReadi
     let mut in_multiline_comment = false;
 
     // Build a set of forbidden markers for efficient lookup
-    let forbidden_set: HashSet<&str> = config.forbidden_markers.iter().map(|s| s.as_str()).collect();
+    let forbidden_set: HashSet<&str> = config
+        .forbidden_markers
+        .iter()
+        .map(|s| s.as_str())
+        .collect();
 
     for (line_num, line) in lines.iter().enumerate() {
         let line_number = line_num + 1;
@@ -819,7 +828,8 @@ pub fn scan_source_code(file_path: &str, content: &str, config: &ProductionReadi
         // Check for uncommitted handlers
         if trimmed.contains("unimplemented!()") || trimmed.contains("todo!()") {
             // Try to find function name
-            let name = find_enclosing_function(&lines, line_num).unwrap_or_else(|| "<unknown>".to_string());
+            let name = find_enclosing_function(&lines, line_num)
+                .unwrap_or_else(|| "<unknown>".to_string());
             ctx.uncommitted_handlers.push(UncommittedHandler {
                 name,
                 line: line_number,
@@ -835,8 +845,8 @@ pub fn scan_source_code(file_path: &str, content: &str, config: &ProductionReadi
         for pattern in &config.bypass_patterns {
             if line.to_lowercase().contains(&pattern.to_lowercase()) {
                 // Check if the line or surrounding lines have cfg attribute
-                let has_cfg_gate = line.contains("#[cfg(") ||
-                    (line_num > 0 && lines[line_num - 1].contains("#[cfg("));
+                let has_cfg_gate = line.contains("#[cfg(")
+                    || (line_num > 0 && lines[line_num - 1].contains("#[cfg("));
 
                 if !has_cfg_gate {
                     ctx.ungated_bypasses.push(UngatedBypass {
@@ -857,7 +867,11 @@ pub fn scan_source_code(file_path: &str, content: &str, config: &ProductionReadi
 fn find_enclosing_function(lines: &[&str], target_line: usize) -> Option<String> {
     for i in (0..target_line).rev() {
         let line = lines[i].trim();
-        if line.starts_with("fn ") || line.starts_with("pub fn ") || line.starts_with("async fn ") || line.starts_with("pub async fn ") {
+        if line.starts_with("fn ")
+            || line.starts_with("pub fn ")
+            || line.starts_with("async fn ")
+            || line.starts_with("pub async fn ")
+        {
             // Extract function name
             if let Some(start) = line.find("fn ") {
                 let after_fn = &line[start + 3..];
@@ -970,7 +984,10 @@ mod tests {
         let result = policy.analyze(&ctx).unwrap();
         assert!(!result.is_compliant);
         assert_eq!(result.violations.len(), 1);
-        assert_eq!(result.violations[0].category, ViolationCategory::UnwrapDensity);
+        assert_eq!(
+            result.violations[0].category,
+            ViolationCategory::UnwrapDensity
+        );
     }
 
     #[test]
@@ -993,7 +1010,10 @@ mod tests {
 
         let result = policy.analyze(&ctx).unwrap();
         assert!(!result.is_compliant);
-        assert_eq!(result.violations[0].category, ViolationCategory::UnsafeOutsideFfi);
+        assert_eq!(
+            result.violations[0].category,
+            ViolationCategory::UnsafeOutsideFfi
+        );
     }
 
     #[test]
@@ -1046,7 +1066,10 @@ mod tests {
         let result = policy.analyze(&ctx).unwrap();
         assert!(!result.is_compliant);
         assert_eq!(result.violations.len(), 2);
-        assert!(result.violations.iter().all(|v| v.category == ViolationCategory::ForbiddenMarker));
+        assert!(result
+            .violations
+            .iter()
+            .all(|v| v.category == ViolationCategory::ForbiddenMarker));
     }
 
     #[test]
@@ -1069,7 +1092,10 @@ mod tests {
 
         let result = policy.analyze(&ctx).unwrap();
         assert!(!result.is_compliant);
-        assert_eq!(result.violations[0].category, ViolationCategory::UncommittedHandler);
+        assert_eq!(
+            result.violations[0].category,
+            ViolationCategory::UncommittedHandler
+        );
     }
 
     #[test]
@@ -1092,7 +1118,10 @@ mod tests {
 
         let result = policy.analyze(&ctx).unwrap();
         assert!(!result.is_compliant);
-        assert_eq!(result.violations[0].category, ViolationCategory::UngatedBypass);
+        assert_eq!(
+            result.violations[0].category,
+            ViolationCategory::UngatedBypass
+        );
     }
 
     #[test]
@@ -1194,10 +1223,19 @@ unsafe {
     #[test]
     fn test_violation_category_names() {
         assert_eq!(ViolationCategory::UnwrapDensity.name(), "Unwrap Density");
-        assert_eq!(ViolationCategory::UnsafeOutsideFfi.name(), "Unsafe Outside FFI");
-        assert_eq!(ViolationCategory::UncommittedHandler.name(), "Uncommitted Handler");
+        assert_eq!(
+            ViolationCategory::UnsafeOutsideFfi.name(),
+            "Unsafe Outside FFI"
+        );
+        assert_eq!(
+            ViolationCategory::UncommittedHandler.name(),
+            "Uncommitted Handler"
+        );
         assert_eq!(ViolationCategory::UngatedBypass.name(), "Ungated Bypass");
-        assert_eq!(ViolationCategory::ForbiddenMarker.name(), "Forbidden Marker");
+        assert_eq!(
+            ViolationCategory::ForbiddenMarker.name(),
+            "Forbidden Marker"
+        );
     }
 
     #[test]
@@ -1222,6 +1260,9 @@ unsafe {
     #[test]
     fn test_truncate_string() {
         assert_eq!(truncate_string("short", 10), "short");
-        assert_eq!(truncate_string("this is a very long string", 10), "this is...");
+        assert_eq!(
+            truncate_string("this is a very long string", 10),
+            "this is..."
+        );
     }
 }

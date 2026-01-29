@@ -355,8 +355,8 @@ impl<B: KvBackend> UserKvOps for UserKvRepository<B> {
 
         match self.backend.get(&email_key).await {
             Ok(Some(id_bytes)) => {
-                let id = String::from_utf8(id_bytes)
-                    .map_err(kv_err("decode user ID in email index"))?;
+                let id =
+                    String::from_utf8(id_bytes).map_err(kv_err("decode user ID in email index"))?;
 
                 // Get user with password hash (needed for authentication)
                 self.get_user_with_pw_hash(&id).await

@@ -23,13 +23,13 @@
 
 use super::aos_impl;
 use crate::output::OutputWriter;
-use adapteros_aos::{AosWriter, BackendTag};
-use adapteros_core::{AosError, Result};
-use adapteros_crypto::Keypair;
 use adapteros_aos::single_file::{
     migrate_file, LineageInfo, LoadOptions, SingleFileAdapter, SingleFileAdapterLoader,
     SingleFileAdapterValidator, TrainingConfig, WeightGroup,
 };
+use adapteros_aos::{AosWriter, BackendTag};
+use adapteros_core::{AosError, Result};
+use adapteros_crypto::Keypair;
 use chrono::Utc;
 use safetensors::tensor::TensorView;
 
@@ -1176,11 +1176,11 @@ async fn migrate_aos(args: MigrateArgs, output: &OutputWriter) -> Result<()> {
 // Git-style versioning command implementations
 // =============================================================================
 
-use adapteros_storage::{
-    AdapterKind, AdapterLayout, AdapterName, AdapterRef, AdapterVersion,
-    AdapterVersionRepository, FsRefStore, KvIndexManager, RefStore,
-};
 use adapteros_storage::redb::RedbBackend;
+use adapteros_storage::{
+    AdapterKind, AdapterLayout, AdapterName, AdapterRef, AdapterVersion, AdapterVersionRepository,
+    FsRefStore, KvIndexManager, RefStore,
+};
 use std::sync::Arc;
 
 /// Default adapter repository root
@@ -1194,9 +1194,7 @@ fn default_adapter_root() -> PathBuf {
 ///
 /// Uses a ReDB database at `{adapter_root}/index.redb`.
 /// Returns a tuple of (backend, index_manager, repository) for flexibility.
-fn open_version_repository(
-    adapter_root: &PathBuf,
-) -> Result<AdapterVersionRepository> {
+fn open_version_repository(adapter_root: &PathBuf) -> Result<AdapterVersionRepository> {
     let index_path = adapter_root.join("index.redb");
 
     // Ensure parent directory exists
@@ -1210,11 +1208,13 @@ fn open_version_repository(
         })?;
     }
 
-    let backend = Arc::new(
-        RedbBackend::open(&index_path).map_err(|e| {
-            AosError::Config(format!("Failed to open version index at {}: {}", index_path.display(), e))
-        })?,
-    );
+    let backend = Arc::new(RedbBackend::open(&index_path).map_err(|e| {
+        AosError::Config(format!(
+            "Failed to open version index at {}: {}",
+            index_path.display(),
+            e
+        ))
+    })?);
 
     let index_manager = Arc::new(KvIndexManager::new(backend.clone()));
     let repo = AdapterVersionRepository::new(backend, index_manager);
@@ -1238,7 +1238,11 @@ async fn init_repo(args: InitArgs, output: &OutputWriter) -> Result<()> {
 
     for dir in &dirs {
         fs::create_dir_all(dir).map_err(|e| {
-            AosError::Io(format!("Failed to create directory {}: {}", dir.display(), e))
+            AosError::Io(format!(
+                "Failed to create directory {}: {}",
+                dir.display(),
+                e
+            ))
         })?;
     }
 
@@ -1251,7 +1255,10 @@ async fn init_repo(args: InitArgs, output: &OutputWriter) -> Result<()> {
     output.kv("Objects", &layout.objects_dir().display().to_string());
     output.kv("Subjects", &layout.subjects_dir().display().to_string());
     output.kv("Domains", &layout.domains_dir().display().to_string());
-    output.kv("Specialized", &layout.specialized_dir().display().to_string());
+    output.kv(
+        "Specialized",
+        &layout.specialized_dir().display().to_string(),
+    );
     output.kv("Stacks", &layout.stacks_dir().display().to_string());
 
     Ok(())
@@ -1354,7 +1361,8 @@ async fn list_versions(args: VersionsArgs, output: &OutputWriter) -> Result<()> 
         output.blank();
 
         // Separate version tags from named refs
-        let mut version_refs: Vec<&AdapterRef> = refs.iter().filter(|r| r.is_version_tag()).collect();
+        let mut version_refs: Vec<&AdapterRef> =
+            refs.iter().filter(|r| r.is_version_tag()).collect();
         let named_refs: Vec<&AdapterRef> = refs.iter().filter(|r| !r.is_version_tag()).collect();
 
         // Sort versions by semver (descending)
@@ -1417,8 +1425,12 @@ async fn list_versions(args: VersionsArgs, output: &OutputWriter) -> Result<()> 
                                 let hash_short = &v.hash[..v.hash.len().min(8)];
                                 output.info(format!("  {} (v{}):", hash_short, v.version));
                                 for ancestor in lineage.iter().skip(1) {
-                                    let ancestor_hash = &ancestor.hash[..ancestor.hash.len().min(12)];
-                                    output.info(format!("    -> v{} ({})", ancestor.version, ancestor_hash));
+                                    let ancestor_hash =
+                                        &ancestor.hash[..ancestor.hash.len().min(12)];
+                                    output.info(format!(
+                                        "    -> v{} ({})",
+                                        ancestor.version, ancestor_hash
+                                    ));
                                 }
                             }
                         }
@@ -1481,11 +1493,8 @@ async fn promote_adapter(args: PromoteArgs, output: &OutputWriter) -> Result<()>
             Ok(repo) => {
                 // Parse version string from tag (e.g., "v1" -> "1", "v1.2.3" -> "1.2.3")
                 let version_str = tag.strip_prefix('v').unwrap_or(tag);
-                let mut adapter_version = AdapterVersion::new(
-                    source_hash.clone(),
-                    adapter_name.clone(),
-                    version_str,
-                );
+                let mut adapter_version =
+                    AdapterVersion::new(source_hash.clone(), adapter_name.clone(), version_str);
 
                 // Set parent hash if there was a current version before
                 if let Some(parent) = current_hash.as_ref() {
@@ -1493,7 +1502,9 @@ async fn promote_adapter(args: PromoteArgs, output: &OutputWriter) -> Result<()>
                 }
 
                 // Add tenant_id to metadata for indexing
-                adapter_version.metadata.insert("tenant_id".to_string(), args.tenant_id.clone());
+                adapter_version
+                    .metadata
+                    .insert("tenant_id".to_string(), args.tenant_id.clone());
 
                 // Save the version record
                 if let Err(e) = repo.create(&adapter_version).await {
@@ -1508,7 +1519,10 @@ async fn promote_adapter(args: PromoteArgs, output: &OutputWriter) -> Result<()>
         }
     }
 
-    output.success(format!("Promoted {} from {} to current", adapter_name, args.from));
+    output.success(format!(
+        "Promoted {} from {} to current",
+        adapter_name, args.from
+    ));
     output.kv("Hash", &source_hash);
     if let Some(tag) = version_tag {
         output.kv("Tagged as", &tag);
@@ -1682,13 +1696,17 @@ async fn diff_versions(args: DiffArgs, output: &OutputWriter) -> Result<()> {
 
     // Load manifests from both .aos files
     let from_manifest: Option<AdapterManifest> = if from_path.exists() {
-        SingleFileAdapterLoader::load_manifest_only(&from_path).await.ok()
+        SingleFileAdapterLoader::load_manifest_only(&from_path)
+            .await
+            .ok()
     } else {
         None
     };
 
     let to_manifest: Option<AdapterManifest> = if to_path.exists() {
-        SingleFileAdapterLoader::load_manifest_only(&to_path).await.ok()
+        SingleFileAdapterLoader::load_manifest_only(&to_path)
+            .await
+            .ok()
     } else {
         None
     };
@@ -1851,13 +1869,27 @@ async fn diff_versions(args: DiffArgs, output: &OutputWriter) -> Result<()> {
             Some(d) if d < 0 => format!("{} bytes", d).red().to_string(),
             _ => "0 bytes".to_string(),
         };
-        println!("  {}: {} bytes -> {} bytes ({})", "Size".bold(), fs, ts, diff_str);
+        println!(
+            "  {}: {} bytes -> {} bytes ({})",
+            "Size".bold(),
+            fs,
+            ts,
+            diff_str
+        );
     } else {
         if from_size.is_none() {
-            println!("  {} {}", "!".red(), format!("{} object not found on disk", args.from).red());
+            println!(
+                "  {} {}",
+                "!".red(),
+                format!("{} object not found on disk", args.from).red()
+            );
         }
         if to_size.is_none() {
-            println!("  {} {}", "!".red(), format!("{} object not found on disk", args.to).red());
+            println!(
+                "  {} {}",
+                "!".red(),
+                format!("{} object not found on disk", args.to).red()
+            );
         }
     }
     output.blank();
@@ -1877,7 +1909,10 @@ async fn diff_versions(args: DiffArgs, output: &OutputWriter) -> Result<()> {
         }
     } else if from_manifest.is_some() && to_manifest.is_some() {
         println!("  {}", "No manifest field differences detected".dimmed());
-        println!("  {}", "(Files differ only in hash/binary content)".dimmed());
+        println!(
+            "  {}",
+            "(Files differ only in hash/binary content)".dimmed()
+        );
     }
 
     output.blank();
@@ -2221,12 +2256,8 @@ async fn migrate_repo(args: MigrateRepoArgs, output: &OutputWriter) -> Result<()
 
     // Ensure target directories exist (unless dry run)
     if !args.dry_run {
-        fs::create_dir_all(layout.objects_dir()).map_err(|e| {
-            AosError::Io(format!(
-                "Failed to create objects directory: {}",
-                e
-            ))
-        })?;
+        fs::create_dir_all(layout.objects_dir())
+            .map_err(|e| AosError::Io(format!("Failed to create objects directory: {}", e)))?;
     }
 
     let store = FsRefStore::new(layout.clone());
@@ -2270,10 +2301,7 @@ async fn migrate_repo(args: MigrateRepoArgs, output: &OutputWriter) -> Result<()
         output.kv("  Kind", &adapter_name.kind.to_string());
 
         if args.dry_run {
-            output.info(format!(
-                "  Would copy to: {}",
-                object_path.display()
-            ));
+            output.info(format!("  Would copy to: {}", object_path.display()));
             output.info(format!(
                 "  Would create refs at: {}",
                 layout.refs_dir(&adapter_name, &args.tenant_id).display()
@@ -2302,7 +2330,10 @@ async fn migrate_repo(args: MigrateRepoArgs, output: &OutputWriter) -> Result<()
                 })?;
                 output.success(format!("  Copied to: {}", object_path.display()));
             } else {
-                output.info(format!("  Object already exists at: {}", object_path.display()));
+                output.info(format!(
+                    "  Object already exists at: {}",
+                    object_path.display()
+                ));
             }
 
             // Create refs directory
@@ -2336,7 +2367,10 @@ async fn migrate_repo(args: MigrateRepoArgs, output: &OutputWriter) -> Result<()
             kind: adapter_name.kind.to_string(),
             hash: hash.clone(),
             object_path: object_path.display().to_string(),
-            refs_dir: layout.refs_dir(&adapter_name, &args.tenant_id).display().to_string(),
+            refs_dir: layout
+                .refs_dir(&adapter_name, &args.tenant_id)
+                .display()
+                .to_string(),
         });
 
         output.blank();

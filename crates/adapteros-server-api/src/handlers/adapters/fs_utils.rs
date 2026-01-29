@@ -24,7 +24,8 @@ pub async fn ensure_repo_dirs(
                 "Failed to create adapter directory {}: {}",
                 dir.display(),
                 e
-            )).into());
+            ))
+            .into());
         }
     }
     if let Err(e) = fs::create_dir_all(&paths.cache_root).await {
@@ -32,7 +33,8 @@ pub async fn ensure_repo_dirs(
             "Failed to create adapter cache directory {}: {}",
             paths.cache_root.display(),
             e
-        )).into());
+        ))
+        .into());
     }
     Ok(())
 }
@@ -46,7 +48,8 @@ pub async fn write_temp_bundle(
             "Failed to create temp adapter directory {}: {}",
             temp_dir.display(),
             e
-        )).into());
+        ))
+        .into());
     }
 
     let temp_path = temp_dir.join(format!("{}.aos.tmp", Uuid::now_v7()));
@@ -71,7 +74,8 @@ pub async fn finalize_bundle_move(
                 "Failed to create final adapter directory {}: {}",
                 parent.display(),
                 e
-            )).into());
+            ))
+            .into());
         }
     }
 
@@ -103,7 +107,8 @@ pub async fn finalize_bundle_move(
             "Failed to move adapter bundle to {}: {}",
             to.display(),
             e
-        )).into()),
+        ))
+        .into()),
     }
 }
 

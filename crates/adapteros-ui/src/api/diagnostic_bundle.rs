@@ -116,11 +116,7 @@ impl DiagnosticBundle {
             .unwrap_or_default();
         format!(
             "[{}] {} - {}{} ({})",
-            self.error_code,
-            self.error_type,
-            self.message,
-            trace,
-            self.timestamp
+            self.error_code, self.error_type, self.message, trace, self.timestamp
         )
     }
 }

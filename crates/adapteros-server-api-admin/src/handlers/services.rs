@@ -62,7 +62,10 @@ fn require_permission(
     } else {
         Err((
             StatusCode::FORBIDDEN,
-            Json(AdminErrorResponse::new("insufficient permissions".to_string()).with_code("FORBIDDEN")),
+            Json(
+                AdminErrorResponse::new("insufficient permissions".to_string())
+                    .with_code("FORBIDDEN"),
+            ),
         ))
     }
 }

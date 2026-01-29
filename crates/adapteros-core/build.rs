@@ -11,10 +11,7 @@ fn main() {
     let migrations_dir = workspace_root.join("migrations");
 
     // Watch the migrations directory for changes
-    println!(
-        "cargo:rerun-if-changed={}",
-        migrations_dir.display()
-    );
+    println!("cargo:rerun-if-changed={}", migrations_dir.display());
 
     // Compute highest migration number
     let max_migration = compute_max_migration_number(&migrations_dir)
@@ -123,8 +120,20 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
 
         // Create sample migrations with timestamp prefix
-        fs::write(temp_dir.path().join("20260112125636_add_dataset_validation_json.sql"), "").unwrap();
-        fs::write(temp_dir.path().join("20260120085000_add_identity_datasets.sql"), "").unwrap();
+        fs::write(
+            temp_dir
+                .path()
+                .join("20260112125636_add_dataset_validation_json.sql"),
+            "",
+        )
+        .unwrap();
+        fs::write(
+            temp_dir
+                .path()
+                .join("20260120085000_add_identity_datasets.sql"),
+            "",
+        )
+        .unwrap();
 
         let max = compute_max_migration_number(temp_dir.path()).unwrap();
         assert_eq!(max, 20260120085000);
@@ -136,7 +145,13 @@ mod tests {
 
         // Mix of both formats (real scenario)
         fs::write(temp_dir.path().join("0297_embedding_benchmarks.sql"), "").unwrap();
-        fs::write(temp_dir.path().join("20260112125636_add_dataset_validation_json.sql"), "").unwrap();
+        fs::write(
+            temp_dir
+                .path()
+                .join("20260112125636_add_dataset_validation_json.sql"),
+            "",
+        )
+        .unwrap();
 
         let max = compute_max_migration_number(temp_dir.path()).unwrap();
         // Timestamp format is numerically larger

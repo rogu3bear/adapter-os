@@ -136,10 +136,7 @@ mod tests {
             index_seed: None,
             query_text_hash: B3Hash::hash(b"query"),
             query_embedding_hash: B3Hash::hash(b"embedding"),
-            top_k: vec![
-                ("chunk1".to_string(), 0.95),
-                ("chunk2".to_string(), 0.87),
-            ],
+            top_k: vec![("chunk1".to_string(), 0.95), ("chunk2".to_string(), 0.87)],
             tenant_id: "test".to_string(),
             request_id: "req1".to_string(),
             timestamp: Utc.with_ymd_and_hms(2026, 1, 23, 0, 0, 0).unwrap(),

@@ -12,7 +12,6 @@
 //! - Using BLAKE3 hashing for reproducibility
 //!
 
-use adapteros_retrieval::codegraph::{CodeGraph, SymbolKind, SymbolNode, Visibility};
 use adapteros_core::seed::derive_seed_u64;
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_lora_worker::tokenizer::QwenTokenizer;
@@ -20,6 +19,7 @@ use adapteros_lora_worker::training::{
     AdapterPackager, LoRAQuantizer, MicroLoRATrainer, ScanRootMetadata, TrainingConfig,
     TrainingExample,
 };
+use adapteros_retrieval::codegraph::{CodeGraph, SymbolKind, SymbolNode, Visibility};
 use adapteros_storage::platform::common::PlatformUtils;
 use adapteros_types::training::{provenance_from_map, ExampleMetadataV1};
 use blake3::Hasher;

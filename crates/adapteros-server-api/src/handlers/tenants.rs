@@ -76,11 +76,7 @@ pub async fn create_tenant(
         .await
         .map_err(|e| ApiError::internal("failed to create tenant").with_details(e.to_string()))?;
 
-    let tenant = state
-        .db
-        .get_tenant(&id)
-        .await
-        .map_err(ApiError::db_error)?;
+    let tenant = state.db.get_tenant(&id).await.map_err(ApiError::db_error)?;
 
     let tenant = tenant.ok_or_else(|| {
         (
@@ -304,7 +300,9 @@ pub async fn update_tenant(
             .db
             .rename_tenant(&tenant_id, &name)
             .await
-            .map_err(|e| ApiError::internal("failed to update tenant name").with_details(e.to_string()))?;
+            .map_err(|e| {
+                ApiError::internal("failed to update tenant name").with_details(e.to_string())
+            })?;
     }
 
     // Update ITAR flag if provided
@@ -313,7 +311,9 @@ pub async fn update_tenant(
             .db
             .update_tenant_itar_flag(&tenant_id, itar_flag)
             .await
-            .map_err(|e| ApiError::internal("failed to update ITAR flag").with_details(e.to_string()))?;
+            .map_err(|e| {
+                ApiError::internal("failed to update ITAR flag").with_details(e.to_string())
+            })?;
     }
 
     // Update limits if any provided
@@ -332,7 +332,9 @@ pub async fn update_tenant(
                 req.rate_limit_rpm,
             )
             .await
-            .map_err(|e| ApiError::internal("failed to update tenant limits").with_details(e.to_string()))?;
+            .map_err(|e| {
+                ApiError::internal("failed to update tenant limits").with_details(e.to_string())
+            })?;
     }
 
     // Fetch updated tenant
@@ -522,18 +524,18 @@ pub async fn get_tenant_usage(
     validate_tenant_isolation(&claims, &tenant_id)?;
 
     // Get basic usage from database (adapter counts, inference counts)
-    let usage = state
-        .db
-        .get_tenant_usage(&tenant_id)
-        .await
-        .map_err(|e| ApiError::internal("failed to get tenant usage").with_details(e.to_string()))?;
+    let usage = state.db.get_tenant_usage(&tenant_id).await.map_err(|e| {
+        ApiError::internal("failed to get tenant usage").with_details(e.to_string())
+    })?;
 
     // Get real resource metrics from TenantMetricsService
     let resource_metrics = state
         .tenant_metrics_service
         .get_metrics(&state.db, &tenant_id)
         .await
-        .map_err(|e| ApiError::internal("failed to get tenant resource metrics").with_details(e.to_string()))?;
+        .map_err(|e| {
+            ApiError::internal("failed to get tenant resource metrics").with_details(e.to_string())
+        })?;
 
     Ok(Json(TenantUsageResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
@@ -588,7 +590,9 @@ pub async fn get_tenant_metrics(
         .tenant_metrics_service
         .get_metrics(&state.db, &tenant_id)
         .await
-        .map_err(|e| ApiError::internal("failed to get tenant resource metrics").with_details(e.to_string()))?;
+        .map_err(|e| {
+            ApiError::internal("failed to get tenant resource metrics").with_details(e.to_string())
+        })?;
 
     // Get tenant quota (if configured)
     let tenant = state
@@ -658,7 +662,9 @@ pub async fn assign_policies_to_tenant(
             .db
             .assign_policy_to_tenant(&tenant_id, &policy_id, &assigned_by)
             .await
-            .map_err(|e| ApiError::internal("failed to assign policy").with_details(e.to_string()))?;
+            .map_err(|e| {
+                ApiError::internal("failed to assign policy").with_details(e.to_string())
+            })?;
     }
 
     // Audit log: policies assigned
@@ -707,7 +713,9 @@ pub async fn assign_adapters_to_tenant(
             .db
             .assign_adapter_to_tenant(&tenant_id, &adapter_id, &assigned_by)
             .await
-            .map_err(|e| ApiError::internal("failed to assign adapter").with_details(e.to_string()))?;
+            .map_err(|e| {
+                ApiError::internal("failed to assign adapter").with_details(e.to_string())
+            })?;
     }
 
     // Audit log: adapters assigned

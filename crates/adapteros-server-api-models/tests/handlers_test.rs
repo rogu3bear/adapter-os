@@ -4,11 +4,11 @@
 //! Note: Some types only implement Serialize (not Deserialize) as they are
 //! response-only types. Tests focus on serialization and structural correctness.
 
+use adapteros_api_types::ModelLoadStatus;
 use adapteros_server_api_models::handlers::{
     AneMemoryStatus, ModelDownloadProgress, ModelStatusResponse, ModelValidationResponse,
     SeedModelRequest, SeedModelResponse, ValidationIssue,
 };
-use adapteros_api_types::ModelLoadStatus;
 use serde_json;
 
 /// Test SeedModelRequest serialization and deserialization

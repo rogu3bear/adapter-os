@@ -165,7 +165,8 @@ pub fn GenerateDatasetWizard(
                             let _ = form_data.append_with_str("target_volume", &target_volume_val);
                         }
                         if !generation_seed_val.is_empty() {
-                            let _ = form_data.append_with_str("generation_seed", &generation_seed_val);
+                            let _ =
+                                form_data.append_with_str("generation_seed", &generation_seed_val);
                         }
                         if !seed_prompts_val.is_empty() {
                             let _ = form_data.append_with_str("seed_prompts", &seed_prompts_val);

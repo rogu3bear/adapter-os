@@ -3977,7 +3977,8 @@ Use --force-resume to override (may produce incorrect results).",
         // Run actual model forward pass with hidden state capture
         // Use input_tokens (actual token IDs) not padded_input (which was incorrectly padded to hidden_dim)
         // Position 0 for training - process full sequence from the start
-        let (_logits, hidden_states) = model.forward_with_hidden_states(&example.input_tokens, 0)?;
+        let (_logits, hidden_states) =
+            model.forward_with_hidden_states(&example.input_tokens, 0)?;
 
         // Extract hidden state from the configured layer
         let hidden_raw = hidden_states.get(&self.hidden_state_key).ok_or_else(|| {
@@ -4715,7 +4716,13 @@ Use --force-resume to override (may produce incorrect results).",
         // Use chunked mode for large vocabularies (memory-efficient, numerically stable)
         let use_chunked = self.config.vocab_size > vocab_threshold;
 
-        (use_cross_entropy, use_chunked, vocab_threshold, force_ce, force_legacy)
+        (
+            use_cross_entropy,
+            use_chunked,
+            vocab_threshold,
+            force_ce,
+            force_legacy,
+        )
     }
 
     /// Create optimizer based on OptimizerConfig settings.
@@ -5061,10 +5068,7 @@ Use --force-resume to override (may produce incorrect results).",
             let grad_norm =
                 mlx_clip_grad_norm_gpu(&mut [grad_a.clone_tensor()?, grad_b.clone_tensor()?], 1.0);
             if grad_norm > 1.0 {
-                debug!(
-                    "MoE GPU clipped gradient norm from {:.4} to 1.0",
-                    grad_norm
-                );
+                debug!("MoE GPU clipped gradient norm from {:.4} to 1.0", grad_norm);
             }
 
             // Extract gradients to CPU for routing-scaled accumulation

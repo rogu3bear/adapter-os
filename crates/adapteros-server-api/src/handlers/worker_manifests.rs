@@ -82,8 +82,9 @@ pub async fn fetch_manifest_by_hash(
         ApiError::internal("failed to parse manifest JSON")
             .with_details(format!("Manifest parse error: {}", e))
     })?;
-    let manifest_yaml = serde_yaml::to_string(&manifest_struct)
-        .map_err(|e| ApiError::internal("failed to render manifest YAML").with_details(e.to_string()))?;
+    let manifest_yaml = serde_yaml::to_string(&manifest_struct).map_err(|e| {
+        ApiError::internal("failed to render manifest YAML").with_details(e.to_string())
+    })?;
 
     info!(
         tenant_id = %tenant_id,

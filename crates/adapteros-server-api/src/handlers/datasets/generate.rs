@@ -206,10 +206,9 @@ pub async fn generate_dataset_from_file(
                     .map_err(|e| ApiError::bad_request(format!("Failed to read name: {}", e)))?;
             }
             "strategy" => {
-                let strategy_str = field
-                    .text()
-                    .await
-                    .map_err(|e| ApiError::bad_request(format!("Failed to read strategy: {}", e)))?;
+                let strategy_str = field.text().await.map_err(|e| {
+                    ApiError::bad_request(format!("Failed to read strategy: {}", e))
+                })?;
                 strategy = match strategy_str.to_lowercase().as_str() {
                     "qa" => GenerationStrategy::Qa,
                     "summary" => GenerationStrategy::Summary,
@@ -223,59 +222,52 @@ pub async fn generate_dataset_from_file(
                 };
             }
             "chunk_size" => {
-                let size_str = field
-                    .text()
-                    .await
-                    .map_err(|e| ApiError::bad_request(format!("Failed to read chunk_size: {}", e)))?;
+                let size_str = field.text().await.map_err(|e| {
+                    ApiError::bad_request(format!("Failed to read chunk_size: {}", e))
+                })?;
                 chunk_size = size_str
                     .parse()
                     .map_err(|_| ApiError::bad_request("chunk_size must be a number"))?;
             }
             "max_tokens" => {
-                let tokens_str = field
-                    .text()
-                    .await
-                    .map_err(|e| ApiError::bad_request(format!("Failed to read max_tokens: {}", e)))?;
+                let tokens_str = field.text().await.map_err(|e| {
+                    ApiError::bad_request(format!("Failed to read max_tokens: {}", e))
+                })?;
                 max_tokens = tokens_str
                     .parse()
                     .map_err(|_| ApiError::bad_request("max_tokens must be a number"))?;
             }
             "description" => {
-                let desc = field
-                    .text()
-                    .await
-                    .map_err(|e| ApiError::bad_request(format!("Failed to read description: {}", e)))?;
+                let desc = field.text().await.map_err(|e| {
+                    ApiError::bad_request(format!("Failed to read description: {}", e))
+                })?;
                 if !desc.trim().is_empty() {
                     description = Some(desc);
                 }
             }
             "target_volume" => {
-                let vol_str = field
-                    .text()
-                    .await
-                    .map_err(|e| ApiError::bad_request(format!("Failed to read target_volume: {}", e)))?;
+                let vol_str = field.text().await.map_err(|e| {
+                    ApiError::bad_request(format!("Failed to read target_volume: {}", e))
+                })?;
                 target_volume = vol_str
                     .parse()
                     .map_err(|_| ApiError::bad_request("target_volume must be a number"))?;
             }
             "generation_seed" => {
-                let seed_str = field
-                    .text()
-                    .await
-                    .map_err(|e| ApiError::bad_request(format!("Failed to read generation_seed: {}", e)))?;
+                let seed_str = field.text().await.map_err(|e| {
+                    ApiError::bad_request(format!("Failed to read generation_seed: {}", e))
+                })?;
                 if !seed_str.trim().is_empty() {
-                    generation_seed = Some(
-                        seed_str
-                            .parse()
-                            .map_err(|_| ApiError::bad_request("generation_seed must be a number"))?,
-                    );
+                    generation_seed =
+                        Some(seed_str.parse().map_err(|_| {
+                            ApiError::bad_request("generation_seed must be a number")
+                        })?);
                 }
             }
             "seed_prompts" => {
-                let prompts_str = field
-                    .text()
-                    .await
-                    .map_err(|e| ApiError::bad_request(format!("Failed to read seed_prompts: {}", e)))?;
+                let prompts_str = field.text().await.map_err(|e| {
+                    ApiError::bad_request(format!("Failed to read seed_prompts: {}", e))
+                })?;
                 seed_prompts = prompts_str
                     .lines()
                     .map(|s| s.trim().to_string())
@@ -420,7 +412,8 @@ pub async fn generate_dataset_from_file(
 
     // Write JSONL file
     let dataset_id = Uuid::now_v7().to_string();
-    let dataset_root = resolve_dataset_root(&state).map_err(|e| ApiError::internal(e.to_string()))?;
+    let dataset_root =
+        resolve_dataset_root(&state).map_err(|e| ApiError::internal(e.to_string()))?;
     let paths = DatasetPaths::new(dataset_root);
 
     ensure_dirs([paths.files.as_path()]).await?;

@@ -337,7 +337,10 @@ fn test_precedence_order_all_sources() {
     let _guard2 = EnvGuard::new();
     let result3 = resolve_base_model_location(None, None, false).unwrap();
     assert_eq!(result3.id, DEFAULT_BASE_MODEL_ID);
-    assert_eq!(result3.cache_root, rebase_var_path(DEFAULT_MODEL_CACHE_ROOT));
+    assert_eq!(
+        result3.cache_root,
+        rebase_var_path(DEFAULT_MODEL_CACHE_ROOT)
+    );
 }
 
 #[test]

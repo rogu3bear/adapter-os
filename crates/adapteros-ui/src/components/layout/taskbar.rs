@@ -26,7 +26,12 @@ impl ModuleItem {
         icon: &'static str,
         routes: &'static [&'static str],
     ) -> Self {
-        Self { label, href, icon, routes }
+        Self {
+            label,
+            href,
+            icon,
+            routes,
+        }
     }
 }
 

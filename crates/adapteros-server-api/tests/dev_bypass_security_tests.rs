@@ -336,7 +336,10 @@ mod bypass_flag_security {
         assert!(bypass_active, "Should be active in debug builds");
 
         #[cfg(not(debug_assertions))]
-        assert!(!bypass_active, "SECURITY: Must be inactive in release builds");
+        assert!(
+            !bypass_active,
+            "SECURITY: Must be inactive in release builds"
+        );
 
         std::env::remove_var("AOS_SKIP_MIGRATION_SIGNATURES");
     }
@@ -354,7 +357,10 @@ mod bypass_flag_security {
         assert!(bypass_active, "Should be active in debug builds");
 
         #[cfg(not(debug_assertions))]
-        assert!(!bypass_active, "SECURITY: Must be inactive in release builds");
+        assert!(
+            !bypass_active,
+            "SECURITY: Must be inactive in release builds"
+        );
 
         std::env::remove_var("AOS_SKIP_MODEL_HASH_VERIFY");
     }
@@ -372,7 +378,10 @@ mod bypass_flag_security {
         assert!(bypass_active, "Should be active in debug builds");
 
         #[cfg(not(debug_assertions))]
-        assert!(!bypass_active, "SECURITY: Must be inactive in release builds");
+        assert!(
+            !bypass_active,
+            "SECURITY: Must be inactive in release builds"
+        );
 
         std::env::remove_var("AOS_SKIP_PF_CHECK");
     }
@@ -390,7 +399,10 @@ mod bypass_flag_security {
         assert!(bypass_active, "Should be active in debug builds");
 
         #[cfg(not(debug_assertions))]
-        assert!(!bypass_active, "SECURITY: Must be inactive in release builds");
+        assert!(
+            !bypass_active,
+            "SECURITY: Must be inactive in release builds"
+        );
 
         std::env::remove_var("AOS_DEV_NO_AUTH");
     }
@@ -408,7 +420,10 @@ mod bypass_flag_security {
         assert!(bypass_active, "Should be active in debug builds");
 
         #[cfg(not(debug_assertions))]
-        assert!(!bypass_active, "SECURITY: Must be inactive in release builds");
+        assert!(
+            !bypass_active,
+            "SECURITY: Must be inactive in release builds"
+        );
 
         std::env::remove_var("AOS_DEV_SIGNATURE_BYPASS");
     }
@@ -446,7 +461,9 @@ mod bypass_flag_security {
         println!("  - AOS_SKIP_KERNEL_SIGNATURE_VERIFY: adapteros-lora-kernel-mtl/src/manifest.rs");
         println!("  - AOS_DEBUG_SKIP_KERNEL_SIG: adapteros-lora-kernel-mtl/src/manifest.rs");
         println!("  - AOS_DEV_SKIP_METALLIB_CHECK: adapteros-lora-kernel-mtl/src/lib.rs");
-        println!("  - AOS_SKIP_MODEL_HASH_VERIFY: adapteros-lora-worker/src/backend_factory/model_io.rs");
+        println!(
+            "  - AOS_SKIP_MODEL_HASH_VERIFY: adapteros-lora-worker/src/backend_factory/model_io.rs"
+        );
         println!("  - AOS_DEV_SIGNATURE_BYPASS: adapteros-crypto/src/bundle_sign.rs\n");
 
         println!("Security:");

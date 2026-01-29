@@ -952,7 +952,10 @@ async fn test_cache_attestation_required_when_cache_credits_claimed() {
         })
         .await;
 
-    assert!(result.is_err(), "Finalization should fail without attestation when claiming cache credits");
+    assert!(
+        result.is_err(),
+        "Finalization should fail without attestation when claiming cache credits"
+    );
     let err = result.unwrap_err();
     assert!(
         err.to_string().contains("cache_attestation required"),
@@ -1028,10 +1031,14 @@ async fn test_cache_attestation_invalid_signature_rejected() {
         })
         .await;
 
-    assert!(result.is_err(), "Finalization should fail with invalid signature");
+    assert!(
+        result.is_err(),
+        "Finalization should fail with invalid signature"
+    );
     let err = result.unwrap_err();
     assert!(
-        err.to_string().contains("verification failed") || err.to_string().contains("billing fraud"),
+        err.to_string().contains("verification failed")
+            || err.to_string().contains("billing fraud"),
         "Error should mention verification failure: {}",
         err
     );
@@ -1103,7 +1110,10 @@ async fn test_cache_attestation_token_count_mismatch_rejected() {
         })
         .await;
 
-    assert!(result.is_err(), "Finalization should fail with token count mismatch");
+    assert!(
+        result.is_err(),
+        "Finalization should fail with token count mismatch"
+    );
     let err = result.unwrap_err();
     assert!(
         err.to_string().contains("does not match") || err.to_string().contains("billing mismatch"),
@@ -1178,7 +1188,10 @@ async fn test_cache_attestation_cache_key_mismatch_rejected() {
         })
         .await;
 
-    assert!(result.is_err(), "Finalization should fail with cache key mismatch");
+    assert!(
+        result.is_err(),
+        "Finalization should fail with cache key mismatch"
+    );
     let err = result.unwrap_err();
     assert!(
         err.to_string().contains("cache_key") || err.to_string().contains("mismatch"),

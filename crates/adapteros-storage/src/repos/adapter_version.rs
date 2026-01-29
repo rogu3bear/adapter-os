@@ -126,7 +126,10 @@ impl AdapterVersionRepository {
     }
 
     /// List all versions for a tenant
-    pub async fn list_by_tenant(&self, tenant_id: &str) -> Result<Vec<AdapterVersion>, StorageError> {
+    pub async fn list_by_tenant(
+        &self,
+        tenant_id: &str,
+    ) -> Result<Vec<AdapterVersion>, StorageError> {
         let hashes = self
             .index_manager
             .query_index(version_indexes::BY_TENANT, tenant_id)
@@ -136,7 +139,10 @@ impl AdapterVersionRepository {
     }
 
     /// Get all child versions (versions that have this hash as parent)
-    pub async fn get_children(&self, parent_hash: &str) -> Result<Vec<AdapterVersion>, StorageError> {
+    pub async fn get_children(
+        &self,
+        parent_hash: &str,
+    ) -> Result<Vec<AdapterVersion>, StorageError> {
         let hashes = self
             .index_manager
             .query_index(version_indexes::BY_PARENT, parent_hash)
@@ -146,7 +152,11 @@ impl AdapterVersionRepository {
     }
 
     /// Get the lineage (ancestor chain) of a version
-    pub async fn get_lineage(&self, hash: &str, max_depth: usize) -> Result<Vec<AdapterVersion>, StorageError> {
+    pub async fn get_lineage(
+        &self,
+        hash: &str,
+        max_depth: usize,
+    ) -> Result<Vec<AdapterVersion>, StorageError> {
         let mut lineage = Vec::new();
         let mut current_hash = hash.to_string();
         let mut visited = std::collections::HashSet::new();
@@ -187,9 +197,7 @@ impl AdapterVersionRepository {
         // Parse and sort by semver
         let mut with_semver: Vec<_> = versions
             .into_iter()
-            .filter_map(|v| {
-                parse_semver(&v.version).map(|semver| (semver, v))
-            })
+            .filter_map(|v| parse_semver(&v.version).map(|semver| (semver, v)))
             .collect();
 
         // Sort descending by semver
@@ -331,7 +339,8 @@ mod tests {
     fn sample_version(hash: &str, name: &str, version: &str) -> AdapterVersion {
         let adapter_name = AdapterName::subject(name);
         let mut v = AdapterVersion::new(hash, adapter_name, version);
-        v.metadata.insert("tenant_id".to_string(), "test-tenant".to_string());
+        v.metadata
+            .insert("tenant_id".to_string(), "test-tenant".to_string());
         v
     }
 
@@ -364,7 +373,10 @@ mod tests {
 
         // List versions of my-adapter
         let adapter_name = AdapterName::subject("my-adapter");
-        let versions = repo.list_by_name("test-tenant", &adapter_name).await.unwrap();
+        let versions = repo
+            .list_by_name("test-tenant", &adapter_name)
+            .await
+            .unwrap();
         assert_eq!(versions.len(), 2);
     }
 

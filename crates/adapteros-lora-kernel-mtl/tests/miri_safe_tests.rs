@@ -148,9 +148,8 @@ mod ring_buffer_layout {
 
         // SAFETY: MetalRingBufferLayout is repr(C) with known size,
         // and we're creating an immutable byte slice for the struct's lifetime.
-        let bytes: &[u8] = unsafe {
-            std::slice::from_raw_parts(&layout as *const _ as *const u8, size)
-        };
+        let bytes: &[u8] =
+            unsafe { std::slice::from_raw_parts(&layout as *const _ as *const u8, size) };
 
         assert_eq!(bytes.len(), 40);
 
@@ -202,8 +201,7 @@ mod pointer_safety {
         assert!(required_end <= buffer_size);
 
         // SAFETY: Bounds validated above
-        let slice: &[f32] =
-            unsafe { std::slice::from_raw_parts(data.as_ptr().add(start), len) };
+        let slice: &[f32] = unsafe { std::slice::from_raw_parts(data.as_ptr().add(start), len) };
 
         assert_eq!(slice.len(), 2);
         assert_eq!(slice[0], 3.0);

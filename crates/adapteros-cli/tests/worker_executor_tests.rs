@@ -119,13 +119,23 @@ mod execute_task_tests {
         );
         // First modification should be for our file
         assert!(
-            proposal.modifications.iter().any(|m| m.file_path == sample_file),
+            proposal
+                .modifications
+                .iter()
+                .any(|m| m.file_path == sample_file),
             "Should include modification for sample file"
         );
 
         // Verify the file was analyzed (explanation should exist)
-        let mod_for_file = proposal.modifications.iter().find(|m| m.file_path == sample_file).unwrap();
-        assert!(mod_for_file.explanation.is_some(), "Should have explanation");
+        let mod_for_file = proposal
+            .modifications
+            .iter()
+            .find(|m| m.file_path == sample_file)
+            .unwrap();
+        assert!(
+            mod_for_file.explanation.is_some(),
+            "Should have explanation"
+        );
     }
 
     #[tokio::test]
@@ -240,7 +250,10 @@ mod file_analysis_tests {
                 .unwrap();
 
         // Should process the file
-        assert!(!result.modifications.is_empty(), "Should have modifications");
+        assert!(
+            !result.modifications.is_empty(),
+            "Should have modifications"
+        );
 
         // Should have an explanation
         let explanation = result.modifications[0].explanation.as_ref();
@@ -265,7 +278,10 @@ mod file_analysis_tests {
                 .unwrap();
 
         // Should process the file
-        assert!(!result.modifications.is_empty(), "Should have modifications");
+        assert!(
+            !result.modifications.is_empty(),
+            "Should have modifications"
+        );
 
         // Should have an explanation
         let explanation = result.modifications[0].explanation.as_ref();
@@ -318,7 +334,10 @@ mod file_analysis_tests {
                 .await
                 .unwrap();
 
-        assert!(!result.modifications.is_empty(), "Should have modifications");
+        assert!(
+            !result.modifications.is_empty(),
+            "Should have modifications"
+        );
 
         // Find the modification for our sample file
         let modification = result
@@ -329,7 +348,10 @@ mod file_analysis_tests {
 
         // Verify basic FileModification structure
         assert_eq!(modification.file_path, sample_file);
-        assert!(modification.explanation.is_some(), "Should have explanation");
+        assert!(
+            modification.explanation.is_some(),
+            "Should have explanation"
+        );
     }
 }
 

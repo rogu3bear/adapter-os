@@ -206,8 +206,8 @@ impl Model {
     /// - The model belongs to the requesting tenant - tenant-specific models
     pub fn is_visible_to_tenant(&self, tenant_id: &str) -> bool {
         match self.tenant_id.as_deref() {
-            None => true,                              // Global models (NULL) visible to all
-            Some(SYSTEM_TENANT_ID) => true,            // System models visible to all
+            None => true,                                    // Global models (NULL) visible to all
+            Some(SYSTEM_TENANT_ID) => true,                  // System models visible to all
             Some(model_tenant) => model_tenant == tenant_id, // Tenant-scoped models
         }
     }
@@ -645,15 +645,17 @@ impl Db {
                 };
 
                 let tokenizer_hash = if tokenizer_path.exists() {
-                    B3Hash::hash_file(&tokenizer_path)
-                        .unwrap_or_else(|_| B3Hash::hash(tokenizer_path.to_string_lossy().as_bytes()))
+                    B3Hash::hash_file(&tokenizer_path).unwrap_or_else(|_| {
+                        B3Hash::hash(tokenizer_path.to_string_lossy().as_bytes())
+                    })
                 } else {
                     B3Hash::hash(b"missing-tokenizer")
                 };
 
                 let tokenizer_cfg_hash = if tokenizer_cfg_path.exists() {
-                    B3Hash::hash_file(&tokenizer_cfg_path)
-                        .unwrap_or_else(|_| B3Hash::hash(tokenizer_cfg_path.to_string_lossy().as_bytes()))
+                    B3Hash::hash_file(&tokenizer_cfg_path).unwrap_or_else(|_| {
+                        B3Hash::hash(tokenizer_cfg_path.to_string_lossy().as_bytes())
+                    })
                 } else {
                     B3Hash::hash(b"missing-tokenizer-config")
                 };

@@ -3,11 +3,11 @@
 #![allow(deprecated)]
 
 use crate::output::OutputWriter;
+use adapteros_aos::single_file::SingleFileAdapterValidator;
 use adapteros_aos::{compute_scope_hash, open_aos, BackendTag};
 use adapteros_core::{AosError, B3Hash};
 use adapteros_db::adapters::AdapterRegistrationBuilder;
 use adapteros_db::Db;
-use adapteros_aos::single_file::SingleFileAdapterValidator;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

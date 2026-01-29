@@ -317,7 +317,10 @@ impl EmbeddingTrainer {
                         return hidden_states[i].clone();
                     }
                 }
-                hidden_states.last().cloned().unwrap_or_else(|| vec![0.0; self.hidden_dim])
+                hidden_states
+                    .last()
+                    .cloned()
+                    .unwrap_or_else(|| vec![0.0; self.hidden_dim])
             }
         }
     }
@@ -529,7 +532,12 @@ impl EmbeddingTrainer {
             let (wg_p, _bg_p) = self.projection.backward(p, &positive_embs[i]);
 
             // Update with averaged gradients
-            for (w, (gq, gp)) in self.projection.weights.iter_mut().zip(wg_q.iter().zip(&wg_p)) {
+            for (w, (gq, gp)) in self
+                .projection
+                .weights
+                .iter_mut()
+                .zip(wg_q.iter().zip(&wg_p))
+            {
                 *w -= grad_scale * (gq + gp) * 0.5 * loss;
             }
         }
@@ -549,8 +557,9 @@ impl EmbeddingTrainer {
 
         // Create parent directory if needed
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| AosError::Worker(format!("Failed to create output directory: {}", e)))?;
+            std::fs::create_dir_all(parent).map_err(|e| {
+                AosError::Worker(format!("Failed to create output directory: {}", e))
+            })?;
         }
 
         // Write metadata alongside
@@ -563,8 +572,11 @@ impl EmbeddingTrainer {
             "has_bias": self.projection.bias.is_some(),
         });
 
-        std::fs::write(&metadata_path, serde_json::to_string_pretty(&metadata).unwrap())
-            .map_err(|e| AosError::Worker(format!("Failed to write metadata: {}", e)))?;
+        std::fs::write(
+            &metadata_path,
+            serde_json::to_string_pretty(&metadata).unwrap(),
+        )
+        .map_err(|e| AosError::Worker(format!("Failed to write metadata: {}", e)))?;
 
         // Write weights as raw binary for now (safetensors requires more setup)
         let weights_path = path.with_extension("bin");

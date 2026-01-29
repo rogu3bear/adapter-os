@@ -831,7 +831,9 @@ impl MLXFFIModel {
             // Regular forward pass
             // position_offset is passed to ensure correct RoPE positions during incremental generation
             ffi_error::MlxArrayGuard::new_with_context(
-                unsafe { mlx_model_forward(self.model, input_guard.as_ptr(), position_offset as i32) },
+                unsafe {
+                    mlx_model_forward(self.model, input_guard.as_ptr(), position_offset as i32)
+                },
                 "run model forward",
             )?
         };

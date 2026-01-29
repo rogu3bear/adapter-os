@@ -89,9 +89,7 @@ pub enum ReadinessMode {
     #[default]
     Strict,
     /// Some checks are relaxed (e.g., skip-worker mode)
-    Relaxed {
-        relaxed_checks: Vec<String>,
-    },
+    Relaxed { relaxed_checks: Vec<String> },
     /// Dev bypass active - all checks are informational
     DevBypass,
 }
@@ -1042,14 +1040,12 @@ mod tests {
             failed: 1,
             skipped: 1,
             fatal: 0,
-            violations: vec![
-                InvariantViolationDto {
-                    id: "INV-002".to_string(),
-                    message: "Minor issue".to_string(),
-                    is_fatal: false,
-                    remediation: "Check configuration".to_string(),
-                },
-            ],
+            violations: vec![InvariantViolationDto {
+                id: "INV-002".to_string(),
+                message: "Minor issue".to_string(),
+                is_fatal: false,
+                remediation: "Check configuration".to_string(),
+            }],
             skipped_ids: vec!["INV-SKIP-001".to_string()],
             production_mode: false,
         };

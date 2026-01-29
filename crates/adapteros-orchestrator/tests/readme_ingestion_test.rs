@@ -68,10 +68,7 @@ async fn test_readme_ingestion_end_to_end() {
         .unwrap_or_else(|_| canonical_tokenizer_path());
 
     if !tokenizer_path.exists() {
-        tracing::warn!(
-            "Skipping test: tokenizer not found at {:?}",
-            tokenizer_path
-        );
+        tracing::warn!("Skipping test: tokenizer not found at {:?}", tokenizer_path);
         return;
     }
 
@@ -125,8 +122,9 @@ async fn test_readme_ingestion_end_to_end() {
         max_seq_length: 512,
         add_special_tokens: true,
     };
-    let training_data = generate_training_data_from_documents(&[doc.clone()], &tokenizer, &gen_config)
-        .expect("generate training data");
+    let training_data =
+        generate_training_data_from_documents(&[doc.clone()], &tokenizer, &gen_config)
+            .expect("generate training data");
 
     // Verify examples were generated
     assert!(
@@ -194,7 +192,10 @@ async fn test_readme_ingestion_end_to_end() {
     // Verify training completed successfully
     assert!(result.final_loss >= 0.0, "Loss should be non-negative");
     assert!(result.final_loss.is_finite(), "Loss should be finite");
-    assert!(result.training_time_us > 0, "Training time should be positive");
+    assert!(
+        result.training_time_us > 0,
+        "Training time should be positive"
+    );
 
     tracing::info!(
         "  Training complete: loss={:.6}, time={}ms",

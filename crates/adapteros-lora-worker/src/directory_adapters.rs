@@ -4,8 +4,8 @@
 //! tightly-scoped parts of a repository.  They are derived from the
 //! directory fingerprints produced by the codegraph crate.
 
-use adapteros_retrieval::codegraph::DirectoryAnalysis;
 use adapteros_core::{B3Hash, Result};
+use adapteros_retrieval::codegraph::DirectoryAnalysis;
 use adapteros_storage::platform::common::PlatformUtils;
 use serde::{Deserialize, Serialize};
 use serde_json::json;

@@ -13,12 +13,12 @@
 //! - The `weights_hash` binds into the receipt's `context_digest`
 //! - The `integrity_hash` is logged for audit/tamper-evidence
 
+use adapteros_aos::single_file::format::AosSignature;
 use adapteros_aos::{
     compute_scope_hash, open_aos, AosWriter, BackendTag, LoadResult, RejectionReason,
     SealedAdapterLoader, VerifiedAdapter, HEADER_SIZE, INDEX_ENTRY_SIZE,
 };
 use adapteros_core::{AosError, B3Hash, Result};
-use adapteros_aos::single_file::format::AosSignature;
 use adapteros_types::coreml::CoreMLPlacementSpec;
 use adapteros_types::training::LoraTier;
 use ed25519_dalek::VerifyingKey;

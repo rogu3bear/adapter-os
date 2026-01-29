@@ -194,15 +194,16 @@ async fn run_golden_case(base_url: &str, case: &GoldenCase) -> Result<(), String
 /// Load golden suite from JSON file
 fn load_golden_suite() -> Result<GoldenSuite, String> {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/golden_runs.json");
-    let content =
-        std::fs::read_to_string(path).map_err(|e| format!("Failed to read golden_runs.json: {}", e))?;
+    let content = std::fs::read_to_string(path)
+        .map_err(|e| format!("Failed to read golden_runs.json: {}", e))?;
     serde_json::from_str(&content).map_err(|e| format!("Failed to parse golden_runs.json: {}", e))
 }
 
 #[tokio::test]
 #[ignore] // Requires running server
 async fn test_golden_determinism() {
-    let base_url = std::env::var("AOS_TEST_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
+    let base_url =
+        std::env::var("AOS_TEST_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
 
     println!("\n═══════════════════════════════════════════════════════");
     println!(" GOLDEN DETERMINISM TESTS");
@@ -270,7 +271,10 @@ mod unit_tests {
         let hash1 = hash_output(text1, &tokens);
         let hash2 = hash_output(text2, &tokens);
 
-        assert_ne!(hash1, hash2, "Different outputs should have different hashes");
+        assert_ne!(
+            hash1, hash2,
+            "Different outputs should have different hashes"
+        );
     }
 
     #[test]

@@ -11,7 +11,7 @@ use adapteros_server_api_inference::provenance::{
     AdapterProvenanceInfo, DocumentProvenanceInfo, ProvenanceResponse,
 };
 use adapteros_server_api_inference::streaming::{
-    Delta, StreamingChunk, StreamingChoice, StreamingInferRequest,
+    Delta, StreamingChoice, StreamingChunk, StreamingInferRequest,
 };
 
 /// Test streaming request defaults

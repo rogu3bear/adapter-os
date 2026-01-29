@@ -75,7 +75,14 @@ fn next_safe_float(u: &mut Unstructured<'_>, min: f32, max: f32, fallback: f32) 
 fn build_adapter(idx: usize) -> AdapterInfo {
     AdapterInfo {
         id: format!("adapter-{}", idx),
-        framework: Some(if idx.is_multiple_of(2) { "coreml" } else { "mlx" }.to_string()),
+        framework: Some(
+            if idx.is_multiple_of(2) {
+                "coreml"
+            } else {
+                "mlx"
+            }
+            .to_string(),
+        ),
         languages: vec![idx % 8],
         tier: "prod".to_string(),
         scope_path: None,

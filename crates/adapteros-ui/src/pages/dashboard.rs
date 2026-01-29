@@ -1,11 +1,13 @@
 //! Dashboard page
 
-use crate::api::{use_sse_json_events, ActivityEventResponse, ApiClient, InferenceRequest, SseState};
+use crate::api::{
+    use_sse_json_events, ActivityEventResponse, ApiClient, InferenceRequest, SseState,
+};
 use crate::boot_log;
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ChartPoint, DataSeries,
-    EmptyState, EmptyStateVariant, IconCheckCircle, IconCog, IconPlay, IconServer, LineChart,
-    SparklineMetric, Spinner, StatusColor, StatusIndicator, TimeSeriesData,
+    ActionCard, Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ChartPoint,
+    DataSeries, EmptyState, EmptyStateVariant, IconCheckCircle, IconCog, IconPlay, IconServer,
+    LineChart, SparklineMetric, Spinner, StatusColor, StatusIndicator, TimeSeriesData,
 };
 use crate::hooks::{use_api_resource, use_sse_notifications, LoadingState};
 use crate::signals::use_auth;
@@ -395,12 +397,16 @@ fn DashboardContent(
 
     let role_for_perm = role.clone();
     let permissions_for_perm = permissions.clone();
-    let has_perm = move |perm: &str| role_for_perm == "admin" || permissions_for_perm.iter().any(|p| p == perm);
+    let has_perm = move |perm: &str| {
+        role_for_perm == "admin" || permissions_for_perm.iter().any(|p| p == perm)
+    };
 
     // Clone for use in multiple view closures
     let role_for_perm2 = role.clone();
     let permissions_for_perm2 = permissions.clone();
-    let has_perm2 = move |perm: &str| role_for_perm2 == "admin" || permissions_for_perm2.iter().any(|p| p == perm);
+    let has_perm2 = move |perm: &str| {
+        role_for_perm2 == "admin" || permissions_for_perm2.iter().any(|p| p == perm)
+    };
 
     let can_access_role = move |allowed: &[&str]| allowed.iter().any(|r| *r == role);
 
@@ -495,33 +501,43 @@ fn DashboardContent(
         // Quick Actions - primary entry points
         <Card title="Quick Actions".to_string() class="mt-6".to_string()>
             <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
-                <a class="rounded-md border border-input p-3 hover:bg-accent text-center" href="/chat">
-                    <div class="text-2xl mb-1">"💬"</div>
-                    <div class="font-medium">"New Run"</div>
-                    <div class="text-xs text-muted-foreground">"Start inference"</div>
-                </a>
-                <a class="rounded-md border border-input p-3 hover:bg-accent text-center" href="/runs">
-                    <div class="text-2xl mb-1">"✓"</div>
-                    <div class="font-medium">"Verify Receipt"</div>
-                    <div class="text-xs text-muted-foreground">"View run history"</div>
-                </a>
-                <a class="rounded-md border border-input p-3 hover:bg-accent text-center" href="/stacks">
-                    <div class="text-2xl mb-1">"⚡"</div>
-                    <div class="font-medium">"Activate Stack"</div>
-                    <div class="text-xs text-muted-foreground">"Configure stack"</div>
-                </a>
-                <a class="rounded-md border border-input p-3 hover:bg-accent text-center" href="/datasets">
-                    <div class="text-2xl mb-1">"📄"</div>
-                    <div class="font-medium">"Upload Document"</div>
-                    <div class="text-xs text-muted-foreground">"Add training data"</div>
-                </a>
+                <ActionCard
+                    href="/chat"
+                    icon="💬"
+                    title="New Run"
+                    description="Start inference"
+                    centered=true
+                />
+                <ActionCard
+                    href="/runs"
+                    icon="✓"
+                    title="Verify Receipt"
+                    description="View run history"
+                    centered=true
+                />
+                <ActionCard
+                    href="/stacks"
+                    icon="⚡"
+                    title="Activate Stack"
+                    description="Configure stack"
+                    centered=true
+                />
+                <ActionCard
+                    href="/datasets"
+                    icon="📄"
+                    title="Upload Document"
+                    description="Add training data"
+                    centered=true
+                />
                 <SelfTestButton state=self_test_state />
                 {has_perm("MonitoringManage").then(|| view! {
-                    <a class="rounded-md border border-input p-3 hover:bg-accent text-center" href="/monitoring">
-                        <div class="text-2xl mb-1">"🔔"</div>
-                        <div class="font-medium">"View Alerts"</div>
-                        <div class="text-xs text-muted-foreground">"Check health"</div>
-                    </a>
+                    <ActionCard
+                        href="/monitoring"
+                        icon="🔔"
+                        title="View Alerts"
+                        description="Check health"
+                        centered=true
+                    />
                 })}
             </div>
             // Self-test results display
@@ -531,33 +547,39 @@ fn DashboardContent(
         // Capability map (expanded options)
         <Card title="What You Can Do".to_string() class="mt-6".to_string()>
             <div class="grid gap-3 md:grid-cols-2">
-                <a class="rounded-md border border-input p-3 hover:bg-accent" href="/chat">
-                    <div class="font-medium">"Run Inference"</div>
-                    <div class="text-sm text-muted-foreground">"Ask the system to reason, analyze, or generate."</div>
-                </a>
-                <a class="rounded-md border border-input p-3 hover:bg-accent" href="/training">
-                    <div class="font-medium">"Train Adapters"</div>
-                    <div class="text-sm text-muted-foreground">"Create and iterate on domain adapters."</div>
-                </a>
-                <a class="rounded-md border border-input p-3 hover:bg-accent" href="/datasets">
-                    <div class="font-medium">"Curate Data"</div>
-                    <div class="text-sm text-muted-foreground">"Upload and validate datasets for training."</div>
-                </a>
-                <a class="rounded-md border border-input p-3 hover:bg-accent" href="/repositories">
-                    <div class="font-medium">"Scan Code"</div>
-                    <div class="text-sm text-muted-foreground">"Register and scan repos for code intelligence."</div>
-                </a>
+                <ActionCard
+                    href="/chat"
+                    title="Run Inference"
+                    description="Ask the system to reason, analyze, or generate."
+                />
+                <ActionCard
+                    href="/training"
+                    title="Train Adapters"
+                    description="Create and iterate on domain adapters."
+                />
+                <ActionCard
+                    href="/datasets"
+                    title="Curate Data"
+                    description="Upload and validate datasets for training."
+                />
+                <ActionCard
+                    href="/repositories"
+                    title="Scan Code"
+                    description="Register and scan repos for code intelligence."
+                />
                 {has_perm2("MonitoringManage").then(|| view! {
-                    <a class="rounded-md border border-input p-3 hover:bg-accent" href="/monitoring">
-                        <div class="font-medium">"Monitor Health"</div>
-                        <div class="text-sm text-muted-foreground">"Track system stability and anomalies."</div>
-                    </a>
+                    <ActionCard
+                        href="/monitoring"
+                        title="Monitor Health"
+                        description="Track system stability and anomalies."
+                    />
                 })}
                 {can_access_role(&["admin", "operator", "viewer"]).then(|| view! {
-                    <a class="rounded-md border border-input p-3 hover:bg-accent" href="/routing">
-                        <div class="font-medium">"Inspect Routing"</div>
-                        <div class="text-sm text-muted-foreground">"See how traffic and adapters are selected."</div>
-                    </a>
+                    <ActionCard
+                        href="/routing"
+                        title="Inspect Routing"
+                        description="See how traffic and adapters are selected."
+                    />
                 })}
             </div>
         </Card>
@@ -890,7 +912,11 @@ fn SelfTestButton(state: RwSignal<SelfTestState>) -> impl IntoView {
                         passed,
                         trace_id: Some(response.id),
                         latency_ms: Some(response.latency_ms),
-                        error: if passed { None } else { Some("Unexpected response".to_string()) },
+                        error: if passed {
+                            None
+                        } else {
+                            Some("Unexpected response".to_string())
+                        },
                         backend_used: response.backend_used,
                     };
                     state.set(SelfTestState::Completed(result));

@@ -54,17 +54,11 @@ fn get_or_create_promotion_key() -> Result<String> {
 
         // Validate the key format
         if key_hex.len() == 64 && hex::decode(&key_hex).is_ok() {
-            tracing::debug!(
-                "Loaded promotion signing key from {}",
-                key_path.display()
-            );
+            tracing::debug!("Loaded promotion signing key from {}", key_path.display());
             let _ = CACHED_KEY.set(key_hex.clone());
             return Ok(key_hex);
         } else {
-            tracing::warn!(
-                "Invalid key format in {}, regenerating",
-                key_path.display()
-            );
+            tracing::warn!("Invalid key format in {}, regenerating", key_path.display());
         }
     }
 

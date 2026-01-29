@@ -23,8 +23,7 @@ use tempfile::TempDir;
 // Helper to setup a test database with proper cleanup
 // Returns (Db, TempDir) - caller must hold TempDir to keep DB files alive
 async fn setup_test_db() -> Result<(Db, TempDir)> {
-    let temp_dir = TempDir::with_prefix("aos-federation-test-")
-        .expect("create temp dir");
+    let temp_dir = TempDir::with_prefix("aos-federation-test-").expect("create temp dir");
     let db_path = temp_dir
         .path()
         .join(format!("test_{}.db", uuid::Uuid::new_v4()));

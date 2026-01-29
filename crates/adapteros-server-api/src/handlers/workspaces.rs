@@ -1520,7 +1520,9 @@ pub async fn get_workspace_active_state(
         .db
         .get_workspace_active_state(&workspace_id)
         .await
-        .map_err(|e| ApiError::internal("Failed to fetch workspace active state").with_details(e.to_string()))?;
+        .map_err(|e| {
+            ApiError::internal("Failed to fetch workspace active state").with_details(e.to_string())
+        })?;
 
     let response = build_active_state_response(&state, workspace_id, record).await?;
     Ok(Json(response))
@@ -1587,7 +1589,9 @@ pub async fn set_workspace_active_state(
             .db
             .get_model_for_tenant(&workspace_id, model_id)
             .await
-            .map_err(|e| ApiError::internal("Failed to validate base model").with_details(e.to_string()))?;
+            .map_err(|e| {
+                ApiError::internal("Failed to validate base model").with_details(e.to_string())
+            })?;
 
         if model.is_none() {
             return Err(not_found_response("Model", model_id));
@@ -1596,11 +1600,9 @@ pub async fn set_workspace_active_state(
 
     let mut plan_manifest_hash: Option<String> = None;
     if let Some(ref plan_id) = req.active_plan_id {
-        let plan = state
-            .db
-            .get_plan(plan_id)
-            .await
-            .map_err(|e| ApiError::internal("Failed to validate plan").with_details(e.to_string()))?;
+        let plan = state.db.get_plan(plan_id).await.map_err(|e| {
+            ApiError::internal("Failed to validate plan").with_details(e.to_string())
+        })?;
 
         let Some(plan) = plan else {
             return Err(not_found_response("Plan", plan_id));
@@ -1623,7 +1625,9 @@ pub async fn set_workspace_active_state(
             .db
             .get_adapter_for_tenant(&workspace_id, adapter_id)
             .await
-            .map_err(|e| ApiError::internal("Failed to validate adapter").with_details(e.to_string()))?;
+            .map_err(|e| {
+                ApiError::internal("Failed to validate adapter").with_details(e.to_string())
+            })?;
 
         if adapter.is_none() {
             return Err(not_found_response("Adapter", adapter_id));
@@ -1646,7 +1650,9 @@ pub async fn set_workspace_active_state(
             manifest_hash.as_deref(),
         )
         .await
-        .map_err(|e| ApiError::internal("Failed to store workspace active state").with_details(e.to_string()))?;
+        .map_err(|e| {
+            ApiError::internal("Failed to store workspace active state").with_details(e.to_string())
+        })?;
 
     let response = build_active_state_response(&state, workspace_id, Some(stored)).await?;
     Ok(Json(response))
@@ -1672,7 +1678,8 @@ pub(crate) async fn build_active_state_response(
         if let Some(raw) = state_record.active_adapter_ids.as_deref() {
             if !raw.is_empty() {
                 active_adapter_ids = serde_json::from_str(raw).map_err(|e| {
-                    ApiError::internal("Failed to parse stored adapter ids").with_details(e.to_string())
+                    ApiError::internal("Failed to parse stored adapter ids")
+                        .with_details(e.to_string())
                 })?;
             }
         }
@@ -1706,7 +1713,11 @@ async fn is_model_ready(
 ) -> Result<Option<bool>, (StatusCode, Json<ErrorResponse>)> {
     is_model_ready_internal(state, tenant_id, model_id)
         .await
-        .map_err(|e| ApiError::internal("Failed to read model status").with_details(e.to_string()).into())
+        .map_err(|e| {
+            ApiError::internal("Failed to read model status")
+                .with_details(e.to_string())
+                .into()
+        })
 }
 
 async fn is_model_ready_internal(

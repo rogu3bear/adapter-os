@@ -7,7 +7,8 @@ use chrono::Utc;
 use tempfile::TempDir;
 
 fn new_test_tempdir() -> TempDir {
-    TempDir::with_prefix("aos-test-").expect("Failed to create temporary directory for KV migration policy/training/chat test")
+    TempDir::with_prefix("aos-test-")
+        .expect("Failed to create temporary directory for KV migration policy/training/chat test")
 }
 
 fn audit_hash(

@@ -8,13 +8,13 @@ use std::path::{Path, PathBuf};
 
 /// Allowed patterns that may contain `./var` (backwards-compat checks, documentation).
 const ALLOWED_PATTERNS: &[&str] = &[
-    r#"|| trimmed == "./var""#,           // backwards-compat validation
-    r#"trimmed != "./var""#,               // backwards-compat validation
-    r#"(NOT "./var")"#,                    // documentation
-    r#"(NOT `./var/`)"#,                   // documentation
-    r#"(not "./var")"#,                    // documentation
-    r#"\"./var/\""#,                       // quoted in docs explaining what NOT to do
-    r#"NOT "./var/")"#,                    // documentation note format
+    r#"|| trimmed == "./var""#, // backwards-compat validation
+    r#"trimmed != "./var""#,    // backwards-compat validation
+    r#"(NOT "./var")"#,         // documentation
+    r#"(NOT `./var/`)"#,        // documentation
+    r#"(not "./var")"#,         // documentation
+    r#"\"./var/\""#,            // quoted in docs explaining what NOT to do
+    r#"NOT "./var/")"#,         // documentation note format
 ];
 
 #[test]

@@ -3,8 +3,8 @@
 //! Components for displaying training job lists and status.
 
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonVariant, Card, Table, TableBody, TableCell, TableHead,
-    TableHeader, TableRow,
+    Badge, BadgeVariant, Button, ButtonVariant, Card, Checkbox, Select, Table, TableBody,
+    TableCell, TableHead, TableHeader, TableRow,
 };
 use adapteros_api_types::TrainingJobResponse;
 use leptos::prelude::*;
@@ -16,66 +16,54 @@ use super::utils::{format_backend, format_backend_or, format_date};
 #[component]
 pub fn StatusFilter(filter: RwSignal<String>) -> impl IntoView {
     view! {
-        <select
-            class="flex h-10 w-40 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            on:change=move |ev| {
-                filter.set(event_target_value(&ev));
-            }
-        >
-            <option value="">"All Status"</option>
-            <option value="pending">"Pending"</option>
-            <option value="running">"Running"</option>
-            <option value="completed">"Completed"</option>
-            <option value="failed">"Failed"</option>
-            <option value="cancelled">"Cancelled"</option>
-        </select>
+        <Select
+            value=filter
+            options=vec![
+                ("".to_string(), "All Status".to_string()),
+                ("pending".to_string(), "Pending".to_string()),
+                ("running".to_string(), "Running".to_string()),
+                ("completed".to_string(), "Completed".to_string()),
+                ("failed".to_string(), "Failed".to_string()),
+                ("cancelled".to_string(), "Cancelled".to_string()),
+            ]
+            class="w-40".to_string()
+        />
     }
 }
 
 /// CoreML filter checkboxes
 #[component]
 pub fn CoremlFilters(filter: RwSignal<CoremlFilterState>) -> impl IntoView {
-    let toggle = move |field: &'static str| {
-        let filter = filter.clone();
-        move |_| {
-            filter.update(|f| match field {
-                "requested" => f.requested = !f.requested,
-                "exported" => f.exported = !f.exported,
-                "fallback" => f.fallback = !f.fallback,
-                _ => {}
-            });
-        }
-    };
+    let requested_checked = Signal::derive(move || filter.get().requested);
+    let exported_checked = Signal::derive(move || filter.get().exported);
+    let fallback_checked = Signal::derive(move || filter.get().fallback);
 
     view! {
         <div class="flex items-center gap-3 px-3 py-2 rounded-md border">
-            <label class="flex items-center gap-2 text-sm">
-                <input
-                    type="checkbox"
-                    class="h-4 w-4 rounded border-input text-primary focus:ring-0"
-                    checked=move || filter.get().requested
-                    on:change=toggle("requested")
-                />
-                <span class="text-muted-foreground">"CoreML requested"</span>
-            </label>
-            <label class="flex items-center gap-2 text-sm">
-                <input
-                    type="checkbox"
-                    class="h-4 w-4 rounded border-input text-primary focus:ring-0"
-                    checked=move || filter.get().exported
-                    on:change=toggle("exported")
-                />
-                <span class="text-muted-foreground">"CoreML exported"</span>
-            </label>
-            <label class="flex items-center gap-2 text-sm">
-                <input
-                    type="checkbox"
-                    class="h-4 w-4 rounded border-input text-primary focus:ring-0"
-                    checked=move || filter.get().fallback
-                    on:change=toggle("fallback")
-                />
-                <span class="text-muted-foreground">"CoreML fallback"</span>
-            </label>
+            <Checkbox
+                checked=requested_checked
+                on_change=Callback::new(move |checked| {
+                    filter.update(|f| f.requested = checked);
+                })
+                label="CoreML requested"
+                class="text-sm"
+            />
+            <Checkbox
+                checked=exported_checked
+                on_change=Callback::new(move |checked| {
+                    filter.update(|f| f.exported = checked);
+                })
+                label="CoreML exported"
+                class="text-sm"
+            />
+            <Checkbox
+                checked=fallback_checked
+                on_change=Callback::new(move |checked| {
+                    filter.update(|f| f.fallback = checked);
+                })
+                label="CoreML fallback"
+                class="text-sm"
+            />
         </div>
     }
 }

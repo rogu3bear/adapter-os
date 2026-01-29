@@ -154,7 +154,12 @@ pub fn info_nce_loss(queries: &[Vec<f32>], positives: &[Vec<f32>], temperature: 
         // Softmax + cross-entropy for position i (the positive)
         // This is numerically stable log-softmax
         let max_logit = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-        let log_sum_exp: f32 = logits.iter().map(|&x| (x - max_logit).exp()).sum::<f32>().ln() + max_logit;
+        let log_sum_exp: f32 = logits
+            .iter()
+            .map(|&x| (x - max_logit).exp())
+            .sum::<f32>()
+            .ln()
+            + max_logit;
         let log_prob = logits[i] - log_sum_exp;
 
         total_loss -= log_prob;

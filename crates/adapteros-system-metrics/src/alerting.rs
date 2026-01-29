@@ -901,10 +901,7 @@ impl AlertEvaluator {
 
             let values: Vec<f64> = metrics.iter().map(|m| m.metric_value).collect();
             let mean = values.iter().sum::<f64>() / values.len() as f64;
-            let variance = values
-                .iter()
-                .map(|x| (x - mean).powi(2))
-                .sum::<f64>()
+            let variance = values.iter().map(|x| (x - mean).powi(2)).sum::<f64>()
                 / (values.len().saturating_sub(1).max(1) as f64);
             let std_dev = variance.sqrt();
             let z_score = if std_dev > 0.0 {
@@ -1376,7 +1373,9 @@ impl AlertEvaluator {
         .bind(tenant_id)
         .fetch_all(self.db.pool())
         .await
-        .map_err(|e| adapteros_core::AosError::Database(format!("Failed to get adapters: {}", e)))?;
+        .map_err(|e| {
+            adapteros_core::AosError::Database(format!("Failed to get adapters: {}", e))
+        })?;
 
         let adapters = rows
             .into_iter()
@@ -1484,12 +1483,16 @@ impl AlertEvaluator {
         .bind(tenant_id)
         .fetch_all(self.db.pool())
         .await
-        .map_err(|e| adapteros_core::AosError::Database(format!("Failed to get incidents: {}", e)))?;
+        .map_err(|e| {
+            adapteros_core::AosError::Database(format!("Failed to get incidents: {}", e))
+        })?;
 
         let events = rows
             .into_iter()
             .map(|row| SecurityEvent::PolicyViolation {
-                policy: row.get::<Option<String>, _>("kind").unwrap_or_else(|| "unknown".to_string()),
+                policy: row
+                    .get::<Option<String>, _>("kind")
+                    .unwrap_or_else(|| "unknown".to_string()),
                 violation_type: row
                     .get::<Option<String>, _>("severity")
                     .unwrap_or_else(|| "unknown".to_string()),
@@ -1657,12 +1660,13 @@ impl AlertEvaluator {
 
     /// Validate ITAR isolation
     async fn validate_itar_isolation(&self, tenant_id: &str) -> Result<bool> {
-        let itar_flag: Option<i64> = sqlx::query_scalar("SELECT itar_flag FROM tenants WHERE id = ?")
-            .bind(tenant_id)
-            .fetch_optional(self.db.pool())
-            .await
-            .ok()
-            .flatten();
+        let itar_flag: Option<i64> =
+            sqlx::query_scalar("SELECT itar_flag FROM tenants WHERE id = ?")
+                .bind(tenant_id)
+                .fetch_optional(self.db.pool())
+                .await
+                .ok()
+                .flatten();
 
         if itar_flag.unwrap_or(0) == 0 {
             return Ok(true);

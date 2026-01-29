@@ -4,7 +4,10 @@
 //! Migrated from adapteros-server-api for spoke pattern.
 
 use adapteros_server_api::state::AppState;
-use axum::{routing::{get, post}, Router};
+use axum::{
+    routing::{get, post},
+    Router,
+};
 
 use crate::handlers;
 
@@ -31,15 +34,12 @@ pub fn models_routes() -> Router<AppState> {
             "/v1/models/download-progress",
             get(handlers::get_download_progress),
         )
-        .route("/v1/models/status/all", get(handlers::get_all_models_status))
         .route(
-            "/v1/models/{model_id}/load",
-            post(handlers::load_model),
+            "/v1/models/status/all",
+            get(handlers::get_all_models_status),
         )
-        .route(
-            "/v1/models/{model_id}/unload",
-            post(handlers::unload_model),
-        )
+        .route("/v1/models/{model_id}/load", post(handlers::load_model))
+        .route("/v1/models/{model_id}/unload", post(handlers::unload_model))
         .route(
             "/v1/models/{model_id}/status",
             get(handlers::get_model_status),

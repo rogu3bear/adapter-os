@@ -43,9 +43,8 @@ impl<T> ApiResponse<T> {
 
 impl<T: Serialize> IntoResponse for ApiResponse<T> {
     fn into_response(self) -> Response {
-        let json = serde_json::to_string(&self).unwrap_or_else(|_| {
-            r#"{"success":false,"error":"serialization failed"}"#.to_string()
-        });
+        let json = serde_json::to_string(&self)
+            .unwrap_or_else(|_| r#"{"success":false,"error":"serialization failed"}"#.to_string());
 
         (StatusCode::OK, [("content-type", "application/json")], json).into_response()
     }
@@ -81,7 +80,8 @@ impl EmptyResponse {
 
 impl IntoResponse for EmptyResponse {
     fn into_response(self) -> Response {
-        let json = serde_json::to_string(&self).unwrap_or_else(|_| r#"{"success":true}"#.to_string());
+        let json =
+            serde_json::to_string(&self).unwrap_or_else(|_| r#"{"success":true}"#.to_string());
 
         (StatusCode::OK, [("content-type", "application/json")], json).into_response()
     }
@@ -108,9 +108,8 @@ impl<T> CreatedResponse<T> {
 
 impl<T: Serialize> IntoResponse for CreatedResponse<T> {
     fn into_response(self) -> Response {
-        let json = serde_json::to_string(&self).unwrap_or_else(|_| {
-            r#"{"success":false,"error":"serialization failed"}"#.to_string()
-        });
+        let json = serde_json::to_string(&self)
+            .unwrap_or_else(|_| r#"{"success":false,"error":"serialization failed"}"#.to_string());
 
         (
             StatusCode::CREATED,
@@ -209,7 +208,8 @@ mod tests {
 
     #[test]
     fn test_api_response_with_meta_deserialize() {
-        let json = r#"{"success":true,"data":99,"meta":{"request_id":"req-789","duration_ms":250}}"#;
+        let json =
+            r#"{"success":true,"data":99,"meta":{"request_id":"req-789","duration_ms":250}}"#;
         let response: ApiResponse<u32> = serde_json::from_str(json).unwrap();
         assert!(response.success);
         assert_eq!(response.data, 99);

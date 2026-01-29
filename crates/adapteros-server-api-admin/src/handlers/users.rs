@@ -76,10 +76,7 @@ pub async fn list_users<S: AdminAppState>(
             tracing::error!("Database error listing users: {}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    AdminErrorResponse::new(e.to_string())
-                        .with_code("DATABASE_ERROR"),
-                ),
+                Json(AdminErrorResponse::new(e.to_string()).with_code("DATABASE_ERROR")),
             )
         })?;
 

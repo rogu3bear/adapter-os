@@ -2,6 +2,7 @@
 //!
 //! Headless-style components with Tailwind CSS styling.
 
+pub mod action_card;
 pub mod adapter_bar;
 pub mod adapter_detail_panel;
 pub mod async_state;
@@ -10,6 +11,7 @@ pub mod button;
 pub mod card;
 pub mod charts;
 pub mod chat_dock;
+pub mod checkbox;
 pub mod command_palette;
 pub mod confirmation_dialog;
 pub mod danger_zone;
@@ -44,6 +46,7 @@ pub mod version_skew_banner;
 pub mod virtual_list;
 pub mod workspace;
 
+pub use action_card::{ActionCard, ActionCardVariant};
 pub use adapter_bar::{
     AdapterBar, AdapterChipState, AdapterHeat, AdapterMagnet, SuggestedAdapterView,
     SuggestedAdaptersBar,
@@ -57,6 +60,7 @@ pub use auth::{AuthProvider, ProtectedRoute};
 pub use button::{Button, ButtonSize, ButtonVariant};
 pub use card::Card;
 pub use chat_dock::{ChatDock, ChatDockPanel, MobileChatOverlay, NarrowChatDock};
+pub use checkbox::Checkbox;
 pub use command_palette::CommandPalette;
 pub use confirmation_dialog::{ConfirmationDialog, ConfirmationSeverity, SimpleConfirmDialog};
 pub use danger_zone::{DangerZone, DangerZoneItem, InfoBanner, WarningBanner};
@@ -91,7 +95,10 @@ pub use table::{
 };
 pub use tabs::{TabButton, TabButtonEnum, TabNav, TabNavEnum, TabPanel, TabPanelEnum};
 pub use toggle::{Select, Toggle};
-pub use trace_viewer::{TokenDecisions, TraceButton, TraceDetailStandalone, TracePanel, TraceViewer, TraceViewerWithData};
+pub use trace_viewer::{
+    TokenDecisions, TraceButton, TraceDetailStandalone, TracePanel, TraceViewer,
+    TraceViewerWithData,
+};
 pub use version_skew_banner::VersionSkewBanner;
 pub use workspace::{
     TwoColumnRatio, Workspace, WorkspaceColumn, WorkspaceGrid, WorkspaceHeader, WorkspacePanel,

@@ -825,8 +825,9 @@ impl TrainingService {
         let job_timeout = training_job_timeout();
         let job_id_for_timeout = job_id_for_run.clone();
         let jobs_ref_for_timeout = jobs_ref.clone();
-        if let Err(e) =
-            spawn_deterministic(format!("training-job:{}", job_id_for_run), async move {
+        if let Err(e) = spawn_deterministic(
+            format!("training-job:{}", job_id_for_run),
+            async move {
                 // Wrap training job with timeout to prevent indefinite hangs
                 let training_future = run_training_job(
                     jobs_ref_det.clone(),
@@ -868,7 +869,9 @@ impl TrainingService {
                                 ));
                             }
                         }
-                        Err(AosError::Timeout { duration: job_timeout })
+                        Err(AosError::Timeout {
+                            duration: job_timeout,
+                        })
                     }
                 };
 
@@ -880,8 +883,8 @@ impl TrainingService {
                 if let Err(err) = result {
                     tracing::error!("Training job {} failed: {}", job_id_for_run, err);
                 }
-            })
-        {
+            },
+        ) {
             // Allow explicit non-deterministic fallback for tests/sandboxes
             if cfg!(test) || std::env::var("AOS_ALLOW_NONDET_TRAINING").is_ok() {
                 tracing::warn!(
@@ -913,7 +916,9 @@ impl TrainingService {
                         cancel_token_for_fallback.clone(),
                     );
 
-                    let result = match tokio::time::timeout(job_timeout_fallback, training_future).await {
+                    let result = match tokio::time::timeout(job_timeout_fallback, training_future)
+                        .await
+                    {
                         Ok(inner_result) => inner_result,
                         Err(_elapsed) => {
                             warn!(
@@ -932,7 +937,9 @@ impl TrainingService {
                                     ));
                                 }
                             }
-                            Err(AosError::Timeout { duration: job_timeout_fallback })
+                            Err(AosError::Timeout {
+                                duration: job_timeout_fallback,
+                            })
                         }
                     };
 

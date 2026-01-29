@@ -1644,7 +1644,9 @@ impl LoadingStreamState {
             .map_err(|e| {
                 // Check if this is a timeout error and provide a clear message
                 let error_msg = e.to_string();
-                if error_msg.contains("Timeout") || matches!(e, adapteros_core::AosError::Timeout { .. }) {
+                if error_msg.contains("Timeout")
+                    || matches!(e, adapteros_core::AosError::Timeout { .. })
+                {
                     warn!(
                         adapter_id = %adapter_id,
                         timeout_secs = load_timeout.as_secs(),
@@ -1652,7 +1654,8 @@ impl LoadingStreamState {
                     );
                     format!(
                         "ADAPTER_LOAD_TIMEOUT: Adapter '{}' load timed out after {} seconds",
-                        adapter_id, load_timeout.as_secs()
+                        adapter_id,
+                        load_timeout.as_secs()
                     )
                 } else {
                     format!("Load coordination failed: {}", e)

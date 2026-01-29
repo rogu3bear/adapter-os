@@ -206,11 +206,7 @@ fuzz_target!(|data: &[u8]| {
                 session_sequence: 0,
             };
 
-            EvidenceEnvelope::new_inference(
-                "tenant-fuzz".to_string(),
-                inference_ref,
-                previous_root,
-            )
+            EvidenceEnvelope::new_inference("tenant-fuzz".to_string(), inference_ref, previous_root)
         }
     };
 

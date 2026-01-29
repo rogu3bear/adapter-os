@@ -405,8 +405,7 @@ mod circuit_breaker {
 
         fn record_failure(&mut self) {
             self.consecutive_failures += 1;
-            if self.consecutive_failures >= 3
-                && self.circuit_breaker == CircuitBreakerState::Closed
+            if self.consecutive_failures >= 3 && self.circuit_breaker == CircuitBreakerState::Closed
             {
                 self.circuit_breaker = CircuitBreakerState::Open;
             }

@@ -1145,22 +1145,31 @@ mod tests {
             let key3 = compute_prefix_kv_key(context, &tokens3, tokenizer, identity_bytes);
 
             cache
-                .insert(key1, make_test_entry(tokens1.clone(), 2, 64, *context, *tokenizer, *model))
+                .insert(
+                    key1,
+                    make_test_entry(tokens1.clone(), 2, 64, *context, *tokenizer, *model),
+                )
                 .unwrap();
             cache
-                .insert(key2, make_test_entry(tokens2.clone(), 2, 64, *context, *tokenizer, *model))
+                .insert(
+                    key2,
+                    make_test_entry(tokens2.clone(), 2, 64, *context, *tokenizer, *model),
+                )
                 .unwrap();
             cache
-                .insert(key3, make_test_entry(tokens3.clone(), 2, 64, *context, *tokenizer, *model))
+                .insert(
+                    key3,
+                    make_test_entry(tokens3.clone(), 2, 64, *context, *tokenizer, *model),
+                )
                 .unwrap();
 
             // Perform a series of lookups
             let queries = vec![
-                vec![1, 2, 3, 4, 5, 6, 7],      // Should match tokens2 (partial)
-                vec![1, 2, 3],                   // Should match tokens1 (exact)
-                vec![10, 20, 30, 40],            // Should match tokens3 (partial)
-                vec![99, 98, 97],                // Should miss
-                vec![1, 2, 3, 4, 5],             // Should match tokens2 (exact)
+                vec![1, 2, 3, 4, 5, 6, 7], // Should match tokens2 (partial)
+                vec![1, 2, 3],             // Should match tokens1 (exact)
+                vec![10, 20, 30, 40],      // Should match tokens3 (partial)
+                vec![99, 98, 97],          // Should miss
+                vec![1, 2, 3, 4, 5],       // Should match tokens2 (exact)
             ];
 
             queries

@@ -10,7 +10,8 @@ use adapteros_storage::repos::adapter::AdapterRepository;
 use tempfile::TempDir;
 
 fn new_test_tempdir() -> TempDir {
-    TempDir::with_prefix("aos-test-").expect("Failed to create temporary directory for dual-write test")
+    TempDir::with_prefix("aos-test-")
+        .expect("Failed to create temporary directory for dual-write test")
 }
 
 /// Helper to set up test database with KV backend in DualWrite mode
@@ -389,7 +390,7 @@ async fn test_delete_race_condition_no_stale_kv_data() {
         .unwrap();
 
     let adapter_uuid = db.register_adapter(params).await.unwrap();
-    
+
     // Verify adapter exists in both backends
     assert!(db.get_adapter("race-delete-test").await.unwrap().is_some());
     assert!(adapter_exists_in_kv(&db, "default-tenant", "race-delete-test").await);
@@ -422,9 +423,9 @@ async fn test_delete_race_condition_no_stale_kv_data() {
     assert!(!adapter_exists_in_kv(&db, "default-tenant", "race-delete-test").await);
 
     // The fix ensures KV is deleted first, then SQL. This prevents the race condition
-    // where: SQL delete commits -> concurrent read sees SQL empty -> falls back to KV -> 
+    // where: SQL delete commits -> concurrent read sees SQL empty -> falls back to KV ->
     // gets stale data (KV not yet deleted).
-    // 
+    //
     // With the fix: KV delete happens first -> if concurrent read happens during delete,
     // it will see KV empty (or SQL still has it), preventing stale KV data exposure.
     //
@@ -432,7 +433,7 @@ async fn test_delete_race_condition_no_stale_kv_data() {
     // 1. Delete completes successfully (both backends empty)
     // 2. The race condition window is eliminated by deleting KV first
     // 3. At least the final read after delete completes returns None (proving no stale KV data)
-    
+
     // Verify final state: adapter should be gone from both backends
     // This proves the delete completed and the fix prevents the race condition
     // Note: Some early reads may have seen the adapter before deletion started,
@@ -440,7 +441,8 @@ async fn test_delete_race_condition_no_stale_kv_data() {
     let final_read = read_results.last().copied().unwrap_or(false);
     assert!(
         !final_read,
-        "Final read after delete should return None (no stale KV data). Read results: {:?}", read_results
+        "Final read after delete should return None (no stale KV data). Read results: {:?}",
+        read_results
     );
 
     db.close().await.unwrap();
@@ -452,7 +454,8 @@ async fn test_delete_strict_mode_aborts_on_kv_failure() {
     let (mut db, _sql_temp, _kv_temp) = create_dual_write_db().await;
 
     // Enable strict mode by setting storage mode to KvPrimary (which enforces strict mode)
-    db.set_storage_mode(adapteros_db::StorageMode::KvPrimary).unwrap();
+    db.set_storage_mode(adapteros_db::StorageMode::KvPrimary)
+        .unwrap();
 
     // Register adapter
     let params = AdapterRegistrationBuilder::new()
@@ -467,7 +470,7 @@ async fn test_delete_strict_mode_aborts_on_kv_failure() {
         .unwrap();
 
     let adapter_uuid = db.register_adapter(params).await.unwrap();
-    
+
     // Verify adapter exists
     assert!(db.get_adapter("strict-mode-test").await.unwrap().is_some());
 
@@ -477,11 +480,17 @@ async fn test_delete_strict_mode_aborts_on_kv_failure() {
     // Attempt delete - should fail in strict mode
     let write_db = write_db(&db);
     let result = write_db.delete_adapter(&adapter_uuid).await;
-    
-    assert!(result.is_err(), "Delete should fail in strict mode when KV delete fails");
+
+    assert!(
+        result.is_err(),
+        "Delete should fail in strict mode when KV delete fails"
+    );
     let error_msg = result.unwrap_err().to_string();
-    assert!(error_msg.contains("strict mode") || error_msg.contains("KV delete failed"),
-            "Error should mention strict mode or KV delete failure: {}", error_msg);
+    assert!(
+        error_msg.contains("strict mode") || error_msg.contains("KV delete failed"),
+        "Error should mention strict mode or KV delete failure: {}",
+        error_msg
+    );
 
     // Verify adapter still exists in SQL (delete was aborted)
     assert!(db.get_adapter("strict-mode-test").await.unwrap().is_some());
@@ -495,7 +504,8 @@ async fn test_delete_non_strict_mode_continues_on_kv_failure() {
     let (mut db, _sql_temp, _kv_temp) = create_dual_write_db().await;
 
     // Ensure DualWrite mode (non-strict by default)
-    db.set_storage_mode(adapteros_db::StorageMode::DualWrite).unwrap();
+    db.set_storage_mode(adapteros_db::StorageMode::DualWrite)
+        .unwrap();
 
     // Register adapter
     let params = AdapterRegistrationBuilder::new()
@@ -510,7 +520,7 @@ async fn test_delete_non_strict_mode_continues_on_kv_failure() {
         .unwrap();
 
     let adapter_uuid = db.register_adapter(params).await.unwrap();
-    
+
     // Verify adapter exists
     assert!(db.get_adapter("non-strict-test").await.unwrap().is_some());
 
@@ -548,7 +558,11 @@ async fn test_concurrent_state_update_no_lost_updates() {
     let _adapter_uuid = db.register_adapter(params).await.unwrap();
 
     // Verify adapter exists
-    assert!(db.get_adapter("concurrent-state-test").await.unwrap().is_some());
+    assert!(db
+        .get_adapter("concurrent-state-test")
+        .await
+        .unwrap()
+        .is_some());
 
     // Spawn concurrent state updates
     let mut handles = vec![];
@@ -558,7 +572,12 @@ async fn test_concurrent_state_update_no_lost_updates() {
         let handle = tokio::spawn(async move {
             let write_db = write_db(&db_clone);
             write_db
-                .update_adapter_state("default-tenant", "concurrent-state-test", &state, "concurrent test")
+                .update_adapter_state(
+                    "default-tenant",
+                    "concurrent-state-test",
+                    &state,
+                    "concurrent test",
+                )
                 .await
         });
         handles.push(handle);
@@ -570,9 +589,13 @@ async fn test_concurrent_state_update_no_lost_updates() {
     }
 
     // Verify adapter still exists and has a valid state
-    let adapter = db.get_adapter("concurrent-state-test").await.unwrap().unwrap();
+    let adapter = db
+        .get_adapter("concurrent-state-test")
+        .await
+        .unwrap()
+        .unwrap();
     assert!(!adapter.current_state.is_empty());
-    
+
     // Verify KV also has the adapter with valid state
     let adapter_kv = get_adapter_from_kv(&db, "default-tenant", "concurrent-state-test")
         .await

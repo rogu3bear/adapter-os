@@ -152,8 +152,8 @@ impl Drop for SeedScopeGuard {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::B3Hash;
     use crate::seed::derive_adapter_seed;
+    use crate::B3Hash;
 
     #[test]
     fn test_guard_clears_registry_on_drop() {

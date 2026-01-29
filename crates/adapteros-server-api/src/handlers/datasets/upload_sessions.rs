@@ -283,9 +283,9 @@ pub async fn fetch_expired_sessions(
 fn parse_session_row(
     row: &sqlx::sqlite::SqliteRow,
 ) -> Result<UploadSessionRecord, (StatusCode, Json<ErrorResponse>)> {
-    let received_chunks_json: String = row
-        .try_get("received_chunks_json")
-        .map_err(|e| ApiError::internal(format!("Failed to read upload session chunk state: {}", e)))?;
+    let received_chunks_json: String = row.try_get("received_chunks_json").map_err(|e| {
+        ApiError::internal(format!("Failed to read upload session chunk state: {}", e))
+    })?;
     let received_chunks = if received_chunks_json.trim().is_empty() {
         HashMap::new()
     } else {
@@ -296,9 +296,9 @@ fn parse_session_row(
             })?
     };
 
-    let temp_dir: String = row
-        .try_get("temp_dir")
-        .map_err(|e| ApiError::internal(format!("Failed to read upload session temp dir: {}", e)))?;
+    let temp_dir: String = row.try_get("temp_dir").map_err(|e| {
+        ApiError::internal(format!("Failed to read upload session temp dir: {}", e))
+    })?;
 
     Ok(UploadSessionRecord {
         schema_version: row.try_get("schema_version").map_err(map_row_error)?,
@@ -347,10 +347,7 @@ pub fn validate_idempotency_key(value: &str) -> Result<String, (StatusCode, Json
         return Err(ApiError::bad_request("Idempotency key must not be empty").into());
     }
     if trimmed.len() > 256 {
-        return Err(ApiError::bad_request(
-            "Idempotency key must be at most 256 characters",
-        )
-        .into());
+        return Err(ApiError::bad_request("Idempotency key must be at most 256 characters").into());
     }
     Ok(trimmed.to_string())
 }

@@ -6,7 +6,9 @@
 use super::limits::DatasetSizeLimits;
 use crate::tokenizer::QwenTokenizer;
 use adapteros_core::{AosError, B3Hash, Result};
-use adapteros_storage::secure_fs::path_policy::{canonicalize_strict, canonicalize_strict_in_allowed_roots};
+use adapteros_storage::secure_fs::path_policy::{
+    canonicalize_strict, canonicalize_strict_in_allowed_roots,
+};
 use adapteros_types::training::{
     provenance_from_map, validate_training_examples, ExampleMetadataV1, TrainingDataContractConfig,
     TrainingExampleV1, TRAINING_DATA_CONTRACT_VERSION,
@@ -545,7 +547,8 @@ mod tests {
 
     #[test]
     fn test_manifest_entry_weight_is_applied() {
-        let tmp = tempdir().expect("failed to create temporary directory for weighted manifest test");
+        let tmp =
+            tempdir().expect("failed to create temporary directory for weighted manifest test");
         let manifest_path = tmp.path().join("manifest.json");
         let weighted_path = tmp.path().join("weighted.jsonl");
 

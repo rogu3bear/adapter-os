@@ -76,14 +76,16 @@ fuzz_target!(|data: &[u8]| {
     let mut router_a = Router::new_with_weights(RouterWeights::default(), k, 1.0, 0.05);
     let mut router_b = Router::new_with_weights(RouterWeights::default(), k, 1.0, 0.05);
 
-    let decision_a = match router_a.route_with_adapter_info(&features, &priors, &adapter_info, &mask) {
-        Ok(d) => d,
-        Err(_) => return, // Skip on routing errors (e.g., validation failures)
-    };
-    let decision_b = match router_b.route_with_adapter_info(&features, &priors, &adapter_info, &mask) {
-        Ok(d) => d,
-        Err(_) => return,
-    };
+    let decision_a =
+        match router_a.route_with_adapter_info(&features, &priors, &adapter_info, &mask) {
+            Ok(d) => d,
+            Err(_) => return, // Skip on routing errors (e.g., validation failures)
+        };
+    let decision_b =
+        match router_b.route_with_adapter_info(&features, &priors, &adapter_info, &mask) {
+            Ok(d) => d,
+            Err(_) => return,
+        };
 
     // Determinism check: same inputs should yield identical indices and gates
     assert_eq!(decision_a.indices, decision_b.indices);

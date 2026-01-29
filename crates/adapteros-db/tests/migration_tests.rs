@@ -15,7 +15,8 @@ use adapteros_db::Db;
 use tempfile::TempDir;
 
 fn new_test_tempdir() -> TempDir {
-    TempDir::with_prefix("aos-test-").expect("Failed to create temporary directory for migration test")
+    TempDir::with_prefix("aos-test-")
+        .expect("Failed to create temporary directory for migration test")
 }
 
 /// Helper function to create a test database with persistent storage and KV backend

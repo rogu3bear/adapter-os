@@ -399,8 +399,7 @@ mod tests {
 
         for code in codes {
             assert!(
-                code.chars()
-                    .all(|c| c.is_ascii_uppercase() || c == '_'),
+                code.chars().all(|c| c.is_ascii_uppercase() || c == '_'),
                 "Error code '{}' should be UPPERCASE_SNAKE_CASE",
                 code
             );

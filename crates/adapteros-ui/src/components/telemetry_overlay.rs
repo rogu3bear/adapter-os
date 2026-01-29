@@ -144,10 +144,8 @@ pub fn TelemetryOverlay() -> impl IntoView {
 
             (backend.to_string(), adapter_count, model_count, memory_ok)
         }
-        LoadingState::Loading | LoadingState::Idle => {
-            ("...".to_string(), 0, 0, false)
-        }
-        LoadingState::Error(_) => ("Err".to_string(), 0, 0, false)
+        LoadingState::Loading | LoadingState::Idle => ("...".to_string(), 0, 0, false),
+        LoadingState::Error(_) => ("Err".to_string(), 0, 0, false),
     });
 
     // Keyboard shortcut for toggle (Ctrl+Shift+T)

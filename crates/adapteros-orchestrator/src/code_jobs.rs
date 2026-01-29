@@ -7,8 +7,8 @@
 //! - Integration with CAS artifact storage
 
 use adapteros_core::{AosError, Result};
-use adapteros_retrieval::codegraph::{CodeGraph, SymbolNode};
 use adapteros_db::{repositories::ScanJob, Db};
+use adapteros_retrieval::codegraph::{CodeGraph, SymbolNode};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -447,12 +447,8 @@ impl CodeJobManager {
         );
 
         let store = self._artifact_store.read().await;
-        let base_graph = store
-            .load_codegraph(&job.repo_id, &job.base_commit)
-            .await?;
-        let head_graph = store
-            .load_codegraph(&job.repo_id, &job.head_commit)
-            .await?;
+        let base_graph = store.load_codegraph(&job.repo_id, &job.base_commit).await?;
+        let head_graph = store.load_codegraph(&job.repo_id, &job.head_commit).await?;
 
         let (added, removed, modified) = diff_codegraphs(&base_graph, &head_graph);
         let pack = CommitDeltaPack {
@@ -501,9 +497,7 @@ impl CodeJobManager {
         );
 
         let store = self._artifact_store.read().await;
-        let graph = store
-            .load_codegraph(&job.repo_id, &job.commit_sha)
-            .await?;
+        let graph = store.load_codegraph(&job.repo_id, &job.commit_sha).await?;
 
         let symbols: Vec<SymbolIndexEntry> = graph
             .symbols

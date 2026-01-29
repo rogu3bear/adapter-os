@@ -1,7 +1,7 @@
 //! Error types for the API layer.
 
 use adapteros_api_types::{ErrorResponse, FailureCode};
-use adapteros_error_registry::{HasECode, ECode};
+use adapteros_error_registry::{ECode, HasECode};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use utoipa::ToSchema;
@@ -388,44 +388,44 @@ impl HasECode for InferenceError {
             // E8xxx: CLI/Config errors
             Self::ValidationError(_) => ECode::E8001, // Invalid Configuration
             Self::ClientClosed(_) => ECode::E8001,    // Client-side issue
-            
+
             // E9xxx: OS/Environment issues
             Self::PermissionDenied(_) => ECode::E9002, // Permission Denied
             Self::BackpressureError(_) => ECode::E9006, // Out of Memory
             Self::CacheBudgetExceeded { .. } => ECode::E9006, // Out of Memory
             Self::InternalError(_) => ECode::E9001,    // Insufficient Memory (closest match)
-            
+
             // E2xxx: Policy/Determinism violations
             Self::PolicyViolation { .. } => ECode::E2002, // Policy Violation
-            Self::DeterminismError(_) => ECode::E2001,     // Determinism Violation Detected
-            Self::Timeout(_) => ECode::E2003,               // Egress Violation (closest match for timeout)
-            
+            Self::DeterminismError(_) => ECode::E2001,    // Determinism Violation Detected
+            Self::Timeout(_) => ECode::E2003, // Egress Violation (closest match for timeout)
+
             // E1xxx: Crypto/Signing/Worker issues
-            Self::WorkerNotAvailable(_) => ECode::E1003,   // No Workers Available
+            Self::WorkerNotAvailable(_) => ECode::E1003, // No Workers Available
             Self::NoCompatibleWorker { .. } => ECode::E1003, // No Workers Available
-            
+
             // E7xxx: Node/Cluster problems (note: E7001/E7003 don't exist, using closest match)
-            Self::WorkerError(_) => ECode::E1003,          // Node Unavailable (closest match)
-            Self::WorkerDegraded { .. } => ECode::E1003,   // Node Unavailable (closest match)
+            Self::WorkerError(_) => ECode::E1003, // Node Unavailable (closest match)
+            Self::WorkerDegraded { .. } => ECode::E1003, // Node Unavailable (closest match)
             Self::WorkerIdUnavailable { .. } => ECode::E1003, // Node Unavailable (closest match)
-            Self::RoutingBypass(_) => ECode::E1003,        // Node Unavailable (closest match)
-            
+            Self::RoutingBypass(_) => ECode::E1003, // Node Unavailable (closest match)
+
             // E8xxx: CLI/Config errors (continued)
-            Self::DatabaseError(_) => ECode::E8003,        // Database Connection Failed
-            
+            Self::DatabaseError(_) => ECode::E8003, // Database Connection Failed
+
             // E6xxx: Adapters/DIR issues
-            Self::ModelNotReady(_) => ECode::E6001,        // Adapter Not Found in Registry
-            Self::AdapterNotFound(_) => ECode::E6001,      // Adapter Not Found in Registry
+            Self::ModelNotReady(_) => ECode::E6001, // Adapter Not Found in Registry
+            Self::AdapterNotFound(_) => ECode::E6001, // Adapter Not Found in Registry
             Self::AdapterNotLoadable { .. } => ECode::E6002, // Adapter Eviction Occurred
             Self::AdapterTenantMismatch { .. } => ECode::E6001, // Adapter Not Found in Registry
             Self::AdapterBaseModelMismatch { .. } => ECode::E6009, // Base Model Mismatch
-            
+
             // E5xxx: Artifacts/CAS errors
-            Self::RagError(_) => ECode::E5001,             // Artifact Not Found in CAS
-            
+            Self::RagError(_) => ECode::E5001, // Artifact Not Found in CAS
+
             // E7xxx: Node/Cluster problems (replay)
-            Self::ReplayError(_) => ECode::E7002,          // Job Execution Failed
-            
+            Self::ReplayError(_) => ECode::E7002, // Job Execution Failed
+
             // E8xxx: CLI/Config errors (idempotency)
             Self::DuplicateRequest { .. } => ECode::E8001, // Invalid Configuration (client issue)
         }

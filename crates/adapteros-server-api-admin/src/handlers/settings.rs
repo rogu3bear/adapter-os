@@ -7,8 +7,8 @@ use crate::middleware::require_role;
 use crate::state::AdminAppState;
 use crate::types::AdminErrorResponse;
 use adapteros_api_types::settings::{
-    GeneralSettings, PerformanceSettings, SecuritySettings, ServerSettings,
-    SettingsUpdateResponse, SystemSettings, UpdateSettingsRequest,
+    GeneralSettings, PerformanceSettings, SecuritySettings, ServerSettings, SettingsUpdateResponse,
+    SystemSettings, UpdateSettingsRequest,
 };
 use adapteros_api_types::API_SCHEMA_VERSION;
 use adapteros_core::defaults::DEFAULT_SERVER_URL;
@@ -35,7 +35,9 @@ pub async fn get_settings<S: AdminAppState>(
     let config = state.config().map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(AdminErrorResponse::new("Configuration lock poisoned").with_code("INTERNAL_ERROR")),
+            Json(
+                AdminErrorResponse::new("Configuration lock poisoned").with_code("INTERNAL_ERROR"),
+            ),
         )
     })?;
 
@@ -140,13 +142,15 @@ pub async fn update_settings<S: AdminAppState>(
     // Persist settings to override file
     if let Err(e) = persist_settings_override(&req).await {
         // Log the failure
-        state.log_audit_failure(
-            &claims,
-            "settings.update",
-            "settings",
-            None,
-            &format!("Failed to persist settings: {}", e),
-        ).await;
+        state
+            .log_audit_failure(
+                &claims,
+                "settings.update",
+                "settings",
+                None,
+                &format!("Failed to persist settings: {}", e),
+            )
+            .await;
 
         return Err((
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -158,12 +162,14 @@ pub async fn update_settings<S: AdminAppState>(
     }
 
     // Log successful settings update
-    state.log_audit_success(
-        &claims,
-        "settings.update",
-        "settings",
-        Some(&updated_sections.join(",")),
-    ).await;
+    state
+        .log_audit_success(
+            &claims,
+            "settings.update",
+            "settings",
+            Some(&updated_sections.join(",")),
+        )
+        .await;
 
     let message = if restart_required {
         format!(

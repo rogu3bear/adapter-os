@@ -5,9 +5,9 @@ use crate::state::AppState;
 use crate::types::*;
 use adapteros_api_types::code_repositories::{
     CommitDeltaRequest, CommitDeltaResponse, ListRepositoriesQuery, Pagination,
-    RegisterRepositoryRequest, RegisterRepositoryResponse, RepositoryDetailResponse, RepositoryInfo,
-    RepositoryListResponse, ScanJobProgress, ScanJobResponse, ScanJobResult, ScanJobStatusResponse,
-    ScanRepositoryRequest,
+    RegisterRepositoryRequest, RegisterRepositoryResponse, RepositoryDetailResponse,
+    RepositoryInfo, RepositoryListResponse, ScanJobProgress, ScanJobResponse, ScanJobResult,
+    ScanJobStatusResponse, ScanRepositoryRequest,
 };
 use axum::{
     extract::{Path, Query, State},
@@ -225,19 +225,15 @@ pub async fn get_scan_status(
         })?;
 
     // Validate tenant isolation by looking up the repository
-    let repo = state
-        .db
-        .get_repository(&job.repo_id)
-        .await
-        .map_err(|e| {
-            // get_repository returns AosError::NotFound if not found
-            let status = if matches!(e, adapteros_core::AosError::NotFound(_)) {
-                StatusCode::NOT_FOUND
-            } else {
-                StatusCode::INTERNAL_SERVER_ERROR
-            };
-            (status, Json(ErrorResponse::new(e.to_string())))
-        })?;
+    let repo = state.db.get_repository(&job.repo_id).await.map_err(|e| {
+        // get_repository returns AosError::NotFound if not found
+        let status = if matches!(e, adapteros_core::AosError::NotFound(_)) {
+            StatusCode::NOT_FOUND
+        } else {
+            StatusCode::INTERNAL_SERVER_ERROR
+        };
+        (status, Json(ErrorResponse::new(e.to_string())))
+    })?;
 
     validate_tenant_isolation(&claims, &repo.tenant_id)?;
 

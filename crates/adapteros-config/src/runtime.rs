@@ -355,7 +355,8 @@ impl RuntimeConfig {
 
     /// Get server host
     pub fn server_host(&self) -> &str {
-        self.get_string("AOS_SERVER_HOST").unwrap_or(DEFAULT_SERVER_HOST)
+        self.get_string("AOS_SERVER_HOST")
+            .unwrap_or(DEFAULT_SERVER_HOST)
     }
 
     /// Get model path
@@ -366,17 +367,20 @@ impl RuntimeConfig {
     /// Get model backend preference
     pub fn model_backend(&self) -> &str {
         // Schema default is "mlx" (canonical)
-        self.get_string("AOS_MODEL_BACKEND").unwrap_or(DEFAULT_MODEL_BACKEND)
+        self.get_string("AOS_MODEL_BACKEND")
+            .unwrap_or(DEFAULT_MODEL_BACKEND)
     }
 
     /// Get database URL
     pub fn database_url(&self) -> &str {
-        self.get_string("AOS_DATABASE_URL").unwrap_or(DEFAULT_DB_PATH)
+        self.get_string("AOS_DATABASE_URL")
+            .unwrap_or(DEFAULT_DB_PATH)
     }
 
     /// Get log level
     pub fn log_level(&self) -> &str {
-        self.get_string("AOS_LOG_LEVEL").unwrap_or(DEFAULT_LOG_LEVEL)
+        self.get_string("AOS_LOG_LEVEL")
+            .unwrap_or(DEFAULT_LOG_LEVEL)
     }
 
     /// Get var directory

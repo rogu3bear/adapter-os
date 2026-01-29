@@ -234,11 +234,7 @@ pub struct ClaimedValues {
 
 impl ClaimedValues {
     /// Create new claimed values with minimal required fields.
-    pub fn new(
-        output_tokens: Vec<u32>,
-        run_head_hash: B3Hash,
-        config: ClaimedConfig,
-    ) -> Self {
+    pub fn new(output_tokens: Vec<u32>, run_head_hash: B3Hash, config: ClaimedConfig) -> Self {
         let logical_prompt_tokens = config.prompt_tokens.len() as u32;
         let logical_output_tokens = output_tokens.len() as u32;
 
@@ -407,10 +403,7 @@ impl VerificationResult {
 /// BLAKE3(tenant_namespace || stack_hash || prompt_token_count || prompt_tokens...)
 fn compute_context_digest(config: &ClaimedConfig) -> B3Hash {
     let mut buf = Vec::with_capacity(
-        config.tenant_namespace.len()
-            + 32
-            + 4
-            + (config.prompt_tokens.len() * 4),
+        config.tenant_namespace.len() + 32 + 4 + (config.prompt_tokens.len() * 4),
     );
 
     buf.extend_from_slice(config.tenant_namespace.as_bytes());
@@ -586,9 +579,8 @@ pub fn verify_receipt_hex(
     claimed: &ClaimedValues,
     schema_version: u8,
 ) -> Result<VerificationResult> {
-    let receipt_digest = B3Hash::from_hex(receipt_digest_hex).map_err(|e| {
-        AosError::Validation(format!("Invalid receipt digest hex: {}", e))
-    })?;
+    let receipt_digest = B3Hash::from_hex(receipt_digest_hex)
+        .map_err(|e| AosError::Validation(format!("Invalid receipt digest hex: {}", e)))?;
 
     verify_receipt(&receipt_digest, claimed, schema_version)
 }
@@ -725,7 +717,9 @@ pub fn verify_evidence_receipt_consistency(
 
     // Add model cache identity
     input = input.with_model_cache_identity(
-        receipt_ref.model_cache_identity_v2_digest_b3.map(|h| *h.as_bytes()),
+        receipt_ref
+            .model_cache_identity_v2_digest_b3
+            .map(|h| *h.as_bytes()),
     );
 
     // Compute expected receipt digest
@@ -845,7 +839,10 @@ mod tests {
         let mut config2 = config.clone();
         config2.tenant_namespace = "tenant-other".to_string();
         let digest3 = compute_context_digest(&config2);
-        assert_ne!(digest, digest3, "Different config should produce different digest");
+        assert_ne!(
+            digest, digest3,
+            "Different config should produce different digest"
+        );
     }
 
     #[test]
@@ -860,7 +857,10 @@ mod tests {
         // Verify different tokens produce different digest
         let tokens2 = vec![101u32, 102, 104];
         let digest3 = compute_output_digest(&tokens2);
-        assert_ne!(digest, digest3, "Different tokens should produce different digest");
+        assert_ne!(
+            digest, digest3,
+            "Different tokens should produce different digest"
+        );
     }
 
     #[test]
@@ -876,7 +876,10 @@ mod tests {
         // Verify with correct receipt digest
         let result = verify_receipt(&expected_receipt, &claimed, RECEIPT_SCHEMA_V1).unwrap();
 
-        assert!(result.verified, "Verification should succeed with matching receipt");
+        assert!(
+            result.verified,
+            "Verification should succeed with matching receipt"
+        );
         assert!(result.mismatch_reason.is_none());
         assert_eq!(result.computed_context_digest, context_digest);
         assert_eq!(result.computed_output_digest, output_digest);
@@ -890,7 +893,10 @@ mod tests {
 
         let result = verify_receipt(&wrong_receipt, &claimed, RECEIPT_SCHEMA_V1).unwrap();
 
-        assert!(!result.verified, "Verification should fail with wrong receipt");
+        assert!(
+            !result.verified,
+            "Verification should fail with wrong receipt"
+        );
         assert!(matches!(
             result.mismatch_reason,
             Some(MismatchReason::ReceiptDigestMismatch { .. })
@@ -966,11 +972,8 @@ mod tests {
         let expected_receipt = compute_receipt_digest(&receipt_input, RECEIPT_SCHEMA_V1).unwrap();
 
         // Verify using hex string
-        let result = verify_receipt_hex(
-            &expected_receipt.to_hex(),
-            &claimed,
-            RECEIPT_SCHEMA_V1,
-        ).unwrap();
+        let result =
+            verify_receipt_hex(&expected_receipt.to_hex(), &claimed, RECEIPT_SCHEMA_V1).unwrap();
 
         assert!(result.verified, "Hex verification should succeed");
     }
@@ -995,11 +998,11 @@ mod tests {
             *context_digest.as_bytes(),
             *run_head_hash.as_bytes(),
             *output_digest.as_bytes(),
-            10,  // logical_prompt_tokens
-            0,   // prefix_cached_token_count
-            10,  // billed_input_tokens
-            5,   // logical_output_tokens
-            5,   // billed_output_tokens
+            10, // logical_prompt_tokens
+            0,  // prefix_cached_token_count
+            10, // billed_input_tokens
+            5,  // logical_output_tokens
+            5,  // billed_output_tokens
         );
         let expected_receipt = compute_receipt_digest(&receipt_input, RECEIPT_SCHEMA_V1).unwrap();
 
@@ -1009,9 +1012,14 @@ mod tests {
             &context_digest,
             &run_head_hash,
             &output_digest,
-            10, 0, 10, 5, 5,
+            10,
+            0,
+            10,
+            5,
+            5,
             RECEIPT_SCHEMA_V1,
-        ).unwrap();
+        )
+        .unwrap();
 
         assert!(result.verified, "Precomputed verification should succeed");
     }
@@ -1079,7 +1087,10 @@ mod tests {
         // Verify
         let result = verify_receipt(&expected_receipt, &claimed, RECEIPT_SCHEMA_V6).unwrap();
 
-        assert!(result.verified, "V6 verification with cross-run lineage should succeed");
+        assert!(
+            result.verified,
+            "V6 verification with cross-run lineage should succeed"
+        );
         assert_eq!(result.schema_version, RECEIPT_SCHEMA_V6);
     }
 
@@ -1105,7 +1116,8 @@ mod tests {
 
         let v1 = compute_receipt_digest(&receipt_input, RECEIPT_SCHEMA_V1).unwrap();
         let v4 = compute_receipt_digest(&receipt_input, RECEIPT_SCHEMA_V4).unwrap();
-        let v5 = compute_receipt_digest(&receipt_input, crate::receipt_digest::RECEIPT_SCHEMA_V5).unwrap();
+        let v5 = compute_receipt_digest(&receipt_input, crate::receipt_digest::RECEIPT_SCHEMA_V5)
+            .unwrap();
         let v6 = compute_receipt_digest(&receipt_input, RECEIPT_SCHEMA_V6).unwrap();
 
         assert_ne!(v1, v4, "V1 and V4 should differ");
@@ -1116,11 +1128,8 @@ mod tests {
     #[test]
     fn test_claimed_values_builder() {
         let config = sample_config();
-        let claimed = ClaimedValues::new(
-            vec![1, 2, 3],
-            B3Hash::hash(b"run-head"),
-            config,
-        ).with_token_accounting(100, 10, 90, 50, 50);
+        let claimed = ClaimedValues::new(vec![1, 2, 3], B3Hash::hash(b"run-head"), config)
+            .with_token_accounting(100, 10, 90, 50, 50);
 
         assert_eq!(claimed.logical_prompt_tokens, 100);
         assert_eq!(claimed.prefix_cached_token_count, 10);
@@ -1160,12 +1169,15 @@ mod tests {
             *context_digest.as_bytes(),
             *run_head_hash.as_bytes(),
             *output_digest.as_bytes(),
-            10, 0, 10, 5, 5,
+            10,
+            0,
+            10,
+            5,
+            5,
         );
-        let receipt_digest = crate::receipt_digest::compute_receipt_digest(
-            &receipt_input,
-            RECEIPT_SCHEMA_V1,
-        ).unwrap();
+        let receipt_digest =
+            crate::receipt_digest::compute_receipt_digest(&receipt_input, RECEIPT_SCHEMA_V1)
+                .unwrap();
 
         InferenceReceiptRef {
             trace_id: "trace-test".to_string(),
@@ -1200,7 +1212,8 @@ mod tests {
             &receipt_ref,
             Some(&context_digest),
             RECEIPT_SCHEMA_V1,
-        ).unwrap();
+        )
+        .unwrap();
 
         assert!(result.verified, "Consistent receipt should verify");
     }
@@ -1217,7 +1230,8 @@ mod tests {
             &receipt_ref,
             Some(&context_digest),
             RECEIPT_SCHEMA_V1,
-        ).unwrap();
+        )
+        .unwrap();
 
         assert!(!result.verified, "Tampered receipt should fail");
         assert!(matches!(
@@ -1239,14 +1253,15 @@ mod tests {
             *context_digest.as_bytes(),
             *run_head_hash.as_bytes(),
             *output_digest.as_bytes(),
-            10, 0, 10,
+            10,
+            0,
+            10,
             output_tokens.len() as u32,
             output_tokens.len() as u32,
         );
-        let receipt_digest = crate::receipt_digest::compute_receipt_digest(
-            &receipt_input,
-            RECEIPT_SCHEMA_V1,
-        ).unwrap();
+        let receipt_digest =
+            crate::receipt_digest::compute_receipt_digest(&receipt_input, RECEIPT_SCHEMA_V1)
+                .unwrap();
 
         let receipt_ref = InferenceReceiptRef {
             trace_id: "trace-output".to_string(),
@@ -1277,7 +1292,8 @@ mod tests {
             &output_tokens,
             &context_digest,
             RECEIPT_SCHEMA_V1,
-        ).unwrap();
+        )
+        .unwrap();
 
         assert!(result.verified, "Matching output should verify");
     }
@@ -1295,7 +1311,8 @@ mod tests {
             &wrong_output_tokens,
             &context_digest,
             RECEIPT_SCHEMA_V1,
-        ).unwrap();
+        )
+        .unwrap();
 
         assert!(!result.verified, "Wrong output tokens should fail");
         assert!(matches!(

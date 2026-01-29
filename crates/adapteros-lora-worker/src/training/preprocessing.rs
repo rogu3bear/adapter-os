@@ -1496,8 +1496,9 @@ mod tests {
 
     #[test]
     fn preprocessing_errors_on_hidden_dim_mismatch() {
-        let temp = tempfile::tempdir()
-            .expect("failed to create temporary directory for preprocessing test - check disk space");
+        let temp = tempfile::tempdir().expect(
+            "failed to create temporary directory for preprocessing test - check disk space",
+        );
         let base_model_path = temp.path().join("model");
         fs::create_dir_all(&base_model_path)
             .expect("failed to create model directory - temp directory should be writable");
@@ -1551,8 +1552,9 @@ mod tests {
     }
 
     fn manifest_hash(manifest: &PreprocessManifest) -> B3Hash {
-        let bytes = serde_json::to_vec(manifest)
-            .expect("failed to serialize PreprocessManifest - manifest should always be serializable");
+        let bytes = serde_json::to_vec(manifest).expect(
+            "failed to serialize PreprocessManifest - manifest should always be serializable",
+        );
         B3Hash::hash(&bytes)
     }
 
@@ -1622,8 +1624,9 @@ mod tests {
             Err(_) => return,
         };
 
-        let temp_dir = tempfile::tempdir()
-            .expect("failed to create temporary directory for CoreML preprocessing test - check disk space");
+        let temp_dir = tempfile::tempdir().expect(
+            "failed to create temporary directory for CoreML preprocessing test - check disk space",
+        );
         let cfg = PreprocessingConfig {
             enabled: true,
             coreml_model_path: Some(coreml_model_path),

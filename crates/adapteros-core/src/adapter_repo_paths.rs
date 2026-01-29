@@ -528,7 +528,10 @@ mod tests {
     use crate::test_support::env_lock;
 
     fn new_test_tempdir() -> tempfile::TempDir {
-        tempfile::Builder::new().prefix("aos-test-").tempdir().expect("tempdir")
+        tempfile::Builder::new()
+            .prefix("aos-test-")
+            .tempdir()
+            .expect("tempdir")
     }
 
     #[test]

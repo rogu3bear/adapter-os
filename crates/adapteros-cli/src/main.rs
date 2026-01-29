@@ -689,7 +689,9 @@ Examples:
     // Operational Tooling
     // ============================================================
     /// Operational tools (runbook generation, etc.)
-    #[command(subcommand, after_help = "\
+    #[command(
+        subcommand,
+        after_help = "\
 Examples:
   # Generate operational runbooks from Serena memories
   aosctl ops generate-runbooks
@@ -699,7 +701,8 @@ Examples:
 
   # Dry run - preview what would be generated
   aosctl ops generate-runbooks --dry-run
-")]
+"
+    )]
     Ops(commands::ops::OpsCommand),
 
     // ============================================================

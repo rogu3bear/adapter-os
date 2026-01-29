@@ -182,19 +182,24 @@ fuzz_target!(|data: &[u8]| {
     let mut router_a = Router::new_with_weights(weights.clone(), k, tau, eps);
     let mut router_b = Router::new_with_weights(weights, k, tau, eps);
 
-    let decision_a = match router_a.route_with_adapter_info(&features, &priors, &adapters, &policy_mask) {
-        Ok(d) => d,
-        Err(_) => return, // Skip on routing errors
-    };
-    let decision_b = match router_b.route_with_adapter_info(&features, &priors, &adapters, &policy_mask) {
-        Ok(d) => d,
-        Err(_) => return,
-    };
+    let decision_a =
+        match router_a.route_with_adapter_info(&features, &priors, &adapters, &policy_mask) {
+            Ok(d) => d,
+            Err(_) => return, // Skip on routing errors
+        };
+    let decision_b =
+        match router_b.route_with_adapter_info(&features, &priors, &adapters, &policy_mask) {
+            Ok(d) => d,
+            Err(_) => return,
+        };
 
     assert_eq!(decision_a.indices.len(), decision_a.gates_q15.len());
     assert_eq!(decision_a.indices, decision_b.indices);
     assert_eq!(decision_a.gates_q15, decision_b.gates_q15);
-    assert_eq!(decision_a.policy_mask_digest_b3, decision_b.policy_mask_digest_b3);
+    assert_eq!(
+        decision_a.policy_mask_digest_b3,
+        decision_b.policy_mask_digest_b3
+    );
     assert_eq!(decision_a.entropy.to_bits(), decision_b.entropy.to_bits());
 
     match (

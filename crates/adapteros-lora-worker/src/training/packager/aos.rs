@@ -595,16 +595,15 @@ impl super::types::AdapterPackager {
         )?;
 
         // Write to a temporary location first to get the archive bytes
-        let temp_dir = tempfile::tempdir().map_err(|e| {
-            AosError::Training(format!("Failed to create temp directory: {}", e))
-        })?;
+        let temp_dir = tempfile::tempdir()
+            .map_err(|e| AosError::Training(format!("Failed to create temp directory: {}", e)))?;
         let temp_path = temp_dir.path().join("temp.aos");
         writer.write_archive(&temp_path, &manifest)?;
 
         // Read the archive and compute the final content hash
-        let archive_bytes = tokio::fs::read(&temp_path).await.map_err(|e| {
-            AosError::Training(format!("Failed to read temp archive: {}", e))
-        })?;
+        let archive_bytes = tokio::fs::read(&temp_path)
+            .await
+            .map_err(|e| AosError::Training(format!("Failed to read temp archive: {}", e)))?;
         let archive_hash = blake3::hash(&archive_bytes).to_hex().to_string();
 
         // Set up adapter layout for content-addressed storage
@@ -643,9 +642,7 @@ impl super::types::AdapterPackager {
         ref_store
             .update_ref(&adapter_name, tenant_id, "draft", &archive_hash)
             .await
-            .map_err(|e| {
-                AosError::Training(format!("Failed to update draft ref: {}", e))
-            })?;
+            .map_err(|e| AosError::Training(format!("Failed to update draft ref: {}", e)))?;
 
         // Create AdapterVersion record with version metadata
         let mut version = AdapterVersion::new(
@@ -1236,7 +1233,9 @@ mod tests {
         let temp_dir = tempfile::Builder::new()
             .prefix("aos-test-")
             .tempdir()
-            .expect("failed to create temporary directory for manifest save/load test - check disk space");
+            .expect(
+            "failed to create temporary directory for manifest save/load test - check disk space",
+        );
         let manifest_path = temp_dir.path().join("manifest.json");
 
         let manifest = AdapterManifest {
@@ -1308,7 +1307,9 @@ mod tests {
         let temp_dir = tempfile::Builder::new()
             .prefix("aos-test-")
             .tempdir()
-            .expect("failed to create temporary directory for artifact quota test - check disk space");
+            .expect(
+                "failed to create temporary directory for artifact quota test - check disk space",
+            );
         let tenant_dir = temp_dir.path().join("tenant1").join("adapter");
         tokio::fs::create_dir_all(&tenant_dir).await.unwrap();
         let existing = tenant_dir.join("v1.aos");

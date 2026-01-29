@@ -965,7 +965,9 @@ impl MLXFFIBackend {
         // io.position is passed to ensure correct RoPE positions during incremental generation
         // Step 0 (prompt): position=0, tokens get positions [0, 1, ..., N-1]
         // Step 1+ (generation): position=N, single token gets position N
-        let (base_logits, hidden_states) = self.model.forward_with_hidden_states(&io.input_ids, io.position)?;
+        let (base_logits, hidden_states) = self
+            .model
+            .forward_with_hidden_states(&io.input_ids, io.position)?;
 
         // Validate base logits
         if base_logits.is_empty() {
@@ -1009,7 +1011,9 @@ impl MLXFFIBackend {
             ));
         }
         io.output_logits[..output_len].copy_from_slice(&final_logits[..output_len]);
-        io.position += 1;
+        // Advance position by number of tokens processed (not just 1)
+        // This ensures correct RoPE positions during incremental generation
+        io.position += io.input_ids.len();
 
         // Update performance metrics
         let inference_time = inference_start.elapsed().as_millis() as u64;
@@ -1210,7 +1214,8 @@ impl MLXFFIBackend {
         // Update output buffer
         let output_len = logits.len().min(io.output_logits.len());
         io.output_logits[..output_len].copy_from_slice(&logits[..output_len]);
-        io.position += 1;
+        // Advance position by number of tokens processed (not just 1)
+        io.position += io.input_ids.len();
 
         tracing::debug!(
             position = io.position,

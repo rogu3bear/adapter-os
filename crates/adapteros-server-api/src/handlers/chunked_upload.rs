@@ -7,7 +7,9 @@
 //! - Memory-efficient streaming
 //! - Resume token generation and validation
 
-use adapteros_storage::secure_fs::path_policy::{canonicalize_strict, canonicalize_strict_in_allowed_roots};
+use adapteros_storage::secure_fs::path_policy::{
+    canonicalize_strict, canonicalize_strict_in_allowed_roots,
+};
 use adapteros_storage::secure_fs::traversal::check_path_traversal;
 use anyhow::{anyhow, Context, Result};
 use blake3::Hasher;

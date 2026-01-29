@@ -203,7 +203,14 @@ pub async fn clear_policy_violations(
         actions::POLICY_QUARANTINE_CLEAR
     };
     let resource_id = req.pack_id.as_deref().unwrap_or("all");
-    log_success_or_warn(&state.db, &claims, action, resources::POLICY, Some(resource_id)).await;
+    log_success_or_warn(
+        &state.db,
+        &claims,
+        action,
+        resources::POLICY,
+        Some(resource_id),
+    )
+    .await;
 
     let message = if violations_cleared > 0 {
         format!(

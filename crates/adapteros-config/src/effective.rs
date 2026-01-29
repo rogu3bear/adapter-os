@@ -1372,9 +1372,9 @@ pub fn is_effective_initialized() -> bool {
 mod tests {
     use super::*;
 
-    /// Valid 64-char JWT secret for production tests
+    /// Valid 64-char JWT secret for production tests (no placeholder patterns)
     const VALID_JWT_SECRET: &str =
-        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        "a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8";
 
     #[test]
     fn test_parse_duration_secs() {
@@ -1655,7 +1655,7 @@ mod tests {
         );
         let err_msg = format!("{}", result.unwrap_err());
         assert!(
-            err_msg.contains("at least 64 characters"),
+            err_msg.contains("minimum 64") || err_msg.contains("at least 64"),
             "Error should mention minimum length requirement: {}",
             err_msg
         );

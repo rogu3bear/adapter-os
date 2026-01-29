@@ -422,8 +422,10 @@ impl RagEmbeddingModel for EmbeddingModel {
         match &self.model_type {
             EmbeddingType::TokenAverage { embedding_matrix } => {
                 // Hash first 1MB of embedding data for fingerprint
-                let bytes_to_hash =
-                    std::cmp::min(embedding_matrix.len() * std::mem::size_of::<f32>(), 1024 * 1024);
+                let bytes_to_hash = std::cmp::min(
+                    embedding_matrix.len() * std::mem::size_of::<f32>(),
+                    1024 * 1024,
+                );
                 let byte_slice = unsafe {
                     std::slice::from_raw_parts(
                         embedding_matrix.as_ptr() as *const u8,
@@ -435,10 +437,8 @@ impl RagEmbeddingModel for EmbeddingModel {
             }
             EmbeddingType::Dedicated => {
                 // Future: compute from dedicated model
-                B3Hash::from_hex(
-                    "0000000000000000000000000000000000000000000000000000000000000000",
-                )
-                .unwrap()
+                B3Hash::from_hex("0000000000000000000000000000000000000000000000000000000000000000")
+                    .unwrap()
             }
         }
     }
@@ -522,7 +522,10 @@ mod tests {
 
         // Should be average of [1,0,0,0] and [0,1,0,0] = [0.5, 0.5, 0, 0], normalized
         let norm: f32 = embedding.iter().map(|x| x * x).sum::<f32>().sqrt();
-        assert!((norm - 1.0).abs() < 1e-5, "Embedding should be L2 normalized");
+        assert!(
+            (norm - 1.0).abs() < 1e-5,
+            "Embedding should be L2 normalized"
+        );
         assert!(embedding[0] > 0.6, "First component should be ~0.707");
         assert!(embedding[1] > 0.6, "Second component should be ~0.707");
     }
@@ -541,11 +544,13 @@ mod tests {
         let hash = model.model_hash();
 
         // Hash should not be all zeros (that was the old broken behavior)
-        let zero_hash = B3Hash::from_hex(
-            "0000000000000000000000000000000000000000000000000000000000000000",
-        )
-        .unwrap();
-        assert_ne!(hash, zero_hash, "model_hash should compute real BLAKE3 hash");
+        let zero_hash =
+            B3Hash::from_hex("0000000000000000000000000000000000000000000000000000000000000000")
+                .unwrap();
+        assert_ne!(
+            hash, zero_hash,
+            "model_hash should compute real BLAKE3 hash"
+        );
 
         // Same model should produce same hash (determinism)
         let hash2 = model.model_hash();

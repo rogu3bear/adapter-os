@@ -156,9 +156,10 @@ fn check_file(path: &Path, violations: &mut Vec<(PathBuf, usize, String)>) {
         }
 
         // Skip if this file is in an allowed path
-        if SKIP_PATHS.iter().any(|skip| {
-            path.to_string_lossy().contains(skip)
-        }) {
+        if SKIP_PATHS
+            .iter()
+            .any(|skip| path.to_string_lossy().contains(skip))
+        {
             continue;
         }
 

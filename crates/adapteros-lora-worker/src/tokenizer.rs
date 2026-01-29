@@ -9,7 +9,9 @@
 
 use adapteros_core::tokenizer_config::SpecialTokenMap;
 use adapteros_core::{AosError, Result};
-use adapteros_storage::secure_fs::{content::validate_tokenizer_config_json, traversal::normalize_path};
+use adapteros_storage::secure_fs::{
+    content::validate_tokenizer_config_json, traversal::normalize_path,
+};
 use std::path::Path;
 use tokenizers::Tokenizer;
 

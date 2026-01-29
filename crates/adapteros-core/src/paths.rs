@@ -316,7 +316,10 @@ mod tests {
         std::env::remove_var(AOS_ADAPTERS_ROOT_ENV);
         std::env::remove_var(AOS_ADAPTERS_DIR_ENV);
         let paths = AdapterPaths::from_config(None);
-        assert_eq!(paths.root(), crate::path_utils::rebase_var_path(DEFAULT_ADAPTERS_DIR));
+        assert_eq!(
+            paths.root(),
+            crate::path_utils::rebase_var_path(DEFAULT_ADAPTERS_DIR)
+        );
     }
 
     #[test]
@@ -336,7 +339,10 @@ mod tests {
         std::env::remove_var(AOS_ADAPTERS_ROOT_ENV);
         std::env::remove_var(AOS_ADAPTERS_DIR_ENV);
         let root = get_default_adapters_root();
-        assert_eq!(root, crate::path_utils::rebase_var_path(DEFAULT_ADAPTERS_DIR));
+        assert_eq!(
+            root,
+            crate::path_utils::rebase_var_path(DEFAULT_ADAPTERS_DIR)
+        );
     }
 
     #[test]

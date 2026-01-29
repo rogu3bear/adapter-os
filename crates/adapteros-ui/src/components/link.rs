@@ -38,6 +38,18 @@ pub fn Link(
     /// Additional CSS classes
     #[prop(optional, into)]
     class: String,
+    /// Target attribute (_blank, _self, etc.)
+    #[prop(optional, into)]
+    target: Option<String>,
+    /// Rel attribute (noopener, noreferrer, etc.)
+    #[prop(optional, into)]
+    rel: Option<String>,
+    /// Accessible label for screen readers
+    #[prop(optional, into)]
+    aria_label: Option<String>,
+    /// Tooltip text
+    #[prop(optional, into)]
+    title: Option<String>,
     /// Link content
     children: Children,
 ) -> impl IntoView {
@@ -48,8 +60,22 @@ pub fn Link(
         format!("link {variant_class} {class}")
     };
 
+    // For external links, ensure security attributes
+    let final_rel = if target.as_deref() == Some("_blank") {
+        Some(rel.unwrap_or_else(|| "noopener noreferrer".to_string()))
+    } else {
+        rel
+    };
+
     view! {
-        <a href=href class=full_class>
+        <a
+            href=href
+            class=full_class
+            target=target
+            rel=final_rel
+            aria-label=aria_label
+            title=title
+        >
             {children()}
         </a>
     }

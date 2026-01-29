@@ -281,7 +281,9 @@ impl std::error::Error for AdapterNameError {}
 /// Validate a name segment (subject, domain, stack name)
 fn validate_name_segment(segment: &str) -> Result<(), AdapterNameError> {
     if segment.is_empty() {
-        return Err(AdapterNameError::InvalidSegment("empty segment".to_string()));
+        return Err(AdapterNameError::InvalidSegment(
+            "empty segment".to_string(),
+        ));
     }
 
     if segment == "." || segment == ".." {
@@ -349,7 +351,9 @@ impl AdapterRef {
     /// Check if this is a version tag (v1, v2, etc.)
     pub fn is_version_tag(&self) -> bool {
         self.ref_name.starts_with('v')
-            && self.ref_name[1..].chars().all(|c| c.is_ascii_digit() || c == '.')
+            && self.ref_name[1..]
+                .chars()
+                .all(|c| c.is_ascii_digit() || c == '.')
     }
 
     /// Parse a version tag (v1, v1.2, v1.2.3) into components
@@ -701,7 +705,9 @@ mod tests {
         let path = object_path_from_hash(hash);
         assert_eq!(
             path,
-            PathBuf::from("ab/cdef1234/abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890.aos")
+            PathBuf::from(
+                "ab/cdef1234/abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890.aos"
+            )
         );
     }
 

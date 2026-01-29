@@ -1,10 +1,10 @@
 use crate::commands::dev::{self, DevCommand};
 use crate::commands::replay_bundle::{handle_replay_command, ReplaySubcommand};
 use crate::output::OutputWriter;
+use crate::scenarios::{ScenarioConfig, ScenarioLoader};
 use adapteros_api_types::InferRequest;
 use adapteros_core::{AosError, Result};
 use adapteros_db::Db;
-use crate::scenarios::{ScenarioConfig, ScenarioLoader};
 use clap::Subcommand;
 use comfy_table::{presets::UTF8_FULL, Cell, Table};
 use reqwest::Client;

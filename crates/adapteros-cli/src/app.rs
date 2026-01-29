@@ -1345,7 +1345,6 @@ pub enum Commands {
     },
 }
 
-
 pub async fn run() -> Result<()> {
     // Initialize unified logging
     init_logging()?;

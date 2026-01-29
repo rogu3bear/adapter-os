@@ -229,7 +229,6 @@ fn benchmark_bundle_writer(c: &mut Criterion) {
     let mut group = c.benchmark_group("bundle_writer");
     group.sample_size(10);
 
-
     group.bench_function("bundle_write_with_compression", |b| {
         b.iter(|| {
             let temp_dir = tempfile::Builder::new()

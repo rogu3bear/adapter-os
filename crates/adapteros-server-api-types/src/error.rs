@@ -138,10 +138,19 @@ mod tests {
 
     #[test]
     fn test_error_codes() {
-        assert_eq!(ApiError::Internal("test".into()).error_code(), "INTERNAL_ERROR");
+        assert_eq!(
+            ApiError::Internal("test".into()).error_code(),
+            "INTERNAL_ERROR"
+        );
         assert_eq!(ApiError::NotFound("test".into()).error_code(), "NOT_FOUND");
-        assert_eq!(ApiError::BadRequest("test".into()).error_code(), "BAD_REQUEST");
-        assert_eq!(ApiError::Unauthorized("test".into()).error_code(), "UNAUTHORIZED");
+        assert_eq!(
+            ApiError::BadRequest("test".into()).error_code(),
+            "BAD_REQUEST"
+        );
+        assert_eq!(
+            ApiError::Unauthorized("test".into()).error_code(),
+            "UNAUTHORIZED"
+        );
         assert_eq!(ApiError::Forbidden("test".into()).error_code(), "FORBIDDEN");
         assert_eq!(ApiError::Conflict("test".into()).error_code(), "CONFLICT");
         assert_eq!(
@@ -153,7 +162,10 @@ mod tests {
     #[test]
     fn test_error_display() {
         let err = ApiError::Internal("database connection failed".to_string());
-        assert_eq!(err.to_string(), "internal server error: database connection failed");
+        assert_eq!(
+            err.to_string(),
+            "internal server error: database connection failed"
+        );
 
         let err = ApiError::NotFound("resource not found".to_string());
         assert_eq!(err.to_string(), "not found: resource not found");

@@ -1074,10 +1074,7 @@ fn apply_config_value(config: &mut MetricsConfig, key: &str, value: &str) -> Res
             config.thresholds.min_memory_headroom = value.parse()?;
         }
         _ => {
-            return Err(anyhow::anyhow!(
-                "Unknown metrics config key '{}'",
-                key
-            ));
+            return Err(anyhow::anyhow!("Unknown metrics config key '{}'", key));
         }
     }
     Ok(())

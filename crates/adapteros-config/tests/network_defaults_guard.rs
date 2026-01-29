@@ -31,8 +31,8 @@ const HARDCODED_PATTERNS: &[&str] = &[
 
 /// Files that are allowed to contain hardcoded values (the source of truth).
 const ALLOWED_FILES: &[&str] = &[
-    "defaults.rs",                   // The canonical source of defaults (adapteros-core and adapteros-api-types)
-    "network_defaults_guard.rs",     // This test file
+    "defaults.rs", // The canonical source of defaults (adapteros-core and adapteros-api-types)
+    "network_defaults_guard.rs", // This test file
 ];
 
 /// Patterns within lines that indicate allowed usage (backwards-compat, docs, tests).
@@ -50,7 +50,7 @@ const ALLOWED_LINE_PATTERNS: &[&str] = &[
     "Examples:",
     "println!",
     "eprintln!",
-    "output.kv(",  // CLI output formatting
+    "output.kv(", // CLI output formatting
     // Test attributes (tests are allowed to use literals for clarity)
     "#[test]",
     "#[ignore",
@@ -60,7 +60,7 @@ const ALLOWED_LINE_PATTERNS: &[&str] = &[
     "validate_value",
     // Error message templates (user-facing)
     "curl ",
-    "\\x1b[",  // ANSI escape sequences in error messages
+    "\\x1b[", // ANSI escape sequences in error messages
     // OpenAPI/codegen specification (static JSON)
     r#""url":"#,
 ];
@@ -138,9 +138,7 @@ fn scan_dir(dir: &Path, violations: &mut Vec<(PathBuf, usize, String)>) {
 
         // Only check Rust source files in src/ directories
         let is_rs = path.extension().map(|ext| ext == "rs").unwrap_or(false);
-        let in_src = path
-            .components()
-            .any(|c| c.as_os_str() == "src");
+        let in_src = path.components().any(|c| c.as_os_str() == "src");
 
         if is_rs && in_src {
             check_file(&path, violations);
@@ -183,7 +181,9 @@ fn check_file(path: &Path, violations: &mut Vec<(PathBuf, usize, String)>) {
         // Track brace depth for test function scope
         let open_braces = line.matches('{').count();
         let close_braces = line.matches('}').count();
-        brace_depth = brace_depth.saturating_add(open_braces).saturating_sub(close_braces);
+        brace_depth = brace_depth
+            .saturating_add(open_braces)
+            .saturating_sub(close_braces);
 
         // Exit test function when we close its scope
         if in_test_function && brace_depth <= test_function_brace_depth && close_braces > 0 {

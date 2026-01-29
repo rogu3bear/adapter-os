@@ -6,7 +6,9 @@
 use crate::api::ApiClient;
 #[cfg(target_arch = "wasm32")]
 use crate::api::ApiError;
-use crate::components::{Button, ButtonVariant, Dialog, DialogSize, FormField, Input, Select};
+use crate::components::{
+    Button, ButtonVariant, Checkbox, Dialog, DialogSize, FormField, Input, Select,
+};
 use crate::pages::training::dataset_wizard::{DatasetUploadOutcome, DatasetUploadWizard};
 use crate::pages::training::generate_wizard::{GenerateDatasetOutcome, GenerateDatasetWizard};
 use crate::validation::{rules, use_form_errors, validate_field, ValidationRule};
@@ -790,15 +792,11 @@ pub fn CreateJobDialog(
                                 })}
                             </div>
                             <div class="grid gap-4 grid-cols-2">
-                                <label class="flex items-center gap-2 text-sm">
-                                    <input
-                                        type="checkbox"
-                                        class="h-4 w-4 rounded border"
-                                        prop:checked=Signal::derive(move || preprocess_enabled.get())
-                                        on:change=move |ev| preprocess_enabled.set(event_target_checked(&ev))
-                                    />
-                                    <span>"Enable CoreML preprocessing"</span>
-                                </label>
+                                <Checkbox
+                                    checked=preprocess_enabled
+                                    on_change=Callback::new(move |checked| preprocess_enabled.set(checked))
+                                    label="Enable CoreML preprocessing"
+                                />
                                 <FormField
                                     label="CoreML Model ID"
                                     name="coreml_model_id"

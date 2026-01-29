@@ -11,11 +11,10 @@
 use adapteros_core::{AosError, B3Hash};
 use adapteros_lora_plan::{build_plan, PlanMeta, TensorLayout};
 use adapteros_model_hub::manifest::{
-    Adapter, AdapterCategory, AdapterScope, AdapterTier, AssuranceTier, Base, BundleCfg,
-    DeterminismPolicy, DriftPolicy, EgressPolicy, EvictionPriority, EvidencePolicy,
-    IsolationPolicy, ManifestV3, MemoryPolicy, NumericPolicy, PerformancePolicy, Policies,
-    RagPolicy, RefusalPolicy, RouterCfg, Sampling, Seeds, TelemetryCfg, ArtifactsPolicy,
-    AdapterDependencies,
+    Adapter, AdapterCategory, AdapterDependencies, AdapterScope, AdapterTier, ArtifactsPolicy,
+    AssuranceTier, Base, BundleCfg, DeterminismPolicy, DriftPolicy, EgressPolicy, EvictionPriority,
+    EvidencePolicy, IsolationPolicy, ManifestV3, MemoryPolicy, NumericPolicy, PerformancePolicy,
+    Policies, RagPolicy, RefusalPolicy, RouterCfg, Sampling, Seeds, TelemetryCfg,
 };
 use std::collections::BTreeMap;
 

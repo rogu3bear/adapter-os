@@ -3,9 +3,9 @@
 //! This module provides functions for parsing .aos adapter bundle files,
 //! extracting metadata, computing hashes, and reading manifest information.
 
+use adapteros_aos::single_file::{LoadOptions, SingleFileAdapterLoader};
 use adapteros_aos::{compute_scope_hash, open_aos, BackendTag};
 use adapteros_core::{AosError, B3Hash, Result};
-use adapteros_aos::single_file::{LoadOptions, SingleFileAdapterLoader};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom};

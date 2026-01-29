@@ -70,11 +70,7 @@ pub fn ndcg_at_k(relevant: &[String], retrieved: &[String], k: usize) -> f64 {
         .take(k)
         .enumerate()
         .map(|(i, doc)| {
-            let rel = if relevant_set.contains(doc) {
-                1.0
-            } else {
-                0.0
-            };
+            let rel = if relevant_set.contains(doc) { 1.0 } else { 0.0 };
             rel / (i as f64 + 2.0).log2()
         })
         .sum();
