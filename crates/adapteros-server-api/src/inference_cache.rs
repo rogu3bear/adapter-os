@@ -30,7 +30,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// Default time-to-live for cached inference results (1 hour).
 pub const DEFAULT_CACHE_TTL_SECS: u64 = 3600;
@@ -263,6 +263,11 @@ impl InferenceCache {
     /// Get the TTL duration.
     pub fn ttl(&self) -> Duration {
         Duration::from_secs(self.config.ttl_secs)
+    }
+
+    /// Check if per-tenant caching is enabled.
+    pub fn is_per_tenant(&self) -> bool {
+        self.config.per_tenant
     }
 
     /// Look up a cached result.

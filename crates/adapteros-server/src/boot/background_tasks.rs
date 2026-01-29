@@ -1095,6 +1095,49 @@ pub async fn spawn_all_background_tasks(
         shutdown_coordinator = spawner.into_coordinator();
     }
 
+    // Spawn inference cache cleanup task (5 minute interval)
+    // Cleans up expired entries to reclaim memory
+    {
+        let inference_cache = state.inference_cache.clone();
+        let mut spawner = BackgroundTaskSpawner::new(shutdown_coordinator)
+            .with_task_tracker(Arc::clone(&background_tasks));
+        let mut shutdown_rx = spawner.coordinator().subscribe_shutdown();
+        if spawner
+            .spawn_optional(
+                "Inference cache cleanup",
+                async move {
+                    let mut interval = tokio::time::interval(Duration::from_secs(300)); // 5 minutes
+                    interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+                    loop {
+                        tokio::select! {
+                            biased;
+                            _ = shutdown_rx.recv() => {
+                                info!("Inference cache cleanup received shutdown signal, exiting gracefully");
+                                break;
+                            }
+                            _ = interval.tick() => {
+                                let removed = inference_cache.cleanup_expired();
+                                if removed > 0 {
+                                    debug!(
+                                        removed_count = removed,
+                                        remaining_entries = inference_cache.len(),
+                                        "Cleaned up expired inference cache entries"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                },
+                "Expired inference cache entries may accumulate",
+            )
+            .is_ok()
+        {
+            info!("Inference cache cleanup task started (5 minute interval)");
+        }
+        shutdown_coordinator = spawner.into_coordinator();
+    }
+
     // Spawn diagnostics writer if receiver is available
     if let Some(receiver) = diag_receiver {
         let persister = SqliteDiagPersister::new_arc(db.pool().clone());
