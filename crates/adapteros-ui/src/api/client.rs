@@ -125,7 +125,7 @@ impl ApiClient {
             .auth_via_cookie
             .read()
             .ok()
-            .copied()
+            .map(|g| *g)
             .unwrap_or(false)
         {
             return true;
@@ -166,7 +166,7 @@ impl ApiClient {
             .auth_via_cookie
             .read()
             .ok()
-            .copied()
+            .map(|g| *g)
             .unwrap_or(false)
         {
             return None;

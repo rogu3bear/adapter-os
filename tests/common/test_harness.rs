@@ -102,6 +102,7 @@ impl ApiTestHarness {
             self_hosting: Default::default(),
             timeouts: Default::default(),
             rate_limit: None,
+            inference_cache: Default::default(),
         }));
 
         let metrics_exporter = Arc::new(adapteros_metrics_exporter::MetricsExporter::new(vec![

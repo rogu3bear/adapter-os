@@ -468,7 +468,8 @@ pub async fn run(
         None,
         None,
         None, // No quota manager for CLI serve command
-        None,
+        None, // No KV residency policy ID
+        None, // No adapter cache size limit
         cli_worker_id,
     )
     .await?;
