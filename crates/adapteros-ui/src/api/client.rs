@@ -21,6 +21,7 @@ pub use adapteros_api_types::training::{
 pub use adapteros_api_types::{DatasetManifest, UploadDatasetResponse};
 // Consolidated types from shared crate
 pub use adapteros_api_types::admin::{ListUsersResponse, UserResponse};
+pub use adapteros_api_types::auth::{TenantListResponse, TenantSummary};
 pub use adapteros_api_types::api_keys::{
     ApiKeyInfo, ApiKeyListResponse, CreateApiKeyRequest, CreateApiKeyResponse, RevokeApiKeyResponse,
 };
@@ -336,6 +337,11 @@ impl ApiClient {
     /// Get current user info
     pub async fn me(&self) -> ApiResult<adapteros_api_types::UserInfoResponse> {
         self.get("/v1/auth/me").await
+    }
+
+    /// List tenants accessible to the current user
+    pub async fn list_user_tenants(&self) -> ApiResult<TenantListResponse> {
+        self.get("/v1/auth/tenants").await
     }
 
     /// Logout

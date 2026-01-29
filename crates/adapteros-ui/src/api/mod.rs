@@ -30,9 +30,9 @@ pub use client::{
     RevokeApiKeyResponse, RoutingCandidateResponse, RoutingDebugRequest, RoutingDebugResponse,
     RoutingDecisionResponse, RoutingDecisionsQuery, RoutingDecisionsResponse, ScanJobResponse,
     ScanRepositoryRequest, ServiceStatus, StackResponse, SystemOverviewResponse, TokenDecision,
-    UpdateCodePolicyRequest, UpdateErrorAlertRuleRequest, UpdateStackRequest,
-    UploadDatasetResponse, UserResponse, ValidateAllFilesResponse, ValidateFileRequest,
-    ValidateFileResponse, WorkerMetricsResponse, WorkflowType,
+    TenantListResponse, TenantSummary, UpdateCodePolicyRequest, UpdateErrorAlertRuleRequest,
+    UpdateStackRequest, UploadDatasetResponse, UserResponse, ValidateAllFilesResponse,
+    ValidateFileRequest, ValidateFileResponse, WorkerMetricsResponse, WorkflowType,
 };
 pub use diagnostic_bundle::DiagnosticBundle;
 pub use error::{ApiError, ApiResult};
