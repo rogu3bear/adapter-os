@@ -18,6 +18,7 @@ use crate::middleware::policy_enforcement::{
 };
 use crate::middleware::request_id::RequestId;
 use crate::middleware::ApiKeyToken;
+use crate::session_tokens::{resolve_session_token_lock, SessionTokenContext};
 use crate::state::AppState;
 use crate::types::run_envelope::new_run_envelope;
 use crate::types::{
@@ -360,6 +361,7 @@ pub async fn chat_completions(
     Extension(identity): Extension<IdentityEnvelope>,
     request_id: Option<Extension<RequestId>>,
     api_key: Option<Extension<ApiKeyToken>>,
+    session_token: Option<Extension<SessionTokenContext>>,
     canonical_request: Option<Extension<CanonicalRequest>>,
     Json(req): Json<OpenAiChatCompletionsRequest>,
 ) -> Response {
@@ -381,7 +383,14 @@ pub async fn chat_completions(
     // Branch based on streaming mode
     if req.stream.unwrap_or(false) {
         // Note: streaming does not use cache (cache only after stream completes)
-        match chat_completions_streaming(State(state), Extension(claims), req).await {
+        match chat_completions_streaming(
+            State(state),
+            Extension(claims),
+            session_token,
+            req,
+        )
+        .await
+        {
             Ok(sse) => sse.into_response(),
             Err((status, Json(err))) => (status, Json(err)).into_response(),
         }
@@ -392,6 +401,7 @@ pub async fn chat_completions(
             Extension(identity),
             request_id,
             api_key,
+            session_token,
             canonical_request,
             req,
         )
@@ -416,6 +426,7 @@ async fn chat_completions_non_streaming(
     Extension(identity): Extension<IdentityEnvelope>,
     request_id: Option<Extension<RequestId>>,
     api_key: Option<Extension<ApiKeyToken>>,
+    session_token: Option<Extension<SessionTokenContext>>,
     canonical_request: Option<Extension<CanonicalRequest>>,
     req: OpenAiChatCompletionsRequest,
 ) -> Result<Json<OpenAiChatCompletionsResponse>, (StatusCode, Json<OpenAiErrorResponse>)> {
@@ -535,6 +546,7 @@ async fn chat_completions_non_streaming(
         Extension(identity),
         request_id,
         api_key,
+        session_token,
         Json(infer_req),
     )
     .await
@@ -676,6 +688,7 @@ pub async fn completions_openai(
     Extension(identity): Extension<IdentityEnvelope>,
     request_id: Option<Extension<RequestId>>,
     api_key: Option<Extension<ApiKeyToken>>,
+    session_token: Option<Extension<SessionTokenContext>>,
     Json(req): Json<OpenAiCompletionsRequest>,
 ) -> Result<Json<OpenAiCompletionsResponse>, (StatusCode, Json<OpenAiErrorResponse>)> {
     if let Some(n) = req.n {
@@ -720,6 +733,7 @@ pub async fn completions_openai(
         Extension(identity),
         request_id,
         api_key,
+        session_token,
         Json(infer_req),
     )
     .await
@@ -910,6 +924,7 @@ pub async fn embeddings_openai(
 async fn chat_completions_streaming(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    session_token: Option<Extension<SessionTokenContext>>,
     req: OpenAiChatCompletionsRequest,
 ) -> Result<
     Sse<impl Stream<Item = Result<Event, Infallible>>>,
@@ -954,6 +969,19 @@ async fn chat_completions_streaming(
     // Check backpressure
     check_uma_backpressure(&state)
         .map_err(|(status, Json(err))| (status, Json(map_adapteros_error_to_openai(err))))?;
+
+    let session_lock = if let Some(token) = session_token.as_ref() {
+        Some(
+            resolve_session_token_lock(&state, &claims, &token.0.lock)
+                .await
+                .map_err(|err| {
+                    let (status, Json(err)) = <(StatusCode, Json<ErrorResponse>)>::from(err);
+                    (status, Json(map_adapteros_error_to_openai(err)))
+                })?,
+        )
+    } else {
+        None
+    };
 
     // Generate request ID
     let request_id = format!("chatcmpl_{}", uuid::Uuid::new_v4());
@@ -1046,7 +1074,7 @@ async fn chat_completions_streaming(
     let is_admin = claims.role.eq_ignore_ascii_case("admin")
         || claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
-    let internal_request = InferenceRequestInternal {
+    let mut internal_request = InferenceRequestInternal {
         request_id: request_id.clone(),
         cpid: claims.tenant_id.clone(),
         prompt,
@@ -1096,6 +1124,20 @@ async fn chat_completions_streaming(
         abstention_threshold: None,
         citation_mode: None,
     };
+    if let Some(lock) = session_lock.as_ref() {
+        internal_request.adapter_stack = None;
+        internal_request.adapters = Some(lock.adapter_ids.clone());
+        internal_request.effective_adapter_ids = Some(lock.adapter_ids.clone());
+        internal_request.stack_id = lock.stack_id.clone();
+        internal_request.pinned_adapter_ids = Some(lock.pinned_adapter_ids.clone());
+        if let Some(backend) = lock.backend_profile {
+            internal_request.backend_profile = Some(backend);
+            internal_request.allow_fallback = backend == adapteros_core::BackendKind::Auto;
+        }
+        if let Some(coreml_mode) = lock.coreml_mode {
+            internal_request.coreml_mode = Some(coreml_mode);
+        }
+    }
 
     // Verify worker is available
     let core = InferenceCore::new(&state);

@@ -1,7 +1,11 @@
+use crate::api_error::ApiError;
 use crate::auth::Claims;
 use crate::inference_core::InferenceCore;
 use crate::middleware::ApiKeyToken;
 use crate::permissions::{require_permission, Permission};
+use crate::session_tokens::{
+    ensure_no_adapter_overrides, resolve_session_token_lock, SessionTokenContext,
+};
 use crate::security::check_tenant_access;
 use crate::state::AppState;
 use crate::types::{
@@ -59,6 +63,7 @@ pub async fn batch_infer(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     api_key: Option<Extension<ApiKeyToken>>,
+    session_token: Option<Extension<SessionTokenContext>>,
     Json(req): Json<BatchInferRequest>,
 ) -> Result<Json<BatchInferResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::InferenceExecute)?;
@@ -88,6 +93,12 @@ pub async fn batch_infer(
         ));
     }
 
+    let session_lock = if let Some(token) = session_token.as_ref() {
+        Some(resolve_session_token_lock(&state, &claims, &token.0.lock).await?)
+    } else {
+        None
+    };
+
     let worker_token = api_key.as_ref().map(|t| t.0.clone());
     let deadline = Instant::now() + BATCH_TIMEOUT;
 
@@ -97,6 +108,7 @@ pub async fn batch_infer(
             let state = state.clone();
             let claims = claims.clone();
             let worker_token = worker_token.clone();
+            let session_lock = session_lock.clone();
 
             async move {
                 // Early validation: empty prompt
@@ -121,6 +133,68 @@ pub async fn batch_infer(
                                 .with_string_details("Prompt exceeds maximum size"),
                         ),
                     };
+                }
+
+                if let Some(lock) = session_lock.as_ref() {
+                    if let Err(err) = ensure_no_adapter_overrides(&[
+                        ("adapters", item.request.adapters.is_some()),
+                        ("adapter_stack", item.request.adapter_stack.is_some()),
+                        ("stack_id", item.request.stack_id.is_some()),
+                        (
+                            "effective_adapter_ids",
+                            item.request.effective_adapter_ids.is_some(),
+                        ),
+                    ]) {
+                        let (_, Json(error)) =
+                            <(StatusCode, Json<ErrorResponse>)>::from(err);
+                        return BatchInferItemResponse {
+                            id: item.id,
+                            response: None,
+                            error: Some(error),
+                        };
+                    }
+
+                    if let (Some(requested), Some(locked)) =
+                        (item.request.backend, lock.backend_profile)
+                    {
+                        if requested != locked {
+                            let (_, Json(error)) =
+                                <(StatusCode, Json<ErrorResponse>)>::from(
+                                    ApiError::forbidden("session token backend mismatch")
+                                        .with_details(format!(
+                                            "requested {}, token {}",
+                                            requested.as_str(),
+                                            locked.as_str()
+                                        )),
+                                );
+                            return BatchInferItemResponse {
+                                id: item.id,
+                                response: None,
+                                error: Some(error),
+                            };
+                        }
+                    }
+
+                    if let (Some(requested), Some(locked)) =
+                        (item.request.coreml_mode, lock.coreml_mode)
+                    {
+                        if requested != locked {
+                            let (_, Json(error)) =
+                                <(StatusCode, Json<ErrorResponse>)>::from(
+                                    ApiError::forbidden("session token coreml_mode mismatch")
+                                        .with_details(format!(
+                                            "requested {}, token {}",
+                                            requested.as_str(),
+                                            locked.as_str()
+                                        )),
+                                );
+                            return BatchInferItemResponse {
+                                id: item.id,
+                                response: None,
+                                error: Some(error),
+                            };
+                        }
+                    }
                 }
 
                 // Check deadline before processing
@@ -197,6 +271,21 @@ pub async fn batch_infer(
                 // Convert batch item to InferenceRequestInternal
                 let mut internal_request: InferenceRequestInternal = (&item, &claims).into();
                 internal_request.worker_auth_token = worker_token.clone().map(|t| t.0);
+                if let Some(lock) = session_lock.as_ref() {
+                    internal_request.adapter_stack = None;
+                    internal_request.adapters = Some(lock.adapter_ids.clone());
+                    internal_request.effective_adapter_ids = Some(lock.adapter_ids.clone());
+                    internal_request.stack_id = lock.stack_id.clone();
+                    internal_request.pinned_adapter_ids = Some(lock.pinned_adapter_ids.clone());
+                    if let Some(backend) = lock.backend_profile {
+                        internal_request.backend_profile = Some(backend);
+                        internal_request.allow_fallback =
+                            backend == adapteros_core::BackendKind::Auto;
+                    }
+                    if let Some(coreml_mode) = lock.coreml_mode {
+                        internal_request.coreml_mode = Some(coreml_mode);
+                    }
+                }
 
                 // Create InferenceCore for this batch item
                 let inference_core = InferenceCore::new(&state);

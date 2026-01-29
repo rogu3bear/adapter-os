@@ -29,6 +29,10 @@ use crate::middleware::policy_enforcement::{
     compute_policy_mask_digest, create_hook_context, enforce_at_hook,
 };
 use crate::security::check_tenant_access;
+use crate::session_tokens::{
+    ensure_no_adapter_overrides, resolve_session_token_lock, ResolvedSessionTokenLock,
+    SessionTokenContext,
+};
 use crate::state::AppState;
 use crate::types::run_envelope::set_policy_mask;
 use crate::types::*;
@@ -555,7 +559,8 @@ pub async fn streaming_infer_with_progress(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Extension(_identity): Extension<IdentityEnvelope>,
-    Json(req): Json<StreamingInferRequest>,
+    session_token: Option<Extension<SessionTokenContext>>,
+    Json(mut req): Json<StreamingInferRequest>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<ErrorResponse>)> {
     // Role check: Operator, SRE, and Admin can execute inference
     crate::permissions::require_permission(
@@ -569,6 +574,45 @@ pub async fn streaming_infer_with_progress(
     }
     if req.prompt.len() > MAX_REPLAY_TEXT_SIZE {
         return Err(ApiError::bad_request("Prompt too long for context window").into());
+    }
+
+    let session_lock = if let Some(token) = session_token.as_ref() {
+        ensure_no_adapter_overrides(&[
+            ("adapters", req.adapters.is_some()),
+            ("adapter_stack", req.adapter_stack.is_some()),
+            ("stack_id", req.stack_id.is_some()),
+            ("effective_adapter_ids", req.effective_adapter_ids.is_some()),
+            (
+                "adapter_strength_overrides",
+                req.adapter_strength_overrides.is_some(),
+            ),
+        ])?;
+        let resolved = resolve_session_token_lock(&state, &claims, &token.0.lock).await?;
+        if let (Some(requested), Some(locked)) = (req.coreml_mode, resolved.coreml_mode) {
+            if requested != locked {
+                return Err(ApiError::forbidden("session token coreml_mode mismatch").with_details(
+                    format!(
+                        "requested {}, token {}",
+                        requested.as_str(),
+                        locked.as_str()
+                    ),
+                ));
+            }
+        }
+        Some(resolved)
+    } else {
+        None
+    };
+
+    if let Some(lock) = session_lock.as_ref() {
+        req.adapters = Some(lock.adapter_ids.clone());
+        req.adapter_stack = None;
+        req.stack_id = lock.stack_id.clone();
+        req.adapter_strength_overrides = None;
+        req.effective_adapter_ids = None;
+        if let Some(coreml_mode) = lock.coreml_mode {
+            req.coreml_mode = Some(coreml_mode);
+        }
     }
 
     // Extract adapter ID from request (for policy context)
@@ -682,6 +726,7 @@ pub async fn streaming_infer_with_progress(
         claims.tenant_id.clone(),
         claims.sub.clone(),
         Some(claims),
+        session_lock.clone(),
     )
     .await;
 
@@ -737,7 +782,8 @@ pub async fn streaming_infer(
     Extension(claims): Extension<Claims>,
     Extension(_identity): Extension<IdentityEnvelope>,
     headers: axum::http::HeaderMap,
-    Json(req): Json<StreamingInferRequest>,
+    session_token: Option<Extension<SessionTokenContext>>,
+    Json(mut req): Json<StreamingInferRequest>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<ErrorResponse>)> {
     // Role check: Operator, SRE, and Admin can execute inference
     crate::permissions::require_permission(
@@ -751,6 +797,45 @@ pub async fn streaming_infer(
     }
     if req.prompt.len() > MAX_REPLAY_TEXT_SIZE {
         return Err(ApiError::bad_request("Prompt too long for context window").into());
+    }
+
+    let session_lock = if let Some(token) = session_token.as_ref() {
+        ensure_no_adapter_overrides(&[
+            ("adapters", req.adapters.is_some()),
+            ("adapter_stack", req.adapter_stack.is_some()),
+            ("stack_id", req.stack_id.is_some()),
+            ("effective_adapter_ids", req.effective_adapter_ids.is_some()),
+            (
+                "adapter_strength_overrides",
+                req.adapter_strength_overrides.is_some(),
+            ),
+        ])?;
+        let resolved = resolve_session_token_lock(&state, &claims, &token.0.lock).await?;
+        if let (Some(requested), Some(locked)) = (req.coreml_mode, resolved.coreml_mode) {
+            if requested != locked {
+                return Err(ApiError::forbidden("session token coreml_mode mismatch").with_details(
+                    format!(
+                        "requested {}, token {}",
+                        requested.as_str(),
+                        locked.as_str()
+                    ),
+                ));
+            }
+        }
+        Some(resolved)
+    } else {
+        None
+    };
+
+    if let Some(lock) = session_lock.as_ref() {
+        req.adapters = Some(lock.adapter_ids.clone());
+        req.adapter_stack = None;
+        req.stack_id = lock.stack_id.clone();
+        req.adapter_strength_overrides = None;
+        req.effective_adapter_ids = None;
+        if let Some(coreml_mode) = lock.coreml_mode {
+            req.coreml_mode = Some(coreml_mode);
+        }
     }
 
     check_uma_backpressure(&state)?;
@@ -1096,6 +1181,20 @@ pub async fn streaming_infer(
     internal_request.model = req.model.clone();
     internal_request.stop_policy = req.stop_policy.clone();
     internal_request.created_at = std::time::Instant::now();
+    if let Some(lock) = session_lock.as_ref() {
+        internal_request.adapter_stack = None;
+        internal_request.adapters = Some(lock.adapter_ids.clone());
+        internal_request.effective_adapter_ids = Some(lock.adapter_ids.clone());
+        internal_request.stack_id = lock.stack_id.clone();
+        internal_request.pinned_adapter_ids = Some(lock.pinned_adapter_ids.clone());
+        if let Some(backend) = lock.backend_profile {
+            internal_request.backend_profile = Some(backend);
+            internal_request.allow_fallback = backend == adapteros_core::BackendKind::Auto;
+        }
+        if let Some(coreml_mode) = lock.coreml_mode {
+            internal_request.coreml_mode = Some(coreml_mode);
+        }
+    }
 
     // Clone data for the stream
     let request_id_clone = request_id.clone();
@@ -1187,6 +1286,7 @@ pub async fn stream_with_loading_progress(
     tenant_id: String,
     user_id: String,
     claims: Option<crate::auth::Claims>,
+    session_lock: Option<ResolvedSessionTokenLock>,
 ) -> impl Stream<Item = Result<Event, Infallible>> {
     let state_clone = state.clone();
     let adapter_id_clone = adapter_id.clone();
@@ -1203,6 +1303,7 @@ pub async fn stream_with_loading_progress(
             tenant_id_clone,
             user_id_clone,
             claims_clone,
+            session_lock,
         ),
         |mut loading_state| async move {
             match loading_state.next_loading_event().await {
@@ -1259,6 +1360,8 @@ struct LoadingStreamState {
     pinned_routing_fallback: Option<String>,
     /// User claims for policy enforcement
     claims: Option<crate::auth::Claims>,
+    /// Session token adapter lock (if present)
+    session_lock: Option<ResolvedSessionTokenLock>,
     token_rx: Option<mpsc::Receiver<WorkerStreamToken>>,
     done_rx: Option<oneshot::Receiver<Result<InferenceResult, InferenceError>>>,
     /// Stop reason code (PRD: Hard Deterministic Stop Controller)
@@ -1289,6 +1392,7 @@ impl LoadingStreamState {
         tenant_id: String,
         user_id: String,
         claims: Option<crate::auth::Claims>,
+        session_lock: Option<ResolvedSessionTokenLock>,
     ) -> Self {
         let request_id = run_envelope.run_id.clone();
         Self {
@@ -1299,6 +1403,7 @@ impl LoadingStreamState {
             tenant_id,
             user_id,
             claims,
+            session_lock,
             cancellation_token: CancellationToken::new(),
             phase: LoadingPhase::CheckingState,
             start_time: std::time::Instant::now(),
@@ -1735,6 +1840,20 @@ impl LoadingStreamState {
         internal_request.model = self.request.model.clone();
         internal_request.stop_policy = self.request.stop_policy.clone();
         internal_request.created_at = std::time::Instant::now();
+        if let Some(lock) = self.session_lock.as_ref() {
+            internal_request.adapter_stack = None;
+            internal_request.adapters = Some(lock.adapter_ids.clone());
+            internal_request.effective_adapter_ids = Some(lock.adapter_ids.clone());
+            internal_request.stack_id = lock.stack_id.clone();
+            internal_request.pinned_adapter_ids = Some(lock.pinned_adapter_ids.clone());
+            if let Some(backend) = lock.backend_profile {
+                internal_request.backend_profile = Some(backend);
+                internal_request.allow_fallback = backend == adapteros_core::BackendKind::Auto;
+            }
+            if let Some(coreml_mode) = lock.coreml_mode {
+                internal_request.coreml_mode = Some(coreml_mode);
+            }
+        }
 
         let stream_config = self
             .state

@@ -383,6 +383,7 @@ async fn test_e2e_inference_with_audit_trail() {
         Extension(identity),
         Some(Extension(RequestId(request_id.to_string()))),
         None,
+        None,
         Json(infer_req),
     )
     .await
@@ -958,6 +959,7 @@ async fn test_training_job_adapter_infer_wiring() {
         Extension(identity),
         Some(Extension(RequestId(request_id.to_string()))),
         None,
+        None,
         Json(infer_req),
     )
     .await
@@ -1000,6 +1002,7 @@ async fn test_training_job_adapter_infer_wiring() {
             "test-rev".to_string(),
         )),
         Some(Extension(RequestId("cross-tenant-wiring".to_string()))),
+        None,
         None,
         Json(cross_req),
     )
@@ -1076,6 +1079,7 @@ async fn test_e2e_inference_fails_when_model_not_ready() {
         Extension(claims),
         Extension(identity),
         Some(Extension(RequestId("not-ready-test".to_string()))),
+        None,
         None,
         Json(infer_req),
     )
@@ -1179,6 +1183,7 @@ async fn test_e2e_inference_tenant_isolation() {
         Extension(claims),
         Extension(identity),
         Some(Extension(RequestId("isolation-test".to_string()))),
+        None,
         None,
         Json(infer_req),
     )
@@ -1307,6 +1312,7 @@ async fn test_e2e_inference_rejects_adapter_base_model_mismatch() {
         Extension(claims),
         Extension(identity),
         Some(Extension(RequestId("base-model-mismatch".to_string()))),
+        None,
         None,
         Json(infer_req),
     )
