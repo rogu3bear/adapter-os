@@ -62,6 +62,7 @@ pub mod manual;
 pub mod metrics; // Now uses adapteros_db::SystemMetricsDbOps
 pub mod models;
 pub mod node;
+pub mod ops;
 pub mod stack;
 pub mod status;
 // Legacy node command modules are kept for backward compatibility and shared utilities.

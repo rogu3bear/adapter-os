@@ -686,6 +686,23 @@ Examples:
     VerifyDeterminismLoop,
 
     // ============================================================
+    // Operational Tooling
+    // ============================================================
+    /// Operational tools (runbook generation, etc.)
+    #[command(subcommand, after_help = "\
+Examples:
+  # Generate operational runbooks from Serena memories
+  aosctl ops generate-runbooks
+
+  # Generate to custom directory
+  aosctl ops generate-runbooks --output /tmp/runbooks
+
+  # Dry run - preview what would be generated
+  aosctl ops generate-runbooks --dry-run
+")]
+    Ops(commands::ops::OpsCommand),
+
+    // ============================================================
     // Policy Management
     // ============================================================
     /// Manage policy packs
@@ -1858,6 +1875,11 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             std::process::exit(exit_code);
         }
 
+        // Operational Tooling
+        Commands::Ops(cmd) => {
+            commands::ops::handle_ops_command(cmd.clone(), &output).await?;
+        }
+
         // Policy Management
         Commands::Policy(cmd) => {
             cmd.clone().run()?;
@@ -2401,6 +2423,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::VerifyReceipt { .. } => "verify-receipt",
         Commands::VerifyCancellationReceipt { .. } => "verify-cancellation-receipt",
         Commands::VerifyAdapters { .. } => "verify-adapters",
+        Commands::Ops(_) => "ops",
         Commands::Policy(_) => "policy",
         Commands::Serve { .. } => "serve",
         Commands::Audit { .. } => "audit",
