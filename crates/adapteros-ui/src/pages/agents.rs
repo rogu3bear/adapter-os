@@ -200,6 +200,15 @@ pub fn Agents() -> impl IntoView {
                                         on_action=Some(refetch_sessions.clone())
                                     />
                                 }.into_any(),
+                                ApiError::Structured { code, .. } if code == "NOT_FOUND" => view! {
+                                    <EmptyState
+                                        title="Sessions Unavailable"
+                                        description="Orchestration sessions endpoint is not available on this backend."
+                                        variant=EmptyStateVariant::Unavailable
+                                        action_label="Retry"
+                                        on_action=Some(refetch_sessions.clone())
+                                    />
+                                }.into_any(),
                                 other => view! {
                                     <ErrorDisplay error=other on_retry=refetch_sessions.clone()/>
                                 }.into_any(),
