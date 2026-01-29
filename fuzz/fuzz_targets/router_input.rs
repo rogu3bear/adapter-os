@@ -61,6 +61,7 @@ fn next_float(u: &mut Unstructured<'_>, allow_special: bool) -> Option<f32> {
 }
 
 /// Generate a float clamped to valid range, with special value handling
+#[allow(dead_code)]
 fn next_safe_float(u: &mut Unstructured<'_>, min: f32, max: f32, fallback: f32) -> Option<f32> {
     let raw = next_float(u, true)?;
     if !raw.is_finite() {
@@ -74,7 +75,7 @@ fn next_safe_float(u: &mut Unstructured<'_>, min: f32, max: f32, fallback: f32) 
 fn build_adapter(idx: usize) -> AdapterInfo {
     AdapterInfo {
         id: format!("adapter-{}", idx),
-        framework: Some(if idx % 2 == 0 { "coreml" } else { "mlx" }.to_string()),
+        framework: Some(if idx.is_multiple_of(2) { "coreml" } else { "mlx" }.to_string()),
         languages: vec![idx % 8],
         tier: "prod".to_string(),
         scope_path: None,
@@ -260,7 +261,7 @@ fuzz_target!(|data: &[u8]| {
     // through routing with edge-case scores
 
     // Test 18: Verify determinism with valid inputs
-    if let Some(decision_a) = result.as_ref().ok() {
+    if let Ok(decision_a) = result.as_ref() {
         if !decision_a.indices.is_empty() {
             // Re-route with same inputs should give identical results
             let mut router_b = Router::new_with_weights(weights, k, tau, eps);

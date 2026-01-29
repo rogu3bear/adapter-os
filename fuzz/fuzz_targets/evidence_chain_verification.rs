@@ -6,14 +6,14 @@ use adapteros_core::B3Hash;
 use arbitrary::Unstructured;
 use libfuzzer_sys::fuzz_target;
 
-/// Fuzz evidence chain verification logic
-///
-/// Tests:
-/// - Chain verification with valid chains
-/// - Chain verification with broken links
-/// - Chain verification with corrupted roots
-/// - Single envelope verification
-/// - Empty chain handling
+// Fuzz evidence chain verification logic
+//
+// Tests:
+// - Chain verification with valid chains
+// - Chain verification with broken links
+// - Chain verification with corrupted roots
+// - Single envelope verification
+// - Empty chain handling
 fuzz_target!(|data: &[u8]| {
     let mut u = Unstructured::new(data);
 
