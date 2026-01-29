@@ -614,8 +614,8 @@ mod tests {
             cache.get(&key).is_some(),
             "Entry should still exist at 1 second"
         );
-        // Wait for TTL to expire (additional 1.5 seconds = 2.5 total > 2 second TTL)
-        std::thread::sleep(std::time::Duration::from_millis(1500));
+        // Wait for TTL to expire (additional 2.5 seconds = 3.5 total > 2 second TTL + 1s granularity buffer)
+        std::thread::sleep(std::time::Duration::from_millis(2500));
         assert!(
             cache.get(&key).is_none(),
             "Entry should be expired after TTL"
@@ -747,8 +747,8 @@ mod tests {
         cache.put(key.clone(), result);
         assert_eq!(cache.len(), 1);
 
-        // Wait for TTL to expire (2.5 seconds > 2 second TTL)
-        std::thread::sleep(std::time::Duration::from_millis(2500));
+        // Wait for TTL to expire (3.5 seconds > 2 second TTL + 1s granularity buffer)
+        std::thread::sleep(std::time::Duration::from_millis(3500));
         let removed = cache.cleanup_expired();
         assert_eq!(removed, 1);
         assert!(cache.is_empty());

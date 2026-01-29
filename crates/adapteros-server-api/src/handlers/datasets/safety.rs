@@ -426,21 +426,47 @@ pub fn validate_synthetic_ratio(
     }
 
     // Check ratio against thresholds
-    if ratio <= SYNTHETIC_RATIO_WARNING_THRESHOLD {
-        // Below warning threshold - clean
-        SyntheticRatioValidationResult {
-            ratio,
-            cap: config.ratio_cap,
-            status: "clean".to_string(),
-            override_requested,
-            override_accepted: false,
-            message: format!(
-                "Synthetic ratio {:.1}% is within safe limits (cap: {:.1}%)",
-                ratio * 100.0,
-                config.ratio_cap * 100.0
-            ),
+    // IMPORTANT: Check cap first, since custom caps may be lower than the warning threshold
+    if ratio > config.ratio_cap {
+        // Exceeds cap - either override (warn) or block
+        if override_requested && config.allow_override {
+            // Exceeds cap but override requested and allowed - warn with acceptance
+            warn!(
+                synthetic_ratio = ratio,
+                cap = config.ratio_cap,
+                "Synthetic ratio exceeds cap but override accepted"
+            );
+            SyntheticRatioValidationResult {
+                ratio,
+                cap: config.ratio_cap,
+                status: "warn".to_string(),
+                override_requested,
+                override_accepted: true,
+                message: format!(
+                    "OVERRIDE ACCEPTED: Synthetic ratio {:.1}% exceeds cap of {:.1}%. \
+                     Training will proceed with elevated synthetic data. \
+                     This may affect model quality and generalization.",
+                    ratio * 100.0,
+                    config.ratio_cap * 100.0
+                ),
+            }
+        } else {
+            // Exceeds cap without override - block
+            SyntheticRatioValidationResult {
+                ratio,
+                cap: config.ratio_cap,
+                status: "block".to_string(),
+                override_requested,
+                override_accepted: false,
+                message: format!(
+                    "Synthetic ratio {:.1}% exceeds maximum allowed cap of {:.1}%. \
+                     Request an explicit override to proceed with training.",
+                    ratio * 100.0,
+                    config.ratio_cap * 100.0
+                ),
+            }
         }
-    } else if ratio <= config.ratio_cap {
+    } else if ratio > SYNTHETIC_RATIO_WARNING_THRESHOLD {
         // Between warning threshold and cap - warn (approaching limit)
         SyntheticRatioValidationResult {
             ratio,
@@ -454,38 +480,16 @@ pub fn validate_synthetic_ratio(
                 config.ratio_cap * 100.0
             ),
         }
-    } else if override_requested && config.allow_override {
-        // Exceeds cap but override requested and allowed - warn with acceptance
-        warn!(
-            synthetic_ratio = ratio,
-            cap = config.ratio_cap,
-            "Synthetic ratio exceeds cap but override accepted"
-        );
-        SyntheticRatioValidationResult {
-            ratio,
-            cap: config.ratio_cap,
-            status: "warn".to_string(),
-            override_requested,
-            override_accepted: true,
-            message: format!(
-                "OVERRIDE ACCEPTED: Synthetic ratio {:.1}% exceeds cap of {:.1}%. \
-                 Training will proceed with elevated synthetic data. \
-                 This may affect model quality and generalization.",
-                ratio * 100.0,
-                config.ratio_cap * 100.0
-            ),
-        }
     } else {
-        // Exceeds cap without override - block
+        // Below warning threshold - clean
         SyntheticRatioValidationResult {
             ratio,
             cap: config.ratio_cap,
-            status: "block".to_string(),
+            status: "clean".to_string(),
             override_requested,
             override_accepted: false,
             message: format!(
-                "Synthetic ratio {:.1}% exceeds maximum allowed cap of {:.1}%. \
-                 Request an explicit override to proceed with training.",
+                "Synthetic ratio {:.1}% is within safe limits (cap: {:.1}%)",
                 ratio * 100.0,
                 config.ratio_cap * 100.0
             ),

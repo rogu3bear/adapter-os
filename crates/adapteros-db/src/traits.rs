@@ -121,7 +121,7 @@ pub struct StackRecordRow {
     pub created_at: String,
     pub updated_at: String,
     pub created_by: Option<String>,
-    pub version: i64,
+    pub version: String,
     pub determinism_mode: Option<String>,
     pub routing_determinism_mode: Option<String>,
     pub metadata_json: Option<String>,
