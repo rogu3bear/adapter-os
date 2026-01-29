@@ -494,7 +494,6 @@ pub async fn train_repository_adapter(
 
     // Evidence: docs/code-intelligence/code-implementation-roadmap.md:173-270
     // Pattern: Training pipeline with evidence-based adapter creation
-    let training_id = Uuid::now_v7().to_string();
     let estimated_duration = estimate_training_duration(&request.config, &analysis);
 
     let base_model_id = request.base_model_id.trim().to_string();
@@ -552,8 +551,12 @@ pub async fn train_repository_adapter(
             None, // base_version_id
             None, // dataset_id
             None, // dataset_version_ids
-            true, // synthetic_mode
-            adapteros_types::training::DataLineageMode::Synthetic,
+            analysis.evidence_spans.is_empty(), // synthetic_mode: only true when no evidence
+            if analysis.evidence_spans.is_empty() {
+                adapteros_types::training::DataLineageMode::Synthetic
+            } else {
+                adapteros_types::training::DataLineageMode::DatasetOnly
+            },
             Some(claims.tenant_id.clone()),
             Some(claims.sub.clone()),
             Some(claims.role.clone()),
@@ -586,34 +589,8 @@ pub async fn train_repository_adapter(
             )
         })?;
 
-    // Store training job in database
-    let training_config_json = serde_json::to_string(&training_job.config).map_err(|e| {
-        tracing::error!("Failed to serialize training config: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("Failed to serialize training config")
-                    .with_code("INTERNAL_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
-
-    state
-        .db
-        .create_training_job(&repo_id, &training_config_json, &claims.sub)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to create training job record: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to create training job record")
-                        .with_code("INTERNAL_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+    // Note: training_service.start_training() already creates the job record in the database
+    // Do not create a duplicate job record here
 
     // Log training job start event
     tracing::info!(
@@ -630,7 +607,7 @@ pub async fn train_repository_adapter(
     );
 
     Ok(Json(TrainRepositoryResponse {
-        training_id,
+        training_id: training_job.id.clone(),
         status: "started".to_string(),
         estimated_duration,
         evidence_count: analysis.evidence_spans.len(),
