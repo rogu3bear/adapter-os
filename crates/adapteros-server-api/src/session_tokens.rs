@@ -92,7 +92,7 @@ pub fn strip_session_token_prefix(raw: &str) -> Option<&str> {
         return None;
     }
     let rest = trimmed[SESSION_TOKEN_PREFIX.len()..]
-        .trim_start_matches(|c| matches!(c, '.' | ':' | '_' | '-'));
+        .trim_start_matches(|c| matches!(c, '.' | ':' | '_' | '-' | ' ' | '\t'));
     if rest.is_empty() {
         None
     } else {

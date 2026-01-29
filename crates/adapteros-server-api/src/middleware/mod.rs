@@ -16,6 +16,9 @@ use crate::security::{
     get_session_by_id, get_tenant_token_baseline, update_session_activity,
     validate_tenant_isolation,
 };
+use crate::session_tokens::{
+    decode_session_token_lock, strip_session_token_prefix, SessionTokenContext,
+};
 use crate::state::AppState;
 use crate::types::ErrorResponse;
 use adapteros_core::identity::IdentityEnvelope;
@@ -915,6 +918,7 @@ pub async fn auth_middleware(
     enum AuthToken<'a> {
         ApiKey(&'a str),
         Jwt(&'a str, JwtSource),
+        SessionJwt(&'a str, JwtSource),
     }
 
     #[derive(Clone, Copy)]
@@ -930,7 +934,9 @@ pub async fn auth_middleware(
         } else if let Some(bearer) = header.strip_prefix("Bearer ") {
             // OpenAI-compatible clients use `Authorization: Bearer <api_key>`.
             // Heuristic: JWTs always contain '.' separators; API keys (base64url) do not.
-            if bearer.contains('.') {
+            if let Some(session_token) = strip_session_token_prefix(bearer) {
+                Some(AuthToken::SessionJwt(session_token, JwtSource::Bearer))
+            } else if bearer.contains('.') {
                 Some(AuthToken::Jwt(bearer, JwtSource::Bearer))
             } else {
                 Some(AuthToken::ApiKey(bearer))
@@ -978,6 +984,73 @@ pub async fn auth_middleware(
                 }
 
                 return Ok(response);
+            }
+            AuthToken::SessionJwt(token, source) => {
+                let auth_mode = match source {
+                    JwtSource::Cookie => AuthMode::Cookie,
+                    _ => AuthMode::BearerToken,
+                };
+                match validate_access_token_with_session(&state, token).await {
+                    Ok(mut claims) => {
+                        #[cfg(debug_assertions)]
+                        tracing::debug!(
+                            user_id = %claims.sub,
+                            tenant_id = %claims.tenant_id,
+                            admin_tenants = ?claims.admin_tenants,
+                            jwt_algorithm = if state.use_ed25519 { "Ed25519" } else { "HMAC" },
+                            "Session JWT validated successfully"
+                        );
+
+                        match is_token_revoked(&state.db, &claims.jti).await {
+                            Ok(true) => {
+                                tracing::warn!(jti = %claims.jti, user_id = %claims.sub, "Revoked session token used");
+                                return Err(token_revoked("this token has been revoked"));
+                            }
+                            Ok(false) => { /* Token not revoked, continue */ }
+                            Err(e) => {
+                                tracing::warn!(error = %e, "Failed to check token revocation - denying access");
+                                return Err((
+                                    StatusCode::INTERNAL_SERVER_ERROR,
+                                    Json(
+                                        ErrorResponse::new("internal error")
+                                            .with_code("INTERNAL_ERROR"),
+                                    ),
+                                ));
+                            }
+                        }
+
+                        let lock = decode_session_token_lock(token)
+                            .map_err(|e| unauthenticated(format!("invalid session token: {e}")))?;
+                        let principal = build_principal_from_claims(
+                            &mut claims,
+                            PrincipalType::User,
+                            auth_mode.clone(),
+                        );
+                        let tenant_id = claims.tenant_id.clone();
+                        let token_exp = claims.exp;
+                        req.extensions_mut().insert(auth_mode.clone());
+                        req.extensions_mut().insert(principal);
+                        req.extensions_mut().insert(claims);
+                        req.extensions_mut().insert(SessionTokenContext { lock });
+                        let identity = IdentityEnvelope::new(
+                            tenant_id,
+                            "api".to_string(),
+                            "middleware".to_string(), // or specific
+                            IdentityEnvelope::default_revision(),
+                        );
+                        req.extensions_mut().insert(identity);
+
+                        let response = next.run(req).await;
+                        let now = Utc::now().timestamp();
+                        if now >= token_exp {
+                            tracing::warn!(exp = token_exp, now = now, "Auth token is expired");
+                            return Err(token_expired("token expired during request processing"));
+                        }
+
+                        return Ok(response);
+                    }
+                    Err(err) => return Err(err),
+                }
             }
             AuthToken::Jwt(token, source) => {
                 let auth_mode = match source {
@@ -1100,6 +1173,7 @@ pub async fn dual_auth_middleware(
     enum AuthToken<'a> {
         ApiKey(&'a str),
         Jwt(&'a str, JwtSource),
+        SessionJwt(&'a str, JwtSource),
     }
 
     #[derive(Clone, Copy)]
@@ -1115,7 +1189,9 @@ pub async fn dual_auth_middleware(
         } else if let Some(bearer) = header.strip_prefix("Bearer ") {
             // OpenAI-compatible clients use `Authorization: Bearer <api_key>`.
             // Heuristic: JWTs always contain '.' separators; API keys (base64url) do not.
-            if bearer.contains('.') {
+            if let Some(session_token) = strip_session_token_prefix(bearer) {
+                Some(AuthToken::SessionJwt(session_token, JwtSource::Bearer))
+            } else if bearer.contains('.') {
                 Some(AuthToken::Jwt(bearer, JwtSource::Bearer))
             } else {
                 Some(AuthToken::ApiKey(bearer))
@@ -1154,6 +1230,66 @@ pub async fn dual_auth_middleware(
                 );
                 req.extensions_mut().insert(identity);
                 return Ok(next.run(req).await);
+            }
+            AuthToken::SessionJwt(token, source) => {
+                let auth_mode = match source {
+                    JwtSource::Cookie => AuthMode::Cookie,
+                    _ => AuthMode::BearerToken,
+                };
+                match validate_access_token_with_session(&state, token).await {
+                    Ok(mut claims) => {
+                        #[cfg(debug_assertions)]
+                        tracing::debug!(
+                            user_id = %claims.sub,
+                            tenant_id = %claims.tenant_id,
+                            admin_tenants = ?claims.admin_tenants,
+                            jwt_algorithm = if state.use_ed25519 { "Ed25519" } else { "HMAC" },
+                            "Session JWT validated successfully (dual auth)"
+                        );
+
+                        match is_token_revoked(&state.db, &claims.jti).await {
+                            Ok(true) => {
+                                tracing::warn!(jti = %claims.jti, user_id = %claims.sub, "Revoked session token used (dual auth)");
+                                return Err(token_revoked("this token has been revoked"));
+                            }
+                            Ok(false) => { /* Token not revoked, continue */ }
+                            Err(e) => {
+                                tracing::warn!(error = %e, "Failed to check token revocation (dual auth) - denying access");
+                                return Err((
+                                    StatusCode::INTERNAL_SERVER_ERROR,
+                                    Json(
+                                        ErrorResponse::new("internal error")
+                                            .with_code("INTERNAL_ERROR"),
+                                    ),
+                                ));
+                            }
+                        }
+
+                        let lock = decode_session_token_lock(token)
+                            .map_err(|e| unauthenticated(format!("invalid session token: {e}")))?;
+                        let principal = build_principal_from_claims(
+                            &mut claims,
+                            PrincipalType::User,
+                            auth_mode.clone(),
+                        );
+                        let tenant_id = claims.tenant_id.clone();
+                        req.extensions_mut().insert(auth_mode.clone());
+                        req.extensions_mut().insert(principal);
+                        req.extensions_mut().insert(claims);
+                        req.extensions_mut().insert(SessionTokenContext { lock });
+                        let identity = IdentityEnvelope::new(
+                            tenant_id,
+                            "api".to_string(),
+                            "middleware".to_string(), // or specific
+                            IdentityEnvelope::default_revision(),
+                        );
+                        req.extensions_mut().insert(identity);
+                        return Ok(next.run(req).await);
+                    }
+                    Err(err) => {
+                        return Err(err);
+                    }
+                }
             }
             AuthToken::Jwt(token, source) => {
                 let auth_mode = match source {
@@ -1278,6 +1414,7 @@ pub async fn optional_auth_middleware(
     enum AuthToken<'a> {
         ApiKey(&'a str),
         Jwt(&'a str, JwtSource),
+        SessionJwt(&'a str, JwtSource),
     }
 
     #[derive(Clone, Copy)]
@@ -1293,7 +1430,9 @@ pub async fn optional_auth_middleware(
         } else if let Some(bearer) = header.strip_prefix("Bearer ") {
             // OpenAI-compatible clients use `Authorization: Bearer <api_key>`.
             // Heuristic: JWTs always contain '.' separators; API keys (base64url) do not.
-            if bearer.contains('.') {
+            if let Some(session_token) = strip_session_token_prefix(bearer) {
+                Some(AuthToken::SessionJwt(session_token, JwtSource::Bearer))
+            } else if bearer.contains('.') {
                 Some(AuthToken::Jwt(bearer, JwtSource::Bearer))
             } else {
                 Some(AuthToken::ApiKey(bearer))
@@ -1336,6 +1475,62 @@ pub async fn optional_auth_middleware(
                     tracing::debug!(error = ?e, "API key validation failed, proceeding unauthenticated");
                 }
             },
+            AuthToken::SessionJwt(token, source) => {
+                let auth_mode = match source {
+                    JwtSource::Cookie => AuthMode::Cookie,
+                    _ => AuthMode::BearerToken,
+                };
+                match validate_access_token_with_session(&state, token).await {
+                    Ok(mut claims) => {
+                        let should_skip_auth = match is_token_revoked(&state.db, &claims.jti).await
+                        {
+                            Ok(true) => {
+                                tracing::debug!(jti = %claims.jti, "Session token is revoked, proceeding without authentication");
+                                true
+                            }
+                            Ok(false) => false,
+                            Err(e) => {
+                                tracing::warn!(error = %e, "Failed to check token revocation (optional auth) - proceeding without auth");
+                                true
+                            }
+                        };
+
+                        if should_skip_auth {
+                            // skip
+                        } else {
+                            match decode_session_token_lock(token) {
+                                Ok(lock) => {
+                                    let principal = build_principal_from_claims(
+                                        &mut claims,
+                                        PrincipalType::User,
+                                        auth_mode.clone(),
+                                    );
+                                    let tenant_id = claims.tenant_id.clone();
+                                    req.extensions_mut().insert(auth_mode.clone());
+                                    req.extensions_mut().insert(principal);
+                                    req.extensions_mut().insert(claims);
+                                    req.extensions_mut().insert(SessionTokenContext { lock });
+                                    let identity = IdentityEnvelope::new(
+                                        tenant_id,
+                                        "api".to_string(),
+                                        "middleware".to_string(),
+                                        IdentityEnvelope::default_revision(),
+                                    );
+                                    req.extensions_mut().insert(identity);
+                                }
+                                Err(e) => {
+                                    tracing::debug!(error = %e, "Session token lock invalid, proceeding without authentication");
+                                }
+                            }
+                        }
+                    }
+                    Err(_e) => {
+                        tracing::debug!(
+                            "Token validation failed, proceeding without authentication"
+                        );
+                    }
+                }
+            }
             AuthToken::Jwt(token, source) => {
                 let auth_mode = match source {
                     JwtSource::Cookie => AuthMode::Cookie,
