@@ -1926,7 +1926,9 @@ pub fn default_schema() -> ConfigSchema {
                 max: Some(3600),
             })
             .default_value("600")
-            .description("Deadline in seconds for worker operations before timeout (default: 10 minutes)")
+            .description(
+                "Deadline in seconds for worker operations before timeout (default: 10 minutes)",
+            )
             .category("CIRCUIT_BREAKER")
             .config_key("circuit_breaker.worker_deadline_secs")
             .toml_key("circuit_breaker.worker_deadline_secs")

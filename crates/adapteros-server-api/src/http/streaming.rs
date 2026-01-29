@@ -67,7 +67,7 @@ fn default_max_tokens() -> usize {
 }
 
 fn default_temperature() -> f32 {
-    0.7
+    0.0
 }
 
 fn default_stream() -> bool {
@@ -584,7 +584,7 @@ mod tests {
         };
 
         assert_eq!(req.max_tokens, 512);
-        assert!((req.temperature - 0.7).abs() < 0.01);
+        assert!((req.temperature - 0.0).abs() < 0.01);
         assert!(req.stream);
     }
 

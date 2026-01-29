@@ -64,6 +64,10 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::auth_enhanced::register_handler,
         handlers::code::propose_patch,
         handlers::infer,
+        handlers::openai_compat::chat_completions,
+        handlers::openai_compat::completions_openai,
+        handlers::openai_compat::embeddings_openai,
+        handlers::openai_compat::list_models_openai,
         handlers::inference::get_inference_provenance,
         handlers::streaming_infer::streaming_infer,
         handlers::streaming_infer::streaming_infer_with_progress,
@@ -1241,6 +1245,14 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/chat/completions",
             post(handlers::openai_compat::chat_completions),
+        )
+        .route(
+            "/v1/completions",
+            post(handlers::openai_compat::completions_openai),
+        )
+        .route(
+            "/v1/embeddings",
+            post(handlers::openai_compat::embeddings_openai),
         )
         .route("/v1/infer", post(handlers::infer))
         .route(

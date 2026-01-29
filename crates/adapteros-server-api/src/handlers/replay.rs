@@ -657,9 +657,9 @@ pub async fn execute_replay_session(
         backend_profile: None,
         coreml_mode: None,
         max_tokens: req.max_tokens,
-        temperature: 0.7, // Default, could be stored in session
+        temperature: 0.0, // Default, could be stored in session
         top_k: None,
-        top_p: None,
+        top_p: Some(1.0),
         seed,        // Restored from session.rng_state_json for determinism
         router_seed, // From session's global seed for deterministic routing
         require_evidence: true,
