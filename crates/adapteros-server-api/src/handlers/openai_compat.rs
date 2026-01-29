@@ -156,8 +156,21 @@ pub struct OpenAiCompletionChoice {
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct OpenAiEmbeddingsRequest {
+    /// ID of the model to use.
     pub model: Option<String>,
+    /// Input text to embed, encoded as a string or array of strings.
     pub input: OpenAiCompletionPrompt,
+    /// The format to return the embeddings in. Can be either `float` or `base64`.
+    /// Defaults to `float`.
+    #[serde(default)]
+    pub encoding_format: Option<String>,
+    /// A unique identifier representing your end-user, which can help monitor and detect abuse.
+    #[serde(default)]
+    pub user: Option<String>,
+    /// The number of dimensions the resulting output embeddings should have.
+    /// Only supported in some models.
+    #[serde(default)]
+    pub dimensions: Option<usize>,
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
@@ -168,11 +181,39 @@ pub struct OpenAiEmbeddingsResponse {
     pub usage: OpenAiEmbeddingUsage,
 }
 
+/// Embedding data in either float array or base64 format.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[serde(untagged)]
+pub enum EmbeddingData {
+    /// Array of float values (default encoding_format="float")
+    Float { embedding: Vec<f32> },
+    /// Base64-encoded embedding (encoding_format="base64")
+    Base64 { embedding: String },
+}
+
+impl EmbeddingData {
+    /// Create float embedding data from a vector of floats.
+    pub fn from_float(embedding: Vec<f32>) -> Self {
+        EmbeddingData::Float { embedding }
+    }
+
+    /// Create base64 embedding data from a vector of floats.
+    pub fn from_base64(embedding: Vec<f32>) -> Self {
+        use base64::Engine;
+        // OpenAI uses little-endian f32 bytes for base64 encoding
+        let bytes: Vec<u8> = embedding.iter().flat_map(|f| f.to_le_bytes()).collect();
+        let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
+        EmbeddingData::Base64 { embedding: encoded }
+    }
+}
+
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct OpenAiEmbeddingItem {
     pub object: String,
     pub index: usize,
-    pub embedding: Vec<f32>,
+    /// Embedding vector, either as array of floats or base64-encoded string.
+    #[serde(flatten)]
+    pub embedding: EmbeddingData,
 }
 
 const CHARS_PER_TOKEN_ESTIMATE: usize = 4;
@@ -469,9 +510,7 @@ fn completion_prompt_to_text(
     }
 }
 
-fn embedding_inputs(
-    prompt: &OpenAiCompletionPrompt,
-) -> Result<Vec<String>, OpenAiErrorResponse> {
+fn embedding_inputs(prompt: &OpenAiCompletionPrompt) -> Result<Vec<String>, OpenAiErrorResponse> {
     match prompt {
         OpenAiCompletionPrompt::Single(text) => Ok(vec![text.clone()]),
         OpenAiCompletionPrompt::Batch(items) => {
@@ -529,8 +568,8 @@ pub async fn completions_openai(
         ));
     }
 
-    let prompt = completion_prompt_to_text(&req.prompt)
-        .map_err(|e| (StatusCode::BAD_REQUEST, Json(e)))?;
+    let prompt =
+        completion_prompt_to_text(&req.prompt).map_err(|e| (StatusCode::BAD_REQUEST, Json(e)))?;
     let prompt_tokens_estimate = estimate_tokens(&prompt);
 
     let infer_req = InferRequest {
@@ -608,6 +647,7 @@ pub async fn completions_openai(
 #[utoipa::path(
     post,
     path = "/v1/embeddings",
+    request_body = OpenAiEmbeddingsRequest,
     responses(
         (status = 200, description = "Embedding response", body = OpenAiEmbeddingsResponse),
         (status = 400, description = "Bad request", body = OpenAiErrorResponse),
@@ -629,6 +669,11 @@ pub async fn embeddings_openai(
         (status, Json(map_adapteros_error_to_openai(err)))
     })?;
 
+    // Log user identifier if provided (for abuse detection)
+    if let Some(ref user) = req.user {
+        tracing::debug!(user = %user, "Embeddings request from user");
+    }
+
     let embedding_model = state.embedding_model.as_ref().ok_or_else(|| {
         (
             StatusCode::BAD_REQUEST,
@@ -640,13 +685,28 @@ pub async fn embeddings_openai(
         )
     })?;
 
-    let inputs = embedding_inputs(&req.input)
-        .map_err(|e| (StatusCode::BAD_REQUEST, Json(e)))?;
+    // Determine encoding format (default to float)
+    let use_base64 = req
+        .encoding_format
+        .as_ref()
+        .map(|f| f.eq_ignore_ascii_case("base64"))
+        .unwrap_or(false);
+
+    // Note: dimensions parameter is logged but not enforced - model returns its native dimension
+    if let Some(dims) = req.dimensions {
+        tracing::debug!(
+            requested_dimensions = dims,
+            actual_dimensions = embedding_model.dimension(),
+            "Dimensions parameter provided (model may not support dimension reduction)"
+        );
+    }
+
+    let inputs = embedding_inputs(&req.input).map_err(|e| (StatusCode::BAD_REQUEST, Json(e)))?;
 
     let mut data = Vec::with_capacity(inputs.len());
     let mut prompt_tokens = 0usize;
     for (idx, text) in inputs.iter().enumerate() {
-        let embedding = embedding_model.encode_text(text).map_err(|e| {
+        let embedding_vec = embedding_model.encode_text(text).map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(openai_error(
@@ -657,6 +717,13 @@ pub async fn embeddings_openai(
             )
         })?;
         prompt_tokens = prompt_tokens.saturating_add(estimate_tokens(text));
+
+        let embedding = if use_base64 {
+            EmbeddingData::from_base64(embedding_vec)
+        } else {
+            EmbeddingData::from_float(embedding_vec)
+        };
+
         data.push(OpenAiEmbeddingItem {
             object: "embedding".to_string(),
             index: idx,
