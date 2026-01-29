@@ -686,19 +686,43 @@ pub async fn embeddings_openai(
     })?;
 
     // Determine encoding format (default to float)
-    let use_base64 = req
+    let use_base64 = match req
         .encoding_format
         .as_ref()
-        .map(|f| f.eq_ignore_ascii_case("base64"))
-        .unwrap_or(false);
+        .map(|s| s.to_ascii_lowercase())
+        .as_deref()
+    {
+        None | Some("float") => false,
+        Some("base64") => true,
+        Some(other) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(openai_error(
+                    format!(
+                        "Invalid encoding_format: '{}'. Must be 'float' or 'base64'",
+                        other
+                    ),
+                    Some("INVALID_ENCODING_FORMAT".to_string()),
+                    Some("encoding_format".to_string()),
+                )),
+            ));
+        }
+    };
 
-    // Note: dimensions parameter is logged but not enforced - model returns its native dimension
+    // Dimensions parameter is not supported - return error if specified
     if let Some(dims) = req.dimensions {
-        tracing::debug!(
-            requested_dimensions = dims,
-            actual_dimensions = embedding_model.dimension(),
-            "Dimensions parameter provided (model may not support dimension reduction)"
-        );
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(openai_error(
+                format!(
+                    "Dimension reduction is not supported. Requested {} dimensions, but model returns {} dimensions",
+                    dims,
+                    embedding_model.dimension()
+                ),
+                Some("DIMENSIONS_NOT_SUPPORTED".to_string()),
+                Some("dimensions".to_string()),
+            )),
+        ));
     }
 
     let inputs = embedding_inputs(&req.input).map_err(|e| (StatusCode::BAD_REQUEST, Json(e)))?;
