@@ -172,6 +172,13 @@ This section is a **verified snapshot** of backend behavior. **Update it only af
 - Global tick ledger in control plane boot; determinism checks gate promotions/replay.
 - Replay endpoints and diagnostics are first-class.
 
+### Token Caching Economics
+
+- Attribution formula: `A = L − C` (attributed = logical − cached)
+- Receipts commit cached token counts cryptographically
+- Speedup is non-linear due to memory pressure reduction
+- See `docs/TOKEN_CACHING_ECONOMICS.md` for details
+
 ### AppState (Central Services)
 
 - DB + config + clock + metrics + policy + crypto + lifecycle manager + registry + telemetry buffers + SSE manager + idempotency store + load coordinator + optional federation daemon + tick ledger + boot attestation.

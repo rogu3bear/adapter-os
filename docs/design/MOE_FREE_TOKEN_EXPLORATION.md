@@ -408,6 +408,13 @@ The "free token" concept combines aspects of speculative decoding (token predict
 
 ---
 
+## Related Documentation
+
+- [**TOKEN_CACHING_ECONOMICS.md**](../TOKEN_CACHING_ECONOMICS.md) — Economics of prefix caching and "free tokens"
+- [**CRYPTO_RECEIPTS.md**](../CRYPTO_RECEIPTS.md) — Cryptographic receipt structure
+
+---
+
 ## Next Steps
 
 1. **Instrument routing**: Add telemetry to collect expert activation patterns

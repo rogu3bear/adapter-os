@@ -464,6 +464,7 @@ aosctl receipt inspect --help
 
 ## Related Documentation
 
+- [**TOKEN_CACHING_ECONOMICS.md**](TOKEN_CACHING_ECONOMICS.md) — How prefix caching reduces attributed tokens
 - [**SEALED_ADAPTERS.md**](SEALED_ADAPTERS.md) — Sealed adapter containers
 - [**DETERMINISM.md**](DETERMINISM.md) — Deterministic execution
 - [**SECURITY.md**](SECURITY.md) — Security architecture
