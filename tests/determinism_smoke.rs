@@ -192,6 +192,12 @@ async fn init_in_memory_db() -> Result<Arc<Db>> {
             stop_reason_code TEXT,
             stop_reason_token_index INTEGER,
             stop_policy_digest_b3 BLOB,
+            -- KV quota/residency fields (PRD: KvResidencyAndQuotas v1)
+            tenant_kv_quota_bytes INTEGER NOT NULL DEFAULT 0,
+            tenant_kv_bytes_used INTEGER NOT NULL DEFAULT 0,
+            kv_evictions INTEGER NOT NULL DEFAULT 0,
+            kv_residency_policy_id TEXT,
+            kv_quota_enforced INTEGER NOT NULL DEFAULT 0,
             model_cache_identity_v2_digest_b3 BLOB,
             prefix_kv_key_b3 TEXT,
             prefix_cache_hit INTEGER NOT NULL DEFAULT 0,
