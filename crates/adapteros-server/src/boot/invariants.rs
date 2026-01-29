@@ -100,6 +100,8 @@ pub enum InvariantCategory {
     Lifecycle,
     /// System invariants (lock poisoning, critical errors)
     System,
+    /// Code hygiene invariants (credentials, uncommitted changes, panic density)
+    Hygiene,
 }
 
 impl InvariantCategory {
@@ -117,6 +119,7 @@ impl InvariantCategory {
             Self::Memory => "Memory",
             Self::Lifecycle => "Lifecycle",
             Self::System => "System",
+            Self::Hygiene => "Hygiene",
         }
     }
 }
@@ -229,6 +232,7 @@ impl InvariantReport {
             Memory,
             Lifecycle,
             System,
+            Hygiene,
         ];
         categories
             .iter()
@@ -256,7 +260,7 @@ impl InvariantReport {
 ///
 /// Returns `InvariantReport` containing all violations found.
 ///
-/// # Checked Invariants (28 total)
+/// # Checked Invariants (29 total)
 ///
 /// ## Security Invariants
 /// | ID | Description | Fatal in Prod |
@@ -278,6 +282,7 @@ impl InvariantReport {
 /// | `AUTH-001` | JWT signing key configured | Yes |
 /// | `AUTH-002` | HMAC secret is not default value | Yes |
 /// | `AUTH-003` | Session store initialized | Warning |
+/// | `AUTH-004` | JWT secret must not be placeholder | Yes |
 ///
 /// ## Authorization Invariants
 /// | ID | Description | Fatal in Prod |
@@ -955,6 +960,118 @@ pub fn validate_boot_invariants(
     }
 
     // =========================================================================
+    // AUTH-004: JWT secret must not be placeholder value
+    // =========================================================================
+    // Authentication invariant: JWT secret must not contain placeholder patterns
+    // or have insufficient entropy (e.g., all same character, repetitive patterns).
+    // This is a critical security invariant - FATAL in production.
+    if invariants_config.disable_auth_004_jwt_secret_placeholder {
+        report.record_skip("AUTH-004");
+    } else {
+        let jwt_secret = &cfg.security.jwt_secret;
+
+        // Known placeholder patterns that must never be used in production
+        const PLACEHOLDER_PATTERNS: &[&str] = &[
+            "CHANGE_ME",
+            "TODO",
+            "PLACEHOLDER",
+            "XXXXXXXX",
+            "12345678",
+            "secret",
+            "password",
+            "default",
+            "example",
+            "insecure",
+            "changeme",
+            "replace",
+            "fixme",
+            "your_secret",
+            "your-secret",
+        ];
+
+        let secret_lower = jwt_secret.to_lowercase();
+        let mut violation_reason: Option<String> = None;
+
+        // Check 1: Empty secret
+        if jwt_secret.is_empty() {
+            violation_reason = Some("JWT secret is empty".to_string());
+        }
+
+        // Check 2: Too short (minimum 64 chars for production per effective.rs)
+        if violation_reason.is_none() && production && jwt_secret.len() < 64 {
+            violation_reason = Some(format!(
+                "JWT secret is too short ({} chars, minimum 64 required in production)",
+                jwt_secret.len()
+            ));
+        }
+
+        // Check 3: Contains placeholder patterns
+        if violation_reason.is_none() {
+            for pattern in PLACEHOLDER_PATTERNS {
+                if secret_lower.contains(&pattern.to_lowercase()) {
+                    violation_reason = Some(format!(
+                        "JWT secret contains placeholder pattern '{}'",
+                        pattern
+                    ));
+                    break;
+                }
+            }
+        }
+
+        // Check 4: Low entropy - all same character
+        if violation_reason.is_none() && jwt_secret.len() >= 32 {
+            let first_char = jwt_secret.chars().next().unwrap();
+            if jwt_secret.chars().all(|c| c == first_char) {
+                violation_reason = Some(format!(
+                    "JWT secret has no entropy (all character '{}')",
+                    first_char
+                ));
+            }
+        }
+
+        // Check 5: Simple repetitive pattern (e.g., "abababab...")
+        if violation_reason.is_none() && jwt_secret.len() >= 16 {
+            for pattern_len in 1..=8 {
+                if jwt_secret.len() >= pattern_len * 4 {
+                    let pattern = &jwt_secret[..pattern_len];
+                    let expected_repeats = jwt_secret.len() / pattern_len;
+                    let expected_full = pattern.repeat(expected_repeats);
+                    if jwt_secret.starts_with(&expected_full) {
+                        violation_reason = Some(format!(
+                            "JWT secret is a simple repetitive pattern ('{}')",
+                            pattern
+                        ));
+                        break;
+                    }
+                }
+            }
+        }
+
+        if let Some(reason) = violation_reason {
+            if production {
+                report.record_violation(InvariantViolation {
+                    id: "AUTH-004",
+                    category: InvariantCategory::Authentication,
+                    message: reason,
+                    severity: Severity::Fatal,
+                    remediation:
+                        "Set a secure random JWT secret in config or AOS_JWT_SECRET env var. \
+                                  Generate with: openssl rand -base64 48",
+                });
+            } else {
+                warn!(
+                    invariant = "AUTH-004",
+                    reason = %reason,
+                    "JWT secret validation warning (development mode, not blocking)"
+                );
+                report.record_pass();
+            }
+        } else {
+            report.record_pass();
+        }
+    }
+
+    // =========================================================================
     // AUTHZ-001: RBAC tables populated (advisory at boot, enforced at runtime)
     // =========================================================================
     // Authorization invariant: Check RBAC configuration exists
@@ -1299,6 +1416,254 @@ pub fn validate_boot_invariants(
                 }
             }
         } else {
+            report.record_pass();
+        }
+    }
+
+    // =========================================================================
+    // HYGIENE-001: No credentials in repo
+    // =========================================================================
+    // Checks that no credential files exist in the workspace root
+    // Violation: Credential files (cookies.txt, *.pem, .env.local, etc.) found
+    // Fails: CLOSED in production (fatal)
+    if invariants_config.disable_hygiene_001_no_credentials {
+        report.record_skip("HYGIENE-001");
+    } else {
+        let workspace_root = std::env::current_dir().unwrap_or_default();
+        let credential_patterns = [
+            "cookies.txt",
+            ".env.local",
+            ".env.production",
+            "credentials.json",
+            "service-account.json",
+            "id_rsa",
+            "id_ed25519",
+        ];
+        let glob_patterns = ["*.pem", "*.key", "id_rsa*", "id_ed25519*"];
+
+        let mut found_credentials: Vec<String> = Vec::new();
+
+        // Check exact filenames
+        for pattern in &credential_patterns {
+            let path = workspace_root.join(pattern);
+            if path.exists() {
+                found_credentials.push(pattern.to_string());
+            }
+        }
+
+        // Check glob patterns in workspace root
+        for pattern in &glob_patterns {
+            if let Ok(entries) = glob::glob(&workspace_root.join(pattern).to_string_lossy()) {
+                for entry in entries.flatten() {
+                    if let Some(filename) = entry.file_name() {
+                        let name = filename.to_string_lossy().to_string();
+                        if !found_credentials.contains(&name) {
+                            found_credentials.push(name);
+                        }
+                    }
+                }
+            }
+        }
+
+        if found_credentials.is_empty() {
+            report.record_pass();
+        } else {
+            report.record_violation(InvariantViolation {
+                id: "HYGIENE-001",
+                category: InvariantCategory::Hygiene,
+                message: format!(
+                    "Credential files found in workspace root: [{}]",
+                    found_credentials.join(", ")
+                ),
+                severity: if production {
+                    Severity::Fatal
+                } else {
+                    Severity::Warning
+                },
+                remediation: "Remove credential files from repo root and add them to .gitignore",
+            });
+        }
+    }
+
+    // =========================================================================
+    // HYGIENE-002: Critical handlers committed
+    // =========================================================================
+    // Checks that auth/security handlers don't have uncommitted changes
+    // Violation: Modified files in handlers/ directory (especially auth)
+    // Fails: OPEN (warning only) - advisory for dev hygiene
+    if invariants_config.disable_hygiene_002_handlers_committed {
+        report.record_skip("HYGIENE-002");
+    } else {
+        // Run git diff --name-only to check for uncommitted changes
+        let git_result = std::process::Command::new("git")
+            .args(["diff", "--name-only"])
+            .output();
+
+        match git_result {
+            Ok(output) if output.status.success() => {
+                let changed_files = String::from_utf8_lossy(&output.stdout);
+                let critical_patterns = [
+                    "handlers/auth",
+                    "handlers/auth_enhanced",
+                    "security/",
+                    "middleware/auth",
+                    "middleware/security",
+                ];
+
+                let critical_changes: Vec<&str> = changed_files
+                    .lines()
+                    .filter(|line| {
+                        critical_patterns
+                            .iter()
+                            .any(|pattern| line.contains(pattern))
+                    })
+                    .collect();
+
+                if critical_changes.is_empty() {
+                    report.record_pass();
+                } else {
+                    report.record_violation(InvariantViolation {
+                        id: "HYGIENE-002",
+                        category: InvariantCategory::Hygiene,
+                        message: format!(
+                            "Uncommitted changes in critical handlers: [{}]",
+                            critical_changes.join(", ")
+                        ),
+                        severity: Severity::Warning,
+                        remediation:
+                            "Commit or stash changes to auth/security handlers before deployment",
+                    });
+                }
+            }
+            Ok(_) => {
+                // git command failed (non-zero exit), might not be a git repo
+                warn!(
+                    invariant = "HYGIENE-002",
+                    "Could not check git status (not a git repo or git error)"
+                );
+                report.record_pass();
+            }
+            Err(e) => {
+                // git not found or execution error
+                warn!(
+                    invariant = "HYGIENE-002",
+                    error = %e,
+                    "Could not execute git command"
+                );
+                report.record_pass();
+            }
+        }
+    }
+
+    // =========================================================================
+    // HYGIENE-003: Panic density check
+    // =========================================================================
+    // Checks for excessive unwrap()/expect() calls in critical paths
+    // Violation: Panic density exceeds threshold (20 per 1000 LOC)
+    // Fails: OPEN (warning only) - advisory for code quality
+    if invariants_config.disable_hygiene_003_panic_density {
+        report.record_skip("HYGIENE-003");
+    } else {
+        let critical_paths = [
+            "crates/adapteros-server-api/src/",
+            "crates/adapteros-lora-worker/src/",
+        ];
+
+        let workspace_root = std::env::current_dir().unwrap_or_default();
+        let mut total_loc: usize = 0;
+        let mut total_panics: usize = 0;
+        let mut high_density_files: Vec<(String, usize, usize)> = Vec::new();
+
+        for critical_path in &critical_paths {
+            let full_path = workspace_root.join(critical_path);
+            if !full_path.exists() {
+                continue;
+            }
+
+            // Walk the directory and count panics
+            if let Ok(entries) = glob::glob(&format!("{}**/*.rs", full_path.to_string_lossy())) {
+                for entry in entries.flatten() {
+                    if let Ok(content) = std::fs::read_to_string(&entry) {
+                        let lines: Vec<&str> = content.lines().collect();
+                        let loc = lines.len();
+                        let panic_count = lines
+                            .iter()
+                            .filter(|line| {
+                                let trimmed = line.trim();
+                                // Skip comments
+                                if trimmed.starts_with("//") {
+                                    return false;
+                                }
+                                // Count unwrap() and expect( patterns
+                                trimmed.contains(".unwrap()")
+                                    || trimmed.contains(".expect(")
+                                    || trimmed.contains("panic!(")
+                            })
+                            .count();
+
+                        total_loc += loc;
+                        total_panics += panic_count;
+
+                        // Track files with high panic density (> 30 per 1000 LOC)
+                        if loc > 100 && panic_count > 0 {
+                            let density = (panic_count * 1000) / loc;
+                            if density > 30 {
+                                if let Some(filename) = entry.file_name() {
+                                    high_density_files.push((
+                                        filename.to_string_lossy().to_string(),
+                                        panic_count,
+                                        loc,
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Calculate overall density (panics per 1000 LOC)
+        let overall_density = if total_loc > 0 {
+            (total_panics * 1000) / total_loc
+        } else {
+            0
+        };
+
+        const PANIC_THRESHOLD: usize = 20; // panics per 1000 LOC
+
+        if overall_density <= PANIC_THRESHOLD && high_density_files.is_empty() {
+            info!(
+                invariant = "HYGIENE-003",
+                total_loc = total_loc,
+                total_panics = total_panics,
+                density_per_1000 = overall_density,
+                "Panic density within acceptable limits"
+            );
+            report.record_pass();
+        } else if overall_density > PANIC_THRESHOLD {
+            report.record_violation(InvariantViolation {
+                id: "HYGIENE-003",
+                category: InvariantCategory::Hygiene,
+                message: format!(
+                    "Panic density too high: {} per 1000 LOC (threshold: {}). Total: {} unwrap/expect/panic in {} LOC",
+                    overall_density, PANIC_THRESHOLD, total_panics, total_loc
+                ),
+                severity: Severity::Warning,
+                remediation: "Reduce unwrap()/expect() usage in critical paths; use proper error handling",
+            });
+        } else {
+            // High density files but overall acceptable
+            let file_list: Vec<String> = high_density_files
+                .iter()
+                .take(5) // Limit to top 5
+                .map(|(f, p, l)| format!("{} ({}/{})", f, p, l))
+                .collect();
+            warn!(
+                invariant = "HYGIENE-003",
+                high_density_files = ?file_list,
+                overall_density = overall_density,
+                "Some files have high panic density"
+            );
             report.record_pass();
         }
     }

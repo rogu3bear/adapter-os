@@ -430,6 +430,7 @@ const ALLOW_INSECURE_FLAG: &str = "AOS_ALLOW_INSECURE_DEV_FLAGS";
 
 /// Insecure placeholder patterns that must never be used in production.
 /// These are common placeholder values that developers might forget to change.
+/// Checked case-insensitively against the JWT secret.
 const INSECURE_SECRET_PATTERNS: &[&str] = &[
     "CHANGE_ME",
     "changeme",
@@ -445,10 +446,25 @@ const INSECURE_SECRET_PATTERNS: &[&str] = &[
     "YOUR_SECRET_HERE",
     "xxx",
     "XXX",
+    "XXXXXXXX", // Common placeholder pattern
+    "xxxxxxxx",
+    "12345678", // Sequential digits placeholder
+    "00000000", // Repeated zeros
+    "abcdefgh", // Sequential letters
     "test",
     "TEST",
     "development",
     "DEVELOPMENT",
+    "TODO",     // Developer reminder left in code
+    "FIXME",    // Developer reminder left in code
+    "password", // Common insecure placeholder
+    "PASSWORD",
+    "default", // Default value left unchanged
+    "DEFAULT",
+    "example", // Example value left unchanged
+    "EXAMPLE",
+    "insecure", // Self-documenting insecure value
+    "INSECURE",
 ];
 
 #[derive(Debug)]
@@ -476,6 +492,14 @@ fn env_truthy(key: &str) -> bool {
 /// This function checks if the JWT secret matches any known placeholder patterns
 /// that developers might forget to change before deploying to production.
 ///
+/// # Validation Checks
+///
+/// 1. **Empty check**: Secret must not be empty
+/// 2. **Minimum length**: At least 32 characters for HMAC-SHA256
+/// 3. **Placeholder patterns**: Must not contain known placeholder strings
+/// 4. **Entropy check**: Must not be all the same character (low entropy)
+/// 5. **Repetitive pattern check**: Must not be a repeated short pattern
+///
 /// # Arguments
 ///
 /// * `jwt_secret` - The JWT secret to validate
@@ -490,7 +514,7 @@ pub fn validate_jwt_secret(jwt_secret: &str, production_mode: bool) -> Result<()
     if jwt_secret.is_empty() {
         if production_mode {
             return Err(anyhow::anyhow!(
-                "SECURITY VIOLATION: JWT secret is empty. \
+                "SECURITY VIOLATION [AUTH-004]: JWT secret is empty. \
                  Set AOS_JWT_SECRET or security.jwt_secret in config."
             ));
         } else {
@@ -504,8 +528,9 @@ pub fn validate_jwt_secret(jwt_secret: &str, production_mode: bool) -> Result<()
     if jwt_secret.len() < MIN_SECRET_LENGTH {
         if production_mode {
             return Err(anyhow::anyhow!(
-                "SECURITY VIOLATION: JWT secret is too short ({} chars, minimum {}). \
-                 Use a cryptographically secure random string.",
+                "SECURITY VIOLATION [AUTH-004]: JWT secret is too short ({} chars, minimum {}). \
+                 Use a cryptographically secure random string. \
+                 Generate one with: openssl rand -base64 48",
                 jwt_secret.len(),
                 MIN_SECRET_LENGTH
             ));
@@ -524,9 +549,9 @@ pub fn validate_jwt_secret(jwt_secret: &str, production_mode: bool) -> Result<()
         if secret_lower.contains(&pattern.to_lowercase()) {
             if production_mode {
                 return Err(anyhow::anyhow!(
-                    "SECURITY VIOLATION: JWT secret contains placeholder pattern '{}'. \
+                    "SECURITY VIOLATION [AUTH-004]: JWT secret contains placeholder pattern '{}'. \
                      Replace with a cryptographically secure random string. \
-                     Generate one with: openssl rand -base64 32",
+                     Generate one with: openssl rand -base64 48",
                     pattern
                 ));
             } else {
@@ -535,6 +560,54 @@ pub fn validate_jwt_secret(jwt_secret: &str, production_mode: bool) -> Result<()
                     "JWT secret contains placeholder pattern (development mode, not blocking)"
                 );
                 return Ok(());
+            }
+        }
+    }
+
+    // Check for low entropy: all same character (e.g., "AAAAAAAAAAAAAAAA...")
+    if jwt_secret.len() >= MIN_SECRET_LENGTH {
+        let first_char = jwt_secret.chars().next().unwrap();
+        if jwt_secret.chars().all(|c| c == first_char) {
+            if production_mode {
+                return Err(anyhow::anyhow!(
+                    "SECURITY VIOLATION [AUTH-004]: JWT secret has no entropy (all same character '{}'). \
+                     Use a cryptographically secure random string. \
+                     Generate one with: openssl rand -base64 48",
+                    first_char
+                ));
+            } else {
+                warn!(
+                    char = %first_char,
+                    "JWT secret has no entropy (all same character) (development mode, not blocking)"
+                );
+                return Ok(());
+            }
+        }
+
+        // Check for simple repetitive patterns (e.g., "abababab...", "abcabcabc...")
+        // Only check patterns up to 8 chars long
+        for pattern_len in 1..=8 {
+            if jwt_secret.len() >= pattern_len * 2 {
+                let pattern = &jwt_secret[..pattern_len];
+                let expected_repeats = jwt_secret.len() / pattern_len;
+                let expected_full = pattern.repeat(expected_repeats);
+                // Check if the secret is just this pattern repeated (with possible trailing chars)
+                if jwt_secret.starts_with(&expected_full) && expected_repeats >= 4 {
+                    if production_mode {
+                        return Err(anyhow::anyhow!(
+                            "SECURITY VIOLATION [AUTH-004]: JWT secret is a simple repetitive pattern '{}'. \
+                             Use a cryptographically secure random string. \
+                             Generate one with: openssl rand -base64 48",
+                            pattern
+                        ));
+                    } else {
+                        warn!(
+                            pattern = %pattern,
+                            "JWT secret is a simple repetitive pattern (development mode, not blocking)"
+                        );
+                        return Ok(());
+                    }
+                }
             }
         }
     }

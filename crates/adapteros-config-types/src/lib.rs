@@ -384,4 +384,16 @@ pub struct InvariantsConfig {
     /// Disable POL-002: Enforcement mode set check
     #[serde(default)]
     pub disable_pol_002_enforcement_mode: bool,
+    // =========================================================================
+    // Code Hygiene Invariants
+    // =========================================================================
+    /// Disable HYGIENE-001: No credentials in repo check (NOT RECOMMENDED)
+    #[serde(default)]
+    pub disable_hygiene_001_no_credentials: bool,
+    /// Disable HYGIENE-002: Critical handlers committed check (warning only)
+    #[serde(default)]
+    pub disable_hygiene_002_handlers_committed: bool,
+    /// Disable HYGIENE-003: Panic density check (warning only)
+    #[serde(default)]
+    pub disable_hygiene_003_panic_density: bool,
 }
