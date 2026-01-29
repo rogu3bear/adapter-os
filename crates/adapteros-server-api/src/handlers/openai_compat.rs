@@ -26,6 +26,7 @@ use crate::uds_client::WorkerStreamToken;
 use adapteros_core::identity::IdentityEnvelope;
 use adapteros_policy::hooks::PolicyHook;
 use axum::response::sse::{Event, KeepAlive, Sse};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use axum::response::{IntoResponse, Response};
 use axum::{extract::State, http::StatusCode, Extension, Json};
 use chrono::Utc;
@@ -57,12 +58,30 @@ pub struct OpenAiChatMessage {
     pub content: Value,
 }
 
+/// OpenAI-compatible chat completions response.
+///
+/// ## Receipt Digest Extraction
+///
+/// The `receipt_digest` from the underlying inference is embedded in this response:
+/// - **`id`**: Format `chatcmpl-{receipt_digest_b64url}` (first 12 base64url chars).
+/// - **`system_fingerprint`**: The full 64-character hex-encoded receipt digest.
+///
+/// Clients can extract the receipt digest for verification/audit by:
+/// 1. Using `system_fingerprint` directly (full hex digest)
+/// 2. Looking up the receipt via `/v1/runs/{run_id}/evidence` endpoint
 #[derive(Debug, Serialize)]
 pub struct OpenAiChatCompletionsResponse {
     pub id: String,
     pub object: String,
     pub created: i64,
     pub model: String,
+    /// System fingerprint for determinism tracking (full receipt_digest as hex).
+    ///
+    /// This is the BLAKE3 hash of the run receipt, allowing clients to:
+    /// - Verify deterministic replay capability
+    /// - Look up the full evidence chain via `/v1/runs/{run_id}/evidence`
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system_fingerprint: Option<String>,
     pub choices: Vec<OpenAiChatChoice>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<OpenAiUsage>,
@@ -307,11 +326,29 @@ async fn chat_completions_non_streaming(
         total_tokens: prompt_tokens.saturating_add(infer_resp.tokens_generated),
     });
 
+    // Extract receipt_digest from run_receipt for determinism tracking
+    // Convert B3Hash to hex string for system_fingerprint
+    let receipt_digest_hex = infer_resp
+        .run_receipt
+        .as_ref()
+        .map(|r| r.receipt_digest.to_hex());
+
+    // Format ID: chatcmpl-{receipt_digest_b64url} (first 12 base64url chars)
+    // Uses base64url encoding per spec for compact, URL-safe IDs
+    let id = match &infer_resp.run_receipt {
+        Some(receipt) => {
+            let b64url = URL_SAFE_NO_PAD.encode(receipt.receipt_digest.as_bytes());
+            format!("chatcmpl-{}", &b64url[..12.min(b64url.len())])
+        }
+        None => format!("chatcmpl-{}", infer_resp.id),
+    };
+
     let response = OpenAiChatCompletionsResponse {
-        id: format!("chatcmpl-{}", infer_resp.id),
+        id,
         object: "chat.completion".to_string(),
         created: Utc::now().timestamp(),
         model,
+        system_fingerprint: receipt_digest_hex,
         choices: vec![OpenAiChatChoice {
             index: 0,
             message: OpenAiChatMessageResponse {
@@ -709,24 +746,34 @@ fn build_openai_sse_stream(
                             None
                         };
 
-                        // Determine finish reason and receipt digest from result
-                        let (finish_reason, system_fingerprint) = match result {
+                        // Determine finish reason, system fingerprint, and final ID from result
+                        let (finish_reason, system_fingerprint, final_id) = match result {
                             Some(Ok(ref res)) => {
                                 let reason = map_finish_reason(res.stop_reason_code)
                                     .unwrap_or_else(|| "stop".to_string());
-                                // Use run_envelope manifest hash or deterministic receipt digest for system_fingerprint
-                                let fp = res.run_envelope.as_ref()
-                                    .and_then(|env| env.manifest_hash_b3.clone())
+                                // Use receipt_digest for system_fingerprint (full 64-char hex)
+                                // Falls back to manifest_hash if run_receipt unavailable
+                                let fp = res.run_receipt.as_ref()
+                                    .map(|r| r.receipt_digest.to_hex())
+                                    .or_else(|| res.run_envelope.as_ref()
+                                        .and_then(|env| env.manifest_hash_b3.clone()))
                                     .or_else(|| state.run_envelope.manifest_hash_b3.clone());
-                                (reason, fp)
+                                // Update ID to use receipt_digest in base64url format
+                                let id = res.run_receipt.as_ref()
+                                    .map(|r| {
+                                        let b64url = URL_SAFE_NO_PAD.encode(r.receipt_digest.as_bytes());
+                                        format!("chatcmpl-{}", &b64url[..12.min(b64url.len())])
+                                    })
+                                    .unwrap_or_else(|| state.request_id.clone());
+                                (reason, fp, id)
                             }
-                            Some(Err(_)) => ("error".to_string(), None),
-                            None => ("stop".to_string(), None),
+                            Some(Err(_)) => ("error".to_string(), None, state.request_id.clone()),
+                            None => ("stop".to_string(), None, state.request_id.clone()),
                         };
 
                         // Send final chunk with finish_reason
                         let final_chunk = StreamingChunk {
-                            id: state.request_id.clone(),
+                            id: final_id,
                             object: "chat.completion.chunk".to_string(),
                             created: state.created,
                             model: state.model_name.clone(),
