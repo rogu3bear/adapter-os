@@ -8,9 +8,8 @@ use crate::types::{OperationProgressEvent, ProgressEvent};
 use adapteros_core::{AosError, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::broadcast;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
@@ -81,15 +80,6 @@ pub struct ProgressFilter {
     pub until: Option<DateTime<Utc>>,
 }
 
-/// Progress storage backend
-#[derive(Debug)]
-pub enum ProgressStorage {
-    /// In-memory storage for development/testing
-    Memory(HashMap<String, ProgressOperation>),
-    /// Database-backed storage for production
-    Database(Arc<adapteros_db::Db>),
-}
-
 /// Configuration for progress service
 #[derive(Debug, Clone)]
 pub struct ProgressConfig {
@@ -113,7 +103,7 @@ impl Default for ProgressConfig {
 /// Centralized progress tracking service
 #[derive(Debug)]
 pub struct ProgressService {
-    storage: Arc<RwLock<ProgressStorage>>,
+    db: Arc<adapteros_db::Db>,
     event_tx: broadcast::Sender<ProgressEvent>,
     config: ProgressConfig,
     metrics: Option<ProgressMetrics>,
@@ -145,9 +135,9 @@ pub struct ProgressMetrics {
 }
 
 impl ProgressService {
-    /// Create a new progress service with in-memory storage
-    pub fn new() -> Self {
-        Self::with_config(ProgressConfig::default())
+    /// Create a new progress service with database storage
+    pub fn new(db: Arc<adapteros_db::Db>) -> Self {
+        Self::with_database_and_config(db, ProgressConfig::default())
     }
 
     /// Create a new progress service with database storage
@@ -155,28 +145,9 @@ impl ProgressService {
         Self::with_database_and_config(db, ProgressConfig::default())
     }
 
-    /// Create a new progress service with custom configuration
-    pub fn with_config(config: ProgressConfig) -> Self {
-        let (event_tx, _) = broadcast::channel(1000);
-        let storage = Arc::new(RwLock::new(ProgressStorage::Memory(HashMap::new())));
-        let metrics = if config.enable_metrics {
-            Some(Self::create_metrics())
-        } else {
-            None
-        };
-
-        Self {
-            storage,
-            event_tx,
-            config,
-            metrics,
-        }
-    }
-
     /// Create a new progress service with database storage and custom configuration
     pub fn with_database_and_config(db: Arc<adapteros_db::Db>, config: ProgressConfig) -> Self {
         let (event_tx, _) = broadcast::channel(1000);
-        let storage = Arc::new(RwLock::new(ProgressStorage::Database(db)));
         let metrics = if config.enable_metrics {
             Some(Self::create_metrics())
         } else {
@@ -184,7 +155,7 @@ impl ProgressService {
         };
 
         Self {
-            storage,
+            db,
             event_tx,
             config,
             metrics,
