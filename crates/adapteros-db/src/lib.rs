@@ -2841,6 +2841,7 @@ pub use policy_hash::PolicyHashRecord;
 pub use stacks_kv::{StackKvOps, StackKvRepository};
 pub use tenants_kv::{CreateTenantParams, TenantKvOps, TenantKvRepository};
 pub mod process_monitoring;
+pub mod progress_events;
 pub mod rag_retrieval_audit;
 pub mod replay_sessions;
 pub mod repositories;
