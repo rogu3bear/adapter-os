@@ -12,7 +12,6 @@ use adapteros_db::{adapters::AdapterRegistrationBuilder, Db};
 use anyhow::Result;
 use sqlx::Row;
 use std::collections::HashSet;
-use std::path::PathBuf;
 use tempfile::NamedTempFile;
 
 /// Helper to create an in-memory test database with all migrations applied

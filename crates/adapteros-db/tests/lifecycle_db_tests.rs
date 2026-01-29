@@ -2,7 +2,6 @@
 #![allow(deprecated)]
 
 use adapteros_db::Db;
-use std::path::PathBuf;
 use tempfile::TempDir;
 
 async fn promote_adapter_to_active(db: &Db, adapter_id: &str) -> Result<(), sqlx::Error> {

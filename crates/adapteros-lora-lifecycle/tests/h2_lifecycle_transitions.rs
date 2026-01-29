@@ -7,7 +7,6 @@ use adapteros_core::B3Hash;
 use adapteros_lora_lifecycle::{AdapterState, LifecycleManager};
 use adapteros_model_hub::manifest::Policies;
 use std::collections::HashMap;
-use std::path::PathBuf;
 use tempfile::TempDir;
 
 fn new_test_adapters_dir() -> TempDir {

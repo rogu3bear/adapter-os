@@ -418,7 +418,7 @@ async fn test_delete_race_condition_no_stale_kv_data() {
     let read_results = read_handle.await.unwrap();
 
     // Verify: After delete completes, adapter is gone from both backends
-    assert!(!db.get_adapter("race-delete-test").await.unwrap().is_some());
+    assert!(db.get_adapter("race-delete-test").await.unwrap().is_none());
     assert!(!adapter_exists_in_kv(&db, "default-tenant", "race-delete-test").await);
 
     // The fix ensures KV is deleted first, then SQL. This prevents the race condition
@@ -545,8 +545,8 @@ async fn test_concurrent_state_update_no_lost_updates() {
         .build()
         .unwrap();
 
-    let adapter_uuid = db.register_adapter(params).await.unwrap();
-    
+    let _adapter_uuid = db.register_adapter(params).await.unwrap();
+
     // Verify adapter exists
     assert!(db.get_adapter("concurrent-state-test").await.unwrap().is_some());
 

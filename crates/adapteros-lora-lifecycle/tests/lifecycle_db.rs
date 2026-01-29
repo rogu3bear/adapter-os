@@ -18,7 +18,6 @@ mod fixtures;
 use adapteros_lora_lifecycle::{AdapterState, LifecycleManager};
 use adapteros_model_hub::manifest::Policies;
 use fixtures::{fixtures as test_fixtures, utils, TestDbFixture};
-use std::path::PathBuf;
 use tempfile::TempDir;
 
 fn new_test_adapters_dir() -> TempDir {
