@@ -75,6 +75,8 @@ pub struct EffectiveConfig {
     pub diagnostics: DiagnosticsSection,
     /// Uploads configuration
     pub uploads: UploadsSection,
+    /// Circuit breaker configuration
+    pub circuit_breaker: CircuitBreakerSection,
     /// Source tracking for each config key
     sources: HashMap<String, String>,
     /// Whether running in production mode
@@ -386,6 +388,27 @@ pub struct UploadsSection {
     pub workspace_soft_quota_bytes: u64,
 }
 
+/// Circuit breaker section configuration
+///
+/// Controls circuit breaker behavior for resilience. When consecutive failures
+/// exceed the threshold, the circuit "opens" and requests fail fast. After the
+/// reset timeout, limited requests are allowed to test recovery.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CircuitBreakerSection {
+    /// Number of consecutive failures before circuit breaker opens (default: 5)
+    pub failure_threshold: u32,
+    /// Time in seconds to wait before attempting recovery (default: 60)
+    pub reset_timeout_secs: u64,
+    /// Maximum calls allowed in half-open state to test recovery (default: 3)
+    pub half_open_max_calls: u32,
+    /// Deadline in seconds for worker operations before timeout (default: 600)
+    pub worker_deadline_secs: u64,
+    /// Enable automatic fallback to stub mode when circuit is open (default: true)
+    pub enable_stub_fallback: bool,
+    /// Health check interval in seconds when circuit is open (default: 30)
+    pub health_check_interval_secs: u64,
+}
+
 /// Source of a configuration value (for debugging/observability)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ConfigValueSource {
@@ -441,6 +464,7 @@ impl EffectiveConfig {
         let self_hosting = Self::build_self_hosting_section(&config);
         let diagnostics = Self::build_diagnostics_section(&config);
         let uploads = Self::build_uploads_section(&config);
+        let circuit_breaker = Self::build_circuit_breaker_section(&config);
 
         let effective_config = Self {
             inner: config,
@@ -460,6 +484,7 @@ impl EffectiveConfig {
             self_hosting,
             diagnostics,
             uploads,
+            circuit_breaker,
             sources,
             is_production,
         };
@@ -585,6 +610,74 @@ impl EffectiveConfig {
     /// Minimum required length for JWT secret in production
     const MIN_JWT_SECRET_LENGTH: usize = 64;
 
+    /// Known placeholder patterns that must never be used in production JWT secrets.
+    const JWT_SECRET_PLACEHOLDER_PATTERNS: &'static [&'static str] = &[
+        "CHANGE_ME",
+        "change-me-in-production",
+        "TODO",
+        "PLACEHOLDER",
+        "XXXXXXXX",
+        "12345678",
+        "00000000",
+        "secret",
+        "password",
+        "default",
+        "example",
+        "insecure",
+        "changeme",
+        "replace",
+        "fixme",
+        "your_secret",
+        "your-secret",
+        "test",
+        "development",
+    ];
+
+    /// Validate JWT secret strength for production use (AUTH-004).
+    fn validate_jwt_secret_strength(jwt_secret: &str) -> Option<String> {
+        if jwt_secret.trim().is_empty() {
+            return Some("JWT secret is empty or whitespace-only".to_string());
+        }
+        if jwt_secret.len() < Self::MIN_JWT_SECRET_LENGTH {
+            return Some(format!(
+                "JWT secret is too short ({} chars, minimum {} required)",
+                jwt_secret.len(),
+                Self::MIN_JWT_SECRET_LENGTH
+            ));
+        }
+        let secret_lower = jwt_secret.to_lowercase();
+        for pattern in Self::JWT_SECRET_PLACEHOLDER_PATTERNS {
+            if secret_lower.contains(&pattern.to_lowercase()) {
+                return Some(format!(
+                    "JWT secret contains placeholder pattern '{}'",
+                    pattern
+                ));
+            }
+        }
+        if let Some(first_char) = jwt_secret.chars().next() {
+            if jwt_secret.chars().all(|c| c == first_char) {
+                return Some(format!(
+                    "JWT secret has no entropy (all character '{}')",
+                    first_char
+                ));
+            }
+        }
+        for pattern_len in 1..=8 {
+            if jwt_secret.len() >= pattern_len * 4 {
+                let pattern = &jwt_secret[..pattern_len];
+                let expected_repeats = jwt_secret.len() / pattern_len;
+                let expected_full = pattern.repeat(expected_repeats);
+                if jwt_secret.starts_with(&expected_full) {
+                    return Some(format!(
+                        "JWT secret is a simple repetitive pattern ('{}')",
+                        pattern
+                    ));
+                }
+            }
+        }
+        None
+    }
+
     /// Validate critical configuration values
     ///
     /// Ensures that security-critical configuration values are set correctly.
@@ -615,29 +708,12 @@ impl EffectiveConfig {
 
         // Production-only checks
         if self.is_production {
-            // JWT secret must be set in production (not empty or default)
-            if self.security.jwt_secret.trim().is_empty()
-                || self
-                    .security
-                    .jwt_secret
-                    .eq_ignore_ascii_case("change-me-in-production")
-                || self.security.jwt_secret
-                    == "CHANGE_ME_IN_PRODUCTION_USE_64_CHAR_RANDOM_STRING_HERE_XXXXXXXXX"
-            {
-                errors.push(
-                    "Production mode requires security.jwt_secret to be set to a secure value\n\
-                     Hint: Generate with: openssl rand -base64 48"
-                        .to_string(),
-                );
-            }
-
-            // JWT secret must be at least 64 characters
-            if self.security.jwt_secret.len() < Self::MIN_JWT_SECRET_LENGTH {
+            // AUTH-004: JWT secret validation - comprehensive placeholder and entropy check
+            // This is fail-closed in production - any validation failure blocks startup
+            if let Some(jwt_error) = Self::validate_jwt_secret_strength(&self.security.jwt_secret) {
                 errors.push(format!(
-                    "Production mode requires security.jwt_secret to be at least {} characters (got {})\n\
-                     Hint: Generate with: openssl rand -base64 48",
-                    Self::MIN_JWT_SECRET_LENGTH,
-                    self.security.jwt_secret.len()
+                    "AUTH-004: {}\nHint: Generate with: openssl rand -base64 48",
+                    jwt_error
                 ));
             }
 
@@ -816,34 +892,34 @@ impl EffectiveConfig {
         Ok(PathsSection {
             var_dir: config
                 .get("var.dir")
-                .map(|p| rebase_var_path(p))
+                .map(rebase_var_path)
                 .unwrap_or_else(|| rebase_var_path("var")),
             adapters_root: config
                 .get("adapters.dir")
-                .map(|p| rebase_var_path(p))
+                .map(rebase_var_path)
                 .unwrap_or_else(|| rebase_var_path("var/adapters/repo")),
             artifacts_root: config
                 .get("artifacts.dir")
-                .map(|p| rebase_var_path(p))
+                .map(rebase_var_path)
                 .unwrap_or_else(|| rebase_var_path("var/artifacts")),
             datasets_root: config
                 .get("paths.datasets.root")
                 .or_else(|| config.get("datasets.root"))
-                .map(|p| rebase_var_path(p))
+                .map(rebase_var_path)
                 .unwrap_or_else(|| rebase_var_path("var/datasets")),
             documents_root: config
                 .get("paths.documents.root")
                 .or_else(|| config.get("documents.root"))
-                .map(|p| rebase_var_path(p))
+                .map(rebase_var_path)
                 .unwrap_or_else(|| rebase_var_path("var/documents")),
             bundles_root: config
                 .get("paths.bundles.root")
                 .or_else(|| config.get("bundles.root"))
-                .map(|p| rebase_var_path(p))
+                .map(rebase_var_path)
                 .unwrap_or_else(|| rebase_var_path("var/bundles")),
             model_cache_dir: config
                 .get("model.cache.dir")
-                .map(|p| rebase_var_path(p))
+                .map(rebase_var_path)
                 .unwrap_or_else(|| rebase_var_path("var/models")),
         })
     }
@@ -916,7 +992,7 @@ impl EffectiveConfig {
                 .unwrap_or(true),
             alert_dir: config
                 .get("alerting.alert.dir")
-                .map(|p| adapteros_core::rebase_var_path(p))
+                .map(adapteros_core::rebase_var_path)
                 .unwrap_or_else(|| adapteros_core::rebase_var_path("var/alerts")),
             max_alerts_per_file: config
                 .get("alerting.max.alerts.per.file")
@@ -1157,6 +1233,47 @@ impl EffectiveConfig {
         CoremlSection {
             compute_preference,
             production_mode,
+        }
+    }
+
+    fn build_circuit_breaker_section(config: &DeterministicConfig) -> CircuitBreakerSection {
+        let failure_threshold = config
+            .get("circuit_breaker.failure_threshold")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(5);
+
+        let reset_timeout_secs = config
+            .get("circuit_breaker.reset_timeout_secs")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(60);
+
+        let half_open_max_calls = config
+            .get("circuit_breaker.half_open_max_calls")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(3);
+
+        let worker_deadline_secs = config
+            .get("circuit_breaker.worker_deadline_secs")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(600);
+
+        let enable_stub_fallback = config
+            .get("circuit_breaker.enable_stub_fallback")
+            .map(|v| v == "true")
+            .unwrap_or(true);
+
+        let health_check_interval_secs = config
+            .get("circuit_breaker.health_check_interval_secs")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(30);
+
+        CircuitBreakerSection {
+            failure_threshold,
+            reset_timeout_secs,
+            half_open_max_calls,
+            worker_deadline_secs,
+            enable_stub_fallback,
+            health_check_interval_secs,
         }
     }
 

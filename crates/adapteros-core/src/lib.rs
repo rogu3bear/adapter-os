@@ -37,6 +37,7 @@ pub mod codebase_versioning;
 pub mod context_hash;
 pub mod context_manifest;
 pub mod crypto_receipt;
+pub mod debug_bypass;
 pub mod defaults;
 pub mod deployment_verification;
 pub mod determinism;
