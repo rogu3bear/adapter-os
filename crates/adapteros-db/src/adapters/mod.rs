@@ -3453,7 +3453,7 @@ impl Db {
             );
         }
 
-        Ok(id)
+        Ok(id.to_string())
     }
 
     /// Find all expired adapters
