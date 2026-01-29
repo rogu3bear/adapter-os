@@ -292,17 +292,7 @@
                 0 0 0 3px hsla(220, 80%, 60%, 0.15);
 }
 
-/* Ghost Button */
-.theme-glass .btn-ghost {
-    background: transparent;
-    position: relative;
-    overflow: hidden;
-}
-
-.theme-glass .btn-ghost:hover {
-    background: var(--glass-bg-1);
-    box-shadow: var(--glass-shadow-sm);
-}
+/* Ghost Button - styles defined in components.css, glass blur applied via @supports above */
 
 /* Table Row Hover */
 .theme-glass .table-row:hover {

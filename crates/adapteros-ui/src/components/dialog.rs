@@ -17,6 +17,34 @@ fn next_dialog_id() -> String {
     format!("dialog-{}", id)
 }
 
+/// Dialog size variants
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum DialogSize {
+    /// Small dialog (384px)
+    Sm,
+    /// Medium dialog (512px) - default
+    #[default]
+    Md,
+    /// Large dialog (672px)
+    Lg,
+    /// Extra large dialog (896px)
+    Xl,
+    /// Full width (viewport - margins)
+    Full,
+}
+
+impl DialogSize {
+    fn class(&self) -> &'static str {
+        match self {
+            DialogSize::Sm => "dialog-sm",
+            DialogSize::Md => "dialog-md",
+            DialogSize::Lg => "dialog-lg",
+            DialogSize::Xl => "dialog-xl",
+            DialogSize::Full => "dialog-full",
+        }
+    }
+}
+
 /// Dialog component with keyboard handling
 ///
 /// Implements WCAG 2.1 modal dialog requirements:
@@ -28,6 +56,10 @@ pub fn Dialog(
     #[prop(into)] open: RwSignal<bool>,
     #[prop(optional, into)] title: String,
     #[prop(optional, into)] description: String,
+    /// Dialog size variant (default: Md)
+    #[prop(optional)] size: DialogSize,
+    /// Enable scrollable content with max-height constraint
+    #[prop(optional)] scrollable: bool,
     children: Children,
 ) -> impl IntoView {
     let close = move |_| open.set(false);
@@ -132,9 +164,13 @@ pub fn Dialog(
             id=dialog_id.clone()
             class=move || {
                 if open.get() {
-                    "dialog-content"
+                    let mut classes = vec!["dialog-content", size.class()];
+                    if scrollable {
+                        classes.push("dialog-scrollable");
+                    }
+                    classes.join(" ")
                 } else {
-                    "hidden"
+                    "hidden".to_string()
                 }
             }
             role="dialog"

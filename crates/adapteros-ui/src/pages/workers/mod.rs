@@ -9,7 +9,7 @@ mod icons;
 mod utils;
 
 use crate::api::ApiClient;
-use crate::components::{ErrorDisplay, Spinner};
+use crate::components::{Button, ButtonVariant, ErrorDisplay, Spinner};
 use crate::hooks::{use_api_resource, use_navigate, use_polling, LoadingState};
 use adapteros_api_types::SpawnWorkerRequest;
 use leptos::prelude::*;
@@ -65,20 +65,20 @@ pub fn Workers() -> impl IntoView {
                     </p>
                 </div>
                 <div class="flex items-center gap-2">
-                    <button
-                        class="inline-flex items-center gap-2 rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent"
-                        on:click=move |_| refetch_workers.run(())
+                    <Button
+                        variant=ButtonVariant::Secondary
+                        on_click=Callback::new(move |_| refetch_workers.run(()))
                     >
                         <RefreshIcon/>
                         "Refresh"
-                    </button>
-                    <button
-                        class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-                        on:click=move |_| show_spawn_dialog.set(true)
+                    </Button>
+                    <Button
+                        variant=ButtonVariant::Primary
+                        on_click=Callback::new(move |_| show_spawn_dialog.set(true))
                     >
                         <PlusIcon/>
                         "Spawn Worker"
-                    </button>
+                    </Button>
                 </div>
             </div>
 
@@ -256,13 +256,13 @@ pub fn WorkerDetail() -> impl IntoView {
         <div class="space-y-6">
             // Back button
             <div class="flex items-center gap-4">
-                <button
-                    class="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
-                    on:click=move |_| navigate("/workers")
+                <Button
+                    variant=ButtonVariant::Ghost
+                    on_click=Callback::new(move |_| navigate("/workers"))
                 >
                     <BackIcon/>
                     "Back to Workers"
-                </button>
+                </Button>
             </div>
 
             {move || {

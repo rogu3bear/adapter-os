@@ -3,15 +3,22 @@
 use super::spinner::{Spinner, SpinnerSize};
 use leptos::prelude::*;
 
-/// Button variants
+/// Button variants (Glass-Integrated Flat design)
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub enum ButtonVariant {
+    /// Main action - semi-transparent primary with blur
     #[default]
     Primary,
+    /// Supporting action - Tier 1 glass, subtle presence
     Secondary,
+    /// Transparent with glass border, fills on hover
     Outline,
+    /// Invisible until hover, then glass fades in
     Ghost,
+    /// Semi-transparent red with glow on hover
     Destructive,
+    /// Text-only, no glass effects
+    Link,
 }
 
 impl ButtonVariant {
@@ -22,6 +29,7 @@ impl ButtonVariant {
             Self::Outline => "btn-outline",
             Self::Ghost => "btn-ghost",
             Self::Destructive => "btn-destructive",
+            Self::Link => "btn-link",
         }
     }
 }
@@ -29,11 +37,17 @@ impl ButtonVariant {
 /// Button sizes
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub enum ButtonSize {
+    /// Compact size for dense UIs
     Sm,
+    /// Default size
     #[default]
     Md,
+    /// Prominent actions
     Lg,
+    /// Square icon button
     Icon,
+    /// Smaller square icon button
+    IconSm,
 }
 
 impl ButtonSize {
@@ -43,6 +57,7 @@ impl ButtonSize {
             Self::Md => "btn-md",
             Self::Lg => "btn-lg",
             Self::Icon => "btn-icon",
+            Self::IconSm => "btn-icon-sm",
         }
     }
 }

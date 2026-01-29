@@ -8,8 +8,8 @@ use crate::api::{
     UpdateErrorAlertRuleRequest,
 };
 use crate::components::{
-    AsyncBoundary, Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, Table, TableBody,
-    TableCell, TableHead, TableHeader, TableRow,
+    AsyncBoundary, Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, Dialog, Input,
+    Select, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::use_api_resource;
 use adapteros_api_types::telemetry::{ClientErrorItem, ClientErrorStatsResponse};
@@ -629,15 +629,13 @@ fn AlertsSection() -> impl IntoView {
             />
 
             // Create dialog
-            {move || show_create_dialog.get().then(|| view! {
-                <CreateAlertRuleDialog
-                    on_close=Callback::new(move |_| show_create_dialog.set(false))
-                    on_created=Callback::new(move |_| {
-                        show_create_dialog.set(false);
-                        refetch_rules.run(());
-                    })
-                />
-            })}
+            <CreateAlertRuleDialog
+                open=show_create_dialog
+                on_created=Callback::new(move |_| {
+                    show_create_dialog.set(false);
+                    refetch_rules.run(());
+                })
+            />
         </div>
     }
 }
@@ -785,24 +783,24 @@ fn AlertRuleRow(rule: ErrorAlertRuleResponse, on_update: Callback<()>) -> impl I
 /// Create alert rule dialog
 #[component]
 fn CreateAlertRuleDialog(on_close: Callback<()>, on_created: Callback<()>) -> impl IntoView {
-    let (name, set_name) = signal(String::new());
-    let (description, set_description) = signal(String::new());
-    let (error_pattern, set_error_pattern) = signal(String::new());
-    let (threshold_count, set_threshold_count) = signal(5);
-    let (threshold_window, set_threshold_window) = signal(5);
-    let (severity, set_severity) = signal("warning".to_string());
-    let (submitting, set_submitting) = signal(false);
-    let (error, set_error) = signal(None::<String>);
+    let name = RwSignal::new(String::new());
+    let description = RwSignal::new(String::new());
+    let error_pattern = RwSignal::new(String::new());
+    let threshold_count = RwSignal::new(5);
+    let threshold_window = RwSignal::new(5);
+    let severity = RwSignal::new("warning".to_string());
+    let submitting = RwSignal::new(false);
+    let error = RwSignal::new(None::<String>);
 
     let on_submit = move |_| {
         let name_val = name.get();
         if name_val.trim().is_empty() {
-            set_error.set(Some("Name is required".to_string()));
+            error.set(Some("Name is required".to_string()));
             return;
         }
 
-        set_submitting.set(true);
-        set_error.set(None);
+        submitting.set(true);
+        error.set(None);
 
         let request = CreateErrorAlertRuleRequest {
             name: name_val,
@@ -830,8 +828,8 @@ fn CreateAlertRuleDialog(on_close: Callback<()>, on_created: Callback<()>) -> im
             match client.create_error_alert_rule(&request).await {
                 Ok(_) => on_created.run(()),
                 Err(e) => {
-                    set_error.set(Some(e.to_string()));
-                    set_submitting.set(false);
+                    error.set(Some(e.to_string()));
+                    submitting.set(false);
                 }
             }
         });

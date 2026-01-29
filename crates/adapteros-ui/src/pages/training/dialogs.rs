@@ -6,7 +6,7 @@
 use crate::api::ApiClient;
 #[cfg(target_arch = "wasm32")]
 use crate::api::ApiError;
-use crate::components::{Button, ButtonVariant, Dialog, FormField, Input};
+use crate::components::{Button, ButtonVariant, Dialog, DialogSize, FormField, Input};
 use crate::pages::training::dataset_wizard::{DatasetUploadOutcome, DatasetUploadWizard};
 use crate::pages::training::generate_wizard::{GenerateDatasetOutcome, GenerateDatasetWizard};
 use crate::validation::{rules, use_form_errors, validate_field, ValidationRule};
@@ -527,6 +527,8 @@ pub fn CreateJobDialog(
             open=open
             title="New Training Job"
             description="Configure and start a new adapter training job"
+            size=DialogSize::Xl
+            scrollable=true
         >
             // Error message
                     {move || error.get().map(|e| view! {

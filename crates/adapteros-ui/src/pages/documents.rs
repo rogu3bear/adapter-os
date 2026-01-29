@@ -5,8 +5,8 @@
 use crate::api::client::{ChunkListResponse, DocumentListParams, DocumentResponse};
 use crate::api::ApiClient;
 use crate::components::{
-    Badge, BadgeVariant, Card, ConfirmationDialog, ConfirmationSeverity, Spinner, Table, TableBody,
-    TableCell, TableHead, TableHeader, TableRow,
+    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ConfirmationDialog,
+    ConfirmationSeverity, Spinner, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use leptos::prelude::*;
@@ -87,15 +87,15 @@ pub fn Documents() -> impl IntoView {
                         <option value="processing">"Processing"</option>
                         <option value="failed">"Failed"</option>
                     </select>
-                    <button
-                        class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-                        on:click={
+                    <Button
+                        variant=ButtonVariant::Primary
+                        on_click=Callback::new({
                             let refetch = refetch.clone();
                             move |_| refetch()
-                        }
+                        })
                     >
                         "Refresh"
-                    </button>
+                    </Button>
                 </div>
             </div>
 
@@ -118,23 +118,25 @@ pub fn Documents() -> impl IntoView {
                             {if total_pages > 1 {
                                 view! {
                                     <div class="flex items-center justify-center gap-2 mt-6">
-                                        <button
-                                            class="px-3 py-1 text-sm rounded-md border border-input bg-background hover:bg-muted disabled:opacity-50"
-                                            disabled=move || current <= 1
-                                            on:click=move |_| set_current_page.update(|p| *p = p.saturating_sub(1).max(1))
+                                        <Button
+                                            variant=ButtonVariant::Outline
+                                            size=ButtonSize::Sm
+                                            disabled=Signal::derive(move || current <= 1)
+                                            on_click=Callback::new(move |_| set_current_page.update(|p| *p = p.saturating_sub(1).max(1)))
                                         >
                                             "Previous"
-                                        </button>
+                                        </Button>
                                         <span class="text-sm text-muted-foreground">
                                             {format!("Page {} of {}", current, total_pages)}
                                         </span>
-                                        <button
-                                            class="px-3 py-1 text-sm rounded-md border border-input bg-background hover:bg-muted disabled:opacity-50"
-                                            disabled=move || current >= total_pages
-                                            on:click=move |_| set_current_page.update(|p| *p = (*p + 1).min(total_pages))
+                                        <Button
+                                            variant=ButtonVariant::Outline
+                                            size=ButtonSize::Sm
+                                            disabled=Signal::derive(move || current >= total_pages)
+                                            on_click=Callback::new(move |_| set_current_page.update(|p| *p = (*p + 1).min(total_pages)))
                                         >
                                             "Next"
-                                        </button>
+                                        </Button>
                                     </div>
                                 }.into_any()
                             } else {
@@ -287,15 +289,15 @@ pub fn DocumentDetail() -> impl IntoView {
                     <h1 class="text-3xl font-bold tracking-tight">"Document Details"</h1>
                 </div>
                 <div class="flex items-center gap-2">
-                    <button
-                        class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-                        on:click={
+                    <Button
+                        variant=ButtonVariant::Primary
+                        on_click=Callback::new({
                             let refetch = refetch.clone();
                             move |_| refetch()
-                        }
+                        })
                     >
                         "Refresh"
-                    </button>
+                    </Button>
                 </div>
             </div>
 
@@ -510,29 +512,32 @@ fn DocumentDetailContent(
                     <div class="flex gap-2 mt-4">
                         {is_failed.then(|| {
                             view! {
-                                <button
-                                    class="inline-flex items-center gap-2 rounded-md bg-secondary px-3 py-1.5 text-sm font-medium text-secondary-foreground hover:bg-secondary/80 disabled:opacity-50"
-                                    disabled=move || processing.get()
-                                    on:click=retry_action
+                                <Button
+                                    variant=ButtonVariant::Secondary
+                                    size=ButtonSize::Sm
+                                    disabled=Signal::derive(move || processing.get())
+                                    on_click=Callback::new(retry_action)
                                 >
                                     {move || if processing.get() { "Retrying..." } else { "Retry" }}
-                                </button>
+                                </Button>
                             }
                         })}
-                        <button
-                            class="inline-flex items-center gap-2 rounded-md bg-secondary px-3 py-1.5 text-sm font-medium text-secondary-foreground hover:bg-secondary/80 disabled:opacity-50"
-                            disabled=move || processing.get()
-                            on:click=process_action
+                        <Button
+                            variant=ButtonVariant::Secondary
+                            size=ButtonSize::Sm
+                            disabled=Signal::derive(move || processing.get())
+                            on_click=Callback::new(process_action)
                         >
                             {move || if processing.get() { "Processing..." } else { "Reprocess" }}
-                        </button>
-                        <button
-                            class="inline-flex items-center gap-2 rounded-md bg-destructive px-3 py-1.5 text-sm font-medium text-destructive-foreground hover:bg-destructive/80 disabled:opacity-50"
-                            disabled=move || deleting.get()
-                            on:click=open_delete_dialog
+                        </Button>
+                        <Button
+                            variant=ButtonVariant::Destructive
+                            size=ButtonSize::Sm
+                            disabled=Signal::derive(move || deleting.get())
+                            on_click=Callback::new(open_delete_dialog)
                         >
                             {move || if deleting.get() { "Deleting..." } else { "Delete" }}
-                        </button>
+                        </Button>
                     </div>
                 </div>
             </Card>

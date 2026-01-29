@@ -1237,19 +1237,19 @@ fn DiffTab(export: DiagExportResponse, compare_trace: Option<String>) -> impl In
                         </div>
                     </div>
                     <div class="flex flex-wrap items-center gap-3">
-                        <button
-                            class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-                            disabled=move || diff_loading.get() || run_b_trace_id.get().is_empty()
-                            on:click=move |_| start_compare.run(run_b_trace_id.get())
+                        <Button
+                            variant=ButtonVariant::Primary
+                            disabled=Signal::derive(move || diff_loading.get() || run_b_trace_id.get().is_empty())
+                            on_click=Callback::new(move |_| start_compare.run(run_b_trace_id.get()))
                         >
                             {move || if diff_loading.get() { "Comparing..." } else { "Compare Runs" }}
-                        </button>
-                        <button
-                            class="inline-flex items-center gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm hover:bg-accent"
-                            on:click=move |_| refetch_runs.run(())
+                        </Button>
+                        <Button
+                            variant=ButtonVariant::Secondary
+                            on_click=Callback::new(move |_| refetch_runs.run(()))
                         >
                             "Refresh Runs"
-                        </button>
+                        </Button>
                         {move || diff_error.get().map(|e| view! {
                             <span class="text-destructive text-sm">{e}</span>
                         })}

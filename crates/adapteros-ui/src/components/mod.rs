@@ -61,7 +61,7 @@ pub use confirmation_dialog::{ConfirmationDialog, ConfirmationSeverity, SimpleCo
 pub use danger_zone::{DangerZone, DangerZoneItem, InfoBanner, WarningBanner};
 pub use data_table::{Column, DataTable};
 pub use diag_diff::DiffResults;
-pub use dialog::Dialog;
+pub use dialog::{Dialog, DialogSize};
 pub use form_dialog::{FormDialog, StepFormDialog};
 pub use form_field::{FormField, HelpTooltip, LabelWithHelp};
 pub use glass_toggle::GlassThemeToggle;
