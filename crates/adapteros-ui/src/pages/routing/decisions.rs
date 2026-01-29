@@ -7,8 +7,8 @@ use crate::api::{
     RoutingDebugResponse, RoutingDecisionResponse, RoutingDecisionsQuery, RoutingDecisionsResponse,
 };
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ErrorDisplay, Spinner,
-    SplitPanel, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ErrorDisplay, Input, Spinner,
+    SplitPanel, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Textarea,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use leptos::prelude::*;
@@ -165,6 +165,12 @@ fn FilterBar(
     filter_stack: RwSignal<String>,
     on_filter_change: Callback<()>,
 ) -> impl IntoView {
+    // Watch for filter_stack changes and trigger refetch
+    Effect::new(move || {
+        let _ = filter_stack.get();
+        on_filter_change.run(());
+    });
+
     view! {
         <Card>
             <div class="flex items-center gap-4 flex-wrap">
@@ -184,16 +190,10 @@ fn FilterBar(
 
                 // Stack filter
                 <div class="flex items-center gap-2">
-                    <label class="text-sm text-muted-foreground">"Stack:"</label>
-                    <input
-                        type="text"
-                        class="h-8 px-2 text-sm rounded border border-border bg-background"
-                        placeholder="Filter by stack ID"
-                        prop:value=move || filter_stack.get()
-                        on:change=move |ev| {
-                            filter_stack.set(event_target_value(&ev));
-                            on_filter_change.run(());
-                        }
+                    <Input
+                        value=filter_stack
+                        placeholder="Filter by stack ID".to_string()
+                        class="h-8 w-48".to_string()
                     />
                 </div>
 

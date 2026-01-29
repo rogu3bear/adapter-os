@@ -282,45 +282,44 @@ fn HistorySection() -> impl IntoView {
             .await
     });
 
+    // Refetch on filter changes
+    Effect::new(move || {
+        let _ = error_type_filter.get();
+        let _ = http_status_filter.get();
+        refetch.run(());
+    });
+
     view! {
         <div class="space-y-4">
             // Filters
             <div class="flex items-center gap-4">
-                <div class="flex items-center gap-2">
-                    <label class="text-sm font-medium">"Type:"</label>
-                    <select
-                        class="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
-                        on:change=move |ev| {
-                            error_type_filter.set(event_target_value(&ev));
-                            refetch.run(());
-                        }
-                    >
-                        <option value="">"All"</option>
-                        <option value="Network">"Network"</option>
-                        <option value="Http">"HTTP"</option>
-                        <option value="Server">"Server"</option>
-                        <option value="Validation">"Validation"</option>
-                    </select>
-                </div>
-                <div class="flex items-center gap-2">
-                    <label class="text-sm font-medium">"Status:"</label>
-                    <select
-                        class="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
-                        on:change=move |ev| {
-                            http_status_filter.set(event_target_value(&ev));
-                            refetch.run(());
-                        }
-                    >
-                        <option value="">"All"</option>
-                        <option value="400">"400"</option>
-                        <option value="401">"401"</option>
-                        <option value="403">"403"</option>
-                        <option value="404">"404"</option>
-                        <option value="500">"500"</option>
-                        <option value="502">"502"</option>
-                        <option value="503">"503"</option>
-                    </select>
-                </div>
+                <Select
+                    value=error_type_filter
+                    label="Type".to_string()
+                    options=vec![
+                        ("".to_string(), "All".to_string()),
+                        ("Network".to_string(), "Network".to_string()),
+                        ("Http".to_string(), "HTTP".to_string()),
+                        ("Server".to_string(), "Server".to_string()),
+                        ("Validation".to_string(), "Validation".to_string()),
+                    ]
+                    class="w-32".to_string()
+                />
+                <Select
+                    value=http_status_filter
+                    label="Status".to_string()
+                    options=vec![
+                        ("".to_string(), "All".to_string()),
+                        ("400".to_string(), "400".to_string()),
+                        ("401".to_string(), "401".to_string()),
+                        ("403".to_string(), "403".to_string()),
+                        ("404".to_string(), "404".to_string()),
+                        ("500".to_string(), "500".to_string()),
+                        ("502".to_string(), "502".to_string()),
+                        ("503".to_string(), "503".to_string()),
+                    ]
+                    class="w-24".to_string()
+                />
                 <Button
                     variant=ButtonVariant::Outline
                     on:click=move |_| refetch.run(())
@@ -782,12 +781,15 @@ fn AlertRuleRow(rule: ErrorAlertRuleResponse, on_update: Callback<()>) -> impl I
 
 /// Create alert rule dialog
 #[component]
-fn CreateAlertRuleDialog(on_close: Callback<()>, on_created: Callback<()>) -> impl IntoView {
+fn CreateAlertRuleDialog(
+    open: RwSignal<bool>,
+    on_created: Callback<()>,
+) -> impl IntoView {
     let name = RwSignal::new(String::new());
     let description = RwSignal::new(String::new());
     let error_pattern = RwSignal::new(String::new());
-    let threshold_count = RwSignal::new(5);
-    let threshold_window = RwSignal::new(5);
+    let threshold_count = RwSignal::new("5".to_string());
+    let threshold_window = RwSignal::new("5".to_string());
     let severity = RwSignal::new("warning".to_string());
     let submitting = RwSignal::new(false);
     let error = RwSignal::new(None::<String>);
@@ -798,6 +800,9 @@ fn CreateAlertRuleDialog(on_close: Callback<()>, on_created: Callback<()>) -> im
             error.set(Some("Name is required".to_string()));
             return;
         }
+
+        let threshold_count_val = threshold_count.get().parse::<i32>().unwrap_or(5).max(1);
+        let threshold_window_val = threshold_window.get().parse::<i32>().unwrap_or(5).max(1);
 
         submitting.set(true);
         error.set(None);
@@ -816,8 +821,8 @@ fn CreateAlertRuleDialog(on_close: Callback<()>, on_created: Callback<()>) -> im
             },
             http_status_pattern: None,
             page_pattern: None,
-            threshold_count: threshold_count.get(),
-            threshold_window_minutes: threshold_window.get(),
+            threshold_count: threshold_count_val,
+            threshold_window_minutes: threshold_window_val,
             cooldown_minutes: 15,
             severity: severity.get(),
             notification_channels: None,
@@ -836,125 +841,82 @@ fn CreateAlertRuleDialog(on_close: Callback<()>, on_created: Callback<()>) -> im
     };
 
     view! {
-        <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <Card class="w-full max-w-lg mx-4">
-                <div class="p-6 space-y-4">
-                    <div class="flex items-center justify-between">
-                        <h2 class="text-lg font-semibold">"Create Alert Rule"</h2>
-                        <button
-                            type="button"
-                            class="text-muted-foreground hover:text-foreground"
-                            on:click=move |_| on_close.run(())
-                        >
-                            "✕"
-                        </button>
-                    </div>
-
-                    {move || error.get().map(|e| view! {
-                        <div class="rounded-md border border-destructive bg-destructive/10 p-3 text-sm text-destructive">
-                            {e}
-                        </div>
-                    })}
-
-                    <div class="space-y-4">
-                        <div>
-                            <label class="block text-sm font-medium mb-1">"Name"</label>
-                            <input
-                                type="text"
-                                class="w-full px-3 py-2 border rounded-md bg-background"
-                                placeholder="High error rate alert"
-                                prop:value=move || name.get()
-                                on:input=move |ev| set_name.set(event_target_value(&ev))
-                            />
-                        </div>
-
-                        <div>
-                            <label class="block text-sm font-medium mb-1">"Description"</label>
-                            <input
-                                type="text"
-                                class="w-full px-3 py-2 border rounded-md bg-background"
-                                placeholder="Optional description"
-                                prop:value=move || description.get()
-                                on:input=move |ev| set_description.set(event_target_value(&ev))
-                            />
-                        </div>
-
-                        <div>
-                            <label class="block text-sm font-medium mb-1">"Error Type Pattern"</label>
-                            <input
-                                type="text"
-                                class="w-full px-3 py-2 border rounded-md bg-background"
-                                placeholder="e.g., NetworkError, *Timeout* (optional)"
-                                prop:value=move || error_pattern.get()
-                                on:input=move |ev| set_error_pattern.set(event_target_value(&ev))
-                            />
-                            <p class="text-xs text-muted-foreground mt-1">
-                                "Leave empty to match all error types"
-                            </p>
-                        </div>
-
-                        <div class="grid grid-cols-2 gap-4">
-                            <div>
-                                <label class="block text-sm font-medium mb-1">"Threshold Count"</label>
-                                <input
-                                    type="number"
-                                    min="1"
-                                    class="w-full px-3 py-2 border rounded-md bg-background"
-                                    prop:value=move || threshold_count.get()
-                                    on:input=move |ev| {
-                                        if let Ok(v) = event_target_value(&ev).parse::<i32>() {
-                                            set_threshold_count.set(v.max(1));
-                                        }
-                                    }
-                                />
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium mb-1">"Window (minutes)"</label>
-                                <input
-                                    type="number"
-                                    min="1"
-                                    class="w-full px-3 py-2 border rounded-md bg-background"
-                                    prop:value=move || threshold_window.get()
-                                    on:input=move |ev| {
-                                        if let Ok(v) = event_target_value(&ev).parse::<i32>() {
-                                            set_threshold_window.set(v.max(1));
-                                        }
-                                    }
-                                />
-                            </div>
-                        </div>
-
-                        <div>
-                            <label class="block text-sm font-medium mb-1">"Severity"</label>
-                            <select
-                                class="w-full px-3 py-2 border rounded-md bg-background"
-                                on:change=move |ev| set_severity.set(event_target_value(&ev))
-                            >
-                                <option value="info" selected=move || severity.get() == "info">"Info"</option>
-                                <option value="warning" selected=move || severity.get() == "warning">"Warning"</option>
-                                <option value="critical" selected=move || severity.get() == "critical">"Critical"</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <div class="flex justify-end gap-2 pt-4">
-                        <Button
-                            variant=ButtonVariant::Outline
-                            on_click=Callback::new(move |_| on_close.run(()))
-                        >
-                            "Cancel"
-                        </Button>
-                        <Button
-                            variant=ButtonVariant::Primary
-                            on_click=Callback::new(on_submit)
-                            disabled=Signal::derive(move || submitting.get())
-                        >
-                            {move || if submitting.get() { "Creating..." } else { "Create Rule" }}
-                        </Button>
-                    </div>
+        <Dialog
+            open=open
+            title="Create Alert Rule"
+            description="Configure a new alert rule for error monitoring"
+        >
+            {move || error.get().map(|e| view! {
+                <div class="rounded-md border border-destructive bg-destructive/10 p-3 text-sm text-destructive">
+                    {e}
                 </div>
-            </Card>
-        </div>
+            })}
+
+            <div class="space-y-4">
+                <Input
+                    value=name
+                    label="Name".to_string()
+                    placeholder="High error rate alert".to_string()
+                    required=true
+                />
+
+                <Input
+                    value=description
+                    label="Description".to_string()
+                    placeholder="Optional description".to_string()
+                />
+
+                <div>
+                    <Input
+                        value=error_pattern
+                        label="Error Type Pattern".to_string()
+                        placeholder="e.g., NetworkError, *Timeout* (optional)".to_string()
+                    />
+                    <p class="text-xs text-muted-foreground mt-1">
+                        "Leave empty to match all error types"
+                    </p>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <Input
+                        value=threshold_count
+                        label="Threshold Count".to_string()
+                        input_type="number".to_string()
+                    />
+                    <Input
+                        value=threshold_window
+                        label="Window (minutes)".to_string()
+                        input_type="number".to_string()
+                    />
+                </div>
+
+                <Select
+                    value=severity
+                    label="Severity".to_string()
+                    options=vec![
+                        ("info".to_string(), "Info".to_string()),
+                        ("warning".to_string(), "Warning".to_string()),
+                        ("critical".to_string(), "Critical".to_string()),
+                    ]
+                />
+            </div>
+
+            <div class="flex justify-end gap-2 pt-4">
+                <Button
+                    variant=ButtonVariant::Outline
+                    on_click=Callback::new(move |_| open.set(false))
+                >
+                    "Cancel"
+                </Button>
+                <Button
+                    variant=ButtonVariant::Primary
+                    on_click=Callback::new(on_submit)
+                    disabled=Signal::derive(move || submitting.get())
+                >
+                    {move || if submitting.get() { "Creating..." } else { "Create Rule" }}
+                </Button>
+            </div>
+        </Dialog>
     }
 }
 

@@ -945,6 +945,7 @@ mod tests {
             forbidden_markers: vec![],
             uncommitted_handlers: vec![],
             ungated_bypasses: vec![],
+            cached_metadata: std::sync::OnceLock::new(),
         };
 
         let result = policy.analyze(&ctx).unwrap();
@@ -963,6 +964,7 @@ mod tests {
             forbidden_markers: vec![],
             uncommitted_handlers: vec![],
             ungated_bypasses: vec![],
+            cached_metadata: std::sync::OnceLock::new(),
         };
 
         let result = policy.analyze(&ctx).unwrap();
@@ -986,6 +988,7 @@ mod tests {
             forbidden_markers: vec![],
             uncommitted_handlers: vec![],
             ungated_bypasses: vec![],
+            cached_metadata: std::sync::OnceLock::new(),
         };
 
         let result = policy.analyze(&ctx).unwrap();
@@ -1008,6 +1011,7 @@ mod tests {
             forbidden_markers: vec![],
             uncommitted_handlers: vec![],
             ungated_bypasses: vec![],
+            cached_metadata: std::sync::OnceLock::new(),
         };
 
         let result = policy.analyze(&ctx).unwrap();
@@ -1036,6 +1040,7 @@ mod tests {
             ],
             uncommitted_handlers: vec![],
             ungated_bypasses: vec![],
+            cached_metadata: std::sync::OnceLock::new(),
         };
 
         let result = policy.analyze(&ctx).unwrap();
@@ -1059,6 +1064,7 @@ mod tests {
                 uncommitted_type: "todo!()".to_string(),
             }],
             ungated_bypasses: vec![],
+            cached_metadata: std::sync::OnceLock::new(),
         };
 
         let result = policy.analyze(&ctx).unwrap();
@@ -1081,6 +1087,7 @@ mod tests {
                 pattern: "skip_auth".to_string(),
                 context: "if skip_auth { return Ok(()); }".to_string(),
             }],
+            cached_metadata: std::sync::OnceLock::new(),
         };
 
         let result = policy.analyze(&ctx).unwrap();
@@ -1107,6 +1114,7 @@ mod tests {
                 pattern: "skip_auth".to_string(),
                 context: "if skip_auth { return Ok(()); }".to_string(),
             }],
+            cached_metadata: std::sync::OnceLock::new(),
         };
 
         let result = policy.analyze(&ctx).unwrap();
@@ -1203,6 +1211,7 @@ unsafe {
             forbidden_markers: vec![],
             uncommitted_handlers: vec![],
             ungated_bypasses: vec![],
+            cached_metadata: std::sync::OnceLock::new(),
         };
 
         let audit = policy.enforce(&ctx).unwrap();
