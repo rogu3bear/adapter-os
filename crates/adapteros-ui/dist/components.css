@@ -158,6 +158,35 @@
     text-underline-offset: 4px;
 }
 
+/* ===== Link Component ===== */
+.link {
+    display: inline;
+    text-decoration: none;
+    transition-property: color, text-decoration;
+    transition-duration: 150ms;
+}
+
+/* Default - Primary color with underline on hover */
+.link-default {
+    color: var(--color-primary);
+}
+
+.link-default:hover {
+    text-decoration: underline;
+    text-underline-offset: 4px;
+}
+
+/* Muted - For breadcrumbs and navigation */
+.link-muted {
+    color: var(--color-muted-foreground);
+}
+
+.link-muted:hover {
+    color: var(--color-foreground);
+    text-decoration: underline;
+    text-underline-offset: 4px;
+}
+
 /* ===== Button Sizes ===== */
 .btn-sm {
     height: 2rem;

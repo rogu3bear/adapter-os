@@ -19,8 +19,8 @@
 use crate::api::ApiClient;
 use crate::components::{
     AdapterDetailPanel, AsyncBoundary, AsyncBoundaryWithErrorRender, Badge, BadgeVariant, Button,
-    ButtonVariant, Card, EmptyState, EmptyStateVariant, ErrorDisplay, SplitPanel, SplitRatio,
-    Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    ButtonVariant, Card, EmptyState, EmptyStateVariant, ErrorDisplay, Link, LinkVariant,
+    SplitPanel, SplitRatio, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use crate::signals::refetch::{use_refetch_signal, RefetchTopic};
@@ -343,9 +343,9 @@ pub fn AdapterDetail() -> impl IntoView {
         <div class="p-6 space-y-6">
             <div class="flex items-center justify-between">
                 <div class="flex items-center gap-4">
-                    <a href="/adapters" class="text-muted-foreground hover:text-foreground">
+                    <Link href="/adapters" variant=LinkVariant::Muted>
                         "← Adapters"
-                    </a>
+                    </Link>
                     <h1 class="text-3xl font-bold tracking-tight">"Adapter Details"</h1>
                 </div>
                 <Button
@@ -368,9 +368,9 @@ pub fn AdapterDetail() -> impl IntoView {
                                 <div class="text-center">
                                     <h2 class="text-xl font-semibold mb-2 text-destructive">"Invalid Adapter ID"</h2>
                                     <p class="text-muted-foreground mb-4">{error_msg}</p>
-                                    <a href="/adapters" class="text-primary hover:underline">
+                                    <Link href="/adapters">
                                         "← Back to Adapters"
-                                    </a>
+                                    </Link>
                                 </div>
                             </div>
                         }.into_any()
@@ -442,9 +442,9 @@ fn AdapterDetailContent(adapter: AdapterResponse) -> impl IntoView {
                 <div class="text-center">
                     <h2 class="text-xl font-semibold mb-2 text-destructive">"Invalid Adapter Data"</h2>
                     <p class="text-muted-foreground mb-2">{validation_error}</p>
-                    <a href="/adapters" class="text-primary hover:underline">
+                    <Link href="/adapters">
                         "← Back to Adapters"
-                    </a>
+                    </Link>
                 </div>
             </div>
         }.into_any();

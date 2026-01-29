@@ -6,8 +6,8 @@ use super::dialogs::EditStackDialog;
 use super::helpers::{lifecycle_badge_variant, workflow_type_label};
 use crate::api::{ApiClient, StackResponse};
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ErrorDisplay, LoadingDisplay,
-    RefreshButton,
+    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ErrorDisplay, Link, LinkVariant,
+    LoadingDisplay, RefreshButton,
 };
 use crate::hooks::{use_api, use_api_resource, LoadingState};
 use adapteros_api_types::AdapterResponse;
@@ -48,9 +48,9 @@ pub fn StackDetail() -> impl IntoView {
         <div class="space-y-6">
             <div class="flex items-center justify-between">
                 <div class="flex items-center gap-4">
-                    <a href="/stacks" class="text-muted-foreground hover:text-foreground">
+                    <Link href="/stacks" variant=LinkVariant::Muted>
                         "< Runtime Stacks"
-                    </a>
+                    </Link>
                     <h1 class="text-3xl font-bold tracking-tight">"Stack Details"</h1>
                 </div>
                 <div class="flex items-center gap-2">

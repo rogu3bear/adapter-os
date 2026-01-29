@@ -13,8 +13,8 @@ use crate::api::{
 };
 use crate::components::{
     async_state::AsyncBoundary, Badge, BadgeVariant, Button, ButtonVariant, Card,
-    ConfirmationDialog, ConfirmationSeverity, Dialog, Input, Table, TableBody, TableCell,
-    TableHead, TableHeader, TableRow, Textarea,
+    ConfirmationDialog, ConfirmationSeverity, Dialog, Input, Link, LinkVariant, Table,
+    TableBody, TableCell, TableHead, TableHeader, TableRow, Textarea,
 };
 use crate::hooks::use_api_resource;
 use crate::signals::use_notifications;
@@ -392,11 +392,11 @@ pub fn CollectionDetail() -> impl IntoView {
             // Header with back link
             <div class="flex items-center justify-between">
                 <div class="flex items-center gap-4">
-                    <a href="/collections" class="text-muted-foreground hover:text-foreground">
+                    <Link href="/collections" variant=LinkVariant::Muted>
                         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>
                         </svg>
-                    </a>
+                    </Link>
                     <h1 class="text-3xl font-bold tracking-tight">"Collection Details"</h1>
                 </div>
                 <div class="flex items-center gap-2">

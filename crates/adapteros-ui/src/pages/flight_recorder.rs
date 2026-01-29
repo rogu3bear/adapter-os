@@ -11,8 +11,8 @@
 use crate::api::ApiClient;
 use crate::api::client::InferenceTraceDetailResponse;
 use crate::components::{
-    AsyncBoundary, Badge, BadgeVariant, Button, ButtonVariant, Card, DiffResults, Select, Spinner,
-    Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TokenDecisions,
+    AsyncBoundary, Badge, BadgeVariant, Button, ButtonVariant, Card, DiffResults, Link, Select,
+    Spinner, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TokenDecisions,
     TraceViewerWithData,
 };
 use crate::hooks::{use_api_resource, use_polling, LoadingState};
@@ -996,9 +996,9 @@ fn RoutingTab(
             // Link to full routing debug
             <Card>
                 <div class="text-center py-4">
-                    <a href="/routing" class="text-primary hover:underline text-sm">
+                    <Link href="/routing" class="text-sm">
                         "Open Routing Debug Tool →"
-                    </a>
+                    </Link>
                 </div>
             </Card>
         </div>
@@ -1259,9 +1259,9 @@ fn DiffTab(export: DiagExportResponse, compare_trace: Option<String>) -> impl In
                             let run_id = selected_run_id.get().unwrap_or(compare_id.clone());
                             let href = format!("/runs/{}?tab=diff&compare={}", run_id, run_a_trace_id_for_link);
                             view! {
-                                <a href=href class="text-sm text-primary hover:underline">
+                                <Link href=href class="text-sm">
                                     "Open in Run Detail"
-                                </a>
+                                </Link>
                             }.into_any()
                         }}
                     </div>

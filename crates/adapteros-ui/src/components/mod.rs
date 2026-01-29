@@ -23,6 +23,7 @@ pub mod global_search;
 pub mod icons;
 pub mod input;
 pub mod layout;
+pub mod link;
 pub mod notification_provider;
 pub mod offline_banner;
 pub mod responsive;
@@ -68,6 +69,7 @@ pub use glass_toggle::GlassThemeToggle;
 pub use global_search::{GlobalSearchBox, SearchTriggerButton};
 pub use input::{Input, Textarea};
 pub use layout::{Header, Shell, Sidebar, Taskbar, TopBar};
+pub use link::{Link, LinkVariant};
 pub use offline_banner::OfflineBanner;
 pub use responsive::{
     use_breakpoint, use_is_desktop_or_larger, use_is_mobile, use_is_tablet_or_smaller, Breakpoint,
