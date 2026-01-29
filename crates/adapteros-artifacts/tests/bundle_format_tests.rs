@@ -9,7 +9,7 @@ use adapteros_artifacts::{create_bundle, extract_bundle};
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_crypto::{bundle_sign::*, Keypair};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tempfile::TempDir;
 
 fn new_test_tempdir() -> TempDir {

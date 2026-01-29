@@ -198,7 +198,7 @@ async fn test_barrier_tick_timeout_behavior() {
     ));
 
     // Start agent-1 waiting
-    let barrier_clone = barrier.clone();
+    let _barrier_clone = barrier.clone();
     let tick_counter_clone = tick_counter.clone();
     let handle = tokio::spawn(async move {
         // Simulate tick advancement in background

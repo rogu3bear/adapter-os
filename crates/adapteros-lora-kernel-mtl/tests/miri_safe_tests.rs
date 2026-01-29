@@ -89,6 +89,7 @@ mod ring_buffer_layout {
     /// - uint current_pos (4 bytes)
     /// - ushort adapter_indices[8] (16 bytes)
     /// - short gates[8] (16 bytes)
+    ///
     /// Total: 40 bytes
     #[repr(C)]
     struct MetalRingBufferLayout {
@@ -171,7 +172,7 @@ mod ring_buffer_layout {
 mod pointer_safety {
     #[test]
     fn test_slice_bounds_validation() {
-        let data = vec![1.0f32, 2.0, 3.0, 4.0, 5.0];
+        let data = [1.0f32, 2.0, 3.0, 4.0, 5.0];
 
         // Simulate the bounds checking pattern used in safe_read_floats_from_buffer
         let buffer_size = data.len() * std::mem::size_of::<f32>();
@@ -190,7 +191,7 @@ mod pointer_safety {
 
     #[test]
     fn test_slice_with_offset() {
-        let data = vec![1.0f32, 2.0, 3.0, 4.0, 5.0];
+        let data = [1.0f32, 2.0, 3.0, 4.0, 5.0];
 
         // Simulate the bounds checking in safe_buffer_slice
         let start = 2usize;
@@ -211,7 +212,7 @@ mod pointer_safety {
 
     #[test]
     fn test_byte_slice_creation() {
-        let data = vec![1.0f32, 2.0, 3.0, 4.0];
+        let data = [1.0f32, 2.0, 3.0, 4.0];
 
         // Simulate safe_byte_buffer_slice pattern
         let buffer_bytes = data.len() * std::mem::size_of::<f32>();
@@ -227,7 +228,7 @@ mod pointer_safety {
 
     #[test]
     fn test_copy_nonoverlapping() {
-        let src = vec![1u32, 2, 3, 4];
+        let src = [1u32, 2, 3, 4];
         let mut dst = vec![0u32; 4];
 
         // SAFETY: src and dst don't overlap, both are valid for their lengths
@@ -366,6 +367,7 @@ mod noise_tracking {
     use std::collections::HashMap;
 
     #[derive(Debug, Clone)]
+    #[allow(dead_code)]
     struct EpsilonStats {
         layer_id: String,
         l2_error: f64,
