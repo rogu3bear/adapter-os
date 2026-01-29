@@ -192,6 +192,7 @@ fn build_principal_from_claims(
 
 pub mod audit;
 pub mod caching;
+pub mod canonicalization;
 pub mod chain_builder;
 pub mod compression;
 pub mod context;
@@ -204,6 +205,10 @@ pub mod trace_context;
 pub mod versioning;
 
 pub use caching::{caching_middleware, CacheControl};
+pub use canonicalization::{
+    canonicalization_middleware, selective_canonicalization_middleware, CanonicalRequest,
+    SkipCanonicalization,
+};
 pub use chain_builder::{
     api_key_chain, internal_chain, optional_auth_chain, protected_chain, MiddlewareChainConfig,
     ProtectedMiddlewareChain,
