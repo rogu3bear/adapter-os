@@ -117,6 +117,7 @@ pub mod request_tracker;
 pub mod routes;
 pub mod runtime_mode;
 pub mod security;
+pub mod session_tokens;
 pub mod self_hosting;
 pub mod services;
 pub mod settings_loader;
