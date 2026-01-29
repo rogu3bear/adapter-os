@@ -149,6 +149,34 @@ pub struct InferenceReceiptRef {
     /// BLAKE3 digest of the StopPolicySpec used
     pub stop_policy_digest_b3: Option<B3Hash>,
 
+    // --- KV quota/residency (PRD: KvResidencyAndQuotas v1) ---
+    /// Tenant KV quota in bytes
+    #[serde(default)]
+    pub tenant_kv_quota_bytes: u64,
+    /// Tenant KV bytes used at inference time
+    #[serde(default)]
+    pub tenant_kv_bytes_used: u64,
+    /// KV eviction count during inference
+    #[serde(default)]
+    pub kv_evictions: u32,
+    /// Residency policy identifier
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kv_residency_policy_id: Option<String>,
+    /// Whether KV quota enforcement was active
+    #[serde(default)]
+    pub kv_quota_enforced: bool,
+
+    // --- Prefix KV cache (PRD: PrefixKvCache v1) ---
+    /// Prefix KV cache key (BLAKE3 hash)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prefix_kv_key_b3: Option<B3Hash>,
+    /// Whether prefix cache hit occurred
+    #[serde(default)]
+    pub prefix_cache_hit: bool,
+    /// Prefix KV bytes reused
+    #[serde(default)]
+    pub prefix_kv_bytes: u64,
+
     // --- Model identity ---
     /// BLAKE3 digest of ModelCacheIdentityV2 canonical bytes
     pub model_cache_identity_v2_digest_b3: Option<B3Hash>,
@@ -720,6 +748,14 @@ mod tests {
             stop_reason_code: Some("end_turn".to_string()),
             stop_reason_token_index: Some(49),
             stop_policy_digest_b3: Some(B3Hash::hash(b"stop-policy")),
+            tenant_kv_quota_bytes: 0,
+            tenant_kv_bytes_used: 0,
+            kv_evictions: 0,
+            kv_residency_policy_id: None,
+            kv_quota_enforced: false,
+            prefix_kv_key_b3: None,
+            prefix_cache_hit: false,
+            prefix_kv_bytes: 0,
             model_cache_identity_v2_digest_b3: Some(B3Hash::hash(b"model-cache-id")),
             backend_used: "metal".to_string(),
             backend_attestation_b3: Some(B3Hash::hash(b"metal-attestation")),

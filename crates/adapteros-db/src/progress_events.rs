@@ -304,6 +304,7 @@ impl Db {
     pub async fn update_progress_event(
         &self,
         operation_id: &str,
+        tenant_id: &str,
         progress_pct: f64,
         status: &str,
         message: Option<&str>,
@@ -313,13 +314,14 @@ impl Db {
         sqlx::query(
             "UPDATE progress_events
              SET progress_pct = ?, status = ?, message = ?, updated_at = ?
-             WHERE operation_id = ? AND status = 'running'",
+             WHERE operation_id = ? AND tenant_id = ? AND status = 'running'",
         )
         .bind(progress_pct)
         .bind(status)
         .bind(message)
         .bind(&now)
         .bind(operation_id)
+        .bind(tenant_id)
         .execute(self.pool())
         .await
         .map_err(|e| {

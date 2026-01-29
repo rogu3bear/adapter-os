@@ -396,6 +396,7 @@ impl ProgressService {
 
                     db.update_progress_event(
                         &operation_id,
+                        &record.tenant_id,
                         progress_pct,
                         "running",
                         message.as_deref(),
@@ -464,6 +465,7 @@ impl ProgressService {
                     let final_status_str = final_status.to_string();
                     db.update_progress_event(
                         &operation_id,
+                        &record.tenant_id,
                         100.0,
                         final_status_str.as_str(),
                         Some(message),
