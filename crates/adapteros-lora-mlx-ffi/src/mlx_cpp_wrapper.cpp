@@ -94,9 +94,9 @@ extern "C" mlx_model_t* mlx_model_load_from_buffer(const uint8_t*, size_t, const
     return nullptr;
 }
 extern "C" void mlx_model_free(mlx_model_t*) {}
-extern "C" mlx_array_t* mlx_model_forward(mlx_model_t*, mlx_array_t*) { return nullptr; }
+extern "C" mlx_array_t* mlx_model_forward(mlx_model_t*, mlx_array_t*, int) { return nullptr; }
 extern "C" mlx_array_t* mlx_model_forward_with_hidden_states(
-    mlx_model_t*, mlx_array_t*, mlx_array_t**, int*) {
+    mlx_model_t*, mlx_array_t*, int, mlx_array_t**, int*) {
     return nullptr;
 }
 extern "C" void mlx_hidden_states_free(mlx_array_t*, int) {}

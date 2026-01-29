@@ -103,8 +103,22 @@ void mlx_array_free(mlx_array_t* array);
 // Model operations
 mlx_model_t* mlx_model_load(const char* path);
 mlx_model_t* mlx_model_load_from_buffer(const uint8_t* buffer, size_t buffer_len, const char* config_json);
-mlx_array_t* mlx_model_forward(mlx_model_t* model, mlx_array_t* input);
-mlx_array_t* mlx_model_forward_with_hidden_states(mlx_model_t* model, mlx_array_t* input, mlx_array_t** hidden_states, int* num_hidden);
+// Forward pass with position offset for RoPE computation
+// Parameters:
+//   model: loaded model handle
+//   input: input token IDs
+//   position_offset: starting position for RoPE (0 for prompt, N for incremental generation at position N)
+// Returns: logits tensor, NULL on error
+mlx_array_t* mlx_model_forward(mlx_model_t* model, mlx_array_t* input, int position_offset);
+// Forward pass with hidden states capture and position offset
+// Parameters:
+//   model: loaded model handle
+//   input: input token IDs
+//   position_offset: starting position for RoPE (0 for prompt, N for incremental generation at position N)
+//   hidden_states: output pointer for hidden states array (caller must free with mlx_hidden_states_free)
+//   num_hidden: output pointer for number of hidden states
+// Returns: logits tensor, NULL on error
+mlx_array_t* mlx_model_forward_with_hidden_states(mlx_model_t* model, mlx_array_t* input, int position_offset, mlx_array_t** hidden_states, int* num_hidden);
 void mlx_model_free(mlx_model_t* model);
 void mlx_hidden_states_free(mlx_array_t* hidden_states, int num_hidden);
 

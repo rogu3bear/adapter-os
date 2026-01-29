@@ -32,12 +32,17 @@ impl MockMLXFFIModel {
     }
 
     /// Mock forward with hidden states
+    ///
+    /// # Arguments
+    /// * `token_ids` - Input token IDs
+    /// * `position` - Starting position for RoPE computation (used for incremental generation)
     #[allow(clippy::type_complexity)]
     pub fn forward_with_hidden_states(
         &self,
         token_ids: &[u32],
+        position: usize,
     ) -> Result<(Vec<f32>, HashMap<String, Vec<f32>>)> {
-        let logits = self.forward(token_ids, 0)?;
+        let logits = self.forward(token_ids, position)?;
         let mut hidden_states = HashMap::new();
 
         // Add mock hidden states

@@ -3352,8 +3352,9 @@ Use --force-resume to override (may produce incorrect results).",
         // Use first example to probe model outputs
         if let Some(first_batch) = dataset.batches.first() {
             if let Some(first_example) = first_batch.examples.first() {
+                // Position 0 for training - process full sequence from the start
                 let (_, probe_hidden_states) =
-                    model.forward_with_hidden_states(&first_example.input_tokens)?;
+                    model.forward_with_hidden_states(&first_example.input_tokens, 0)?;
 
                 for layer_idx in &layer_indices {
                     for target in &targets {
@@ -3413,8 +3414,9 @@ Use --force-resume to override (may produce incorrect results).",
                 }
 
                 // Get all hidden states from forward pass
+                // Position 0 for training - process full sequence from the start
                 let (_logits, hidden_states) =
-                    model.forward_with_hidden_states(&example.input_tokens)?;
+                    model.forward_with_hidden_states(&example.input_tokens, 0)?;
 
                 // Train each (layer, module) combination
                 for layer_idx in &layer_indices {
@@ -3974,7 +3976,8 @@ Use --force-resume to override (may produce incorrect results).",
 
         // Run actual model forward pass with hidden state capture
         // Use input_tokens (actual token IDs) not padded_input (which was incorrectly padded to hidden_dim)
-        let (_logits, hidden_states) = model.forward_with_hidden_states(&example.input_tokens)?;
+        // Position 0 for training - process full sequence from the start
+        let (_logits, hidden_states) = model.forward_with_hidden_states(&example.input_tokens, 0)?;
 
         // Extract hidden state from the configured layer
         let hidden_raw = hidden_states.get(&self.hidden_state_key).ok_or_else(|| {

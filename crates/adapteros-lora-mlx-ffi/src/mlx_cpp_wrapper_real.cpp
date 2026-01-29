@@ -1416,15 +1416,16 @@ extern "C" mlx_model_t *mlx_model_load_from_buffer(const uint8_t *buffer,
 }
 
 extern "C" mlx_array_t *mlx_model_forward(mlx_model_t *model,
-                                          mlx_array_t *input) {
+                                          mlx_array_t *input,
+                                          int position_offset) {
   if (!model || !input)
     return nullptr;
   try {
     auto model_wrapper = reinterpret_cast<MLXModelWrapper *>(model);
     auto input_wrapper = reinterpret_cast<MLXArrayWrapper *>(input);
 
-    mx::array output = model_wrapper->forward(input_wrapper->arr);
-    mx::eval(output); // Force evaluation
+    mx::array output = model_wrapper->forward(input_wrapper->arr, position_offset);
+    mx::eval(output); // Force evaluation  - mlx::core::eval NOT JavaScript eval
 
     auto result_wrapper = new MLXArrayWrapper(output);
     return reinterpret_cast<mlx_array_t *>(result_wrapper);
@@ -1436,6 +1437,7 @@ extern "C" mlx_array_t *mlx_model_forward(mlx_model_t *model,
 
 extern "C" mlx_array_t *
 mlx_model_forward_with_hidden_states(mlx_model_t *model, mlx_array_t *input,
+                                     int position_offset,
                                      mlx_array_t **hidden_states,
                                      int *num_hidden) {
   if (!model || !input || !hidden_states || !num_hidden)
@@ -1445,8 +1447,8 @@ mlx_model_forward_with_hidden_states(mlx_model_t *model, mlx_array_t *input,
     auto input_wrapper = reinterpret_cast<MLXArrayWrapper *>(input);
 
     mx::array output =
-        model_wrapper->forward_with_hidden_states(input_wrapper->arr);
-    mx::eval(output); // Force evaluation
+        model_wrapper->forward_with_hidden_states(input_wrapper->arr, position_offset);
+    mx::eval(output); // Force evaluation - mlx::core::eval NOT JavaScript eval
 
     // Extract hidden states from model wrapper
     const auto &hidden_states_vec = model_wrapper->hidden_states_vec;

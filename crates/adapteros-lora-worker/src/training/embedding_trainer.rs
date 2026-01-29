@@ -342,7 +342,8 @@ impl EmbeddingTrainer {
         #[cfg(feature = "multi-backend")]
         if let Some(ref model) = self.base_model {
             // Use real hidden states from base model
-            let (_logits, hidden_states) = model.forward_with_hidden_states(&token_ids)?;
+            // Position 0 for embedding training - process full sequence from the start
+            let (_logits, hidden_states) = model.forward_with_hidden_states(&token_ids, 0)?;
 
             let hidden = hidden_states.get(&self.hidden_state_key).ok_or_else(|| {
                 AosError::Training(format!(

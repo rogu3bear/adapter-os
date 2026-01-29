@@ -650,7 +650,7 @@ mod hidden_states {
         let model = MockMLXFFIModel::new(config);
         let token_ids = vec![1, 2, 3];
 
-        let result = model.forward_with_hidden_states(&token_ids);
+        let result = model.forward_with_hidden_states(&token_ids, 0);
         assert!(result.is_ok(), "Forward with hidden states should succeed");
 
         let (logits, hidden_states) = result.unwrap();
@@ -695,7 +695,7 @@ mod hidden_states {
         let model = MockMLXFFIModel::new(config);
         let token_ids = vec![1, 2];
 
-        let (_logits, hidden_states) = model.forward_with_hidden_states(&token_ids).unwrap();
+        let (_logits, hidden_states) = model.forward_with_hidden_states(&token_ids, 0).unwrap();
 
         for (module_name, hidden_values) in &hidden_states {
             assert!(

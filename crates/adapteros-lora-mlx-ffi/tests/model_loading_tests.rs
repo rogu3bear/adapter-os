@@ -332,7 +332,7 @@ mod forward_pass_tests {
         let model = MockMLXFFIModel::new(config);
         let token_ids = vec![1, 2, 3];
 
-        let result = model.forward_with_hidden_states(&token_ids);
+        let result = model.forward_with_hidden_states(&token_ids, 0);
         assert!(result.is_ok());
 
         let (logits, hidden_states) = result.unwrap();

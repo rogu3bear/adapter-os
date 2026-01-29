@@ -962,7 +962,10 @@ impl MLXFFIBackend {
         }
 
         // Run forward pass with hidden states through the model
-        let (base_logits, hidden_states) = self.model.forward_with_hidden_states(&io.input_ids)?;
+        // io.position is passed to ensure correct RoPE positions during incremental generation
+        // Step 0 (prompt): position=0, tokens get positions [0, 1, ..., N-1]
+        // Step 1+ (generation): position=N, single token gets position N
+        let (base_logits, hidden_states) = self.model.forward_with_hidden_states(&io.input_ids, io.position)?;
 
         // Validate base logits
         if base_logits.is_empty() {
