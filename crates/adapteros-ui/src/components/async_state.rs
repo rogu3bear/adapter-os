@@ -4,7 +4,7 @@
 //! ensuring consistent UI patterns and no infinite spinners.
 
 use crate::api::ApiError;
-use crate::components::{Badge, BadgeVariant, Spinner};
+use crate::components::{Badge, BadgeVariant, Button, ButtonVariant, Spinner};
 use adapteros_api_types::FailureCode;
 use leptos::prelude::*;
 
@@ -498,14 +498,14 @@ pub fn RefreshButton(
     let is_loading = move || loading.map(|l| l.get()).unwrap_or(false);
 
     view! {
-        <button
-            class="inline-flex items-center justify-center rounded-md text-sm font-medium h-10 px-4 py-2 border border-input bg-background hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
-            disabled=is_loading
-            on:click=move |_| on_click.run(())
+        <Button
+            variant=ButtonVariant::Secondary
+            disabled=Signal::derive(is_loading)
+            on_click=Callback::new(move |_| on_click.run(()))
         >
             <svg
                 xmlns="http://www.w3.org/2000/svg"
-                class="h-4 w-4 mr-2"
+                class="h-4 w-4"
                 class:animate-spin=is_loading
                 viewBox="0 0 24 24"
                 fill="none"
@@ -520,7 +520,7 @@ pub fn RefreshButton(
                 <path d="M3 21v-5h5"/>
             </svg>
             {move || if is_loading() { "Refreshing..." } else { "Refresh" }}
-        </button>
+        </Button>
     }
 }
 

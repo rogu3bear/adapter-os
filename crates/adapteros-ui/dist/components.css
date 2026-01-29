@@ -3,22 +3,23 @@
  * Semantic CSS classes for UI components (replaces Tailwind utilities)
  */
 
-/* ===== Button Component ===== */
+/* ===== Button Component (Glass-Integrated Flat) ===== */
 .btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 0.5rem;
     white-space: nowrap;
-    border-radius: var(--radius);
+    border-radius: 6px;
     font-size: 0.875rem;
     font-weight: 500;
-    transition-property: color, background-color, border-color;
-    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-    transition-duration: 150ms;
+    letter-spacing: -0.01em;
     cursor: pointer;
-    border: none;
     outline: none;
+    border: 1px solid var(--glass-border);
+    backdrop-filter: blur(8px) saturate(1.1);
+    -webkit-backdrop-filter: blur(8px) saturate(1.1);
+    transition: all 200ms ease;
 }
 
 .btn:focus-visible {
@@ -26,113 +27,168 @@
     outline-offset: 2px;
 }
 
-.btn:disabled {
-    pointer-events: none;
-    background-color: var(--color-disabled);
-    color: var(--color-disabled-foreground);
-    border-color: var(--color-disabled);
+.btn:active:not(:disabled) {
+    transform: scale(0.98);
+    transition: transform 100ms ease;
 }
 
-/* Button variants */
+.btn:disabled {
+    pointer-events: none;
+    background: var(--glass-bg-1);
+    color: var(--color-muted-foreground);
+    border-color: transparent;
+    opacity: 0.5;
+    backdrop-filter: blur(4px) saturate(0.8);
+    -webkit-backdrop-filter: blur(4px) saturate(0.8);
+}
+
+.dark .btn:disabled {
+    background: var(--glass-bg-1);
+    color: var(--color-muted-foreground);
+}
+
+/* ===== Button Variants ===== */
+
+/* Primary - Main action, semi-transparent with blur */
 .btn-primary {
-    background-color: var(--color-primary);
+    background: hsla(222, 47%, 21%, 0.85);
     color: var(--color-primary-foreground);
+    border-color: hsla(222, 47%, 30%, 0.3);
 }
 
 .btn-primary:hover {
-    background-color: hsl(222.2 47.4% 20%);
+    background: hsla(222, 47%, 24%, 0.92);
+    backdrop-filter: blur(12px) saturate(1.2);
+    -webkit-backdrop-filter: blur(12px) saturate(1.2);
+}
+
+.dark .btn-primary {
+    background: hsla(217, 91%, 60%, 0.85);
+    border-color: hsla(217, 91%, 70%, 0.25);
 }
 
 .dark .btn-primary:hover {
-    background-color: hsl(222.2 47.4% 30%);
+    background: hsla(217, 91%, 65%, 0.92);
 }
 
+/* Secondary - Tier 1 glass, subtle presence */
 .btn-secondary {
-    background-color: var(--color-secondary);
-    color: var(--color-secondary-foreground);
+    background: var(--glass-bg-1);
+    color: var(--color-foreground);
+    border-color: var(--glass-border);
 }
 
 .btn-secondary:hover {
-    background-color: hsl(210 40% 90%);
+    background: var(--glass-bg-2);
+    backdrop-filter: blur(12px) saturate(1.2);
+    -webkit-backdrop-filter: blur(12px) saturate(1.2);
 }
 
-.dark .btn-secondary:hover {
-    background-color: hsl(210 40% 25%);
-}
-
+/* Destructive - Semi-transparent red with subtle glow on hover */
 .btn-destructive {
-    background-color: var(--color-destructive);
-    color: var(--color-destructive-foreground);
+    background: hsla(0, 72%, 51%, 0.80);
+    color: white;
+    border-color: hsla(0, 72%, 60%, 0.3);
 }
 
 .btn-destructive:hover {
-    background-color: hsl(0 84.2% 50%);
+    background: hsla(0, 72%, 51%, 0.90);
+    backdrop-filter: blur(12px) saturate(1.2);
+    -webkit-backdrop-filter: blur(12px) saturate(1.2);
+    box-shadow: 0 0 20px hsla(0, 72%, 51%, 0.2);
+}
+
+.dark .btn-destructive {
+    background: hsla(0, 62%, 45%, 0.80);
+    border-color: hsla(0, 62%, 55%, 0.25);
 }
 
 .dark .btn-destructive:hover {
-    background-color: hsl(0 84.2% 55%);
+    background: hsla(0, 62%, 50%, 0.90);
+    box-shadow: 0 0 24px hsla(0, 62%, 50%, 0.25);
 }
 
+/* Outline - Transparent with glass border, fills on hover */
 .btn-outline {
-    border: 1px solid var(--color-input);
-    background-color: transparent;
+    background: transparent;
     color: var(--color-foreground);
+    border-color: var(--glass-border);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
 }
 
 .btn-outline:hover {
-    background-color: var(--color-accent);
-    color: var(--color-accent-foreground);
+    background: var(--glass-bg-1);
+    backdrop-filter: blur(8px) saturate(1.1);
+    -webkit-backdrop-filter: blur(8px) saturate(1.1);
 }
 
+.dark .btn-outline {
+    border-color: hsla(215, 30%, 50%, 0.35);
+}
+
+/* Ghost - Invisible until hover, then glass fades in */
 .btn-ghost {
-    background-color: transparent;
+    background: transparent;
     color: var(--color-foreground);
+    border-color: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
 }
 
 .btn-ghost:hover {
-    background-color: var(--color-accent);
-    color: var(--color-accent-foreground);
+    background: var(--glass-bg-1);
+    border-color: var(--glass-border);
+    backdrop-filter: blur(8px) saturate(1.1);
+    -webkit-backdrop-filter: blur(8px) saturate(1.1);
 }
 
+/* Link - Text-only, no glass effects */
 .btn-link {
-    background-color: transparent;
+    background: transparent;
     color: var(--color-primary);
-    text-decoration: underline;
-    text-underline-offset: 4px;
+    border: none;
+    text-decoration: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
 }
 
 .btn-link:hover {
     text-decoration: underline;
+    text-underline-offset: 4px;
 }
 
-/* Button sizes */
+/* ===== Button Sizes ===== */
 .btn-sm {
-    height: 2.25rem;
+    height: 2rem;
     padding: 0 0.75rem;
     font-size: 0.75rem;
+    border-radius: 5px;
 }
 
 .btn-md {
-    height: 2.5rem;
+    height: 2.25rem;
     padding: 0 1rem;
 }
 
 .btn-lg {
-    height: 2.75rem;
-    padding: 0 2rem;
-    font-size: 1rem;
+    height: 2.5rem;
+    padding: 0 1.5rem;
+    font-size: 0.9375rem;
+    border-radius: 7px;
 }
 
 .btn-icon {
-    height: 2.5rem;
-    width: 2.5rem;
+    height: 2.25rem;
+    width: 2.25rem;
     padding: 0;
 }
 
 .btn-icon-sm {
-    height: 2rem;
-    width: 2rem;
+    height: 1.75rem;
+    width: 1.75rem;
     padding: 0;
+    border-radius: 5px;
 }
 
 /* ===== Card Component ===== */
@@ -474,6 +530,36 @@
     transform: translateX(-50%);
     max-height: 90vh;
     overflow-y: auto;
+}
+
+/* Dialog size variants */
+.dialog-sm {
+    max-width: 24rem; /* 384px */
+}
+
+.dialog-md {
+    max-width: 32rem; /* 512px - default */
+}
+
+.dialog-lg {
+    max-width: 42rem; /* 672px */
+}
+
+.dialog-xl {
+    max-width: 56rem; /* 896px */
+}
+
+.dialog-full {
+    max-width: calc(100vw - 2rem);
+}
+
+@media (max-width: 640px) {
+    /* On mobile, all dialogs use full width minus margins */
+    .dialog-lg,
+    .dialog-xl,
+    .dialog-full {
+        max-width: calc(100vw - 2rem);
+    }
 }
 
 /* ===== Label Component ===== */
@@ -2067,19 +2153,32 @@
         width: 3.5rem;
         height: 3.5rem;
         border-radius: 9999px;
-        background-color: var(--color-primary);
+        background: hsla(222, 47%, 21%, 0.90);
         color: var(--color-primary-foreground);
-        box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+        box-shadow: var(--glass-shadow-lg);
         cursor: pointer;
-        border: none;
+        border: 1px solid var(--glass-border);
+        backdrop-filter: blur(12px) saturate(1.2);
+        -webkit-backdrop-filter: blur(12px) saturate(1.2);
+        transition: all 200ms ease;
     }
 
     .mobile-chat-fab:hover {
-        background-color: hsl(222.2 47.4% 20%);
+        background: hsla(222, 47%, 24%, 0.95);
+        box-shadow: var(--glass-shadow-lg), var(--glass-glow);
+    }
+
+    .mobile-chat-fab:active {
+        transform: scale(0.95);
+    }
+
+    .dark .mobile-chat-fab {
+        background: hsla(217, 91%, 60%, 0.85);
+        border-color: hsla(217, 91%, 70%, 0.25);
     }
 
     .dark .mobile-chat-fab:hover {
-        background-color: hsl(222.2 47.4% 30%);
+        background: hsla(217, 91%, 65%, 0.92);
     }
 }
 
@@ -2234,17 +2333,20 @@
     padding: 0.25rem 0.5rem;
     font-size: 0.75rem;
     font-weight: 500;
-    color: var(--color-muted-foreground);
-    background-color: var(--color-background);
-    border: 1px solid var(--color-border);
+    color: var(--color-foreground);
+    background: var(--glass-bg-1);
+    border: 1px solid var(--glass-border);
     border-radius: calc(var(--radius) - 0.125rem);
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all 200ms ease;
+    backdrop-filter: blur(8px) saturate(1.1);
+    -webkit-backdrop-filter: blur(8px) saturate(1.1);
 }
 
 .toast-copy-btn:hover {
-    background-color: var(--color-accent);
-    color: var(--color-accent-foreground);
+    background: var(--glass-bg-2);
+    backdrop-filter: blur(12px) saturate(1.2);
+    -webkit-backdrop-filter: blur(12px) saturate(1.2);
 }
 
 .toast-copy-btn:active {

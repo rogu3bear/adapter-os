@@ -10,7 +10,7 @@ mod icons;
 mod utils;
 
 use crate::api::{use_sse_json_events, ApiClient, SseState};
-use crate::components::{ErrorDisplay, Spinner};
+use crate::components::{Button, ButtonVariant, ErrorDisplay, Spinner};
 use crate::hooks::{use_api_resource, use_polling, use_sse_notifications, LoadingState};
 use crate::pages::workers::dialogs::{PlanOption, SpawnWorkerDialog};
 use adapteros_api_types::{
@@ -168,27 +168,27 @@ pub fn System() -> impl IntoView {
                         <SseIndicator state=sse_status/>
                     </div>
                     <div class="flex items-center gap-2">
-                        <button
-                            class="inline-flex items-center gap-2 rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent"
-                            on:click=move |_| {
+                        <Button
+                            variant=ButtonVariant::Secondary
+                            on_click=Callback::new(move |_| {
                                 refetch_status.run(());
                                 refetch_workers.run(());
                                 refetch_nodes.run(());
                                 refetch_metrics.run(());
                                 refetch_state.run(());
                                 refetch_models_status.run(());
-                            }
+                            })
                         >
                             <RefreshIcon/>
                             "Refresh"
-                        </button>
-                        <button
-                            class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-                            on:click=move |_| show_spawn_dialog.set(true)
+                        </Button>
+                        <Button
+                            variant=ButtonVariant::Primary
+                            on_click=Callback::new(move |_| show_spawn_dialog.set(true))
                         >
                             <PlusIcon/>
                             "Spawn Worker"
-                        </button>
+                        </Button>
                     </div>
                 </div>
 

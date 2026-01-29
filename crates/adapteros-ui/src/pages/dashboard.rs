@@ -3,9 +3,9 @@
 use crate::api::{use_sse_json_events, ActivityEventResponse, ApiClient, InferenceRequest, SseState};
 use crate::boot_log;
 use crate::components::{
-    Badge, BadgeVariant, Card, ChartPoint, DataSeries, EmptyState, EmptyStateVariant,
-    IconCheckCircle, IconCog, IconPlay, IconServer, LineChart, SparklineMetric, Spinner,
-    StatusColor, StatusIndicator, TimeSeriesData,
+    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ChartPoint, DataSeries,
+    EmptyState, EmptyStateVariant, IconCheckCircle, IconCog, IconPlay, IconServer, LineChart,
+    SparklineMetric, Spinner, StatusColor, StatusIndicator, TimeSeriesData,
 };
 use crate::hooks::{use_api_resource, use_sse_notifications, LoadingState};
 use crate::signals::use_auth;
@@ -297,14 +297,13 @@ pub fn Dashboard() -> impl IntoView {
                     <h1 class="text-3xl font-bold tracking-tight">"Dashboard"</h1>
                     <SseIndicator state=sse_status/>
                 </div>
-                <button
-                    class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                    on:click=move |_| refetch_all()
-                    aria-label="Refresh dashboard data"
-                    type="button"
+                <Button
+                    variant=ButtonVariant::Primary
+                    on_click=Callback::new(move |_| refetch_all())
+                    aria_label="Refresh dashboard data".to_string()
                 >
                     "Refresh"
-                </button>
+                </Button>
             </div>
             <p class="text-sm text-muted-foreground">
                 "A live system overview with direct entry points into core operations."
@@ -1003,13 +1002,13 @@ fn SelfTestResults(state: RwSignal<SelfTestState>) -> impl IntoView {
                                             </a>
                                         }
                                     })}
-                                    <button
-                                        class="text-xs text-muted-foreground hover:text-foreground"
-                                        on:click=move |_| state.set(SelfTestState::Idle)
-                                        type="button"
+                                    <Button
+                                        variant=ButtonVariant::Ghost
+                                        size=ButtonSize::Sm
+                                        on_click=Callback::new(move |_| state.set(SelfTestState::Idle))
                                     >
                                         "Dismiss"
-                                    </button>
+                                    </Button>
                                 </div>
                             </div>
                             {error.map(|e| view! {

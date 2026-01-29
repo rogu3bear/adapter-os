@@ -3,7 +3,7 @@
 use super::helpers::format_date;
 use super::list::RepoStatusBadge;
 use crate::api::{ApiClient, RepositoryDetailResponse, ScanRepositoryRequest};
-use crate::components::{Card, Spinner};
+use crate::components::{Button, ButtonSize, ButtonVariant, Card, Spinner};
 use crate::hooks::{use_api_resource, LoadingState};
 use crate::signals::use_auth;
 use leptos::prelude::*;
@@ -32,11 +32,11 @@ pub fn RepositoryDetailPanel(
             // Header with close button
             <div class="flex items-center justify-between">
                 <h2 class="text-xl font-semibold">"Repository Details"</h2>
-                <button
-                    class="text-muted-foreground hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
-                    aria-label="Close details"
-                    type="button"
-                    on:click=move |_| selected_repo_id.set(None)
+                <Button
+                    variant=ButtonVariant::Ghost
+                    size=ButtonSize::IconSm
+                    aria_label="Close details".to_string()
+                    on_click=Callback::new(move |_| selected_repo_id.set(None))
                 >
                     <svg
                         xmlns="http://www.w3.org/2000/svg"
@@ -52,7 +52,7 @@ pub fn RepositoryDetailPanel(
                         <path d="M18 6 6 18"/>
                         <path d="m6 6 12 12"/>
                     </svg>
-                </button>
+                </Button>
             </div>
 
             {move || {
@@ -162,10 +162,11 @@ fn RepositoryContent(
                 <div class="flex items-center justify-between">
                     <RepoStatusBadge status=repo_data.status.clone()/>
                     <div class="flex items-center gap-2">
-                        <button
-                            class="inline-flex items-center gap-2 rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium hover:bg-accent disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                            disabled=syncing.get() || is_scanning
-                            on:click={
+                        <Button
+                            variant=ButtonVariant::Secondary
+                            size=ButtonSize::Sm
+                            disabled=Signal::derive(move || syncing.get() || is_scanning)
+                            on_click=Callback::new({
                                 let repo_id = repo_id_sync.clone();
                                 move |_| {
                                     let repo_id = repo_id.clone();
@@ -187,10 +188,10 @@ fn RepositoryContent(
                                         syncing.set(false);
                                     });
                                 }
-                            }
+                            })
                         >
                             {move || if syncing.get() || is_scanning { "Syncing..." } else { "Sync Now" }}
-                        </button>
+                        </Button>
                     </div>
                 </div>
             </div>

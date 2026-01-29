@@ -7,7 +7,7 @@ mod dialogs;
 mod list;
 
 use crate::api::ApiClient;
-use crate::components::Spinner;
+use crate::components::{Button, ButtonVariant, Spinner};
 use crate::hooks::{use_api_resource, LoadingState};
 use detail::{RepositoryDetailPanel, RepositoryDetailStandalone};
 use dialogs::RegisterRepositoryDialog;
@@ -75,18 +75,18 @@ pub fn Repositories() -> impl IntoView {
                     </div>
                     <div class="flex items-center gap-2">
                         <StatusFilter filter=status_filter/>
-                        <button
-                            class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                            on:click=move |_| register_dialog_open.set(true)
+                        <Button
+                            variant=ButtonVariant::Primary
+                            on_click=Callback::new(move |_| register_dialog_open.set(true))
                         >
                             "Register Repository"
-                        </button>
-                        <button
-                            class="inline-flex items-center gap-2 rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                            on:click=move |_| refetch_repos.run(())
+                        </Button>
+                        <Button
+                            variant=ButtonVariant::Secondary
+                            on_click=Callback::new(move |_| refetch_repos.run(()))
                         >
                             "Refresh"
-                        </button>
+                        </Button>
                     </div>
                 </div>
 

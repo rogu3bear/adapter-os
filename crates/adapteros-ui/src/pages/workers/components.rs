@@ -4,8 +4,8 @@
 
 use crate::api::{ApiClient, WorkerMetricsResponse};
 use crate::components::{
-    Badge, BadgeVariant, Card, Spinner, StatusColor, StatusIndicator, Table, TableBody, TableCell,
-    TableHead, TableHeader, TableRow,
+    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, Spinner, StatusColor,
+    StatusIndicator, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, use_navigate, LoadingState};
 use adapteros_api_types::WorkerResponse;
@@ -286,22 +286,24 @@ pub fn WorkerRow(
             <TableCell class="text-right">
                 <div class="flex items-center justify-end gap-1">
                     {show_drain.then(|| view! {
-                        <button
-                            class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                            on:click=move |_| on_drain.run(())
+                        <Button
+                            variant=ButtonVariant::Ghost
+                            size=ButtonSize::Sm
+                            on_click=Callback::new(move |_| on_drain.run(()))
                         >
                             <PauseIcon/>
                             "Drain"
-                        </button>
+                        </Button>
                     })}
                     {show_stop.then(|| view! {
-                        <button
-                            class="inline-flex items-center gap-1 rounded-md bg-destructive px-2 py-1 text-xs font-medium text-destructive-foreground hover:bg-destructive/90 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                            on:click=move |_| on_stop.run(())
+                        <Button
+                            variant=ButtonVariant::Destructive
+                            size=ButtonSize::Sm
+                            on_click=Callback::new(move |_| on_stop.run(()))
                         >
                             <StopIcon/>
                             "Stop"
-                        </button>
+                        </Button>
                     })}
                 </div>
             </TableCell>
@@ -339,22 +341,24 @@ pub fn WorkerDetailPanel(worker: WorkerResponse, on_close: Callback<()>) -> impl
                         </Badge>
                     </div>
                     <div class="flex items-center gap-2">
-                        <button
-                            class="inline-flex items-center gap-2 rounded-md border border-input bg-background px-3 py-1 text-sm font-medium hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                            on:click={
+                        <Button
+                            variant=ButtonVariant::Secondary
+                            size=ButtonSize::Sm
+                            on_click=Callback::new({
                                 let worker_id = worker_id.clone();
                                 move |_| navigate(&format!("/workers/{}", worker_id))
-                            }
+                            })
                         >
                             "View Full Details"
-                        </button>
-                        <button
-                            class="p-2 hover:bg-muted rounded focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                            aria-label="Close details"
-                            on:click=move |_| on_close.run(())
+                        </Button>
+                        <Button
+                            variant=ButtonVariant::Ghost
+                            size=ButtonSize::IconSm
+                            aria_label="Close details".to_string()
+                            on_click=Callback::new(move |_| on_close.run(()))
                         >
                             <CloseIcon/>
-                        </button>
+                        </Button>
                     </div>
                 </div>
 
@@ -477,21 +481,21 @@ pub fn WorkerDetailView(
                     </Badge>
                 </div>
                 <div class="flex items-center gap-2">
-                    <button
-                        class="inline-flex items-center gap-2 rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                        on:click=move |_| on_refresh.run(())
+                    <Button
+                        variant=ButtonVariant::Secondary
+                        on_click=Callback::new(move |_| on_refresh.run(()))
                     >
                         <RefreshIcon/>
                         "Refresh"
-                    </button>
+                    </Button>
                     {is_healthy.then(|| {
                         let worker_id = worker_id.clone();
                         let on_refresh = on_refresh.clone();
                         view! {
-                            <button
-                                class="inline-flex items-center gap-2 rounded-md bg-secondary px-4 py-2 text-sm font-medium text-secondary-foreground hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                                disabled=action_loading.get()
-                                on:click=move |_| {
+                            <Button
+                                variant=ButtonVariant::Secondary
+                                disabled=Signal::from(action_loading)
+                                on_click=Callback::new(move |_| {
                                     action_loading.set(true);
                                     let client = ApiClient::new();
                                     let worker_id = worker_id.clone();
@@ -508,20 +512,20 @@ pub fn WorkerDetailView(
                                         }
                                         action_loading.set(false);
                                     });
-                                }
+                                })
                             >
                                 <PauseIcon/>
                                 "Drain"
-                            </button>
+                            </Button>
                         }
                     })}
                     {(is_healthy || is_draining).then(|| {
                         let worker_id = worker.id.clone();
                         view! {
-                            <button
-                                class="inline-flex items-center gap-2 rounded-md bg-destructive px-4 py-2 text-sm font-medium text-destructive-foreground hover:bg-destructive/90 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                                disabled=action_loading.get()
-                                on:click=move |_| {
+                            <Button
+                                variant=ButtonVariant::Destructive
+                                disabled=Signal::from(action_loading)
+                                on_click=Callback::new(move |_| {
                                     action_loading.set(true);
                                     let client = ApiClient::new();
                                     let worker_id = worker_id.clone();
@@ -539,11 +543,11 @@ pub fn WorkerDetailView(
                                         }
                                         action_loading.set(false);
                                     });
-                                }
+                                })
                             >
                                 <StopIcon/>
                                 "Stop"
-                            </button>
+                            </Button>
                         }
                     })}
                 </div>

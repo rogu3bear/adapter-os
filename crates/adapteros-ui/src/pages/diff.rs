@@ -137,13 +137,13 @@ pub fn Diff() -> impl IntoView {
                         </div>
                     </div>
                     <div class="flex items-center gap-4">
-                        <button
-                            class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-                            disabled=move || diff_loading.get() || run_a_id.get().is_empty() || run_b_id.get().is_empty()
-                            on:click=do_compare
+                        <Button
+                            variant=ButtonVariant::Primary
+                            disabled=Signal::derive(move || diff_loading.get() || run_a_id.get().is_empty() || run_b_id.get().is_empty())
+                            on_click=Callback::new(do_compare)
                         >
                             {move || if diff_loading.get() { "Comparing..." } else { "Compare Runs" }}
-                        </button>
+                        </Button>
                         {move || {
                             let run_a = run_a_id.get();
                             let run_b = run_b_id.get();

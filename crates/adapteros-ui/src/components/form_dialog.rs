@@ -3,7 +3,7 @@
 //! A standardized dialog for forms with submit/cancel actions,
 //! loading states, and form validation integration.
 
-use crate::components::{Button, ButtonVariant, Dialog};
+use crate::components::{Button, ButtonVariant, Dialog, DialogSize};
 use leptos::prelude::*;
 
 /// Form dialog with submit/cancel actions
@@ -64,6 +64,12 @@ pub fn FormDialog(
     /// Optional callback when dialog is cancelled
     #[prop(optional)]
     on_cancel: Option<Callback<()>>,
+    /// Dialog size variant (default: Md)
+    #[prop(optional)]
+    size: DialogSize,
+    /// Enable scrollable content with max-height constraint
+    #[prop(optional)]
+    scrollable: bool,
     /// Form content (children)
     children: Children,
 ) -> impl IntoView {
@@ -103,6 +109,8 @@ pub fn FormDialog(
             open=open
             title=title.clone()
             description=desc
+            size=size
+            scrollable=scrollable
         >
             <form
                 class="space-y-4"
@@ -170,6 +178,12 @@ pub fn StepFormDialog(
     /// Optional callback when dialog is cancelled
     #[prop(optional)]
     on_cancel: Option<Callback<()>>,
+    /// Dialog size variant (default: Md)
+    #[prop(optional)]
+    size: DialogSize,
+    /// Enable scrollable content with max-height constraint
+    #[prop(optional)]
+    scrollable: bool,
     /// Step content (children)
     children: Children,
 ) -> impl IntoView {
@@ -195,7 +209,7 @@ pub fn StepFormDialog(
     };
 
     view! {
-        <Dialog open=open title=title.clone()>
+        <Dialog open=open title=title.clone() size=size scrollable=scrollable>
             // Step indicator
             <div class="step-indicator flex items-center justify-center gap-2 mb-6">
                 {step_labels.iter().enumerate().map(|(idx, label)| {

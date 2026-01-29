@@ -18,9 +18,9 @@
 
 use crate::api::ApiClient;
 use crate::components::{
-    AdapterDetailPanel, AsyncBoundary, AsyncBoundaryWithErrorRender, Badge, BadgeVariant, Card,
-    EmptyState, EmptyStateVariant, ErrorDisplay, SplitPanel, SplitRatio, Table, TableBody,
-    TableCell, TableHead, TableHeader, TableRow,
+    AdapterDetailPanel, AsyncBoundary, AsyncBoundaryWithErrorRender, Badge, BadgeVariant, Button,
+    ButtonVariant, Card, EmptyState, EmptyStateVariant, ErrorDisplay, SplitPanel, SplitRatio,
+    Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use crate::signals::refetch::{use_refetch_signal, RefetchTopic};
@@ -82,12 +82,12 @@ pub fn Adapters() -> impl IntoView {
         <div class="p-6 space-y-6">
             <div class="flex items-center justify-between">
                 <h1 class="text-3xl font-bold tracking-tight">"Adapters"</h1>
-                <button
-                    class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-                    on:click=move |_| refetch.run(())
+                <Button
+                    variant=ButtonVariant::Primary
+                    on_click=Callback::new(move |_| refetch.run(()))
                 >
                     "Refresh"
-                </button>
+                </Button>
             </div>
 
             <AsyncBoundary
@@ -348,12 +348,12 @@ pub fn AdapterDetail() -> impl IntoView {
                     </a>
                     <h1 class="text-3xl font-bold tracking-tight">"Adapter Details"</h1>
                 </div>
-                <button
-                    class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-                    on:click=move |_| refetch.run(())
+                <Button
+                    variant=ButtonVariant::Primary
+                    on_click=Callback::new(move |_| refetch.run(()))
                 >
                     "Refresh"
-                </button>
+                </Button>
             </div>
 
             <AsyncBoundaryWithErrorRender

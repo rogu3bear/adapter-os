@@ -2,7 +2,7 @@
 //!
 //! Modal dialogs for worker management actions.
 
-use crate::components::{Dialog, Input, Select};
+use crate::components::{Button, ButtonVariant, Dialog, Input, Select};
 use adapteros_api_types::{NodeResponse, SpawnWorkerRequest};
 use leptos::prelude::*;
 
@@ -152,22 +152,22 @@ pub fn SpawnWorkerDialog(
                 </div>
 
                 <div class="flex justify-end gap-2 pt-4">
-                    <button
-                        class="inline-flex items-center gap-2 rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent"
-                        on:click=move |_| {
+                    <Button
+                        variant=ButtonVariant::Secondary
+                        on_click=Callback::new(move |_| {
                             open.set(false);
                             // Reset form
                             node_id.set(String::new());
                             plan_id.set(String::new());
                             uds_path.set(String::new());
-                        }
+                        })
                     >
                         "Cancel"
-                    </button>
-                    <button
-                        class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-                        disabled=move || !is_valid()
-                        on:click={
+                    </Button>
+                    <Button
+                        variant=ButtonVariant::Primary
+                        disabled=Signal::derive(move || !is_valid())
+                        on_click=Callback::new({
                             let plans_ref = plans_for_tenant.clone();
                             move |_| {
                                 let selected_plan_id = plan_id.get();
@@ -197,10 +197,10 @@ pub fn SpawnWorkerDialog(
                                 plan_id.set(String::new());
                                 uds_path.set(String::new());
                             }
-                        }
+                        })
                     >
                         "Spawn Worker"
-                    </button>
+                    </Button>
                 </div>
             </div>
         </Dialog>
