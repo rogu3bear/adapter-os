@@ -7,7 +7,7 @@ mod dialogs;
 mod list;
 
 use crate::api::ApiClient;
-use crate::components::{Button, ButtonVariant, Select, Spinner};
+use crate::components::{Button, ButtonVariant, Link, LinkVariant, Select, Spinner};
 use crate::hooks::{use_api_resource, LoadingState};
 use detail::{RepositoryDetailPanel, RepositoryDetailStandalone};
 use dialogs::RegisterRepositoryDialog;
@@ -152,9 +152,9 @@ pub fn RepositoryDetail() -> impl IntoView {
     view! {
         <div class="space-y-6">
             <div class="flex items-center gap-4">
-                <a href="/repositories" class="text-muted-foreground hover:text-foreground">
+                <Link href="/repositories" variant=LinkVariant::Muted>
                     "<- Repositories"
-                </a>
+                </Link>
                 <h1 class="text-3xl font-bold tracking-tight">"Repository Details"</h1>
             </div>
 

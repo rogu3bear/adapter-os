@@ -6,8 +6,8 @@ use crate::api::client::{ChunkListResponse, DocumentListParams, DocumentResponse
 use crate::api::ApiClient;
 use crate::components::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ConfirmationDialog,
-    ConfirmationSeverity, Select, Spinner, Table, TableBody, TableCell, TableHead, TableHeader,
-    TableRow,
+    ConfirmationSeverity, Link, LinkVariant, Select, Spinner, Table, TableBody, TableCell,
+    TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use leptos::prelude::*;
@@ -289,9 +289,9 @@ pub fn DocumentDetail() -> impl IntoView {
         <div class="space-y-6">
             <div class="flex items-center justify-between">
                 <div class="flex items-center gap-4">
-                    <a href="/documents" class="text-muted-foreground hover:text-foreground">
+                    <Link href="/documents" variant=LinkVariant::Muted>
                         "< Documents"
-                    </a>
+                    </Link>
                     <h1 class="text-3xl font-bold tracking-tight">"Document Details"</h1>
                 </div>
                 <div class="flex items-center gap-2">

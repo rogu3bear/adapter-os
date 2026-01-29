@@ -3,7 +3,7 @@
 //! Shows deterministic anchor comparison and first divergence point.
 
 use crate::api::ApiClient;
-use crate::components::{Button, ButtonVariant, Card, DiffResults, Spinner};
+use crate::components::{Button, ButtonVariant, Card, DiffResults, Link, Spinner};
 use crate::hooks::{use_api_resource, LoadingState};
 use adapteros_api_types::diagnostics::{
     DiagDiffRequest, DiagDiffResponse, ListDiagRunsQuery, ListDiagRunsResponse,
@@ -152,9 +152,9 @@ pub fn Diff() -> impl IntoView {
                             }
                             let href = format!("/runs/{}?tab=diff&compare={}", run_a, run_b);
                             view! {
-                                <a href=href class="text-sm text-primary hover:underline">
+                                <Link href=href class="text-sm">
                                     "Open in Run Detail"
-                                </a>
+                                </Link>
                             }.into_any()
                         }}
                         {move || diff_error.get().map(|e| view! {
