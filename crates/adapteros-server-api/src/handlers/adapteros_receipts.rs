@@ -134,10 +134,11 @@ pub async fn get_receipt_by_digest(
             r.session_sequence
         FROM inference_trace_receipts r
         JOIN inference_traces t ON r.trace_id = t.trace_id
-        WHERE r.receipt_digest = ?
+        WHERE r.receipt_digest = ? OR r.crypto_receipt_digest_b3 = ?
         LIMIT 1
         "#,
     )
+    .bind(&digest.as_bytes()[..])
     .bind(&digest.as_bytes()[..])
     .fetch_optional(state.db.pool())
     .await
@@ -240,20 +241,10 @@ pub async fn adapteros_replay(
     let digest =
         B3Hash::from_hex(&digest_hex).map_err(|e| ApiError::bad_request(e.to_string()))?;
 
-    let (trace_id, tenant_id) = sqlx::query_as::<_, (String, String)>(
-        r#"
-        SELECT r.trace_id, t.tenant_id
-        FROM inference_trace_receipts r
-        JOIN inference_traces t ON r.trace_id = t.trace_id
-        WHERE r.receipt_digest = ?
-        LIMIT 1
-        "#,
-    )
-    .bind(&digest.as_bytes()[..])
-    .fetch_optional(state.db.pool())
-    .await
-    .map_err(ApiError::db_error)?
-    .ok_or_else(|| ApiError::not_found("Receipt"))?;
+    let (trace_id, tenant_id) = adapteros_db::find_trace_by_receipt_digest(&state.db, &digest)
+        .await
+        .map_err(ApiError::db_error)?
+        .ok_or_else(|| ApiError::not_found("Receipt"))?;
 
     validate_tenant_isolation(&claims, &tenant_id)?;
 

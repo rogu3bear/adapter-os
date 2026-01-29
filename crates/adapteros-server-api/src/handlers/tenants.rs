@@ -814,7 +814,7 @@ pub async fn revoke_tenant_tokens(
     );
 
     Ok(Json(TokenRevocationResponse {
-        revoked_at: baseline,
+        revoked_at: baseline.to_string(),
         message: "All tokens issued before this timestamp are now invalid".to_string(),
     }))
 }
