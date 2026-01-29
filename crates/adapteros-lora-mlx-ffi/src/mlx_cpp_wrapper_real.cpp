@@ -619,7 +619,11 @@ struct MLXModelWrapper {
   }
 
   // Real transformer forward pass
-  mx::array forward(const mx::array &input_ids) {
+  //
+  // position_offset: Starting position for RoPE computation (default 0)
+  //   - For prompt processing: offset = 0
+  //   - For incremental token generation: offset = current position in sequence
+  mx::array forward(const mx::array &input_ids, int position_offset = 0) {
     try {
       // Get embedding weights (dequantized if necessary)
       mx::array embed_weights = get_embedding_weights();
@@ -635,7 +639,7 @@ struct MLXModelWrapper {
       }
 
       // Process through transformer layers (simplified single layer)
-      hidden = process_transformer_layer(hidden, 0);
+      hidden = process_transformer_layer(hidden, 0, position_offset);
 
       // Final layer norm (simplified)
       auto ln_weight_ptr = find_weight("model.norm.weight");
@@ -1089,7 +1093,12 @@ struct MLXModelWrapper {
   }
 
   // Forward pass with hidden state capture
-  mx::array forward_with_hidden_states(const mx::array &input_ids) {
+  //
+  // position_offset: Starting position for RoPE computation (default 0)
+  //   - For prompt processing: offset = 0
+  //   - For incremental token generation: offset = current position in sequence
+  mx::array forward_with_hidden_states(const mx::array &input_ids,
+                                       int position_offset = 0) {
     hidden_states_vec.clear();
 
     try {
