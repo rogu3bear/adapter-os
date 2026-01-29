@@ -7,7 +7,6 @@ use adapteros_db::{Db, ProtectedDb};
 use adapteros_lora_lifecycle::LifecycleManager;
 use adapteros_model_hub::manifest::Policies;
 use std::collections::HashMap;
-use std::path::PathBuf;
 use tempfile::TempDir;
 
 fn new_test_adapters_dir() -> TempDir {
