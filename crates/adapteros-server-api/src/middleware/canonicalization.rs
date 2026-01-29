@@ -13,6 +13,36 @@
 //! 5. **Model config freezing**: Freeze model configuration into canonical form
 //! 6. **Policy ID freezing**: Optional determinism policy ID freeze
 //!
+//! # Trade-offs and Caveats
+//!
+//! ## Timestamp Normalization
+//!
+//! ISO 8601 timestamps in message content are replaced with `[TIMESTAMP]`. This
+//! improves cache hit rates for time-varying prompts but may cause unexpected
+//! cache collisions for:
+//!
+//! - **Time-aware assistants**: Prompts like "What day is 2024-01-15?" will
+//!   become "What day is [TIMESTAMP]?" and match other date queries.
+//! - **Historical data prompts**: "Analyze events from 2023-06-01T00:00:00Z"
+//!   will match queries for different dates.
+//!
+//! Consider using [`SkipCanonicalization`] for routes where timestamp semantics
+//! matter.
+//!
+//! ## Whitespace Collapse
+//!
+//! Multiple consecutive spaces and tabs are collapsed to a single space. This
+//! applies to ALL string values in JSON, which may affect:
+//!
+//! - **Preformatted text**: Code snippets, ASCII art, or alignment-sensitive
+//!   content will have spacing normalized.
+//! - **Markdown/formatting**: Intentional double-spaces (e.g., for line breaks)
+//!   will be collapsed.
+//!
+//! This is appropriate for general chat/completion endpoints where formatting
+//! variations should not affect caching. For endpoints processing structured
+//! code or formatted documents, consider disabling canonicalization.
+//!
 //! # Usage
 //!
 //! Apply this middleware to inference endpoints that benefit from semantic caching:
@@ -199,6 +229,18 @@ fn canonicalize_model_config(value: &mut Value) {
     }
 }
 
+/// Check if the content type indicates JSON.
+///
+/// Matches `application/json` exactly or with charset suffix (e.g., `application/json; charset=utf-8`).
+/// Does NOT match JSON-derived types like `application/json-patch+json` which have different semantics.
+fn is_json_content_type(content_type: &str) -> bool {
+    let ct = content_type.trim();
+    // Exact match or starts with "application/json" followed by semicolon (charset) or end
+    ct == "application/json"
+        || ct.starts_with("application/json;")
+        || ct.starts_with("application/json ")
+}
+
 /// Canonicalize request body bytes.
 ///
 /// Returns the canonical form and whether canonicalization was performed.
@@ -207,9 +249,7 @@ fn canonicalize_body(
     content_type: Option<&str>,
 ) -> Result<CanonicalRequest, CanonicalRequest> {
     // Check if this is JSON content
-    let is_json = content_type
-        .map(|ct| ct.contains("application/json"))
-        .unwrap_or(false);
+    let is_json = content_type.map(is_json_content_type).unwrap_or(false);
 
     if !is_json {
         trace!("Non-JSON content type, using raw hash");
@@ -320,7 +360,8 @@ pub async fn canonicalization_middleware(req: Request, next: Next) -> Response {
     );
 
     // Reconstruct the request with the canonical info and original body
-    let mut req = Request::from_parts(parts, Body::from(Bytes::from(bytes.to_vec())));
+    // Note: bytes is already a Bytes, so we use it directly to avoid a memory copy
+    let mut req = Request::from_parts(parts, Body::from(bytes));
     req.extensions_mut().insert(canonical);
 
     next.run(req).await
@@ -831,5 +872,22 @@ mod tests {
 
         // Keys should be sorted alphabetically
         assert_eq!(serialized, r#"{"a":2,"m":{"a":2,"b":1},"z":1}"#);
+    }
+
+    #[test]
+    fn test_is_json_content_type() {
+        // Should match
+        assert!(is_json_content_type("application/json"));
+        assert!(is_json_content_type("application/json; charset=utf-8"));
+        assert!(is_json_content_type("application/json;charset=utf-8"));
+        assert!(is_json_content_type("application/json "));
+        assert!(is_json_content_type(" application/json"));
+
+        // Should NOT match - different MIME types
+        assert!(!is_json_content_type("application/json-patch+json"));
+        assert!(!is_json_content_type("application/json-seq"));
+        assert!(!is_json_content_type("text/json"));
+        assert!(!is_json_content_type("application/ld+json"));
+        assert!(!is_json_content_type("application/vnd.api+json"));
     }
 }
