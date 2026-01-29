@@ -1173,8 +1173,9 @@ struct MLXModelWrapper {
             layer_norm(hidden, prefix + ".input_layernorm");
 
         // Self-attention on normalized input
+        // position_offset ensures correct RoPE positions during incremental generation
         mx::array attn_output = self_attention_with_hidden_states(
-            normed_for_attn, prefix + ".self_attn");
+            normed_for_attn, prefix + ".self_attn", position_offset);
 
         // Residual connection (add to original hidden, not normed)
         hidden = hidden + attn_output;
