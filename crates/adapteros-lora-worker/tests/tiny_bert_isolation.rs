@@ -62,7 +62,7 @@ async fn test_tiny_bert_loading_mock() -> Result<()> {
 #[ignore] // Run manually when model is present
 async fn test_tiny_bert_loading_real() -> Result<()> {
     // Path to the downloaded model from script
-    let repo_root = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".into()); // This might be wrong in workspace
+    let _repo_root = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".into()); // This might be wrong in workspace
     let model_path = PathBuf::from("../.var/models/tiny-bert-4bit-ane.mlpackage");
 
     if !model_path.exists() {
