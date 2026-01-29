@@ -44,15 +44,20 @@ fn status_badge_variant(status: &str) -> BadgeVariant {
 /// Documents list page
 #[component]
 pub fn Documents() -> impl IntoView {
-    // Filter state
-    let (status_filter, set_status_filter) = signal(Option::<String>::None);
+    // Filter state - use RwSignal<String> for Select component
+    let status_filter = RwSignal::new(String::new());
     let (current_page, set_current_page) = signal(1u32);
     let (refetch_trigger, set_refetch_trigger) = signal(0u32);
 
     let refetch = move || set_refetch_trigger.update(|t| *t += 1);
 
     let (documents, _) = use_api_resource(move |client: Arc<ApiClient>| {
-        let status = status_filter.get();
+        let status_val = status_filter.get();
+        let status = if status_val.is_empty() {
+            None
+        } else {
+            Some(status_val)
+        };
         let page = current_page.get();
         let _trigger = refetch_trigger.get();
         async move {
@@ -65,29 +70,29 @@ pub fn Documents() -> impl IntoView {
         }
     });
 
+    // Refetch and reset page on filter change
+    Effect::new(move || {
+        let _ = status_filter.get();
+        set_current_page.set(1);
+        set_refetch_trigger.update(|t| *t += 1);
+    });
+
     view! {
         <div class="space-y-6">
             <div class="flex items-center justify-between">
                 <h1 class="text-3xl font-bold tracking-tight">"Documents"</h1>
                 <div class="flex items-center gap-4">
                     // Status filter
-                    <select
-                        class="rounded-md border border-input bg-background px-3 py-2 text-sm"
-                        on:change=move |ev| {
-                            let value = event_target_value(&ev);
-                            if value.is_empty() {
-                                set_status_filter.set(None);
-                            } else {
-                                set_status_filter.set(Some(value));
-                            }
-                            set_current_page.set(1);
-                        }
-                    >
-                        <option value="">"All Statuses"</option>
-                        <option value="indexed">"Indexed"</option>
-                        <option value="processing">"Processing"</option>
-                        <option value="failed">"Failed"</option>
-                    </select>
+                    <Select
+                        value=status_filter
+                        options=vec![
+                            ("".to_string(), "All Statuses".to_string()),
+                            ("indexed".to_string(), "Indexed".to_string()),
+                            ("processing".to_string(), "Processing".to_string()),
+                            ("failed".to_string(), "Failed".to_string()),
+                        ]
+                        class="w-40".to_string()
+                    />
                     <Button
                         variant=ButtonVariant::Primary
                         on_click=Callback::new({
