@@ -26,7 +26,6 @@ use crate::uds_client::WorkerStreamToken;
 use adapteros_core::identity::IdentityEnvelope;
 use adapteros_policy::hooks::PolicyHook;
 use axum::response::sse::{Event, KeepAlive, Sse};
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use axum::response::{IntoResponse, Response};
 use axum::{extract::State, http::StatusCode, Extension, Json};
 use chrono::Utc;
@@ -39,7 +38,7 @@ use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct OpenAiChatCompletionsRequest {
     pub model: Option<String>,
     pub messages: Vec<OpenAiChatMessage>,
@@ -51,10 +50,11 @@ pub struct OpenAiChatCompletionsRequest {
     pub n: Option<u32>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct OpenAiChatMessage {
     pub role: String,
     #[serde(default)]
+    #[schema(value_type = Object)]
     pub content: Value,
 }
 
@@ -63,13 +63,13 @@ pub struct OpenAiChatMessage {
 /// ## Receipt Digest Extraction
 ///
 /// The `receipt_digest` from the underlying inference is embedded in this response:
-/// - **`id`**: Format `chatcmpl-{receipt_digest_b64url}` (first 12 base64url chars).
+/// - **`id`**: Format `chatcmpl_{receipt_digest_hex_prefix}` (first 16 hex chars).
 /// - **`system_fingerprint`**: The full 64-character hex-encoded receipt digest.
 ///
 /// Clients can extract the receipt digest for verification/audit by:
 /// 1. Using `system_fingerprint` directly (full hex digest)
 /// 2. Looking up the receipt via `/v1/runs/{run_id}/evidence` endpoint
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct OpenAiChatCompletionsResponse {
     pub id: String,
     pub object: String,
@@ -87,7 +87,7 @@ pub struct OpenAiChatCompletionsResponse {
     pub usage: Option<OpenAiUsage>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct OpenAiChatChoice {
     pub index: usize,
     pub message: OpenAiChatMessageResponse,
@@ -95,31 +95,102 @@ pub struct OpenAiChatChoice {
     pub finish_reason: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct OpenAiChatMessageResponse {
     pub role: String,
     pub content: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct OpenAiUsage {
     pub prompt_tokens: usize,
     pub completion_tokens: usize,
     pub total_tokens: usize,
 }
 
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct OpenAiEmbeddingUsage {
+    pub prompt_tokens: usize,
+    pub total_tokens: usize,
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(untagged)]
+pub enum OpenAiCompletionPrompt {
+    Single(String),
+    Batch(Vec<String>),
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct OpenAiCompletionsRequest {
+    pub model: Option<String>,
+    pub prompt: OpenAiCompletionPrompt,
+    pub temperature: Option<f32>,
+    pub top_p: Option<f32>,
+    pub max_tokens: Option<u32>,
+    pub stream: Option<bool>,
+    pub n: Option<u32>,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct OpenAiCompletionsResponse {
+    pub id: String,
+    pub object: String,
+    pub created: i64,
+    pub model: String,
+    /// System fingerprint for determinism tracking (full receipt_digest as hex).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system_fingerprint: Option<String>,
+    pub choices: Vec<OpenAiCompletionChoice>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub usage: Option<OpenAiUsage>,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct OpenAiCompletionChoice {
+    pub index: usize,
+    pub text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub finish_reason: Option<String>,
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct OpenAiEmbeddingsRequest {
+    pub model: Option<String>,
+    pub input: OpenAiCompletionPrompt,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct OpenAiEmbeddingsResponse {
+    pub object: String,
+    pub data: Vec<OpenAiEmbeddingItem>,
+    pub model: String,
+    pub usage: OpenAiEmbeddingUsage,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct OpenAiEmbeddingItem {
+    pub object: String,
+    pub index: usize,
+    pub embedding: Vec<f32>,
+}
+
 const CHARS_PER_TOKEN_ESTIMATE: usize = 4;
+
+/// Length of receipt digest hex prefix used in OpenAI-compatible response IDs.
+/// The ID format is `chatcmpl_{hex_prefix}` where hex_prefix is this many characters.
+const RECEIPT_DIGEST_ID_SUFFIX_LEN: usize = 16;
 
 fn estimate_tokens(s: &str) -> usize {
     s.len().div_ceil(CHARS_PER_TOKEN_ESTIMATE)
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct OpenAiErrorResponse {
     pub error: OpenAiErrorBody,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct OpenAiErrorBody {
     pub message: String,
     #[serde(rename = "type")]
@@ -220,11 +291,21 @@ fn map_finish_reason(stop_reason_code: Option<StopReasonCode>) -> Option<String>
 /// ## Streaming Response
 /// When `stream=true`, returns Server-Sent Events with OpenAI-compatible chunk format:
 /// ```text
-/// data: {"id":"chatcmpl-xxx","object":"chat.completion.chunk","choices":[{"delta":{"role":"assistant"}}]}
-/// data: {"id":"chatcmpl-xxx","object":"chat.completion.chunk","choices":[{"delta":{"content":"Hello"}}]}
-/// data: {"id":"chatcmpl-xxx","object":"chat.completion.chunk","choices":[{"delta":{},"finish_reason":"stop"}]}
+/// data: {"id":"chatcmpl_xxx","object":"chat.completion.chunk","choices":[{"delta":{"role":"assistant"}}]}
+/// data: {"id":"chatcmpl_xxx","object":"chat.completion.chunk","choices":[{"delta":{"content":"Hello"}}]}
+/// data: {"id":"chatcmpl_xxx","object":"chat.completion.chunk","choices":[{"delta":{},"finish_reason":"stop"}]}
 /// data: [DONE]
 /// ```
+#[utoipa::path(
+    post,
+    path = "/v1/chat/completions",
+    responses(
+        (status = 200, description = "Chat completion response", body = OpenAiChatCompletionsResponse),
+        (status = 400, description = "Bad request", body = OpenAiErrorResponse),
+        (status = 500, description = "Internal server error", body = OpenAiErrorResponse)
+    ),
+    tag = "openai"
+)]
 pub async fn chat_completions(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -291,8 +372,8 @@ async fn chat_completions_non_streaming(
             .max_tokens
             .or(req.max_completion_tokens)
             .map(|v| v as usize),
-        temperature: req.temperature,
-        top_p: req.top_p,
+        temperature: Some(req.temperature.unwrap_or(0.0)),
+        top_p: Some(req.top_p.unwrap_or(1.0)),
         ..Default::default()
     };
 
@@ -333,14 +414,13 @@ async fn chat_completions_non_streaming(
         .as_ref()
         .map(|r| r.receipt_digest.to_hex());
 
-    // Format ID: chatcmpl-{receipt_digest_b64url} (first 12 base64url chars)
-    // Uses base64url encoding per spec for compact, URL-safe IDs
     let id = match &infer_resp.run_receipt {
         Some(receipt) => {
-            let b64url = URL_SAFE_NO_PAD.encode(receipt.receipt_digest.as_bytes());
-            format!("chatcmpl-{}", &b64url[..12.min(b64url.len())])
+            let hex = receipt.receipt_digest.to_hex();
+            let prefix = &hex[..RECEIPT_DIGEST_ID_SUFFIX_LEN.min(hex.len())];
+            format!("chatcmpl_{}", prefix)
         }
-        None => format!("chatcmpl-{}", infer_resp.id),
+        None => format!("chatcmpl_{}", infer_resp.id),
     };
 
     let response = OpenAiChatCompletionsResponse {
@@ -362,6 +442,241 @@ async fn chat_completions_non_streaming(
     };
 
     Ok(Json(response))
+}
+
+fn completion_prompt_to_text(
+    prompt: &OpenAiCompletionPrompt,
+) -> Result<String, OpenAiErrorResponse> {
+    match prompt {
+        OpenAiCompletionPrompt::Single(text) => Ok(text.clone()),
+        OpenAiCompletionPrompt::Batch(items) => {
+            if items.is_empty() {
+                return Err(openai_error(
+                    "`prompt` must be a non-empty string or array",
+                    Some("MISSING_PROMPT".to_string()),
+                    Some("prompt".to_string()),
+                ));
+            }
+            if items.len() > 1 {
+                return Err(openai_error(
+                    "multiple prompts are not supported; submit a single prompt",
+                    Some("PROMPT_BATCH_UNSUPPORTED".to_string()),
+                    Some("prompt".to_string()),
+                ));
+            }
+            Ok(items[0].clone())
+        }
+    }
+}
+
+fn embedding_inputs(
+    prompt: &OpenAiCompletionPrompt,
+) -> Result<Vec<String>, OpenAiErrorResponse> {
+    match prompt {
+        OpenAiCompletionPrompt::Single(text) => Ok(vec![text.clone()]),
+        OpenAiCompletionPrompt::Batch(items) => {
+            if items.is_empty() {
+                return Err(openai_error(
+                    "`input` must be a non-empty string or array",
+                    Some("MISSING_INPUT".to_string()),
+                    Some("input".to_string()),
+                ));
+            }
+            Ok(items.clone())
+        }
+    }
+}
+
+/// OpenAI-compatible completions endpoint (legacy).
+#[utoipa::path(
+    post,
+    path = "/v1/completions",
+    responses(
+        (status = 200, description = "Completion response", body = OpenAiCompletionsResponse),
+        (status = 400, description = "Bad request", body = OpenAiErrorResponse),
+        (status = 500, description = "Internal server error", body = OpenAiErrorResponse)
+    ),
+    tag = "openai"
+)]
+pub async fn completions_openai(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Extension(identity): Extension<IdentityEnvelope>,
+    request_id: Option<Extension<RequestId>>,
+    api_key: Option<Extension<ApiKeyToken>>,
+    Json(req): Json<OpenAiCompletionsRequest>,
+) -> Result<Json<OpenAiCompletionsResponse>, (StatusCode, Json<OpenAiErrorResponse>)> {
+    if let Some(n) = req.n {
+        if n > 1 {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(openai_error(
+                    "`n>1` is not supported; request a single completion",
+                    Some("N_UNSUPPORTED".to_string()),
+                    Some("n".to_string()),
+                )),
+            ));
+        }
+    }
+    if req.stream.unwrap_or(false) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(openai_error(
+                "streaming is not supported for legacy completions",
+                Some("STREAM_UNSUPPORTED".to_string()),
+                Some("stream".to_string()),
+            )),
+        ));
+    }
+
+    let prompt = completion_prompt_to_text(&req.prompt)
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(e)))?;
+    let prompt_tokens_estimate = estimate_tokens(&prompt);
+
+    let infer_req = InferRequest {
+        prompt,
+        model: req.model.clone(),
+        max_tokens: req.max_tokens.map(|v| v as usize),
+        temperature: Some(req.temperature.unwrap_or(0.0)),
+        top_p: Some(req.top_p.unwrap_or(1.0)),
+        ..Default::default()
+    };
+
+    let infer_resp = match handlers::inference::infer(
+        State(state),
+        Extension(claims),
+        Extension(identity),
+        request_id,
+        api_key,
+        Json(infer_req),
+    )
+    .await
+    {
+        Ok(Json(r)) => r,
+        Err(api_error) => {
+            let (status, Json(err)): (StatusCode, Json<ErrorResponse>) = api_error.into();
+            return Err((status, Json(map_adapteros_error_to_openai(err))));
+        }
+    };
+
+    let model = req
+        .model
+        .clone()
+        .or(infer_resp.model.clone())
+        .unwrap_or_else(|| "adapteros".to_string());
+
+    let prompt_tokens = infer_resp.prompt_tokens.unwrap_or(prompt_tokens_estimate);
+    let usage = Some(OpenAiUsage {
+        prompt_tokens,
+        completion_tokens: infer_resp.tokens_generated,
+        total_tokens: prompt_tokens.saturating_add(infer_resp.tokens_generated),
+    });
+
+    let receipt_digest_hex = infer_resp
+        .run_receipt
+        .as_ref()
+        .map(|r| r.receipt_digest.to_hex());
+
+    let id = match &infer_resp.run_receipt {
+        Some(receipt) => {
+            let hex = receipt.receipt_digest.to_hex();
+            let prefix = &hex[..RECEIPT_DIGEST_ID_SUFFIX_LEN.min(hex.len())];
+            format!("cmpl_{}", prefix)
+        }
+        None => format!("cmpl_{}", infer_resp.id),
+    };
+
+    let response = OpenAiCompletionsResponse {
+        id,
+        object: "text_completion".to_string(),
+        created: Utc::now().timestamp(),
+        model,
+        system_fingerprint: receipt_digest_hex,
+        choices: vec![OpenAiCompletionChoice {
+            index: 0,
+            text: infer_resp.text,
+            finish_reason: map_finish_reason(infer_resp.stop_reason_code)
+                .or_else(|| Some("stop".to_string())),
+        }],
+        usage,
+    };
+
+    Ok(Json(response))
+}
+
+/// OpenAI-compatible embeddings endpoint.
+#[utoipa::path(
+    post,
+    path = "/v1/embeddings",
+    responses(
+        (status = 200, description = "Embedding response", body = OpenAiEmbeddingsResponse),
+        (status = 400, description = "Bad request", body = OpenAiErrorResponse),
+        (status = 500, description = "Internal server error", body = OpenAiErrorResponse)
+    ),
+    tag = "openai"
+)]
+pub async fn embeddings_openai(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Json(req): Json<OpenAiEmbeddingsRequest>,
+) -> Result<Json<OpenAiEmbeddingsResponse>, (StatusCode, Json<OpenAiErrorResponse>)> {
+    crate::permissions::require_permission(
+        &claims,
+        crate::permissions::Permission::InferenceExecute,
+    )
+    .map_err(|e| {
+        let (status, Json(err)): (StatusCode, Json<ErrorResponse>) = e.into();
+        (status, Json(map_adapteros_error_to_openai(err)))
+    })?;
+
+    let embedding_model = state.embedding_model.as_ref().ok_or_else(|| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(openai_error(
+                "Embedding model not configured",
+                Some("EMBEDDINGS_DISABLED".to_string()),
+                None,
+            )),
+        )
+    })?;
+
+    let inputs = embedding_inputs(&req.input)
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(e)))?;
+
+    let mut data = Vec::with_capacity(inputs.len());
+    let mut prompt_tokens = 0usize;
+    for (idx, text) in inputs.iter().enumerate() {
+        let embedding = embedding_model.encode_text(text).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(openai_error(
+                    format!("Embedding generation failed: {}", e),
+                    Some("EMBEDDING_ERROR".to_string()),
+                    None,
+                )),
+            )
+        })?;
+        prompt_tokens = prompt_tokens.saturating_add(estimate_tokens(text));
+        data.push(OpenAiEmbeddingItem {
+            object: "embedding".to_string(),
+            index: idx,
+            embedding,
+        });
+    }
+
+    let usage = OpenAiEmbeddingUsage {
+        prompt_tokens,
+        total_tokens: prompt_tokens,
+    };
+
+    let model = req.model.unwrap_or_else(|| "adapteros-embed".to_string());
+
+    Ok(Json(OpenAiEmbeddingsResponse {
+        object: "list".to_string(),
+        data,
+        model,
+        usage,
+    }))
 }
 
 /// Streaming chat completions handler.
@@ -416,7 +731,7 @@ async fn chat_completions_streaming(
         .map_err(|(status, Json(err))| (status, Json(map_adapteros_error_to_openai(err))))?;
 
     // Generate request ID
-    let request_id = format!("chatcmpl-{}", uuid::Uuid::new_v4());
+    let request_id = format!("chatcmpl_{}", uuid::Uuid::new_v4());
     let model_name = req.model.clone().unwrap_or_else(|| "adapteros".to_string());
     let created = Utc::now().timestamp() as u64;
 
@@ -500,8 +815,8 @@ async fn chat_completions_streaming(
         .max_tokens
         .or(req.max_completion_tokens)
         .unwrap_or(DEFAULT_MAX_TOKENS as u32) as usize;
-    let temperature = req.temperature.unwrap_or(0.7);
-    let top_p = req.top_p;
+    let temperature = req.temperature.unwrap_or(0.0);
+    let top_p = req.top_p.unwrap_or(1.0);
 
     let is_admin = claims.role.eq_ignore_ascii_case("admin")
         || claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
@@ -539,7 +854,7 @@ async fn chat_completions_streaming(
         max_tokens,
         temperature,
         top_k: None,
-        top_p,
+        top_p: Some(top_p),
         seed: None,
         require_evidence: false,
         session_id: None,
@@ -660,6 +975,8 @@ fn build_openai_sse_stream(
         >,
         sent_role: bool,
         finished: bool,
+        // Retained for future evidence/audit integration in streaming responses
+        #[allow(dead_code)]
         run_envelope: adapteros_api_types::RunEnvelope,
         // Keep the drop guard alive; when dropped, it cancels inference
         #[allow(dead_code)]
@@ -691,7 +1008,7 @@ fn build_openai_sse_stream(
                 object: "chat.completion.chunk".to_string(),
                 created: state.created,
                 model: state.model_name.clone(),
-                system_fingerprint: state.run_envelope.manifest_hash_b3.clone(),
+                system_fingerprint: None,
                 choices: vec![StreamingChoice {
                     index: 0,
                     delta: Delta {
@@ -746,34 +1063,26 @@ fn build_openai_sse_stream(
                             None
                         };
 
-                        // Determine finish reason, system fingerprint, and final ID from result
-                        let (finish_reason, system_fingerprint, final_id) = match result {
+                        // Determine finish reason and system fingerprint from result
+                        // Note: All chunks use the same request_id for OpenAI compatibility.
+                        // The receipt_digest is exposed via system_fingerprint on the final chunk.
+                        let (finish_reason, system_fingerprint) = match result {
                             Some(Ok(ref res)) => {
                                 let reason = map_finish_reason(res.stop_reason_code)
                                     .unwrap_or_else(|| "stop".to_string());
                                 // Use receipt_digest for system_fingerprint (full 64-char hex)
-                                // Falls back to manifest_hash if run_receipt unavailable
                                 let fp = res.run_receipt.as_ref()
-                                    .map(|r| r.receipt_digest.to_hex())
-                                    .or_else(|| res.run_envelope.as_ref()
-                                        .and_then(|env| env.manifest_hash_b3.clone()))
-                                    .or_else(|| state.run_envelope.manifest_hash_b3.clone());
-                                // Update ID to use receipt_digest in base64url format
-                                let id = res.run_receipt.as_ref()
-                                    .map(|r| {
-                                        let b64url = URL_SAFE_NO_PAD.encode(r.receipt_digest.as_bytes());
-                                        format!("chatcmpl-{}", &b64url[..12.min(b64url.len())])
-                                    })
-                                    .unwrap_or_else(|| state.request_id.clone());
-                                (reason, fp, id)
+                                    .map(|r| r.receipt_digest.to_hex());
+                                (reason, fp)
                             }
-                            Some(Err(_)) => ("error".to_string(), None, state.request_id.clone()),
-                            None => ("stop".to_string(), None, state.request_id.clone()),
+                            Some(Err(_)) => ("error".to_string(), None),
+                            None => ("stop".to_string(), None),
                         };
 
                         // Send final chunk with finish_reason
+                        // All chunks share the same request_id for OpenAI compatibility
                         let final_chunk = StreamingChunk {
-                            id: final_id,
+                            id: state.request_id.clone(),
                             object: "chat.completion.chunk".to_string(),
                             created: state.created,
                             model: state.model_name.clone(),
