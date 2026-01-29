@@ -144,7 +144,7 @@ pub fn SpawnWorkerDialog(
                     <Input
                         value=uds_path
                         label="Socket Path".to_string()
-                        placeholder="/tmp/aos-worker.sock".to_string()
+                        placeholder="/var/run/aos-worker.sock".to_string()
                     />
                     <p class="text-xs text-muted-foreground -mt-2">
                         "Auto-generated when a node is selected. Most users won't need to change this."
@@ -180,7 +180,7 @@ pub fn SpawnWorkerDialog(
                                 // Ensure UDS path has a value
                                 let socket_path = if uds_path.get().is_empty() {
                                     let timestamp = js_sys::Date::now() as u64;
-                                    format!("/tmp/aos-worker-{}-{}.sock", short_id(&node_id.get()), timestamp)
+                                    format!("/var/run/aos-worker-{}-{}.sock", short_id(&node_id.get()), timestamp)
                                 } else {
                                     uds_path.get()
                                 };

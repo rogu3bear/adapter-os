@@ -1272,6 +1272,8 @@ pub struct Worker<K: FusedKernels + StrictnessControl + Send + Sync + 'static> {
     evidence_retriever: Option<EvidenceRetriever>,
     /// KV cache for transformer attention with generation tracking
     kv_cache: Arc<StdMutex<KvCache>>,
+    /// KV quota manager for receipt telemetry (optional)
+    kv_quota_manager: Option<Arc<TenantKvQuotaManager>>,
     /// Prefix KV cache for reusing prefill computation on repeated prefixes
     prefix_kv_cache: Arc<prefix_kv_cache::PrefixKvCache>,
     /// MoE-specific prefix cache for expert pre-warming and free tokens
@@ -1313,6 +1315,8 @@ pub struct Worker<K: FusedKernels + StrictnessControl + Send + Sync + 'static> {
     inference_cancellations: Arc<InferenceCancelRegistry>,
     /// Worker ID for identity tracking (PRD-06)
     worker_id: u32,
+    /// KV residency policy identifier (receipt telemetry)
+    kv_residency_policy_id: Option<String>,
     /// Critical component metrics for Prometheus export
     critical_metrics: Option<Arc<CriticalComponentMetrics>>,
     /// Inference pause registry for human-in-the-loop review protocol
@@ -1336,6 +1340,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         coreml_package_hash: Option<String>,
         coreml_verification: Option<CoremlVerificationSnapshot>,
         quota_manager: Option<Arc<TenantKvQuotaManager>>,
+        kv_residency_policy_id: Option<String>,
         adapter_cache_bytes: Option<u64>,
         worker_id: u32,
     ) -> Result<Self> {
@@ -1449,6 +1454,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             None
         };
 
+        let kv_quota_manager = quota_manager.clone();
         // Initialize kv_cache with Arc<StdMutex<>> for interior mutability
         let kv_cache = Arc::new(StdMutex::new(KvCache::new_with_quota(
             adapteros_core::constants::BYTES_PER_GB,
@@ -1668,6 +1674,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             embedding_model,
             evidence_retriever,
             kv_cache,
+            kv_quota_manager,
             prefix_kv_cache,
             #[cfg(feature = "mlx-bridge")]
             moe_prefix_cache,
@@ -1695,6 +1702,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             active_training_jobs,
             inference_cancellations,
             worker_id,
+            kv_residency_policy_id,
             critical_metrics,
             pause_registry: None,
             equipment_profile: capture_equipment_profile(),
@@ -2021,6 +2029,33 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
         (identity.digest(), identity.canonical_bytes())
     }
 
+    fn kv_receipt_fields(&self) -> (u64, u64, u32, Option<String>, bool) {
+        let (tenant_kv_bytes_used, tenant_kv_quota_bytes, kv_evictions, kv_quota_enforced) =
+            if let Some(qm) = self.kv_quota_manager.as_ref() {
+                let usage = qm.usage();
+                (
+                    usage.used_bytes,
+                    usage.quota_bytes.unwrap_or(0),
+                    qm.evictions(),
+                    qm.is_quota_enforced(),
+                )
+            } else {
+                let used_bytes = match self.kv_cache.lock() {
+                    Ok(cache) => cache.usage().0,
+                    Err(_) => 0,
+                };
+                (used_bytes, 0, 0, false)
+            };
+
+        (
+            tenant_kv_quota_bytes,
+            tenant_kv_bytes_used,
+            kv_evictions,
+            self.kv_residency_policy_id.clone(),
+            kv_quota_enforced,
+        )
+    }
+
     /// Run inference with comprehensive safety mechanisms
     pub async fn infer(&mut self, request: InferenceRequest) -> Result<InferenceResponse> {
         self.infer_with_stream(request, None).await
@@ -2335,6 +2370,10 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 "Request tenant {} does not match worker tenant {}",
                 request.cpid, self.tenant_namespace
             )));
+        }
+
+        if let Some(qm) = self.kv_quota_manager.as_ref() {
+            qm.reset_evictions();
         }
 
         // Check memory - handle memory pressure if needed
@@ -3488,6 +3527,14 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 None
             };
 
+            let (
+                tenant_kv_quota_bytes,
+                tenant_kv_bytes_used,
+                kv_evictions,
+                kv_residency_policy_id,
+                kv_quota_enforced,
+            ) = self.kv_receipt_fields();
+
             if let Some(sink) = trace_sink.as_mut() {
                 // model_cache_identity_v2_digest already computed earlier for cache lookup
                 match sink
@@ -3501,11 +3548,11 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                         stop_reason_code: stop_reason_code.map(|c| c.to_string()),
                         stop_reason_token_index,
                         stop_policy_digest_b3: Some(stop_policy_digest),
-                        tenant_kv_quota_bytes: 0,
-                        tenant_kv_bytes_used: 0,
-                        kv_evictions: 0,
-                        kv_residency_policy_id: None,
-                        kv_quota_enforced: false,
+                        tenant_kv_quota_bytes,
+                        tenant_kv_bytes_used,
+                        kv_evictions,
+                        kv_residency_policy_id: kv_residency_policy_id.clone(),
+                        kv_quota_enforced,
                         // PRD-01: Wired from PrefixKvCache lookup
                         prefix_kv_key_b3: Some(prefix_kv_key),
                         prefix_cache_hit,
@@ -3563,11 +3610,11 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                             stop_reason_code,
                             stop_reason_token_index,
                             stop_policy_digest_b3: Some(stop_policy_digest),
-                            tenant_kv_quota_bytes: 0,
-                            tenant_kv_bytes_used: 0,
-                            kv_evictions: 0,
-                            kv_residency_policy_id: None,
-                            kv_quota_enforced: false,
+                            tenant_kv_quota_bytes,
+                            tenant_kv_bytes_used,
+                            kv_evictions,
+                            kv_residency_policy_id: kv_residency_policy_id.clone(),
+                            kv_quota_enforced,
                             // PRD-01: Wired from PrefixKvCache lookup
                             prefix_kv_key_b3: Some(prefix_kv_key),
                             prefix_cache_hit,
@@ -4272,6 +4319,14 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             None
         };
 
+        let (
+            tenant_kv_quota_bytes,
+            tenant_kv_bytes_used,
+            kv_evictions,
+            kv_residency_policy_id,
+            kv_quota_enforced,
+        ) = self.kv_receipt_fields();
+
         if let Some(sink) = trace_sink.as_mut() {
             match sink
                 .finalize(TraceFinalization {
@@ -4284,11 +4339,11 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                     stop_reason_code: stop_reason_code.map(|c| c.to_string()),
                     stop_reason_token_index,
                     stop_policy_digest_b3: Some(stop_policy_digest),
-                    tenant_kv_quota_bytes: 0,
-                    tenant_kv_bytes_used: 0,
-                    kv_evictions: 0,
-                    kv_residency_policy_id: None,
-                    kv_quota_enforced: false,
+                    tenant_kv_quota_bytes,
+                    tenant_kv_bytes_used,
+                    kv_evictions,
+                    kv_residency_policy_id: kv_residency_policy_id.clone(),
+                    kv_quota_enforced,
                     // PRD-01: Wired from PrefixKvCache lookup
                     prefix_kv_key_b3: Some(prefix_kv_key),
                     prefix_cache_hit,
@@ -4347,11 +4402,11 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                         stop_reason_code,
                         stop_reason_token_index,
                         stop_policy_digest_b3: Some(stop_policy_digest),
-                        tenant_kv_quota_bytes: 0,
-                        tenant_kv_bytes_used: 0,
-                        kv_evictions: 0,
-                        kv_residency_policy_id: None,
-                        kv_quota_enforced: false,
+                        tenant_kv_quota_bytes,
+                        tenant_kv_bytes_used,
+                        kv_evictions,
+                        kv_residency_policy_id: kv_residency_policy_id.clone(),
+                        kv_quota_enforced,
                         // PRD-01: Wired from PrefixKvCache lookup
                         prefix_kv_key_b3: Some(prefix_kv_key),
                         prefix_cache_hit,
