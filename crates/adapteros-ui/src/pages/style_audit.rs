@@ -3,9 +3,7 @@
 //! Visual component gallery for baseline snapshots and visual regression testing.
 //! Renders all components in all variants for both light and dark modes.
 
-use crate::api::client::{
-    InferenceTraceDetailResponse, TimingBreakdown, TokenDecision, TraceReceiptSummary,
-};
+use crate::api::ApiClient;
 use crate::components::charts::{
     types::{ChartPoint, DataSeries, TimeSeriesData},
     LineChart, Sparkline, SparklineMetric,
@@ -14,11 +12,13 @@ use crate::components::start_menu::{StartButton, StartMenu};
 use crate::components::trace_viewer::TraceDetailStandalone;
 use crate::components::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ConfirmationDialog,
-    ConfirmationSeverity, DangerZone, DangerZoneItem, Dialog, FormField, InfoBanner, Input,
-    Spinner, StatusColor, StatusIndicator, Table, TableBody, TableCell, TableHead, TableHeader,
-    TableRow, Textarea, Toggle, WarningBanner,
+    ConfirmationSeverity, DangerZone, DangerZoneItem, Dialog, ErrorDisplay, FormField, InfoBanner,
+    Input, Spinner, StatusColor, StatusIndicator, Table, TableBody, TableCell, TableHead,
+    TableHeader, TableRow, Textarea, Toggle, WarningBanner,
 };
+use crate::hooks::{use_api_resource, LoadingState};
 use leptos::prelude::*;
+use std::sync::Arc;
 
 /// Style Audit page - component gallery for visual testing
 #[component]
@@ -74,60 +74,24 @@ pub fn StyleAudit() -> impl IntoView {
     let sparkline_values =
         Signal::derive(move || vec![10.0, 15.0, 12.0, 20.0, 25.0, 22.0, 30.0, 35.0, 28.0, 40.0]);
 
-    // Mock trace data
-    let mock_trace = InferenceTraceDetailResponse {
-        trace_id: "trc_mock_audit_123".to_string(),
-        request_id: Some("req_mock_audit_456".to_string()),
-        created_at: "2023-10-27T10:00:00Z".to_string(),
-        latency_ms: 450,
-        adapters_used: vec!["finance_v1".to_string(), "legal_v2".to_string()],
-        backend_id: Some("apple_silicon_ane".to_string()),
-        token_decisions: vec![
-            TokenDecision {
-                token_index: 0,
-                token_id: Some(101),
-                adapter_ids: vec!["finance_v1".to_string()],
-                gates_q15: vec![30000],
-                entropy: 0.1,
-                decision_hash: None,
-                backend_id: None,
-                kernel_version_id: None,
-            },
-            TokenDecision {
-                token_index: 1,
-                token_id: Some(205),
-                adapter_ids: vec!["finance_v1".to_string(), "legal_v2".to_string()],
-                gates_q15: vec![16000, 15000],
-                entropy: 0.8,
-                decision_hash: None,
-                backend_id: None,
-                kernel_version_id: None,
-            },
-        ],
-        timing_breakdown: TimingBreakdown {
-            total_ms: 450,
-            routing_ms: 50,
-            inference_ms: 380,
-            policy_ms: 20,
-            prefill_ms: None,
-            decode_ms: None,
-        },
-        receipt: Some(TraceReceiptSummary {
-            receipt_digest: "digest_123abc".to_string(),
-            run_head_hash: "hash_xyz789".to_string(),
-            output_digest: "out_456def".to_string(),
-            logical_prompt_tokens: 15,
-            logical_output_tokens: 42,
-            stop_reason_code: Some("stop".to_string()),
-            stop_reason_token_index: Some(41),
-            verified: true,
-            processor_id: Some("Apple M2 Ultra".to_string()),
-            engine_version: Some("MLX 0.1.0".to_string()),
-            ane_version: Some("v2.1".to_string()),
-            prefix_cache_hit: true,
-            prefix_kv_bytes: 1024,
-        }),
-    };
+    // Trace fetch state (live diagnostic)
+    let trace_id_input = RwSignal::new(String::new());
+    let requested_trace_id = RwSignal::new(String::new());
+    let has_requested_trace = RwSignal::new(false);
+    let (trace_detail, refetch_trace) = use_api_resource({
+        let requested_trace_id = requested_trace_id.clone();
+        move |client: Arc<ApiClient>| {
+            let trace_id = requested_trace_id.get_untracked();
+            async move {
+                let trace_id = trace_id.trim().to_string();
+                if trace_id.is_empty() {
+                    Ok(None)
+                } else {
+                    client.get_inference_trace_detail(&trace_id).await.map(Some)
+                }
+            }
+        }
+    });
 
     let expanded_trace_tokens = RwSignal::new(false);
 
@@ -194,13 +158,93 @@ pub fn StyleAudit() -> impl IntoView {
                     // ===== INFERENCE =====
                     <ComponentSection title="Inference">
                         <SubSection title="Trace Visualization">
-                            <div class="border rounded-lg bg-card">
-                                <TraceDetailStandalone
-                                    trace=mock_trace
-                                    expanded_tokens=expanded_trace_tokens.read_only()
-                                    set_expanded_tokens=expanded_trace_tokens.write_only()
-                                    compact=false
-                                />
+                            <div class="border rounded-lg bg-card p-4 space-y-4">
+                                <div class="flex flex-wrap items-end gap-3">
+                                    <div class="w-full sm:w-80">
+                                        <Input
+                                            value=trace_id_input
+                                            label="Trace ID".to_string()
+                                            placeholder="trc_...".to_string()
+                                        />
+                                    </div>
+                                    <Button
+                                        variant=ButtonVariant::Primary
+                                        on_click=Callback::new(move |_| {
+                                            let trace_id = trace_id_input.get().trim().to_string();
+                                            requested_trace_id.set(trace_id.clone());
+                                            has_requested_trace.set(true);
+                                            if !trace_id.is_empty() {
+                                                refetch_trace.run(());
+                                            }
+                                        })
+                                    >
+                                        "Load Trace"
+                                    </Button>
+                                    {move || {
+                                        let current = requested_trace_id.get();
+                                        if current.trim().is_empty() {
+                                            None
+                                        } else {
+                                            Some(view! {
+                                                <span class="text-xs text-muted-foreground">
+                                                    "Loaded: " <span class="font-mono">{current}</span>
+                                                </span>
+                                            })
+                                        }
+                                    }}
+                                </div>
+                                <div>
+                                    {move || {
+                                        if !has_requested_trace.get() {
+                                            view! {
+                                                <div class="text-sm text-muted-foreground">
+                                                    "Enter a trace ID to load live trace data."
+                                                </div>
+                                            }
+                                            .into_any()
+                                        } else if requested_trace_id.get().trim().is_empty() {
+                                            view! {
+                                                <WarningBanner
+                                                    title="Trace ID required".to_string()
+                                                    message="Enter a trace ID and click Load Trace."
+                                                        .to_string()
+                                                />
+                                            }
+                                            .into_any()
+                                        } else {
+                                            match trace_detail.get() {
+                                                LoadingState::Idle | LoadingState::Loading => view! {
+                                                    <div class="flex items-center gap-2 text-muted-foreground">
+                                                        <Spinner/>
+                                                        <span>"Loading trace data..."</span>
+                                                    </div>
+                                                }
+                                                .into_any(),
+                                                LoadingState::Loaded(Some(detail)) => view! {
+                                                    <TraceDetailStandalone
+                                                        trace=detail
+                                                        expanded_tokens=expanded_trace_tokens.read_only()
+                                                        set_expanded_tokens=expanded_trace_tokens.write_only()
+                                                        compact=false
+                                                    />
+                                                }
+                                                .into_any(),
+                                                LoadingState::Loaded(None) => view! {
+                                                    <WarningBanner
+                                                        title="No trace data".to_string()
+                                                        message="No trace returned for that ID."
+                                                            .to_string()
+                                                    />
+                                                }
+                                                .into_any(),
+                                                LoadingState::Error(err) => view! {
+                                                    <ErrorDisplay error=err.clone()/>
+                                                }
+                                                .into_any(),
+                                            }
+                                        }
+                                    }}
+                                </div>
                             </div>
                         </SubSection>
                     </ComponentSection>
