@@ -7,14 +7,14 @@ use adapteros_core::B3Hash;
 use arbitrary::Unstructured;
 use libfuzzer_sys::fuzz_target;
 
-/// Fuzz evidence envelope creation, canonical bytes, and validation
-///
-/// Tests:
-/// - Envelope creation for all three scopes (telemetry, policy, inference)
-/// - Canonical byte encoding determinism
-/// - Validation logic
-/// - Digest computation
-/// - Chain linking with various previous_root combinations
+// Fuzz evidence envelope creation, canonical bytes, and validation
+//
+// Tests:
+// - Envelope creation for all three scopes (telemetry, policy, inference)
+// - Canonical byte encoding determinism
+// - Validation logic
+// - Digest computation
+// - Chain linking with various previous_root combinations
 fuzz_target!(|data: &[u8]| {
     let mut u = Unstructured::new(data);
 
