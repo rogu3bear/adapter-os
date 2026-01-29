@@ -30,8 +30,11 @@ impl HashGraphNode {
         let metadata_bytes = canonical.to_canonical_bytes()?;
 
         // Create combined hash: version + metadata + data
-        let node_hash =
-            B3Hash::hash_multi(&[&[HASH_VERSION], &metadata_bytes, data_hash.as_bytes()]);
+        let node_hash = B3Hash::hash_multi(&[
+            &[HASH_VERSION],
+            metadata_bytes.as_slice(),
+            data_hash.as_bytes(),
+        ]);
 
         Ok(Self {
             hash_version: HASH_VERSION,
