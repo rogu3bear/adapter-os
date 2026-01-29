@@ -262,6 +262,7 @@ async fn ready_model_happy_path_inference_and_routing() {
         Extension(identity),
         Some(Extension(RequestId(request_id.to_string()))),
         None,
+        None,
         Json(infer_req),
     )
     .await
@@ -401,6 +402,7 @@ async fn not_ready_model_fails_fast_with_model_not_ready_code() {
         Extension(claims),
         Extension(identity),
         Some(Extension(RequestId("not-ready-request".to_string()))),
+        None,
         None,
         Json(infer_req),
     )

@@ -317,6 +317,7 @@ async fn streaming_infer_emits_structured_error_on_unavailable_resource() {
         Extension(claims),
         Extension(identity),
         axum::http::HeaderMap::new(),
+        None,
         Json(req),
     )
     .await

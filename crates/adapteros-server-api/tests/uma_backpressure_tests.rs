@@ -34,6 +34,7 @@ async fn uma_backpressure_short_circuits_inference() {
         Extension(identity),
         Some(Extension(RequestId("backpressure".to_string()))),
         None,
+        None,
         Json(req),
     )
     .await

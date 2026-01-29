@@ -470,6 +470,7 @@ async fn test_gold_standard_e2e_inference() {
         Extension(identity),
         Some(Extension(RequestId(request_id.to_string()))),
         None,
+        None,
         Json(infer_req),
     )
     .await

@@ -20,6 +20,9 @@ use crate::middleware::policy_enforcement::{
 use crate::middleware::request_id::RequestId;
 use crate::middleware::ApiKeyToken;
 use crate::permissions::Permission;
+use crate::session_tokens::{
+    ensure_no_adapter_overrides, resolve_session_token_lock, SessionTokenContext,
+};
 use crate::state::AppState;
 use crate::types::{
     new_run_envelope, set_policy_mask, ErrorResponse, InferRequest, InferResponse, InferenceError,
@@ -79,6 +82,7 @@ pub async fn infer(
     Extension(identity): Extension<IdentityEnvelope>,
     request_id: Option<Extension<RequestId>>,
     api_key: Option<Extension<ApiKeyToken>>,
+    session_token: Option<Extension<SessionTokenContext>>,
     Json(req): Json<InferRequest>,
 ) -> ApiResult<InferResponse> {
     // Extract request_id for hook context
@@ -94,12 +98,51 @@ pub async fn infer(
         return Err(ApiError::bad_request("prompt cannot be empty"));
     }
 
+    let session_lock = if let Some(token) = session_token.as_ref() {
+        ensure_no_adapter_overrides(&[
+            ("adapters", req.adapters.is_some()),
+            ("adapter_stack", req.adapter_stack.is_some()),
+            ("stack_id", req.stack_id.is_some()),
+            ("effective_adapter_ids", req.effective_adapter_ids.is_some()),
+        ])?;
+        let resolved = resolve_session_token_lock(&state, &claims, &token.0.lock).await?;
+        if let (Some(requested), Some(locked)) = (req.backend, resolved.backend_profile) {
+            if requested != locked {
+                return Err(ApiError::forbidden("session token backend mismatch").with_details(
+                    format!(
+                        "requested {}, token {}",
+                        requested.as_str(),
+                        locked.as_str()
+                    ),
+                ));
+            }
+        }
+        if let (Some(requested), Some(locked)) = (req.coreml_mode, resolved.coreml_mode) {
+            if requested != locked {
+                return Err(ApiError::forbidden("session token coreml_mode mismatch").with_details(
+                    format!(
+                        "requested {}, token {}",
+                        requested.as_str(),
+                        locked.as_str()
+                    ),
+                ));
+            }
+        }
+        Some(resolved)
+    } else {
+        None
+    };
+
     // Audit log: inference execution start
     let adapters_requested = req
         .adapters
         .as_ref()
         .map(|a| a.join(","))
         .or_else(|| req.adapter_stack.as_ref().map(|s| s.join(",")));
+    let adapters_requested = session_lock
+        .as_ref()
+        .map(|lock| lock.adapter_ids.join(","))
+        .or(adapters_requested);
 
     if let Err(e) = crate::audit_helper::log_success(
         &state.db,
@@ -250,6 +293,20 @@ pub async fn infer(
     }
     if let Some(token) = api_key {
         internal.worker_auth_token = Some(token.0 .0.clone());
+    }
+    if let Some(lock) = session_lock.as_ref() {
+        internal.adapter_stack = None;
+        internal.adapters = Some(lock.adapter_ids.clone());
+        internal.effective_adapter_ids = Some(lock.adapter_ids.clone());
+        internal.stack_id = lock.stack_id.clone();
+        internal.pinned_adapter_ids = Some(lock.pinned_adapter_ids.clone());
+        if let Some(backend) = lock.backend_profile {
+            internal.backend_profile = Some(backend);
+            internal.allow_fallback = backend == adapteros_core::BackendKind::Auto;
+        }
+        if let Some(coreml_mode) = lock.coreml_mode {
+            internal.coreml_mode = Some(coreml_mode);
+        }
     }
 
     // Execute via InferenceCore - this is the single entry point for all inference
