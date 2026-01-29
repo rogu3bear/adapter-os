@@ -284,6 +284,85 @@ pub fn default_documents_root() -> String {
 }
 
 // ============================================================================
+// Circuit Breaker Configuration
+// ============================================================================
+
+/// Configuration for circuit breaker behavior.
+///
+/// Circuit breakers protect the system from cascading failures by temporarily
+/// disabling operations that are repeatedly failing. When the failure threshold
+/// is reached, the circuit "opens" and requests are rejected immediately without
+/// attempting the operation. After a reset timeout, the circuit enters "half-open"
+/// state where a limited number of requests are allowed through to test recovery.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CircuitBreakerConfig {
+    /// Number of consecutive failures before the circuit breaker opens
+    /// Default: 5
+    #[serde(default = "default_failure_threshold")]
+    pub failure_threshold: u32,
+
+    /// Time in seconds to wait before attempting recovery (reset timeout)
+    /// Default: 60
+    #[serde(default = "default_reset_timeout_secs")]
+    pub reset_timeout_secs: u64,
+
+    /// Maximum number of calls allowed in half-open state before deciding
+    /// whether to close (success) or re-open (failure) the circuit
+    /// Default: 3
+    #[serde(default = "default_half_open_max_calls")]
+    pub half_open_max_calls: u32,
+
+    /// Deadline in seconds for worker operations before considering them failed
+    /// This is used to timeout operations that hang indefinitely
+    /// Default: 600 (10 minutes)
+    #[serde(default = "default_worker_deadline_secs")]
+    pub worker_deadline_secs: u64,
+
+    /// Enable automatic fallback to stub mode when circuit is open
+    /// Default: true
+    #[serde(default = "default_true")]
+    pub enable_stub_fallback: bool,
+
+    /// Health check interval in seconds when circuit is open
+    /// Default: 30
+    #[serde(default = "default_health_check_interval_secs")]
+    pub health_check_interval_secs: u64,
+}
+
+impl Default for CircuitBreakerConfig {
+    fn default() -> Self {
+        Self {
+            failure_threshold: default_failure_threshold(),
+            reset_timeout_secs: default_reset_timeout_secs(),
+            half_open_max_calls: default_half_open_max_calls(),
+            worker_deadline_secs: default_worker_deadline_secs(),
+            enable_stub_fallback: true,
+            health_check_interval_secs: default_health_check_interval_secs(),
+        }
+    }
+}
+
+pub fn default_failure_threshold() -> u32 {
+    5
+}
+
+pub fn default_reset_timeout_secs() -> u64 {
+    60
+}
+
+pub fn default_half_open_max_calls() -> u32 {
+    3
+}
+
+pub fn default_worker_deadline_secs() -> u64 {
+    600
+}
+
+pub fn default_health_check_interval_secs() -> u64 {
+    30
+}
+
+// ============================================================================
 // Boot Invariants Configuration
 // ============================================================================
 

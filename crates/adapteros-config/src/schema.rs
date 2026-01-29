@@ -1873,6 +1873,91 @@ pub fn default_schema() -> ConfigSchema {
             .build(),
     );
 
+    // =========================================================================
+    // CIRCUIT_BREAKER - Circuit breaker configuration for resilience
+    // =========================================================================
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_CIRCUIT_BREAKER_FAILURE_THRESHOLD")
+            .config_type(ConfigType::Integer {
+                min: Some(1),
+                max: Some(100),
+            })
+            .default_value("5")
+            .description("Number of consecutive failures before circuit breaker opens")
+            .category("CIRCUIT_BREAKER")
+            .config_key("circuit_breaker.failure_threshold")
+            .toml_key("circuit_breaker.failure_threshold")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_CIRCUIT_BREAKER_RESET_TIMEOUT_SECS")
+            .config_type(ConfigType::Integer {
+                min: Some(1),
+                max: Some(3600),
+            })
+            .default_value("60")
+            .description("Time in seconds to wait before attempting recovery (reset timeout)")
+            .category("CIRCUIT_BREAKER")
+            .config_key("circuit_breaker.reset_timeout_secs")
+            .toml_key("circuit_breaker.reset_timeout_secs")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_CIRCUIT_BREAKER_HALF_OPEN_MAX_CALLS")
+            .config_type(ConfigType::Integer {
+                min: Some(1),
+                max: Some(100),
+            })
+            .default_value("3")
+            .description("Maximum calls allowed in half-open state to test recovery")
+            .category("CIRCUIT_BREAKER")
+            .config_key("circuit_breaker.half_open_max_calls")
+            .toml_key("circuit_breaker.half_open_max_calls")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_CIRCUIT_BREAKER_WORKER_DEADLINE_SECS")
+            .config_type(ConfigType::Integer {
+                min: Some(10),
+                max: Some(3600),
+            })
+            .default_value("600")
+            .description("Deadline in seconds for worker operations before timeout (default: 10 minutes)")
+            .category("CIRCUIT_BREAKER")
+            .config_key("circuit_breaker.worker_deadline_secs")
+            .toml_key("circuit_breaker.worker_deadline_secs")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_CIRCUIT_BREAKER_ENABLE_STUB_FALLBACK")
+            .config_type(ConfigType::Bool)
+            .default_value("true")
+            .description("Enable automatic fallback to stub mode when circuit is open")
+            .category("CIRCUIT_BREAKER")
+            .config_key("circuit_breaker.enable_stub_fallback")
+            .toml_key("circuit_breaker.enable_stub_fallback")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_CIRCUIT_BREAKER_HEALTH_CHECK_INTERVAL_SECS")
+            .config_type(ConfigType::Integer {
+                min: Some(5),
+                max: Some(600),
+            })
+            .default_value("30")
+            .description("Health check interval in seconds when circuit is open")
+            .category("CIRCUIT_BREAKER")
+            .config_key("circuit_breaker.health_check_interval_secs")
+            .toml_key("circuit_breaker.health_check_interval_secs")
+            .build(),
+    );
+
     schema
 }
 
@@ -1906,6 +1991,7 @@ mod tests {
         assert!(categories.contains(&"SELF_HOSTING"));
         assert!(categories.contains(&"CIRCUIT_BREAKER"));
         assert!(categories.contains(&"BUILD"));
+        assert!(categories.contains(&"CIRCUIT_BREAKER"));
     }
 
     #[test]
