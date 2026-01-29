@@ -6,7 +6,7 @@
 use crate::api::ApiClient;
 #[cfg(target_arch = "wasm32")]
 use crate::api::ApiError;
-use crate::components::{Button, ButtonVariant, Dialog, DialogSize, FormField, Input};
+use crate::components::{Button, ButtonVariant, Dialog, DialogSize, FormField, Input, Select};
 use crate::pages::training::dataset_wizard::{DatasetUploadOutcome, DatasetUploadWizard};
 use crate::pages::training::generate_wizard::{GenerateDatasetOutcome, GenerateDatasetWizard};
 use crate::validation::{rules, use_form_errors, validate_field, ValidationRule};
@@ -552,19 +552,17 @@ pub fn CreateJobDialog(
                             />
                         </FormField>
 
-                        <div class="space-y-2">
-                            <label class="text-sm font-medium">"Category"</label>
-                            <select
-                                class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                                on:change=move |ev| category.set(event_target_value(&ev))
-                            >
-                                <option value="code" selected=true>"Code"</option>
-                                <option value="framework">"Framework"</option>
-                                <option value="codebase">"Codebase"</option>
-                                <option value="docs">"Documentation"</option>
-                                <option value="domain">"Domain"</option>
-                            </select>
-                        </div>
+                        <Select
+                            value=category
+                            label="Category".to_string()
+                            options=vec![
+                                ("code".to_string(), "Code".to_string()),
+                                ("framework".to_string(), "Framework".to_string()),
+                                ("codebase".to_string(), "Codebase".to_string()),
+                                ("docs".to_string(), "Documentation".to_string()),
+                                ("domain".to_string(), "Domain".to_string()),
+                            ]
+                        />
 
                         // File upload section
                         <div class="space-y-2">
@@ -681,33 +679,31 @@ pub fn CreateJobDialog(
                             </p>
                             <div class="grid gap-4 grid-cols-2">
                                 <div class="space-y-2">
-                                    <label class="text-sm font-medium">"Preferred Backend"</label>
-                                    <select
-                                        class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                                        prop:value=Signal::derive(move || preferred_backend.get())
-                                        on:change=move |ev| preferred_backend.set(event_target_value(&ev))
-                                    >
-                                        <option value="auto">"Auto (recommended)"</option>
-                                        <option value="mlx">"MLX"</option>
-                                        <option value="coreml">"CoreML"</option>
-                                        <option value="metal">"Metal"</option>
-                                        <option value="cpu">"CPU"</option>
-                                    </select>
+                                    <Select
+                                        value=preferred_backend
+                                        label="Preferred Backend".to_string()
+                                        options=vec![
+                                            ("auto".to_string(), "Auto (recommended)".to_string()),
+                                            ("mlx".to_string(), "MLX".to_string()),
+                                            ("coreml".to_string(), "CoreML".to_string()),
+                                            ("metal".to_string(), "Metal".to_string()),
+                                            ("cpu".to_string(), "CPU".to_string()),
+                                        ]
+                                    />
                                     <p class="text-xs text-muted-foreground">
                                         "MLX: flexible, deterministic. CoreML: ANE acceleration. Metal: GPU fallback."
                                     </p>
                                 </div>
                                 <div class="space-y-2">
-                                    <label class="text-sm font-medium">"Backend Policy"</label>
-                                    <select
-                                        class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                                        prop:value=Signal::derive(move || backend_policy.get())
-                                        on:change=move |ev| backend_policy.set(event_target_value(&ev))
-                                    >
-                                        <option value="auto">"Auto"</option>
-                                        <option value="coreml_only">"CoreML Only (fail if unavailable)"</option>
-                                        <option value="coreml_else_fallback">"CoreML with Fallback"</option>
-                                    </select>
+                                    <Select
+                                        value=backend_policy
+                                        label="Backend Policy".to_string()
+                                        options=vec![
+                                            ("auto".to_string(), "Auto".to_string()),
+                                            ("coreml_only".to_string(), "CoreML Only (fail if unavailable)".to_string()),
+                                            ("coreml_else_fallback".to_string(), "CoreML with Fallback".to_string()),
+                                        ]
+                                    />
                                     <p class="text-xs text-muted-foreground">
                                         "Controls how backend unavailability is handled."
                                     </p>
@@ -715,15 +711,14 @@ pub fn CreateJobDialog(
                             </div>
                             {move || (preferred_backend.get() == TrainingBackendKind::CoreML.as_str() || backend_policy.get() == TrainingBackendPolicy::CoremlElseFallback.as_str()).then(|| view! {
                                 <div class="mt-3 space-y-2">
-                                    <label class="text-sm font-medium">"CoreML Fallback Backend"</label>
-                                    <select
-                                        class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                                        prop:value=Signal::derive(move || coreml_training_fallback.get())
-                                        on:change=move |ev| coreml_training_fallback.set(event_target_value(&ev))
-                                    >
-                                        <option value="mlx">"MLX (default)"</option>
-                                        <option value="metal">"Metal"</option>
-                                    </select>
+                                    <Select
+                                        value=coreml_training_fallback
+                                        label="CoreML Fallback Backend".to_string()
+                                        options=vec![
+                                            ("mlx".to_string(), "MLX (default)".to_string()),
+                                            ("metal".to_string(), "Metal".to_string()),
+                                        ]
+                                    />
                                     <p class="text-xs text-muted-foreground">
                                         "Backend to use when CoreML is unavailable. MLX is recommended for determinism."
                                     </p>
@@ -832,15 +827,14 @@ pub fn CreateJobDialog(
                                     help="Hidden state or embedding output to cache"
                                     error=Signal::derive(move || None::<String>)
                                 >
-                                    <select
-                                        class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                                        prop:value=Signal::derive(move || preprocess_output.get())
-                                        on:change=move |ev| preprocess_output.set(event_target_value(&ev))
-                                    >
-                                        <option value="hidden_state_last" selected=true>"hidden_states (last)"</option>
-                                        <option value="embedding">"embeddings"</option>
-                                        <option value="pooled">"pooled (mean)"</option>
-                                    </select>
+                                    <Select
+                                        value=preprocess_output
+                                        options=vec![
+                                            ("hidden_state_last".to_string(), "hidden_states (last)".to_string()),
+                                            ("embedding".to_string(), "embeddings".to_string()),
+                                            ("pooled".to_string(), "pooled (mean)".to_string()),
+                                        ]
+                                    />
                                 </FormField>
                                 <FormField
                                     label="Preprocess Batch Size"
@@ -870,14 +864,13 @@ pub fn CreateJobDialog(
                                     help="Optional compression for cached features"
                                     error=Signal::derive(move || None::<String>)
                                 >
-                                    <select
-                                        class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                                        prop:value=Signal::derive(move || preprocess_compression.get())
-                                        on:change=move |ev| preprocess_compression.set(event_target_value(&ev))
-                                    >
-                                        <option value="none" selected=true>"None"</option>
-                                        <option value="q15">"Q15 (int16 + scale)"</option>
-                                    </select>
+                                    <Select
+                                        value=preprocess_compression
+                                        options=vec![
+                                            ("none".to_string(), "None".to_string()),
+                                            ("q15".to_string(), "Q15 (int16 + scale)".to_string()),
+                                        ]
+                                    />
                                 </FormField>
                             </div>
                             <div class="flex items-center gap-3">
