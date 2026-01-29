@@ -303,6 +303,7 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
 
     // Tab state
     let active_tab = RwSignal::new(initial_tab);
+    let receipt_digest = RwSignal::new(None::<String>);
 
     // Fetch run export (includes events and timing)
     let run_id_clone = run_id.clone();
@@ -382,7 +383,7 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
                 <QuickActionButton
                     icon="🔗"
                     label="Copy Receipt Hash"
-                    action=QuickAction::CopyReceiptHash(run_id.clone())
+                    action=QuickAction::CopyReceiptHash(receipt_digest.read_only())
                 />
                 <QuickActionButton
                     icon="📥"
@@ -432,6 +433,7 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
                             active_tab=active_tab
                             trace_detail=trace_detail
                             compare_trace=compare_trace.clone()
+                            receipt_digest=receipt_digest.write_only()
                         />
                     }
                 }
@@ -447,7 +449,15 @@ fn TabContent(
     active_tab: RwSignal<RunDetailTab>,
     trace_detail: ReadSignal<crate::hooks::LoadingState<InferenceTraceDetailResponse>>,
     compare_trace: Option<String>,
+    receipt_digest: WriteSignal<Option<String>>,
 ) -> impl IntoView {
+    Effect::new(move |_| {
+        if let LoadingState::Loaded(detail) = trace_detail.get() {
+            let digest = detail.receipt.map(|receipt| receipt.receipt_digest);
+            receipt_digest.set(digest);
+        }
+    });
+
     view! {
         {move || {
             let export = export.clone();
@@ -508,7 +518,7 @@ enum QuickAction {
     /// Copy text to clipboard
     CopyText(String),
     /// Copy receipt hash (requires fetching from export)
-    CopyReceiptHash(String),
+    CopyReceiptHash(ReadSignal<Option<String>>),
     /// Export run data
     Export(String),
 }
@@ -534,14 +544,14 @@ fn QuickActionButton(
                 );
             }
             QuickAction::CopyReceiptHash(run_id) => {
-                // For now, copy the run_id as placeholder
-                // In production, this would fetch the receipt hash
-                copy_to_clipboard(
-                    &format!("receipt:{}", run_id),
-                    set_copied,
-                    notifications.clone(),
-                    "Receipt hash",
-                );
+                let Some(digest) = run_id.get() else {
+                    notifications.error(
+                        "Receipt hash unavailable",
+                        "Receipt hash is not available for this run yet.",
+                    );
+                    return;
+                };
+                copy_to_clipboard(&digest, set_copied, notifications.clone(), "Receipt hash");
             }
             QuickAction::Export(run_id) => {
                 // Navigate to export endpoint or trigger download
