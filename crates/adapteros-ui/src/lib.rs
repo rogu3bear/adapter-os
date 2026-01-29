@@ -22,6 +22,7 @@
 #![allow(clippy::unit_arg)]
 // Callback<T> is Copy but .clone() is often clearer in closures
 #![allow(clippy::clone_on_copy)]
+#![allow(non_snake_case)]
 
 pub mod api;
 pub mod components;
@@ -322,8 +323,8 @@ extern "C" {
 pub fn boot_log(phase: &str, message: &str) {
     // Use a static to track boot start time
     static BOOT_START: std::sync::OnceLock<f64> = std::sync::OnceLock::new();
-    let start = *BOOT_START.get_or_init(now);
-    let elapsed = now() - start;
+    let start = *BOOT_START.get_or_init(|| unsafe { now() });
+    let elapsed = unsafe { now() } - start;
     web_sys::console::log_1(&format!("[boot T+{:.0}ms] {}: {}", elapsed, phase, message).into());
 }
 
@@ -371,7 +372,7 @@ fn set_dom_panic_hook() {
             // Redact the stack trace as well (in case it contains sensitive paths)
             let redacted_stack = redact_sensitive_info(&stack_trace);
 
-            show_panic(&format!("{}{}", message, location), &redacted_stack);
+            unsafe { show_panic(&format!("{}{}", message, location), &redacted_stack) };
         }));
     });
 }
@@ -380,7 +381,7 @@ fn set_dom_panic_hook() {
 pub fn mount() {
     // Boot timeline: T+0ms - WASM binary executing
     boot_log("wasm", "binary loaded, executing start");
-    signal_wasm_compile_done();
+    unsafe { signal_wasm_compile_done() };
 
     // Set up panic hooks FIRST - before any code that might panic
     console_error_panic_hook::set_once();
@@ -404,13 +405,13 @@ pub fn mount() {
     boot_log("wasm", "tracing initialized");
 
     // PRD-UI-000: Signal runtime is initialized
-    signal_wasm_loaded();
+    unsafe { signal_wasm_loaded() };
     boot_log("mount", "runtime ready, mounting Leptos app");
 
     // Mount the Leptos app
     leptos::mount::mount_to_body(App);
 
     // PRD-UI-000: Signal app is mounted (triggers backend health check)
-    signal_mounted();
+    unsafe { signal_mounted() };
     boot_log("mount", "app mounted to DOM");
 }
