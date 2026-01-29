@@ -1,15 +1,16 @@
 //! API Configuration section component
 
-use super::icons::{CheckIcon, EyeIcon, EyeOffIcon, XIcon};
+use super::icons::{CheckIcon, XIcon};
 use crate::api::ApiClient;
 use crate::components::{Button, ButtonVariant, Card, Input, Spinner};
-use crate::signals::{update_setting, use_settings};
+use crate::signals::{update_setting, use_auth, use_settings, AuthState};
 use leptos::prelude::*;
 
 /// API Configuration section
 #[component]
 pub fn ApiConfigSection() -> impl IntoView {
     let settings = use_settings();
+    let (auth_state, _) = use_auth();
 
     // Local state for API endpoint editing
     let api_endpoint = RwSignal::new(
@@ -21,9 +22,6 @@ pub fn ApiConfigSection() -> impl IntoView {
 
     // Connection test state
     let test_status = RwSignal::new(ConnectionTestStatus::Idle);
-
-    // Masked token display
-    let token_visible = RwSignal::new(false);
 
     // Test connection handler
     let test_connection = move |_| {
@@ -127,40 +125,42 @@ pub fn ApiConfigSection() -> impl IntoView {
                 </div>
             </Card>
 
-            // Auth Token
-            <Card title="Authentication Token".to_string() description="Your current authentication token (stored in browser).".to_string()>
-                <div class="space-y-4">
-                    <div class="flex items-center gap-2">
-                        <div class="flex-1 font-mono text-sm bg-muted p-3 rounded-md overflow-hidden">
-                            {move || {
-                                if let Some(token) = get_stored_token() {
-                                    if token_visible.get() {
-                                        token
-                                    } else {
-                                        mask_token(&token)
-                                    }
-                                } else {
-                                    "No token stored".to_string()
-                                }
-                            }}
-                        </div>
-                        <Button
-                            variant=ButtonVariant::Outline
-                            size=crate::components::ButtonSize::Icon
-                            on_click=Callback::new(move |_| token_visible.update(|v| *v = !*v))
-                        >
-                            {move || {
-                                if token_visible.get() {
-                                    view! { <EyeOffIcon/> }.into_any()
-                                } else {
-                                    view! { <EyeIcon/> }.into_any()
-                                }
-                            }}
-                        </Button>
-                    </div>
+            // Auth Status
+            <Card title="Authentication Status".to_string() description="Current authenticated user for this session.".to_string()>
+                <div class="space-y-3">
+                    {move || {
+                        match auth_state.get() {
+                            AuthState::Authenticated(user) => {
+                                let user = user.clone();
+                                let email = user.email.clone();
+                                let role = user.role.clone();
+                                view! {
+                                    <div class="space-y-1">
+                                        <div class="text-sm font-medium">{email}</div>
+                                        <div class="text-xs text-muted-foreground">{format!("Role: {}", role)}</div>
+                                    </div>
+                                }.into_any()
+                            }
+                            AuthState::Unauthenticated => view! {
+                                <p class="text-sm text-muted-foreground">"Not authenticated."</p>
+                            }.into_any(),
+                            AuthState::Error(msg) => view! {
+                                <p class="text-sm text-destructive">{format!("Authentication error: {}", msg)}</p>
+                            }.into_any(),
+                            AuthState::Timeout => view! {
+                                <p class="text-sm text-destructive">"Authentication check timed out."</p>
+                            }.into_any(),
+                            AuthState::Unknown | AuthState::Loading => view! {
+                                <div class="flex items-center gap-2 text-sm text-muted-foreground">
+                                    <Spinner/>
+                                    "Checking authentication..."
+                                </div>
+                            }.into_any(),
+                        }
+                    }}
 
                     <p class="text-xs text-muted-foreground">
-                        "Token is managed automatically during login/logout. Refresh if experiencing authentication issues."
+                        "Session authentication uses secure httpOnly cookies; no bearer token is stored in the browser."
                     </p>
                 </div>
             </Card>
@@ -181,24 +181,4 @@ enum ConnectionTestStatus {
 /// Get default API endpoint
 fn get_default_api_endpoint() -> String {
     crate::api::api_base_url()
-}
-
-/// Get auth token info for display
-///
-/// With httpOnly cookie-based auth, we can't read the token directly.
-/// Returns a placeholder indicating secure cookie storage.
-fn get_stored_token() -> Option<String> {
-    // Auth tokens are now stored in httpOnly cookies for security.
-    // We can't read them from JavaScript, which is the point.
-    // Return a placeholder to indicate auth is via secure cookies.
-    Some("[Stored in secure httpOnly cookie]".to_string())
-}
-
-/// Mask token for display
-fn mask_token(token: &str) -> String {
-    if token.len() <= 12 {
-        "*".repeat(token.len())
-    } else {
-        format!("{}...{}", &token[..6], &token[token.len() - 6..])
-    }
 }

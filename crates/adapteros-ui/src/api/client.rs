@@ -65,6 +65,7 @@ fn csrf_token_from_cookie() -> Option<String> {
 pub struct ApiClient {
     base_url: String,
     auth_token: Arc<RwLock<Option<String>>>,
+    auth_via_cookie: Arc<RwLock<bool>>,
 }
 
 impl Default for ApiClient {
@@ -79,6 +80,7 @@ impl ApiClient {
         Self {
             base_url: api_base_url(),
             auth_token: Arc::new(RwLock::new(Self::load_token())),
+            auth_via_cookie: Arc::new(RwLock::new(false)),
         }
     }
 
@@ -87,14 +89,14 @@ impl ApiClient {
         Self {
             base_url: base_url.into(),
             auth_token: Arc::new(RwLock::new(Self::load_token())),
+            auth_via_cookie: Arc::new(RwLock::new(false)),
         }
     }
 
     /// Initialize in-memory auth state.
     ///
     /// Note: Auth tokens are managed via httpOnly cookies, not localStorage.
-    /// This method returns None as the initial state; auth status is
-    /// tracked in-memory via `set_auth_status`.
+    /// This method returns None as the initial state.
     fn load_token() -> Option<String> {
         None
     }
@@ -105,13 +107,28 @@ impl ApiClient {
     /// Actual authentication is handled via httpOnly cookies set by the server.
     /// No localStorage persistence is performed.
     pub fn set_token(&self, token: Option<String>) {
+        let has_token = token.is_some();
         if let Ok(mut guard) = self.auth_token.write() {
             *guard = token;
         }
+        if has_token {
+            if let Ok(mut guard) = self.auth_via_cookie.write() {
+                *guard = false;
+            }
+        }
     }
 
-    /// Check if client has an auth token
+    /// Check if client is authenticated
     pub fn is_authenticated(&self) -> bool {
+        if self
+            .auth_via_cookie
+            .read()
+            .ok()
+            .copied()
+            .unwrap_or(false)
+        {
+            return true;
+        }
         self.auth_token
             .read()
             .ok()
@@ -122,13 +139,13 @@ impl ApiClient {
     /// Mark client as authenticated (for httpOnly cookie auth)
     ///
     /// With httpOnly cookies, the browser handles auth automatically.
-    /// This sets a placeholder to track authenticated state locally.
+    /// This sets in-memory state to track authenticated status.
     pub fn set_auth_status(&self, authenticated: bool) {
-        if authenticated {
-            // Set a placeholder to indicate authenticated state
-            self.set_token(Some("cookie_auth".to_string()));
-        } else {
-            self.set_token(None);
+        if let Ok(mut guard) = self.auth_via_cookie.write() {
+            *guard = authenticated;
+        }
+        if let Ok(mut guard) = self.auth_token.write() {
+            *guard = None;
         }
     }
 
@@ -137,7 +154,23 @@ impl ApiClient {
     /// Clears local auth state. Server-side logout should also be called
     /// to clear httpOnly cookies.
     pub fn clear_auth_status(&self) {
+        if let Ok(mut guard) = self.auth_via_cookie.write() {
+            *guard = false;
+        }
         self.set_token(None);
+    }
+
+    fn bearer_token(&self) -> Option<String> {
+        if self
+            .auth_via_cookie
+            .read()
+            .ok()
+            .copied()
+            .unwrap_or(false)
+        {
+            return None;
+        }
+        self.auth_token.read().ok().and_then(|t| t.clone())
     }
 
     /// Build a request with common headers
@@ -163,11 +196,9 @@ impl ApiClient {
             }
         }
 
-        // Only add Authorization header for real Bearer tokens, not the cookie_auth placeholder
-        if let Some(token) = self.auth_token.read().ok().and_then(|t| t.clone()) {
-            if token != "cookie_auth" {
-                return req.header("Authorization", &format!("Bearer {}", token));
-            }
+        // Only add Authorization header for bearer tokens (not cookie auth).
+        if let Some(token) = self.bearer_token() {
+            return req.header("Authorization", &format!("Bearer {}", token));
         }
         req
     }
@@ -1043,7 +1074,7 @@ impl ApiClient {
         // Add auth header if available
         let headers = web_sys::Headers::new()
             .map_err(|_| ApiError::Network("Failed to create Headers".into()))?;
-        if let Some(token) = self.auth_token.read().ok().and_then(|t| t.clone()) {
+        if let Some(token) = self.bearer_token() {
             headers
                 .set("Authorization", &format!("Bearer {}", token))
                 .map_err(|_| ApiError::Network("Failed to set Authorization header".into()))?;
@@ -1237,7 +1268,7 @@ impl ApiClient {
 
         let headers = web_sys::Headers::new()
             .map_err(|_| ApiError::Network("Failed to create Headers".into()))?;
-        if let Some(token) = self.auth_token.read().ok().and_then(|t| t.clone()) {
+        if let Some(token) = self.bearer_token() {
             headers
                 .set("Authorization", &format!("Bearer {}", token))
                 .map_err(|_| ApiError::Network("Failed to set Authorization header".into()))?;
@@ -1300,7 +1331,7 @@ impl ApiClient {
 
         let headers = web_sys::Headers::new()
             .map_err(|_| ApiError::Network("Failed to create Headers".into()))?;
-        if let Some(token) = self.auth_token.read().ok().and_then(|t| t.clone()) {
+        if let Some(token) = self.bearer_token() {
             headers
                 .set("Authorization", &format!("Bearer {}", token))
                 .map_err(|_| ApiError::Network("Failed to set Authorization header".into()))?;
