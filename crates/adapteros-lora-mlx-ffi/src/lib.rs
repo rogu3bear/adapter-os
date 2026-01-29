@@ -738,9 +738,15 @@ impl MLXFFIModel {
     }
 
     /// Unified forward pass implementation that handles both regular and hidden-state-capturing modes
+    ///
+    /// # Arguments
+    /// * `token_ids` - Input token IDs
+    /// * `position_offset` - Starting position for RoPE computation (0 for prompt, N for step N)
+    /// * `capture_hidden` - Whether to capture hidden states from each layer
     fn forward_impl(
         &self,
         token_ids: &[u32],
+        position_offset: usize,
         capture_hidden: bool,
     ) -> Result<(
         Vec<f32>,
@@ -786,10 +792,12 @@ impl MLXFFIModel {
         // Run forward pass - different FFI call based on capture_hidden flag
         let output_guard = if capture_hidden {
             // Call forward with hidden states
+            // position_offset is passed to ensure correct RoPE positions during incremental generation
             let output_array = unsafe {
                 mlx_model_forward_with_hidden_states(
                     self.model,
                     input_guard.as_ptr(),
+                    position_offset as i32,
                     &mut hidden_states_ptr,
                     &mut num_hidden,
                 )
@@ -821,8 +829,9 @@ impl MLXFFIModel {
             ffi_error::MlxArrayGuard::new(output_array)?
         } else {
             // Regular forward pass
+            // position_offset is passed to ensure correct RoPE positions during incremental generation
             ffi_error::MlxArrayGuard::new_with_context(
-                unsafe { mlx_model_forward(self.model, input_guard.as_ptr()) },
+                unsafe { mlx_model_forward(self.model, input_guard.as_ptr(), position_offset as i32) },
                 "run model forward",
             )?
         };
@@ -1017,8 +1026,12 @@ impl MLXFFIModel {
     }
 
     /// Internal forward pass implementation
-    fn forward_internal(&self, token_ids: &[u32], _position: usize) -> Result<Vec<f32>> {
-        let (logits, _) = self.forward_impl(token_ids, false)?;
+    ///
+    /// # Arguments
+    /// * `token_ids` - Input token IDs
+    /// * `position` - Starting position for RoPE computation (critical for incremental generation)
+    fn forward_internal(&self, token_ids: &[u32], position: usize) -> Result<Vec<f32>> {
+        let (logits, _) = self.forward_impl(token_ids, position, false)?;
         Ok(logits)
     }
 
@@ -1143,6 +1156,7 @@ impl MLXFFIModel {
     ///
     /// # Arguments
     /// * `token_ids` - Input token IDs
+    /// * `position` - Starting position for RoPE computation (0 for prompt, N for step N)
     ///
     /// # Returns
     /// Tuple of (logits, hidden_states_by_module)
@@ -1150,8 +1164,9 @@ impl MLXFFIModel {
     pub fn forward_with_hidden_states(
         &self,
         token_ids: &[u32],
+        position: usize,
     ) -> Result<(Vec<f32>, std::collections::HashMap<String, Vec<f32>>)> {
-        let (logits, hidden_states) = self.forward_impl(token_ids, true)?;
+        let (logits, hidden_states) = self.forward_impl(token_ids, position, true)?;
         Ok((logits, hidden_states.unwrap_or_default()))
     }
 
@@ -1251,10 +1266,18 @@ extern "C" {
     fn mlx_model_free(model: *mut mlx_model_t);
 
     // Inference
-    fn mlx_model_forward(model: *mut mlx_model_t, input: *mut mlx_array_t) -> *mut mlx_array_t;
+    // position_offset: Starting position for RoPE computation
+    //   - For prompt processing (step 0): offset = 0
+    //   - For incremental generation: offset = current position in sequence
+    fn mlx_model_forward(
+        model: *mut mlx_model_t,
+        input: *mut mlx_array_t,
+        position_offset: i32,
+    ) -> *mut mlx_array_t;
     fn mlx_model_forward_with_hidden_states(
         model: *mut mlx_model_t,
         input: *mut mlx_array_t,
+        position_offset: i32,
         hidden_states: *mut *mut mlx_array_t,
         hidden_count: *mut i32,
     ) -> *mut mlx_array_t;

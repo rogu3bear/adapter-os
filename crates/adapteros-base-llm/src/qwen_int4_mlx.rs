@@ -412,9 +412,11 @@ impl BaseLLM for Qwen25Int4Mlx {
         } else {
             // Try to get logits via backend (requires IoBuffers setup)
             // Simplified: just get base logits
+            // When processing a full prompt sequence, position starts at 0
+            // This ensures tokens get positions [0, 1, ..., N-1] via RoPE
             let (logits, _) = backend_guard
                 .model
-                .forward_with_hidden_states(&self.sequence)?;
+                .forward_with_hidden_states(&self.sequence, 0)?;
             logits
         };
         Ok(logits)
