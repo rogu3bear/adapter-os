@@ -22,6 +22,7 @@ use uuid::Uuid;
 pub mod activity;
 pub mod adapter_health;
 pub mod adapter_lifecycle;
+pub mod adapteros_receipts;
 pub mod adapter_stacks;
 pub mod adapter_utils;
 pub mod adapter_versions;
