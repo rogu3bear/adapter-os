@@ -9,7 +9,9 @@ use crate::auth_common::{
     AccessTokenParams, AuthConfig, RefreshTokenParams,
 };
 use crate::ip_extraction::ClientIp;
-use crate::security::{check_registration_rate_limit, track_registration_attempt, upsert_user_session};
+use crate::security::{
+    check_registration_rate_limit, track_registration_attempt, upsert_user_session,
+};
 use crate::state::AppState;
 use crate::types::ErrorResponse;
 use adapteros_db::users::Role;
@@ -289,15 +291,14 @@ pub async fn register_handler(
         session_id: &session_id,
         mfa_level: None,
     };
-    let token = issue_access_token(&state, &access_params, Some(auth_cfg.access_ttl())).map_err(
-        |e| {
+    let token =
+        issue_access_token(&state, &access_params, Some(auth_cfg.access_ttl())).map_err(|e| {
             warn!(error = %e, user_id = %user_id, "Failed to generate access token");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse::new("token generation failed").with_code("INTERNAL_ERROR")),
             )
-        },
-    )?;
+        })?;
 
     let rot_id = format!("rot-{}", Uuid::now_v7());
     let refresh_params = RefreshTokenParams {

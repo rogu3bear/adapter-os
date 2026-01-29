@@ -17,10 +17,7 @@ impl SupervisorClientTrait for SupervisorClient {
             .map_err(map_aos_error_to_supervisor_error)
     }
 
-    async fn stop_service(
-        &self,
-        service_id: &str,
-    ) -> std::result::Result<String, SupervisorError> {
+    async fn stop_service(&self, service_id: &str) -> std::result::Result<String, SupervisorError> {
         self.stop_service(service_id)
             .await
             .map_err(map_aos_error_to_supervisor_error)

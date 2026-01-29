@@ -5,7 +5,7 @@
 
 use crate::api::{ApiClient, CreateStackRequest, StackResponse, UpdateStackRequest, WorkflowType};
 use crate::components::{
-    AsyncBoundaryWithEmpty, Button, ButtonVariant, Dialog, Input, Select, Textarea,
+    AsyncBoundaryWithEmpty, Button, ButtonVariant, Checkbox, Dialog, Input, Select, Textarea,
 };
 use crate::hooks::{use_api, use_api_resource};
 use adapteros_api_types::AdapterResponse;
@@ -180,29 +180,30 @@ pub fn AdapterCheckboxList(
         <div class="max-h-48 overflow-y-auto border rounded-md p-2 space-y-1">
             {adapters.into_iter().map(|adapter| {
                 let adapter_id = adapter.id.clone();
-                let adapter_id_check = adapter_id.clone();
-                let adapter_id_toggle = adapter_id.clone();
+                let adapter_id_for_check = adapter_id.clone();
+                let adapter_id_for_toggle = adapter_id.clone();
                 let adapter_name = adapter.name.clone();
 
+                let is_checked = Signal::derive(move || {
+                    selected.get().contains(&adapter_id_for_check)
+                });
+
                 view! {
-                    <label class="flex items-center gap-2 p-2 hover:bg-muted rounded cursor-pointer">
-                        <input
-                            type="checkbox"
-                            class="rounded border-input"
-                            checked=move || selected.get().contains(&adapter_id_check)
-                            on:change=move |_| {
-                                let id = adapter_id_toggle.clone();
-                                selected.update(|ids| {
-                                    if ids.contains(&id) {
-                                        ids.retain(|x| x != &id);
-                                    } else {
-                                        ids.push(id);
-                                    }
-                                });
-                            }
-                        />
-                        <span class="text-sm">{adapter_name}</span>
-                    </label>
+                    <Checkbox
+                        checked=is_checked
+                        on_change=Callback::new(move |_checked| {
+                            let id = adapter_id_for_toggle.clone();
+                            selected.update(|ids| {
+                                if ids.contains(&id) {
+                                    ids.retain(|x| x != &id);
+                                } else {
+                                    ids.push(id);
+                                }
+                            });
+                        })
+                        label=adapter_name
+                        class="p-2 hover:bg-muted rounded"
+                    />
                 }
             }).collect::<Vec<_>>()}
         </div>

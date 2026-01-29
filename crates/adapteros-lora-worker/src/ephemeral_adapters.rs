@@ -7,8 +7,8 @@
 use adapteros_retrieval::codegraph::DetectedChange;
 
 // Re-export for consumers
-pub use adapteros_retrieval::codegraph::DetectedChangeType;
 use adapteros_core::{B3Hash, Result};
+pub use adapteros_retrieval::codegraph::DetectedChangeType;
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::json;

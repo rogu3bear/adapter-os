@@ -167,7 +167,11 @@ impl ApiError {
     pub fn internal(msg: impl Into<String>) -> Self {
         let msg = msg.into();
         error!("Internal error: {}", msg);
-        Self::new(StatusCode::INTERNAL_SERVER_ERROR, error_codes::INTERNAL_ERROR, msg)
+        Self::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            error_codes::INTERNAL_ERROR,
+            msg,
+        )
     }
 
     /// Not found - 404 Not Found
@@ -206,27 +210,47 @@ impl ApiError {
 
     /// Payload too large - 413 Payload Too Large
     pub fn payload_too_large(msg: impl Into<String>) -> Self {
-        Self::new(StatusCode::PAYLOAD_TOO_LARGE, error_codes::PAYLOAD_TOO_LARGE, msg)
+        Self::new(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            error_codes::PAYLOAD_TOO_LARGE,
+            msg,
+        )
     }
 
     /// Not implemented - 501 Not Implemented
     pub fn not_implemented(msg: impl Into<String>) -> Self {
-        Self::new(StatusCode::NOT_IMPLEMENTED, error_codes::FEATURE_DISABLED, msg)
+        Self::new(
+            StatusCode::NOT_IMPLEMENTED,
+            error_codes::FEATURE_DISABLED,
+            msg,
+        )
     }
 
     /// Service unavailable - 503 Service Unavailable
     pub fn service_unavailable(msg: impl Into<String>) -> Self {
-        Self::new(StatusCode::SERVICE_UNAVAILABLE, error_codes::SERVICE_UNAVAILABLE, msg)
+        Self::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            error_codes::SERVICE_UNAVAILABLE,
+            msg,
+        )
     }
 
     /// Too many requests - 429 Too Many Requests
     pub fn too_many_requests(msg: impl Into<String>) -> Self {
-        Self::new(StatusCode::TOO_MANY_REQUESTS, error_codes::TOO_MANY_REQUESTS, msg)
+        Self::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            error_codes::TOO_MANY_REQUESTS,
+            msg,
+        )
     }
 
     /// Gateway timeout - 504 Gateway Timeout
     pub fn gateway_timeout(msg: impl Into<String>) -> Self {
-        Self::new(StatusCode::GATEWAY_TIMEOUT, error_codes::GATEWAY_TIMEOUT, msg)
+        Self::new(
+            StatusCode::GATEWAY_TIMEOUT,
+            error_codes::GATEWAY_TIMEOUT,
+            msg,
+        )
     }
 
     /// Bad gateway - 502 Bad Gateway
@@ -298,7 +322,11 @@ impl ApiError {
     pub fn export_failed(msg: impl Into<String>) -> Self {
         let msg = msg.into();
         error!("Export failed: {}", msg);
-        Self::new(StatusCode::INTERNAL_SERVER_ERROR, error_codes::INTERNAL_ERROR, msg)
+        Self::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            error_codes::INTERNAL_ERROR,
+            msg,
+        )
     }
 
     // --- Repository-specific error codes ---

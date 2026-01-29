@@ -17,7 +17,9 @@
 use crate::quantization::ROUTER_GATE_Q15_DENOM;
 use crate::AdapterInfo;
 use adapteros_core::B3Hash;
-use adapteros_telemetry::diagnostics::{DiagEnvelope, DiagEvent, DiagRunId, DiagSeverity, SharedDiagEmitter};
+use adapteros_telemetry::diagnostics::{
+    DiagEnvelope, DiagEvent, DiagRunId, DiagSeverity, SharedDiagEmitter,
+};
 use adapteros_telemetry::tracing::TraceContext;
 use std::time::Instant;
 

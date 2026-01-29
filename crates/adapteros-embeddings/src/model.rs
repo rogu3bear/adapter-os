@@ -182,10 +182,7 @@ mod tests {
     #[tokio::test]
     async fn test_embedding_provider() {
         let hash = B3Hash::hash(b"mock");
-        let model = MockModel {
-            dim: 384,
-            hash,
-        };
+        let model = MockModel { dim: 384, hash };
         let provider = EmbeddingProvider::new(Box::new(model));
 
         assert_eq!(provider.embedding_dimension(), 384);

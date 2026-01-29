@@ -1333,7 +1333,8 @@ async fn compute_stack_hash(
             .map_err(ApiError::db_error)?
             .ok_or_else(|| ApiError::not_found(&format!("Adapter {}", id)))?;
 
-        let hash = adapteros_core::B3Hash::from_hex(&adapter.hash_b3).map_err(ApiError::db_error)?;
+        let hash =
+            adapteros_core::B3Hash::from_hex(&adapter.hash_b3).map_err(ApiError::db_error)?;
         pairs.push((id.clone(), hash));
     }
 

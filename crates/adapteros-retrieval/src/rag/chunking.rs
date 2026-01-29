@@ -9,9 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 // Re-export types from codegraph for convenience
-pub use crate::codegraph::types::{
-    Language, Span, SymbolId, SymbolKind, SymbolNode, Visibility,
-};
+pub use crate::codegraph::types::{Language, Span, SymbolId, SymbolKind, SymbolNode, Visibility};
 
 /// Chunking configuration
 #[derive(Debug, Clone)]

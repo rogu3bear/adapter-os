@@ -183,10 +183,7 @@ fn is_valid_subject(subject: &str) -> bool {
     }
 
     // First character should be alphanumeric (not punctuation)
-    subject
-        .chars()
-        .next()
-        .is_some_and(|c| c.is_alphanumeric())
+    subject.chars().next().is_some_and(|c| c.is_alphanumeric())
 }
 
 /// Extract the first sentence from content
@@ -251,12 +248,8 @@ mod tests {
         assert_eq!(queries[2].query_text, "What is api reference?");
 
         // Verify relevance labels
-        assert!(queries[0]
-            .relevant_chunk_ids
-            .contains(&chunks[0].chunk_id));
-        assert!(queries[1]
-            .relevant_chunk_ids
-            .contains(&chunks[1].chunk_id));
+        assert!(queries[0].relevant_chunk_ids.contains(&chunks[0].chunk_id));
+        assert!(queries[1].relevant_chunk_ids.contains(&chunks[1].chunk_id));
     }
 
     #[test]
@@ -280,10 +273,7 @@ mod tests {
     #[test]
     fn test_generate_queries_first_sentence() {
         let chunks = vec![
-            make_chunk(
-                "This is the first sentence. This is the second.",
-                "doc1.md",
-            ),
+            make_chunk("This is the first sentence. This is the second.", "doc1.md"),
             make_chunk("Welcome to the guide!", "doc2.md"),
             make_chunk("Short.", "doc3.md"), // Too short, should be skipped
         ];
@@ -455,7 +445,7 @@ mod tests {
     fn test_skips_very_short_queries() {
         // Create chunks that would generate very short queries
         let chunks = vec![
-            make_chunk("# A", "doc1.md"), // Would generate "What is a?" - too short
+            make_chunk("# A", "doc1.md"),  // Would generate "What is a?" - too short
             make_chunk("# OK", "doc2.md"), // Would generate "What is ok?" - borderline
             make_chunk("# Authentication", "doc3.md"), // Valid
         ];
@@ -465,6 +455,8 @@ mod tests {
         // Should have at least the valid one
         assert!(!queries.is_empty());
         // The query text should be the valid one
-        assert!(queries.iter().any(|q| q.query_text == "What is authentication?"));
+        assert!(queries
+            .iter()
+            .any(|q| q.query_text == "What is authentication?"));
     }
 }

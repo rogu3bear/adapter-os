@@ -71,7 +71,10 @@ impl BackendContext {
     ///
     /// # Panics
     /// Panics if `backend_id` is empty.
-    pub fn with_kernel(backend_id: impl Into<String>, kernel_version_id: impl Into<String>) -> Self {
+    pub fn with_kernel(
+        backend_id: impl Into<String>,
+        kernel_version_id: impl Into<String>,
+    ) -> Self {
         let id = backend_id.into();
         assert!(!id.is_empty(), "backend_id must not be empty");
         Self {
@@ -990,8 +993,8 @@ impl Router {
         }
 
         // Tier-based boost: Higher tiers get slight boost
-        use std::str::FromStr;
         use crate::types::{AdapterTier, LoraTier};
+        use std::str::FromStr;
 
         let tier_boost = AdapterTier::from_str(&adapter_info.tier)
             .unwrap_or_default()

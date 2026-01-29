@@ -5,7 +5,9 @@ use adapteros_db::Db;
 
 async fn new_test_db() -> Db {
     std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
-    Db::new_in_memory().await.expect("Failed to create in-memory database for extended tenant trigger isolation test")
+    Db::new_in_memory()
+        .await
+        .expect("Failed to create in-memory database for extended tenant trigger isolation test")
 }
 
 async fn setup_tenants(db: &Db) -> (String, String) {

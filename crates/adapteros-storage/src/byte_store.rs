@@ -1945,16 +1945,10 @@ mod tests {
         // Resolve version refs
         let store = FsByteStorage::new(ds_root, ad_root);
 
-        let v1_hash = store
-            .resolve_ref("mymodel@v1", "tenant-1")
-            .await
-            .unwrap();
+        let v1_hash = store.resolve_ref("mymodel@v1", "tenant-1").await.unwrap();
         assert_eq!(v1_hash, Some("hash_v1_abc".to_string()));
 
-        let v2_hash = store
-            .resolve_ref("mymodel@v2", "tenant-1")
-            .await
-            .unwrap();
+        let v2_hash = store.resolve_ref("mymodel@v2", "tenant-1").await.unwrap();
         assert_eq!(v2_hash, Some("hash_v2_def".to_string()));
     }
 }

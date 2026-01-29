@@ -179,8 +179,13 @@ async fn infer_over_worker_uds_smoke() -> Result<()> {
     // Use a temp directory by default to avoid polluting var/ and ensure test isolation.
     // Override with AOS_E2E_UDS env var if needed for specific test setups.
     let temp_uds_dir = tempfile::TempDir::with_prefix("aos-e2e-uds-")?;
-    let uds_path = std::env::var("AOS_E2E_UDS")
-        .unwrap_or_else(|_| temp_uds_dir.path().join("worker.sock").to_string_lossy().to_string());
+    let uds_path = std::env::var("AOS_E2E_UDS").unwrap_or_else(|_| {
+        temp_uds_dir
+            .path()
+            .join("worker.sock")
+            .to_string_lossy()
+            .to_string()
+    });
 
     if let Some(parent) = Path::new(&uds_path).parent() {
         fs::create_dir_all(parent)?;

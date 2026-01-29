@@ -3,9 +3,7 @@
 //! Handlers for audit logs, compliance, and federation auditing.
 //! Split from adapteros-server-api for faster incremental builds.
 
-use adapteros_core::third_party_verification::{
-    verify_receipt_with_precomputed, MismatchReason,
-};
+use adapteros_core::third_party_verification::{verify_receipt_with_precomputed, MismatchReason};
 use adapteros_core::B3Hash;
 use adapteros_db::users::Role;
 use adapteros_server_api::auth::Claims;
@@ -436,12 +434,13 @@ pub async fn get_compliance_audit(
             ),
         )
     })?;
-    let t1_without_dataset: i64 = t1_adapters_without_dataset
-        .try_get("count")
-        .unwrap_or_else(|e| {
-            tracing::warn!("Failed to get T1 adapters without dataset count: {}", e);
-            0
-        });
+    let t1_without_dataset: i64 =
+        t1_adapters_without_dataset
+            .try_get("count")
+            .unwrap_or_else(|e| {
+                tracing::warn!("Failed to get T1 adapters without dataset count: {}", e);
+                0
+            });
 
     let t1_adapters_without_evidence = sqlx::query(
         r#"
@@ -674,7 +673,10 @@ pub async fn get_audit_chain(
             id: d.id.clone(),
             timestamp: d.timestamp.clone(),
             action: d.hook.clone(),
-            resource_type: d.resource_type.clone().unwrap_or_else(|| "policy".to_string()),
+            resource_type: d
+                .resource_type
+                .clone()
+                .unwrap_or_else(|| "policy".to_string()),
             status: d.decision.clone(),
             entry_hash: d.entry_hash.clone(),
             previous_hash: d.previous_hash.clone(),
@@ -722,13 +724,11 @@ mod tests {
             verified_signatures: 8,
             quarantined: false,
             quarantine_reason: None,
-            host_chains: vec![
-                HostChainSummary {
-                    host_id: "host-1".to_string(),
-                    bundle_count: 5,
-                    latest_bundle: Some("bundle-abc".to_string()),
-                },
-            ],
+            host_chains: vec![HostChainSummary {
+                host_id: "host-1".to_string(),
+                bundle_count: 5,
+                latest_bundle: Some("bundle-abc".to_string()),
+            }],
             timestamp: "2025-01-27T00:00:00Z".to_string(),
         };
         let json = serde_json::to_string(&response).unwrap();
@@ -753,7 +753,10 @@ mod tests {
         assert!(json.contains("quarantine_reason"));
         let parsed: FederationAuditResponse = serde_json::from_str(&json).unwrap();
         assert!(parsed.quarantined);
-        assert_eq!(parsed.quarantine_reason, Some("policy violation".to_string()));
+        assert_eq!(
+            parsed.quarantine_reason,
+            Some("policy violation".to_string())
+        );
     }
 
     #[test]
@@ -776,16 +779,14 @@ mod tests {
             total_controls: 10,
             compliant_controls: 9,
             active_violations: 1,
-            controls: vec![
-                ComplianceControl {
-                    control_id: "CTRL-001".to_string(),
-                    control_name: "Test Control".to_string(),
-                    status: "compliant".to_string(),
-                    last_checked: "2025-01-27T00:00:00Z".to_string(),
-                    evidence: vec!["evidence1".to_string()],
-                    findings: vec![],
-                },
-            ],
+            controls: vec![ComplianceControl {
+                control_id: "CTRL-001".to_string(),
+                control_name: "Test Control".to_string(),
+                status: "compliant".to_string(),
+                last_checked: "2025-01-27T00:00:00Z".to_string(),
+                evidence: vec!["evidence1".to_string()],
+                findings: vec![],
+            }],
             timestamp: "2025-01-27T00:00:00Z".to_string(),
         };
         let json = serde_json::to_string(&response).unwrap();
@@ -802,7 +803,10 @@ mod tests {
             control_name: "Network Egress Control".to_string(),
             status: "compliant".to_string(),
             last_checked: "2025-01-27T12:00:00Z".to_string(),
-            evidence: vec!["Zero egress mode".to_string(), "PF rules active".to_string()],
+            evidence: vec![
+                "Zero egress mode".to_string(),
+                "PF rules active".to_string(),
+            ],
             findings: vec!["minor issue".to_string()],
         };
         let json = serde_json::to_string(&control).unwrap();
@@ -854,19 +858,17 @@ mod tests {
     #[test]
     fn test_audit_chain_response_serde() {
         let response = AuditChainResponse {
-            entries: vec![
-                AuditChainEntry {
-                    id: "e1".to_string(),
-                    timestamp: "2025-01-27T00:00:00Z".to_string(),
-                    action: "test".to_string(),
-                    resource_type: "test".to_string(),
-                    status: "allow".to_string(),
-                    entry_hash: "hash1".to_string(),
-                    previous_hash: None,
-                    chain_sequence: 1,
-                    verified: true,
-                },
-            ],
+            entries: vec![AuditChainEntry {
+                id: "e1".to_string(),
+                timestamp: "2025-01-27T00:00:00Z".to_string(),
+                action: "test".to_string(),
+                resource_type: "test".to_string(),
+                status: "allow".to_string(),
+                entry_hash: "hash1".to_string(),
+                previous_hash: None,
+                chain_sequence: 1,
+                verified: true,
+            }],
             chain_valid: true,
             total_entries: 1,
             merkle_root: Some("root-hash".to_string()),
@@ -1019,9 +1021,9 @@ pub async fn verify_receipt(
     Json(req): Json<ReceiptVerificationRequest>,
 ) -> Result<Json<ReceiptVerificationResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Default to current schema if not specified
-    let schema_version = req.schema_version.unwrap_or(
-        adapteros_core::receipt_digest::RECEIPT_SCHEMA_CURRENT,
-    );
+    let schema_version = req
+        .schema_version
+        .unwrap_or(adapteros_core::receipt_digest::RECEIPT_SCHEMA_CURRENT);
 
     // Parse hex-encoded digests
     let receipt_digest = B3Hash::from_hex(&req.receipt_digest).map_err(|e| {

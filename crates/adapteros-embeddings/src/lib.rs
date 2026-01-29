@@ -17,9 +17,7 @@ pub mod training;
 pub use model::{Embedding, EmbeddingModel, EmbeddingProvider};
 
 // Re-export config types
-pub use config::{
-    ConfigValidationError, EmbeddingConfig, EmbeddingConfigBuilder, PoolingStrategy,
-};
+pub use config::{ConfigValidationError, EmbeddingConfig, EmbeddingConfigBuilder, PoolingStrategy};
 
 // Re-export determinism verification types
 pub use determinism::{

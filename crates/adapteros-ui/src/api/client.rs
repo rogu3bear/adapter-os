@@ -5,16 +5,16 @@
 use super::{api_base_url, ApiError, ApiResult};
 use gloo_net::http::{Request, RequestBuilder};
 use serde::{de::DeserializeOwned, Serialize};
-use web_sys::RequestCredentials;
 use std::sync::{Arc, RwLock};
 use urlencoding::encode;
+use web_sys::RequestCredentials;
 
-pub use adapteros_api_types::dataset_domain::CanonicalRow;
+pub use adapteros_api_types::activity::ActivityEventResponse;
 pub use adapteros_api_types::code_repositories::{
     RegisterRepositoryRequest, RegisterRepositoryResponse, RepositoryDetailResponse,
     RepositoryInfo, RepositoryListResponse, ScanJobResponse, ScanRepositoryRequest,
 };
-pub use adapteros_api_types::activity::ActivityEventResponse;
+pub use adapteros_api_types::dataset_domain::CanonicalRow;
 pub use adapteros_api_types::training::{
     DatasetFileResponse, DatasetVersionsResponse, JsonlValidationDiagnostic,
 };
@@ -24,6 +24,9 @@ pub use adapteros_api_types::admin::{ListUsersResponse, UserResponse};
 pub use adapteros_api_types::api_keys::{
     ApiKeyInfo, ApiKeyListResponse, CreateApiKeyRequest, CreateApiKeyResponse, RevokeApiKeyResponse,
 };
+pub use adapteros_api_types::embeddings::{
+    EmbeddingBenchmarkReport, EmbeddingBenchmarksQuery, EmbeddingBenchmarksResponse,
+};
 pub use adapteros_api_types::model_status::ModelLoadStatus;
 pub use adapteros_api_types::models::{
     AllModelsStatusResponse, AneMemoryStatus, BaseModelStatusResponse, ModelStatusResponse,
@@ -31,9 +34,6 @@ pub use adapteros_api_types::models::{
 };
 pub use adapteros_api_types::routing::{
     CreateRoutingRuleRequest, RoutingRuleResponse, RoutingRulesResponse,
-};
-pub use adapteros_api_types::embeddings::{
-    EmbeddingBenchmarkReport, EmbeddingBenchmarksQuery, EmbeddingBenchmarksResponse,
 };
 pub use adapteros_api_types::workers::WorkerMetricsResponse;
 
@@ -619,10 +619,7 @@ impl ApiClient {
     }
 
     /// Validate a policy pack content
-    pub async fn validate_policy(
-        &self,
-        content: &str,
-    ) -> ApiResult<PolicyValidationResponse> {
+    pub async fn validate_policy(&self, content: &str) -> ApiResult<PolicyValidationResponse> {
         self.post(
             "/v1/policies/validate",
             &ValidatePolicyRequest {
@@ -791,7 +788,8 @@ impl ApiClient {
 
     /// Get repository details by ID
     pub async fn get_repository(&self, repo_id: &str) -> ApiResult<RepositoryDetailResponse> {
-        self.get(&format!("/v1/code/repositories/{}", repo_id)).await
+        self.get(&format!("/v1/code/repositories/{}", repo_id))
+            .await
     }
 
     /// Register a new repository
@@ -818,7 +816,6 @@ impl ApiClient {
         };
         self.get(&path).await
     }
-
 
     // --- Audit ---
 
@@ -1712,8 +1709,7 @@ impl ApiClient {
 
     /// Delete an error alert rule
     pub async fn delete_error_alert_rule(&self, id: &str) -> ApiResult<()> {
-        self.delete(&format!("/v1/error-alerts/rules/{}", id))
-            .await
+        self.delete(&format!("/v1/error-alerts/rules/{}", id)).await
     }
 
     // --- Embedding Benchmarks ---

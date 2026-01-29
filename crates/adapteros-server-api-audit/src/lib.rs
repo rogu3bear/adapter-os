@@ -13,7 +13,7 @@ pub mod routes;
 pub use handlers::{
     get_audit_chain, get_compliance_audit, get_federation_audit, list_audits_extended,
     query_audit_logs, verify_audit_chain, AuditChainEntry, AuditChainQuery, AuditChainResponse,
-    ChainVerificationResponse, ComplianceAuditResponse, ComplianceControl,
-    FederationAuditResponse, HostChainSummary,
+    ChainVerificationResponse, ComplianceAuditResponse, ComplianceControl, FederationAuditResponse,
+    HostChainSummary,
 };
 pub use routes::audit_routes;

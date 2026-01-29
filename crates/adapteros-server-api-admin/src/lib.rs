@@ -46,22 +46,40 @@ pub use types::AdminErrorResponse;
 
 // Re-export handlers for direct use
 pub use handlers::{
-    // Lifecycle
-    request_maintenance, request_shutdown, safe_restart,
-    MaintenanceScope, RequestMaintenanceBody, RequestShutdownBody, ShutdownMode,
-    WorkerMaintenanceResult,
-    // Services
-    get_service_logs, restart_service, start_essential_services, start_service,
-    stop_essential_services, stop_service,
-    LogsQuery, ServiceControlRequest, ServiceControlResponse,
+    // Status
+    admin_status,
     // Plugins
-    disable_plugin, enable_plugin, list_plugins, plugin_status,
+    disable_plugin,
+    enable_plugin,
+    // Services
+    get_service_logs,
     // Settings
-    get_settings, update_settings,
+    get_settings,
+    list_plugins,
     // Users
     list_users,
-    // Status
-    admin_status, system_config, AdminStatusResponse, SystemConfigResponse,
+    plugin_status,
+    // Lifecycle
+    request_maintenance,
+    request_shutdown,
+    restart_service,
+    safe_restart,
+    start_essential_services,
+    start_service,
+    stop_essential_services,
+    stop_service,
+    system_config,
+    update_settings,
+    AdminStatusResponse,
+    LogsQuery,
+    MaintenanceScope,
+    RequestMaintenanceBody,
+    RequestShutdownBody,
+    ServiceControlRequest,
+    ServiceControlResponse,
+    ShutdownMode,
+    SystemConfigResponse,
+    WorkerMaintenanceResult,
 };
 
 // Re-export lifecycle RuntimeMode for handlers

@@ -584,10 +584,10 @@ impl MetalHeapObserver {
                 // - Allocations 64KB-1MB: ~10% overhead
                 // - Allocations > 1MB: ~2% overhead (mostly contiguous)
                 let overhead_rate = match alloc.size_bytes {
-                    0..=4095 => 0.50,           // Very small: high overhead
-                    4096..=65535 => 0.25,       // Small: moderate overhead
-                    65536..=1048575 => 0.10,    // Medium: low overhead
-                    _ => 0.02,                   // Large: minimal overhead
+                    0..=4095 => 0.50,        // Very small: high overhead
+                    4096..=65535 => 0.25,    // Small: moderate overhead
+                    65536..=1048575 => 0.10, // Medium: low overhead
+                    _ => 0.02,               // Large: minimal overhead
                 };
                 estimated_waste += (alloc.size_bytes as f64 * overhead_rate) as u64;
             }

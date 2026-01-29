@@ -8,12 +8,12 @@
 //! - Tokens (token accounting and cache stats)
 //! - Diff (compare with another run)
 
-use crate::api::ApiClient;
 use crate::api::client::InferenceTraceDetailResponse;
+use crate::api::ApiClient;
 use crate::components::{
-    AsyncBoundary, Badge, BadgeVariant, Button, ButtonVariant, Card, DiffResults, Link, Select,
-    Spinner, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TokenDecisions,
-    TraceViewerWithData,
+    ActionCard, ActionCardVariant, AsyncBoundary, Badge, BadgeVariant, Button, ButtonVariant, Card,
+    DiffResults, Link, Select, Spinner, Table, TableBody, TableCell, TableHead, TableHeader,
+    TableRow, TokenDecisions, TraceViewerWithData,
 };
 use crate::hooks::{use_api_resource, use_polling, LoadingState};
 use adapteros_api_types::diagnostics::{
@@ -313,7 +313,11 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
                 Err(primary_err) => {
                     // Log fallback attempt
                     web_sys::console::warn_1(
-                        &format!("Primary export lookup failed: {}, trying trace_id search", primary_err).into()
+                        &format!(
+                            "Primary export lookup failed: {}, trying trace_id search",
+                            primary_err
+                        )
+                        .into(),
                     );
                     let runs = client
                         .list_diag_runs(&ListDiagRunsQuery {
@@ -323,7 +327,11 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
                         .await?;
                     if let Some(run) = runs.runs.into_iter().find(|r| r.trace_id == id) {
                         web_sys::console::log_1(
-                            &format!("Found run via fallback: trace_id={} -> run_id={}", id, run.id).into()
+                            &format!(
+                                "Found run via fallback: trace_id={} -> run_id={}",
+                                id, run.id
+                            )
+                            .into(),
                         );
                         client.export_diag_run(&run.id).await
                     } else {
@@ -506,7 +514,11 @@ enum QuickAction {
 
 /// Quick action button component
 #[component]
-fn QuickActionButton(icon: &'static str, label: &'static str, action: QuickAction) -> impl IntoView {
+fn QuickActionButton(
+    icon: &'static str,
+    label: &'static str,
+    action: QuickAction,
+) -> impl IntoView {
     let (copied, set_copied) = signal(false);
 
     let on_click = move |_| {
@@ -556,20 +568,25 @@ fn copy_to_clipboard(text: &str, set_copied: WriteSignal<bool>) {
             let navigator = window.navigator();
 
             // Get clipboard from navigator using JS reflection
-            let clipboard = js_sys::Reflect::get(&navigator, &wasm_bindgen::JsValue::from_str("clipboard"))
-                .ok()
-                .filter(|v| !v.is_undefined())?;
+            let clipboard =
+                js_sys::Reflect::get(&navigator, &wasm_bindgen::JsValue::from_str("clipboard"))
+                    .ok()
+                    .filter(|v| !v.is_undefined())?;
 
             // Call writeText method
-            let write_text_fn = js_sys::Reflect::get(&clipboard, &wasm_bindgen::JsValue::from_str("writeText"))
-                .ok()?;
+            let write_text_fn =
+                js_sys::Reflect::get(&clipboard, &wasm_bindgen::JsValue::from_str("writeText"))
+                    .ok()?;
             let write_text_fn = write_text_fn.dyn_ref::<js_sys::Function>()?;
-            let promise = write_text_fn.call1(&clipboard, &wasm_bindgen::JsValue::from_str(&text)).ok()?;
+            let promise = write_text_fn
+                .call1(&clipboard, &wasm_bindgen::JsValue::from_str(&text))
+                .ok()?;
             let promise = promise.dyn_into::<js_sys::Promise>().ok()?;
 
             JsFuture::from(promise).await.ok()?;
             Some(())
-        }.await;
+        }
+        .await;
 
         if success.is_some() {
             set_copied.set(true);
@@ -590,7 +607,7 @@ fn copy_to_clipboard(text: &str, set_copied: WriteSignal<bool>) {
         } else {
             // Log clipboard failure for debugging
             web_sys::console::warn_1(
-                &"Clipboard copy failed - API unavailable or permission denied".into()
+                &"Clipboard copy failed - API unavailable or permission denied".into(),
             );
         }
     });
@@ -734,26 +751,38 @@ fn OverviewTab(
             // Quick links to other tabs
             <Card title="Provenance".to_string()>
                 <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <a href="?tab=trace" class="p-3 rounded-lg border border-border hover:bg-muted/50 transition-colors text-center">
-                        <div class="text-2xl mb-1">"🔍"</div>
-                        <div class="text-sm font-medium">"Trace"</div>
-                        <div class="text-xs text-muted-foreground">"Timeline & metrics"</div>
-                    </a>
-                    <a href="?tab=receipt" class="p-3 rounded-lg border border-border hover:bg-muted/50 transition-colors text-center">
-                        <div class="text-2xl mb-1">"✓"</div>
-                        <div class="text-sm font-medium">"Receipt"</div>
-                        <div class="text-xs text-muted-foreground">"Verify hashes"</div>
-                    </a>
-                    <a href="?tab=routing" class="p-3 rounded-lg border border-border hover:bg-muted/50 transition-colors text-center">
-                        <div class="text-2xl mb-1">"⚡"</div>
-                        <div class="text-sm font-medium">"Routing"</div>
-                        <div class="text-xs text-muted-foreground">"K-sparse decisions"</div>
-                    </a>
-                    <a href="?tab=diff" class="p-3 rounded-lg border border-border hover:bg-muted/50 transition-colors text-center">
-                        <div class="text-2xl mb-1">"↔"</div>
-                        <div class="text-sm font-medium">"Diff"</div>
-                        <div class="text-xs text-muted-foreground">"Compare runs"</div>
-                    </a>
+                    <ActionCard
+                        href="?tab=trace"
+                        icon="🔍"
+                        title="Trace"
+                        description="Timeline & metrics"
+                        variant=ActionCardVariant::Subtle
+                        centered=true
+                    />
+                    <ActionCard
+                        href="?tab=receipt"
+                        icon="✓"
+                        title="Receipt"
+                        description="Verify hashes"
+                        variant=ActionCardVariant::Subtle
+                        centered=true
+                    />
+                    <ActionCard
+                        href="?tab=routing"
+                        icon="⚡"
+                        title="Routing"
+                        description="K-sparse decisions"
+                        variant=ActionCardVariant::Subtle
+                        centered=true
+                    />
+                    <ActionCard
+                        href="?tab=diff"
+                        icon="↔"
+                        title="Diff"
+                        description="Compare runs"
+                        variant=ActionCardVariant::Subtle
+                        centered=true
+                    />
                 </div>
             </Card>
         </div>
@@ -788,9 +817,7 @@ fn StageRow(stage: StageTiming, pct: f64) -> impl IntoView {
 
 /// Trace tab - uses TraceViewerWithData to display pre-loaded trace data
 #[component]
-fn TraceTab(
-    trace_detail: ReadSignal<LoadingState<InferenceTraceDetailResponse>>,
-) -> impl IntoView {
+fn TraceTab(trace_detail: ReadSignal<LoadingState<InferenceTraceDetailResponse>>) -> impl IntoView {
     view! {
         <div class="space-y-4">
             <p class="text-sm text-muted-foreground">

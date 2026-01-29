@@ -26,12 +26,19 @@ async fn promote_adapter_to_active(db: &Db, adapter_id: &str) -> Result<(), sqlx
 }
 
 async fn create_test_db_persistent() -> (Db, TempDir) {
-    let temp_dir = TempDir::with_prefix("aos-test-").expect("Failed to create temporary directory for lifecycle database test");
+    let temp_dir = TempDir::with_prefix("aos-test-")
+        .expect("Failed to create temporary directory for lifecycle database test");
     let db_path = temp_dir.path().join("test.db");
-    let db = Db::connect(db_path.to_str().expect("Failed to convert database path to valid UTF-8 string for lifecycle test"))
+    let db = Db::connect(
+        db_path
+            .to_str()
+            .expect("Failed to convert database path to valid UTF-8 string for lifecycle test"),
+    )
+    .await
+    .expect("Failed to connect to persistent test database for lifecycle operations");
+    db.migrate()
         .await
-        .expect("Failed to connect to persistent test database for lifecycle operations");
-    db.migrate().await.expect("Failed to apply database migrations to lifecycle test database");
+        .expect("Failed to apply database migrations to lifecycle test database");
     (db, temp_dir)
 }
 

@@ -1658,8 +1658,8 @@ pub async fn run_quarantine_check(
     info!("Checking quarantine status...");
 
     // Open database
-    let db_path = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "sqlite://var/aos-cp.sqlite3".to_string());
+    let db_path =
+        std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite://var/aos-cp.sqlite3".to_string());
     let db = Db::connect(&db_path)
         .await
         .map_err(|e| AosError::Database(format!("Failed to connect to database: {}", e)))?;

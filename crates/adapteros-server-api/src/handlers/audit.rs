@@ -370,10 +370,13 @@ pub async fn get_compliance_audit(
             ),
         )
     })?;
-    let t1_without_dataset: i64 = t1_adapters_without_dataset.try_get("count").unwrap_or_else(|e| {
-        tracing::warn!("Failed to get T1 adapters without dataset count: {}", e);
-        0
-    });
+    let t1_without_dataset: i64 =
+        t1_adapters_without_dataset
+            .try_get("count")
+            .unwrap_or_else(|e| {
+                tracing::warn!("Failed to get T1 adapters without dataset count: {}", e);
+                0
+            });
 
     let t1_adapters_without_evidence = sqlx::query(
         r#"
@@ -398,10 +401,12 @@ pub async fn get_compliance_audit(
             ),
         )
     })?;
-    let t1_without_evidence: i64 = t1_adapters_without_evidence.try_get("count").unwrap_or_else(|e| {
-        tracing::warn!("Failed to get T1 adapters without evidence count: {}", e);
-        0
-    });
+    let t1_without_evidence: i64 = t1_adapters_without_evidence
+        .try_get("count")
+        .unwrap_or_else(|e| {
+            tracing::warn!("Failed to get T1 adapters without evidence count: {}", e);
+            0
+        });
 
     // Generate compliance controls status
     let mut controls = vec![
@@ -606,7 +611,10 @@ pub async fn get_audit_chain(
             id: d.id.clone(),
             timestamp: d.timestamp.clone(),
             action: d.hook.clone(),
-            resource_type: d.resource_type.clone().unwrap_or_else(|| "policy".to_string()),
+            resource_type: d
+                .resource_type
+                .clone()
+                .unwrap_or_else(|| "policy".to_string()),
             status: d.decision.clone(),
             entry_hash: d.entry_hash.clone(),
             previous_hash: d.previous_hash.clone(),
@@ -708,7 +716,10 @@ pub async fn verify_audit_chain(
         verified_entries: if result.is_valid {
             result.entries_checked
         } else {
-            result.first_invalid_sequence.map(|s| (s - 1) as usize).unwrap_or(0)
+            result
+                .first_invalid_sequence
+                .map(|s| (s - 1) as usize)
+                .unwrap_or(0)
         },
         first_invalid_sequence: result.first_invalid_sequence,
         error_message: result.error_message,

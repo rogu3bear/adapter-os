@@ -55,8 +55,8 @@ use aos_parser::{
 
 use crate::{Db, WriteCapableDb};
 use adapteros_aos::{compute_scope_hash, open_aos, BackendTag};
-use adapteros_core::{AdapterName, AosError, B3Hash, LifecycleState, Result};
 use adapteros_core::extract_repo_identifier_from_metadata;
+use adapteros_core::{AdapterName, AosError, B3Hash, LifecycleState, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

@@ -100,10 +100,7 @@ fn map_capabilities_transfers_all_fields() {
     assert!(api_caps.has_metal);
     assert!(api_caps.has_mlx);
     assert_eq!(api_caps.has_mlx_bridge, Some(true));
-    assert_eq!(
-        api_caps.metal_device_name,
-        Some("Apple M1 Pro".to_string())
-    );
+    assert_eq!(api_caps.metal_device_name, Some("Apple M1 Pro".to_string()));
     assert_eq!(api_caps.gpu_memory_bytes, Some(16 * 1024 * 1024 * 1024));
 }
 

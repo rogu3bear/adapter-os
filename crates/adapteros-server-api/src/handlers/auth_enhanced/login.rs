@@ -1,6 +1,4 @@
-use crate::auth::{
-    validate_refresh_token_ed25519, validate_refresh_token_hmac, verify_password,
-};
+use crate::auth::{validate_refresh_token_ed25519, validate_refresh_token_hmac, verify_password};
 use crate::auth_common::{
     attach_auth_cookies, issue_access_token, issue_refresh_token, AccessTokenParams, AuthConfig,
     RefreshTokenParams,
@@ -239,13 +237,16 @@ pub async fn login_handler(
         session_id: &session_id,
         mfa_level: None,
     };
-    let token = issue_access_token(&state, &access_params, Some(token_ttl_seconds)).map_err(|e| {
-        warn!(error = %e, user_id = %user.id, "Token generation failed");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new("Authentication failed").with_code("TOKEN_GENERATION_ERROR")),
-        )
-    })?;
+    let token =
+        issue_access_token(&state, &access_params, Some(token_ttl_seconds)).map_err(|e| {
+            warn!(error = %e, user_id = %user.id, "Token generation failed");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Authentication failed").with_code("TOKEN_GENERATION_ERROR"),
+                ),
+            )
+        })?;
 
     // Generate refresh token
     let refresh_params = RefreshTokenParams {
@@ -256,8 +257,8 @@ pub async fn login_handler(
         session_id: &session_id,
         rot_id: &rot_id,
     };
-    let refresh_token =
-        issue_refresh_token(&state, &refresh_params, Some(session_ttl_seconds)).map_err(|e| {
+    let refresh_token = issue_refresh_token(&state, &refresh_params, Some(session_ttl_seconds))
+        .map_err(|e| {
             warn!(error = %e, user_id = %user.id, "Refresh token generation failed");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,

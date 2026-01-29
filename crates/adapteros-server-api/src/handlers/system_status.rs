@@ -87,7 +87,9 @@ fn build_integrity_status(state: &AppState) -> IntegrityStatus {
         #[cfg(not(debug_assertions))]
         {
             if std::env::var("AOS_SKIP_PF_CHECK").is_ok() {
-                tracing::warn!("AOS_SKIP_PF_CHECK is set but IGNORED in release builds for security");
+                tracing::warn!(
+                    "AOS_SKIP_PF_CHECK is set but IGNORED in release builds for security"
+                );
             }
             false
         }

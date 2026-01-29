@@ -192,7 +192,10 @@ async fn update_model_path_by_id() -> Result<()> {
         .await?;
 
     let model = db.get_model(&model_id).await?.expect("model exists");
-    assert_eq!(model.model_path.as_deref(), Some("/var/models/Llama-3.2-3B-Instruct-4bit"));
+    assert_eq!(
+        model.model_path.as_deref(),
+        Some("/var/models/Llama-3.2-3B-Instruct-4bit")
+    );
 
     Ok(())
 }

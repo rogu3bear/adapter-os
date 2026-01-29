@@ -14,7 +14,9 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, Subcommand)]
 pub enum OpsCommand {
     /// Generate operational runbooks from Serena memories
-    #[command(name = "generate-runbooks", after_help = "\
+    #[command(
+        name = "generate-runbooks",
+        after_help = "\
 Examples:
   # Generate runbooks to default location
   aosctl ops generate-runbooks
@@ -24,7 +26,8 @@ Examples:
 
   # Dry run - show what would be generated
   aosctl ops generate-runbooks --dry-run
-")]
+"
+    )]
     GenerateRunbooks(GenerateRunbooksArgs),
 }
 
@@ -61,31 +64,59 @@ const RUNBOOK_SCENARIOS: &[RunbookScenario] = &[
     RunbookScenario {
         filename: "quarantine_triggered.md",
         title: "Quarantine Triggered",
-        keywords: &["quarantine", "QuarantineManager", "QuarantineOperation", "policy violation"],
+        keywords: &[
+            "quarantine",
+            "QuarantineManager",
+            "QuarantineOperation",
+            "policy violation",
+        ],
         description: "System has entered quarantine mode due to policy violations",
     },
     RunbookScenario {
         filename: "worker_unhealthy.md",
         title: "Worker Unhealthy",
-        keywords: &["worker", "unhealthy", "health", "HealthMonitor", "circuit breaker", "heartbeat"],
+        keywords: &[
+            "worker",
+            "unhealthy",
+            "health",
+            "HealthMonitor",
+            "circuit breaker",
+            "heartbeat",
+        ],
         description: "Worker process reporting unhealthy status or failing health checks",
     },
     RunbookScenario {
         filename: "migration_failed.md",
         title: "Database Migration Failed",
-        keywords: &["migration", "migrate", "signature", "checksum", "SQLite", "database"],
+        keywords: &[
+            "migration",
+            "migrate",
+            "signature",
+            "checksum",
+            "SQLite",
+            "database",
+        ],
         description: "Database migration failed during startup or upgrade",
     },
     RunbookScenario {
         filename: "determinism_violation.md",
         title: "Determinism Violation",
-        keywords: &["determinism", "seed", "HKDF", "Q15", "reproducible", "replay"],
+        keywords: &[
+            "determinism",
+            "seed",
+            "HKDF",
+            "Q15",
+            "reproducible",
+            "replay",
+        ],
         description: "Non-deterministic behavior detected during inference or replay",
     },
     RunbookScenario {
         filename: "auth_failure.md",
         title: "Authentication Failure",
-        keywords: &["auth", "JWT", "token", "login", "session", "Ed25519", "HMAC"],
+        keywords: &[
+            "auth", "JWT", "token", "login", "session", "Ed25519", "HMAC",
+        ],
         description: "Authentication or authorization failures in API requests",
     },
 ];
@@ -148,8 +179,12 @@ async fn generate_runbooks(args: GenerateRunbooksArgs, output: &OutputWriter) ->
 
         // Create output directory if needed
         if !args.output.exists() {
-            fs::create_dir_all(&args.output)
-                .with_context(|| format!("Failed to create output directory: {}", args.output.display()))?;
+            fs::create_dir_all(&args.output).with_context(|| {
+                format!(
+                    "Failed to create output directory: {}",
+                    args.output.display()
+                )
+            })?;
         }
 
         // Write runbook
@@ -186,7 +221,8 @@ fn read_all_memories(memories_dir: &PathBuf) -> Result<HashMap<String, String>> 
         let path = entry.path();
 
         if path.extension().map_or(false, |ext| ext == "md") {
-            let filename = path.file_name()
+            let filename = path
+                .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("unknown")
                 .to_string();
@@ -216,7 +252,9 @@ fn extract_relevant_sections(
         for line in content.lines() {
             if line.starts_with('#') {
                 // Save previous section if it has relevant content
-                if !current_content.is_empty() && section_matches_keywords(&current_content, keywords) {
+                if !current_content.is_empty()
+                    && section_matches_keywords(&current_content, keywords)
+                {
                     sections.push(MemorySection {
                         source_file: filename.clone(),
                         heading: current_heading.clone(),
@@ -249,7 +287,9 @@ fn extract_relevant_sections(
 /// Check if a section content matches any of the keywords
 fn section_matches_keywords(content: &str, keywords: &[&str]) -> bool {
     let content_lower = content.to_lowercase();
-    keywords.iter().any(|kw| content_lower.contains(&kw.to_lowercase()))
+    keywords
+        .iter()
+        .any(|kw| content_lower.contains(&kw.to_lowercase()))
 }
 
 /// Generate runbook content from extracted sections
@@ -316,9 +356,13 @@ fn generate_runbook_content(scenario: &RunbookScenario, sections: &[MemorySectio
         "quarantine_triggered.md" => {
             content.push_str("1. **Identify the violation**: Check logs for the specific policy that triggered quarantine\n");
             content.push_str("2. **Review policy hash**: Verify policy pack integrity with `aosctl policy list`\n");
-            content.push_str("3. **Check adapter state**: Run `aosctl adapter list` to see adapter states\n");
+            content.push_str(
+                "3. **Check adapter state**: Run `aosctl adapter list` to see adapter states\n",
+            );
             content.push_str("4. **Release quarantine**: Once resolved, use the QuarantineManager API to release\n");
-            content.push_str("5. **Verify recovery**: Run `aosctl doctor` to confirm healthy state\n\n");
+            content.push_str(
+                "5. **Verify recovery**: Run `aosctl doctor` to confirm healthy state\n\n",
+            );
             content.push_str("### Commands\n\n");
             content.push_str("```bash\n");
             content.push_str("# Check quarantine status\n");
@@ -328,10 +372,14 @@ fn generate_runbook_content(scenario: &RunbookScenario, sections: &[MemorySectio
             content.push_str("```\n\n");
         }
         "worker_unhealthy.md" => {
-            content.push_str("1. **Check worker status**: Use the status endpoint to get current state\n");
+            content.push_str(
+                "1. **Check worker status**: Use the status endpoint to get current state\n",
+            );
             content.push_str("2. **Review health metrics**: Check memory growth, response times\n");
-            content.push_str("3. **Check circuit breaker**: Verify if circuit breaker has tripped\n");
-            content.push_str("4. **Drain and restart**: If necessary, drain the worker gracefully\n");
+            content
+                .push_str("3. **Check circuit breaker**: Verify if circuit breaker has tripped\n");
+            content
+                .push_str("4. **Drain and restart**: If necessary, drain the worker gracefully\n");
             content.push_str("5. **Verify recovery**: Confirm worker returns to healthy state\n\n");
             content.push_str("### Commands\n\n");
             content.push_str("```bash\n");
@@ -345,9 +393,11 @@ fn generate_runbook_content(scenario: &RunbookScenario, sections: &[MemorySectio
         }
         "migration_failed.md" => {
             content.push_str("1. **Check migration status**: Review which migration failed\n");
-            content.push_str("2. **Verify signatures**: Ensure migrations/signatures.json is valid\n");
+            content
+                .push_str("2. **Verify signatures**: Ensure migrations/signatures.json is valid\n");
             content.push_str("3. **Check database lock**: Clear any stuck migration locks\n");
-            content.push_str("4. **Review migration SQL**: Check for syntax or constraint errors\n");
+            content
+                .push_str("4. **Review migration SQL**: Check for syntax or constraint errors\n");
             content.push_str("5. **Retry migration**: Run migration again after fixing issues\n\n");
             content.push_str("### Commands\n\n");
             content.push_str("```bash\n");
@@ -366,7 +416,8 @@ fn generate_runbook_content(scenario: &RunbookScenario, sections: &[MemorySectio
             content.push_str("2. **Check seed derivation**: Verify HKDF seed is consistent\n");
             content.push_str("3. **Review Q15 encoding**: Ensure Q15 denominator is 32767.0\n");
             content.push_str("4. **Check sorting**: Verify canonical_score_comparator is used\n");
-            content.push_str("5. **Run determinism tests**: Execute the determinism test suite\n\n");
+            content
+                .push_str("5. **Run determinism tests**: Execute the determinism test suite\n\n");
             content.push_str("### Commands\n\n");
             content.push_str("```bash\n");
             content.push_str("# Enable determinism debugging\n");
@@ -487,7 +538,8 @@ mod tests {
         let short = "Short content";
         assert_eq!(summarize_content(short, 100), "Short content");
 
-        let long = "This is a much longer piece of content that should be truncated at a word boundary";
+        let long =
+            "This is a much longer piece of content that should be truncated at a word boundary";
         let summary = summarize_content(long, 30);
         assert!(summary.ends_with("..."));
         assert!(summary.len() <= 33); // 30 + "..."

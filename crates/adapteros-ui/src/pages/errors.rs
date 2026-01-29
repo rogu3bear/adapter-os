@@ -641,10 +641,7 @@ fn AlertsSection() -> impl IntoView {
 
 /// Alert rules list component
 #[component]
-fn AlertRulesList(
-    rules: Vec<ErrorAlertRuleResponse>,
-    on_update: Callback<()>,
-) -> impl IntoView {
+fn AlertRulesList(rules: Vec<ErrorAlertRuleResponse>, on_update: Callback<()>) -> impl IntoView {
     view! {
         <Card>
             <Table>
@@ -781,10 +778,7 @@ fn AlertRuleRow(rule: ErrorAlertRuleResponse, on_update: Callback<()>) -> impl I
 
 /// Create alert rule dialog
 #[component]
-fn CreateAlertRuleDialog(
-    open: RwSignal<bool>,
-    on_created: Callback<()>,
-) -> impl IntoView {
+fn CreateAlertRuleDialog(open: RwSignal<bool>, on_created: Callback<()>) -> impl IntoView {
     let name = RwSignal::new(String::new());
     let description = RwSignal::new(String::new());
     let error_pattern = RwSignal::new(String::new());

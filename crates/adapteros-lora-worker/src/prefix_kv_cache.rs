@@ -1536,7 +1536,10 @@ mod tests {
         cache.insert(key_c, entry_c).unwrap();
 
         // Verify a was evicted, b and c remain
-        assert!(cache.get(&key_a).is_none(), "key_a should be evicted (oldest tick)");
+        assert!(
+            cache.get(&key_a).is_none(),
+            "key_a should be evicted (oldest tick)"
+        );
         assert!(cache.get(&key_b).is_some(), "key_b should remain");
         assert!(cache.get(&key_c).is_some(), "key_c should remain");
     }
@@ -1652,7 +1655,8 @@ mod tests {
             cache.find_longest_prefix_match(&input_tokens, &context, &tokenizer, &model, 1);
         assert!(result2.is_some());
         assert_eq!(
-            result2.unwrap().cache_key, key_small,
+            result2.unwrap().cache_key,
+            key_small,
             "Repeated lookup should return same key"
         );
     }
@@ -1722,13 +1726,8 @@ mod tests {
 
             // Return final tick and lookup result
             let tick = cache.current_tick();
-            let lookup = cache.find_longest_prefix_match(
-                &[1, 2, 3, 4, 5],
-                &context,
-                &tokenizer,
-                &model,
-                1,
-            );
+            let lookup =
+                cache.find_longest_prefix_match(&[1, 2, 3, 4, 5], &context, &tokenizer, &model, 1);
 
             (tick, lookup.map(|m| (m.cache_key, m.matched_token_count)))
         };

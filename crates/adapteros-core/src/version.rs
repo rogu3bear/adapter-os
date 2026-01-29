@@ -549,7 +549,10 @@ mod tests {
 
         // DATABASE_SCHEMA_VERSION should be computed from migrations at build time
         // It should be at least 297 (as of Jan 2026)
-        println!("DATABASE_SCHEMA_VERSION computed at build time: {}", DATABASE_SCHEMA_VERSION);
+        println!(
+            "DATABASE_SCHEMA_VERSION computed at build time: {}",
+            DATABASE_SCHEMA_VERSION
+        );
         // Use const block for compile-time assertion on constants
         const { assert!(DATABASE_SCHEMA_VERSION >= 297) };
     }

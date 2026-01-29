@@ -1682,14 +1682,10 @@ mod tests {
         prepare_socket_path(&socket_path, "worker").expect("Failed to prepare socket path");
 
         // Bind the socket
-        let listener = UnixListener::bind(&socket_path)
-            .expect("Failed to bind UDS socket");
+        let listener = UnixListener::bind(&socket_path).expect("Failed to bind UDS socket");
 
         // Verify socket file was created
-        assert!(
-            socket_path.exists(),
-            "Socket file should exist after bind"
-        );
+        assert!(socket_path.exists(), "Socket file should exist after bind");
 
         // Set permissions like UdsServer::bind() does
         std::fs::set_permissions(&socket_path, std::fs::Permissions::from_mode(0o600))
@@ -1716,8 +1712,8 @@ mod tests {
         }
 
         // Verify we can bind again after cleanup
-        let _listener2 = UnixListener::bind(&socket_path)
-            .expect("Failed to rebind UDS socket after cleanup");
+        let _listener2 =
+            UnixListener::bind(&socket_path).expect("Failed to rebind UDS socket after cleanup");
 
         // Temp directory cleanup happens automatically when temp_dir is dropped
     }

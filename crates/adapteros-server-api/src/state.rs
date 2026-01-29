@@ -4,15 +4,15 @@ use adapteros_crypto::Keypair;
 use adapteros_db::git::FileChangeEvent;
 use adapteros_db::{sqlx, Db, KvIsolationScanReport, ProtectedDb, WriteCapableDb};
 use adapteros_deterministic_exec::global_ledger::GlobalTickLedger;
-use adapteros_telemetry::diagnostics::DiagnosticsService;
 use adapteros_lora_kernel_api::FusedKernels;
 use adapteros_lora_lifecycle::LifecycleManager;
-use adapteros_retrieval::rag::EmbeddingModel;
 use adapteros_lora_worker::memory::UmaPressureMonitor;
 use adapteros_lora_worker::signal::Signal;
 use adapteros_lora_worker::Worker;
 use adapteros_orchestrator::{CodeJobManager, FederationDaemon, TrainingService};
 use adapteros_policy::{PolicyHashWatcher, PolicyPackManager};
+use adapteros_retrieval::rag::EmbeddingModel;
+use adapteros_telemetry::diagnostics::DiagnosticsService;
 use adapteros_telemetry::{BundleStore, MetricsCollector, RetentionPolicy};
 
 use crate::auth::{derive_kid_from_bytes, derive_kid_from_str};

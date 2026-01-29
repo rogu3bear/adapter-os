@@ -1,6 +1,6 @@
 use adapteros_db::Db;
 use adapteros_orchestrator::code_jobs::{
-    ArtifactStore, CommitDeltaPack, CommitDeltaJob, SymbolIndexArtifact, TestMapArtifact,
+    ArtifactStore, CommitDeltaJob, CommitDeltaPack, SymbolIndexArtifact, TestMapArtifact,
 };
 use adapteros_orchestrator::{CodeJobManager, UpdateIndicesJob};
 use adapteros_retrieval::codegraph::{CodeGraph, Language, SymbolId, SymbolKind, SymbolNode};
@@ -30,9 +30,7 @@ fn build_graph(symbols: Vec<SymbolNode>) -> CodeGraph {
 #[tokio::test]
 async fn commit_delta_job_writes_pack() -> adapteros_core::Result<()> {
     let db = Db::new_in_memory().await?;
-    let temp_dir = tempfile::Builder::new()
-        .prefix("aos-test-")
-        .tempdir()?;
+    let temp_dir = tempfile::Builder::new().prefix("aos-test-").tempdir()?;
 
     let store = ArtifactStore::new(temp_dir.path().to_path_buf());
     let mut base_symbol = make_symbol("foo", "src/lib.rs", SymbolKind::Function, 1);
@@ -45,12 +43,8 @@ async fn commit_delta_job_writes_pack() -> adapteros_core::Result<()> {
     let base_graph = build_graph(vec![base_symbol.clone(), removed_symbol]);
     let head_graph = build_graph(vec![head_symbol, added_symbol]);
 
-    store
-        .store_codegraph(&base_graph, "repo-1", "base")
-        .await?;
-    store
-        .store_codegraph(&head_graph, "repo-1", "head")
-        .await?;
+    store.store_codegraph(&base_graph, "repo-1", "base").await?;
+    store.store_codegraph(&head_graph, "repo-1", "head").await?;
 
     let manager = CodeJobManager::new(db, temp_dir.path().to_path_buf());
     manager
@@ -77,17 +71,13 @@ async fn commit_delta_job_writes_pack() -> adapteros_core::Result<()> {
 #[tokio::test]
 async fn update_indices_job_writes_artifacts() -> adapteros_core::Result<()> {
     let db = Db::new_in_memory().await?;
-    let temp_dir = tempfile::Builder::new()
-        .prefix("aos-test-")
-        .tempdir()?;
+    let temp_dir = tempfile::Builder::new().prefix("aos-test-").tempdir()?;
 
     let store = ArtifactStore::new(temp_dir.path().to_path_buf());
     let symbol = make_symbol("test_feature", "src/tests.rs", SymbolKind::Function, 10);
     let graph = build_graph(vec![symbol]);
 
-    store
-        .store_codegraph(&graph, "repo-2", "commit-1")
-        .await?;
+    store.store_codegraph(&graph, "repo-2", "commit-1").await?;
 
     let manager = CodeJobManager::new(db, temp_dir.path().to_path_buf());
     manager

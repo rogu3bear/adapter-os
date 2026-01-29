@@ -1202,7 +1202,9 @@ mod tests {
         let base_input =
             ReceiptDigestInput::new([1u8; 32], [2u8; 32], [3u8; 32], 100, 10, 90, 50, 50);
 
-        let with_lineage = base_input.clone().with_cross_run_lineage(Some([9u8; 32]), 42);
+        let with_lineage = base_input
+            .clone()
+            .with_cross_run_lineage(Some([9u8; 32]), 42);
         let without_lineage = base_input.clone();
 
         let d1 = compute_receipt_digest(&with_lineage, RECEIPT_SCHEMA_V6).unwrap();
@@ -1216,13 +1218,20 @@ mod tests {
         let base_input =
             ReceiptDigestInput::new([1u8; 32], [2u8; 32], [3u8; 32], 100, 10, 90, 50, 50);
 
-        let seq_0 = base_input.clone().with_cross_run_lineage(Some([9u8; 32]), 0);
-        let seq_1 = base_input.clone().with_cross_run_lineage(Some([9u8; 32]), 1);
+        let seq_0 = base_input
+            .clone()
+            .with_cross_run_lineage(Some([9u8; 32]), 0);
+        let seq_1 = base_input
+            .clone()
+            .with_cross_run_lineage(Some([9u8; 32]), 1);
 
         let d1 = compute_receipt_digest(&seq_0, RECEIPT_SCHEMA_V6).unwrap();
         let d2 = compute_receipt_digest(&seq_1, RECEIPT_SCHEMA_V6).unwrap();
 
-        assert_ne!(d1, d2, "Different session_sequence should produce different digest");
+        assert_ne!(
+            d1, d2,
+            "Different session_sequence should produce different digest"
+        );
     }
 
     #[test]
@@ -1232,7 +1241,11 @@ mod tests {
             .with_cross_run_lineage(None, 0);
 
         let digest = compute_receipt_digest(&input, RECEIPT_SCHEMA_V6).unwrap();
-        assert_ne!(digest, B3Hash::zero(), "First receipt should produce valid digest");
+        assert_ne!(
+            digest,
+            B3Hash::zero(),
+            "First receipt should produce valid digest"
+        );
     }
 
     #[test]

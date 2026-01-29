@@ -31,7 +31,8 @@ fn test_db_reset_command_help_output() {
     // Verify help output contains expected elements
     // Note: db.rs uses --force not --yes
     let has_reset = combined.contains("reset") || combined.contains("Reset");
-    let has_db = combined.contains("database") || combined.contains("Database") || combined.contains("db");
+    let has_db =
+        combined.contains("database") || combined.contains("Database") || combined.contains("db");
 
     // At minimum, the command should be recognized
     assert!(

@@ -779,7 +779,7 @@ impl MetalKernels {
             "model.embed_tokens.weight", // Qwen/LLaMA (tied)
             "tok_embeddings.weight",     // LLaMA (tied)
             "model.tok_embeddings.weight",
-            "transformer.wte.weight",    // GPT-2 style
+            "transformer.wte.weight", // GPT-2 style
         ];
 
         // Find LM head tensor

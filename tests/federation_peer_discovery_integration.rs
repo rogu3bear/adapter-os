@@ -42,7 +42,9 @@ async fn test_peer_discovery() -> adapteros_core::Result<()> {
         federation_epoch: 1,
     };
 
-    let discovered = registry.process_discovery_announcement(&announcement).await?;
+    let discovered = registry
+        .process_discovery_announcement(&announcement)
+        .await?;
     assert_eq!(discovered, vec!["peer-2".to_string()]);
     Ok(())
 }
@@ -56,7 +58,9 @@ async fn test_peer_health_check() -> adapteros_core::Result<()> {
         .record_health_check("peer-1", PeerHealthStatus::Degraded, 120, None)
         .await?;
 
-    let degraded = registry.list_peers_by_health(PeerHealthStatus::Degraded).await?;
+    let degraded = registry
+        .list_peers_by_health(PeerHealthStatus::Degraded)
+        .await?;
     assert_eq!(degraded.len(), 1);
     assert_eq!(degraded[0].host_id, "peer-1");
     Ok(())
@@ -73,7 +77,11 @@ async fn test_consensus_voting() -> adapteros_core::Result<()> {
         .initiate_consensus(
             "peer-2",
             "promote".to_string(),
-            vec!["peer-1".to_string(), "peer-2".to_string(), "peer-3".to_string()],
+            vec![
+                "peer-1".to_string(),
+                "peer-2".to_string(),
+                "peer-3".to_string(),
+            ],
         )
         .await?;
 
@@ -97,10 +105,14 @@ async fn test_network_partition() -> adapteros_core::Result<()> {
     register_peer(&registry, "peer-3").await?;
     registry.set_local_host_id("peer-1".to_string()).await;
 
-    let reachable: HashSet<String> =
-        ["peer-1".to_string(), "peer-2".to_string()].into_iter().collect();
+    let reachable: HashSet<String> = ["peer-1".to_string(), "peer-2".to_string()]
+        .into_iter()
+        .collect();
     let partition = registry.detect_partition(reachable).await?;
-    assert!(partition.is_none(), "partition should wait for quorum votes");
+    assert!(
+        partition.is_none(),
+        "partition should wait for quorum votes"
+    );
     Ok(())
 }
 
@@ -163,7 +175,9 @@ async fn test_peer_timeout() -> adapteros_core::Result<()> {
         .record_health_check("peer-1", PeerHealthStatus::Unhealthy, 0, None)
         .await?;
 
-    let unhealthy = registry.list_peers_by_health(PeerHealthStatus::Unhealthy).await?;
+    let unhealthy = registry
+        .list_peers_by_health(PeerHealthStatus::Unhealthy)
+        .await?;
     assert_eq!(unhealthy.len(), 1);
     Ok(())
 }
@@ -182,7 +196,9 @@ async fn test_peer_quarantine() -> adapteros_core::Result<()> {
         )
         .await?;
 
-    let isolated = registry.list_peers_by_health(PeerHealthStatus::Isolated).await?;
+    let isolated = registry
+        .list_peers_by_health(PeerHealthStatus::Isolated)
+        .await?;
     assert_eq!(isolated.len(), 1);
     Ok(())
 }

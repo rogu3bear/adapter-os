@@ -202,7 +202,10 @@ fn compute_receipt_merkle_root(digests: &[B3Hash]) -> B3Hash {
 ///
 /// # Errors
 /// Returns error if index is out of bounds.
-pub fn generate_inclusion_proof(batch: &ReceiptBatch, index: usize) -> Result<ReceiptInclusionProof> {
+pub fn generate_inclusion_proof(
+    batch: &ReceiptBatch,
+    index: usize,
+) -> Result<ReceiptInclusionProof> {
     generate_inclusion_proof_with_trace_id(batch, index, &format!("receipt-{}", index))
 }
 

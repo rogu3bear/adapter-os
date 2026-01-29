@@ -2201,8 +2201,9 @@ pub async fn set(args: SetArgs, output: &OutputWriter) -> Result<()> {
 
     // Read existing .env file or create empty content
     let env_content = if args.env_file.exists() {
-        fs::read_to_string(&args.env_file)
-            .map_err(|e| AosError::Io(format!("Failed to read {}: {}", args.env_file.display(), e)))?
+        fs::read_to_string(&args.env_file).map_err(|e| {
+            AosError::Io(format!("Failed to read {}: {}", args.env_file.display(), e))
+        })?
     } else {
         String::new()
     };

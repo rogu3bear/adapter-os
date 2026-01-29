@@ -100,12 +100,12 @@ use crate::output::OutputWriter;
 use adapteros_config::{
     resolve_base_model_location, DEFAULT_BASE_MODEL_ID, DEFAULT_MODEL_CACHE_ROOT,
 };
+use adapteros_core::extract_repo_identifier_from_metadata;
 use adapteros_core::lifecycle::{
     validate_alias_swap, validate_transition_with_context, LifecycleState, LifecycleTransition,
     PreflightStatus, ValidationContext,
 };
 use adapteros_core::preflight::PreflightErrorCode;
-use adapteros_core::extract_repo_identifier_from_metadata;
 use anyhow::Result;
 use clap::Args;
 use comfy_table::{presets::UTF8_FULL, Cell, Color, Table};

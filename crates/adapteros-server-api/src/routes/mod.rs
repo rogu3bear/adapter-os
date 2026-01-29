@@ -835,7 +835,10 @@ pub fn build(state: AppState) -> Router {
     {
         public_routes = public_routes
             .route("/v1/status", get(handlers::get_status))
-            .route("/v1/invariants", get(handlers::health::get_invariant_status));
+            .route(
+                "/v1/invariants",
+                get(handlers::health::get_invariant_status),
+            );
     }
 
     if cfg!(debug_assertions) {
@@ -2179,7 +2182,10 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/audit/federation", get(handlers::get_federation_audit))
         .route("/v1/audit/compliance", get(handlers::get_compliance_audit))
         .route("/v1/audit/chain", get(handlers::audit::get_audit_chain))
-        .route("/v1/audit/chain/verify", get(handlers::audit::verify_audit_chain))
+        .route(
+            "/v1/audit/chain/verify",
+            get(handlers::audit::verify_audit_chain),
+        )
         .route("/v1/audits", get(handlers::list_audits_extended))
         .layer(
             ServiceBuilder::new()

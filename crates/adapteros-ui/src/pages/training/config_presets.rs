@@ -19,9 +19,18 @@ mod tests {
         let config = preset.config();
 
         assert_eq!(config.epochs, 3, "Identity preset should have 3 epochs");
-        assert!((config.learning_rate - 0.0002).abs() < 0.00001, "Identity LR should be 0.0002");
-        assert!((config.validation_split - 0.1).abs() < 0.001, "Identity val split should be 0.1");
-        assert!(!config.early_stopping, "Identity should not use early stopping");
+        assert!(
+            (config.learning_rate - 0.0002).abs() < 0.00001,
+            "Identity LR should be 0.0002"
+        );
+        assert!(
+            (config.validation_split - 0.1).abs() < 0.001,
+            "Identity val split should be 0.1"
+        );
+        assert!(
+            !config.early_stopping,
+            "Identity should not use early stopping"
+        );
     }
 
     #[test]
@@ -30,8 +39,14 @@ mod tests {
         let config = preset.config();
 
         assert_eq!(config.epochs, 10, "QA preset should have 10 epochs");
-        assert!((config.learning_rate - 0.0001).abs() < 0.00001, "QA LR should be 0.0001");
-        assert!((config.validation_split - 0.15).abs() < 0.001, "QA val split should be 0.15");
+        assert!(
+            (config.learning_rate - 0.0001).abs() < 0.00001,
+            "QA LR should be 0.0001"
+        );
+        assert!(
+            (config.validation_split - 0.15).abs() < 0.001,
+            "QA val split should be 0.15"
+        );
         assert!(config.early_stopping, "QA should use early stopping");
     }
 
@@ -40,13 +55,23 @@ mod tests {
         let preset = TrainingPreset::Custom;
         let config = preset.config();
 
-        assert_eq!(config.epochs, 10, "Custom preset should have 10 default epochs");
-        assert!(!config.early_stopping, "Custom should not use early stopping by default");
+        assert_eq!(
+            config.epochs, 10,
+            "Custom preset should have 10 default epochs"
+        );
+        assert!(
+            !config.early_stopping,
+            "Custom should not use early stopping by default"
+        );
     }
 
     #[test]
     fn test_preset_parse_str_roundtrip() {
-        for preset in [TrainingPreset::Identity, TrainingPreset::Qa, TrainingPreset::Custom] {
+        for preset in [
+            TrainingPreset::Identity,
+            TrainingPreset::Qa,
+            TrainingPreset::Custom,
+        ] {
             let as_str = preset.as_str();
             let back = TrainingPreset::parse_str(as_str);
             assert_eq!(preset, back, "Roundtrip failed for {:?}", preset);
@@ -75,7 +100,11 @@ mod tests {
         assert!(estimate.is_some());
         let minutes = estimate.unwrap();
         // 100 samples * 0.5s/sample * 10 epochs = 500s = ~8.33 min
-        assert!(minutes > 7.0 && minutes < 10.0, "Expected ~8.33 min, got {}", minutes);
+        assert!(
+            minutes > 7.0 && minutes < 10.0,
+            "Expected ~8.33 min, got {}",
+            minutes
+        );
     }
 }
 

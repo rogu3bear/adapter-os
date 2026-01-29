@@ -1,8 +1,8 @@
 //! Node sync command - replicate adapters across nodes
 
 use super::NOT_IMPLEMENTED_MESSAGE;
-use anyhow::{Context, Result};
 use adapteros_core::rebase_var_path;
+use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
 /// Node sync subcommands
@@ -225,10 +225,12 @@ async fn export_air_gap(file: &Path) -> Result<()> {
     header.set_path("manifest.json")?;
     header.set_size(manifest_json.len() as u64);
     header.set_mode(0o644);
-    header.set_mtime(std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs());
+    header.set_mtime(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs(),
+    );
     header.set_cksum();
     tar_builder.append(&header, manifest_json.as_slice())?;
 
@@ -239,10 +241,12 @@ async fn export_air_gap(file: &Path) -> Result<()> {
         header.set_path(&path)?;
         header.set_size(data.len() as u64);
         header.set_mode(0o644);
-        header.set_mtime(std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs());
+        header.set_mtime(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+        );
         header.set_cksum();
         tar_builder.append(&header, data.as_slice())?;
     }
@@ -252,7 +256,11 @@ async fn export_air_gap(file: &Path) -> Result<()> {
     encoder.finish()?;
 
     let file_size = std::fs::metadata(file)?.len();
-    println!("\n✓ Export complete: {} ({} bytes)", file.display(), file_size);
+    println!(
+        "\n✓ Export complete: {} ({} bytes)",
+        file.display(),
+        file_size
+    );
     println!("  Artifacts: {}", artifact_data.len());
 
     Ok(())
@@ -286,8 +294,8 @@ async fn import_air_gap(file: &Path) -> Result<()> {
     }
 
     let manifest_data = std::fs::read_to_string(&manifest_path)?;
-    let manifest: ReplicationManifest = serde_json::from_str(&manifest_data)
-        .context("Failed to parse manifest")?;
+    let manifest: ReplicationManifest =
+        serde_json::from_str(&manifest_data).context("Failed to parse manifest")?;
 
     println!("Bundle contains {} artifacts", manifest.artifacts.len());
 

@@ -7,8 +7,8 @@ use crate::api::{
     RoutingDebugResponse, RoutingDecisionResponse, RoutingDecisionsQuery, RoutingDecisionsResponse,
 };
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ErrorDisplay, Input, Spinner,
-    SplitPanel, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Textarea,
+    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, Checkbox, ErrorDisplay, Input,
+    Spinner, SplitPanel, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Textarea,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use leptos::prelude::*;
@@ -175,18 +175,14 @@ fn FilterBar(
         <Card>
             <div class="flex items-center gap-4 flex-wrap">
                 // Anomalies only toggle
-                <label class="flex items-center gap-2 cursor-pointer">
-                    <input
-                        type="checkbox"
-                        class="rounded border-border"
-                        prop:checked=move || filter_anomalies.get()
-                        on:change=move |ev| {
-                            filter_anomalies.set(event_target_checked(&ev));
-                            on_filter_change.run(());
-                        }
-                    />
-                    <span class="text-sm">"High Entropy Only"</span>
-                </label>
+                <Checkbox
+                    checked=filter_anomalies
+                    on_change=Callback::new(move |checked| {
+                        filter_anomalies.set(checked);
+                        on_filter_change.run(());
+                    })
+                    label="High Entropy Only"
+                />
 
                 // Stack filter
                 <div class="flex items-center gap-2">

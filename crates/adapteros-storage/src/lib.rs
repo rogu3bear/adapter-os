@@ -8,7 +8,6 @@ pub mod byte_store;
 pub mod cleanup;
 pub mod entities;
 pub mod error;
-pub mod refs;
 pub mod index;
 pub mod kv;
 pub mod migration;
@@ -18,6 +17,7 @@ pub mod object_store;
 pub mod policy;
 pub mod quota;
 pub mod redb;
+pub mod refs;
 pub mod repos;
 pub mod search;
 pub mod types;
@@ -41,8 +41,8 @@ pub use models::{
 };
 pub use object_store::{FsObjectStore, ObjectStore, StoredObject};
 pub use repos::{
-    AdapterRepository, AdapterVersionRepository, DatasetRepository, PaginatedResult,
-    RagRepository, ReplayRepository, TelemetryRepository,
+    AdapterRepository, AdapterVersionRepository, DatasetRepository, PaginatedResult, RagRepository,
+    ReplayRepository, TelemetryRepository,
 };
 pub use types::{KeyBuilder, VersionedRecord, CURRENT_SCHEMA_VERSION};
 

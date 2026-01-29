@@ -1071,9 +1071,6 @@ mod tests {
             parsed.previous_receipt_digest.is_none(),
             "previous_receipt_digest defaults to None"
         );
-        assert_eq!(
-            parsed.session_sequence, 0,
-            "session_sequence defaults to 0"
-        );
+        assert_eq!(parsed.session_sequence, 0, "session_sequence defaults to 0");
     }
 }

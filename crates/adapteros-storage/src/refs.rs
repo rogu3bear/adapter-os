@@ -235,7 +235,11 @@ impl RefStore for FsRefStore {
             fs::write(&temp_path, target_hash).await.map_err(|e| {
                 StorageError::IoError(std::io::Error::new(
                     e.kind(),
-                    format!("Failed to write temp ref file {}: {}", temp_path.display(), e),
+                    format!(
+                        "Failed to write temp ref file {}: {}",
+                        temp_path.display(),
+                        e
+                    ),
                 ))
             })?;
         }
@@ -340,9 +344,7 @@ impl RefStore for FsRefStore {
                     Ok(meta) => meta
                         .modified()
                         .ok()
-                        .map(|t| {
-                            chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339()
-                        })
+                        .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339())
                         .unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
                     Err(_) => chrono::Utc::now().to_rfc3339(),
                 };
@@ -412,9 +414,7 @@ pub async fn promote_version(
 
     // Optionally create version tag
     if let Some(tag) = version_tag {
-        store
-            .update_ref(adapter, tenant_id, tag, new_hash)
-            .await?;
+        store.update_ref(adapter, tenant_id, tag, new_hash).await?;
     }
 
     Ok(())
@@ -491,17 +491,27 @@ mod tests {
         let tenant = "tenant-1";
 
         // Initially no refs
-        assert!(store.get_ref(&adapter, tenant, "current").await.unwrap().is_none());
+        assert!(store
+            .get_ref(&adapter, tenant, "current")
+            .await
+            .unwrap()
+            .is_none());
 
         // Create a ref
-        store.update_ref(&adapter, tenant, "current", "hash123456789abc").await.unwrap();
+        store
+            .update_ref(&adapter, tenant, "current", "hash123456789abc")
+            .await
+            .unwrap();
 
         // Read it back
         let hash = store.get_ref(&adapter, tenant, "current").await.unwrap();
         assert_eq!(hash, Some("hash123456789abc".to_string()));
 
         // Update it
-        store.update_ref(&adapter, tenant, "current", "newhash987654321").await.unwrap();
+        store
+            .update_ref(&adapter, tenant, "current", "newhash987654321")
+            .await
+            .unwrap();
         let hash = store.get_ref(&adapter, tenant, "current").await.unwrap();
         assert_eq!(hash, Some("newhash987654321".to_string()));
 
@@ -510,7 +520,11 @@ mod tests {
         assert!(deleted);
 
         // Gone
-        assert!(store.get_ref(&adapter, tenant, "current").await.unwrap().is_none());
+        assert!(store
+            .get_ref(&adapter, tenant, "current")
+            .await
+            .unwrap()
+            .is_none());
 
         // Delete non-existent is ok
         let deleted = store.delete_ref(&adapter, tenant, "current").await.unwrap();
@@ -527,10 +541,22 @@ mod tests {
         let tenant = "tenant-1";
 
         // Create multiple refs
-        store.update_ref(&adapter, tenant, "current", "hash1").await.unwrap();
-        store.update_ref(&adapter, tenant, "previous", "hash2").await.unwrap();
-        store.update_ref(&adapter, tenant, "v1", "hash3").await.unwrap();
-        store.update_ref(&adapter, tenant, "v2", "hash4").await.unwrap();
+        store
+            .update_ref(&adapter, tenant, "current", "hash1")
+            .await
+            .unwrap();
+        store
+            .update_ref(&adapter, tenant, "previous", "hash2")
+            .await
+            .unwrap();
+        store
+            .update_ref(&adapter, tenant, "v1", "hash3")
+            .await
+            .unwrap();
+        store
+            .update_ref(&adapter, tenant, "v2", "hash4")
+            .await
+            .unwrap();
 
         // List them
         let refs = store.list_refs(&adapter, tenant).await.unwrap();
@@ -553,18 +579,41 @@ mod tests {
         let tenant = "tenant-1";
 
         // Initial version
-        promote_version(&store, &adapter, tenant, "hash_v1", Some("v1")).await.unwrap();
+        promote_version(&store, &adapter, tenant, "hash_v1", Some("v1"))
+            .await
+            .unwrap();
 
-        assert_eq!(store.get_ref(&adapter, tenant, "current").await.unwrap(), Some("hash_v1".to_string()));
-        assert_eq!(store.get_ref(&adapter, tenant, "v1").await.unwrap(), Some("hash_v1".to_string()));
-        assert!(store.get_ref(&adapter, tenant, "previous").await.unwrap().is_none());
+        assert_eq!(
+            store.get_ref(&adapter, tenant, "current").await.unwrap(),
+            Some("hash_v1".to_string())
+        );
+        assert_eq!(
+            store.get_ref(&adapter, tenant, "v1").await.unwrap(),
+            Some("hash_v1".to_string())
+        );
+        assert!(store
+            .get_ref(&adapter, tenant, "previous")
+            .await
+            .unwrap()
+            .is_none());
 
         // Second version
-        promote_version(&store, &adapter, tenant, "hash_v2", Some("v2")).await.unwrap();
+        promote_version(&store, &adapter, tenant, "hash_v2", Some("v2"))
+            .await
+            .unwrap();
 
-        assert_eq!(store.get_ref(&adapter, tenant, "current").await.unwrap(), Some("hash_v2".to_string()));
-        assert_eq!(store.get_ref(&adapter, tenant, "previous").await.unwrap(), Some("hash_v1".to_string()));
-        assert_eq!(store.get_ref(&adapter, tenant, "v2").await.unwrap(), Some("hash_v2".to_string()));
+        assert_eq!(
+            store.get_ref(&adapter, tenant, "current").await.unwrap(),
+            Some("hash_v2".to_string())
+        );
+        assert_eq!(
+            store.get_ref(&adapter, tenant, "previous").await.unwrap(),
+            Some("hash_v1".to_string())
+        );
+        assert_eq!(
+            store.get_ref(&adapter, tenant, "v2").await.unwrap(),
+            Some("hash_v2".to_string())
+        );
     }
 
     #[tokio::test]
@@ -577,18 +626,29 @@ mod tests {
         let tenant = "tenant-1";
 
         // Can't rollback with no previous
-        let rolled = rollback_to_previous(&store, &adapter, tenant).await.unwrap();
+        let rolled = rollback_to_previous(&store, &adapter, tenant)
+            .await
+            .unwrap();
         assert!(!rolled);
 
         // Set up versions
-        promote_version(&store, &adapter, tenant, "hash_v1", Some("v1")).await.unwrap();
-        promote_version(&store, &adapter, tenant, "hash_v2", Some("v2")).await.unwrap();
+        promote_version(&store, &adapter, tenant, "hash_v1", Some("v1"))
+            .await
+            .unwrap();
+        promote_version(&store, &adapter, tenant, "hash_v2", Some("v2"))
+            .await
+            .unwrap();
 
         // Rollback
-        let rolled = rollback_to_previous(&store, &adapter, tenant).await.unwrap();
+        let rolled = rollback_to_previous(&store, &adapter, tenant)
+            .await
+            .unwrap();
         assert!(rolled);
 
-        assert_eq!(store.get_ref(&adapter, tenant, "current").await.unwrap(), Some("hash_v1".to_string()));
+        assert_eq!(
+            store.get_ref(&adapter, tenant, "current").await.unwrap(),
+            Some("hash_v1".to_string())
+        );
     }
 
     #[tokio::test]
@@ -605,8 +665,14 @@ mod tests {
         assert_eq!(next, "v1");
 
         // Add some versions
-        store.update_ref(&adapter, tenant, "v1", "hash1").await.unwrap();
-        store.update_ref(&adapter, tenant, "v2", "hash2").await.unwrap();
+        store
+            .update_ref(&adapter, tenant, "v1", "hash1")
+            .await
+            .unwrap();
+        store
+            .update_ref(&adapter, tenant, "v2", "hash2")
+            .await
+            .unwrap();
 
         let next = next_version_tag(&store, &adapter, tenant).await.unwrap();
         assert_eq!(next, "v3");

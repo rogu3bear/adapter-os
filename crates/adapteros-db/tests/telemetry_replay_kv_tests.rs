@@ -9,7 +9,8 @@ use tempfile::TempDir;
 use uuid::Uuid;
 
 fn new_test_tempdir() -> TempDir {
-    TempDir::with_prefix("aos-test-").expect("Failed to create temporary directory for telemetry/replay KV test")
+    TempDir::with_prefix("aos-test-")
+        .expect("Failed to create temporary directory for telemetry/replay KV test")
 }
 
 async fn create_dual_write_db() -> (Db, TempDir, TempDir) {

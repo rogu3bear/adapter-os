@@ -42,7 +42,7 @@
 //! The attestation uses a versioned canonical byte format for forward
 //! compatibility. The current schema version is 1.
 
-use crate::{AosError, Result, B3Hash};
+use crate::{AosError, B3Hash, Result};
 use serde::{Deserialize, Serialize};
 
 /// Current attestation schema version.
@@ -148,9 +148,12 @@ impl CacheAttestation {
 
         // Compute canonical bytes and verify
         let message = self.canonical_bytes();
-        verifying_key
-            .verify(&message, &signature)
-            .map_err(|e| AosError::Crypto(format!("Cache attestation signature verification failed: {}", e)))?;
+        verifying_key.verify(&message, &signature).map_err(|e| {
+            AosError::Crypto(format!(
+                "Cache attestation signature verification failed: {}",
+                e
+            ))
+        })?;
 
         Ok(())
     }
@@ -216,18 +219,18 @@ impl CacheAttestationBuilder {
     ///
     /// Returns `AosError::Validation` if any required field is missing.
     pub fn build_and_sign(self, signing_key: &[u8; 32]) -> Result<CacheAttestation> {
-        let cache_key_hash = self.cache_key_hash.ok_or_else(|| {
-            AosError::Validation("cache_key_hash is required".to_string())
-        })?;
-        let token_count = self.token_count.ok_or_else(|| {
-            AosError::Validation("token_count is required".to_string())
-        })?;
-        let worker_id = self.worker_id.ok_or_else(|| {
-            AosError::Validation("worker_id is required".to_string())
-        })?;
-        let timestamp_tick = self.timestamp_tick.ok_or_else(|| {
-            AosError::Validation("timestamp_tick is required".to_string())
-        })?;
+        let cache_key_hash = self
+            .cache_key_hash
+            .ok_or_else(|| AosError::Validation("cache_key_hash is required".to_string()))?;
+        let token_count = self
+            .token_count
+            .ok_or_else(|| AosError::Validation("token_count is required".to_string()))?;
+        let worker_id = self
+            .worker_id
+            .ok_or_else(|| AosError::Validation("worker_id is required".to_string()))?;
+        let timestamp_tick = self
+            .timestamp_tick
+            .ok_or_else(|| AosError::Validation("timestamp_tick is required".to_string()))?;
 
         // Compute canonical bytes for signing
         let message = CacheAttestation::compute_canonical_bytes(
@@ -434,14 +437,9 @@ mod tests {
         let (signing_key, public_key) = generate_keypair();
         let cache_key = [0xCD; 32];
 
-        let attestation = create_cache_attestation(
-            &cache_key,
-            50,
-            "worker-xyz",
-            999,
-            &signing_key.to_bytes(),
-        )
-        .expect("should create");
+        let attestation =
+            create_cache_attestation(&cache_key, 50, "worker-xyz", 999, &signing_key.to_bytes())
+                .expect("should create");
 
         assert!(attestation.verify(&public_key).is_ok());
         assert_eq!(attestation.token_count, 50);

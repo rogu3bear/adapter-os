@@ -288,7 +288,11 @@ pub async fn delete_collection(
     let collection = collection.ok_or_else(|| ApiError::not_found("Collection"))?;
 
     // Delete from database (cascades to collection_documents)
-    state.db.delete_collection(&id).await.map_err(ApiError::db_error)?;
+    state
+        .db
+        .delete_collection(&id)
+        .await
+        .map_err(ApiError::db_error)?;
 
     info!("Deleted collection {}", id);
 

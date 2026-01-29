@@ -23,7 +23,8 @@ use std::sync::Arc;
 use tempfile::TempDir;
 
 fn new_test_tempdir() -> TempDir {
-    TempDir::with_prefix("aos-test-").expect("Failed to create temporary directory for KV primary reads test")
+    TempDir::with_prefix("aos-test-")
+        .expect("Failed to create temporary directory for KV primary reads test")
 }
 
 /// Initialize tracing for tests (call once per test)
@@ -277,7 +278,9 @@ async fn test_dual_write_uses_adapter_id_key() {
     let uuid = db.register_adapter(params).await.unwrap();
 
     // KV backend should store under adapter_id, not internal UUID
-    let kv = db.kv_backend().expect("Failed to get KV backend - backend must be attached for dual-write KV key test");
+    let kv = db
+        .kv_backend()
+        .expect("Failed to get KV backend - backend must be attached for dual-write KV key test");
     let backend = kv.backend().clone();
     assert!(backend
         .get("adapter:kv-key-align-1")

@@ -13,8 +13,8 @@ use crate::api::{
 };
 use crate::components::{
     async_state::AsyncBoundary, Badge, BadgeVariant, Button, ButtonVariant, Card,
-    ConfirmationDialog, ConfirmationSeverity, Dialog, Input, Link, LinkVariant, Table,
-    TableBody, TableCell, TableHead, TableHeader, TableRow, Textarea,
+    ConfirmationDialog, ConfirmationSeverity, Dialog, Input, Link, LinkVariant, Table, TableBody,
+    TableCell, TableHead, TableHeader, TableRow, Textarea,
 };
 use crate::hooks::use_api_resource;
 use crate::signals::use_notifications;
@@ -352,7 +352,10 @@ pub fn CollectionDetail() -> impl IntoView {
                         }
                     }
                     Err(e) => {
-                        notifications.error("Delete failed", &format!("Failed to delete collection: {}", e));
+                        notifications.error(
+                            "Delete failed",
+                            &format!("Failed to delete collection: {}", e),
+                        );
                         deleting.set(false);
                         show_delete_confirm.set(false);
                     }
@@ -380,7 +383,10 @@ pub fn CollectionDetail() -> impl IntoView {
                         refetch();
                     }
                     Err(e) => {
-                        notifications.error("Remove failed", &format!("Failed to remove document: {}", e));
+                        notifications.error(
+                            "Remove failed",
+                            &format!("Failed to remove document: {}", e),
+                        );
                     }
                 }
             });

@@ -26,7 +26,8 @@ use std::sync::Arc;
 use tempfile::TempDir;
 
 fn new_test_tempdir() -> TempDir {
-    TempDir::with_prefix("aos-test-").expect("Failed to create temporary directory for KV integration test")
+    TempDir::with_prefix("aos-test-")
+        .expect("Failed to create temporary directory for KV integration test")
 }
 
 /// Helper function to create a test database with a specific storage mode
@@ -61,7 +62,9 @@ async fn create_test_db(mode: StorageMode) -> (Db, TempDir) {
 
 /// Create an AdapterKvRepository for direct KV operations
 fn create_kv_repo(db: &Db) -> AdapterKvRepository {
-    let kv = db.kv_backend().expect("Failed to get KV backend - backend should be attached to database");
+    let kv = db
+        .kv_backend()
+        .expect("Failed to get KV backend - backend should be attached to database");
     let storage_repo = AdapterRepository::new(kv.backend().clone(), kv.index_manager().clone());
     AdapterKvRepository::new(Arc::new(storage_repo), "default-tenant".to_string())
 }

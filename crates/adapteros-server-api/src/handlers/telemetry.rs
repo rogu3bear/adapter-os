@@ -365,7 +365,9 @@ pub async fn get_trace(
     })?;
 
     // Get trace from the trace buffer with tenant isolation
-    let trace = state.trace_buffer.get_trace_for_tenant(&trace_id, &claims.tenant_id);
+    let trace = state
+        .trace_buffer
+        .get_trace_for_tenant(&trace_id, &claims.tenant_id);
     Ok(Json(trace))
 }
 

@@ -126,7 +126,9 @@ impl Default for TelemetryMetricsCollector {
 ///
 /// This is a convenience function that creates a one-off event. For periodic
 /// collection, use `spawn_system_metrics_emitter` which maintains collector state.
-pub fn system_metrics_event(collector: &mut TelemetryMetricsCollector) -> crate::event::SystemMetricsEvent {
+pub fn system_metrics_event(
+    collector: &mut TelemetryMetricsCollector,
+) -> crate::event::SystemMetricsEvent {
     collector.collect()
 }
 

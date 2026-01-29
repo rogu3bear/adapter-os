@@ -55,6 +55,6 @@ pub use batch::{
 pub use provenance::{AdapterProvenanceInfo, DocumentProvenanceInfo, ProvenanceResponse};
 pub use streaming::{
     AdapterStateInfo, Delta, InferenceEvent, LoadPhase, StreamConfig, StreamError,
-    StreamErrorPayload, StreamingChunk, StreamingChoice, StreamingInferRequest,
+    StreamErrorPayload, StreamingChoice, StreamingChunk, StreamingInferRequest,
 };
 pub use types::{InferRequest, InferResponse};

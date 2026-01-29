@@ -621,18 +621,21 @@ pub async fn list_process_anomalies(
     let filters = AnomalyFilters {
         tenant_id: Some(tenant_id),
         worker_id: params.get("worker_id").cloned(),
-        status: params.get("status").map(|s| {
-            parse_anomaly_status(s.as_str()).ok_or_else(|| {
-                (
-                    StatusCode::BAD_REQUEST,
-                    Json(
-                        ErrorResponse::new("invalid status")
-                            .with_code("BAD_REQUEST")
-                            .with_string_details(s.to_string()),
-                    ),
-                )
+        status: params
+            .get("status")
+            .map(|s| {
+                parse_anomaly_status(s.as_str()).ok_or_else(|| {
+                    (
+                        StatusCode::BAD_REQUEST,
+                        Json(
+                            ErrorResponse::new("invalid status")
+                                .with_code("BAD_REQUEST")
+                                .with_string_details(s.to_string()),
+                        ),
+                    )
+                })
             })
-        }).transpose()?,
+            .transpose()?,
         anomaly_type: params.get("anomaly_type").cloned(),
         start_time: None,
         end_time: None,

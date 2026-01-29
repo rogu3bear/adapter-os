@@ -4,9 +4,9 @@ use super::types::{BranchMetadata, ScanRootMetadata};
 use crate::training::{
     LORA_STRENGTH_DEFAULT_MAX, LORA_STRENGTH_DEFAULT_MICRO, LORA_STRENGTH_DEFAULT_STANDARD,
 };
+use adapteros_core::normalize_repo_slug;
 use adapteros_core::AosError;
 use adapteros_core::Result;
-use adapteros_core::normalize_repo_slug;
 use adapteros_types::coreml::CoreMLOpKind;
 use adapteros_types::training::LoraTier;
 use std::collections::HashMap;

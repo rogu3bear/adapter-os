@@ -176,7 +176,8 @@ pub async fn upload_document(
 
     // Create tenant-specific document directory
     let tenant_path = root.join(&claims.tenant_id);
-    fs::create_dir_all(&tenant_path).await
+    fs::create_dir_all(&tenant_path)
+        .await
         .map_err(ApiError::db_error)?;
 
     let mut document_name = String::new();
@@ -184,14 +185,18 @@ pub async fn upload_document(
     let mut mime_type = "application/pdf".to_string();
 
     // Process multipart form
-    while let Some(field) = multipart.next_field().await
+    while let Some(field) = multipart
+        .next_field()
+        .await
         .map_err(|e| ApiError::bad_request(e.to_string()))?
     {
         let name = field.name().unwrap_or("").to_string();
 
         match name.as_str() {
             "name" => {
-                document_name = field.text().await
+                document_name = field
+                    .text()
+                    .await
                     .map_err(|e| ApiError::bad_request(e.to_string()))?;
             }
             "file" => {
@@ -208,14 +213,17 @@ pub async fn upload_document(
                     mime_type = ct.to_string();
                 }
 
-                let data = field.bytes().await
+                let data = field
+                    .bytes()
+                    .await
                     .map_err(|e| ApiError::bad_request(e.to_string()))?;
 
                 if data.len() > MAX_DOCUMENT_SIZE {
                     return Err(ApiError::payload_too_large(&format!(
                         "Document exceeds maximum size of {}MB",
                         MAX_DOCUMENT_SIZE / 1024 / 1024
-                    )).into());
+                    ))
+                    .into());
                 }
 
                 file_data = Some(data.to_vec());
@@ -266,9 +274,13 @@ pub async fn upload_document(
 
     // Save file to disk (only for new documents)
     let file_path = tenant_path.join(format!("{}.pdf", document_id));
-    let mut file = fs::File::create(&file_path).await.map_err(ApiError::db_error)?;
+    let mut file = fs::File::create(&file_path)
+        .await
+        .map_err(ApiError::db_error)?;
 
-    file.write_all(&file_data).await.map_err(ApiError::db_error)?;
+    file.write_all(&file_data)
+        .await
+        .map_err(ApiError::db_error)?;
 
     file.flush().await.map_err(ApiError::db_error)?;
 
@@ -471,7 +483,11 @@ pub async fn delete_document(
     validate_tenant_isolation(&claims, &document.tenant_id)?;
 
     // Delete from database (cascades to chunks)
-    state.db.delete_document(&id).await.map_err(ApiError::db_error)?;
+    state
+        .db
+        .delete_document(&id)
+        .await
+        .map_err(ApiError::db_error)?;
 
     // Delete file from filesystem
     if tokio::fs::try_exists(&document.file_path)
@@ -615,7 +631,9 @@ pub async fn download_document(
     validate_tenant_isolation(&claims, &document.tenant_id)?;
 
     // Read file
-    let file_data = fs::read(&document.file_path).await.map_err(ApiError::db_error)?;
+    let file_data = fs::read(&document.file_path)
+        .await
+        .map_err(ApiError::db_error)?;
 
     // Return file with appropriate headers
     use axum::http::header;
@@ -697,7 +715,9 @@ pub async fn process_document(
             return Err(ApiError::bad_request("Document is already indexed"));
         }
         "processing" => {
-            return Err(ApiError::bad_request("Document is currently being processed"));
+            return Err(ApiError::bad_request(
+                "Document is currently being processed",
+            ));
         }
         "pending" | "failed" => {
             // Allowed to process - will acquire lock
@@ -750,10 +770,9 @@ async fn process_document_inner(
     use adapteros_ingest_docs::{default_ingest_options, DocumentIngestor};
 
     // Get embedding model from state
-    let embedding_model = state
-        .embedding_model
-        .as_ref()
-        .ok_or_else(|| ApiError::db_error("Embedding model not configured - enable embeddings feature"))?;
+    let embedding_model = state.embedding_model.as_ref().ok_or_else(|| {
+        ApiError::db_error("Embedding model not configured - enable embeddings feature")
+    })?;
 
     // Read document file
     let file_data = fs::read(&document.file_path)
@@ -830,8 +849,9 @@ async fn process_document_inner(
         // Store embedding as JSON (or failure marker)
         let (embedding_json, rag_embedding) = match embedding {
             Ok(vector) => {
-                let serialized = serde_json::to_string(&vector)
-                    .map_err(|e| ApiError::db_error(format!("Failed to serialize embedding: {}", e)))?;
+                let serialized = serde_json::to_string(&vector).map_err(|e| {
+                    ApiError::db_error(format!("Failed to serialize embedding: {}", e))
+                })?;
                 (Some(serialized), Some(vector))
             }
             Err(e) => {
@@ -1019,9 +1039,12 @@ pub async fn process_document(
     Extension(_claims): Extension<Claims>,
     Path(_id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    Err::<(), _>(ApiError::not_implemented(
-        "Document processing requires the 'embeddings' feature to be enabled",
-    ).into())
+    Err::<(), _>(
+        ApiError::not_implemented(
+            "Document processing requires the 'embeddings' feature to be enabled",
+        )
+        .into(),
+    )
 }
 
 /// Retry a failed document processing.
@@ -1063,7 +1086,8 @@ pub async fn retry_document(
         return Err(ApiError::bad_request(format!(
             "Only failed documents can be retried. Current status: {}",
             document.status
-        )).into());
+        ))
+        .into());
     }
 
     // Prepare document for retry (increments retry_count, resets to pending)

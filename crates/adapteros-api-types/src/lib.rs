@@ -22,8 +22,8 @@ pub fn schema_version() -> String {
     API_SCHEMA_VERSION.to_string()
 }
 
-pub mod adapters;
 pub mod activity;
+pub mod adapters;
 pub mod admin;
 pub mod api_keys;
 pub mod auth;
@@ -63,6 +63,7 @@ pub mod training;
 pub mod workers;
 
 // Re-export commonly used types (server feature for full type access)
+pub use activity::*;
 #[cfg(feature = "server")]
 pub use adapteros_types::coreml::{
     CoreMLGating, CoreMLMode, CoreMLOpKind, CoreMLPlacementBinding, CoreMLPlacementShape,
@@ -71,7 +72,6 @@ pub use adapteros_types::coreml::{
 #[cfg(feature = "server")]
 pub use adapteros_types::repository::RepoTier;
 pub use adapters::*;
-pub use activity::*;
 pub use admin::*;
 pub use api_keys::*;
 pub use auth::*;

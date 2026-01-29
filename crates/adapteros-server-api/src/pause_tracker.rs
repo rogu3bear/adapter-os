@@ -24,7 +24,9 @@ use tracing::{info, warn};
 use crate::uds_client::{UdsClient, WorkerStreamPaused};
 use adapteros_api_types::review::{InferenceState, PauseKind, ReviewContext, SubmitReviewRequest};
 use adapteros_core::{AosError, B3Hash, Result};
-use adapteros_telemetry::diagnostics::{DiagEnvelope, DiagEvent, DiagRunId, DiagSeverity, DiagnosticsService};
+use adapteros_telemetry::diagnostics::{
+    DiagEnvelope, DiagEvent, DiagRunId, DiagSeverity, DiagnosticsService,
+};
 use adapteros_telemetry::tracing::TraceContext;
 
 /// Entry tracking a paused inference

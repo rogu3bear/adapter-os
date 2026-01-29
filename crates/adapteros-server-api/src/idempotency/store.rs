@@ -72,7 +72,7 @@ impl IdempotencyStore {
         // This prevents cleanup_expired() from removing the lock between cache entry creation
         // and lock insertion
         let lock = Arc::new(RwLock::new(()));
-        
+
         // Insert lock first (idempotent - if lock exists, this is a no-op)
         self.locks.insert(key.0.clone(), lock);
 
@@ -202,9 +202,9 @@ mod tests {
         // FIXED (ADR-0023 Bug #2): Test that concurrent mark_in_progress() and cleanup_expired()
         // don't create orphaned locks. The fix ensures lock is created BEFORE cache entry.
         use tokio::time::{sleep, Duration};
-        
+
         let store = Arc::new(IdempotencyStore::new());
-        
+
         // Spawn concurrent mark_in_progress operations
         let mut handles = vec![];
         for i in 0..10 {
@@ -217,7 +217,7 @@ mod tests {
             });
             handles.push(handle);
         }
-        
+
         // Spawn cleanup_expired concurrently
         let store_clone = store.clone();
         let cleanup_handle = tokio::spawn(async move {
@@ -226,19 +226,19 @@ mod tests {
                 store_clone.cleanup_expired();
             }
         });
-        
+
         // Wait for all mark_in_progress to complete
         for handle in handles {
             handle.await.unwrap();
         }
-        
+
         // Wait for cleanup to complete
         cleanup_handle.await.unwrap();
-        
+
         // Verify: no orphaned locks exist (all locks should have corresponding cache entries)
-        let cache_keys: std::collections::HashSet<_> = 
+        let cache_keys: std::collections::HashSet<_> =
             store.cache.iter().map(|e| e.key().clone()).collect();
-        
+
         for lock_key in store.locks.iter() {
             assert!(
                 cache_keys.contains(lock_key.key()),
@@ -246,7 +246,7 @@ mod tests {
                 lock_key.key()
             );
         }
-        
+
         // Verify: all cache entries that are InProgress have locks
         for entry in store.cache.iter() {
             if entry.value().status == IdempotencyStatus::InProgress {

@@ -194,8 +194,8 @@ pub async fn refresh_token_handler(
         session_id,
         mfa_level: None,
     };
-    let new_access_token =
-        issue_access_token(&state, &access_params, Some(token_ttl_seconds)).map_err(|e| {
+    let new_access_token = issue_access_token(&state, &access_params, Some(token_ttl_seconds))
+        .map_err(|e| {
             warn!(error = %e, user_id = %user.id, "Failed to generate new access token");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -218,8 +218,8 @@ pub async fn refresh_token_handler(
         session_id,
         rot_id: &new_rot_id,
     };
-    let new_refresh_token =
-        issue_refresh_token(&state, &refresh_params, Some(refresh_ttl)).map_err(|e| {
+    let new_refresh_token = issue_refresh_token(&state, &refresh_params, Some(refresh_ttl))
+        .map_err(|e| {
             warn!(error = %e, user_id = %user.id, "Failed to generate new refresh token");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,

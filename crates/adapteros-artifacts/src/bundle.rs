@@ -1,7 +1,9 @@
 //! Bundle creation and extraction (tar+zstd)
 
 use adapteros_core::{AosError, Result};
-use adapteros_storage::secure_fs::path_policy::{canonicalize_strict, canonicalize_strict_in_allowed_roots};
+use adapteros_storage::secure_fs::path_policy::{
+    canonicalize_strict, canonicalize_strict_in_allowed_roots,
+};
 use adapteros_storage::secure_fs::traversal::check_path_traversal;
 use std::fs::{self, File, OpenOptions};
 use std::io::Read;

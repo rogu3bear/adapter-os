@@ -101,7 +101,8 @@ pub async fn persist_chunk(
         .get_session(session_id)
         .await
         .map_err(|_| {
-            let err: (StatusCode, Json<ErrorResponse>) = ApiError::not_found("Upload session").into();
+            let err: (StatusCode, Json<ErrorResponse>) =
+                ApiError::not_found("Upload session").into();
             err
         })?;
     if UploadSessionManager::is_session_expired(&session) {

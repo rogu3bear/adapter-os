@@ -21,7 +21,6 @@ use uuid::Uuid;
 
 pub mod activity;
 pub mod adapter_health;
-pub mod audit;
 pub mod adapter_lifecycle;
 pub mod adapter_stacks;
 pub mod adapter_utils;
@@ -32,6 +31,7 @@ pub mod admin;
 pub mod admin_lifecycle;
 pub mod aliases;
 pub mod api_keys;
+pub mod audit;
 pub mod auth;
 pub mod auth_enhanced;
 pub mod batch;

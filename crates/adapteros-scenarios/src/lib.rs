@@ -232,7 +232,10 @@ mod tests {
 
     #[test]
     fn loader_reads_default_dir() {
-        let dir = tempfile::Builder::new().prefix("aos-test-").tempdir().expect("tempdir");
+        let dir = tempfile::Builder::new()
+            .prefix("aos-test-")
+            .tempdir()
+            .expect("tempdir");
         write_scenario(
             dir.path(),
             "doc-chat",

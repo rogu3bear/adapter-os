@@ -220,7 +220,8 @@ pub async fn download_run_evidence(
     let mut warnings: Vec<String> = Vec::new();
 
     // Replay metadata (always included)
-    let replay_metadata_json = serde_json::to_vec_pretty(&metadata).map_err(|e| ApiError::internal(e.to_string()))?;
+    let replay_metadata_json =
+        serde_json::to_vec_pretty(&metadata).map_err(|e| ApiError::internal(e.to_string()))?;
 
     // Manifest reference with optional embedded manifest
     let manifest_record = state
@@ -248,7 +249,8 @@ pub async fn download_run_evidence(
             warnings: vec!["manifest content unavailable".to_string()],
         }
     };
-    let manifest_ref_json = serde_json::to_vec_pretty(&manifest_entry).map_err(|e| ApiError::internal(e.to_string()))?;
+    let manifest_ref_json = serde_json::to_vec_pretty(&manifest_entry)
+        .map_err(|e| ApiError::internal(e.to_string()))?;
 
     // Policy digest entry
     let mut policy_warnings = Vec::new();
@@ -260,7 +262,8 @@ pub async fn download_run_evidence(
         policy_mask_digest_b3: metadata.policy_mask_digest_b3.clone(),
         warnings: policy_warnings.clone(),
     };
-    let policy_digest_json = serde_json::to_vec_pretty(&policy_entry).map_err(|e| ApiError::internal(e.to_string()))?;
+    let policy_digest_json =
+        serde_json::to_vec_pretty(&policy_entry).map_err(|e| ApiError::internal(e.to_string()))?;
 
     // Boot state snapshot (deterministic - no timing fields)
     // DETERMINISM: We exclude phase timing (started_at_ms, finished_at_ms, duration_ms)
@@ -288,7 +291,9 @@ pub async fn download_run_evidence(
     }
     let boot_state_json = boot_snapshot
         .as_ref()
-        .map(|snapshot| serde_json::to_vec_pretty(snapshot).map_err(|e| ApiError::internal(e.to_string())))
+        .map(|snapshot| {
+            serde_json::to_vec_pretty(snapshot).map_err(|e| ApiError::internal(e.to_string()))
+        })
         .transpose()?;
 
     // Model status snapshot (tenant scoped)
@@ -320,7 +325,8 @@ pub async fn download_run_evidence(
             warnings: model_warnings.clone(),
         }
     };
-    let model_status_json = serde_json::to_vec_pretty(&model_snapshot).map_err(|e| ApiError::internal(e.to_string()))?;
+    let model_status_json = serde_json::to_vec_pretty(&model_snapshot)
+        .map_err(|e| ApiError::internal(e.to_string()))?;
 
     // Attempt to load trace receipt and build inference envelope
     let trace_id: Option<String> = sqlx::query_scalar(
@@ -347,8 +353,10 @@ pub async fn download_run_evidence(
                     EvidenceEnvelope::new_inference(metadata.tenant_id.clone(), receipt_ref, None);
                 envelope.created_at = DETERMINISTIC_ENVELOPE_TIMESTAMP.to_string();
                 envelope.signed_at_us = 0;
-                run_envelope_bytes =
-                    Some(serde_json::to_vec_pretty(&envelope).map_err(|e| ApiError::internal(e.to_string()))?);
+                run_envelope_bytes = Some(
+                    serde_json::to_vec_pretty(&envelope)
+                        .map_err(|e| ApiError::internal(e.to_string()))?,
+                );
             }
             Err(e) => {
                 envelope_warnings.push(format!(
@@ -437,10 +445,13 @@ pub async fn download_run_evidence(
     {
         let mut zip = zip::ZipWriter::new(&mut writer);
         for (name, data) in files {
-            zip.start_file(name, options).map_err(|e| ApiError::internal(e.to_string()))?;
-            zip.write_all(&data).map_err(|e| ApiError::internal(e.to_string()))?;
+            zip.start_file(name, options)
+                .map_err(|e| ApiError::internal(e.to_string()))?;
+            zip.write_all(&data)
+                .map_err(|e| ApiError::internal(e.to_string()))?;
         }
-        zip.finish().map_err(|e| ApiError::internal(e.to_string()))?;
+        zip.finish()
+            .map_err(|e| ApiError::internal(e.to_string()))?;
     }
     let buffer = writer.into_inner();
 

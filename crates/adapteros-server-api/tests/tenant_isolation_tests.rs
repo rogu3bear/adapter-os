@@ -636,12 +636,11 @@ async fn test_cross_tenant_adapter_access_denied() -> Result<()> {
 
     // Verify tenant A cannot load tenant B's adapter
     // (This would be enforced by handler-level checks, not just database queries)
-    let adapter_b_row = sqlx::query_as::<_, AdapterRecordRow>(
-        "SELECT * FROM adapters WHERE id = ?",
-    )
-    .bind(&adapter_b_id)
-    .fetch_one(db.pool())
-    .await?;
+    let adapter_b_row =
+        sqlx::query_as::<_, AdapterRecordRow>("SELECT * FROM adapters WHERE id = ?")
+            .bind(&adapter_b_id)
+            .fetch_one(db.pool())
+            .await?;
 
     assert_eq!(
         adapter_b_row.tenant_id, "tenant-b",

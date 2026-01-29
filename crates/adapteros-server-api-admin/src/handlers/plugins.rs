@@ -189,7 +189,8 @@ pub async fn list_plugins<S: AdminAppState>(
                         (
                             StatusCode::INTERNAL_SERVER_ERROR,
                             Json(
-                                AdminErrorResponse::new(e.to_string()).with_code("PLUGIN_CHECK_FAILED"),
+                                AdminErrorResponse::new(e.to_string())
+                                    .with_code("PLUGIN_CHECK_FAILED"),
                             ),
                         )
                     })?;

@@ -14,18 +14,29 @@ use axum::{
 };
 
 use crate::handlers::{
-    admin_status, system_config,
-    // Lifecycle handlers
-    request_maintenance, request_shutdown, safe_restart,
-    // Service handlers
-    get_service_logs, restart_service, start_essential_services, start_service,
-    stop_essential_services, stop_service,
+    admin_status,
     // Plugin handlers
-    disable_plugin, enable_plugin, list_plugins, plugin_status,
+    disable_plugin,
+    enable_plugin,
+    // Service handlers
+    get_service_logs,
     // Settings handlers
-    get_settings, update_settings,
+    get_settings,
+    list_plugins,
     // User handlers
     list_users,
+    plugin_status,
+    // Lifecycle handlers
+    request_maintenance,
+    request_shutdown,
+    restart_service,
+    safe_restart,
+    start_essential_services,
+    start_service,
+    stop_essential_services,
+    stop_service,
+    system_config,
+    update_settings,
 };
 use crate::state::AdminAppState;
 
@@ -114,17 +125,17 @@ where
             "/v1/services/essential/stop",
             post(stop_essential_services::<S>),
         )
-        .route(
-            "/v1/services/:service_id/logs",
-            get(get_service_logs::<S>),
-        )
+        .route("/v1/services/:service_id/logs", get(get_service_logs::<S>))
         // Plugin routes
         .route("/v1/plugins", get(list_plugins::<S>))
         .route("/v1/plugins/:name", get(plugin_status::<S>))
         .route("/v1/plugins/:name/enable", post(enable_plugin::<S>))
         .route("/v1/plugins/:name/disable", post(disable_plugin::<S>))
         // Settings routes
-        .route("/v1/settings", get(get_settings::<S>).put(update_settings::<S>))
+        .route(
+            "/v1/settings",
+            get(get_settings::<S>).put(update_settings::<S>),
+        )
 }
 
 /// Alias for backward compatibility

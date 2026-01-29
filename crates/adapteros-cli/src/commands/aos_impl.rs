@@ -1,9 +1,9 @@
 //! Implementation helpers for AOS commands
 
-use adapteros_core::{AosError, Result};
 use adapteros_aos::single_file::{
     AdapterWeights, TrainingConfig, TrainingExample, WeightGroup, WeightGroupType, WeightMetadata,
 };
+use adapteros_core::{AosError, Result};
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;

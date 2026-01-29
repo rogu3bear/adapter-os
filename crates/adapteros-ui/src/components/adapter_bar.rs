@@ -536,7 +536,10 @@ mod tests {
             AdapterChipState::Selected.to_css_class(),
             "adapter-chip-selected"
         );
-        assert_eq!(AdapterChipState::Pinned.to_css_class(), "adapter-chip-pinned");
+        assert_eq!(
+            AdapterChipState::Pinned.to_css_class(),
+            "adapter-chip-pinned"
+        );
         assert_eq!(
             AdapterChipState::Disabled.to_css_class(),
             "adapter-chip-disabled"

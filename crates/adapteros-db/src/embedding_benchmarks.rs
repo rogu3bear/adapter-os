@@ -52,7 +52,9 @@ impl Db {
             .bind(offset as i64)
             .fetch_all(self.pool())
             .await
-            .map_err(|e| AosError::Database(format!("Failed to list embedding benchmarks: {}", e)))?
+            .map_err(|e| {
+                AosError::Database(format!("Failed to list embedding benchmarks: {}", e))
+            })?
         } else {
             sqlx::query_as::<_, EmbeddingBenchmarkRow>(
                 r#"
@@ -70,7 +72,9 @@ impl Db {
             .bind(offset as i64)
             .fetch_all(self.pool())
             .await
-            .map_err(|e| AosError::Database(format!("Failed to list embedding benchmarks: {}", e)))?
+            .map_err(|e| {
+                AosError::Database(format!("Failed to list embedding benchmarks: {}", e))
+            })?
         };
 
         Ok(rows)

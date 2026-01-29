@@ -5,9 +5,9 @@
 //! with the dock panel.
 
 use crate::components::{
-    AdapterBar, AdapterHeat, AdapterMagnet, Badge, BadgeVariant, Button, Card,
-    ConfirmationDialog, ConfirmationSeverity, EmptyState, EmptyStateVariant, Spinner,
-    SuggestedAdapterView, SuggestedAdaptersBar, Textarea, TraceButton, TracePanel,
+    AdapterBar, AdapterHeat, AdapterMagnet, Badge, BadgeVariant, Button, Card, ConfirmationDialog,
+    ConfirmationSeverity, EmptyState, EmptyStateVariant, Spinner, SuggestedAdapterView,
+    SuggestedAdaptersBar, Textarea, TraceButton, TracePanel,
 };
 use crate::signals::{use_chat, ChatSessionMeta, ChatSessionsManager};
 use leptos::prelude::*;

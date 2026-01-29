@@ -15,8 +15,8 @@
 //! - Encoding must be canonical for hashing
 //! - Prompts/outputs are excluded; use hashes only
 
-use adapteros_core::B3Hash;
 use crate::tracing::TraceContext;
+use adapteros_core::B3Hash;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use thiserror::Error;

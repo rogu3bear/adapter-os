@@ -992,7 +992,8 @@ impl StreamingInferenceHandler {
             if let Some(choices) = parsed.get("choices").and_then(|v| v.as_array()) {
                 for choice in choices {
                     // Check for finish_reason (done event)
-                    if let Some(finish_reason) = choice.get("finish_reason").and_then(|v| v.as_str())
+                    if let Some(finish_reason) =
+                        choice.get("finish_reason").and_then(|v| v.as_str())
                     {
                         if !finish_reason.is_empty() && finish_reason != "null" {
                             if let Some(ref callback) = *self.on_done.borrow() {

@@ -51,8 +51,12 @@ impl TrainingPair {
     }
 
     /// Add multiple hard negatives to this training pair
-    pub fn with_negatives(mut self, negatives: impl IntoIterator<Item = impl Into<String>>) -> Self {
-        self.negatives.extend(negatives.into_iter().map(|n| n.into()));
+    pub fn with_negatives(
+        mut self,
+        negatives: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        self.negatives
+            .extend(negatives.into_iter().map(|n| n.into()));
         self
     }
 }
@@ -79,12 +83,7 @@ impl TrainingBatch {
     }
 
     /// Add a training sample to the batch
-    pub fn add_sample(
-        &mut self,
-        anchor: Vec<f32>,
-        positive: Vec<f32>,
-        negatives: Vec<Vec<f32>>,
-    ) {
+    pub fn add_sample(&mut self, anchor: Vec<f32>, positive: Vec<f32>, negatives: Vec<Vec<f32>>) {
         self.anchors.push(anchor);
         self.positives.push(positive);
         self.negatives.push(negatives);
@@ -173,7 +172,12 @@ pub fn contrastive_loss(
         return f32::INFINITY; // Signal degenerate input
     }
 
-    let log_sum_exp = max_sim + all_sims.iter().map(|&x| (x - max_sim).exp()).sum::<f32>().ln();
+    let log_sum_exp = max_sim
+        + all_sims
+            .iter()
+            .map(|&x| (x - max_sim).exp())
+            .sum::<f32>()
+            .ln();
 
     // InfoNCE loss: -log(exp(pos_sim) / Σexp(all_sims))
     //             = -(pos_sim - log_sum_exp)
@@ -360,7 +364,10 @@ mod tests {
         let a = vec![1.0, 0.0, 0.0];
         let b = vec![1.0, 0.0, 0.0];
         let sim = cosine_similarity(&a, &b);
-        assert!((sim - 1.0).abs() < 1e-6, "Identical vectors should have similarity 1.0");
+        assert!(
+            (sim - 1.0).abs() < 1e-6,
+            "Identical vectors should have similarity 1.0"
+        );
     }
 
     #[test]
@@ -368,7 +375,10 @@ mod tests {
         let a = vec![1.0, 0.0, 0.0];
         let b = vec![0.0, 1.0, 0.0];
         let sim = cosine_similarity(&a, &b);
-        assert!(sim.abs() < 1e-6, "Orthogonal vectors should have similarity 0.0");
+        assert!(
+            sim.abs() < 1e-6,
+            "Orthogonal vectors should have similarity 0.0"
+        );
     }
 
     #[test]
@@ -376,7 +386,10 @@ mod tests {
         let a = vec![1.0, 0.0];
         let b = vec![-1.0, 0.0];
         let sim = cosine_similarity(&a, &b);
-        assert!((sim + 1.0).abs() < 1e-6, "Opposite vectors should have similarity -1.0");
+        assert!(
+            (sim + 1.0).abs() < 1e-6,
+            "Opposite vectors should have similarity -1.0"
+        );
     }
 
     #[test]
@@ -417,7 +430,11 @@ mod tests {
         let negatives: Vec<&[f32]> = vec![&neg1, &neg2];
 
         let loss = contrastive_loss(&anchor, &positive, &negatives, 0.07);
-        assert!(loss < 0.1, "Perfect match should have very low loss, got: {}", loss);
+        assert!(
+            loss < 0.1,
+            "Perfect match should have very low loss, got: {}",
+            loss
+        );
     }
 
     #[test]
@@ -437,7 +454,8 @@ mod tests {
         assert!(
             loss > perfect_loss * 2.0,
             "Poor match (loss={}) should be much higher than perfect match (loss={})",
-            loss, perfect_loss
+            loss,
+            perfect_loss
         );
     }
 
@@ -449,7 +467,11 @@ mod tests {
         let negatives: Vec<&[f32]> = vec![];
 
         let loss = contrastive_loss(&anchor, &positive, &negatives, 0.07);
-        assert!(loss.abs() < 1e-6, "No negatives should give ~0 loss, got: {}", loss);
+        assert!(
+            loss.abs() < 1e-6,
+            "No negatives should give ~0 loss, got: {}",
+            loss
+        );
     }
 
     #[test]
@@ -465,7 +487,10 @@ mod tests {
 
         // With higher temperature, the distribution is smoother (loss is different)
         // The actual relationship depends on the similarity values
-        assert!(loss_low_temp != loss_high_temp, "Temperature should affect loss");
+        assert!(
+            loss_low_temp != loss_high_temp,
+            "Temperature should affect loss"
+        );
     }
 
     // ========================================================================
@@ -495,7 +520,10 @@ mod tests {
             &[&[0.0, 1.0, 0.0]],
             0.07,
         );
-        assert!((loss - expected_loss).abs() < 1e-6, "Single sample batch loss should match direct computation");
+        assert!(
+            (loss - expected_loss).abs() < 1e-6,
+            "Single sample batch loss should match direct computation"
+        );
     }
 
     #[test]
@@ -515,7 +543,10 @@ mod tests {
         );
 
         let loss = batch_contrastive_loss(&batch, 0.07);
-        assert!(loss > 0.0, "Batch with mixed quality should have non-zero loss");
+        assert!(
+            loss > 0.0,
+            "Batch with mixed quality should have non-zero loss"
+        );
     }
 
     // ========================================================================
@@ -549,8 +580,8 @@ mod tests {
 
     #[test]
     fn test_training_pair_with_negatives() {
-        let pair = TrainingPair::new("anchor", "positive")
-            .with_negatives(vec!["neg1", "neg2", "neg3"]);
+        let pair =
+            TrainingPair::new("anchor", "positive").with_negatives(vec!["neg1", "neg2", "neg3"]);
 
         assert_eq!(pair.negatives.len(), 3);
     }
@@ -710,7 +741,10 @@ mod tests {
 
         // Should not panic or return NaN/Inf with very small temperature
         let loss = contrastive_loss(&anchor, &positive, &negatives, 0.001);
-        assert!(loss.is_finite(), "Loss should be finite with small temperature");
+        assert!(
+            loss.is_finite(),
+            "Loss should be finite with small temperature"
+        );
     }
 
     #[test]

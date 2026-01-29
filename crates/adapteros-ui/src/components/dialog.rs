@@ -57,9 +57,11 @@ pub fn Dialog(
     #[prop(optional, into)] title: String,
     #[prop(optional, into)] description: String,
     /// Dialog size variant (default: Md)
-    #[prop(optional)] size: DialogSize,
+    #[prop(optional)]
+    size: DialogSize,
     /// Enable scrollable content with max-height constraint
-    #[prop(optional)] scrollable: bool,
+    #[prop(optional)]
+    scrollable: bool,
     children: Children,
 ) -> impl IntoView {
     let close = move |_| open.set(false);

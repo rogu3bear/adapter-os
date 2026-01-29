@@ -224,9 +224,7 @@ mod tests {
 
     #[test]
     fn test_hex_bytes_32_roundtrip() {
-        let original = TestStruct32 {
-            hash: [0xab; 32],
-        };
+        let original = TestStruct32 { hash: [0xab; 32] };
         let json = serde_json::to_string(&original).unwrap();
         assert!(json.contains("abababab")); // hex encoded
         let decoded: TestStruct32 = serde_json::from_str(&json).unwrap();
@@ -246,9 +244,7 @@ mod tests {
 
     #[test]
     fn test_hex_bytes_16_roundtrip() {
-        let original = TestStruct16 {
-            cpid: [0xef; 16],
-        };
+        let original = TestStruct16 { cpid: [0xef; 16] };
         let json = serde_json::to_string(&original).unwrap();
         assert!(json.contains("efefefef")); // hex encoded
         let decoded: TestStruct16 = serde_json::from_str(&json).unwrap();

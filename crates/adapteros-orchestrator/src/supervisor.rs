@@ -9,8 +9,8 @@
 
 use adapteros_core::{AosError, Result};
 use adapteros_db::Db;
-use adapteros_policy::{PolicyHashWatcher, QuarantineManager, QuarantineOperation};
 use adapteros_model_hub::registry::Registry;
+use adapteros_policy::{PolicyHashWatcher, QuarantineManager, QuarantineOperation};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
@@ -776,7 +776,7 @@ mod tests {
              Expected: OS should allow temp directory creation with 'aos-test-' prefix. \
              Context: Tests require writable temp space for isolated database instances. \
              This typically fails only when: (1) /tmp is full, (2) permissions are restricted, \
-             or (3) OS temp directory is misconfigured."
+             or (3) OS temp directory is misconfigured.",
         )
     }
 

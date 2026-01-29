@@ -4,7 +4,6 @@ use crate::auth_common::{clear_auth_cookies, AuthConfig};
 use crate::security::revoke_token;
 use crate::state::AppState;
 use crate::types::ErrorResponse;
-use chrono::{Duration, Utc};
 use adapteros_api_types::auth::SessionInfo;
 use adapteros_api_types::API_SCHEMA_VERSION;
 use axum::{
@@ -12,6 +11,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Extension, Json,
 };
+use chrono::{Duration, Utc};
 
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct SessionsResponse {

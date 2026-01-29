@@ -4,8 +4,8 @@
 //! including symbol counts, edge counts, and database health metrics.
 
 use crate::output::OutputWriter;
-use adapteros_retrieval::codegraph::sqlite::CodeGraphDb;
 use adapteros_core::Result;
+use adapteros_retrieval::codegraph::sqlite::CodeGraphDb;
 
 /// Run the codegraph stats command
 pub async fn run(codegraph_db: std::path::PathBuf, output: &OutputWriter) -> Result<()> {

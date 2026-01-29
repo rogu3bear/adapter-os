@@ -5,8 +5,8 @@
 //! test results, and linter output into a complete package.
 
 use crate::cdp::{
-    diff_analyzer::DiffAnalyzer, metadata::MetadataExtractor, ChangedSymbol, CommitDeltaPack,
-    CdpId, CdpMetadata, DiffSummary,
+    diff_analyzer::DiffAnalyzer, metadata::MetadataExtractor, CdpId, CdpMetadata, ChangedSymbol,
+    CommitDeltaPack, DiffSummary,
 };
 use adapteros_core::{AosError, B3Hash, Result};
 use adapteros_lora_worker::{LinterResult, TestResult};
@@ -114,10 +114,12 @@ impl CdpAssembler {
 
         // Create synthetic metadata
         self.metadata = Some(CdpMetadata::new(
-            self.get_git_user_email().unwrap_or_else(|_| "unknown".to_string()),
+            self.get_git_user_email()
+                .unwrap_or_else(|_| "unknown".to_string()),
             "Uncommitted changes".to_string(),
             chrono::Utc::now(),
-            self.get_current_branch().unwrap_or_else(|_| "unknown".to_string()),
+            self.get_current_branch()
+                .unwrap_or_else(|_| "unknown".to_string()),
             self.repo_path.clone(),
         ));
 
@@ -164,18 +166,18 @@ impl CdpAssembler {
             AosError::validation("No commit specified. Call from_commit() first.")
         })?;
 
-        let parent_sha = self.parent_sha.ok_or_else(|| {
-            AosError::validation("No parent commit available.")
-        })?;
+        let parent_sha = self
+            .parent_sha
+            .ok_or_else(|| AosError::validation("No parent commit available."))?;
 
-        let repo_id = self.repo_id.ok_or_else(|| {
-            AosError::validation("No repository ID available.")
-        })?;
+        let repo_id = self
+            .repo_id
+            .ok_or_else(|| AosError::validation("No repository ID available."))?;
 
         let diff_summary = self.diff_summary.unwrap_or_default();
-        let metadata = self.metadata.ok_or_else(|| {
-            AosError::validation("No metadata available.")
-        })?;
+        let metadata = self
+            .metadata
+            .ok_or_else(|| AosError::validation("No metadata available."))?;
 
         // Create the CDP
         let mut cdp = CommitDeltaPack::new(
@@ -403,7 +405,12 @@ mod tests {
         Ok(temp_dir)
     }
 
-    fn create_commit(repo_path: &Path, filename: &str, content: &str, message: &str) -> Result<String> {
+    fn create_commit(
+        repo_path: &Path,
+        filename: &str,
+        content: &str,
+        message: &str,
+    ) -> Result<String> {
         // Create parent directories if needed
         let file_path = repo_path.join(filename);
         if let Some(parent) = file_path.parent() {
@@ -455,8 +462,7 @@ mod tests {
             failures: Vec::new(),
         };
 
-        let assembler = CdpAssembler::new("/tmp/test-repo")
-            .with_test_results(vec![test_result]);
+        let assembler = CdpAssembler::new("/tmp/test-repo").with_test_results(vec![test_result]);
 
         assert_eq!(assembler.test_results.len(), 1);
         assert_eq!(assembler.test_results[0].passed, 10);
@@ -471,8 +477,8 @@ mod tests {
             duration_ms: 500,
         };
 
-        let assembler = CdpAssembler::new("/tmp/test-repo")
-            .with_linter_results(vec![linter_result]);
+        let assembler =
+            CdpAssembler::new("/tmp/test-repo").with_linter_results(vec![linter_result]);
 
         assert_eq!(assembler.linter_results.len(), 1);
     }
@@ -504,7 +510,10 @@ mod tests {
         let result = assembler.build();
 
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("No commit specified"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("No commit specified"));
     }
 
     #[test]

@@ -689,9 +689,8 @@ impl ProcessAlert {
 
     /// List alerts with filters
     pub async fn list(pool: &SqlitePool, filters: AlertFilters) -> Result<Vec<ProcessAlert>> {
-        let mut query = sqlx::QueryBuilder::<sqlx::Sqlite>::new(
-            "SELECT * FROM process_alerts WHERE 1=1",
-        );
+        let mut query =
+            sqlx::QueryBuilder::<sqlx::Sqlite>::new("SELECT * FROM process_alerts WHERE 1=1");
 
         if let Some(tenant_id) = filters.tenant_id {
             query.push(" AND tenant_id = ").push_bind(tenant_id);
@@ -706,7 +705,9 @@ impl ProcessAlert {
         }
 
         if let Some(severity) = filters.severity {
-            query.push(" AND severity = ").push_bind(severity.to_string());
+            query
+                .push(" AND severity = ")
+                .push_bind(severity.to_string());
         }
 
         query.push(" ORDER BY created_at DESC");
@@ -849,9 +850,8 @@ impl ProcessAnomaly {
 
     /// List anomalies with filters
     pub async fn list(pool: &SqlitePool, filters: AnomalyFilters) -> Result<Vec<ProcessAnomaly>> {
-        let mut query = sqlx::QueryBuilder::<sqlx::Sqlite>::new(
-            "SELECT * FROM process_anomalies WHERE 1=1",
-        );
+        let mut query =
+            sqlx::QueryBuilder::<sqlx::Sqlite>::new("SELECT * FROM process_anomalies WHERE 1=1");
 
         if let Some(tenant_id) = filters.tenant_id {
             query.push(" AND tenant_id = ").push_bind(tenant_id);

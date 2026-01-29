@@ -192,7 +192,7 @@ pub async fn list_adapters(
             drift_tier: adapter.drift_tier.clone(),
             drift_metric: adapter.drift_metric,
             drift_loss_metric: adapter.drift_loss_metric,
-            drift_slice_size: None, // Not stored in DB
+            drift_slice_size: None,   // Not stored in DB
             drift_slice_offset: None, // Not stored in DB
             // Codebase adapter fields from DB
             adapter_type: adapter.adapter_type.clone(),
@@ -1291,7 +1291,7 @@ pub async fn promote_adapter_version_handler(
         drift_tier: adapter.drift_tier.clone(),
         drift_metric: adapter.drift_metric,
         drift_loss_metric: adapter.drift_loss_metric,
-        drift_slice_size: None, // Not stored in DB
+        drift_slice_size: None,   // Not stored in DB
         drift_slice_offset: None, // Not stored in DB
         // Codebase adapter fields from DB
         adapter_type: adapter.adapter_type.clone(),

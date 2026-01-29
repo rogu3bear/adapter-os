@@ -1673,8 +1673,8 @@ impl Db {
     /// FIXED (ADR-0023 Bug #1): Delete from KV first, then SQL to prevent race condition
     /// where concurrent reads see SQL empty but KV still has stale data
     pub async fn delete_stack(&self, tenant_id: &str, id: &str) -> Result<bool> {
-        use tracing::{debug, error, warn};
         use stacks_kv::StackKvOps;
+        use tracing::{debug, error, warn};
 
         // Delete from KV first to prevent race condition
         let kv_start = std::time::Instant::now();

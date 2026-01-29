@@ -1213,15 +1213,15 @@ pub async fn get_worker_health_summary(
         .list_workers_by_tenant(&claims.tenant_id)
         .await
         .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("database error")
-                    .with_code("DATABASE_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
 
     let mut health_records = Vec::new();
     let mut healthy_count = 0;
