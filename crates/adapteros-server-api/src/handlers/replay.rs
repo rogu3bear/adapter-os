@@ -909,38 +909,11 @@ pub struct ReceiptVerificationResult {
     pub signature_valid: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct TraceVerifyRequest {
-    pub trace_id: String,
-}
-
-#[utoipa::path(
-    post,
-    path = "/v1/replay/verify/trace",
-    request_body = TraceVerifyRequest,
-    responses(
-        (status = 200, description = "Receipt verification result", body = ReceiptVerificationResult),
-        (status = 404, description = "Trace not found", body = ErrorResponse)
-    ),
-    tag = "replay"
-)]
-pub async fn verify_trace_receipt(
-    State(state): State<AppState>,
-    Extension(claims): Extension<Claims>,
-    Json(req): Json<TraceVerifyRequest>,
-) -> ApiResult<ReceiptVerificationResult> {
-    require_permission(&claims, Permission::ReplayManage)?;
-
-    let verification = adapteros_db::recompute_receipt(&state.db, &req.trace_id)
-        .await
-        .map_err(|e| match e {
-            AosError::NotFound(_) => ApiError::not_found("Inference trace"),
-            AosError::Database(_) => ApiError::db_error(e),
-            _ => ApiError::internal("Failed to verify trace receipt").with_details(e.to_string()),
-        })?;
-
-    validate_tenant_isolation(&claims, &verification.tenant_id)?;
-
+pub(crate) fn build_receipt_verification_result(
+    trace_id: String,
+    verification: adapteros_db::TraceReceiptVerification,
+    source: &str,
+) -> ReceiptVerificationResult {
     let context_hex = hex::encode(verification.context_digest);
     let context_diff = ReceiptDigestDiff {
         field: "context_digest".to_string(),
@@ -1006,10 +979,10 @@ pub async fn verify_trace_receipt(
 
     let pass = reasons.is_empty();
 
-    Ok(Json(ReceiptVerificationResult {
-        trace_id: req.trace_id,
+    ReceiptVerificationResult {
+        trace_id,
         tenant_id: Some(verification.tenant_id),
-        source: "trace".to_string(),
+        source: source.to_string(),
         pass,
         verified_at: chrono::Utc::now().to_rfc3339(),
         reasons,
@@ -1020,7 +993,44 @@ pub async fn verify_trace_receipt(
         receipt_digest: receipt_diff,
         signature_checked,
         signature_valid: None,
-    }))
+    }
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct TraceVerifyRequest {
+    pub trace_id: String,
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/replay/verify/trace",
+    request_body = TraceVerifyRequest,
+    responses(
+        (status = 200, description = "Receipt verification result", body = ReceiptVerificationResult),
+        (status = 404, description = "Trace not found", body = ErrorResponse)
+    ),
+    tag = "replay"
+)]
+pub async fn verify_trace_receipt(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Json(req): Json<TraceVerifyRequest>,
+) -> ApiResult<ReceiptVerificationResult> {
+    require_permission(&claims, Permission::ReplayManage)?;
+
+    let verification = adapteros_db::recompute_receipt(&state.db, &req.trace_id)
+        .await
+        .map_err(|e| match e {
+            AosError::NotFound(_) => ApiError::not_found("Inference trace"),
+            AosError::Database(_) => ApiError::db_error(e),
+            _ => ApiError::internal("Failed to verify trace receipt").with_details(e.to_string()),
+        })?;
+
+    validate_tenant_isolation(&claims, &verification.tenant_id)?;
+
+    let report = build_receipt_verification_result(req.trace_id, verification, "trace");
+
+    Ok(Json(report))
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -1529,6 +1539,11 @@ fn load_bundle_from_bytes(bytes: &[u8]) -> Result<ReceiptBundle> {
     bail!("Unable to parse evidence bundle as JSON or zip");
 }
 
+pub(crate) fn verify_bundle_bytes(bytes: &[u8]) -> Result<ReceiptVerificationResult> {
+    let bundle = load_bundle_from_bytes(bytes)?;
+    verify_bundle(&bundle)
+}
+
 #[utoipa::path(
     post,
     path = "/v1/replay/verify/bundle",
@@ -1567,9 +1582,8 @@ pub async fn verify_bundle_receipt(
 
     let bytes = bundle_bytes.ok_or_else(|| ApiError::bad_request("Missing 'bundle' file field"))?;
 
-    let bundle =
-        load_bundle_from_bytes(&bytes).map_err(|e| ApiError::bad_request(e.to_string()))?;
-    let report = verify_bundle(&bundle).map_err(|e| ApiError::bad_request(e.to_string()))?;
+    let report =
+        verify_bundle_bytes(&bytes).map_err(|e| ApiError::bad_request(e.to_string()))?;
 
     // Tenant isolation for uploaded bundles (best-effort using bundle metadata)
     if let Some(tenant) = report.tenant_id.as_ref() {

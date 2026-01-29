@@ -409,6 +409,8 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::review::get_pause_details,
         handlers::review::export_review_context,
         handlers::review::submit_review_response,
+        handlers::adapteros_receipts::get_receipt_by_digest,
+        handlers::adapteros_receipts::adapteros_replay,
     ),
     components(schemas(
         crate::types::ErrorResponse,
@@ -736,6 +738,9 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::runtime::DriftSummaryResponse,
         handlers::runtime::DriftFieldResponse,
         handlers::runtime::RuntimePathsResponse,
+        handlers::adapteros_receipts::AdapterosReplayRequest,
+        handlers::replay::ReceiptVerificationResult,
+        adapteros_api_types::inference::RunReceipt,
     )),
     tags(
         (name = "health", description = "Health check endpoints"),
@@ -1231,6 +1236,14 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/replay/history/{inference_id}",
             get(handlers::replay_inference::get_replay_history),
+        )
+        .route(
+            "/v1/adapteros/receipts/{digest}",
+            get(handlers::adapteros_receipts::get_receipt_by_digest),
+        )
+        .route(
+            "/v1/adapteros/replay",
+            post(handlers::adapteros_receipts::adapteros_replay),
         )
         .route(
             "/v1/runs/{run_id}/evidence",
