@@ -1,22 +1,11 @@
 // MLX C++ wrapper implementation (Real)
 // Provides C-compatible interface for MLX functionality using real MLX C++ API
 
-#include "wrapper.h"
-#include <algorithm>
-#include <atomic>
-#include <cstdint>
+#include "../wrapper.h"
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <iostream>
-#include <memory>
-#include <mutex>
-#include <optional>
-#include <set>
-#include <string>
-#include <tuple>
-#include <unordered_map>
-#include <vector>
 
 // Only compile with real MLX if MLX_REAL is defined (set by build.rs)
 #ifdef MLX_REAL
@@ -709,8 +698,7 @@ struct MLXModelWrapper {
   //   - For prompt processing: offset = 0
   //   - For incremental token generation: offset = current position in sequence
   mx::array self_attention_impl(const mx::array &hidden,
-                                const std::string &prefix,
-                                bool capture_hidden,
+                                const std::string &prefix, bool capture_hidden,
                                 int position_offset = 0) {
     int batch_size = hidden.shape(0);
     int seq_len = hidden.shape(1);
@@ -798,7 +786,8 @@ struct MLXModelWrapper {
   // RoPE rotates pairs of dimensions based on position, enabling the model
   // to understand relative positions of tokens. This is the standard
   // implementation used in LLaMA, Qwen2, and similar models.
-  mx::array apply_rope(const mx::array &x, int seq_len, int position_offset = 0) {
+  mx::array apply_rope(const mx::array &x, int seq_len,
+                       int position_offset = 0) {
     int hd = x.shape(3); // head_dim
     int half_hd = hd / 2;
 
@@ -1173,7 +1162,8 @@ struct MLXModelWrapper {
             layer_norm(hidden, prefix + ".input_layernorm");
 
         // Self-attention on normalized input
-        // position_offset ensures correct RoPE positions during incremental generation
+        // position_offset ensures correct RoPE positions during incremental
+        // generation
         mx::array attn_output = self_attention_with_hidden_states(
             normed_for_attn, prefix + ".self_attn", position_offset);
 
@@ -1263,7 +1253,7 @@ extern "C" int mlx_array_size(mlx_array_t *array) {
     // memory after materialization. This race condition caused SIGSEGV after
     // ~14h runtime (issue: memory recycling during lazy evaluation invalidated
     // data pointers).
-    mx::eval(wrapper->arr);  // mlx::core::eval - NOT JavaScript eval
+    mx::eval(wrapper->arr); // mlx::core::eval - NOT JavaScript eval
     return wrapper->arr.size();
   } catch (const std::exception &e) {
     g_last_error = e.what();
@@ -1415,16 +1405,16 @@ extern "C" mlx_model_t *mlx_model_load_from_buffer(const uint8_t *buffer,
   }
 }
 
-extern "C" mlx_array_t *mlx_model_forward(mlx_model_t *model,
-                                          mlx_array_t *input,
-                                          int position_offset) {
+extern "C" mlx_array_t *
+mlx_model_forward(mlx_model_t *model, mlx_array_t *input, int position_offset) {
   if (!model || !input)
     return nullptr;
   try {
     auto model_wrapper = reinterpret_cast<MLXModelWrapper *>(model);
     auto input_wrapper = reinterpret_cast<MLXArrayWrapper *>(input);
 
-    mx::array output = model_wrapper->forward(input_wrapper->arr, position_offset);
+    mx::array output =
+        model_wrapper->forward(input_wrapper->arr, position_offset);
     mx::eval(output); // Force evaluation  - mlx::core::eval NOT JavaScript eval
 
     auto result_wrapper = new MLXArrayWrapper(output);
@@ -1435,19 +1425,17 @@ extern "C" mlx_array_t *mlx_model_forward(mlx_model_t *model,
   }
 }
 
-extern "C" mlx_array_t *
-mlx_model_forward_with_hidden_states(mlx_model_t *model, mlx_array_t *input,
-                                     int position_offset,
-                                     mlx_array_t **hidden_states,
-                                     int *num_hidden) {
+extern "C" mlx_array_t *mlx_model_forward_with_hidden_states(
+    mlx_model_t *model, mlx_array_t *input, int position_offset,
+    mlx_array_t **hidden_states, int *num_hidden) {
   if (!model || !input || !hidden_states || !num_hidden)
     return nullptr;
   try {
     auto model_wrapper = reinterpret_cast<MLXModelWrapper *>(model);
     auto input_wrapper = reinterpret_cast<MLXArrayWrapper *>(input);
 
-    mx::array output =
-        model_wrapper->forward_with_hidden_states(input_wrapper->arr, position_offset);
+    mx::array output = model_wrapper->forward_with_hidden_states(
+        input_wrapper->arr, position_offset);
     mx::eval(output); // Force evaluation - mlx::core::eval NOT JavaScript eval
 
     // Extract hidden states from model wrapper
