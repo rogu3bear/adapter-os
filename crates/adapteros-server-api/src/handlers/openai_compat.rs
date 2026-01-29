@@ -18,7 +18,10 @@ use crate::middleware::request_id::RequestId;
 use crate::middleware::ApiKeyToken;
 use crate::state::AppState;
 use crate::types::run_envelope::new_run_envelope;
-use crate::types::{ErrorResponse, InferRequest, InferenceRequestInternal, StopReasonCode};
+use crate::types::{
+    ErrorResponse, InferRequest, InferenceRequestInternal, StopReasonCode, DEFAULT_MAX_TOKENS,
+    MAX_REPLAY_TEXT_SIZE,
+};
 use crate::uds_client::WorkerStreamToken;
 use adapteros_core::identity::IdentityEnvelope;
 use adapteros_policy::hooks::PolicyHook;
@@ -349,6 +352,28 @@ async fn chat_completions_streaming(
     let prompt =
         messages_to_prompt(&req.messages).map_err(|e| (StatusCode::BAD_REQUEST, Json(e)))?;
 
+    // Validate prompt length
+    if prompt.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(openai_error(
+                "Prompt cannot be empty",
+                Some("EMPTY_PROMPT".to_string()),
+                Some("messages".to_string()),
+            )),
+        ));
+    }
+    if prompt.len() > MAX_REPLAY_TEXT_SIZE {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(openai_error(
+                "Prompt too long for context window",
+                Some("PROMPT_TOO_LONG".to_string()),
+                Some("messages".to_string()),
+            )),
+        ));
+    }
+
     // Check backpressure
     check_uma_backpressure(&state).map_err(|(status, Json(err))| {
         (status, Json(map_adapteros_error_to_openai(err)))
@@ -414,15 +439,31 @@ async fn chat_completions_streaming(
     let mut run_envelope = new_run_envelope(&state, &claims, request_id.clone(), false);
     crate::types::run_envelope::set_policy_mask(&mut run_envelope, Some(&policy_digest));
 
+    // Audit log: inference execution start
+    if let Err(e) = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::INFERENCE_EXECUTE,
+        crate::audit_helper::resources::ADAPTER,
+        Some(&request_id),
+    )
+    .await
+    {
+        tracing::warn!(error = %e, "Audit log failed");
+    }
+
     info!(
         request_id = %request_id,
         prompt_len = prompt.len(),
-        max_tokens = req.max_tokens.or(req.max_completion_tokens).unwrap_or(512),
+        max_tokens = req.max_tokens.or(req.max_completion_tokens).unwrap_or(DEFAULT_MAX_TOKENS as u32),
         "Starting OpenAI-compatible streaming chat completion"
     );
 
     // Build internal inference request
-    let max_tokens = req.max_tokens.or(req.max_completion_tokens).unwrap_or(512) as usize;
+    let max_tokens = req
+        .max_tokens
+        .or(req.max_completion_tokens)
+        .unwrap_or(DEFAULT_MAX_TOKENS as u32) as usize;
     let temperature = req.temperature.unwrap_or(0.7);
     let top_p = req.top_p;
 
@@ -501,18 +542,22 @@ async fn chat_completions_streaming(
         .streaming
         .clone();
 
-    // Create cancellation token
+    // Create cancellation token for client disconnect detection
     let cancellation_token = CancellationToken::new();
+    let drop_guard = StreamDropGuard {
+        cancellation_token: cancellation_token.clone(),
+        request_id: request_id.clone(),
+    };
 
     // Spawn the streaming inference
     let (token_rx, done_rx) = spawn_streaming_inference(
         state.clone(),
         internal_request,
-        cancellation_token.clone(),
+        cancellation_token,
         stream_config.inference_token_buffer_capacity,
     );
 
-    // Build the SSE stream
+    // Build the SSE stream with cancellation support
     let stream = build_openai_sse_stream(
         request_id,
         model_name,
@@ -520,6 +565,7 @@ async fn chat_completions_streaming(
         token_rx,
         done_rx,
         run_envelope,
+        drop_guard,
     );
 
     Ok(Sse::new(stream).keep_alive(
@@ -554,6 +600,10 @@ fn spawn_streaming_inference(
 }
 
 /// Build OpenAI-compatible SSE stream from token channel.
+///
+/// The `drop_guard` is kept alive for the duration of the stream. When the client
+/// disconnects (stream is dropped), the guard triggers the cancellation token,
+/// which signals the inference task to abort.
 fn build_openai_sse_stream(
     request_id: String,
     model_name: String,
@@ -561,6 +611,7 @@ fn build_openai_sse_stream(
     token_rx: mpsc::Receiver<WorkerStreamToken>,
     done_rx: oneshot::Receiver<Result<crate::types::InferenceResult, crate::types::InferenceError>>,
     run_envelope: adapteros_api_types::RunEnvelope,
+    drop_guard: StreamDropGuard,
 ) -> impl Stream<Item = Result<Event, Infallible>> {
     // State for the stream
     struct StreamState {
@@ -574,6 +625,9 @@ fn build_openai_sse_stream(
         sent_role: bool,
         finished: bool,
         run_envelope: adapteros_api_types::RunEnvelope,
+        // Keep the drop guard alive; when dropped, it cancels inference
+        #[allow(dead_code)]
+        drop_guard: StreamDropGuard,
     }
 
     let state = StreamState {
@@ -585,6 +639,7 @@ fn build_openai_sse_stream(
         sent_role: false,
         finished: false,
         run_envelope,
+        drop_guard,
     };
 
     stream::unfold(state, |mut state| async move {
@@ -705,6 +760,27 @@ fn build_openai_sse_stream(
         // Send [DONE] marker as final event
         Ok(Event::default().data("[DONE]"))
     }))
+}
+
+/// Guard that triggers cancellation when stream is dropped (client disconnect).
+///
+/// When the SSE response body is dropped (client disconnects), this guard
+/// triggers the cancellation token, allowing in-flight inference to abort.
+struct StreamDropGuard {
+    cancellation_token: CancellationToken,
+    request_id: String,
+}
+
+impl Drop for StreamDropGuard {
+    fn drop(&mut self) {
+        if !self.cancellation_token.is_cancelled() {
+            info!(
+                request_id = %self.request_id,
+                "OpenAI stream dropped (client disconnect), cancelling inference"
+            );
+            self.cancellation_token.cancel();
+        }
+    }
 }
 
 fn map_adapteros_error_to_openai(err: ErrorResponse) -> OpenAiErrorResponse {

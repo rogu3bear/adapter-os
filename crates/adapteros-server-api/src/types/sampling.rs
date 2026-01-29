@@ -11,6 +11,9 @@ pub const SAMPLING_ALGORITHM_VERSION: &str = "v1.0.0";
 /// Maximum size for stored prompt/response text (64KB)
 pub const MAX_REPLAY_TEXT_SIZE: usize = 64 * 1024;
 
+/// Default maximum tokens to generate when not specified by request
+pub const DEFAULT_MAX_TOKENS: usize = 512;
+
 /// Placement decision trace entry (per token)
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq)]
 pub struct PlacementTraceEntry {
