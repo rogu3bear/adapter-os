@@ -994,7 +994,15 @@ pub fn build(state: AppState) -> Router {
             "/v1/services/{service_id}/logs",
             get(handlers::services::get_service_logs),
         )
-        .route("/v1/models", get(handlers::models::list_models_with_stats))
+        .route(
+            "/v1/models",
+            get(handlers::openai_compat::list_models_openai),
+        )
+        // Internal endpoint preserves full AdapterOS model details
+        .route(
+            "/internal/models",
+            get(handlers::models::list_models_with_stats),
+        )
         .route("/v1/models/import", post(handlers::models::import_model))
         .route(
             "/v1/models/download-progress",

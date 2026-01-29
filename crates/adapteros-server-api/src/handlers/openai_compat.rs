@@ -375,9 +375,8 @@ async fn chat_completions_streaming(
     }
 
     // Check backpressure
-    check_uma_backpressure(&state).map_err(|(status, Json(err))| {
-        (status, Json(map_adapteros_error_to_openai(err)))
-    })?;
+    check_uma_backpressure(&state)
+        .map_err(|(status, Json(err))| (status, Json(map_adapteros_error_to_openai(err))))?;
 
     // Generate request ID
     let request_id = format!("chatcmpl-{}", uuid::Uuid::new_v4());
@@ -791,4 +790,127 @@ fn map_adapteros_error_to_openai(err: ErrorResponse) -> OpenAiErrorResponse {
         }
     }
     openai_error(message, Some(err.code), None)
+}
+
+// ============================================================================
+// OpenAI Models API Types
+// ============================================================================
+
+/// OpenAI-compatible model object.
+///
+/// See: <https://platform.openai.com/docs/api-reference/models/object>
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct OpenAiModel {
+    /// The model identifier.
+    pub id: String,
+    /// The object type, which is always "model".
+    pub object: String,
+    /// Unix timestamp (seconds) when the model was created.
+    pub created: i64,
+    /// The organization that owns the model.
+    pub owned_by: String,
+}
+
+/// OpenAI-compatible model list response.
+///
+/// See: <https://platform.openai.com/docs/api-reference/models/list>
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct OpenAiModelListResponse {
+    /// The object type, which is always "list".
+    pub object: String,
+    /// The list of model objects.
+    pub data: Vec<OpenAiModel>,
+}
+
+/// List all models in OpenAI-compatible format
+///
+/// # Endpoint
+/// GET /v1/models
+///
+/// # Authentication
+/// Required
+///
+/// # Response
+/// Returns a list of models in OpenAI-compatible format:
+/// - `object`: Always "list"
+/// - `data`: Array of model objects with:
+///   - `id`: Model identifier
+///   - `object`: Always "model"
+///   - `created`: Unix timestamp of when the model was imported
+///   - `owned_by`: Organization/tenant that owns the model
+///
+/// # Errors
+/// - `500`: Database error
+///
+/// # Example Response
+/// ```json
+/// {
+///   "object": "list",
+///   "data": [
+///     {
+///       "id": "Llama-3.2-3B-Instruct-4bit",
+///       "object": "model",
+///       "created": 1686935002,
+///       "owned_by": "adapteros"
+///     }
+///   ]
+/// }
+/// ```
+#[utoipa::path(
+    get,
+    path = "/v1/models",
+    responses(
+        (status = 200, description = "List of models", body = OpenAiModelListResponse),
+        (status = 500, description = "Database error")
+    ),
+    tag = "models"
+)]
+pub async fn list_models_openai(
+    State(state): State<crate::state::AppState>,
+    Extension(claims): Extension<crate::auth::Claims>,
+) -> Result<Json<OpenAiModelListResponse>, (StatusCode, Json<OpenAiErrorResponse>)> {
+    let models_with_stats = state
+        .db
+        .list_models_with_stats(&claims.tenant_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to list models: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(openai_error(
+                    "Failed to list models",
+                    Some("database_error".to_string()),
+                    None,
+                )),
+            )
+        })?;
+
+    let data = models_with_stats
+        .into_iter()
+        .map(|m| {
+            let model = &m.model;
+            // Parse imported_at timestamp or use epoch
+            let created = model
+                .imported_at
+                .as_ref()
+                .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
+                .map(|dt| dt.timestamp())
+                .unwrap_or(0);
+
+            OpenAiModel {
+                id: model.id.clone(),
+                object: "model".to_string(),
+                created,
+                owned_by: model
+                    .tenant_id
+                    .clone()
+                    .unwrap_or_else(|| "adapteros".to_string()),
+            }
+        })
+        .collect();
+
+    Ok(Json(OpenAiModelListResponse {
+        object: "list".to_string(),
+        data,
+    }))
 }
