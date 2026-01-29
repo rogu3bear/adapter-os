@@ -126,18 +126,58 @@ pub fn ApiConfigSection() -> impl IntoView {
             </Card>
 
             // Auth Status
-            <Card title="Authentication Status".to_string() description="Current authenticated user for this session.".to_string()>
+            <Card title="Authentication Status".to_string() description="Current session authentication details.".to_string()>
                 <div class="space-y-3">
                     {move || {
                         match auth_state.get() {
                             AuthState::Authenticated(user) => {
                                 let user = user.clone();
-                                let email = user.email.clone();
-                                let role = user.role.clone();
                                 view! {
-                                    <div class="space-y-1">
-                                        <div class="text-sm font-medium">{email}</div>
-                                        <div class="text-xs text-muted-foreground">{format!("Role: {}", role)}</div>
+                                    <div class="space-y-3">
+                                        // User identity
+                                        <div class="space-y-1">
+                                            <div class="text-sm font-medium">{user.display_name.clone()}</div>
+                                            <div class="text-xs text-muted-foreground">{user.email.clone()}</div>
+                                        </div>
+
+                                        // Session details grid
+                                        <div class="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+                                            <div class="text-muted-foreground">"Role"</div>
+                                            <div class="font-mono">{user.role.clone()}</div>
+
+                                            <div class="text-muted-foreground">"Tenant"</div>
+                                            <div class="font-mono truncate" title=user.tenant_id.clone()>{user.tenant_id.clone()}</div>
+
+                                            <div class="text-muted-foreground">"User ID"</div>
+                                            <div class="font-mono truncate" title=user.user_id.clone()>{user.user_id.clone()}</div>
+
+                                            {user.last_login_at.clone().map(|t| view! {
+                                                <div class="text-muted-foreground">"Last Login"</div>
+                                                <div class="font-mono">{format_timestamp(&t)}</div>
+                                            })}
+
+                                            {user.mfa_enabled.map(|enabled| view! {
+                                                <div class="text-muted-foreground">"MFA"</div>
+                                                <div>{if enabled { "Enabled" } else { "Disabled" }}</div>
+                                            })}
+                                        </div>
+
+                                        // Permissions
+                                        {(!user.permissions.is_empty()).then(|| {
+                                            let perms = user.permissions.clone();
+                                            view! {
+                                                <div class="space-y-1">
+                                                    <div class="text-xs text-muted-foreground">"Permissions"</div>
+                                                    <div class="flex flex-wrap gap-1">
+                                                        {perms.into_iter().map(|p| view! {
+                                                            <span class="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs font-mono">
+                                                                {p}
+                                                            </span>
+                                                        }).collect_view()}
+                                                    </div>
+                                                </div>
+                                            }
+                                        })}
                                     </div>
                                 }.into_any()
                             }
@@ -160,7 +200,7 @@ pub fn ApiConfigSection() -> impl IntoView {
                     }}
 
                     <p class="text-xs text-muted-foreground">
-                        "Session authentication uses secure httpOnly cookies; no bearer token is stored in the browser."
+                        "Session uses secure httpOnly cookies."
                     </p>
                 </div>
             </Card>
@@ -181,4 +221,35 @@ enum ConnectionTestStatus {
 /// Get default API endpoint
 fn get_default_api_endpoint() -> String {
     crate::api::api_base_url()
+}
+
+/// Format ISO timestamp to human-readable form
+fn format_timestamp(iso: &str) -> String {
+    // Parse and display in a compact form
+    // ISO: 2024-01-15T10:30:00Z -> Jan 15 10:30
+    if let Some(date_part) = iso.get(..10) {
+        if let Some(time_part) = iso.get(11..16) {
+            let parts: Vec<&str> = date_part.split('-').collect();
+            if parts.len() == 3 {
+                let month = match parts[1] {
+                    "01" => "Jan",
+                    "02" => "Feb",
+                    "03" => "Mar",
+                    "04" => "Apr",
+                    "05" => "May",
+                    "06" => "Jun",
+                    "07" => "Jul",
+                    "08" => "Aug",
+                    "09" => "Sep",
+                    "10" => "Oct",
+                    "11" => "Nov",
+                    "12" => "Dec",
+                    _ => return iso.to_string(),
+                };
+                let day = parts[2].trim_start_matches('0');
+                return format!("{} {} {}", month, day, time_part);
+            }
+        }
+    }
+    iso.to_string()
 }
