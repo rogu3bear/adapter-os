@@ -40,7 +40,7 @@ pub fn OrgSection() -> impl IntoView {
                                     description="Tenant metadata is not available for this account."
                                     variant=EmptyStateVariant::Empty
                                     action_label="Retry"
-                                    on_action=Some(refetch.clone())
+                                    on_action=refetch.clone()
                                 />
                             }.into_any()
                         } else {
@@ -50,7 +50,7 @@ pub fn OrgSection() -> impl IntoView {
                                 tenant.as_ref().map(|t| t.id.clone()).or(tenant_id),
                             );
                             let created_at = format_value(tenant.as_ref().and_then(|t| t.created_at.clone()));
-                            let plan_tier = format_value(None);
+                            let status = format_value(tenant.as_ref().and_then(|t| t.status.clone()));
                             let contact_name = format_value(contact_name);
                             let contact_email = format_value(contact_email);
 
@@ -65,8 +65,8 @@ pub fn OrgSection() -> impl IntoView {
                                         <span class="font-mono text-xs">{tenant_id}</span>
                                     </div>
                                     <div class="flex items-center justify-between py-2 border-b">
-                                        <span class="text-muted-foreground">"Plan / Tier"</span>
-                                        <span class="text-muted-foreground">{plan_tier}</span>
+                                        <span class="text-muted-foreground">"Status"</span>
+                                        <span class="text-muted-foreground">{status}</span>
                                     </div>
                                     <div class="flex items-center justify-between py-2 border-b">
                                         <span class="text-muted-foreground">"Created"</span>
@@ -91,7 +91,7 @@ pub fn OrgSection() -> impl IntoView {
                                 description="This server does not expose tenant metadata yet."
                                 variant=EmptyStateVariant::Unavailable
                                 action_label="Retry"
-                                on_action=Some(refetch.clone())
+                                on_action=refetch.clone()
                             />
                         }.into_any(),
                         other => view! {
