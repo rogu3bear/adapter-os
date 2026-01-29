@@ -130,12 +130,23 @@ fn trace_receipt_to_ref(
         stop_reason_code: receipt.stop_reason_code.clone(),
         stop_reason_token_index: receipt.stop_reason_token_index,
         stop_policy_digest_b3: receipt.stop_policy_digest_b3,
+        tenant_kv_quota_bytes: 0,
+        tenant_kv_bytes_used: 0,
+        kv_evictions: 0,
+        kv_residency_policy_id: None,
+        kv_quota_enforced: false,
+        prefix_kv_key_b3: None,
+        prefix_cache_hit: receipt.prefix_cache_hit,
+        prefix_kv_bytes: receipt.prefix_kv_bytes,
         model_cache_identity_v2_digest_b3: receipt.model_cache_identity_v2_digest_b3,
         // PRD-DET-001: Backend identity fields default to empty when converting from legacy TraceReceipt
         backend_used: String::new(),
         backend_attestation_b3: None,
         seed_lineage_hash: None,
         adapter_training_lineage_digest: None,
+        // V6 cross-run lineage: not available in TraceReceipt, use defaults
+        previous_receipt_digest: None,
+        session_sequence: 0,
     }
 }
 
