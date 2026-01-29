@@ -7,7 +7,7 @@ mod dialogs;
 mod list;
 
 use crate::api::ApiClient;
-use crate::components::{Button, ButtonVariant, Spinner};
+use crate::components::{Button, ButtonVariant, Select, Spinner};
 use crate::hooks::{use_api_resource, LoadingState};
 use detail::{RepositoryDetailPanel, RepositoryDetailStandalone};
 use dialogs::RegisterRepositoryDialog;
@@ -167,17 +167,16 @@ pub fn RepositoryDetail() -> impl IntoView {
 #[component]
 fn StatusFilter(filter: RwSignal<String>) -> impl IntoView {
     view! {
-        <select
-            class="flex h-10 w-40 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            on:change=move |ev| {
-                filter.set(event_target_value(&ev));
-            }
-        >
-            <option value="">"All Status"</option>
-            <option value="active">"Active"</option>
-            <option value="scanning">"Scanning"</option>
-            <option value="pending">"Pending"</option>
-            <option value="error">"Error"</option>
-        </select>
+        <Select
+            value=filter
+            options=vec![
+                ("".to_string(), "All Status".to_string()),
+                ("active".to_string(), "Active".to_string()),
+                ("scanning".to_string(), "Scanning".to_string()),
+                ("pending".to_string(), "Pending".to_string()),
+                ("error".to_string(), "Error".to_string()),
+            ]
+            class="w-40".to_string()
+        />
     }
 }

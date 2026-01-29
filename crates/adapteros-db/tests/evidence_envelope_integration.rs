@@ -83,6 +83,8 @@ fn create_inference_envelope(
         backend_attestation_b3: None,
         seed_lineage_hash: None,
         adapter_training_lineage_digest: None,
+        previous_receipt_digest: None,
+        session_sequence: 0,
     };
 
     EvidenceEnvelope::new_inference(tenant_id, receipt_ref, previous_root)

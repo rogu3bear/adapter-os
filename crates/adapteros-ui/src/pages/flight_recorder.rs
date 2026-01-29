@@ -11,8 +11,9 @@
 use crate::api::ApiClient;
 use crate::api::client::InferenceTraceDetailResponse;
 use crate::components::{
-    AsyncBoundary, Badge, BadgeVariant, Button, ButtonVariant, Card, DiffResults, Spinner, Table,
-    TableBody, TableCell, TableHead, TableHeader, TableRow, TokenDecisions, TraceViewerWithData,
+    AsyncBoundary, Badge, BadgeVariant, Button, ButtonVariant, Card, DiffResults, Select, Spinner,
+    Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TokenDecisions,
+    TraceViewerWithData,
 };
 use crate::hooks::{use_api_resource, use_polling, LoadingState};
 use adapteros_api_types::diagnostics::{
