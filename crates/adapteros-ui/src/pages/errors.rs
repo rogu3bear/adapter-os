@@ -8,10 +8,10 @@ use crate::api::{
     UpdateErrorAlertRuleRequest,
 };
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ErrorDisplay, Spinner, Table,
-    TableBody, TableCell, TableHead, TableHeader, TableRow,
+    AsyncBoundary, Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, Table, TableBody,
+    TableCell, TableHead, TableHeader, TableRow,
 };
-use crate::hooks::{use_api_resource, LoadingState};
+use crate::hooks::use_api_resource;
 use adapteros_api_types::telemetry::{ClientErrorItem, ClientErrorStatsResponse};
 use leptos::prelude::*;
 use std::collections::VecDeque;
@@ -331,57 +331,43 @@ fn HistorySection() -> impl IntoView {
 
             // Errors table
             <Card>
-                {move || {
-                    match errors.get() {
-                        LoadingState::Idle | LoadingState::Loading => {
+                <AsyncBoundary
+                    state=errors
+                    on_retry=Callback::new(move |_| refetch.run(()))
+                    render=move |data| {
+                        if data.errors.is_empty() {
                             view! {
-                                <div class="flex items-center justify-center py-12">
-                                    <Spinner/>
+                                <div class="py-12 text-center">
+                                    <div class="text-muted-foreground">"No errors found"</div>
                                 </div>
                             }.into_any()
-                        }
-                        LoadingState::Loaded(data) => {
-                            if data.errors.is_empty() {
-                                view! {
-                                    <div class="py-12 text-center">
-                                        <div class="text-muted-foreground">"No errors found"</div>
-                                    </div>
-                                }.into_any()
-                            } else {
-                                view! {
-                                    <div>
-                                        <div class="px-4 py-2 text-sm text-muted-foreground border-b">
-                                            {format!("Showing {} of {} errors", data.errors.len(), data.total)}
-                                        </div>
-                                        <Table>
-                                            <TableHeader>
-                                                <TableRow>
-                                                    <TableHead>"Time"</TableHead>
-                                                    <TableHead>"Type"</TableHead>
-                                                    <TableHead>"Message"</TableHead>
-                                                    <TableHead>"Status"</TableHead>
-                                                    <TableHead>"Page"</TableHead>
-                                                </TableRow>
-                                            </TableHeader>
-                                            <TableBody>
-                                                {data.errors.iter().cloned().map(|error| {
-                                                    view! { <ErrorRow error=error/> }
-                                                }).collect::<Vec<_>>()}
-                                            </TableBody>
-                                        </Table>
-                                    </div>
-                                }.into_any()
-                            }
-                        }
-                        LoadingState::Error(e) => {
+                        } else {
                             view! {
-                                <div class="p-4">
-                                    <ErrorDisplay error=e.clone()/>
+                                <div>
+                                    <div class="px-4 py-2 text-sm text-muted-foreground border-b">
+                                        {format!("Showing {} of {} errors", data.errors.len(), data.total)}
+                                    </div>
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead>"Time"</TableHead>
+                                                <TableHead>"Type"</TableHead>
+                                                <TableHead>"Message"</TableHead>
+                                                <TableHead>"Status"</TableHead>
+                                                <TableHead>"Page"</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {data.errors.iter().cloned().map(|error| {
+                                                view! { <ErrorRow error=error/> }
+                                            }).collect::<Vec<_>>()}
+                                        </TableBody>
+                                    </Table>
                                 </div>
                             }.into_any()
                         }
                     }
-                }}
+                />
             </Card>
         </div>
     }
@@ -400,33 +386,17 @@ fn AnalyticsSection() -> impl IntoView {
             <div class="flex items-center justify-end">
                 <Button
                     variant=ButtonVariant::Outline
-                    on:click=move |_| refetch.run(())
+                    on_click=Callback::new(move |_| refetch.run(()))
                 >
                     "Refresh"
                 </Button>
             </div>
 
-            {move || {
-                match stats.get() {
-                    LoadingState::Idle | LoadingState::Loading => {
-                        view! {
-                            <div class="flex items-center justify-center py-12">
-                                <Spinner/>
-                            </div>
-                        }.into_any()
-                    }
-                    LoadingState::Loaded(data) => {
-                        view! { <StatsDisplay stats=data/> }.into_any()
-                    }
-                    LoadingState::Error(e) => {
-                        view! {
-                            <div class="p-4">
-                                <ErrorDisplay error=e.clone()/>
-                            </div>
-                        }.into_any()
-                    }
-                }
-            }}
+            <AsyncBoundary
+                state=stats
+                on_retry=Callback::new(move |_| refetch.run(()))
+                render=move |data| view! { <StatsDisplay stats=data /> }
+            />
         </div>
     }
 }
@@ -624,15 +594,10 @@ fn AlertsSection() -> impl IntoView {
             </div>
 
             // Rules list
-            {move || match rules.get() {
-                LoadingState::Idle | LoadingState::Loading => {
-                    view! {
-                        <div class="flex items-center justify-center py-12">
-                            <Spinner/>
-                        </div>
-                    }.into_any()
-                }
-                LoadingState::Loaded(rules_list) => {
+            <AsyncBoundary
+                state=rules
+                on_retry={Callback::new(move |_| refetch_rules.run(()))}
+                render={move |rules_list: Vec<ErrorAlertRuleResponse>| {
                     if rules_list.is_empty() {
                         view! {
                             <Card>
@@ -657,19 +622,11 @@ fn AlertsSection() -> impl IntoView {
                         }.into_any()
                     } else {
                         view! {
-                            <AlertRulesList rules=rules_list on_update=Callback::new(move |_| refetch_rules.run(()))/>
+                            <AlertRulesList rules=rules_list on_update={Callback::new(move |_| refetch_rules.run(()))}/>
                         }.into_any()
                     }
-                }
-                LoadingState::Error(e) => {
-                    view! {
-                        <ErrorDisplay
-                            error=e
-                            on_retry=Callback::new(move |_| refetch_rules.run(()))
-                        />
-                    }.into_any()
-                }
-            }}
+                }}
+            />
 
             // Create dialog
             {move || show_create_dialog.get().then(|| view! {
@@ -896,7 +853,7 @@ fn CreateAlertRuleDialog(on_close: Callback<()>, on_created: Callback<()>) -> im
                     </div>
 
                     {move || error.get().map(|e| view! {
-                        <div class="p-3 text-sm text-destructive bg-destructive/10 rounded-md">
+                        <div class="rounded-md border border-destructive bg-destructive/10 p-3 text-sm text-destructive">
                             {e}
                         </div>
                     })}

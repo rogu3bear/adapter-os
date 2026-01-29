@@ -5,9 +5,9 @@
 //! with the dock panel.
 
 use crate::components::{
-    AdapterBar, AdapterHeat, AdapterMagnet, Badge, BadgeVariant, Button, Card, EmptyState,
-    EmptyStateVariant, Spinner, SuggestedAdapterView, SuggestedAdaptersBar, Textarea, TraceButton,
-    TracePanel,
+    AdapterBar, AdapterHeat, AdapterMagnet, Badge, BadgeVariant, Button, Card,
+    ConfirmationDialog, ConfirmationSeverity, EmptyState, EmptyStateVariant, Spinner,
+    SuggestedAdapterView, SuggestedAdaptersBar, Textarea, TraceButton, TracePanel,
 };
 use crate::signals::{use_chat, ChatSessionMeta, ChatSessionsManager};
 use leptos::prelude::*;
@@ -25,6 +25,10 @@ const MAX_URL_PROMPT_LENGTH: usize = 2000;
 pub fn Chat() -> impl IntoView {
     let (chat_state, chat_action) = use_chat();
     let sessions = RwSignal::new(ChatSessionsManager::load_sessions());
+
+    // Delete confirmation state
+    let pending_delete_id = RwSignal::new(Option::<String>::None);
+    let show_delete_confirm = RwSignal::new(false);
 
     // Check if dock has messages
     let dock_has_messages = Memo::new(move |_| !chat_state.get().messages.is_empty());
@@ -54,10 +58,26 @@ pub fn Chat() -> impl IntoView {
         })
     };
 
-    // Delete session handler
-    let delete_session = move |id: String| {
-        ChatSessionsManager::delete_session(&id);
-        sessions.set(ChatSessionsManager::load_sessions());
+    // Request delete confirmation
+    let request_delete = move |id: String| {
+        pending_delete_id.set(Some(id));
+        show_delete_confirm.set(true);
+    };
+
+    // Confirm delete handler
+    let confirm_delete = move |_| {
+        if let Some(id) = pending_delete_id.get() {
+            ChatSessionsManager::delete_session(&id);
+            sessions.set(ChatSessionsManager::load_sessions());
+        }
+        pending_delete_id.set(None);
+        show_delete_confirm.set(false);
+    };
+
+    // Cancel delete
+    let cancel_delete = move |_| {
+        pending_delete_id.set(None);
+        show_delete_confirm.set(false);
     };
 
     view! {
@@ -120,7 +140,7 @@ pub fn Chat() -> impl IntoView {
                                         <SessionCard
                                             session=session
                                             on_delete=Callback::new(move |_: ()| {
-                                                delete_session(delete_id.clone());
+                                                request_delete(delete_id.clone());
                                             })
                                         />
                                     }
@@ -139,6 +159,17 @@ pub fn Chat() -> impl IntoView {
                     None
                 }
             }}
+
+            // Delete confirmation dialog
+            <ConfirmationDialog
+                open=show_delete_confirm
+                title="Delete Session"
+                description="Are you sure you want to delete this chat session? This action cannot be undone."
+                severity=ConfirmationSeverity::Destructive
+                confirm_text="Delete"
+                on_confirm=Callback::new(confirm_delete)
+                on_cancel=Callback::new(cancel_delete)
+            />
         </div>
     }
 }
@@ -765,7 +796,7 @@ pub fn ChatSession() -> impl IntoView {
             {move || {
                 let action = chat_action.clone();
                 error.get().map(|e| view! {
-                    <div class="rounded-md bg-destructive/10 border border-destructive p-3 mb-4">
+                    <div class="mb-4 rounded-md border border-destructive bg-destructive/10 p-3 text-sm text-destructive">
                         <div class="flex items-center justify-between gap-2">
                             <p class="text-sm text-destructive">{e}</p>
                             <button

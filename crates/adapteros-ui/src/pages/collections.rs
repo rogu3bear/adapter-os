@@ -5,15 +5,19 @@
 //! - Collection detail view with documents
 //! - Create collection form
 //! - Add/remove documents from collections
+//!
+//! Uses canonical Dialog and ErrorDisplay components for consistency.
 
 use crate::api::{
     ApiClient, CollectionDetailResponse, CollectionResponse, CreateCollectionRequest,
 };
 use crate::components::{
-    Badge, BadgeVariant, Card, Spinner, Table, TableBody, TableCell, TableHead, TableHeader,
-    TableRow,
+    async_state::AsyncBoundary, Badge, BadgeVariant, Button, ButtonVariant, Card,
+    ConfirmationDialog, ConfirmationSeverity, Dialog, Input, Table, TableBody, TableCell,
+    TableHead, TableHeader, TableRow, Textarea,
 };
-use crate::hooks::{use_api_resource, LoadingState};
+use crate::hooks::use_api_resource;
+use crate::signals::use_notifications;
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
 use std::sync::Arc;
@@ -26,7 +30,7 @@ pub fn Collections() -> impl IntoView {
     let limit = 20u32;
 
     // Dialog state for creating new collection
-    let (show_create_dialog, set_show_create_dialog) = signal(false);
+    let show_create_dialog = RwSignal::new(false);
 
     // Form fields for new collection
     let new_name = RwSignal::new(String::new());
@@ -76,7 +80,7 @@ pub fn Collections() -> impl IntoView {
 
                 match client.create_collection(&request).await {
                     Ok(_) => {
-                        set_show_create_dialog.set(false);
+                        show_create_dialog.set(false);
                         new_name.set(String::new());
                         new_description.set(String::new());
                         refetch();
@@ -101,153 +105,84 @@ pub fn Collections() -> impl IntoView {
                     </p>
                 </div>
                 <div class="flex items-center gap-2">
-                    <button
-                        class="inline-flex items-center gap-2 rounded-md bg-secondary px-4 py-2 text-sm font-medium text-secondary-foreground hover:bg-secondary/80"
-                        on:click={
+                    <Button
+                        variant=ButtonVariant::Secondary
+                        on_click=Callback::new({
                             let refetch = refetch.clone();
                             move |_| refetch()
-                        }
+                        })
                     >
                         "Refresh"
-                    </button>
-                    <button
-                        class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-                        on:click=move |_| set_show_create_dialog.set(true)
+                    </Button>
+                    <Button
+                        variant=ButtonVariant::Primary
+                        on_click=Callback::new(move |_| show_create_dialog.set(true))
                     >
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M12 5v14M5 12h14"/>
-                        </svg>
                         "New Collection"
-                    </button>
+                    </Button>
                 </div>
             </div>
 
             // Main content
-            {move || {
-                match collections.get() {
-                    LoadingState::Idle | LoadingState::Loading => {
-                        view! {
-                            <div class="flex items-center justify-center py-12">
-                                <Spinner/>
-                            </div>
-                        }.into_any()
-                    }
-                    LoadingState::Loaded(data) => {
-                        view! {
-                            <CollectionsList
-                                collections=data.data
-                                total=data.total
-                                page=data.page
-                                pages=data.pages
-                                on_page_change=move |p| set_page.set(p)
-                            />
-                        }.into_any()
-                    }
-                    LoadingState::Error(e) => {
-                        view! {
-                            <div class="rounded-lg border border-destructive bg-destructive/10 p-4">
-                                <p class="text-destructive">{e.to_string()}</p>
-                            </div>
-                        }.into_any()
-                    }
+            <AsyncBoundary
+                state=collections
+                render=move |data| view! {
+                    <CollectionsList
+                        collections=data.data
+                        total=data.total
+                        page=data.page
+                        pages=data.pages
+                        on_page_change=move |p| set_page.set(p)
+                    />
                 }
-            }}
+            />
 
             // Create Collection Dialog
-            {move || {
-                if show_create_dialog.get() {
-                    let on_create = on_create.clone();
-                    view! {
-                        // Backdrop
-                        <div
-                            class="fixed inset-0 z-50 bg-black/80"
-                            on:click=move |_| set_show_create_dialog.set(false)
-                        />
+            <Dialog
+                open=show_create_dialog
+                title="Create Collection"
+                description="Create a new document collection for organizing your data."
+            >
+                // Form
+                <div class="grid gap-4 py-4">
+                    <Input
+                        value=new_name
+                        label="Name".to_string()
+                        placeholder="My Collection".to_string()
+                        required=true
+                    />
+                    <Textarea
+                        value=new_description
+                        label="Description (optional)".to_string()
+                        placeholder="A collection of documents for...".to_string()
+                    />
 
-                        // Dialog
-                        <div class="dialog-content">
-                            // Close button
-                            <button
-                                class="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100"
-                                on:click=move |_| set_show_create_dialog.set(false)
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4">
-                                    <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
-                                </svg>
-                            </button>
-
-                            // Header
-                            <div class="flex flex-col space-y-1.5">
-                                <h2 class="text-lg font-semibold leading-none tracking-tight">"Create Collection"</h2>
-                                <p class="text-sm text-muted-foreground">
-                                    "Create a new document collection for organizing your data."
-                                </p>
-                            </div>
-
-                            // Form
-                            <div class="grid gap-4 py-4">
-                                <div class="grid gap-2">
-                                    <label class="text-sm font-medium" for="name">"Name"</label>
-                                    <input
-                                        type="text"
-                                        id="name"
-                                        class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                        placeholder="My Collection"
-                                        prop:value=move || new_name.get()
-                                        on:input=move |ev| new_name.set(event_target_value(&ev))
-                                    />
-                                </div>
-                                <div class="grid gap-2">
-                                    <label class="text-sm font-medium" for="description">"Description (optional)"</label>
-                                    <textarea
-                                        id="description"
-                                        class="flex min-h-textarea w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                        placeholder="A collection of documents for..."
-                                        prop:value=move || new_description.get()
-                                        on:input=move |ev| new_description.set(event_target_value(&ev))
-                                    />
-                                </div>
-
-                                // Error display
-                                {move || create_error.get().map(|e| view! {
-                                    <div class="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-                                        {e}
-                                    </div>
-                                })}
-                            </div>
-
-                            // Footer
-                            <div class="flex justify-end gap-2">
-                                <button
-                                    class="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground"
-                                    on:click=move |_| set_show_create_dialog.set(false)
-                                >
-                                    "Cancel"
-                                </button>
-                                <button
-                                    class="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-                                    disabled=move || creating.get()
-                                    on:click=on_create
-                                >
-                                    {move || if creating.get() {
-                                        view! {
-                                            <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                            </svg>
-                                        }.into_any()
-                                    } else {
-                                        view! {}.into_any()
-                                    }}
-                                    "Create"
-                                </button>
-                            </div>
+                    // Error display
+                    {move || create_error.get().map(|e| view! {
+                        <div class="rounded-md border border-destructive bg-destructive/10 p-3 text-sm text-destructive">
+                            {e}
                         </div>
-                    }.into_any()
-                } else {
-                    view! {}.into_any()
-                }
-            }}
+                    })}
+                </div>
+
+                // Footer
+                <div class="flex justify-end gap-2">
+                    <Button
+                        variant=ButtonVariant::Outline
+                        on_click=Callback::new(move |_| show_create_dialog.set(false))
+                    >
+                        "Cancel"
+                    </Button>
+                    <Button
+                        variant=ButtonVariant::Primary
+                        loading=creating.get()
+                        disabled=creating.get()
+                        on_click=Callback::new(on_create)
+                    >
+                        "Create"
+                    </Button>
+                </div>
+            </Dialog>
         </div>
     }
 }
@@ -383,8 +318,9 @@ pub fn CollectionDetail() -> impl IntoView {
     let collection_id = Memo::new(move |_| params.get().get("id").unwrap_or_default());
 
     // Delete confirmation state
-    let (show_delete_confirm, set_show_delete_confirm) = signal(false);
-    let (deleting, set_deleting) = signal(false);
+    let show_delete_confirm = RwSignal::new(false);
+    let deleting = RwSignal::new(false);
+    let notifications = use_notifications();
 
     // Trigger for refetch
     let (refetch_trigger, set_refetch_trigger) = signal(0u32);
@@ -399,36 +335,41 @@ pub fn CollectionDetail() -> impl IntoView {
     let refetch = move || set_refetch_trigger.update(|t| *t += 1);
 
     // Delete handler
-    let on_delete = move |_| {
-        let id = collection_id.get();
-        set_deleting.set(true);
+    let on_delete = {
+        let notifications = notifications.clone();
+        move |_| {
+            let id = collection_id.get();
+            deleting.set(true);
+            let notifications = notifications.clone();
 
-        let client = Arc::new(ApiClient::new());
-        wasm_bindgen_futures::spawn_local(async move {
-            match client.delete_collection(&id).await {
-                Ok(_) => {
-                    // Navigate back to collections list
-                    if let Some(window) = web_sys::window() {
-                        let _ = window.location().set_href("/collections");
+            let client = Arc::new(ApiClient::new());
+            wasm_bindgen_futures::spawn_local(async move {
+                match client.delete_collection(&id).await {
+                    Ok(_) => {
+                        // Navigate back to collections list
+                        if let Some(window) = web_sys::window() {
+                            let _ = window.location().set_href("/collections");
+                        }
+                    }
+                    Err(e) => {
+                        notifications.error("Delete failed", &format!("Failed to delete collection: {}", e));
+                        deleting.set(false);
+                        show_delete_confirm.set(false);
                     }
                 }
-                Err(e) => {
-                    // Show error (could add error state here)
-                    tracing::error!("Failed to delete collection: {}", e);
-                    set_deleting.set(false);
-                    set_show_delete_confirm.set(false);
-                }
-            }
-        });
+            });
+        }
     };
 
     // Remove document handler creator
     let create_remove_handler = {
         let refetch = refetch.clone();
+        let notifications = notifications.clone();
         move |doc_id: String| {
             let coll_id = collection_id.get();
             let client = Arc::new(ApiClient::new());
             let refetch = refetch.clone();
+            let notifications = notifications.clone();
 
             wasm_bindgen_futures::spawn_local(async move {
                 match client
@@ -439,7 +380,7 @@ pub fn CollectionDetail() -> impl IntoView {
                         refetch();
                     }
                     Err(e) => {
-                        tracing::error!("Failed to remove document: {}", e);
+                        notifications.error("Remove failed", &format!("Failed to remove document: {}", e));
                     }
                 }
             });
@@ -459,94 +400,50 @@ pub fn CollectionDetail() -> impl IntoView {
                     <h1 class="text-3xl font-bold tracking-tight">"Collection Details"</h1>
                 </div>
                 <div class="flex items-center gap-2">
-                    <button
-                        class="inline-flex items-center gap-2 rounded-md bg-secondary px-4 py-2 text-sm font-medium text-secondary-foreground hover:bg-secondary/80"
-                        on:click={
+                    <Button
+                        variant=ButtonVariant::Secondary
+                        on_click=Callback::new({
                             let refetch = refetch.clone();
                             move |_| refetch()
-                        }
+                        })
                     >
                         "Refresh"
-                    </button>
-                    <button
-                        class="inline-flex items-center gap-2 rounded-md bg-destructive px-4 py-2 text-sm font-medium text-destructive-foreground hover:bg-destructive/90"
-                        on:click=move |_| set_show_delete_confirm.set(true)
+                    </Button>
+                    <Button
+                        variant=ButtonVariant::Destructive
+                        on_click=Callback::new(move |_| show_delete_confirm.set(true))
                     >
                         "Delete"
-                    </button>
+                    </Button>
                 </div>
             </div>
 
             // Main content
-            {move || {
-                let create_remove_handler = create_remove_handler.clone();
-                match collection.get() {
-                    LoadingState::Idle | LoadingState::Loading => {
-                        view! {
-                            <div class="flex items-center justify-center py-12">
-                                <Spinner/>
-                            </div>
-                        }.into_any()
-                    }
-                    LoadingState::Loaded(data) => {
-                        view! { <CollectionDetailContent collection=data remove_document=create_remove_handler/> }.into_any()
-                    }
-                    LoadingState::Error(e) => {
-                        view! {
-                            <div class="rounded-lg border border-destructive bg-destructive/10 p-4">
-                                <p class="text-destructive">{e.to_string()}</p>
-                            </div>
-                        }.into_any()
-                    }
+            {
+                let remove_handler = create_remove_handler.clone();
+                view! {
+                    <AsyncBoundary
+                        state=collection
+                        render=move |data| {
+                            let handler = remove_handler.clone();
+                            view! {
+                                <CollectionDetailContent collection=data remove_document=handler/>
+                            }
+                        }
+                    />
                 }
-            }}
+            }
 
             // Delete confirmation dialog
-            {move || {
-                if show_delete_confirm.get() {
-                    view! {
-                        <div
-                            class="fixed inset-0 z-50 bg-black/80"
-                            on:click=move |_| set_show_delete_confirm.set(false)
-                        />
-                        <div class="dialog-content max-w-md">
-                            <div class="flex flex-col space-y-1.5">
-                                <h2 class="text-lg font-semibold leading-none tracking-tight">"Delete Collection"</h2>
-                                <p class="text-sm text-muted-foreground">
-                                    "Are you sure you want to delete this collection? This action cannot be undone. Documents will not be deleted, only removed from the collection."
-                                </p>
-                            </div>
-                            <div class="flex justify-end gap-2">
-                                <button
-                                    class="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent"
-                                    on:click=move |_| set_show_delete_confirm.set(false)
-                                >
-                                    "Cancel"
-                                </button>
-                                <button
-                                    class="inline-flex items-center justify-center gap-2 rounded-md bg-destructive px-4 py-2 text-sm font-medium text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50"
-                                    disabled=move || deleting.get()
-                                    on:click=on_delete
-                                >
-                                    {move || if deleting.get() {
-                                        view! {
-                                            <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                            </svg>
-                                        }.into_any()
-                                    } else {
-                                        view! {}.into_any()
-                                    }}
-                                    "Delete"
-                                </button>
-                            </div>
-                        </div>
-                    }.into_any()
-                } else {
-                    view! {}.into_any()
-                }
-            }}
+            <ConfirmationDialog
+                open=show_delete_confirm
+                title="Delete Collection"
+                description="Are you sure you want to delete this collection? This action cannot be undone. Documents will not be deleted, only removed from the collection."
+                severity=ConfirmationSeverity::Destructive
+                confirm_text="Delete"
+                on_confirm=Callback::new(on_delete)
+                loading=Signal::derive(move || deleting.get())
+            />
         </div>
     }
 }

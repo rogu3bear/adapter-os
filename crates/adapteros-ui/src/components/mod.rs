@@ -49,8 +49,8 @@ pub use adapter_bar::{
 };
 pub use adapter_detail_panel::{AdapterDetailPanel, AdapterSuggestionContext};
 pub use async_state::{
-    AsyncBoundary, AsyncBoundaryWithEmpty, Breadcrumb, DetailRow, EmptyState, EmptyStateVariant,
-    ErrorDisplay, LoadingDisplay, PageHeader, RefreshButton,
+    AsyncBoundary, AsyncBoundaryWithEmpty, AsyncBoundaryWithErrorRender, Breadcrumb, DetailRow,
+    EmptyState, EmptyStateVariant, ErrorDisplay, LoadingDisplay, PageHeader, RefreshButton,
 };
 pub use auth::{AuthProvider, ProtectedRoute};
 pub use button::{Button, ButtonSize, ButtonVariant};
