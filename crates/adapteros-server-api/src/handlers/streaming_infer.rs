@@ -596,7 +596,7 @@ pub async fn streaming_infer_with_progress(
                         requested.as_str(),
                         locked.as_str()
                     ),
-                ));
+                ).into());
             }
         }
         Some(resolved)
@@ -819,7 +819,7 @@ pub async fn streaming_infer(
                         requested.as_str(),
                         locked.as_str()
                     ),
-                ));
+                ).into());
             }
         }
         Some(resolved)
