@@ -5,8 +5,8 @@
 
 use crate::api::{ApiClient, ApiError};
 use crate::components::{
-    Card, EmptyState, EmptyStateVariant, ErrorDisplay, LoadingDisplay, PageHeader, Table,
-    TableBody, TableCell, TableHead, TableHeader, TableRow,
+    Card, EmptyState, EmptyStateVariant, ErrorDisplay, LoadingDisplay, PageHeader, RefreshButton,
+    Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use adapteros_api_types::orchestration::OrchestrationConfig;
@@ -54,7 +54,7 @@ fn short_id(id: &str) -> String {
 #[component]
 pub fn Agents() -> impl IntoView {
     // Fetch orchestration config
-    let (config, _refetch_config) = use_api_resource(|client: Arc<ApiClient>| async move {
+    let (config, refetch_config) = use_api_resource(|client: Arc<ApiClient>| async move {
         client
             .get::<OrchestrationConfig>("/v1/orchestration/config")
             .await
@@ -66,18 +66,82 @@ pub fn Agents() -> impl IntoView {
             .map(|resp| resp.into_sessions())
     });
 
+    let refetch_all = {
+        let refetch_config = refetch_config.clone();
+        let refetch_sessions = refetch_sessions.clone();
+        Callback::new(move |_| {
+            refetch_config.run(());
+            refetch_sessions.run(());
+        })
+    };
+
     view! {
         <div class="space-y-6">
             <PageHeader
                 title="Agent Orchestration"
                 subtitle="Manage multi-agent sessions and worker executors"
-            />
+            >
+                <RefreshButton on_click=refetch_all/>
+            </PageHeader>
 
             <div class="grid gap-6 md:grid-cols-3">
                 <Card class="md:col-span-1">
-                    <h3 class="text-sm font-semibold mb-4">"Orchestration Status"</h3>
+                    <h3 class="text-sm font-semibold mb-4">"Orchestration Detail"</h3>
                     {move || match config.get() {
                         LoadingState::Loaded(cfg) => {
+                            let default_stack_label = cfg
+                                .default_adapter_stack
+                                .as_deref()
+                                .map(short_id)
+                                .unwrap_or_else(|| "—".to_string());
+                            let default_stack_title =
+                                cfg.default_adapter_stack.clone().unwrap_or_default();
+                            let fallback_label = if cfg.fallback_enabled {
+                                cfg.fallback_adapter
+                                    .as_deref()
+                                    .map(|id| format!("Enabled ({})", short_id(id)))
+                                    .unwrap_or_else(|| "Enabled".to_string())
+                            } else {
+                                "Disabled".to_string()
+                            };
+                            let fallback_title = if cfg.fallback_enabled {
+                                cfg.fallback_adapter.clone().unwrap_or_default()
+                            } else {
+                                String::new()
+                            };
+                            let cache_label = if cfg.cache_enabled {
+                                format!("Enabled ({}s)", cfg.cache_ttl_seconds)
+                            } else {
+                                "Disabled".to_string()
+                            };
+                            let thresholds_label = {
+                                let entropy = cfg
+                                    .entropy_threshold
+                                    .map(|v| format!("Entropy {:.2}", v));
+                                let confidence = cfg
+                                    .confidence_threshold
+                                    .map(|v| format!("Confidence {:.2}", v));
+                                match (entropy, confidence) {
+                                    (None, None) => "—".to_string(),
+                                    (Some(e), None) => e,
+                                    (None, Some(c)) => c,
+                                    (Some(e), Some(c)) => format!("{}, {}", e, c),
+                                }
+                            };
+                            let rules_enabled =
+                                cfg.custom_rules.iter().filter(|rule| rule.enabled).count();
+                            let rules_total = cfg.custom_rules.len();
+                            let rules_label = if rules_total == 0 {
+                                "0".to_string()
+                            } else {
+                                format!("{}/{}", rules_enabled, rules_total)
+                            };
+                            let telemetry_label = if cfg.telemetry_enabled {
+                                "Enabled"
+                            } else {
+                                "Disabled"
+                            };
+
                             view! {
                                 <div class="space-y-4">
                                     <div class="flex justify-between items-center">
@@ -91,14 +155,42 @@ pub fn Agents() -> impl IntoView {
                                         <span class="text-sm font-mono">{cfg.routing_strategy}</span>
                                     </div>
                                     <div class="flex justify-between items-center">
+                                        <span class="text-sm text-muted-foreground">"Default Stack"</span>
+                                        <span class="text-sm font-mono" title=default_stack_title>{default_stack_label}</span>
+                                    </div>
+                                    <div class="flex justify-between items-center">
                                         <span class="text-sm text-muted-foreground">"Max Adapters"</span>
                                         <span class="text-sm font-mono">{cfg.max_adapters_per_request}</span>
+                                    </div>
+                                    <div class="flex justify-between items-center">
+                                        <span class="text-sm text-muted-foreground">"Timeout"</span>
+                                        <span class="text-sm font-mono">{format!("{} ms", cfg.timeout_ms)}</span>
+                                    </div>
+                                    <div class="flex justify-between items-center">
+                                        <span class="text-sm text-muted-foreground">"Fallback"</span>
+                                        <span class="text-sm font-mono" title=fallback_title>{fallback_label}</span>
+                                    </div>
+                                    <div class="flex justify-between items-center">
+                                        <span class="text-sm text-muted-foreground">"Thresholds"</span>
+                                        <span class="text-sm font-mono">{thresholds_label}</span>
+                                    </div>
+                                    <div class="flex justify-between items-center">
+                                        <span class="text-sm text-muted-foreground">"Cache"</span>
+                                        <span class="text-sm font-mono">{cache_label}</span>
+                                    </div>
+                                    <div class="flex justify-between items-center">
+                                        <span class="text-sm text-muted-foreground">"Telemetry"</span>
+                                        <span class="text-sm font-mono">{telemetry_label}</span>
+                                    </div>
+                                    <div class="flex justify-between items-center">
+                                        <span class="text-sm text-muted-foreground">"Custom Rules"</span>
+                                        <span class="text-sm font-mono">{rules_label}</span>
                                     </div>
                                 </div>
                             }.into_any()
                         }
                         LoadingState::Loading | LoadingState::Idle => {
-                            view! { <div class="animate-pulse h-20 bg-muted rounded-md"></div> }.into_any()
+                            view! { <div class="animate-pulse h-32 bg-muted rounded-md"></div> }.into_any()
                         }
                         LoadingState::Error(_) => {
                             view! { <p class="text-xs text-destructive">"Failed to load config"</p> }.into_any()
@@ -108,6 +200,22 @@ pub fn Agents() -> impl IntoView {
 
                 <div class="md:col-span-2">
                     <Card>
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-sm font-semibold">"Active Sessions"</h3>
+                            {move || {
+                                if let LoadingState::Loaded(data) = sessions.get() {
+                                    if data.is_empty() {
+                                        None
+                                    } else {
+                                        Some(view! {
+                                            <span class="text-xs text-muted-foreground">{format!("{} active", data.len())}</span>
+                                        })
+                                    }
+                                } else {
+                                    None
+                                }
+                            }}
+                        </div>
                         {move || match sessions.get() {
                             LoadingState::Idle | LoadingState::Loading => {
                                 view! { <LoadingDisplay message="Loading sessions..."/> }.into_any()
