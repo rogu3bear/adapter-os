@@ -665,7 +665,10 @@ struct MLXModelWrapper {
 
   // Transformer layer processing using Pre-LayerNorm (Qwen2/LLaMA style)
   // Pre-LN: layer_norm BEFORE each sub-layer, not after
-  mx::array process_transformer_layer(const mx::array &hidden, int layer_idx) {
+  //
+  // position_offset: Starting position for RoPE computation (default 0)
+  mx::array process_transformer_layer(const mx::array &hidden, int layer_idx,
+                                      int position_offset = 0) {
     std::string prefix = "model.layers." + std::to_string(layer_idx);
 
     // Pre-LN Step 1: LayerNorm before attention
@@ -673,7 +676,7 @@ struct MLXModelWrapper {
 
     // Self-attention on normalized input
     mx::array attn_output =
-        self_attention(normed_for_attn, prefix + ".self_attn");
+        self_attention(normed_for_attn, prefix + ".self_attn", position_offset);
 
     // Residual connection (add to original hidden, not normed)
     mx::array residual = hidden + attn_output;
@@ -733,8 +736,9 @@ struct MLXModelWrapper {
 
     // Apply RoPE (Rotary Position Embeddings) to Q and K
     // This is CRITICAL for position-aware attention in Qwen2/LLaMA models
-    q = apply_rope(q, seq_len);
-    k = apply_rope(k, seq_len);
+    // position_offset ensures correct positions during incremental generation
+    q = apply_rope(q, seq_len, position_offset);
+    k = apply_rope(k, seq_len, position_offset);
 
     // GQA: Repeat K,V heads to match Q heads if needed
     if (n_rep > 1) {
@@ -860,13 +864,15 @@ struct MLXModelWrapper {
     return mx::concatenate({rotated_x1, rotated_x2}, 3);
   }
 
-  mx::array self_attention(const mx::array &hidden, const std::string &prefix) {
-    return self_attention_impl(hidden, prefix, false);
+  mx::array self_attention(const mx::array &hidden, const std::string &prefix,
+                           int position_offset = 0) {
+    return self_attention_impl(hidden, prefix, false, position_offset);
   }
 
   mx::array self_attention_with_hidden_states(const mx::array &hidden,
-                                              const std::string &prefix) {
-    return self_attention_impl(hidden, prefix, true);
+                                              const std::string &prefix,
+                                              int position_offset = 0) {
+    return self_attention_impl(hidden, prefix, true, position_offset);
   }
 
   // Linear projection helper with dequantization and bias support
