@@ -113,6 +113,7 @@ pub fn build_api_config(server_config: Arc<RwLock<Config>>) -> Result<Arc<RwLock
             burst_size: cfg.rate_limits.burst_size,
             ..Default::default()
         }),
+        inference_cache: Default::default(),
     })))
 }
 

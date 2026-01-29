@@ -443,6 +443,7 @@ async fn build_state(paths: &HarnessPaths) -> Result<AppState> {
         worker_id: 0,
         timeouts: Default::default(),
         rate_limit: None,
+        inference_cache: Default::default(),
     }));
 
     let histogram_buckets = vec![

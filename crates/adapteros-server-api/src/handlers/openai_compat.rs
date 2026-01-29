@@ -10,7 +10,9 @@ use crate::auth::Claims;
 use crate::backpressure::check_uma_backpressure;
 use crate::handlers;
 use crate::handlers::streaming_infer::{Delta, StreamingChoice, StreamingChunk};
+use crate::inference_cache::{CachedInferenceResultBuilder, InferenceCacheKey};
 use crate::inference_core::InferenceCore;
+use crate::middleware::canonicalization::CanonicalRequest;
 use crate::middleware::policy_enforcement::{
     compute_policy_mask_digest, create_hook_context, enforce_at_hook,
 };
@@ -24,6 +26,7 @@ use crate::types::{
 };
 use crate::uds_client::WorkerStreamToken;
 use adapteros_core::identity::IdentityEnvelope;
+use adapteros_core::B3Hash;
 use adapteros_policy::hooks::PolicyHook;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
@@ -36,7 +39,7 @@ use std::convert::Infallible;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct OpenAiChatCompletionsRequest {
@@ -353,6 +356,7 @@ pub async fn chat_completions(
     Extension(identity): Extension<IdentityEnvelope>,
     request_id: Option<Extension<RequestId>>,
     api_key: Option<Extension<ApiKeyToken>>,
+    canonical_request: Option<Extension<CanonicalRequest>>,
     Json(req): Json<OpenAiChatCompletionsRequest>,
 ) -> Response {
     // Validate n parameter first (applies to both streaming and non-streaming)
@@ -372,6 +376,7 @@ pub async fn chat_completions(
 
     // Branch based on streaming mode
     if req.stream.unwrap_or(false) {
+        // Note: streaming does not use cache (cache only after stream completes)
         match chat_completions_streaming(State(state), Extension(claims), req).await {
             Ok(sse) => sse.into_response(),
             Err((status, Json(err))) => (status, Json(err)).into_response(),
@@ -383,6 +388,7 @@ pub async fn chat_completions(
             Extension(identity),
             request_id,
             api_key,
+            canonical_request,
             req,
         )
         .await
@@ -393,19 +399,115 @@ pub async fn chat_completions(
     }
 }
 
-/// Non-streaming chat completions handler.
+/// Non-streaming chat completions handler with semantic caching.
+///
+/// When caching is enabled, this handler:
+/// 1. Computes a cache key from (context_id, canonical_input_digest)
+/// 2. Checks for cached responses before running inference
+/// 3. On cache hit, returns the cached response immediately with original receipt_digest
+/// 4. On cache miss, runs inference and stores the result for future requests
 async fn chat_completions_non_streaming(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Extension(identity): Extension<IdentityEnvelope>,
     request_id: Option<Extension<RequestId>>,
     api_key: Option<Extension<ApiKeyToken>>,
+    canonical_request: Option<Extension<CanonicalRequest>>,
     req: OpenAiChatCompletionsRequest,
 ) -> Result<Json<OpenAiChatCompletionsResponse>, (StatusCode, Json<OpenAiErrorResponse>)> {
     let prompt =
         messages_to_prompt(&req.messages).map_err(|e| (StatusCode::BAD_REQUEST, Json(e)))?;
     let prompt_tokens_estimate = estimate_tokens(&prompt);
 
+    // Compute cache key from canonical request if available
+    // The cache key combines:
+    // - context_id: derived from model + temperature + max_tokens (request parameters)
+    // - canonical_digest: from canonicalization middleware (captures full request body)
+    let cache_key = canonical_request.as_ref().map(|cr| {
+        // Compute context_id from request parameters (model config hash)
+        // This is a simplified version that doesn't require runtime model hash
+        let context_data = format!(
+            "model:{};temp:{};max_tokens:{};top_p:{}",
+            req.model.as_deref().unwrap_or("default"),
+            req.temperature.unwrap_or(0.0),
+            req.max_tokens.or(req.max_completion_tokens).unwrap_or(0),
+            req.top_p.unwrap_or(1.0),
+        );
+        let context_id = B3Hash::hash(context_data.as_bytes());
+        let canonical_digest = cr.0.digest;
+
+        // Use per-tenant caching if configured, otherwise global
+        let cache = state.inference_cache();
+        let tenant_id = if cache.is_enabled() {
+            // Check if per-tenant caching is needed (from config)
+            // For now, we use global caching
+            None
+        } else {
+            None
+        };
+
+        InferenceCacheKey::new(context_id, canonical_digest, tenant_id)
+    });
+
+    // Check cache for existing response
+    if let Some(ref key) = cache_key {
+        if let Some(cached) = state.inference_cache().get(key) {
+            debug!(
+                original_request_id = %cached.original_request_id,
+                prompt_tokens = cached.prompt_tokens,
+                completion_tokens = cached.completion_tokens,
+                "Semantic cache hit - returning cached response"
+            );
+
+            // Build response from cached result
+            let id = match &cached.receipt_digest_hex {
+                Some(hex) => {
+                    let prefix = &hex[..RECEIPT_DIGEST_ID_SUFFIX_LEN.min(hex.len())];
+                    format!("chatcmpl_{}", prefix)
+                }
+                None => format!(
+                    "chatcmpl_cached_{}",
+                    &cached.original_request_id[..8.min(cached.original_request_id.len())]
+                ),
+            };
+
+            let model = cached
+                .model
+                .clone()
+                .unwrap_or_else(|| req.model.clone().unwrap_or_else(|| "adapteros".to_string()));
+
+            // Usage includes cached_prefix_tokens to indicate cache hit
+            // For cached responses, prompt_tokens reflects the original computation
+            let usage = Some(OpenAiUsage {
+                prompt_tokens: cached.prompt_tokens,
+                completion_tokens: cached.completion_tokens,
+                total_tokens: cached
+                    .prompt_tokens
+                    .saturating_add(cached.completion_tokens),
+            });
+
+            let response = OpenAiChatCompletionsResponse {
+                id,
+                object: "chat.completion".to_string(),
+                created: Utc::now().timestamp(),
+                model,
+                system_fingerprint: cached.receipt_digest_hex.clone(),
+                choices: vec![OpenAiChatChoice {
+                    index: 0,
+                    message: OpenAiChatMessageResponse {
+                        role: "assistant".to_string(),
+                        content: cached.output_text.clone(),
+                    },
+                    finish_reason: Some(cached.finish_reason.clone()),
+                }],
+                usage,
+            };
+
+            return Ok(Json(response));
+        }
+    }
+
+    // Cache miss - run inference
     let infer_req = InferRequest {
         prompt,
         model: req.model.clone(),
@@ -418,8 +520,13 @@ async fn chat_completions_non_streaming(
         ..Default::default()
     };
 
+    let request_id_for_cache = request_id
+        .as_ref()
+        .map(|r| r.0 .0.clone())
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+
     let infer_resp = match handlers::inference::infer(
-        State(state),
+        State(state.clone()),
         Extension(claims),
         Extension(identity),
         request_id,
@@ -464,6 +571,28 @@ async fn chat_completions_non_streaming(
         None => format!("chatcmpl_{}", infer_resp.id),
     };
 
+    let finish_reason =
+        map_finish_reason(infer_resp.stop_reason_code).unwrap_or_else(|| "stop".to_string());
+
+    // Store result in cache for future requests
+    if let Some(key) = cache_key {
+        let cached_result =
+            CachedInferenceResultBuilder::new(infer_resp.text.clone(), request_id_for_cache)
+                .with_tokens_generated(infer_resp.tokens_generated)
+                .with_usage(prompt_tokens, infer_resp.tokens_generated)
+                .with_receipt_digest(receipt_digest_hex.clone())
+                .with_model(Some(model.clone()))
+                .with_finish_reason(finish_reason.clone())
+                .build();
+
+        state.inference_cache().put(key, cached_result);
+        debug!(
+            prompt_tokens = prompt_tokens,
+            completion_tokens = infer_resp.tokens_generated,
+            "Stored inference result in semantic cache"
+        );
+    }
+
     let response = OpenAiChatCompletionsResponse {
         id,
         object: "chat.completion".to_string(),
@@ -476,8 +605,7 @@ async fn chat_completions_non_streaming(
                 role: "assistant".to_string(),
                 content: infer_resp.text,
             },
-            finish_reason: map_finish_reason(infer_resp.stop_reason_code)
-                .or_else(|| Some("stop".to_string())),
+            finish_reason: Some(finish_reason),
         }],
         usage,
     };

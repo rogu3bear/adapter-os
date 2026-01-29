@@ -88,6 +88,7 @@ async fn build_test_state_with_general(
         worker_id: 0,
         timeouts: Default::default(),
         rate_limit: None,
+        inference_cache: Default::default(),
     }));
 
     let metrics_exporter = Arc::new(MetricsExporter::new(vec![0.1]).unwrap());
