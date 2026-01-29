@@ -2905,7 +2905,7 @@ impl LifecycleManager {
         )
         .await;
 
-        Ok(resolved_path)
+        Ok(resolved_path.into())
     }
 
     /// Get acquisition state for a model
