@@ -128,6 +128,7 @@ impl PrefixKvEntry {
 
     /// Create a new prefix KV entry with token tracking and explicit tick for determinism.
     /// (Patent 3535886.0002 Claims 8-10)
+    #[allow(clippy::too_many_arguments)]
     pub fn new_with_tokens_and_tick(
         keys: Vec<Vec<f32>>,
         values: Vec<Vec<f32>>,
