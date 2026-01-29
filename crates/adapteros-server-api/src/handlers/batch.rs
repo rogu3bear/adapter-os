@@ -642,9 +642,28 @@ fn timeout_error(id: String) -> BatchInferItemResponse {
 pub async fn create_batch_job(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    session_token: Option<Extension<SessionTokenContext>>,
     Json(req): Json<CreateBatchJobRequest>,
 ) -> Result<(StatusCode, Json<BatchJobResponse>), (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::InferenceExecute)?;
+
+    // Session tokens are not supported for async batch jobs.
+    // Async batch jobs are stored in the database and processed in the background,
+    // so HTTP request-scoped session tokens cannot be persisted with the job.
+    // Use sync batch (/v1/infer/batch) or individual inference calls for session token support.
+    if session_token.is_some() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("session tokens not supported for async batch jobs")
+                    .with_code("SESSION_TOKEN_NOT_SUPPORTED")
+                    .with_string_details(
+                        "Async batch jobs cannot enforce session token adapter locks. \
+                         Use /v1/infer/batch (sync batch) or individual /v1/infer calls instead.",
+                    ),
+            ),
+        ));
+    }
 
     if req.requests.is_empty() {
         return Err((
