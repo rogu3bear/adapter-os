@@ -11,7 +11,7 @@ use adapteros_core::{B3Hash, BackendKind};
 use adapteros_types::coreml::CoreMLMode;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 pub const SESSION_TOKEN_PREFIX: &str = "aos_sess_v1";
 
@@ -84,6 +84,40 @@ pub struct ResolvedSessionTokenLock {
     pub pinned_adapter_ids: Vec<String>,
     pub backend_profile: Option<BackendKind>,
     pub coreml_mode: Option<CoreMLMode>,
+}
+
+#[derive(Serialize)]
+struct SessionLockFingerprint<'a> {
+    stack_id: Option<&'a str>,
+    stack_hash_b3: &'a str,
+    adapter_ids: Vec<&'a str>,
+    pinned_adapter_ids: Vec<&'a str>,
+    backend_profile: Option<&'a str>,
+    coreml_mode: Option<&'a str>,
+}
+
+pub fn session_lock_fingerprint(lock: &ResolvedSessionTokenLock) -> B3Hash {
+    let mut adapter_ids: Vec<&str> = lock.adapter_ids.iter().map(String::as_str).collect();
+    adapter_ids.sort_unstable();
+    let mut pinned_adapter_ids: Vec<&str> = lock
+        .pinned_adapter_ids
+        .iter()
+        .map(String::as_str)
+        .collect();
+    pinned_adapter_ids.sort_unstable();
+
+    let stack_hash_b3_hex = lock.stack_hash_b3.to_hex();
+    let payload = SessionLockFingerprint {
+        stack_id: lock.stack_id.as_deref(),
+        stack_hash_b3: stack_hash_b3_hex.as_str(),
+        adapter_ids,
+        pinned_adapter_ids,
+        backend_profile: lock.backend_profile.as_ref().map(|b| b.as_str()),
+        coreml_mode: lock.coreml_mode.as_ref().map(|c| c.as_str()),
+    };
+
+    let serialized = serde_json::to_vec(&payload).unwrap_or_default();
+    B3Hash::hash(&serialized)
 }
 
 pub fn strip_session_token_prefix(raw: &str) -> Option<&str> {
@@ -219,7 +253,7 @@ pub async fn resolve_session_token_lock(
 
 fn parse_b3_hash(raw: &str, field: &'static str) -> Result<B3Hash, ApiError> {
     let cleaned = raw.trim().strip_prefix("b3:").unwrap_or(raw.trim());
-    B3Hash::from_hex(cleaned).ok_or_else(|| {
+    B3Hash::from_hex(cleaned).map_err(|_| {
         ApiError::bad_request(format!("invalid {}", field))
             .with_details(format!("expected hex BLAKE3 digest, got '{}'", raw))
     })
