@@ -2,18 +2,38 @@
 //!
 //! Implements a minimal subset of OpenAI's Chat Completions API by translating
 //! requests into adapterOS `/v1/infer` calls internally.
+//!
+//! Supports both streaming (`stream=true`) and non-streaming requests.
+//! Streaming responses use Server-Sent Events (SSE) with OpenAI-compatible chunk format.
 
 use crate::auth::Claims;
+use crate::backpressure::check_uma_backpressure;
 use crate::handlers;
+use crate::handlers::streaming_infer::{Delta, StreamingChoice, StreamingChunk};
+use crate::inference_core::InferenceCore;
+use crate::middleware::policy_enforcement::{
+    compute_policy_mask_digest, create_hook_context, enforce_at_hook,
+};
 use crate::middleware::request_id::RequestId;
 use crate::middleware::ApiKeyToken;
 use crate::state::AppState;
-use crate::types::{ErrorResponse, InferRequest, StopReasonCode};
+use crate::types::run_envelope::new_run_envelope;
+use crate::types::{ErrorResponse, InferRequest, InferenceRequestInternal, StopReasonCode};
+use crate::uds_client::WorkerStreamToken;
 use adapteros_core::identity::IdentityEnvelope;
+use adapteros_policy::hooks::PolicyHook;
+use axum::response::sse::{Event, KeepAlive, Sse};
+use axum::response::{IntoResponse, Response};
 use axum::{extract::State, http::StatusCode, Extension, Json};
 use chrono::Utc;
+use futures_util::stream::{self, Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::convert::Infallible;
+use std::time::Duration;
+use tokio::sync::{mpsc, oneshot};
+use tokio_util::sync::CancellationToken;
+use tracing::{info, warn};
 
 #[derive(Debug, Deserialize)]
 pub struct OpenAiChatCompletionsRequest {
@@ -173,6 +193,16 @@ fn map_finish_reason(stop_reason_code: Option<StopReasonCode>) -> Option<String>
 /// OpenAI-compatible chat completions endpoint.
 ///
 /// Translates the request into a deterministic prompt and forwards it to `/v1/infer`.
+/// Supports both streaming (`stream=true`) and non-streaming requests.
+///
+/// ## Streaming Response
+/// When `stream=true`, returns Server-Sent Events with OpenAI-compatible chunk format:
+/// ```text
+/// data: {"id":"chatcmpl-xxx","object":"chat.completion.chunk","choices":[{"delta":{"role":"assistant"}}]}
+/// data: {"id":"chatcmpl-xxx","object":"chat.completion.chunk","choices":[{"delta":{"content":"Hello"}}]}
+/// data: {"id":"chatcmpl-xxx","object":"chat.completion.chunk","choices":[{"delta":{},"finish_reason":"stop"}]}
+/// data: [DONE]
+/// ```
 pub async fn chat_completions(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -180,31 +210,54 @@ pub async fn chat_completions(
     request_id: Option<Extension<RequestId>>,
     api_key: Option<Extension<ApiKeyToken>>,
     Json(req): Json<OpenAiChatCompletionsRequest>,
-) -> Result<Json<OpenAiChatCompletionsResponse>, (StatusCode, Json<OpenAiErrorResponse>)> {
-    if req.stream.unwrap_or(false) {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(openai_error(
-                "`stream=true` is not supported; use non-streaming requests",
-                Some("STREAMING_UNSUPPORTED".to_string()),
-                Some("stream".to_string()),
-            )),
-        ));
-    }
-
+) -> Response {
+    // Validate n parameter first (applies to both streaming and non-streaming)
     if let Some(n) = req.n {
         if n > 1 {
-            return Err((
+            return (
                 StatusCode::BAD_REQUEST,
                 Json(openai_error(
                     "`n>1` is not supported; request a single completion",
                     Some("N_UNSUPPORTED".to_string()),
                     Some("n".to_string()),
                 )),
-            ));
+            )
+                .into_response();
         }
     }
 
+    // Branch based on streaming mode
+    if req.stream.unwrap_or(false) {
+        match chat_completions_streaming(State(state), Extension(claims), req).await {
+            Ok(sse) => sse.into_response(),
+            Err((status, Json(err))) => (status, Json(err)).into_response(),
+        }
+    } else {
+        match chat_completions_non_streaming(
+            State(state),
+            Extension(claims),
+            Extension(identity),
+            request_id,
+            api_key,
+            req,
+        )
+        .await
+        {
+            Ok(json) => json.into_response(),
+            Err((status, Json(err))) => (status, Json(err)).into_response(),
+        }
+    }
+}
+
+/// Non-streaming chat completions handler.
+async fn chat_completions_non_streaming(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Extension(identity): Extension<IdentityEnvelope>,
+    request_id: Option<Extension<RequestId>>,
+    api_key: Option<Extension<ApiKeyToken>>,
+    req: OpenAiChatCompletionsRequest,
+) -> Result<Json<OpenAiChatCompletionsResponse>, (StatusCode, Json<OpenAiErrorResponse>)> {
     let prompt =
         messages_to_prompt(&req.messages).map_err(|e| (StatusCode::BAD_REQUEST, Json(e)))?;
     let prompt_tokens_estimate = estimate_tokens(&prompt);
@@ -269,6 +322,389 @@ pub async fn chat_completions(
     };
 
     Ok(Json(response))
+}
+
+/// Streaming chat completions handler.
+///
+/// Returns SSE stream with OpenAI-compatible chunk format.
+async fn chat_completions_streaming(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    req: OpenAiChatCompletionsRequest,
+) -> Result<
+    Sse<impl Stream<Item = Result<Event, Infallible>>>,
+    (StatusCode, Json<OpenAiErrorResponse>),
+> {
+    // Check inference permission
+    crate::permissions::require_permission(
+        &claims,
+        crate::permissions::Permission::InferenceExecute,
+    )
+    .map_err(|e| {
+        let (status, Json(err)): (StatusCode, Json<ErrorResponse>) = e.into();
+        (status, Json(map_adapteros_error_to_openai(err)))
+    })?;
+
+    // Convert messages to prompt
+    let prompt =
+        messages_to_prompt(&req.messages).map_err(|e| (StatusCode::BAD_REQUEST, Json(e)))?;
+
+    // Check backpressure
+    check_uma_backpressure(&state).map_err(|(status, Json(err))| {
+        (status, Json(map_adapteros_error_to_openai(err)))
+    })?;
+
+    // Generate request ID
+    let request_id = format!("chatcmpl-{}", uuid::Uuid::new_v4());
+    let model_name = req.model.clone().unwrap_or_else(|| "adapteros".to_string());
+    let created = Utc::now().timestamp() as u64;
+
+    // P2 HARDENING: Collect ALL policy decisions BEFORE creating envelope
+    let mut all_policy_decisions = Vec::new();
+
+    // Enforce policies at OnRequestBeforeRouting hook (before adapter selection)
+    let routing_hook_ctx = create_hook_context(
+        &claims,
+        &request_id,
+        PolicyHook::OnRequestBeforeRouting,
+        "chat_completions",
+        None, // No adapter selected yet
+    );
+    let routing_decisions =
+        enforce_at_hook(&state, &routing_hook_ctx)
+            .await
+            .map_err(|violation| {
+                (
+                    StatusCode::FORBIDDEN,
+                    Json(openai_error(
+                        format!("Policy violation: {}", violation.message),
+                        Some("POLICY_HOOK_VIOLATION".to_string()),
+                        None,
+                    )),
+                )
+            })?;
+    all_policy_decisions.extend(routing_decisions);
+
+    // Enforce policies at OnBeforeInference hook
+    let hook_ctx = create_hook_context(
+        &claims,
+        &request_id,
+        PolicyHook::OnBeforeInference,
+        "chat_completions",
+        None,
+    );
+    let inference_decisions = enforce_at_hook(&state, &hook_ctx)
+        .await
+        .map_err(|violation| {
+            (
+                StatusCode::FORBIDDEN,
+                Json(openai_error(
+                    format!("Policy violation: {}", violation.message),
+                    Some("POLICY_HOOK_VIOLATION".to_string()),
+                    None,
+                )),
+            )
+        })?;
+    all_policy_decisions.extend(inference_decisions);
+
+    // P2 HARDENING: Compute policy digest BEFORE creating envelope
+    let policy_digest = compute_policy_mask_digest(&all_policy_decisions);
+
+    // Create envelope WITH pre-computed policy digest
+    let mut run_envelope = new_run_envelope(&state, &claims, request_id.clone(), false);
+    crate::types::run_envelope::set_policy_mask(&mut run_envelope, Some(&policy_digest));
+
+    info!(
+        request_id = %request_id,
+        prompt_len = prompt.len(),
+        max_tokens = req.max_tokens.or(req.max_completion_tokens).unwrap_or(512),
+        "Starting OpenAI-compatible streaming chat completion"
+    );
+
+    // Build internal inference request
+    let max_tokens = req.max_tokens.or(req.max_completion_tokens).unwrap_or(512) as usize;
+    let temperature = req.temperature.unwrap_or(0.7);
+    let top_p = req.top_p;
+
+    let is_admin = claims.role.eq_ignore_ascii_case("admin")
+        || claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
+
+    let internal_request = InferenceRequestInternal {
+        request_id: request_id.clone(),
+        cpid: claims.tenant_id.clone(),
+        prompt,
+        run_envelope: Some(run_envelope.clone()),
+        reasoning_mode: false,
+        admin_override: is_admin,
+        stream: true,
+        require_step: true,
+        require_determinism: false,
+        allow_fallback: true,
+        batch_item_id: None,
+        rag_enabled: false,
+        rag_collection_id: None,
+        dataset_version_id: None,
+        adapter_stack: None,
+        adapters: None,
+        stack_id: None,
+        stack_routing_determinism_mode: None,
+        domain_hint: None,
+        stack_version: None,
+        stack_determinism_mode: None,
+        effective_adapter_ids: None,
+        adapter_strength_overrides: None,
+        determinism_mode: None,
+        routing_determinism_mode: None,
+        seed_mode: None,
+        request_seed: None,
+        backend_profile: None,
+        coreml_mode: None,
+        max_tokens,
+        temperature,
+        top_k: None,
+        top_p,
+        seed: None,
+        require_evidence: false,
+        session_id: None,
+        pinned_adapter_ids: None,
+        chat_context_hash: None,
+        claims: Some(claims.clone()),
+        model: req.model.clone(),
+        stop_policy: None,
+        created_at: std::time::Instant::now(),
+        router_seed: None,
+        worker_auth_token: None,
+        policy_mask_digest_b3: None,
+        utf8_healing: None,
+        abstention_threshold: None,
+        citation_mode: None,
+    };
+
+    // Verify worker is available
+    let core = InferenceCore::new(&state);
+    let _worker = core
+        .select_worker_for_tenant(&claims.tenant_id)
+        .await
+        .map_err(|e| {
+            let (status, Json(err)): (StatusCode, Json<ErrorResponse>) = e.into();
+            (status, Json(map_adapteros_error_to_openai(err)))
+        })?;
+
+    // Get streaming config
+    let stream_config = state
+        .config
+        .read()
+        .unwrap_or_else(|e| {
+            warn!("Config lock poisoned in chat_completions_streaming, recovering");
+            e.into_inner()
+        })
+        .streaming
+        .clone();
+
+    // Create cancellation token
+    let cancellation_token = CancellationToken::new();
+
+    // Spawn the streaming inference
+    let (token_rx, done_rx) = spawn_streaming_inference(
+        state.clone(),
+        internal_request,
+        cancellation_token.clone(),
+        stream_config.inference_token_buffer_capacity,
+    );
+
+    // Build the SSE stream
+    let stream = build_openai_sse_stream(
+        request_id,
+        model_name,
+        created,
+        token_rx,
+        done_rx,
+        run_envelope,
+    );
+
+    Ok(Sse::new(stream).keep_alive(
+        KeepAlive::new()
+            .interval(Duration::from_secs(15))
+            .text("keep-alive"),
+    ))
+}
+
+/// Spawn streaming inference task.
+fn spawn_streaming_inference(
+    state: AppState,
+    request: InferenceRequestInternal,
+    cancellation_token: CancellationToken,
+    token_buffer_capacity: usize,
+) -> (
+    mpsc::Receiver<WorkerStreamToken>,
+    oneshot::Receiver<Result<crate::types::InferenceResult, crate::types::InferenceError>>,
+) {
+    let (token_tx, token_rx) = mpsc::channel(token_buffer_capacity);
+    let (done_tx, done_rx) = oneshot::channel();
+
+    tokio::spawn(async move {
+        let core = InferenceCore::new(&state);
+        let result = core
+            .route_and_infer_stream(request, None, Some(cancellation_token), token_tx)
+            .await;
+        let _ = done_tx.send(result);
+    });
+
+    (token_rx, done_rx)
+}
+
+/// Build OpenAI-compatible SSE stream from token channel.
+fn build_openai_sse_stream(
+    request_id: String,
+    model_name: String,
+    created: u64,
+    token_rx: mpsc::Receiver<WorkerStreamToken>,
+    done_rx: oneshot::Receiver<Result<crate::types::InferenceResult, crate::types::InferenceError>>,
+    run_envelope: adapteros_api_types::RunEnvelope,
+) -> impl Stream<Item = Result<Event, Infallible>> {
+    // State for the stream
+    struct StreamState {
+        request_id: String,
+        model_name: String,
+        created: u64,
+        token_rx: mpsc::Receiver<WorkerStreamToken>,
+        done_rx: Option<
+            oneshot::Receiver<Result<crate::types::InferenceResult, crate::types::InferenceError>>,
+        >,
+        sent_role: bool,
+        finished: bool,
+        run_envelope: adapteros_api_types::RunEnvelope,
+    }
+
+    let state = StreamState {
+        request_id,
+        model_name,
+        created,
+        token_rx,
+        done_rx: Some(done_rx),
+        sent_role: false,
+        finished: false,
+        run_envelope,
+    };
+
+    stream::unfold(state, |mut state| async move {
+        if state.finished {
+            return None;
+        }
+
+        // First chunk: send role
+        if !state.sent_role {
+            state.sent_role = true;
+            let chunk = StreamingChunk {
+                id: state.request_id.clone(),
+                object: "chat.completion.chunk".to_string(),
+                created: state.created,
+                model: state.model_name.clone(),
+                system_fingerprint: state.run_envelope.manifest_hash_b3.clone(),
+                choices: vec![StreamingChoice {
+                    index: 0,
+                    delta: Delta {
+                        role: Some("assistant".to_string()),
+                        content: None,
+                    },
+                    finish_reason: None,
+                    stop_reason_code: None,
+                    stop_reason_token_index: None,
+                    stop_policy_digest_b3: None,
+                }],
+            };
+            let json = serde_json::to_string(&chunk).unwrap_or_default();
+            let event = Event::default().data(json);
+            return Some((Ok(event), state));
+        }
+
+        // Try to receive tokens
+        tokio::select! {
+            biased;
+
+            token = state.token_rx.recv() => {
+                match token {
+                    Some(token) => {
+                        let chunk = StreamingChunk {
+                            id: state.request_id.clone(),
+                            object: "chat.completion.chunk".to_string(),
+                            created: state.created,
+                            model: state.model_name.clone(),
+                            system_fingerprint: None,
+                            choices: vec![StreamingChoice {
+                                index: 0,
+                                delta: Delta {
+                                    role: None,
+                                    content: Some(token.text),
+                                },
+                                finish_reason: None,
+                                stop_reason_code: None,
+                                stop_reason_token_index: None,
+                                stop_policy_digest_b3: None,
+                            }],
+                        };
+                        let json = serde_json::to_string(&chunk).unwrap_or_default();
+                        let event = Event::default().data(json);
+                        Some((Ok(event), state))
+                    }
+                    None => {
+                        // Token channel closed, wait for done signal and send final chunk
+                        let result = if let Some(done_rx) = state.done_rx.take() {
+                            done_rx.await.ok()
+                        } else {
+                            None
+                        };
+
+                        // Determine finish reason and receipt digest from result
+                        let (finish_reason, system_fingerprint) = match result {
+                            Some(Ok(ref res)) => {
+                                let reason = map_finish_reason(res.stop_reason_code)
+                                    .unwrap_or_else(|| "stop".to_string());
+                                // Use run_envelope manifest hash or deterministic receipt digest for system_fingerprint
+                                let fp = res.run_envelope.as_ref()
+                                    .and_then(|env| env.manifest_hash_b3.clone())
+                                    .or_else(|| state.run_envelope.manifest_hash_b3.clone());
+                                (reason, fp)
+                            }
+                            Some(Err(_)) => ("error".to_string(), None),
+                            None => ("stop".to_string(), None),
+                        };
+
+                        // Send final chunk with finish_reason
+                        let final_chunk = StreamingChunk {
+                            id: state.request_id.clone(),
+                            object: "chat.completion.chunk".to_string(),
+                            created: state.created,
+                            model: state.model_name.clone(),
+                            system_fingerprint,
+                            choices: vec![StreamingChoice {
+                                index: 0,
+                                delta: Delta {
+                                    role: None,
+                                    content: None,
+                                },
+                                finish_reason: Some(finish_reason),
+                                stop_reason_code: result.as_ref().and_then(|r| r.as_ref().ok()).and_then(|r| r.stop_reason_code),
+                                stop_reason_token_index: result.as_ref().and_then(|r| r.as_ref().ok()).and_then(|r| r.stop_reason_token_index),
+                                stop_policy_digest_b3: result.as_ref().and_then(|r| r.as_ref().ok()).and_then(|r| r.stop_policy_digest_b3.clone()),
+                            }],
+                        };
+                        let json = serde_json::to_string(&final_chunk).unwrap_or_default();
+                        let event = Event::default().data(json);
+
+                        // Mark as finished and return the final chunk
+                        // Next iteration will send [DONE]
+                        state.finished = true;
+                        Some((Ok(event), state))
+                    }
+                }
+            }
+        }
+    })
+    .chain(stream::once(async {
+        // Send [DONE] marker as final event
+        Ok(Event::default().data("[DONE]"))
+    }))
 }
 
 fn map_adapteros_error_to_openai(err: ErrorResponse) -> OpenAiErrorResponse {
