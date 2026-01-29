@@ -697,9 +697,14 @@ struct MLXModelWrapper {
   //
   // CRITICAL: Includes RoPE (Rotary Position Embeddings) which is required
   // for Qwen2/LLaMA-style models to have positional awareness.
+  //
+  // position_offset: Starting position for RoPE computation (default 0)
+  //   - For prompt processing: offset = 0
+  //   - For incremental token generation: offset = current position in sequence
   mx::array self_attention_impl(const mx::array &hidden,
                                 const std::string &prefix,
-                                bool capture_hidden) {
+                                bool capture_hidden,
+                                int position_offset = 0) {
     int batch_size = hidden.shape(0);
     int seq_len = hidden.shape(1);
     int n_heads = num_attention_heads;
@@ -777,12 +782,15 @@ struct MLXModelWrapper {
 
   // Apply Rotary Position Embeddings (RoPE) to queries or keys
   // x: [batch, seq, heads, head_dim]
+  // position_offset: Starting position for this sequence (default 0)
+  //   - For prompt processing (step 0): offset = 0
+  //   - For incremental generation (step N): offset = prompt_length + N - 1
   // Returns: x with rotary position embeddings applied
   //
   // RoPE rotates pairs of dimensions based on position, enabling the model
   // to understand relative positions of tokens. This is the standard
   // implementation used in LLaMA, Qwen2, and similar models.
-  mx::array apply_rope(const mx::array &x, int seq_len) {
+  mx::array apply_rope(const mx::array &x, int seq_len, int position_offset = 0) {
     int hd = x.shape(3); // head_dim
     int half_hd = hd / 2;
 
@@ -799,10 +807,12 @@ struct MLXModelWrapper {
     mx::array inv_freq =
         mx::array(inv_freq_data.data(), {half_hd}, mx::float32);
 
-    // Compute position indices: [0, 1, 2, ..., seq_len-1]
+    // Compute position indices: [offset, offset+1, ..., offset+seq_len-1]
+    // This is critical for incremental generation where we need the correct
+    // position in the sequence, not always starting from 0.
     std::vector<float> pos_data(seq_len);
     for (int i = 0; i < seq_len; ++i) {
-      pos_data[i] = static_cast<float>(i);
+      pos_data[i] = static_cast<float>(position_offset + i);
     }
     mx::array positions = mx::array(pos_data.data(), {seq_len}, mx::float32);
 
