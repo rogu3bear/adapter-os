@@ -6,7 +6,6 @@
 //! Uses SSE for real-time worker status updates via `/v1/stream/workers`.
 
 mod components;
-mod icons;
 mod utils;
 
 use crate::api::{use_sse_json_events, ApiClient, SseState};
@@ -20,8 +19,8 @@ use leptos::prelude::*;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::components::{IconPlus, IconRefresh};
 use components::{SseIndicator, SystemContent};
-use icons::{PlusIcon, RefreshIcon};
 
 /// SSE event wrapper for worker updates from /v1/stream/workers
 /// The server sends either a full list of workers or incremental updates
@@ -179,14 +178,14 @@ pub fn System() -> impl IntoView {
                                 refetch_models_status.run(());
                             })
                         >
-                            <RefreshIcon/>
+                            <IconRefresh/>
                             "Refresh"
                         </Button>
                         <Button
                             variant=ButtonVariant::Primary
                             on_click=Callback::new(move |_| show_spawn_dialog.set(true))
                         >
-                            <PlusIcon/>
+                            <IconPlus/>
                             "Spawn Worker"
                         </Button>
                     </div>
