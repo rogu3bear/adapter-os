@@ -266,7 +266,7 @@ core-foundation = "0.10"
 security-framework = "2.9"
 
 # Filesystem
-cap-std = "3.0"
+cap-std = "4.0"
 tempfile = "3.8"
 
 # Utilities
