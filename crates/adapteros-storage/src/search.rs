@@ -432,7 +432,7 @@ impl SearchService {
 
         let top_docs = searcher.search(
             &combined_query,
-            &tantivy::collector::TopDocs::with_limit(limit),
+            &tantivy::collector::TopDocs::with_limit(limit).order_by_score(),
         )?;
 
         let mut results = Vec::new();
@@ -526,7 +526,7 @@ impl SearchService {
         // Get all matching documents (we'll compute similarity manually)
         let all_docs = searcher.search(
             &filter_query,
-            &tantivy::collector::TopDocs::with_limit(10000), // Adjust based on dataset size
+            &tantivy::collector::TopDocs::with_limit(10000).order_by_score(), // Adjust based on dataset size
         )?;
 
         let mut scored_results: Vec<(f32, VectorSearchResult)> = Vec::new();
