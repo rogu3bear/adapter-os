@@ -161,18 +161,6 @@ fn token_signature_invalid(msg: impl Into<String>) -> (StatusCode, Json<ErrorRes
     )
 }
 
-#[allow(dead_code)]
-fn session_corrupted(msg: impl Into<String>) -> (StatusCode, Json<ErrorResponse>) {
-    (
-        StatusCode::UNAUTHORIZED,
-        Json(
-            ErrorResponse::new("Session storage entry is corrupted")
-                .with_code("SESSION_CORRUPTED")
-                .with_string_details(msg.into()),
-        ),
-    )
-}
-
 fn tenant_header_missing() -> (StatusCode, Json<ErrorResponse>) {
     (
         StatusCode::BAD_REQUEST,
@@ -298,11 +286,6 @@ impl AuthResolution {
 #[cfg(debug_assertions)]
 fn dev_no_auth_enabled() -> bool {
     crate::auth::dev_no_auth_enabled()
-}
-
-#[cfg(not(debug_assertions))]
-fn dev_no_auth_enabled() -> bool {
-    false
 }
 
 #[cfg(debug_assertions)]
@@ -1218,6 +1201,7 @@ pub async fn dual_auth_middleware(
                     auth_mode.clone(),
                 );
                 let tenant_id = claims.tenant_id.clone();
+                let token_exp = claims.exp;
                 req.extensions_mut().insert(auth_mode.clone());
                 req.extensions_mut().insert(principal);
                 req.extensions_mut().insert(claims);
@@ -1229,7 +1213,15 @@ pub async fn dual_auth_middleware(
                     IdentityEnvelope::default_revision(),
                 );
                 req.extensions_mut().insert(identity);
-                return Ok(next.run(req).await);
+
+                let response = next.run(req).await;
+                let now = Utc::now().timestamp();
+                if now >= token_exp {
+                    tracing::warn!(exp = token_exp, now = now, "Auth token is expired");
+                    return Err(token_expired("token expired during request processing"));
+                }
+
+                return Ok(response);
             }
             AuthToken::SessionJwt(token, source) => {
                 let auth_mode = match source {
@@ -1273,6 +1265,7 @@ pub async fn dual_auth_middleware(
                             auth_mode.clone(),
                         );
                         let tenant_id = claims.tenant_id.clone();
+                        let token_exp = claims.exp;
                         req.extensions_mut().insert(auth_mode.clone());
                         req.extensions_mut().insert(principal);
                         req.extensions_mut().insert(claims);
@@ -1284,7 +1277,15 @@ pub async fn dual_auth_middleware(
                             IdentityEnvelope::default_revision(),
                         );
                         req.extensions_mut().insert(identity);
-                        return Ok(next.run(req).await);
+
+                        let response = next.run(req).await;
+                        let now = Utc::now().timestamp();
+                        if now >= token_exp {
+                            tracing::warn!(exp = token_exp, now = now, "Auth token is expired");
+                            return Err(token_expired("token expired during request processing"));
+                        }
+
+                        return Ok(response);
                     }
                     Err(err) => {
                         return Err(err);
@@ -1331,6 +1332,7 @@ pub async fn dual_auth_middleware(
                             auth_mode.clone(),
                         );
                         let tenant_id = claims.tenant_id.clone();
+                        let token_exp = claims.exp;
                         req.extensions_mut().insert(auth_mode.clone());
                         req.extensions_mut().insert(principal);
                         req.extensions_mut().insert(claims);
@@ -1341,7 +1343,15 @@ pub async fn dual_auth_middleware(
                             IdentityEnvelope::default_revision(),
                         );
                         req.extensions_mut().insert(identity);
-                        return Ok(next.run(req).await);
+
+                        let response = next.run(req).await;
+                        let now = Utc::now().timestamp();
+                        if now >= token_exp {
+                            tracing::warn!(exp = token_exp, now = now, "Auth token is expired");
+                            return Err(token_expired("token expired during request processing"));
+                        }
+
+                        return Ok(response);
                     }
                     Err(err) => {
                         return Err(err);
