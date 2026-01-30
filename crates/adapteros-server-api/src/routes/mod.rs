@@ -941,7 +941,7 @@ pub fn build(state: AppState) -> Router {
         ));
 
     // Protected routes (require auth)
-    let protected_routes = Router::new()
+    let mut protected_routes = Router::new()
         // Auth routes (extracted to routes/auth_routes.rs)
         .merge(auth_routes::protected_auth_routes())
         // Admin routes
@@ -1958,9 +1958,17 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/policy/quarantine/rollback",
             post(handlers::quarantine::rollback_policy_config),
-        )
-        // Audit endpoints (policy-related routes stay in hub)
-        .route("/v1/audit/logs", get(handlers::admin::query_audit_logs))
+        );
+
+    // Audit endpoints: /v1/audit/logs is provided by spoke crate when exclude-spoke-routes is enabled
+    #[cfg(not(feature = "exclude-spoke-routes"))]
+    {
+        protected_routes =
+            protected_routes.route("/v1/audit/logs", get(handlers::admin::query_audit_logs));
+    }
+
+    // Policy-related audit routes stay in hub (not provided by spoke)
+    protected_routes = protected_routes
         .route(
             "/v1/audit/policy-decisions",
             get(handlers::query_policy_decisions),
