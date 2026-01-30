@@ -1657,7 +1657,8 @@ impl AppState {
         // Query database for stack details including version
         let stack = self.db.get_stack(tenant_id, &stack_id).await.ok()??;
 
-        Some((stack.id, stack.version))
+        let version = stack.version_number();
+        Some((stack.id, version))
     }
 
     /// Start background telemetry persistence workers

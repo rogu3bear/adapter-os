@@ -409,6 +409,7 @@ pub async fn list_stacks(
     for row in rows {
         let adapter_ids: Vec<String> =
             serde_json::from_str(&row.adapter_ids_json).unwrap_or_else(|_| vec![]);
+        let version = row.version_number();
 
         let workflow_type = row.workflow_type.and_then(|s| match s.as_str() {
             "Parallel" => Some(WorkflowType::Parallel),
@@ -419,7 +420,6 @@ pub async fn list_stacks(
 
         // Check if this stack is the tenant's default
         let is_default = default_stack_id.as_ref() == Some(&row.id);
-
         stacks.push(StackResponse {
             schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
             id: row.id,
@@ -432,7 +432,7 @@ pub async fn list_stacks(
             updated_at: row.updated_at,
             is_active: false,
             is_default,
-            version: row.version,
+            version,
             lifecycle_state: row.lifecycle_state,
             warnings: vec![], // No warnings for existing stacks
             determinism_mode: row.determinism_mode,
@@ -481,6 +481,7 @@ pub async fn get_stack(
 
     let adapter_ids: Vec<String> =
         serde_json::from_str(&row.adapter_ids_json).unwrap_or_else(|_| vec![]);
+    let version = row.version_number();
 
     let workflow_type = row.workflow_type.and_then(|s| match s.as_str() {
         "Parallel" => Some(WorkflowType::Parallel),
@@ -488,7 +489,6 @@ pub async fn get_stack(
         "Sequential" => Some(WorkflowType::Sequential),
         _ => None,
     });
-
     Ok(Json(StackResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         id: row.id,
@@ -501,7 +501,7 @@ pub async fn get_stack(
         updated_at: row.updated_at,
         is_active: false,
         is_default,
-        version: row.version,
+        version,
         lifecycle_state: row.lifecycle_state,
         warnings: vec![], // No warnings for existing stacks
         determinism_mode: row.determinism_mode,
@@ -653,6 +653,7 @@ pub async fn update_stack(
 
     let default_stack_id = state.db.get_default_stack(&tenant_id).await.unwrap_or(None);
     let is_default = default_stack_id.as_ref() == Some(&updated.id);
+    let version = updated.version_number();
 
     let wf_type = updated.workflow_type.and_then(|s| match s.as_str() {
         "Parallel" => Some(WorkflowType::Parallel),
@@ -660,7 +661,6 @@ pub async fn update_stack(
         "Sequential" => Some(WorkflowType::Sequential),
         _ => None,
     });
-
     Ok(Json(StackResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         id: updated.id,
@@ -673,7 +673,7 @@ pub async fn update_stack(
         updated_at: updated.updated_at,
         is_active: false,
         is_default,
-        version: updated.version,
+        version,
         lifecycle_state: updated.lifecycle_state,
         warnings: vec![],
         determinism_mode: updated.determinism_mode,
@@ -793,7 +793,7 @@ pub async fn activate_stack(
     validate_tenant_isolation(&claims, &stack.tenant_id)?;
 
     let name = stack.name.clone();
-    let stack_version = stack.version;
+    let stack_version = stack.version_number();
 
     // Parse adapter IDs to ensure they're valid
     let adapter_ids: Vec<String> = serde_json::from_str(&stack.adapter_ids_json).map_err(|e| {

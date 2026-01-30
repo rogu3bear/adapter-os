@@ -324,7 +324,7 @@ impl ApiError {
         error!("Export failed: {}", msg);
         Self::new(
             StatusCode::INTERNAL_SERVER_ERROR,
-            error_codes::INTERNAL_ERROR,
+            error_codes::EXPORT_FAILED,
             msg,
         )
     }

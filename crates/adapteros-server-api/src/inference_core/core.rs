@@ -2091,7 +2091,7 @@ impl<'a> InferenceCore<'a> {
 
             if adapter_ids.is_empty() {
                 request.stack_id = Some(stack_id);
-                request.stack_version = Some(stack.version);
+                request.stack_version = Some(stack.version_number());
                 request.stack_determinism_mode = stack.determinism_mode.clone();
                 request.stack_routing_determinism_mode =
                     parse_routing_mode(&stack.routing_determinism_mode);
@@ -2100,7 +2100,7 @@ impl<'a> InferenceCore<'a> {
             }
 
             request.stack_id = Some(stack_id);
-            request.stack_version = Some(stack.version);
+            request.stack_version = Some(stack.version_number());
             request.stack_determinism_mode = stack.determinism_mode.clone();
             request.stack_routing_determinism_mode =
                 parse_routing_mode(&stack.routing_determinism_mode);
@@ -2157,7 +2157,7 @@ impl<'a> InferenceCore<'a> {
 
                 if adapter_ids.is_empty() {
                     request.stack_id = Some(default_stack_id.clone());
-                    request.stack_version = Some(stack.version);
+                    request.stack_version = Some(stack.version_number());
                     request.stack_determinism_mode = stack.determinism_mode.clone();
                     request.stack_routing_determinism_mode =
                         parse_routing_mode(&stack.routing_determinism_mode);
@@ -2166,7 +2166,7 @@ impl<'a> InferenceCore<'a> {
                 }
 
                 request.stack_id = Some(default_stack_id.clone());
-                request.stack_version = Some(stack.version);
+                request.stack_version = Some(stack.version_number());
                 request.stack_determinism_mode = stack.determinism_mode.clone();
                 request.stack_routing_determinism_mode =
                     parse_routing_mode(&stack.routing_determinism_mode);
