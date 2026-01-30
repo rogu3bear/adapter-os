@@ -246,6 +246,9 @@ pub const CLIENT_CLOSED_REQUEST: &str = "CLIENT_CLOSED_REQUEST";
 /// Generic internal error
 pub const INTERNAL_ERROR: &str = "INTERNAL_ERROR";
 
+/// Export operation failed
+pub const EXPORT_FAILED: &str = "EXPORT_FAILED";
+
 /// Database operation failed
 pub const DATABASE_ERROR: &str = "DATABASE_ERROR";
 

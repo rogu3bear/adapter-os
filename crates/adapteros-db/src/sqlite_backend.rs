@@ -53,7 +53,7 @@ impl DatabaseBackend for SqliteBackend {
 
         let row = sqlx::query(
             "INSERT INTO adapter_stacks (id, tenant_id, name, description, adapter_ids_json, workflow_type, version, lifecycle_state, created_at, updated_at, determinism_mode, routing_determinism_mode)
-             VALUES (?, ?, ?, ?, ?, ?, 1, 'active', datetime('now'), datetime('now'), ?, ?)
+             VALUES (?, ?, ?, ?, ?, ?, '1.0.0', 'active', datetime('now'), datetime('now'), ?, ?)
              RETURNING id"
         )
         .bind(&id)

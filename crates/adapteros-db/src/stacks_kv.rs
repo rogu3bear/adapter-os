@@ -863,7 +863,7 @@ pub fn kv_to_stack_record(kv: &AdapterStackKv) -> Result<StackRecord> {
     let created_at = kv.created_at.format("%Y-%m-%d %H:%M:%S").to_string();
     let updated_at = kv.updated_at.format("%Y-%m-%d %H:%M:%S").to_string();
 
-    let version = kv.version.parse::<i64>().unwrap_or(1);
+    let version = kv.version.clone();
 
     let routing_determinism_mode = routing_mode_to_string(&kv.routing_determinism_mode);
 
@@ -902,7 +902,7 @@ mod tests {
             created_at: "2025-11-29 12:00:00".to_string(),
             updated_at: "2025-11-29 12:00:00".to_string(),
             created_by: Some("user-1".to_string()),
-            version: 1,
+            version: "1.0.0".to_string(),
             determinism_mode: None,
             routing_determinism_mode: None,
             metadata_json: None,

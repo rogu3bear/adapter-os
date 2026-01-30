@@ -140,7 +140,7 @@ pub async fn get_router_config(
                     serde_json::from_str(&stack.adapter_ids_json).unwrap_or_default();
                 let summary = RouterStackSummary {
                     stack_id: stack.id.clone(),
-                    version: Some(stack.version),
+                    version: Some(stack.version_number()),
                     lifecycle_state: Some(stack.lifecycle_state.clone()),
                     adapter_ids: adapter_ids.clone(),
                 };
