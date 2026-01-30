@@ -9,31 +9,51 @@ pub mod error;
 pub mod error_reporter;
 pub mod reviews;
 pub mod sse;
+pub mod types;
 
-pub use client::{
-    ActivityEventResponse, AdapterScoreResponse, AllModelsStatusResponse, AneMemoryStatus,
-    ApiClient, ApiKeyInfo, ApiKeyListResponse, AuditChainEntry, AuditChainResponse, AuditLogEntry,
-    AuditLogsQuery, AuditLogsResponse, BaseModelStatusResponse, CanonicalRow,
-    ChainVerificationResponse, CodePolicy, CollectionDetailResponse, CollectionDocumentInfo,
-    CollectionListResponse, CollectionResponse, ComplianceAuditResponse, ComplianceControl,
-    CreateApiKeyRequest, CreateApiKeyResponse, CreateCollectionRequest,
-    CreateErrorAlertRuleRequest, CreateStackRequest, DatasetFileResponse, DatasetListResponse,
-    DatasetManifest, DatasetResponse, DatasetStatisticsResponse, DatasetVersionsResponse,
-    EmbeddingBenchmarkReport, EmbeddingBenchmarksQuery, EmbeddingBenchmarksResponse,
+// Re-export ApiClient from client module
+pub use client::ApiClient;
+
+// Re-export types from types module
+pub use types::{
+    AdapterScoreResponse, AddDocumentRequest, ApplyPolicyRequest, AuditChainEntry,
+    AuditChainResponse, AuditLogEntry, AuditLogsQuery, AuditLogsResponse,
+    ChainVerificationResponse, ChunkListResponse, ChunkResponse, CodePolicy,
+    CollectionDetailResponse, CollectionDocumentInfo, CollectionListResponse, CollectionResponse,
+    ComplianceAuditResponse, ComplianceControl, CreateCollectionRequest,
+    CreateErrorAlertRuleRequest, CreateMonitoringRuleRequest, CreateStackRequest,
+    CreateTrainingJobRequest, DatasetListResponse, DatasetResponse, DatasetStatisticsResponse,
+    DetectedFeaturesResponse, DocumentListParams, DocumentListResponse, DocumentResponse,
     ErrorAlertRuleResponse, ErrorAlertRulesListResponse, FederationAuditResponse,
     FileValidationError, GetCodePolicyResponse, HostChainSummary, InferenceRequest,
-    ListUsersResponse, LoadAverageInfo, ModelArchitectureSummary, ModelListResponse,
-    ModelStatusResponse, ModelWithStatsResponse, ProcessAlertResponse, ProcessAnomalyResponse,
-    ProcessCrashDumpResponse, ProcessHealthMetricResponse, ProcessLogResponse,
-    ProcessMonitoringRuleResponse, RegisterRepositoryRequest, RegisterRepositoryResponse,
-    RepositoryDetailResponse, RepositoryInfo, RepositoryListResponse, ResourceUsageInfo,
-    RevokeApiKeyResponse, RoutingCandidateResponse, RoutingDebugRequest, RoutingDebugResponse,
-    RoutingDecisionResponse, RoutingDecisionsQuery, RoutingDecisionsResponse, ScanJobResponse,
-    ScanRepositoryRequest, ServiceStatus, StackResponse, SystemOverviewResponse, TokenDecision,
-    TenantListResponse, TenantSummary, UpdateCodePolicyRequest, UpdateErrorAlertRuleRequest,
-    UpdateStackRequest, UploadDatasetResponse, UserResponse, ValidateAllFilesResponse,
-    ValidateFileRequest, ValidateFileResponse, WorkerMetricsResponse, WorkflowType,
+    InferenceTraceDetailResponse, InferenceTraceResponse, LoadAverageInfo,
+    ModelArchitectureSummary, ModelListResponse, ModelWithStatsResponse, PolicyPackResponse,
+    PolicyValidationResponse, ProcessAlertResponse, ProcessAnomalyResponse,
+    ProcessCrashDumpResponse, ProcessDocumentResponse, ProcessHealthMetricResponse,
+    ProcessLogResponse, ProcessMonitoringRuleResponse, ResourceUsageInfo, RoutingCandidateResponse,
+    RoutingDebugRequest, RoutingDebugResponse, RoutingDecisionChainResponse,
+    RoutingDecisionResponse, RoutingDecisionsQuery, RoutingDecisionsResponse, SearchResponse,
+    SearchResultItem, ServiceStatus, StackResponse, SystemOverviewResponse, TimingBreakdown,
+    TokenDecision, TraceEvent, TraceReceiptSummary, TraceSearchQuery, TrainingConfigRequest,
+    UpdateCodePolicyRequest, UpdateErrorAlertRuleRequest, UpdateStackRequest,
+    ValidateAllFilesResponse, ValidateFileRequest, ValidateFileResponse, ValidatePolicyRequest,
+    WorkflowType,
 };
+
+// Re-export types from adapteros-api-types via client module
+pub use client::{
+    ActivityEventResponse, AllModelsStatusResponse, AneMemoryStatus, ApiKeyInfo,
+    ApiKeyListResponse, BaseModelStatusResponse, CanonicalRow, CreateApiKeyRequest,
+    CreateApiKeyResponse, CreateRoutingRuleRequest, DatasetFileResponse, DatasetManifest,
+    DatasetVersionsResponse, EmbeddingBenchmarkReport, EmbeddingBenchmarksQuery,
+    EmbeddingBenchmarksResponse, JsonlValidationDiagnostic, ListUsersResponse, ModelLoadStatus,
+    ModelStatusResponse, RegisterRepositoryRequest, RegisterRepositoryResponse,
+    RepositoryDetailResponse, RepositoryInfo, RepositoryListResponse, RevokeApiKeyResponse,
+    RoutingRuleResponse, RoutingRulesResponse, ScanJobResponse, ScanRepositoryRequest,
+    SeedModelRequest, SeedModelResponse, TenantListResponse, TenantSummary, UploadDatasetResponse,
+    UserResponse, WorkerMetricsResponse,
+};
+
 pub use diagnostic_bundle::DiagnosticBundle;
 pub use error::{ApiError, ApiResult};
 pub use error_reporter::{report_error, report_error_with_toast};
