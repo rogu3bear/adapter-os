@@ -323,8 +323,8 @@ extern "C" {
 pub fn boot_log(phase: &str, message: &str) {
     // Use a static to track boot start time
     static BOOT_START: std::sync::OnceLock<f64> = std::sync::OnceLock::new();
-    let start = *BOOT_START.get_or_init(|| unsafe { now() });
-    let elapsed = unsafe { now() } - start;
+    let start = *BOOT_START.get_or_init(now);
+    let elapsed = now() - start;
     web_sys::console::log_1(&format!("[boot T+{:.0}ms] {}: {}", elapsed, phase, message).into());
 }
 
@@ -372,7 +372,7 @@ fn set_dom_panic_hook() {
             // Redact the stack trace as well (in case it contains sensitive paths)
             let redacted_stack = redact_sensitive_info(&stack_trace);
 
-            unsafe { show_panic(&format!("{}{}", message, location), &redacted_stack) };
+            show_panic(&format!("{}{}", message, location), &redacted_stack);
         }));
     });
 }
@@ -381,7 +381,7 @@ fn set_dom_panic_hook() {
 pub fn mount() {
     // Boot timeline: T+0ms - WASM binary executing
     boot_log("wasm", "binary loaded, executing start");
-    unsafe { signal_wasm_compile_done() };
+    signal_wasm_compile_done();
 
     // Set up panic hooks FIRST - before any code that might panic
     console_error_panic_hook::set_once();
@@ -405,13 +405,13 @@ pub fn mount() {
     boot_log("wasm", "tracing initialized");
 
     // PRD-UI-000: Signal runtime is initialized
-    unsafe { signal_wasm_loaded() };
+    signal_wasm_loaded();
     boot_log("mount", "runtime ready, mounting Leptos app");
 
     // Mount the Leptos app
     leptos::mount::mount_to_body(App);
 
     // PRD-UI-000: Signal app is mounted (triggers backend health check)
-    unsafe { signal_mounted() };
+    signal_mounted();
     boot_log("mount", "app mounted to DOM");
 }

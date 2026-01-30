@@ -59,7 +59,7 @@ pub use async_state::{
     EmptyState, EmptyStateVariant, ErrorDisplay, LoadingDisplay, PageHeader, RefreshButton,
 };
 pub use auth::{AuthProvider, ProtectedRoute};
-pub use breadcrumb_trail::{BreadcrumbItem, BreadcrumbTrail};
+pub use breadcrumb_trail::{humanize_segment, BreadcrumbItem, BreadcrumbTrail};
 pub use button::{Button, ButtonSize, ButtonVariant};
 pub use card::Card;
 pub use chat_dock::{ChatDock, ChatDockPanel, MobileChatOverlay, NarrowChatDock};
