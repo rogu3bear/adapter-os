@@ -1,6 +1,6 @@
 //! UI Preferences section component
 
-use super::icons::CheckIcon;
+use crate::components::IconCheck;
 use crate::components::{Card, Select, Toggle};
 use crate::signals::{update_setting, use_settings, DefaultPage, Theme};
 use leptos::prelude::*;
@@ -169,7 +169,7 @@ pub fn PreferencesSection() -> impl IntoView {
                 if save_feedback.get() {
                     view! {
                         <div class="flex items-center gap-2 text-sm text-green-600">
-                            <CheckIcon/>
+                            <IconCheck/>
                             "Changes saved automatically"
                         </div>
                     }.into_any()

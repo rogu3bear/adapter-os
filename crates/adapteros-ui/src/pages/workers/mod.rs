@@ -5,7 +5,6 @@
 
 mod components;
 pub mod dialogs;
-mod icons;
 mod utils;
 
 use crate::api::ApiClient;
@@ -15,9 +14,9 @@ use adapteros_api_types::SpawnWorkerRequest;
 use leptos::prelude::*;
 use std::sync::Arc;
 
+use crate::components::{IconArrowLeft, IconPlus, IconRefresh, IconX};
 use components::{WorkerDetailPanel, WorkerDetailView, WorkersList, WorkersSummary};
 use dialogs::{PlanOption, SpawnWorkerDialog};
-use icons::{BackIcon, CloseIcon, PlusIcon, RefreshIcon};
 
 /// Workers management page
 #[component]
@@ -69,14 +68,14 @@ pub fn Workers() -> impl IntoView {
                         variant=ButtonVariant::Secondary
                         on_click=Callback::new(move |_| refetch_workers.run(()))
                     >
-                        <RefreshIcon/>
+                        <IconRefresh/>
                         "Refresh"
                     </Button>
                     <Button
                         variant=ButtonVariant::Primary
                         on_click=Callback::new(move |_| show_spawn_dialog.set(true))
                     >
-                        <PlusIcon/>
+                        <IconPlus/>
                         "Spawn Worker"
                     </Button>
                 </div>
@@ -91,7 +90,7 @@ pub fn Workers() -> impl IntoView {
                             class="text-destructive hover:text-destructive/80"
                             on:click=move |_| action_error.set(None)
                         >
-                            <CloseIcon/>
+                            <IconX/>
                         </button>
                     </div>
                 </div>
@@ -260,7 +259,7 @@ pub fn WorkerDetail() -> impl IntoView {
                     variant=ButtonVariant::Ghost
                     on_click=Callback::new(move |_| navigate("/workers"))
                 >
-                    <BackIcon/>
+                    <IconArrowLeft/>
                     "Back to Workers"
                 </Button>
             </div>

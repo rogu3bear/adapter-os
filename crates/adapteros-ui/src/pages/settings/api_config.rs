@@ -1,8 +1,8 @@
 //! API Configuration section component
 
-use super::icons::{CheckIcon, XIcon};
 use crate::api::ApiClient;
 use crate::components::{Button, ButtonVariant, Card, Input, Spinner};
+use crate::components::{IconCheck, IconX};
 use crate::signals::{update_setting, use_auth, use_settings, AuthState};
 use leptos::prelude::*;
 
@@ -104,19 +104,19 @@ pub fn ApiConfigSection() -> impl IntoView {
                             }.into_any(),
                             ConnectionTestStatus::Success => view! {
                                 <div class="flex items-center gap-2 text-sm text-status-success">
-                                    <CheckIcon/>
+                                    <IconCheck/>
                                     "Connection successful"
                                 </div>
                             }.into_any(),
                             ConnectionTestStatus::Error(ref msg) => view! {
                                 <div class="flex items-center gap-2 text-sm text-destructive">
-                                    <XIcon/>
+                                    <IconX/>
                                     {format!("Connection failed: {}", msg)}
                                 </div>
                             }.into_any(),
                             ConnectionTestStatus::Saved => view! {
                                 <div class="flex items-center gap-2 text-sm text-status-success">
-                                    <CheckIcon/>
+                                    <IconCheck/>
                                     "Settings saved"
                                 </div>
                             }.into_any(),

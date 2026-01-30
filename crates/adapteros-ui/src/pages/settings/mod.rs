@@ -4,7 +4,6 @@
 //! and System Info sections. Settings persist to localStorage.
 
 mod api_config;
-mod icons;
 mod preferences;
 mod profile;
 mod system_info;

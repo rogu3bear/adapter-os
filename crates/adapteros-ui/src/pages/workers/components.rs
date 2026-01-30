@@ -12,10 +12,10 @@ use adapteros_api_types::WorkerResponse;
 use leptos::prelude::*;
 use std::sync::Arc;
 
-use super::icons::{CloseIcon, PauseIcon, RefreshIcon, ServerIcon, StopIcon};
 use super::utils::{
     format_timestamp, format_uptime, short_hash, short_id, status_badge_variant, WORKERS_PAGE_SIZE,
 };
+use crate::components::{IconPause, IconRefresh, IconServer, IconStop, IconX};
 
 // ============================================================================
 // Summary Cards
@@ -114,7 +114,7 @@ pub fn WorkersList(
             {if workers.is_empty() {
                 view! {
                     <div class="text-center py-12">
-                        <ServerIcon class="h-12 w-12 mx-auto text-muted-foreground mb-4"/>
+                        <IconServer class="h-12 w-12 mx-auto text-muted-foreground mb-4"/>
                         <p class="text-lg font-medium">"No Workers"</p>
                         <p class="text-muted-foreground mt-1">
                             "Spawn a worker to start processing inference requests"
@@ -291,7 +291,7 @@ pub fn WorkerRow(
                             size=ButtonSize::Sm
                             on_click=Callback::new(move |_| on_drain.run(()))
                         >
-                            <PauseIcon/>
+                            <IconPause/>
                             "Drain"
                         </Button>
                     })}
@@ -301,7 +301,7 @@ pub fn WorkerRow(
                             size=ButtonSize::Sm
                             on_click=Callback::new(move |_| on_stop.run(()))
                         >
-                            <StopIcon/>
+                            <IconStop/>
                             "Stop"
                         </Button>
                     })}
@@ -357,7 +357,7 @@ pub fn WorkerDetailPanel(worker: WorkerResponse, on_close: Callback<()>) -> impl
                             aria_label="Close details".to_string()
                             on_click=Callback::new(move |_| on_close.run(()))
                         >
-                            <CloseIcon/>
+                            <IconX/>
                         </Button>
                     </div>
                 </div>
@@ -485,7 +485,7 @@ pub fn WorkerDetailView(
                         variant=ButtonVariant::Secondary
                         on_click=Callback::new(move |_| on_refresh.run(()))
                     >
-                        <RefreshIcon/>
+                        <IconRefresh/>
                         "Refresh"
                     </Button>
                     {is_healthy.then(|| {
@@ -514,7 +514,7 @@ pub fn WorkerDetailView(
                                     });
                                 })
                             >
-                                <PauseIcon/>
+                                <IconPause/>
                                 "Drain"
                             </Button>
                         }
@@ -545,7 +545,7 @@ pub fn WorkerDetailView(
                                     });
                                 })
                             >
-                                <StopIcon/>
+                                <IconStop/>
                                 "Stop"
                             </Button>
                         }

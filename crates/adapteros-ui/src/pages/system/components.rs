@@ -19,10 +19,10 @@ use adapteros_api_types::{
 use leptos::prelude::*;
 use std::collections::HashMap;
 
-use super::icons::{CheckCircleIcon, WarningIcon};
 use super::utils::{
     format_timestamp, format_uptime, NODES_PAGE_SIZE, TENANTS_PAGE_SIZE, WORKERS_PAGE_SIZE,
 };
+use crate::components::{IconCheckCircle, IconWarning};
 
 // ============================================================================
 // SSE Indicator
@@ -436,7 +436,7 @@ fn WorkerRow(worker: WorkerResponse) -> impl IntoView {
                     })}
                     // Show warning icon for error states
                     {is_unhealthy.then(|| view! {
-                        <WarningIcon/>
+                        <IconWarning/>
                     })}
                 </div>
             </TableCell>
@@ -1401,7 +1401,7 @@ fn InferenceBlockersSection(blockers: Vec<InferenceBlocker>) -> impl IntoView {
             {if blockers.is_empty() {
                 view! {
                     <div class="flex items-center gap-2 text-status-success">
-                        <CheckCircleIcon/>
+                        <IconCheckCircle/>
                         <span>"No blockers - system is ready for inference"</span>
                     </div>
                 }.into_any()
@@ -1421,7 +1421,7 @@ fn InferenceBlockersSection(blockers: Vec<InferenceBlocker>) -> impl IntoView {
 
                             view! {
                                 <div class=format!("flex items-center gap-2 {}", icon_color)>
-                                    <WarningIcon/>
+                                    <IconWarning/>
                                     <span>{message}</span>
                                 </div>
                             }
@@ -1547,7 +1547,7 @@ pub fn BootStatusSection(boot: adapteros_api_types::BootStatus) -> impl IntoView
                                                 {boot.degraded.iter().map(|d| {
                                                     view! {
                                                         <div class="flex items-center gap-2 text-status-warning">
-                                                            <WarningIcon/>
+                                                            <IconWarning/>
                                                             <span class="text-sm">{format!("{}: {}", d.component, d.reason)}</span>
                                                         </div>
                                                     }
@@ -1564,7 +1564,7 @@ pub fn BootStatusSection(boot: adapteros_api_types::BootStatus) -> impl IntoView
                                     view! {
                                         <div class="p-4 rounded-lg bg-destructive/10 border border-destructive">
                                             <div class="flex items-center gap-2 text-destructive font-medium">
-                                                <WarningIcon/>
+                                                <IconWarning/>
                                                 <span>"Boot Failure"</span>
                                             </div>
                                             <p class="text-sm text-destructive mt-2">
