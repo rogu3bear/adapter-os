@@ -249,7 +249,8 @@ git2 = "0.18"
 
 # ML & Search
 hnsw_rs = "0.3"
-tantivy = "0.25"
+# CVE fix: lru (GHSA-6698). tantivy 0.25 uses lru 0.12.5, fixed in main (PR #2799)
+tantivy = { git = "https://github.com/quickwit-oss/tantivy", branch = "main" }
 # Security: Force oneshot >= 0.1.12 (CVE: Use After Free in async)
 oneshot = "0.1.13"
 tokenizers = "0.15"
