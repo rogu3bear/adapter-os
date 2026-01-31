@@ -26,6 +26,7 @@ pub mod glass_toggle;
 pub mod global_search;
 pub mod icons;
 pub mod input;
+pub mod lifecycle_transition_dialog;
 pub mod layout;
 pub mod link;
 pub mod notification_provider;
@@ -77,6 +78,7 @@ pub use glass_toggle::GlassThemeToggle;
 pub use global_search::{GlobalSearchBox, SearchTriggerButton};
 pub use input::{Input, Textarea};
 pub use layout::{Header, Shell, Sidebar, Taskbar, TopBar};
+pub use lifecycle_transition_dialog::{LifecycleTransitionDialog, LifecycleTransitionInfo};
 pub use link::{Link, LinkVariant};
 pub use offline_banner::OfflineBanner;
 pub use responsive::{
