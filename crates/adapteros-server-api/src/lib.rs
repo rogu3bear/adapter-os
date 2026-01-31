@@ -78,6 +78,8 @@ pub mod api_error;
 pub mod audit_helper;
 pub mod auth;
 pub mod auth_common;
+#[cfg(test)]
+pub(crate) mod test_utils;
 pub mod backpressure;
 pub mod boot_state;
 pub mod cab_workflow;
