@@ -22,7 +22,12 @@ const AUDIT_PAGE_SIZE: usize = 25;
 // ============================================================================
 
 #[component]
-pub fn TimelineTab(logs: ReadSignal<LoadingState<AuditLogsResponse>>) -> impl IntoView {
+pub fn TimelineTab(
+    logs: ReadSignal<LoadingState<AuditLogsResponse>>,
+    /// Optional retry callback for error state
+    #[prop(optional)]
+    on_retry: Option<Callback<()>>,
+) -> impl IntoView {
     // Client-side pagination to reduce DOM nodes
     let visible_count = RwSignal::new(AUDIT_PAGE_SIZE);
 
@@ -108,10 +113,13 @@ pub fn TimelineTab(logs: ReadSignal<LoadingState<AuditLogsResponse>>) -> impl In
                         }
                     }
                     LoadingState::Error(e) => {
-                        view! {
-                            <ErrorDisplay error=e/>
+                        let retry = on_retry.clone();
+                        match retry {
+                            Some(callback) => {
+                                view! { <ErrorDisplay error=e on_retry=callback/> }.into_any()
+                            }
+                            None => view! { <ErrorDisplay error=e /> }.into_any(),
                         }
-                        .into_any()
                     }
                 }
             }}
@@ -190,7 +198,12 @@ fn TimelineRow(entry: AuditLogEntry) -> impl IntoView {
 // ============================================================================
 
 #[component]
-pub fn HashChainTab(chain: ReadSignal<LoadingState<AuditChainResponse>>) -> impl IntoView {
+pub fn HashChainTab(
+    chain: ReadSignal<LoadingState<AuditChainResponse>>,
+    /// Optional retry callback for error state
+    #[prop(optional)]
+    on_retry: Option<Callback<()>>,
+) -> impl IntoView {
     // Client-side pagination to reduce DOM nodes (same pattern as TimelineTab)
     let visible_count = RwSignal::new(AUDIT_PAGE_SIZE);
 
@@ -266,10 +279,13 @@ pub fn HashChainTab(chain: ReadSignal<LoadingState<AuditChainResponse>>) -> impl
                         }
                     }
                     LoadingState::Error(e) => {
-                        view! {
-                            <ErrorDisplay error=e/>
+                        let retry = on_retry.clone();
+                        match retry {
+                            Some(callback) => {
+                                view! { <ErrorDisplay error=e on_retry=callback/> }.into_any()
+                            }
+                            None => view! { <ErrorDisplay error=e /> }.into_any(),
                         }
-                        .into_any()
                     }
                 }
             }}
@@ -412,7 +428,12 @@ fn ChainEntryRow(entry: AuditChainEntry, is_first: bool) -> impl IntoView {
 pub fn MerkleTreeTab(
     chain: ReadSignal<LoadingState<AuditChainResponse>>,
     verification: ReadSignal<LoadingState<ChainVerificationResponse>>,
+    /// Optional retry callback for error state
+    #[prop(optional)]
+    _on_retry: Option<Callback<()>>,
 ) -> impl IntoView {
+    // Note: MerkleTree tab doesn't have direct error state as it shares signals with
+    // HashChain. The parent page handles retry via the refresh all button.
     view! {
         <div class="grid gap-6 md:grid-cols-2">
             // Merkle Tree Visualization
@@ -716,6 +737,9 @@ pub fn MerkleTreeTab(
 #[component]
 pub fn ComplianceTab(
     compliance: ReadSignal<LoadingState<ComplianceAuditResponse>>,
+    /// Optional retry callback for error state
+    #[prop(optional)]
+    on_retry: Option<Callback<()>>,
 ) -> impl IntoView {
     view! {
         <Card>
@@ -831,10 +855,13 @@ pub fn ComplianceTab(
                         .into_any()
                     }
                     LoadingState::Error(e) => {
-                        view! {
-                            <ErrorDisplay error=e/>
+                        let retry = on_retry.clone();
+                        match retry {
+                            Some(callback) => {
+                                view! { <ErrorDisplay error=e on_retry=callback/> }.into_any()
+                            }
+                            None => view! { <ErrorDisplay error=e /> }.into_any(),
                         }
-                        .into_any()
                     }
                     _ => {
                         view! {
@@ -857,9 +884,11 @@ pub fn ComplianceTab(
 #[component]
 pub fn EmbeddingsTab() -> impl IntoView {
     // Fetch benchmark reports from API
-    let (benchmarks, _refetch) = use_api_resource(|client: Arc<ApiClient>| async move {
+    let (benchmarks, refetch) = use_api_resource(|client: Arc<ApiClient>| async move {
         client.list_embedding_benchmarks(None).await
     });
+
+    let on_retry = Callback::new(move |_| refetch.run(()));
 
     view! {
         {move || {
@@ -970,9 +999,10 @@ pub fn EmbeddingsTab() -> impl IntoView {
                     }
                 }
                 LoadingState::Error(e) => {
+                    let on_retry = on_retry.clone();
                     view! {
                         <div class="p-4">
-                            <ErrorDisplay error=e/>
+                            <ErrorDisplay error=e on_retry=on_retry />
                         </div>
                     }
                     .into_any()

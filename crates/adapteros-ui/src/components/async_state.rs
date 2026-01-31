@@ -7,6 +7,7 @@ use crate::api::ApiError;
 use crate::components::{Badge, BadgeVariant, Button, ButtonVariant, Spinner};
 use adapteros_api_types::FailureCode;
 use leptos::prelude::*;
+use wasm_bindgen::JsCast;
 
 /// Breadcrumb item for navigation hierarchy
 #[derive(Debug, Clone)]
@@ -107,6 +108,113 @@ fn failure_code_label(code: FailureCode) -> String {
         .join(" ")
 }
 
+/// Check if an error is a server/network error that warrants "Copy error" action
+fn is_copyable_error(error: &ApiError) -> bool {
+    matches!(
+        error,
+        ApiError::Server(_)
+            | ApiError::Network(_)
+            | ApiError::Http {
+                status: 500..=599,
+                ..
+            }
+    ) || matches!(error, ApiError::Structured { .. } if error.code().map_or(false, |c| c.starts_with("5") || c.contains("SERVER") || c.contains("INTERNAL")))
+}
+
+/// Build a sanitized error payload for clipboard copy
+fn build_error_payload(error: &ApiError) -> String {
+    let mut payload = String::new();
+
+    payload.push_str("=== AdapterOS Error Report ===\n\n");
+    payload.push_str(&format!("Error: {}\n", error));
+
+    if let Some(code) = error.code() {
+        payload.push_str(&format!("Code: {}\n", code));
+    }
+
+    if let Some(fc) = error.failure_code() {
+        payload.push_str(&format!("Failure Code: {}\n", fc.as_str()));
+    }
+
+    if let ApiError::Structured { details, .. } = error {
+        if let Some(d) = details {
+            if let Ok(json) = serde_json::to_string_pretty(d) {
+                payload.push_str(&format!("\nDetails:\n{}\n", json));
+            }
+        }
+    }
+
+    // Add timestamp
+    if let Some(window) = web_sys::window() {
+        let now = js_sys::Date::new_0();
+        payload.push_str(&format!("\nTimestamp: {}\n", now.to_iso_string()));
+
+        // Add URL for context (sanitized - no query params)
+        if let Ok(location) = window.location().pathname() {
+            payload.push_str(&format!("Page: {}\n", location));
+        }
+    }
+
+    payload
+}
+
+/// Copy text to clipboard using the Clipboard API
+fn copy_to_clipboard(
+    text: &str,
+    on_success: impl Fn() + 'static,
+    on_error: impl Fn(String) + 'static,
+) {
+    if let Some(window) = web_sys::window() {
+        let navigator = window.navigator();
+        let clipboard = if js_sys::Reflect::has(&navigator, &"clipboard".into()).unwrap_or(false) {
+            js_sys::Reflect::get(&navigator, &"clipboard".into()).ok()
+        } else {
+            None
+        };
+
+        let Some(clipboard) = clipboard else {
+            on_error("Clipboard API not available".to_string());
+            return;
+        };
+
+        let text = text.to_string();
+        let on_success = std::rc::Rc::new(std::cell::RefCell::new(Some(on_success)));
+        let on_error = std::rc::Rc::new(std::cell::RefCell::new(Some(on_error)));
+
+        let success_cb = on_success.clone();
+        let error_cb = on_error.clone();
+
+        let success_closure =
+            wasm_bindgen::closure::Closure::once(Box::new(move |_: wasm_bindgen::JsValue| {
+                if let Some(cb) = success_cb.borrow_mut().take() {
+                    cb();
+                }
+            })
+                as Box<dyn FnOnce(wasm_bindgen::JsValue)>);
+
+        let error_closure =
+            wasm_bindgen::closure::Closure::once(Box::new(move |e: wasm_bindgen::JsValue| {
+                if let Some(cb) = error_cb.borrow_mut().take() {
+                    cb(format!("{:?}", e));
+                }
+            })
+                as Box<dyn FnOnce(wasm_bindgen::JsValue)>);
+
+        let promise = js_sys::Promise::resolve(&clipboard);
+        let _ = promise.then(&success_closure).catch(&error_closure);
+
+        // Attempt write_text if available; ignore if missing.
+        if let Ok(write_fn) = js_sys::Reflect::get(&clipboard, &"writeText".into()) {
+            if let Ok(write_fn) = write_fn.dyn_into::<js_sys::Function>() {
+                let _ = write_fn.call1(&clipboard, &text.into());
+            }
+        }
+
+        success_closure.forget();
+        error_closure.forget();
+    }
+}
+
 /// Error display component with retry functionality
 ///
 /// Enhanced to show:
@@ -114,6 +222,7 @@ fn failure_code_label(code: FailureCode) -> String {
 /// - Error code (if available)
 /// - Failure code badge (if available, color-coded by severity)
 /// - Collapsible details section (if available)
+/// - Copy error action for server/network errors (5xx)
 #[component]
 pub fn ErrorDisplay(
     /// The error to display
@@ -125,6 +234,8 @@ pub fn ErrorDisplay(
     let error_code = error.code().map(|s| s.to_string());
     let error_message = error.to_string();
     let failure_code = error.failure_code();
+    let show_copy_action = is_copyable_error(&error);
+    let error_for_copy = error.clone();
 
     // Extract details if this is a structured error
     let details = match &error {
@@ -134,6 +245,9 @@ pub fn ErrorDisplay(
 
     // Signal for collapsible details state
     let (details_expanded, set_details_expanded) = signal(false);
+
+    // Signal for copy button state
+    let (copy_state, set_copy_state) = signal(CopyState::Idle);
 
     view! {
         <div class="rounded-lg border border-destructive bg-destructive/10 p-4 space-y-3">
@@ -229,33 +343,130 @@ pub fn ErrorDisplay(
                 }
             })}
 
-            {on_retry.map(|retry| view! {
-                <div class="flex justify-end pt-2 border-t border-destructive/20">
-                    <button
-                        class="inline-flex items-center gap-2 text-sm text-destructive hover:text-destructive/80 font-medium"
-                        on:click=move |_| retry.run(())
-                    >
-                        <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            class="h-4 w-4"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                        >
-                            <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
-                            <path d="M21 3v5h-5"/>
-                            <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/>
-                            <path d="M3 21v-5h5"/>
-                        </svg>
-                        "Retry"
-                    </button>
-                </div>
-            })}
+            // Action buttons row (retry + copy error)
+            {move || {
+                let has_retry = on_retry.is_some();
+                let has_copy = show_copy_action;
+
+                if !has_retry && !has_copy {
+                    return None;
+                }
+
+                let error_clone = error_for_copy.clone();
+
+                Some(view! {
+                    <div class="flex justify-end gap-3 pt-2 border-t border-destructive/20">
+                        // Copy error button (for 5xx/network errors)
+                        {has_copy.then(|| {
+                            let error_for_handler = error_clone.clone();
+                            view! {
+                                <button
+                                    class="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground font-medium transition-colors"
+                                    on:click=move |_| {
+                                        let payload = build_error_payload(&error_for_handler);
+                                        set_copy_state.set(CopyState::Copying);
+                                        copy_to_clipboard(
+                                            &payload,
+                                            move || set_copy_state.set(CopyState::Copied),
+                                            move |_| set_copy_state.set(CopyState::Failed),
+                                        );
+                                    }
+                                    disabled=move || matches!(copy_state.get(), CopyState::Copying)
+                                >
+                                    {move || match copy_state.get() {
+                                        CopyState::Idle => view! {
+                                            <svg
+                                                xmlns="http://www.w3.org/2000/svg"
+                                                class="h-4 w-4"
+                                                viewBox="0 0 24 24"
+                                                fill="none"
+                                                stroke="currentColor"
+                                                stroke-width="2"
+                                                stroke-linecap="round"
+                                                stroke-linejoin="round"
+                                            >
+                                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                                                <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+                                            </svg>
+                                            "Copy error"
+                                        }.into_any(),
+                                        CopyState::Copying => view! {
+                                            <Spinner/>
+                                            "Copying..."
+                                        }.into_any(),
+                                        CopyState::Copied => view! {
+                                            <svg
+                                                xmlns="http://www.w3.org/2000/svg"
+                                                class="h-4 w-4 text-success"
+                                                viewBox="0 0 24 24"
+                                                fill="none"
+                                                stroke="currentColor"
+                                                stroke-width="2"
+                                                stroke-linecap="round"
+                                                stroke-linejoin="round"
+                                            >
+                                                <polyline points="20 6 9 17 4 12"/>
+                                            </svg>
+                                            "Copied!"
+                                        }.into_any(),
+                                        CopyState::Failed => view! {
+                                            <svg
+                                                xmlns="http://www.w3.org/2000/svg"
+                                                class="h-4 w-4 text-destructive"
+                                                viewBox="0 0 24 24"
+                                                fill="none"
+                                                stroke="currentColor"
+                                                stroke-width="2"
+                                            >
+                                                <circle cx="12" cy="12" r="10"/>
+                                                <line x1="15" y1="9" x2="9" y2="15"/>
+                                                <line x1="9" y1="9" x2="15" y2="15"/>
+                                            </svg>
+                                            "Copy failed"
+                                        }.into_any(),
+                                    }}
+                                </button>
+                            }
+                        })}
+
+                        // Retry button
+                        {on_retry.map(|retry| view! {
+                            <button
+                                class="inline-flex items-center gap-2 text-sm text-destructive hover:text-destructive/80 font-medium"
+                                on:click=move |_| retry.run(())
+                            >
+                                <svg
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    class="h-4 w-4"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    stroke-width="2"
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                >
+                                    <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
+                                    <path d="M21 3v5h-5"/>
+                                    <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/>
+                                    <path d="M3 21v-5h5"/>
+                                </svg>
+                                "Retry"
+                            </button>
+                        })}
+                    </div>
+                })
+            }}
         </div>
     }
+}
+
+/// Copy button state
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum CopyState {
+    Idle,
+    Copying,
+    Copied,
+    Failed,
 }
 
 /// Empty state variants for different contexts
