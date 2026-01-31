@@ -1274,6 +1274,7 @@ impl ApiClient {
     pub async fn upload_dataset(
         &self,
         form_data: &web_sys::FormData,
+        idempotency_key: Option<&str>,
     ) -> ApiResult<adapteros_api_types::UploadDatasetResponse> {
         use wasm_bindgen::JsCast;
         use wasm_bindgen_futures::JsFuture;
@@ -1290,6 +1291,18 @@ impl ApiClient {
             headers
                 .set("Authorization", &format!("Bearer {}", token))
                 .map_err(|_| ApiError::Network("Failed to set Authorization header".into()))?;
+        }
+        if let Some(key) = idempotency_key.and_then(|value| {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
+        }) {
+            headers
+                .set("Idempotency-Key", key)
+                .map_err(|_| ApiError::Network("Failed to set Idempotency-Key header".into()))?;
         }
         opts.set_headers(&headers);
 

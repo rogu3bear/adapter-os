@@ -6,13 +6,16 @@ use crate::api::client::{ChunkListResponse, DocumentListParams, DocumentResponse
 use crate::api::ApiClient;
 use crate::components::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ConfirmationDialog,
-    ConfirmationSeverity, Link, LinkVariant, Select, Spinner, Table, TableBody, TableCell,
+    ConfirmationSeverity, Dialog, Link, LinkVariant, Select, Spinner, Table, TableBody, TableCell,
     TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use leptos::prelude::*;
-use leptos_router::hooks::use_params_map;
+use leptos_router::hooks::{use_navigate, use_params_map};
 use std::sync::Arc;
+
+#[cfg(target_arch = "wasm32")]
+use send_wrapper::SendWrapper;
 
 /// Format file size for display
 fn format_file_size(bytes: i64) -> String {
@@ -48,6 +51,8 @@ pub fn Documents() -> impl IntoView {
     let status_filter = RwSignal::new(String::new());
     let (current_page, set_current_page) = signal(1u32);
     let (refetch_trigger, set_refetch_trigger) = signal(0u32);
+    let show_upload_dialog = RwSignal::new(false);
+    let navigate = use_navigate();
 
     let refetch = move || set_refetch_trigger.update(|t| *t += 1);
 
@@ -102,6 +107,12 @@ pub fn Documents() -> impl IntoView {
                     >
                         "Refresh"
                     </Button>
+                    <Button
+                        variant=ButtonVariant::Primary
+                        on_click=Callback::new(move |_| show_upload_dialog.set(true))
+                    >
+                        "Upload Document"
+                    </Button>
                 </div>
             </div>
 
@@ -118,7 +129,10 @@ pub fn Documents() -> impl IntoView {
                         let total_pages = data.pages;
                         let current = current_page.get();
                         view! {
-                            <DocumentsList documents=data.data.clone()/>
+                            <DocumentsList
+                                documents=data.data.clone()
+                                on_upload=Callback::new(move |_| show_upload_dialog.set(true))
+                            />
 
                             // Pagination
                             {if total_pages > 1 {
@@ -159,20 +173,42 @@ pub fn Documents() -> impl IntoView {
                     }
                 }
             }}
+
+            <DocumentUploadDialog
+                open=show_upload_dialog
+                on_success=Callback::new({
+                    let refetch = refetch.clone();
+                    move |doc_id| {
+                        refetch();
+                        navigate(&format!("/documents/{}", doc_id), Default::default());
+                    }
+                })
+            />
         </div>
     }
 }
 
 #[component]
-fn DocumentsList(documents: Vec<DocumentResponse>) -> impl IntoView {
+fn DocumentsList(
+    documents: Vec<DocumentResponse>,
+    on_upload: Callback<()>,
+) -> impl IntoView {
     if documents.is_empty() {
         return view! {
             <Card>
                 <div class="py-8 text-center">
                     <p class="text-muted-foreground">"No documents found"</p>
                     <p class="text-sm text-muted-foreground mt-2">
-                        "Upload documents via the API to get started"
+                        "Upload documents to begin indexing for RAG."
                     </p>
+                    <div class="mt-4 flex justify-center">
+                        <Button
+                            variant=ButtonVariant::Primary
+                            on_click=Callback::new(move |_| on_upload.run(()))
+                        >
+                            "Upload Document"
+                        </Button>
+                    </div>
                 </div>
             </Card>
         }
@@ -207,6 +243,7 @@ fn DocumentsList(documents: Vec<DocumentResponse>) -> impl IntoView {
                             let chunks = doc.chunk_count.map(|c| c.to_string()).unwrap_or_else(|| "-".to_string());
                             let mime = doc.mime_type.clone();
                             let created = doc.created_at.clone();
+                            let error = doc.error_message.clone();
 
                             view! {
                                 <TableRow>
@@ -219,9 +256,21 @@ fn DocumentsList(documents: Vec<DocumentResponse>) -> impl IntoView {
                                         </a>
                                     </TableCell>
                                     <TableCell>
-                                        <Badge variant=status_variant>
-                                            {status}
-                                        </Badge>
+                                        <div class="space-y-1">
+                                            <Badge variant=status_variant>
+                                                {status}
+                                            </Badge>
+                                            {error
+                                                .clone()
+                                                .filter(|err| !err.is_empty())
+                                                .map(|err| {
+                                                    view! {
+                                                        <div class="text-xs text-destructive line-clamp-1" title=err.clone()>
+                                                            {err}
+                                                        </div>
+                                                    }
+                                                })}
+                                        </div>
                                     </TableCell>
                                     <TableCell>
                                         <span class="text-muted-foreground">{size}</span>
@@ -252,6 +301,201 @@ fn DocumentsList(documents: Vec<DocumentResponse>) -> impl IntoView {
         </Card>
     }
     .into_any()
+}
+
+/// Document upload dialog with validation and progress.
+#[component]
+fn DocumentUploadDialog(
+    open: RwSignal<bool>,
+    on_success: Callback<String>,
+) -> impl IntoView {
+    const MAX_FILE_SIZE: u64 = 50 * 1024 * 1024;
+
+    #[cfg(target_arch = "wasm32")]
+    const SUPPORTED_EXTENSIONS: &[&str] = &[".pdf", ".txt", ".md", ".html", ".json", ".jsonl"];
+
+    let uploading = RwSignal::new(false);
+    let error_msg = RwSignal::new(None::<String>);
+    let selected_file_name = RwSignal::new(None::<String>);
+    let selected_file_size = RwSignal::new(None::<u64>);
+    let upload_status = RwSignal::new(None::<String>);
+    let uploaded_status = RwSignal::new(None::<String>);
+
+    #[cfg(target_arch = "wasm32")]
+    let file_ref: RwSignal<Option<SendWrapper<web_sys::File>>> = RwSignal::new(None);
+
+    // Reset state when dialog closes
+    Effect::new(move || {
+        if !open.get() {
+            uploading.set(false);
+            error_msg.set(None);
+            selected_file_name.set(None);
+            selected_file_size.set(None);
+            upload_status.set(None);
+            uploaded_status.set(None);
+            #[cfg(target_arch = "wasm32")]
+            file_ref.set(None);
+        }
+    });
+
+    #[cfg(target_arch = "wasm32")]
+    let handle_file_change = {
+        move |ev: web_sys::Event| {
+            use wasm_bindgen::JsCast;
+            let Some(input) = ev
+                .target()
+                .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok())
+            else {
+                return;
+            };
+            let Some(files) = input.files() else {
+                return;
+            };
+            if let Some(file) = files.get(0) {
+                let size = file.size() as u64;
+                let name = file.name();
+                let name_lower = name.to_lowercase();
+
+                if size > MAX_FILE_SIZE {
+                    error_msg.set(Some(format!(
+                        "File too large. Maximum size is {} MB.",
+                        MAX_FILE_SIZE / 1024 / 1024
+                    )));
+                    selected_file_name.set(None);
+                    selected_file_size.set(None);
+                    file_ref.set(None);
+                    return;
+                }
+
+                let ext_ok = SUPPORTED_EXTENSIONS
+                    .iter()
+                    .any(|ext| name_lower.ends_with(ext));
+                if !ext_ok {
+                    error_msg.set(Some(format!(
+                        "Unsupported file type. Supported: {}",
+                        SUPPORTED_EXTENSIONS.join(", ")
+                    )));
+                    selected_file_name.set(None);
+                    selected_file_size.set(None);
+                    file_ref.set(None);
+                    return;
+                }
+
+                error_msg.set(None);
+                selected_file_name.set(Some(name));
+                selected_file_size.set(Some(size));
+                file_ref.set(Some(SendWrapper::new(file)));
+            }
+        }
+    };
+
+    #[cfg(not(target_arch = "wasm32"))]
+    let handle_file_change = |_ev: web_sys::Event| {};
+
+    let handle_upload = Callback::new(move |_| {
+        #[cfg(target_arch = "wasm32")]
+        {
+            let Some(file_wrapper) = file_ref.get() else {
+                error_msg.set(Some("Please select a file first.".into()));
+                return;
+            };
+            uploading.set(true);
+            error_msg.set(None);
+            upload_status.set(Some("Uploading document...".into()));
+            uploaded_status.set(None);
+
+            let file = file_wrapper.take();
+            let on_success = on_success.clone();
+            let open = open;
+
+            wasm_bindgen_futures::spawn_local(async move {
+                let client = ApiClient::new();
+                match client.upload_document(&file).await {
+                    Ok(response) => {
+                        upload_status.set(Some("Upload complete. Indexing started.".into()));
+                        uploaded_status.set(Some(response.status.clone()));
+                        uploading.set(false);
+                        open.set(false);
+                        on_success.run(response.document_id);
+                    }
+                    Err(e) => {
+                        error_msg.set(Some(e.to_string()));
+                        upload_status.set(None);
+                        uploading.set(false);
+                    }
+                }
+            });
+        }
+    });
+
+    let upload_disabled = Signal::derive(move || uploading.get() || selected_file_name.get().is_none());
+
+    view! {
+        <Dialog
+            open=open
+            title="Upload Document"
+            description="Upload a document to index for RAG retrieval."
+        >
+            <div class="space-y-4 py-2">
+                <div class="space-y-2">
+                    <label class="text-sm font-medium">"File"</label>
+                    <input
+                        type="file"
+                        accept=".pdf,.txt,.md,.html,.json,.jsonl"
+                        class="block w-full text-sm"
+                        disabled=move || uploading.get()
+                        on:change=handle_file_change
+                    />
+                    <p class="text-xs text-muted-foreground">
+                        "Supported: PDF, TXT, Markdown, HTML, JSON, JSONL · Max 50 MB"
+                    </p>
+                    {move || selected_file_name.get().map(|name| {
+                        let size = selected_file_size.get().unwrap_or_default();
+                        view! {
+                            <div class="text-sm text-muted-foreground">
+                                {name} " · " {format_file_size(size as i64)}
+                            </div>
+                        }
+                    })}
+                </div>
+
+                {move || upload_status.get().map(|status| view! {
+                    <div class="text-sm text-muted-foreground">{status}</div>
+                })}
+
+                {move || uploaded_status.get().map(|status| view! {
+                    <div class="flex items-center gap-2 text-sm">
+                        <span class="text-muted-foreground">"Indexing Status"</span>
+                        <Badge variant=status_badge_variant(&status)>{status}</Badge>
+                    </div>
+                })}
+
+                {move || error_msg.get().map(|err| view! {
+                    <div class="rounded-md border border-destructive bg-destructive/10 p-3 text-sm text-destructive">
+                        {err}
+                    </div>
+                })}
+            </div>
+
+            <div class="flex justify-end gap-2">
+                <Button
+                    variant=ButtonVariant::Outline
+                    on_click=Callback::new(move |_| open.set(false))
+                    disabled=Signal::derive(move || uploading.get())
+                >
+                    "Cancel"
+                </Button>
+                <Button
+                    variant=ButtonVariant::Primary
+                    loading=Signal::derive(move || uploading.get())
+                    disabled=upload_disabled
+                    on_click=Some(handle_upload)
+                >
+                    "Upload"
+                </Button>
+            </div>
+        </Dialog>
+    }
 }
 
 /// Document detail page

@@ -3,13 +3,14 @@
 //! Provides UI for managing training datasets - listing, viewing,
 //! and deleting datasets used for adapter training.
 
-use crate::api::{ApiClient, DatasetListResponse};
+use crate::api::{ApiClient, DatasetListResponse, DatasetVersionsResponse};
 use crate::components::{
     Badge, BadgeVariant, Button, ButtonVariant, Card, ConfirmationDialog, ConfirmationSeverity,
     EmptyState, ErrorDisplay, LoadingDisplay, PageHeader, RefreshButton, Spinner, Table, TableBody,
     TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api, use_api_resource, LoadingState};
+use crate::pages::training::dataset_wizard::{DatasetUploadOutcome, DatasetUploadWizard};
 use leptos::prelude::*;
 use leptos_router::hooks::{use_navigate, use_params_map};
 use std::sync::Arc;
@@ -21,6 +22,8 @@ pub fn Datasets() -> impl IntoView {
         use_api_resource(|client: Arc<ApiClient>| async move { client.list_datasets(None).await });
 
     let refetch_trigger = RwSignal::new(0u32);
+    let show_upload_dialog = RwSignal::new(false);
+    let navigate = use_navigate();
 
     // Call refetch when trigger changes
     Effect::new(move |_| {
@@ -32,6 +35,12 @@ pub fn Datasets() -> impl IntoView {
         refetch_trigger.update(|n| *n = n.wrapping_add(1));
     };
 
+    let on_upload = Callback::new(move |_| show_upload_dialog.set(true));
+    let on_dataset_uploaded = Callback::new(move |outcome: DatasetUploadOutcome| {
+        refetch_trigger.update(|n| *n = n.wrapping_add(1));
+        navigate(&format!("/datasets/{}", outcome.dataset_id), Default::default());
+    });
+
     view! {
         <div class="space-y-6">
             <PageHeader
@@ -39,6 +48,12 @@ pub fn Datasets() -> impl IntoView {
                 subtitle="Manage training datasets for adapter fine-tuning"
             >
                 <RefreshButton on_click=Callback::new(move |_| trigger_refresh())/>
+                <Button
+                    variant=ButtonVariant::Primary
+                    on_click=Callback::new(move |_| show_upload_dialog.set(true))
+                >
+                    "Upload Dataset"
+                </Button>
             </PageHeader>
 
             {move || {
@@ -47,7 +62,13 @@ pub fn Datasets() -> impl IntoView {
                         view! { <LoadingDisplay message="Loading datasets..."/> }.into_any()
                     }
                     LoadingState::Loaded(data) => {
-                        view! { <DatasetsList datasets=data refetch_trigger=refetch_trigger/> }.into_any()
+                        view! {
+                            <DatasetsList
+                                datasets=data
+                                refetch_trigger=refetch_trigger
+                                on_upload=on_upload
+                            />
+                        }.into_any()
                     }
                     LoadingState::Error(e) => {
                         view! {
@@ -59,27 +80,32 @@ pub fn Datasets() -> impl IntoView {
                     }
                 }
             }}
+
+            <DatasetUploadWizard
+                open=show_upload_dialog
+                on_complete=on_dataset_uploaded
+            />
         </div>
     }
 }
 
 /// List of datasets component
 #[component]
-fn DatasetsList(datasets: DatasetListResponse, refetch_trigger: RwSignal<u32>) -> impl IntoView {
+fn DatasetsList(
+    datasets: DatasetListResponse,
+    refetch_trigger: RwSignal<u32>,
+    on_upload: Callback<()>,
+) -> impl IntoView {
     if datasets.datasets.is_empty() {
         return view! {
             <Card>
                 <EmptyState
                     title="No datasets"
-                    description="Datasets are created from documents. Upload documents first, then create a dataset for training."
-                    action_label="Upload Documents"
-                    on_action=Callback::new(|_| {
-                        if let Some(window) = web_sys::window() {
-                            let _ = window.location().set_href("/documents");
-                        }
-                    })
-                    secondary_label="Learn about Datasets"
-                    secondary_href="/docs/datasets"
+                    description="Upload a dataset directly or generate one from documents."
+                    action_label="Upload Dataset"
+                    on_action=Callback::new(move |_| on_upload.run(()))
+                    secondary_label="Upload Documents"
+                    secondary_href="/documents"
                 />
             </Card>
         }
@@ -166,6 +192,8 @@ fn DatasetsList(datasets: DatasetListResponse, refetch_trigger: RwSignal<u32>) -
                             "failed" | "error" => BadgeVariant::Destructive,
                             _ => BadgeVariant::Secondary,
                         };
+                        let validation_status = dataset.validation_status.clone();
+                        let validation_errors = dataset.validation_errors.clone();
 
                         let size_display = dataset
                             .total_size_bytes
@@ -198,7 +226,34 @@ fn DatasetsList(datasets: DatasetListResponse, refetch_trigger: RwSignal<u32>) -
                                     <span class="text-sm text-muted-foreground">{dataset.format.clone()}</span>
                                 </TableCell>
                                 <TableCell>
-                                    <Badge variant=status_variant>{dataset.status.clone()}</Badge>
+                                    <div class="space-y-1">
+                                        <Badge variant=status_variant>{dataset.status.clone()}</Badge>
+                                        {validation_status.clone().map(|status| {
+                                            let variant = match status.as_str() {
+                                                "valid" | "ready" => BadgeVariant::Success,
+                                                "invalid" | "failed" => BadgeVariant::Destructive,
+                                                "pending" | "processing" => BadgeVariant::Warning,
+                                                _ => BadgeVariant::Secondary,
+                                            };
+                                            view! {
+                                                <div class="text-xs text-muted-foreground">
+                                                    "Validation: "
+                                                    <Badge variant=variant>{status}</Badge>
+                                                </div>
+                                            }
+                                        })}
+                                        {validation_errors
+                                            .as_ref()
+                                            .map(|errs| errs.len())
+                                            .filter(|count| *count > 0)
+                                            .map(|count| {
+                                                view! {
+                                                    <div class="text-xs text-destructive">
+                                                        {format!("{} validation error(s)", count)}
+                                                    </div>
+                                                }
+                                            })}
+                                    </div>
                                 </TableCell>
                                 <TableCell>
                                     <span class="text-sm">{size_display}</span>
@@ -267,15 +322,21 @@ pub fn DatasetDetail() -> impl IntoView {
         let id = dataset_id();
         async move { client.get_dataset_statistics(&id).await }
     });
+    let (versions, versions_refetch) = use_api_resource(move |client: Arc<ApiClient>| {
+        let id = dataset_id();
+        async move { client.list_dataset_versions(&id).await }
+    });
 
     let refetch_trigger = RwSignal::new(0u32);
     let refetch_stored = StoredValue::new(refetch);
     let stats_refetch_stored = StoredValue::new(stats_refetch);
+    let versions_refetch_stored = StoredValue::new(versions_refetch);
 
     Effect::new(move |_| {
         let _ = refetch_trigger.get();
         refetch_stored.with_value(|f| f.run(()));
         stats_refetch_stored.with_value(|f| f.run(()));
+        versions_refetch_stored.with_value(|f| f.run(()));
     });
 
     let trigger_refresh = move || {
@@ -325,6 +386,10 @@ pub fn DatasetDetail() -> impl IntoView {
                     }
                     LoadingState::Loaded(data) => {
                         let validation_diagnostics = data.validation_diagnostics.clone();
+                        let validation_errors = data.validation_errors.clone();
+                        let validation_status = data.validation_status.clone();
+                        let trust_state = data.trust_state.clone();
+                        let current_version_id = data.dataset_version_id.clone();
 
                         view! {
                             <PageHeader
@@ -375,6 +440,46 @@ pub fn DatasetDetail() -> impl IntoView {
                                                 }>{data.status.clone()}</Badge>
                                             </dd>
                                         </div>
+                                        {validation_status.as_ref().map(|status| {
+                                            let variant = validation_badge_variant(status);
+                                            view! {
+                                                <div class="flex justify-between">
+                                                    <dt class="text-muted-foreground">"Validation"</dt>
+                                                    <dd>
+                                                        <Badge variant=variant>{status.clone()}</Badge>
+                                                    </dd>
+                                                </div>
+                                            }
+                                        })}
+                                        {validation_errors
+                                            .as_ref()
+                                            .map(|errs| errs.len())
+                                            .filter(|count| *count > 0)
+                                            .map(|count| {
+                                                view! {
+                                                    <div class="flex justify-between">
+                                                        <dt class="text-muted-foreground">"Validation Errors"</dt>
+                                                        <dd class="text-destructive">{count.to_string()}</dd>
+                                                    </div>
+                                                }
+                                            })}
+                                        {trust_state.as_ref().map(|state| {
+                                            let variant = trust_state_badge_variant(state);
+                                            view! {
+                                                <div class="flex justify-between">
+                                                    <dt class="text-muted-foreground">"Trust State"</dt>
+                                                    <dd>
+                                                        <Badge variant=variant>{state.clone()}</Badge>
+                                                    </dd>
+                                                </div>
+                                            }
+                                        })}
+                                        {current_version_id.as_ref().map(|version| view! {
+                                            <div class="flex justify-between">
+                                                <dt class="text-muted-foreground">"Current Version"</dt>
+                                                <dd class="font-mono text-xs truncate max-w-48">{version.clone()}</dd>
+                                            </div>
+                                        })}
                                         <div class="flex justify-between">
                                             <dt class="text-muted-foreground">"File Count"</dt>
                                             <dd>{data.file_count.unwrap_or(0)}</dd>
@@ -433,6 +538,123 @@ pub fn DatasetDetail() -> impl IntoView {
                                     }}
                                 </Card>
                             </div>
+
+                            {validation_errors.and_then(|errors| {
+                                if errors.is_empty() {
+                                    None
+                                } else {
+                                    Some(view! {
+                                        <Card>
+                                            <h3 class="text-lg font-semibold mb-4">"Validation Errors"</h3>
+                                            <ul class="space-y-2 text-sm text-destructive">
+                                                {errors.into_iter().map(|err| {
+                                                    view! { <li>{err}</li> }
+                                                }).collect_view()}
+                                            </ul>
+                                        </Card>
+                                    })
+                                }
+                            })}
+
+                            <Card>
+                                <h3 class="text-lg font-semibold mb-4">"Versions"</h3>
+                                {move || match versions.get() {
+                                    LoadingState::Idle | LoadingState::Loading => {
+                                        view! { <div class="flex justify-center py-4"><Spinner/></div> }.into_any()
+                                    }
+                                    LoadingState::Loaded(DatasetVersionsResponse { versions, .. }) => {
+                                        if versions.is_empty() {
+                                            view! {
+                                                <p class="text-sm text-muted-foreground">"No dataset versions found."</p>
+                                            }.into_any()
+                                        } else {
+                                            view! {
+                                                <Table>
+                                                    <TableHeader>
+                                                        <TableRow>
+                                                            <TableHead>"Version"</TableHead>
+                                                            <TableHead>"Label"</TableHead>
+                                                            <TableHead>"Trust"</TableHead>
+                                                            <TableHead>"Hash"</TableHead>
+                                                            <TableHead>"Created"</TableHead>
+                                                        </TableRow>
+                                                    </TableHeader>
+                                                    <TableBody>
+                                                        {versions.into_iter().map(|version| {
+                                                            let trust_state = version.trust_state.clone().unwrap_or_else(|| "unknown".to_string());
+                                                            let trust_variant = trust_state_badge_variant(&trust_state);
+                                                            let hash = version
+                                                                .hash_b3
+                                                                .clone()
+                                                                .map(|h| h.chars().take(10).collect::<String>())
+                                                                .unwrap_or_else(|| "—".to_string());
+                                                            view! {
+                                                                <TableRow>
+                                                                    <TableCell>
+                                                                        <div class="space-y-1">
+                                                                            <div class="font-medium">
+                                                                                {"v"}{version.version_number.to_string()}
+                                                                            </div>
+                                                                            <div class="text-xs text-muted-foreground font-mono truncate max-w-xs">
+                                                                                {version.dataset_version_id.clone()}
+                                                                            </div>
+                                                                            {version.repo_slug.clone().map(|slug| view! {
+                                                                                <div class="text-xs text-muted-foreground truncate">{slug}</div>
+                                                                            })}
+                                                                        </div>
+                                                                    </TableCell>
+                                                                    <TableCell>
+                                                                        <span class="text-sm text-muted-foreground">
+                                                                            {version.version_label.clone().unwrap_or_else(|| "—".to_string())}
+                                                                        </span>
+                                                                    </TableCell>
+                                                                    <TableCell>
+                                                                        <Badge variant=trust_variant>{trust_state}</Badge>
+                                                                    </TableCell>
+                                                                    <TableCell>
+                                                                        <span class="font-mono text-xs text-muted-foreground">{hash}</span>
+                                                                    </TableCell>
+                                                                    <TableCell>
+                                                                        <span class="text-sm text-muted-foreground">
+                                                                            {format_date(&version.created_at)}
+                                                                        </span>
+                                                                    </TableCell>
+                                                                </TableRow>
+                                                            }
+                                                        }).collect::<Vec<_>>()}
+                                                    </TableBody>
+                                                </Table>
+                                            }.into_any()
+                                        }
+                                    }
+                                    LoadingState::Error(_) => {
+                                        view! {
+                                            <p class="text-sm text-muted-foreground">"Versions unavailable"</p>
+                                        }.into_any()
+                                    }
+                                }}
+                            </Card>
+
+                            {move || {
+                                match versions.get() {
+                                    LoadingState::Loaded(DatasetVersionsResponse { versions, .. }) => {
+                                        versions.first().map(|latest| {
+                                            view! {
+                                                <Card>
+                                                    <h3 class="text-lg font-semibold mb-4">"Usage"</h3>
+                                                    <p class="text-sm text-muted-foreground mb-3">
+                                                        "Use a dataset version ID in inference or training to pin the exact data snapshot."
+                                                    </p>
+                                                    <div class="rounded-md bg-muted p-3 font-mono text-sm break-all">
+                                                        {format!("dataset_version_id: \"{}\"", latest.dataset_version_id)}
+                                                    </div>
+                                                </Card>
+                                            }.into_any()
+                                        })
+                                    }
+                                    _ => None,
+                                }
+                            }}
 
                             {validation_diagnostics.map(|diagnostics| view! {
                                 <Card>
@@ -520,4 +742,22 @@ fn format_bytes(bytes: i64) -> String {
 fn format_date(date_str: &str) -> String {
     // Just show the date part for now
     date_str.split('T').next().unwrap_or(date_str).to_string()
+}
+
+fn validation_badge_variant(status: &str) -> BadgeVariant {
+    match status {
+        "valid" | "ready" => BadgeVariant::Success,
+        "invalid" | "failed" => BadgeVariant::Destructive,
+        "pending" | "processing" => BadgeVariant::Warning,
+        _ => BadgeVariant::Secondary,
+    }
+}
+
+fn trust_state_badge_variant(state: &str) -> BadgeVariant {
+    match state {
+        "allowed" | "trusted" | "approved" => BadgeVariant::Success,
+        "needs_approval" | "pending" => BadgeVariant::Warning,
+        "blocked" | "rejected" => BadgeVariant::Destructive,
+        _ => BadgeVariant::Secondary,
+    }
 }
