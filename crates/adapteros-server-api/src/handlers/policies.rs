@@ -2,6 +2,7 @@ use crate::auth::Claims;
 use crate::state::AppState;
 use crate::types::*;
 use adapteros_db::users::Role;
+use adapteros_policy::validation::validate_customization;
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -136,34 +137,10 @@ pub async fn validate_policy(
         crate::permissions::Permission::PolicyValidate,
     )?;
 
-    // Basic JSON validation
-    let result = match serde_json::from_str::<serde_json::Value>(&req.content) {
-        Ok(_) => {
-            // Audit log: policy validation success
-            // Use content hash as identifier since ValidatePolicyRequest doesn't have cpid
-            let content_hash = adapteros_core::B3Hash::hash(req.content.as_bytes()).to_string();
-            if let Err(e) = crate::audit_helper::log_success(
-                &state.db,
-                &claims,
-                crate::audit_helper::actions::POLICY_VALIDATE,
-                crate::audit_helper::resources::POLICY,
-                Some(&content_hash),
-            )
-            .await
-            {
-                tracing::warn!(error = %e, "Audit log failed");
-            }
-
-            Json(PolicyValidationResponse {
-                valid: true,
-                errors: vec![],
-                hash_b3: Some(content_hash),
-            })
-        }
+    let content_hash = adapteros_core::B3Hash::hash(req.content.as_bytes()).to_string();
+    let parsed = match serde_json::from_str::<serde_json::Value>(&req.content) {
+        Ok(value) => value,
         Err(e) => {
-            // Audit log: policy validation failure
-            // Use content hash as identifier since ValidatePolicyRequest doesn't have cpid
-            let content_hash = adapteros_core::B3Hash::hash(req.content.as_bytes()).to_string();
             if let Err(audit_err) = crate::audit_helper::log_failure(
                 &state.db,
                 &claims,
@@ -177,15 +154,98 @@ pub async fn validate_policy(
                 tracing::warn!(error = %audit_err, "Audit log failed");
             }
 
-            Json(PolicyValidationResponse {
+            return Ok(Json(PolicyValidationResponse {
                 valid: false,
                 errors: vec![format!("Invalid JSON: {}", e)],
                 hash_b3: None,
-            })
+            }));
         }
     };
 
-    Ok(result)
+    let mut errors = Vec::new();
+
+    let root = parsed.as_object();
+    if root.is_none() {
+        errors.push("Policy must be a JSON object".to_string());
+    }
+
+    if let Some(root) = root {
+        if let Some(schema) = root.get("schema") {
+            if schema != "adapteros.policy.v1" {
+                errors
+                    .push("Invalid policy schema version (expected adapteros.policy.v1)".to_string());
+            }
+        } else {
+            errors.push("Missing policy schema version".to_string());
+        }
+    }
+
+    let packs = root.and_then(|root| root.get("packs"));
+    match packs.and_then(|p| p.as_object()) {
+        Some(packs_obj) => {
+            for (pack_name, pack_value) in packs_obj {
+                let pack_json = match serde_json::to_string(pack_value) {
+                    Ok(json) => json,
+                    Err(e) => {
+                        errors.push(format!("pack {}: failed to serialize: {}", pack_name, e));
+                        continue;
+                    }
+                };
+
+                match validate_customization(pack_name, &pack_json) {
+                    Ok(result) => {
+                        for err in result.errors {
+                            errors.push(format!("pack {}: {}", pack_name, err));
+                        }
+                        for warn in result.warnings {
+                            tracing::warn!(
+                                pack = %pack_name,
+                                warning = %warn,
+                                "Policy validation warning"
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        errors.push(format!("pack {}: {}", pack_name, e));
+                    }
+                }
+            }
+        }
+        None => errors.push("Missing or invalid packs object".to_string()),
+    }
+
+    let valid = errors.is_empty();
+
+    if valid {
+        if let Err(e) = crate::audit_helper::log_success(
+            &state.db,
+            &claims,
+            crate::audit_helper::actions::POLICY_VALIDATE,
+            crate::audit_helper::resources::POLICY,
+            Some(&content_hash),
+        )
+        .await
+        {
+            tracing::warn!(error = %e, "Audit log failed");
+        }
+    } else if let Err(audit_err) = crate::audit_helper::log_failure(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::POLICY_VALIDATE,
+        crate::audit_helper::resources::POLICY,
+        Some(&content_hash),
+        &format!("Validation failed: {}", errors.join("; ")),
+    )
+    .await
+    {
+        tracing::warn!(error = %audit_err, "Audit log failed");
+    }
+
+    Ok(Json(PolicyValidationResponse {
+        valid,
+        errors,
+        hash_b3: valid.then_some(content_hash),
+    }))
 }
 
 /// Apply policy
