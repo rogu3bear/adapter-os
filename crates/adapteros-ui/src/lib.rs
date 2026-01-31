@@ -42,6 +42,7 @@ use leptos_router::components::*;
 use leptos_router::path;
 
 use crate::api::ApiClient;
+use crate::contexts::InFlightProvider;
 use components::{AuthProvider, CommandPalette, ProtectedRoute, Shell};
 use signals::{
     provide_chat_context, provide_notifications_context, provide_refetch_context,
@@ -171,6 +172,7 @@ pub fn App() -> impl IntoView {
                     <SearchProvider>
                         <ChatProvider>
                             <RefetchProvider>
+                                <InFlightProvider>
                                 <Router>
                             <Routes fallback=|| view! { <pages::NotFound/> }>
                         <Route path=path!("/login") view=pages::Login/>
@@ -218,6 +220,7 @@ pub fn App() -> impl IntoView {
                             // Global Command Palette overlay
                             <CommandPalette/>
                                 </Router>
+                                </InFlightProvider>
                             </RefetchProvider>
                         </ChatProvider>
                     </SearchProvider>
