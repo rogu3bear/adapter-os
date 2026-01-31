@@ -131,10 +131,12 @@ pub mod telemetry_bundles;
 pub mod tenant_management;
 
 // Re-export new handler modules
-pub use directory_adapters::upsert_directory_adapter;
+pub use directory_adapters::{__path_upsert_directory_adapter, upsert_directory_adapter};
 pub use plans::{
-    build_plan, compare_plans, export_plan_manifest, get_plan_details, list_plans, promotion_gates,
-    rebuild_plan, ListPlansQuery,
+    __path_build_plan, __path_compare_plans, __path_export_plan_manifest, __path_get_plan_details,
+    __path_list_plans, __path_promotion_gates, __path_rebuild_plan, build_plan, compare_plans,
+    export_plan_manifest, get_plan_details, list_plans, promotion_gates, rebuild_plan,
+    ListPlansQuery,
 };
 pub use streams::{
     adapter_state_stream, alerts_stream, anomalies_stream, dashboard_metrics_stream,
@@ -142,36 +144,47 @@ pub use streams::{
     training_stream, StreamQuery,
 };
 pub use telemetry_bundles::{
-    export_telemetry_bundle, list_telemetry_bundles, purge_old_bundles, verify_bundle_signature,
+    __path_export_telemetry_bundle, __path_list_telemetry_bundles, __path_purge_old_bundles,
+    __path_verify_bundle_signature, export_telemetry_bundle, list_telemetry_bundles,
+    purge_old_bundles, verify_bundle_signature,
 };
 pub use tenant_management::{
-    __path_get_tenant_index_hashes, __path_get_uma_memory, __path_hydrate_tenant_from_bundle,
-    archive_tenant, assign_tenant_adapters, get_tenant_index_hashes, get_tenant_usage,
-    get_uma_memory, hydrate_tenant_from_bundle, pause_tenant, update_tenant, HydrateTenantRequest,
-    IndexHashesResponse, TenantHydrationResponse, UmaMemoryResponse,
+    __path_assign_tenant_adapters, __path_get_tenant_index_hashes, __path_get_uma_memory,
+    __path_hydrate_tenant_from_bundle, archive_tenant, assign_tenant_adapters,
+    get_tenant_index_hashes, get_tenant_usage, get_uma_memory, hydrate_tenant_from_bundle,
+    pause_tenant, update_tenant, HydrateTenantRequest, IndexHashesResponse,
+    TenantHydrationResponse, UmaMemoryResponse,
 };
 
 // Re-export specialized adapter repository and validation handlers/types.
 #[allow(deprecated)]
 pub use adapters_read::list_repositories_legacy;
 pub use adapters_read::{
-    create_adapter_repository, get_adapter_repository, get_adapter_repository_policy,
-    list_adapter_repositories, upsert_adapter_repository_policy, ListAdapterRepositoriesParams,
+    __path_create_adapter_repository, __path_get_adapter_repository,
+    __path_get_adapter_repository_policy, __path_list_adapter_repositories,
+    __path_upsert_adapter_repository_policy, create_adapter_repository, get_adapter_repository,
+    get_adapter_repository_policy, list_adapter_repositories, upsert_adapter_repository_policy,
+    ListAdapterRepositoriesParams,
 };
 pub use validation::{
-    validate_adapter_name, validate_stack_name, NameViolationResponse, ParsedAdapterName,
-    ParsedStackName, ValidateAdapterNameRequest, ValidateAdapterNameResponse,
-    ValidateStackNameRequest, ValidateStackNameResponse,
+    __path_validate_adapter_name, __path_validate_stack_name, validate_adapter_name,
+    validate_stack_name, NameViolationResponse, ParsedAdapterName, ParsedStackName,
+    ValidateAdapterNameRequest, ValidateAdapterNameResponse, ValidateStackNameRequest,
+    ValidateStackNameResponse,
 };
 
 // Re-export adapter lifecycle functions
 pub use adapter_lifecycle::{
-    __path_load_adapter, __path_promote_adapter_state, __path_unload_adapter,
-    download_adapter_manifest, load_adapter, promote_adapter_state, unload_adapter,
+    __path_download_adapter_manifest, __path_load_adapter, __path_promote_adapter_state,
+    __path_unload_adapter, download_adapter_manifest, load_adapter, promote_adapter_state,
+    unload_adapter,
 };
 
 // Re-export adapter version management functions
 pub use adapter_versions::{
+    __path_create_draft_version, __path_get_adapter_version, __path_list_adapter_versions,
+    __path_promote_adapter_version_handler, __path_resolve_adapter_version_handler,
+    __path_rollback_adapter_version_handler, __path_tag_adapter_version_handler,
     create_draft_version, get_adapter_version, list_adapter_versions,
     promote_adapter_version_handler, resolve_adapter_version_handler,
     rollback_adapter_version_handler, tag_adapter_version_handler, ListAdapterVersionsParams,
@@ -179,14 +192,14 @@ pub use adapter_versions::{
 
 // Re-export adapter health functions
 pub use adapter_health::{
-    __path_get_adapter_activations, __path_verify_gpu_integrity, get_adapter_activations,
-    get_adapter_health, verify_gpu_integrity,
+    __path_get_adapter_activations, __path_get_adapter_health, __path_verify_gpu_integrity,
+    get_adapter_activations, get_adapter_health, verify_gpu_integrity,
 };
 
 // Inline module to re-export adapter lifecycle functions for routes.rs (legacy compatibility)
 pub mod adapters_lifecycle {
-    pub use super::adapter_lifecycle::{load_adapter, unload_adapter};
-    pub use super::{delete_adapter, register_adapter};
+    pub use super::adapter_lifecycle::{__path_load_adapter, __path_unload_adapter, load_adapter, unload_adapter};
+    pub use super::{__path_delete_adapter, __path_register_adapter, delete_adapter, register_adapter};
 }
 
 // Re-export utils for error handling
@@ -210,9 +223,18 @@ pub use tenant_policies::{
 // Re-export policy handlers from policies module (consolidates duplicates)
 pub use policies::{
     // utoipa path macros
+    __path_apply_policy,
     __path_assign_policy,
+    __path_assign_tenant_policies,
+    __path_compare_policy_versions,
+    __path_export_policy,
+    __path_get_policy,
+    __path_list_policies,
     __path_list_policy_assignments,
     __path_list_violations,
+    __path_sign_policy,
+    __path_validate_policy,
+    __path_verify_policy_signature,
     apply_policy,
     assign_policy,
     assign_tenant_policies,
@@ -264,12 +286,17 @@ pub use domain_adapters::*;
 
 // Re-export infrastructure handlers (nodes & system operations)
 pub use infrastructure::{
-    evict_node, get_base_model_status, get_node_details, list_jobs, list_nodes, mark_node_offline,
-    register_node, test_node_connection, ListJobsQuery,
+    __path_evict_node, __path_get_base_model_status, __path_get_node_details, __path_list_jobs,
+    __path_list_nodes, __path_mark_node_offline, __path_register_node,
+    __path_test_node_connection, evict_node, get_base_model_status, get_node_details, list_jobs,
+    list_nodes, mark_node_offline, register_node, test_node_connection, ListJobsQuery,
 };
 
 // Re-export worker handlers
-pub use workers::{get_worker_health_summary, list_worker_incidents, receive_worker_fatal};
+pub use workers::{
+    __path_get_worker_health_summary, __path_list_worker_incidents, __path_receive_worker_fatal,
+    get_worker_health_summary, list_worker_incidents, receive_worker_fatal,
+};
 
 use adapteros_db::sqlx;
 use adapteros_db::users::Role;
@@ -287,6 +314,17 @@ use tracing::warn;
 // Note: build_plan has been moved to handlers/plans.rs
 
 /// Promote CP with quality gates
+#[utoipa::path(
+    post,
+    path = "/v1/cp/promote",
+    request_body = PromoteCPRequest,
+    responses(
+        (status = 200, description = "Promotion result", body = PromotionResponse),
+        (status = 404, description = "Plan not found", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "promotion"
+)]
 pub async fn cp_promote(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -571,6 +609,17 @@ pub async fn cp_promote(
 }
 
 /// Spawn worker via node agent
+#[utoipa::path(
+    post,
+    path = "/v1/workers/spawn",
+    request_body = SpawnWorkerRequest,
+    responses(
+        (status = 200, description = "Worker spawned", body = WorkerResponse),
+        (status = 404, description = "Node not found", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "workers"
+)]
 pub async fn worker_spawn(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -757,6 +806,19 @@ pub struct ListWorkersQuery {
 }
 
 /// List workers with optional tenant filter
+#[utoipa::path(
+    get,
+    path = "/v1/workers",
+    params(
+        ("tenant_id" = Option<String>, Query, description = "Filter by tenant ID")
+    ),
+    responses(
+        (status = 200, description = "Workers list", body = Vec<WorkerResponse>),
+        (status = 403, description = "Forbidden", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "workers"
+)]
 pub async fn list_workers(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -1020,6 +1082,17 @@ pub async fn stop_worker(
 // have been moved to handlers/telemetry_bundles.rs
 
 /// Rollback CP to previous plan
+#[utoipa::path(
+    post,
+    path = "/v1/cp/rollback",
+    request_body = RollbackCPRequest,
+    responses(
+        (status = 200, description = "Rollback result", body = RollbackResponse),
+        (status = 404, description = "Active CP not found", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "promotion"
+)]
 pub async fn cp_rollback(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -1178,6 +1251,17 @@ pub async fn cp_rollback(
     }))
 }
 /// Dry run CP promotion (validate gates without executing)
+#[utoipa::path(
+    post,
+    path = "/v1/cp/promote/dry-run",
+    request_body = DryRunPromotionRequest,
+    responses(
+        (status = 200, description = "Dry run result", body = DryRunPromotionResponse),
+        (status = 403, description = "Forbidden", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "promotion"
+)]
 pub async fn cp_dry_run_promote(
     State(_state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -1214,6 +1298,15 @@ pub async fn cp_dry_run_promote(
 }
 
 /// Get promotion history
+#[utoipa::path(
+    get,
+    path = "/v1/cp/promotions",
+    responses(
+        (status = 200, description = "Promotion history", body = Vec<PromotionHistoryEntry>),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "promotion"
+)]
 pub async fn get_promotion_history(
     State(_state): State<AppState>,
     Extension(_claims): Extension<Claims>,
@@ -3363,6 +3456,16 @@ pub async fn get_promotion(
 /// Prometheus/OpenMetrics endpoint  
 /// Note: This endpoint requires bearer token authentication via Authorization header.
 /// Authentication is checked in the route layer, not in the handler itself.
+#[utoipa::path(
+    get,
+    path = "/metrics",
+    responses(
+        (status = 200, description = "Metrics payload", body = String),
+        (status = 404, description = "Metrics disabled", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "metrics"
+)]
 pub async fn metrics_handler(State(state): State<AppState>) -> impl IntoResponse {
     // Check if metrics are enabled
     let metrics_enabled = {

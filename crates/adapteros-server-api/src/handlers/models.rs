@@ -15,6 +15,7 @@ use adapteros_api_types::ModelLoadStatus;
 use adapteros_config::{
     resolve_base_model_location, resolve_worker_socket_for_cp, DEFAULT_MODEL_CACHE_ROOT,
 };
+use adapteros_core::io_utils::get_directory_size;
 use adapteros_db::users::Role;
 use adapteros_lora_worker::memory::UmaStats;
 use adapteros_storage::secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
@@ -2116,26 +2117,62 @@ pub async fn get_download_progress(
     })?;
 
     // Convert to progress response
-    let imports: Vec<ModelDownloadProgress> = operations
-        .into_iter()
-        .map(|op| {
-            // Estimate progress based on elapsed time (basic heuristic)
-            // In a real implementation, we'd track actual bytes downloaded
-            let progress_pct = estimate_progress(&op);
+    let mut imports: Vec<ModelDownloadProgress> = Vec::with_capacity(operations.len());
+    for op in operations {
+        let mut progress_pct = None;
+        let mut speed_mbps = None;
+        let mut eta_seconds = None;
 
-            ModelDownloadProgress {
-                model_id: op.model_id,
-                operation_id: op.id,
-                operation: op.operation,
-                status: op.status,
-                started_at: op.started_at,
-                progress_pct,
-                speed_mbps: None,  // Would need actual download tracking
-                eta_seconds: None, // Would need actual download tracking
-                error_message: op.error_message,
+        if let Ok(Some(model)) = state.db.get_model_for_tenant(tenant_id, &op.model_id).await {
+            if let (Some(expected_bytes), Some(model_path)) =
+                (model.size_bytes, model.model_path.clone())
+            {
+                if expected_bytes > 0 {
+                    let current_bytes = get_directory_size(StdPath::new(&model_path))
+                        .map(|size| size as i64)
+                        .unwrap_or(0);
+                    let current_bytes = current_bytes.max(0) as f64;
+                    let expected_bytes = expected_bytes as f64;
+                    if expected_bytes > 0.0 {
+                        let pct = ((current_bytes / expected_bytes) * 100.0).min(99.0) as i32;
+                        progress_pct = Some(pct);
+
+                        if let Ok(started) =
+                            chrono::DateTime::parse_from_rfc3339(&op.started_at)
+                        {
+                            let elapsed = chrono::Utc::now()
+                                .signed_duration_since(started.with_timezone(&chrono::Utc));
+                            let elapsed_secs = elapsed.num_seconds();
+                            if elapsed_secs > 0 {
+                                let mbps = (current_bytes / (1024.0 * 1024.0))
+                                    / (elapsed_secs as f64);
+                                if mbps.is_finite() && mbps > 0.0 {
+                                    speed_mbps = Some(mbps);
+                                    if current_bytes < expected_bytes {
+                                        let remaining_bytes = expected_bytes - current_bytes;
+                                        let eta = remaining_bytes / (mbps * 1024.0 * 1024.0);
+                                        eta_seconds = Some(eta.round() as i64);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
-        })
-        .collect();
+        }
+
+        imports.push(ModelDownloadProgress {
+            model_id: op.model_id,
+            operation_id: op.id,
+            operation: op.operation,
+            status: op.status,
+            started_at: op.started_at,
+            progress_pct,
+            speed_mbps,
+            eta_seconds,
+            error_message: op.error_message,
+        });
+    }
 
     let total_active = imports.len();
 
@@ -2144,26 +2181,6 @@ pub async fn get_download_progress(
         imports,
         total_active,
     }))
-}
-
-/// Estimate progress based on elapsed time
-/// This is a placeholder - real progress tracking would use actual download bytes
-fn estimate_progress(op: &adapteros_db::model_operations::ModelOperation) -> Option<i32> {
-    // Parse started_at and calculate elapsed time
-    if let Ok(started) = chrono::DateTime::parse_from_rfc3339(&op.started_at) {
-        let elapsed = chrono::Utc::now().signed_duration_since(started.with_timezone(&chrono::Utc));
-        let elapsed_secs = elapsed.num_seconds();
-
-        // Assume average model import takes ~60 seconds
-        // This is a rough estimate for UI feedback
-        let estimated_total_secs = 60;
-        let progress =
-            ((elapsed_secs as f64 / estimated_total_secs as f64) * 100.0).min(95.0) as i32;
-
-        Some(progress)
-    } else {
-        None
-    }
 }
 
 // Note: get_base_model_status is now in handlers::infrastructure module

@@ -210,11 +210,37 @@ pub async fn get_orchestration_config(
     tag = "orchestration"
 )]
 pub async fn list_orchestration_sessions(
+    State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<OrchestrationSessionsResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
 
-    Ok(Json(OrchestrationSessionsResponse { sessions: Vec::new() }))
+    let tracker = match state.inference_state_tracker.as_ref() {
+        Some(tracker) => tracker.clone(),
+        None => {
+            return Ok(Json(OrchestrationSessionsResponse {
+                sessions: Vec::new(),
+            }))
+        }
+    };
+
+    let sessions = tracker
+        .list_active()
+        .into_iter()
+        .filter(|entry| entry.tenant_id == claims.tenant_id)
+        .map(|entry| OrchestrationSessionSummary {
+            id: entry.inference_id,
+            status: entry.state.name().to_string(),
+            created_at: entry.created_at.to_rfc3339(),
+            adapters: if entry.adapter_ids.is_empty() {
+                None
+            } else {
+                Some(entry.adapter_ids)
+            },
+        })
+        .collect();
+
+    Ok(Json(OrchestrationSessionsResponse { sessions }))
 }
 
 /// Update orchestration configuration
