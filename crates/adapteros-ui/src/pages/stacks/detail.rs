@@ -9,6 +9,7 @@ use crate::components::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ErrorDisplay, Link, LinkVariant,
     LoadingDisplay, RefreshButton,
 };
+use crate::contexts::use_in_flight;
 use crate::hooks::{use_api, use_api_resource, LoadingState};
 use adapteros_api_types::AdapterResponse;
 use leptos::prelude::*;
@@ -109,6 +110,7 @@ pub fn StackDetailContent(
     refetch_trigger: RwSignal<u32>,
 ) -> impl IntoView {
     let client = use_api();
+    let in_flight = use_in_flight();
     let stack_id = stack.id.clone();
     let stack_id_activate = stack_id.clone();
     let is_active = stack.is_active;
@@ -253,6 +255,11 @@ pub fn StackDetailContent(
                     <div class="space-y-2">
                         {stack.adapter_ids.iter().enumerate().map(|(idx, adapter_id)| {
                             let adapter = stack_adapters.iter().find(|a| &a.id == adapter_id || &a.adapter_id == adapter_id);
+                            let in_flight = in_flight.clone();
+                            let adapter_id_for_in_flight = adapter_id.clone();
+                            let is_in_flight = Signal::derive(move || {
+                                in_flight.is_in_flight(&adapter_id_for_in_flight)
+                            });
                             view! {
                                 <div class="flex items-center gap-3 p-3 rounded-lg border bg-muted/50">
                                     <div class="flex items-center justify-center w-8 h-8 rounded-full bg-primary/10 text-primary font-medium text-sm">
@@ -296,6 +303,9 @@ pub fn StackDetailContent(
                                                 <Badge variant=badge_variant>
                                                     {lifecycle_state}
                                                 </Badge>
+                                                {move || is_in_flight.get().then(|| view! {
+                                                    <Badge variant=BadgeVariant::Warning>"In Use"</Badge>
+                                                })}
                                             </div>
                                         }
                                     })}
