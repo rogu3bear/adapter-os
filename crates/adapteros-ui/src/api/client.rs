@@ -966,7 +966,15 @@ impl ApiClient {
         &self,
         run_id: &str,
     ) -> ApiResult<adapteros_api_types::diagnostics::DiagExportResponse> {
-        self.get(&format!("/v1/diag/runs/{}/export", run_id)).await
+        let request = adapteros_api_types::diagnostics::DiagExportRequest {
+            trace_id: run_id.to_string(),
+            format: "json".to_string(),
+            include_events: true,
+            include_timing: true,
+            include_metadata: true,
+            max_events: None,
+        };
+        self.post("/v1/diag/export", &request).await
     }
 
     // --- Search ---
@@ -1473,8 +1481,8 @@ impl ApiClient {
         worker_id: Option<&str>,
     ) -> ApiResult<Vec<ProcessHealthMetricResponse>> {
         let path = match worker_id {
-            Some(id) => format!("/v1/monitoring/health?worker_id={}", id),
-            None => "/v1/monitoring/health".to_string(),
+            Some(id) => format!("/v1/monitoring/health-metrics?worker_id={}", id),
+            None => "/v1/monitoring/health-metrics".to_string(),
         };
         self.get(&path).await
     }
