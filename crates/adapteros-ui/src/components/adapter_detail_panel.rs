@@ -13,7 +13,9 @@
 use adapteros_api_types::AdapterResponse;
 use leptos::prelude::*;
 
-use crate::components::{Badge, BadgeVariant, Button, ButtonVariant, Card, Spinner};
+use crate::components::{
+    AdapterLifecycleControls, Badge, BadgeVariant, Button, ButtonVariant, Card, Spinner,
+};
 use crate::contexts::use_in_flight;
 
 /// Format bytes into human-readable string.
@@ -168,6 +170,9 @@ fn AdapterDetailContent(
     let adapter_id_for_load = adapter.adapter_id.clone();
     let adapter_id_for_unload = adapter.adapter_id.clone();
     let adapter_id_for_flight = adapter.adapter_id.clone();
+    let adapter_id_for_lifecycle = adapter.adapter_id.clone();
+    let adapter_name_for_lifecycle = adapter.name.clone();
+    let lifecycle_state_for_controls = adapter.lifecycle_state.clone();
 
     // Derive lifecycle badge variant
     let lifecycle_variant = match adapter.lifecycle_state.as_str() {
@@ -401,6 +406,20 @@ fn AdapterDetailContent(
                         </div>
                     })}
                 </dl>
+            </Card>
+
+            // Lifecycle Controls
+            <Card title="Lifecycle">
+                <AdapterLifecycleControls
+                    adapter_id=adapter_id_for_lifecycle
+                    adapter_name=adapter_name_for_lifecycle
+                    current_state=lifecycle_state_for_controls
+                    on_transition=Callback::new(move |()| {
+                        // After a lifecycle transition, the panel data is stale.
+                        // The user can close and reopen the panel to see updated state.
+                        // A future enhancement could add an on_refetch prop to AdapterDetailPanel.
+                    })
+                />
             </Card>
 
             // Actions
