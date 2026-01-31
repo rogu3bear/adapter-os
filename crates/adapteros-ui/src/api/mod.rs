@@ -26,7 +26,7 @@ pub use types::{
     CreateTrainingJobRequest, DatasetListResponse, DatasetResponse, DatasetStatisticsResponse,
     DetectedFeaturesResponse, DocumentListParams, DocumentListResponse, DocumentResponse,
     ErrorAlertHistoryListResponse, ErrorAlertHistoryResponse, ErrorAlertRuleResponse,
-    ErrorAlertRulesListResponse, FederationAuditResponse,
+    ErrorAlertRulesListResponse, FederationAuditResponse, PreprocessedCacheCountResponse,
     FileValidationError, GetCodePolicyResponse, HostChainSummary, InferenceRequest,
     InferenceTraceDetailResponse, InferenceTraceResponse, LoadAverageInfo,
     ModelArchitectureSummary, ModelListResponse, ModelWithStatsResponse, PolicyPackResponse,

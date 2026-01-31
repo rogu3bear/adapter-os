@@ -576,6 +576,13 @@ impl ApiClient {
         self.get("/v1/training/backend-readiness").await
     }
 
+    /// Get preprocessed cache count
+    pub async fn get_preprocessed_cache_count(
+        &self,
+    ) -> ApiResult<adapteros_api_types::training::PreprocessedCacheCountResponse> {
+        self.get("/v1/training/preprocessed-cache/count").await
+    }
+
     // --- Models ---
 
     /// List all models with stats

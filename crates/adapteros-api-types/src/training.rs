@@ -1901,6 +1901,19 @@ pub struct TrainingQueueResponse {
     pub running_jobs: Vec<TrainingQueueJobSummary>,
 }
 
+/// Response for GET /v1/training/preprocessed-cache/count
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct PreprocessedCacheCountResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
+    /// Number of preprocessed cache entries
+    pub count: u64,
+    /// Number of datasets with preprocessed cache entries
+    pub dataset_count: u64,
+}
+
 /// Summary of a job in the training queue
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "server", derive(utoipa::ToSchema))]

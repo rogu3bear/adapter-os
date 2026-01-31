@@ -67,6 +67,8 @@ const CANONICAL_TRUST_STATES: &[&str] = &[
     "unknown",
 ];
 
+const PREPROCESS_CACHE_MARKER: &str = "manifest.json";
+
 fn canonical_trust_state(raw: &str) -> String {
     let normalized = match raw.trim().to_ascii_lowercase().as_str() {
         "allowed" => "allowed",
@@ -87,6 +89,150 @@ fn canonical_trust_state(raw: &str) -> String {
     } else {
         normalized.to_string()
     }
+}
+
+/// Count preprocessed cache entries for training datasets.
+///
+/// Returns the number of dataset preprocessed cache manifests under
+/// `<datasets_root>/<tenant_id>/<dataset_id>/preprocessed/*/manifest.json`.
+#[utoipa::path(
+    get,
+    path = "/v1/training/preprocessed-cache/count",
+    responses(
+        (
+            status = 200,
+            description = "Preprocessed cache count",
+            body = adapteros_api_types::training::PreprocessedCacheCountResponse
+        ),
+        (status = 403, description = "Access denied", body = ErrorResponse)
+    ),
+    tag = "training"
+)]
+pub async fn get_preprocessed_cache_count(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+) -> Result<Json<adapteros_api_types::training::PreprocessedCacheCountResponse>, ApiError> {
+    require_permission(&claims, Permission::TrainingView)?;
+
+    let datasets_root = {
+        let cfg = state
+            .config
+            .read()
+            .map_err(|_| ApiError::internal("config lock poisoned"))?;
+        PathBuf::from(cfg.paths.datasets_root.clone())
+    };
+
+    if datasets_root.as_os_str().is_empty() {
+        return Ok(Json(
+            adapteros_api_types::training::PreprocessedCacheCountResponse {
+                schema_version: adapteros_api_types::schema_version(),
+                count: 0,
+                dataset_count: 0,
+            },
+        ));
+    }
+
+    let tenant_root = datasets_root.join(&claims.tenant_id);
+    let canonical_root = match canonicalize_strict_in_allowed_roots(
+        &tenant_root,
+        &[datasets_root.clone()],
+    ) {
+        Ok(path) => path,
+        Err(AosError::NotFound(_)) => {
+            return Ok(Json(
+                adapteros_api_types::training::PreprocessedCacheCountResponse {
+                    schema_version: adapteros_api_types::schema_version(),
+                    count: 0,
+                    dataset_count: 0,
+                },
+            ))
+        }
+        Err(err) => {
+            return Err(ApiError::forbidden(format!(
+                "Dataset root rejected: {}",
+                err
+            )))
+        }
+    };
+
+    let mut total = 0u64;
+    let mut datasets_with_cache = 0u64;
+
+    let mut dataset_dirs = match tokio::fs::read_dir(&canonical_root).await {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(Json(
+                adapteros_api_types::training::PreprocessedCacheCountResponse {
+                    schema_version: adapteros_api_types::schema_version(),
+                    count: 0,
+                    dataset_count: 0,
+                },
+            ))
+        }
+        Err(err) => return Err(ApiError::internal(format!("Failed to read dataset root: {err}"))),
+    };
+
+    while let Some(entry) = dataset_dirs
+        .next_entry()
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to read dataset dir: {e}")))?
+    {
+        let metadata = entry
+            .metadata()
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to stat dataset dir: {e}")))?;
+        if !metadata.is_dir() {
+            continue;
+        }
+
+        let preprocess_root = entry.path().join("preprocessed");
+        let mut preproc_entries = match tokio::fs::read_dir(&preprocess_root).await {
+            Ok(entries) => entries,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(err) => {
+                return Err(ApiError::internal(format!(
+                    "Failed to read preprocessed cache: {err}"
+                )))
+            }
+        };
+
+        let mut dataset_has_cache = false;
+        while let Some(preproc_entry) = preproc_entries
+            .next_entry()
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to read preprocessed entry: {e}")))?
+        {
+            let preproc_meta = preproc_entry
+                .metadata()
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed to stat preprocessed entry: {e}")))?;
+            if !preproc_meta.is_dir() {
+                continue;
+            }
+
+            let manifest_path = preproc_entry.path().join(PREPROCESS_CACHE_MARKER);
+            if tokio::fs::metadata(&manifest_path)
+                .await
+                .map(|m| m.is_file())
+                .unwrap_or(false)
+            {
+                total += 1;
+                dataset_has_cache = true;
+            }
+        }
+
+        if dataset_has_cache {
+            datasets_with_cache += 1;
+        }
+    }
+
+    Ok(Json(
+        adapteros_api_types::training::PreprocessedCacheCountResponse {
+            schema_version: adapteros_api_types::schema_version(),
+            count: total,
+            dataset_count: datasets_with_cache,
+        },
+    ))
 }
 
 fn parse_lora_tier(value: Option<&str>) -> Option<LoraTier> {

@@ -65,15 +65,13 @@ pub fn TrainingData() -> impl IntoView {
         _ => 0,
     });
 
-    let cached_count = Signal::derive(move || {
-        // Preprocessed/CoreML feature cache count requires a server-side API endpoint
-        // that enumerates cached model artifacts. This is planned for Phase 2.
-        //
-        // Requirements for implementation:
-        // 1. Server API: GET /api/v1/training/preprocessed-cache/count
-        // 2. ApiClient method: list_preprocessed_cache() or get_preprocessed_cache_count()
-        // 3. Integration with CoreML feature extraction pipeline
-        0usize
+    let (cache_count, _refetch_cache_count) = use_api_resource(
+        move |client: Arc<ApiClient>| async move { client.get_preprocessed_cache_count().await },
+    );
+
+    let cached_count = Signal::derive(move || match cache_count.get() {
+        LoadingState::Loaded(data) => data.count as usize,
+        _ => 0,
     });
 
     // Convert data to list items based on active source

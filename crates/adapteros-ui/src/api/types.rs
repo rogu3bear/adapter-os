@@ -958,6 +958,15 @@ pub struct DatasetStatisticsResponse {
     pub computed_at: String,
 }
 
+/// Preprocessed cache count response
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PreprocessedCacheCountResponse {
+    #[serde(default)]
+    pub schema_version: String,
+    pub count: u64,
+    pub dataset_count: u64,
+}
+
 fn default_validation_mode() -> String {
     "quick".to_string()
 }

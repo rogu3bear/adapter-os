@@ -587,6 +587,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::training::BatchTrainingJobStatus,
         handlers::training::BatchStatusRequest,
         handlers::training::BatchStatusResponse,
+        adapteros_api_types::training::PreprocessedCacheCountResponse,
         adapteros_api_types::training::TrainingStatus,
         adapteros_api_types::training::TrustState,
         adapteros_api_types::training::DatasetSourceType,
