@@ -155,8 +155,8 @@ pub async fn system_metrics_stream(
 
     // Track whether error has been sent to terminate stream after one error
     let stream = stream::unfold(
-        (state, has_permission, false),
-        |(state, has_permission, error_sent)| async move {
+        (state, has_permission, false, None::<(f64, u64)>),
+        |(state, has_permission, error_sent, prev)| async move {
             if !has_permission {
                 if error_sent {
                     // Already sent error, terminate stream
@@ -167,33 +167,52 @@ pub async fn system_metrics_stream(
                     Ok(Event::default()
                         .event("error")
                         .data("{\"error\": \"Permission denied - MetricsView required\"}")),
-                    (state, false, true), // Mark error as sent
+                    (state, false, true, prev), // Mark error as sent
                 ));
             }
             // Sleep for 5 seconds between updates
             tokio::time::sleep(Duration::from_secs(5)).await;
 
-            // Create a default snapshot with current timestamp
-            // Note: adapteros_telemetry::MetricsCollector doesn't have snapshot method
-            // This creates a default snapshot structure for streaming
-            let snapshot = adapteros_telemetry::metrics::MetricsSnapshot::default();
+            // Build a snapshot from real sources (metrics exporter + system metrics)
+            let exporter_snapshot = state.metrics_exporter.snapshot();
+            let mut system_collector = adapteros_system_metrics::SystemMetricsCollector::new();
+            let system_metrics = system_collector.collect_metrics();
+
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+
+            let inferences_per_second = prev
+                .and_then(|(prev_total, prev_ts)| {
+                    let elapsed_ms = now_ms.saturating_sub(prev_ts);
+                    if elapsed_ms == 0 {
+                        return None;
+                    }
+                    let delta = exporter_snapshot.total_requests - prev_total;
+                    if delta <= 0.0 {
+                        return None;
+                    }
+                    Some(delta / (elapsed_ms as f64 / 1000.0))
+                })
+                .unwrap_or(0.0);
 
             // Convert to our streaming event format
             let event = MetricsSnapshotEvent {
-                timestamp_ms: snapshot.timestamp_ms,
+                timestamp_ms: now_ms,
                 latency: StreamingLatencyMetrics {
-                    p50_ms: snapshot.latency.p50_ms,
-                    p95_ms: snapshot.latency.p95_ms,
-                    p99_ms: snapshot.latency.p99_ms,
+                    p50_ms: exporter_snapshot.avg_latency_ms,
+                    p95_ms: exporter_snapshot.avg_latency_ms,
+                    p99_ms: exporter_snapshot.avg_latency_ms,
                 },
                 throughput: StreamingThroughputMetrics {
-                    tokens_per_second: snapshot.throughput.tokens_per_second,
-                    inferences_per_second: snapshot.throughput.inferences_per_second,
+                    tokens_per_second: 0.0,
+                    inferences_per_second,
                 },
                 system: StreamingSystemMetrics {
-                    cpu_percent: snapshot.system.cpu_usage_percent,
-                    memory_percent: snapshot.system.memory_usage_percent,
-                    disk_percent: snapshot.system.disk_usage_percent,
+                    cpu_percent: system_metrics.cpu_usage,
+                    memory_percent: system_metrics.memory_usage,
+                    disk_percent: system_metrics.disk_io.usage_percent as f64,
                 },
             };
 
@@ -206,14 +225,24 @@ pub async fn system_metrics_stream(
                         Ok(Event::default()
                             .event("error")
                             .data(format!("{{\"error\": \"serialization failed: {}\"}}", e))),
-                        (state, has_permission, false),
+                        (
+                            state,
+                            has_permission,
+                            false,
+                            Some((exporter_snapshot.total_requests, now_ms)),
+                        ),
                     ));
                 }
             };
 
             Some((
                 Ok(Event::default().event("metrics").data(json)),
-                (state, has_permission, false),
+                (
+                    state,
+                    has_permission,
+                    false,
+                    Some((exporter_snapshot.total_requests, now_ms)),
+                ),
             ))
         },
     );
