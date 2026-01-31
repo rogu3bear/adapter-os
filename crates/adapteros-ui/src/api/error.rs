@@ -262,7 +262,9 @@ mod tests {
         let error = ApiError::from_response(409, body);
 
         assert!(error.is_adapter_in_flight());
-        assert!(error.user_message().contains("currently in use for inference"));
+        assert!(error
+            .user_message()
+            .contains("currently in use for inference"));
     }
 
     #[test]

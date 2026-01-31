@@ -79,9 +79,10 @@ pub fn StyleAudit() -> impl IntoView {
     let requested_trace_id = RwSignal::new(String::new());
 
     // Fetch recent traces on mount, auto-load the first one
-    let (recent_traces, _refetch_traces) = use_api_resource(move |client: Arc<ApiClient>| async move {
-        client.list_inference_traces(None, Some(5)).await
-    });
+    let (recent_traces, _refetch_traces) =
+        use_api_resource(move |client: Arc<ApiClient>| async move {
+            client.list_inference_traces(None, Some(5)).await
+        });
 
     let (trace_detail, refetch_trace) = use_api_resource({
         let requested_trace_id = requested_trace_id.clone();

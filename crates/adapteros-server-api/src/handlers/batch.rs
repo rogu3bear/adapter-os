@@ -3,10 +3,10 @@ use crate::auth::Claims;
 use crate::inference_core::InferenceCore;
 use crate::middleware::ApiKeyToken;
 use crate::permissions::{require_permission, Permission};
+use crate::security::check_tenant_access;
 use crate::session_tokens::{
     ensure_no_adapter_overrides, resolve_session_token_lock, SessionTokenContext,
 };
-use crate::security::check_tenant_access;
 use crate::state::AppState;
 use crate::types::{
     BatchInferItemRequest, BatchInferItemResponse, BatchInferRequest, BatchInferResponse,
@@ -145,8 +145,7 @@ pub async fn batch_infer(
                             item.request.effective_adapter_ids.is_some(),
                         ),
                     ]) {
-                        let (_, Json(error)) =
-                            <(StatusCode, Json<ErrorResponse>)>::from(err);
+                        let (_, Json(error)) = <(StatusCode, Json<ErrorResponse>)>::from(err);
                         return BatchInferItemResponse {
                             id: item.id,
                             response: None,
@@ -158,15 +157,15 @@ pub async fn batch_infer(
                         (item.request.backend, lock.backend_profile)
                     {
                         if requested != locked {
-                            let (_, Json(error)) =
-                                <(StatusCode, Json<ErrorResponse>)>::from(
-                                    ApiError::forbidden("session token backend mismatch")
-                                        .with_details(format!(
-                                            "requested {}, token {}",
-                                            requested.as_str(),
-                                            locked.as_str()
-                                        )),
-                                );
+                            let (_, Json(error)) = <(StatusCode, Json<ErrorResponse>)>::from(
+                                ApiError::forbidden("session token backend mismatch").with_details(
+                                    format!(
+                                        "requested {}, token {}",
+                                        requested.as_str(),
+                                        locked.as_str()
+                                    ),
+                                ),
+                            );
                             return BatchInferItemResponse {
                                 id: item.id,
                                 response: None,
@@ -179,15 +178,14 @@ pub async fn batch_infer(
                         (item.request.coreml_mode, lock.coreml_mode)
                     {
                         if requested != locked {
-                            let (_, Json(error)) =
-                                <(StatusCode, Json<ErrorResponse>)>::from(
-                                    ApiError::forbidden("session token coreml_mode mismatch")
-                                        .with_details(format!(
-                                            "requested {}, token {}",
-                                            requested.as_str(),
-                                            locked.as_str()
-                                        )),
-                                );
+                            let (_, Json(error)) = <(StatusCode, Json<ErrorResponse>)>::from(
+                                ApiError::forbidden("session token coreml_mode mismatch")
+                                    .with_details(format!(
+                                        "requested {}, token {}",
+                                        requested.as_str(),
+                                        locked.as_str()
+                                    )),
+                            );
                             return BatchInferItemResponse {
                                 id: item.id,
                                 response: None,

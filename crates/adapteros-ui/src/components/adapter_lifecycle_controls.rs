@@ -25,7 +25,9 @@
 //! ```
 
 use crate::api::ApiClient;
-use crate::components::{Button, ButtonSize, ButtonVariant, LifecycleTransitionDialog, LifecycleTransitionInfo};
+use crate::components::{
+    Button, ButtonSize, ButtonVariant, LifecycleTransitionDialog, LifecycleTransitionInfo,
+};
 use crate::contexts::use_in_flight;
 use crate::signals::notifications::use_notifications;
 use leptos::prelude::*;
@@ -39,10 +41,7 @@ fn valid_transitions(state: &str) -> Vec<(&'static str, &'static str)> {
     match state.to_lowercase().as_str() {
         "draft" => vec![("active", "Activate")],
         "active" => vec![("deprecated", "Deprecate")],
-        "deprecated" => vec![
-            ("active", "Reactivate"),
-            ("retired", "Retire"),
-        ],
+        "deprecated" => vec![("active", "Reactivate"), ("retired", "Retire")],
         "retired" => vec![],
         _ => vec![],
     }
@@ -135,7 +134,8 @@ pub fn AdapterLifecycleControls(
             let notifications = notifications.clone();
 
             // Get target state from selected transition
-            let target_state = selected_transition.get()
+            let target_state = selected_transition
+                .get()
                 .map(|t| t.new_state.clone())
                 .unwrap_or_default();
 
@@ -144,7 +144,10 @@ pub fn AdapterLifecycleControls(
             spawn_local(async move {
                 // Call the API to transition adapter lifecycle
                 // Note: transition_adapter_lifecycle will be added in Task 11
-                match client.transition_adapter_lifecycle(&adapter_id, &target_state, &reason).await {
+                match client
+                    .transition_adapter_lifecycle(&adapter_id, &target_state, &reason)
+                    .await
+                {
                     Ok(_) => {
                         notifications.success(
                             "Lifecycle Updated",
@@ -156,10 +159,7 @@ pub fn AdapterLifecycleControls(
                         on_transition.run(());
                     }
                     Err(err) => {
-                        notifications.error(
-                            "Transition Failed",
-                            &err.to_string(),
-                        );
+                        notifications.error("Transition Failed", &err.to_string());
                         loading.set(false);
                     }
                 }
@@ -173,7 +173,8 @@ pub fn AdapterLifecycleControls(
             <div class="text-sm text-muted-foreground italic">
                 "No lifecycle transitions available"
             </div>
-        }.into_any();
+        }
+        .into_any();
     }
 
     view! {
@@ -201,5 +202,6 @@ pub fn AdapterLifecycleControls(
                 loading=Signal::derive(move || loading.get())
             />
         </div>
-    }.into_any()
+    }
+    .into_any()
 }

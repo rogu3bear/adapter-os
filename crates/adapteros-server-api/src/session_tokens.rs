@@ -36,11 +36,21 @@ pub struct SessionTokenLockPayload {
     pub stack_hash_b3: Option<String>,
     #[serde(default, alias = "adapter_ids", alias = "adapters")]
     pub adapter_ids: Option<Vec<String>>,
-    #[serde(default, alias = "pinned_adapter_ids", alias = "pinned_adapters", alias = "pinned")]
+    #[serde(
+        default,
+        alias = "pinned_adapter_ids",
+        alias = "pinned_adapters",
+        alias = "pinned"
+    )]
     pub pinned_adapter_ids: Option<Vec<String>>,
     #[serde(default, alias = "backend", alias = "backend_profile")]
     pub backend_profile: Option<BackendKind>,
-    #[serde(default, alias = "coreml_mode", alias = "compute_mode", alias = "coreml")]
+    #[serde(
+        default,
+        alias = "coreml_mode",
+        alias = "compute_mode",
+        alias = "coreml"
+    )]
     pub coreml_mode: Option<CoreMLMode>,
 }
 
@@ -99,11 +109,8 @@ struct SessionLockFingerprint<'a> {
 pub fn session_lock_fingerprint(lock: &ResolvedSessionTokenLock) -> B3Hash {
     let mut adapter_ids: Vec<&str> = lock.adapter_ids.iter().map(String::as_str).collect();
     adapter_ids.sort_unstable();
-    let mut pinned_adapter_ids: Vec<&str> = lock
-        .pinned_adapter_ids
-        .iter()
-        .map(String::as_str)
-        .collect();
+    let mut pinned_adapter_ids: Vec<&str> =
+        lock.pinned_adapter_ids.iter().map(String::as_str).collect();
     pinned_adapter_ids.sort_unstable();
 
     let stack_hash_b3_hex = lock.stack_hash_b3.to_hex();
@@ -163,8 +170,10 @@ pub fn ensure_no_adapter_overrides(fields: &[(&'static str, bool)]) -> Result<()
     if blocked.is_empty() {
         return Ok(());
     }
-    Err(ApiError::forbidden("session token forbids adapter overrides")
-        .with_details(format!("blocked_fields: {}", blocked.join(", "))))
+    Err(
+        ApiError::forbidden("session token forbids adapter overrides")
+            .with_details(format!("blocked_fields: {}", blocked.join(", "))),
+    )
 }
 
 pub async fn resolve_session_token_lock(
@@ -192,8 +201,9 @@ pub async fn resolve_session_token_lock(
             .await
             .map_err(ApiError::db_error)?
             .ok_or_else(|| ApiError::not_found("Stack"))?;
-        serde_json::from_str::<Vec<String>>(&stack.adapter_ids_json)
-            .map_err(|e| ApiError::bad_request("stack adapter list invalid").with_details(e.to_string()))?
+        serde_json::from_str::<Vec<String>>(&stack.adapter_ids_json).map_err(|e| {
+            ApiError::bad_request("stack adapter list invalid").with_details(e.to_string())
+        })?
     } else {
         return Err(ApiError::forbidden("session token missing stack binding")
             .with_details("stack_id or adapter_ids is required for session tokens"));
@@ -209,11 +219,12 @@ pub async fn resolve_session_token_lock(
         .cloned()
         .collect();
     if !missing_pins.is_empty() {
-        return Err(ApiError::forbidden("session token pins outside adapter set")
-            .with_details(format!(
+        return Err(
+            ApiError::forbidden("session token pins outside adapter set").with_details(format!(
                 "pinned adapters not in adapter set: {}",
                 missing_pins.join(", ")
-            )));
+            )),
+        );
     }
 
     let mut pairs = Vec::with_capacity(adapter_ids.len());
@@ -232,13 +243,13 @@ pub async fn resolve_session_token_lock(
 
     let actual_stack_hash = compute_stack_hash(pairs);
     if actual_stack_hash != expected_stack_hash {
-        return Err(ApiError::forbidden("session token stack hash mismatch").with_details(
-            format!(
+        return Err(
+            ApiError::forbidden("session token stack hash mismatch").with_details(format!(
                 "expected {}, got {}",
                 expected_stack_hash.to_hex(),
                 actual_stack_hash.to_hex()
-            ),
-        ));
+            )),
+        );
     }
 
     Ok(ResolvedSessionTokenLock {

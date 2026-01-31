@@ -100,8 +100,7 @@ pub async fn get_receipt_by_digest(
 ) -> ApiResult<RunReceipt> {
     require_permission(&claims, Permission::InferenceExecute)?;
 
-    let digest =
-        B3Hash::from_hex(&digest_hex).map_err(|e| ApiError::bad_request(e.to_string()))?;
+    let digest = B3Hash::from_hex(&digest_hex).map_err(|e| ApiError::bad_request(e.to_string()))?;
 
     let row = sqlx::query_as::<_, ReceiptRow>(
         r#"
@@ -170,7 +169,10 @@ pub async fn get_receipt_by_digest(
         billed_output_tokens: row.billed_output_tokens as u32,
         stop_reason_code,
         stop_reason_token_index: row.stop_reason_token_index.map(|v| v as u32),
-        stop_policy_digest_b3: parse_digest_opt("stop_policy_digest_b3", row.stop_policy_digest_b3)?,
+        stop_policy_digest_b3: parse_digest_opt(
+            "stop_policy_digest_b3",
+            row.stop_policy_digest_b3,
+        )?,
         tenant_kv_quota_bytes: row.tenant_kv_quota_bytes as u64,
         tenant_kv_bytes_used: row.tenant_kv_bytes_used as u64,
         kv_evictions: row.kv_evictions as u32,
@@ -238,8 +240,7 @@ pub async fn adapteros_replay(
     let digest_hex = req
         .receipt_digest
         .ok_or_else(|| ApiError::bad_request("Must provide receipt_digest or payload"))?;
-    let digest =
-        B3Hash::from_hex(&digest_hex).map_err(|e| ApiError::bad_request(e.to_string()))?;
+    let digest = B3Hash::from_hex(&digest_hex).map_err(|e| ApiError::bad_request(e.to_string()))?;
 
     let (trace_id, tenant_id) = adapteros_db::find_trace_by_receipt_digest(&state.db, &digest)
         .await
