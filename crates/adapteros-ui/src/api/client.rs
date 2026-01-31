@@ -39,6 +39,15 @@ pub use adapteros_api_types::routing::{
 };
 pub use adapteros_api_types::workers::WorkerMetricsResponse;
 
+/// Response for in-flight adapters endpoint
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct InFlightAdaptersResponse {
+    /// Adapter IDs currently in use for inference
+    pub adapter_ids: Vec<String>,
+    /// Total count of in-flight inferences
+    pub inference_count: usize,
+}
+
 #[cfg(target_arch = "wasm32")]
 fn csrf_token_from_cookie() -> Option<String> {
     use wasm_bindgen::JsCast;
@@ -405,6 +414,11 @@ impl ApiClient {
     /// Get adapter details
     pub async fn get_adapter(&self, id: &str) -> ApiResult<adapteros_api_types::AdapterResponse> {
         self.get(&format!("/v1/adapters/{}", id)).await
+    }
+
+    /// Get adapter IDs currently in use for inference
+    pub async fn get_in_flight_adapters(&self) -> ApiResult<InFlightAdaptersResponse> {
+        self.get("/v1/adapters/in-flight").await
     }
 
     // --- System ---
