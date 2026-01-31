@@ -221,6 +221,7 @@ pub fn Audit() -> impl IntoView {
                     action_filter=action_filter
                     status_filter=status_filter
                     resource_filter=resource_filter
+                    on_filters_changed=refetch_logs.clone()
                 />
 
                 // Tab content

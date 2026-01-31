@@ -19,6 +19,7 @@ pub fn FilterSection(
     action_filter: RwSignal<String>,
     status_filter: RwSignal<String>,
     resource_filter: RwSignal<String>,
+    on_filters_changed: Callback<()>,
 ) -> impl IntoView {
     let show_filters = move || matches!(active_tab.get(), AuditTab::Timeline);
 
@@ -32,7 +33,11 @@ pub fn FilterSection(
                         <label class="text-sm font-medium mb-2 block">"Action Type"</label>
                         <select
                             class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                            on:change=move |ev| action_filter.set(event_target_value(&ev))
+                            prop:value=move || action_filter.get()
+                            on:change=move |ev| {
+                                action_filter.set(event_target_value(&ev));
+                                on_filters_changed.run(());
+                            }
                         >
                             <option value="">"All Actions"</option>
                             <option value="create">"Create"</option>
@@ -48,7 +53,11 @@ pub fn FilterSection(
                         <label class="text-sm font-medium mb-2 block">"Status"</label>
                         <select
                             class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                            on:change=move |ev| status_filter.set(event_target_value(&ev))
+                            prop:value=move || status_filter.get()
+                            on:change=move |ev| {
+                                status_filter.set(event_target_value(&ev));
+                                on_filters_changed.run(());
+                            }
                         >
                             <option value="">"All Statuses"</option>
                             <option value="success">"Success"</option>
@@ -60,7 +69,11 @@ pub fn FilterSection(
                         <label class="text-sm font-medium mb-2 block">"Resource Type"</label>
                         <select
                             class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                            on:change=move |ev| resource_filter.set(event_target_value(&ev))
+                            prop:value=move || resource_filter.get()
+                            on:change=move |ev| {
+                                resource_filter.set(event_target_value(&ev));
+                                on_filters_changed.run(());
+                            }
                         >
                             <option value="">"All Resources"</option>
                             <option value="adapter">"Adapter"</option>
