@@ -91,7 +91,7 @@ fi
 print_kv "config_path" "$CONFIG_PATH"
 
 STATIC_DIR="$ROOT_DIR/crates/adapteros-server/static"
-UI_BUILD_CMD="$ROOT_DIR/scripts/ci/build_leptos_wasm.sh"
+UI_BUILD_CMD="$ROOT_DIR/scripts/build-ui.sh"
 
 need_ui_build=0
 if [ ! -d "$STATIC_DIR" ]; then
