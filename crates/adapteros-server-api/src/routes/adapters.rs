@@ -21,6 +21,10 @@ pub fn adapter_routes() -> Router<AppState> {
         // Adapter routes
         .route("/v1/adapters", get(handlers::adapters::list_adapters))
         .route(
+            "/v1/adapters/in-flight",
+            get(handlers::adapters::get_in_flight_adapters),
+        )
+        .route(
             "/v1/adapters/{adapter_id}",
             get(handlers::adapters::get_adapter),
         )
