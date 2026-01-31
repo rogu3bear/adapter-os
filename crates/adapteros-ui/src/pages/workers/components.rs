@@ -23,7 +23,10 @@ use crate::components::{IconPause, IconRefresh, IconServer, IconStop, IconX};
 // ============================================================================
 
 #[component]
-pub fn WorkersSummary(workers: Vec<WorkerResponse>) -> impl IntoView {
+pub fn WorkersSummary(
+    workers: Vec<WorkerResponse>,
+    health_summary: Option<WorkerHealthSummary>,
+) -> impl IntoView {
     let total = workers.len();
     let healthy = workers.iter().filter(|w| w.status == "healthy").count();
     let draining = workers.iter().filter(|w| w.status == "draining").count();
@@ -39,6 +42,45 @@ pub fn WorkersSummary(workers: Vec<WorkerResponse>) -> impl IntoView {
     // Count unique backends (available for future use)
     let _backends: std::collections::HashSet<_> =
         workers.iter().filter_map(|w| w.backend.as_ref()).collect();
+
+    let health_card = health_summary.map(|summary| {
+        let counts = summary.summary;
+        let updated = format_timestamp(&summary.timestamp);
+        let show_updated = updated != "-";
+        view! {
+            <Card title="Health Summary".to_string()>
+                <div class="space-y-2 text-xs">
+                    <div class="flex items-center justify-between">
+                        <span class="text-muted-foreground">"Total"</span>
+                        <span class="font-semibold">{counts.total}</span>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-muted-foreground">"Healthy"</span>
+                        <Badge variant=health_badge_variant("healthy")>{counts.healthy}</Badge>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-muted-foreground">"Degraded"</span>
+                        <Badge variant=health_badge_variant("degraded")>{counts.degraded}</Badge>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-muted-foreground">"Crashed"</span>
+                        <Badge variant=health_badge_variant("crashed")>{counts.crashed}</Badge>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-muted-foreground">"Unknown"</span>
+                        <Badge variant=health_badge_variant("unknown")>{counts.unknown}</Badge>
+                    </div>
+                </div>
+                {show_updated.then(|| {
+                    view! {
+                        <p class="mt-2 text-2xs text-muted-foreground">
+                            {"Updated: "}{updated}
+                        </p>
+                    }
+                })}
+            </Card>
+        }
+    });
 
     view! {
         <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
@@ -83,6 +125,8 @@ pub fn WorkersSummary(workers: Vec<WorkerResponse>) -> impl IntoView {
                     {format!("{} / {} MB", total_cache_used, total_cache_max)}
                 </p>
             </Card>
+
+            {health_card}
         </div>
     }
 }

@@ -137,9 +137,16 @@ pub fn Workers() -> impl IntoView {
                         }.into_any()
                     }
                     LoadingState::Loaded(workers_data) => {
+                        let health_summary = match worker_health.get() {
+                            LoadingState::Loaded(ref summary) => Some(summary.clone()),
+                            _ => None,
+                        };
                         view! {
                             // Summary cards
-                            <WorkersSummary workers=workers_data.clone()/>
+                            <WorkersSummary
+                                workers=workers_data.clone()
+                                health_summary=health_summary
+                            />
 
                             // Workers list
                             <WorkersList
