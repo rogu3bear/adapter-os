@@ -35,6 +35,12 @@ pub fn StacksList(stacks: Vec<StackResponse>, refetch_trigger: RwSignal<u32>) ->
     let deleting = RwSignal::new(false);
     let delete_error = RwSignal::new(Option::<String>::None);
 
+    // Activate confirmation dialog state
+    let show_activate_confirm = RwSignal::new(false);
+    let pending_activate_id = RwSignal::new(Option::<String>::None);
+    let pending_activate_name = RwSignal::new(String::new());
+    let activating = RwSignal::new(false);
+
     // Reset dialog state
     let reset_delete_state = move || {
         pending_delete_id.set(None);
@@ -72,6 +78,41 @@ pub fn StacksList(stacks: Vec<StackResponse>, refetch_trigger: RwSignal<u32>) ->
         })
     };
 
+    // Reset activate dialog state
+    let reset_activate_state = move || {
+        pending_activate_id.set(None);
+        pending_activate_name.set(String::new());
+    };
+
+    // Handle cancel/close of activate dialog
+    let on_cancel_activate = Callback::new(move |_| {
+        reset_activate_state();
+    });
+
+    // Handle confirmed activation
+    let on_confirm_activate = {
+        let client = Arc::clone(&client);
+        Callback::new(move |_| {
+            if let Some(id) = pending_activate_id.get() {
+                activating.set(true);
+                let client = Arc::clone(&client);
+                wasm_bindgen_futures::spawn_local(async move {
+                    match client.activate_stack(&id).await {
+                        Ok(_) => {
+                            refetch_trigger.update(|n| *n = n.wrapping_add(1));
+                            show_activate_confirm.set(false);
+                            reset_activate_state();
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to activate stack: {}", e);
+                        }
+                    }
+                    activating.set(false);
+                });
+            }
+        })
+    };
+
     view! {
         <Card>
             <Table>
@@ -97,6 +138,9 @@ pub fn StacksList(stacks: Vec<StackResponse>, refetch_trigger: RwSignal<u32>) ->
                                     show_delete_confirm=show_delete_confirm
                                     pending_delete_id=pending_delete_id
                                     pending_delete_name=pending_delete_name
+                                    show_activate_confirm=show_activate_confirm
+                                    pending_activate_id=pending_activate_id
+                                    pending_activate_name=pending_activate_name
                                 />
                             }
                         })
@@ -131,6 +175,26 @@ pub fn StacksList(stacks: Vec<StackResponse>, refetch_trigger: RwSignal<u32>) ->
                 />
             }
         }}
+
+        {move || {
+            let name = pending_activate_name.get();
+            let description = format!(
+                "Activating '{}' will route inference requests to this adapter stack. This may affect running workloads. Continue?",
+                name
+            );
+            view! {
+                <ConfirmationDialog
+                    open=show_activate_confirm
+                    title="Activate Stack"
+                    description=description
+                    severity=ConfirmationSeverity::Warning
+                    confirm_text="Activate"
+                    on_confirm=on_confirm_activate
+                    on_cancel=on_cancel_activate
+                    loading=Signal::derive(move || activating.get())
+                />
+            }
+        }}
     }
     .into_any()
 }
@@ -144,6 +208,9 @@ pub fn StackRow(
     show_delete_confirm: RwSignal<bool>,
     pending_delete_id: RwSignal<Option<String>>,
     pending_delete_name: RwSignal<String>,
+    show_activate_confirm: RwSignal<bool>,
+    pending_activate_id: RwSignal<Option<String>>,
+    pending_activate_name: RwSignal<String>,
 ) -> impl IntoView {
     let id = stack.id.clone();
     let id_link = id.clone();
@@ -151,6 +218,7 @@ pub fn StackRow(
     let id_delete = id.clone();
     let name = stack.name.clone();
     let name_for_delete = name.clone();
+    let name_for_activate = name.clone();
     let adapter_count = stack.adapter_ids.len();
     let workflow_label = workflow_type_label(&stack.workflow_type);
     let is_active = stack.is_active;
@@ -220,19 +288,15 @@ pub fn StackRow(
                             </button>
                         }.into_any()
                     } else {
-                        let client = Arc::clone(&client);
                         let id_for_activate = id_activate.clone();
+                        let name_for_activate = name_for_activate.clone();
                         view! {
                             <button
                                 class="text-sm text-status-success hover:underline focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
                                 on:click=move |_| {
-                                    let client = Arc::clone(&client);
-                                    let id = id_for_activate.clone();
-                                    wasm_bindgen_futures::spawn_local(async move {
-                                        if client.activate_stack(&id).await.is_ok() {
-                                            trigger_refresh();
-                                        }
-                                    });
+                                    pending_activate_id.set(Some(id_for_activate.clone()));
+                                    pending_activate_name.set(name_for_activate.clone());
+                                    show_activate_confirm.set(true);
                                 }
                             >
                                 "Activate"
