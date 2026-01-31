@@ -211,7 +211,7 @@ pub fn WorkerRow(
     show_drain: bool,
     show_stop: bool,
 ) -> impl IntoView {
-    let status_variant = match worker.status.as_str() {
+    let _status_variant = match worker.status.as_str() {
         "healthy" => BadgeVariant::Success,
         "draining" => BadgeVariant::Warning,
         "registered" => BadgeVariant::Secondary,

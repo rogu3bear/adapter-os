@@ -926,7 +926,8 @@ fn CrashesSection() -> impl IntoView {
                                     state=crashes
                                     on_retry=Callback::new(move |_| refetch_crashes.run(()))
                                     loading_message="Loading crash dumps...".to_string()
-                                    render=move |data: Vec<ProcessCrashDumpResponse>| {
+                                    render=move |data| {
+                                        let data: Vec<ProcessCrashDumpResponse> = data;
                                         if selected_worker_id.get().is_empty() {
                                             view! {
                                                 <EmptyState

@@ -499,6 +499,7 @@ pub fn ChatSession() -> impl IntoView {
         let state = chat_state.get();
         !state.loading && !state.streaming && state.stream_recovery.is_some()
     });
+    let retry_disabled = Signal::derive(move || !can_retry.get());
 
     // Convert active_adapters to AdapterMagnets for the AdapterBar
     let adapter_magnets = Memo::new(move |_| {
@@ -665,8 +666,8 @@ pub fn ChatSession() -> impl IntoView {
                                         <Button
                                             variant=ButtonVariant::Outline
                                             size=ButtonSize::Sm
-                                            disabled=move || !can_retry.get()
-                                            on_click=Some(do_retry.clone())
+                                            disabled=retry_disabled.clone()
+                                            on_click=do_retry.clone()
                                         >
                                             "Retry"
                                         </Button>
@@ -855,14 +856,14 @@ pub fn ChatSession() -> impl IntoView {
                                         .unwrap_or(false);
                                     if retryable {
                                         view! {
-                                            <Button
-                                                variant=ButtonVariant::Outline
-                                                size=ButtonSize::Sm
-                                                disabled=move || !can_retry.get()
-                                                on_click=Some(do_retry.clone())
-                                            >
-                                                "Retry"
-                                            </Button>
+                                        <Button
+                                            variant=ButtonVariant::Outline
+                                            size=ButtonSize::Sm
+                                            disabled=retry_disabled.clone()
+                                            on_click=do_retry.clone()
+                                        >
+                                            "Retry"
+                                        </Button>
                                         }.into_any()
                                     } else {
                                         view! {}.into_any()

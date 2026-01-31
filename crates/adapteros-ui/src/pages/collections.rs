@@ -732,6 +732,7 @@ fn AddDocumentsDialog(
             let on_added = on_added.clone();
             let open = open;
             let selected_ids = selected_ids.clone();
+            let collection_id = collection_id.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 let mut failures = Vec::new();
                 for doc_id in ids.iter() {
@@ -843,9 +844,10 @@ fn AddDocumentsDialog(
                                             {filtered.into_iter().map(|doc| {
                                                 let doc_id = doc.document_id.clone();
                                                 let doc_id_for_toggle = doc_id.clone();
+                                                let doc_id_for_selected = doc_id.clone();
                                                 let is_selected = Signal::derive({
                                                     let selected_ids = selected_ids.clone();
-                                                    move || selected_ids.get().contains(&doc_id)
+                                                    move || selected_ids.get().contains(&doc_id_for_selected)
                                                 });
                                                 let status_variant = match doc.status.as_str() {
                                                     "indexed" => BadgeVariant::Success,
@@ -859,10 +861,10 @@ fn AddDocumentsDialog(
                                                         <TableCell>
                                                             <Checkbox
                                                                 checked=is_selected
-                                                                on_change=Some(Callback::new({
+                                                                on_change=Callback::new({
                                                                     let toggle_selected = toggle_selected.clone();
                                                                     move |checked| toggle_selected(doc_id_for_toggle.clone(), checked)
-                                                                }))
+                                                                })
                                                             />
                                                         </TableCell>
                                                         <TableCell>

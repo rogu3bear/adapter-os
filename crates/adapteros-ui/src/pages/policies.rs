@@ -110,9 +110,9 @@ pub fn Policies() -> impl IntoView {
                                                 />
                                                 <Textarea
                                                     value=new_content
-                                                    label=Some("Policy JSON".to_string())
+                                                    label="Policy JSON".to_string()
                                                     aria_label="Policy JSON".to_string()
-                                                    rows=Some(14)
+                                                    rows=14
                                                     class="font-mono text-xs bg-zinc-950 text-status-success min-h-48".to_string()
                                                 />
                                                 <PolicyActionsCard
@@ -381,9 +381,9 @@ fn PolicyDetailContent(policy: PolicyPackResponse, on_applied: Callback<()>) -> 
             </div>
             <Textarea
                 value=content_signal
-                label=Some("Policy JSON".to_string())
+                label="Policy JSON".to_string()
                 aria_label="Policy JSON".to_string()
-                rows=Some(16)
+                rows=16
                 class="font-mono text-xs bg-zinc-950 text-status-success min-h-56".to_string()
             />
         </Card>

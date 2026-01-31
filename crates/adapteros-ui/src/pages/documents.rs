@@ -264,8 +264,9 @@ fn DocumentsList(
                                                 .clone()
                                                 .filter(|err| !err.is_empty())
                                                 .map(|err| {
+                                                    let err_title = err.clone();
                                                     view! {
-                                                        <div class="text-xs text-destructive line-clamp-1" title=err.clone()>
+                                                        <div class="text-xs text-destructive line-clamp-1" title=err_title>
                                                             {err}
                                                         </div>
                                                     }
@@ -318,6 +319,9 @@ fn DocumentUploadDialog(
     let error_msg = RwSignal::new(None::<String>);
     let selected_file_name = RwSignal::new(None::<String>);
     let selected_file_size = RwSignal::new(None::<u64>);
+
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = on_success;
     let upload_status = RwSignal::new(None::<String>);
     let uploaded_status = RwSignal::new(None::<String>);
 
@@ -489,7 +493,7 @@ fn DocumentUploadDialog(
                     variant=ButtonVariant::Primary
                     loading=Signal::derive(move || uploading.get())
                     disabled=upload_disabled
-                    on_click=Some(handle_upload)
+                    on_click=handle_upload
                 >
                     "Upload"
                 </Button>

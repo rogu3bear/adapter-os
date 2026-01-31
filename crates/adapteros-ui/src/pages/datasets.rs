@@ -386,10 +386,128 @@ pub fn DatasetDetail() -> impl IntoView {
                     }
                     LoadingState::Loaded(data) => {
                         let validation_diagnostics = data.validation_diagnostics.clone();
-                        let validation_errors = data.validation_errors.clone();
+                        let validation_errors_overview = data.validation_errors.clone();
+                        let validation_errors_list = data.validation_errors.clone();
                         let validation_status = data.validation_status.clone();
                         let trust_state = data.trust_state.clone();
                         let current_version_id = data.dataset_version_id.clone();
+
+                        let validation_status_view = validation_status.map(|status| {
+                            let variant = validation_badge_variant(&status);
+                            view! {
+                                <div class="flex justify-between">
+                                    <dt class="text-muted-foreground">"Validation"</dt>
+                                    <dd>
+                                        <Badge variant=variant>{status}</Badge>
+                                    </dd>
+                                </div>
+                            }
+                        });
+
+                        let validation_error_count_view = validation_errors_overview.and_then(|errors| {
+                            let count = errors.len();
+                            if count == 0 {
+                                None
+                            } else {
+                                Some(view! {
+                                    <div class="flex justify-between">
+                                        <dt class="text-muted-foreground">"Validation Errors"</dt>
+                                        <dd class="text-destructive">{count.to_string()}</dd>
+                                    </div>
+                                })
+                            }
+                        });
+
+                        let trust_state_view = trust_state.map(|state| {
+                            let variant = trust_state_badge_variant(&state);
+                            view! {
+                                <div class="flex justify-between">
+                                    <dt class="text-muted-foreground">"Trust State"</dt>
+                                    <dd>
+                                        <Badge variant=variant>{state}</Badge>
+                                    </dd>
+                                </div>
+                            }
+                        });
+
+                        let current_version_view = current_version_id.map(|version| {
+                            view! {
+                                <div class="flex justify-between">
+                                    <dt class="text-muted-foreground">"Current Version"</dt>
+                                    <dd class="font-mono text-xs truncate max-w-48">{version}</dd>
+                                </div>
+                            }
+                        });
+
+                        let hash_view = data.hash_b3.clone().map(|hash| {
+                            view! {
+                                <div class="flex justify-between">
+                                    <dt class="text-muted-foreground">"Hash (B3)"</dt>
+                                    <dd class="font-mono text-xs truncate max-w-48">{hash}</dd>
+                                </div>
+                            }
+                        });
+
+                        let validation_errors_view = validation_errors_list.and_then(|errors| {
+                            if errors.is_empty() {
+                                None
+                            } else {
+                                Some(view! {
+                                    <Card>
+                                        <h3 class="text-lg font-semibold mb-4">"Validation Errors"</h3>
+                                        <ul class="space-y-2 text-sm text-destructive">
+                                            {errors.into_iter().map(|err| {
+                                                view! { <li>{err}</li> }
+                                            }).collect_view()}
+                                        </ul>
+                                    </Card>
+                                })
+                            }
+                        });
+
+                        let validation_diagnostics_view = validation_diagnostics.map(|diagnostics| {
+                            view! {
+                                <Card>
+                                    <h3 class="text-lg font-semibold mb-4">"Validation Diagnostics"</h3>
+                                    <div class="space-y-3 text-sm">
+                                        {diagnostics.into_iter().map(|diag| view! {
+                                            <div class="rounded border border-muted p-3">
+                                                <div class="flex items-center justify-between">
+                                                    <span class="text-muted-foreground">"Line"</span>
+                                                    <span class="font-mono">{diag.line_number.to_string()}</span>
+                                                </div>
+                                                {diag.raw_snippet.map(|snippet| view! {
+                                                    <div class="mt-2 font-mono text-xs text-muted-foreground truncate">{snippet}</div>
+                                                })}
+                                                {diag.missing_fields.map(|fields| view! {
+                                                    <div class="mt-2">
+                                                        <span class="text-muted-foreground">"Missing: "</span>
+                                                        <span>{fields.join(", ")}</span>
+                                                    </div>
+                                                })}
+                                                {diag.invalid_field_types.map(|fields| view! {
+                                                    <div class="mt-2">
+                                                        <span class="text-muted-foreground">"Invalid types: "</span>
+                                                        <span>
+                                                            {fields
+                                                                .iter()
+                                                                .map(|field| format!("{} ({} -> {})", field.field, field.actual, field.expected))
+                                                                .collect::<Vec<_>>()
+                                                                .join(", ")}
+                                                        </span>
+                                                    </div>
+                                                })}
+                                                {diag.contract_version_expected.map(|version| view! {
+                                                    <div class="mt-2 text-muted-foreground">
+                                                        "Contract version expected: " {version}
+                                                    </div>
+                                                })}
+                                            </div>
+                                        }).collect_view()}
+                                    </div>
+                                </Card>
+                            }
+                        });
 
                         view! {
                             <PageHeader
@@ -440,46 +558,10 @@ pub fn DatasetDetail() -> impl IntoView {
                                                 }>{data.status.clone()}</Badge>
                                             </dd>
                                         </div>
-                                        {validation_status.as_ref().map(|status| {
-                                            let variant = validation_badge_variant(status);
-                                            view! {
-                                                <div class="flex justify-between">
-                                                    <dt class="text-muted-foreground">"Validation"</dt>
-                                                    <dd>
-                                                        <Badge variant=variant>{status.clone()}</Badge>
-                                                    </dd>
-                                                </div>
-                                            }
-                                        })}
-                                        {validation_errors
-                                            .as_ref()
-                                            .map(|errs| errs.len())
-                                            .filter(|count| *count > 0)
-                                            .map(|count| {
-                                                view! {
-                                                    <div class="flex justify-between">
-                                                        <dt class="text-muted-foreground">"Validation Errors"</dt>
-                                                        <dd class="text-destructive">{count.to_string()}</dd>
-                                                    </div>
-                                                }
-                                            })}
-                                        {trust_state.as_ref().map(|state| {
-                                            let variant = trust_state_badge_variant(state);
-                                            view! {
-                                                <div class="flex justify-between">
-                                                    <dt class="text-muted-foreground">"Trust State"</dt>
-                                                    <dd>
-                                                        <Badge variant=variant>{state.clone()}</Badge>
-                                                    </dd>
-                                                </div>
-                                            }
-                                        })}
-                                        {current_version_id.as_ref().map(|version| view! {
-                                            <div class="flex justify-between">
-                                                <dt class="text-muted-foreground">"Current Version"</dt>
-                                                <dd class="font-mono text-xs truncate max-w-48">{version.clone()}</dd>
-                                            </div>
-                                        })}
+                                        {validation_status_view}
+                                        {validation_error_count_view}
+                                        {trust_state_view}
+                                        {current_version_view}
                                         <div class="flex justify-between">
                                             <dt class="text-muted-foreground">"File Count"</dt>
                                             <dd>{data.file_count.unwrap_or(0)}</dd>
@@ -492,12 +574,7 @@ pub fn DatasetDetail() -> impl IntoView {
                                             <dt class="text-muted-foreground">"Created"</dt>
                                             <dd>{format_date(&data.created_at)}</dd>
                                         </div>
-                                        {data.hash_b3.as_ref().map(|hash| view! {
-                                            <div class="flex justify-between">
-                                                <dt class="text-muted-foreground">"Hash (B3)"</dt>
-                                                <dd class="font-mono text-xs truncate max-w-48">{hash.clone()}</dd>
-                                            </div>
-                                        })}
+                                        {hash_view}
                                     </dl>
                                 </Card>
 
@@ -539,22 +616,7 @@ pub fn DatasetDetail() -> impl IntoView {
                                 </Card>
                             </div>
 
-                            {validation_errors.and_then(|errors| {
-                                if errors.is_empty() {
-                                    None
-                                } else {
-                                    Some(view! {
-                                        <Card>
-                                            <h3 class="text-lg font-semibold mb-4">"Validation Errors"</h3>
-                                            <ul class="space-y-2 text-sm text-destructive">
-                                                {errors.into_iter().map(|err| {
-                                                    view! { <li>{err}</li> }
-                                                }).collect_view()}
-                                            </ul>
-                                        </Card>
-                                    })
-                                }
-                            })}
+                            {validation_errors_view}
 
                             <Card>
                                 <h3 class="text-lg font-semibold mb-4">"Versions"</h3>
@@ -638,7 +700,8 @@ pub fn DatasetDetail() -> impl IntoView {
                             {move || {
                                 match versions.get() {
                                     LoadingState::Loaded(DatasetVersionsResponse { versions, .. }) => {
-                                        versions.first().map(|latest| {
+                                        let latest_id = versions.first().map(|latest| latest.dataset_version_id.clone());
+                                        latest_id.map(|id| {
                                             view! {
                                                 <Card>
                                                     <h3 class="text-lg font-semibold mb-4">"Usage"</h3>
@@ -646,7 +709,7 @@ pub fn DatasetDetail() -> impl IntoView {
                                                         "Use a dataset version ID in inference or training to pin the exact data snapshot."
                                                     </p>
                                                     <div class="rounded-md bg-muted p-3 font-mono text-sm break-all">
-                                                        {format!("dataset_version_id: \"{}\"", latest.dataset_version_id)}
+                                                        {format!("dataset_version_id: \"{}\"", id)}
                                                     </div>
                                                 </Card>
                                             }.into_any()
@@ -656,43 +719,7 @@ pub fn DatasetDetail() -> impl IntoView {
                                 }
                             }}
 
-                            {validation_diagnostics.map(|diagnostics| view! {
-                                <Card>
-                                    <h3 class="text-lg font-semibold mb-4">"Validation Diagnostics"</h3>
-                                    <div class="space-y-3 text-sm">
-                                        {diagnostics.iter().map(|diag| view! {
-                                            <div class="rounded border border-muted p-3">
-                                                <div class="flex items-center justify-between">
-                                                    <span class="text-muted-foreground">"Line"</span>
-                                                    <span class="font-mono">{diag.line_number.to_string()}</span>
-                                                </div>
-                                                {diag.raw_snippet.as_ref().map(|snippet| view! {
-                                                    <div class="mt-2 font-mono text-xs text-muted-foreground truncate">{snippet.clone()}</div>
-                                                })}
-                                                {diag.missing_fields.as_ref().map(|fields| view! {
-                                                    <div class="mt-2">
-                                                        <span class="text-muted-foreground">"Missing: "</span>
-                                                        <span>{fields.join(", ")}</span>
-                                                    </div>
-                                                })}
-                                                {diag.invalid_field_types.as_ref().map(|fields| view! {
-                                                    <div class="mt-2">
-                                                        <span class="text-muted-foreground">"Invalid types: "</span>
-                                                        <span>
-                                                            {fields.iter().map(|field| format!("{} ({} -> {})", field.field, field.actual, field.expected)).collect::<Vec<_>>().join(", ")}
-                                                        </span>
-                                                    </div>
-                                                })}
-                                                {diag.contract_version_expected.as_ref().map(|version| view! {
-                                                    <div class="mt-2 text-muted-foreground">
-                                                        "Contract version expected: " {version.clone()}
-                                                    </div>
-                                                })}
-                                            </div>
-                                        }).collect_view()}
-                                    </div>
-                                </Card>
-                            })}
+                            {validation_diagnostics_view}
 
                             <ConfirmationDialog
                                 open=show_delete_confirm

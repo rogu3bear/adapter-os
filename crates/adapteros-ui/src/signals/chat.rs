@@ -537,15 +537,19 @@ impl ChatAction {
             s.loading = false;
             s.stream_notice = Some(StreamNotice::warning("Stream cancelled", true));
             // Mark the last message as no longer streaming and track as partial
+            let mut partial_id = None;
             if let Some(last) = s.messages.last_mut() {
                 if last.role == "assistant" {
                     if last.content.is_empty() {
                         s.messages.pop();
                     } else {
                         last.is_streaming = false;
-                        mark_partial_assistant(s, &last.id);
+                        partial_id = Some(last.id.clone());
                     }
                 }
+            }
+            if let Some(id) = partial_id {
+                mark_partial_assistant(s, &id);
             }
         });
     }
@@ -724,15 +728,19 @@ impl ChatAction {
                         // Stream was cancelled by user - mark message as no longer streaming
                         // Use try_update to avoid panic if signal is disposed during navigation
                         let _ = state.try_update(|s| {
+                            let mut partial_id = None;
                             if let Some(last) = s.messages.last_mut() {
                                 if last.role == "assistant" {
                                     if last.content.is_empty() {
                                         s.messages.pop();
                                     } else {
                                         last.is_streaming = false;
-                                        mark_partial_assistant(s, &last.id);
+                                        partial_id = Some(last.id.clone());
                                     }
                                 }
+                            }
+                            if let Some(id) = partial_id {
+                                mark_partial_assistant(s, &id);
                             }
                         });
                     } else {
@@ -740,12 +748,21 @@ impl ChatAction {
                         // Remove empty assistant message on error; keep partial otherwise
                         // Use try_update to avoid panic if signal is disposed during navigation
                         let _ = state.try_update(|s| {
+                            let mut partial_id = None;
+                            let mut remove_last = false;
                             if let Some(last) = s.messages.last() {
-                                if last.role == "assistant" && last.content.is_empty() {
-                                    s.messages.pop();
-                                } else if last.role == "assistant" {
-                                    mark_partial_assistant(s, &last.id);
+                                if last.role == "assistant" {
+                                    if last.content.is_empty() {
+                                        remove_last = true;
+                                    } else {
+                                        partial_id = Some(last.id.clone());
+                                    }
                                 }
+                            }
+                            if remove_last {
+                                s.messages.pop();
+                            } else if let Some(id) = partial_id {
+                                mark_partial_assistant(s, &id);
                             }
                             s.error = Some(failure.message.clone());
                             s.stream_notice = Some(notice);
@@ -1253,7 +1270,7 @@ impl SlowNoticeTimer {
         {
             let _ = state;
             let _ = delay_ms;
-            return Self { handle: None };
+            return Self {};
         }
     }
 
@@ -1515,11 +1532,14 @@ async fn stream_inference_to_state(
     if !response.ok() {
         let status = response.status();
         let status_text = response.status_text();
-        let body_text = JsFuture::from(response.text())
-            .await
-            .ok()
-            .and_then(|v| v.as_string())
-            .unwrap_or_else(|| status_text.clone());
+        let body_text = match response.text() {
+            Ok(promise) => JsFuture::from(promise)
+                .await
+                .ok()
+                .and_then(|v| v.as_string())
+                .unwrap_or_else(|| status_text.clone()),
+            Err(_) => status_text.clone(),
+        };
         let api_error = ApiError::from_response(status as u16, &body_text);
         return Err(StreamFailure::new(
             api_error.to_string(),
