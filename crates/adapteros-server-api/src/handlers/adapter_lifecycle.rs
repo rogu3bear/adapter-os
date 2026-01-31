@@ -622,6 +622,20 @@ pub async fn promote_adapter_state(
 }
 
 /// Download adapter manifest as JSON
+#[utoipa::path(
+    get,
+    path = "/v1/adapters/{adapter_id}/manifest",
+    params(
+        ("adapter_id" = String, Path, description = "Adapter identifier")
+    ),
+    responses(
+        (status = 200, description = "Adapter manifest", body = AdapterManifest),
+        (status = 403, description = "Forbidden", body = ErrorResponse),
+        (status = 404, description = "Adapter not found", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "adapters"
+)]
 pub async fn download_adapter_manifest(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,

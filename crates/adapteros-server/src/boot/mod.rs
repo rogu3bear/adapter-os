@@ -36,7 +36,7 @@
 //!
 //! // Bind and serve
 //! let mode = BindMode::tcp(addr);
-//! let config = ServerBindConfig { boot_state, shutdown_coordinator, drain_timeout, in_flight_requests };
+//! let config = ServerBindConfig { boot_state, shutdown_coordinator, drain_timeout, in_flight_requests, shutdown_rx };
 //! bind_and_serve(mode, app, config).await?;
 //! ```
 pub mod api_config;

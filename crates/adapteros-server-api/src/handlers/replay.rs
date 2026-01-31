@@ -26,7 +26,7 @@ use crate::inference_core::InferenceCore;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
-use crate::types::{new_run_envelope, ErrorResponse, InferenceRequestInternal};
+use crate::types::{new_run_envelope_no_tick, ErrorResponse, InferenceRequestInternal};
 
 /// Replay verification response
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -624,7 +624,7 @@ pub async fn execute_replay_session(
 
     // Create inference request with deterministic parameters from session
     let run_id = uuid::Uuid::new_v4().to_string();
-    let run_envelope = new_run_envelope(&state, &claims, run_id.clone(), false);
+    let run_envelope = new_run_envelope_no_tick(&state, &claims, run_id.clone(), false);
 
     let inference_request = InferenceRequestInternal {
         request_id: run_id,

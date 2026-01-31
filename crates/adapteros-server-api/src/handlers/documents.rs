@@ -712,21 +712,19 @@ pub async fn process_document(
     // Check document state - validate current status
     match document.status.as_str() {
         "indexed" => {
-            return Err(ApiError::bad_request("Document is already indexed"));
+            return Err(ApiError::bad_request("Document is already indexed").into());
         }
         "processing" => {
-            return Err(ApiError::bad_request(
-                "Document is currently being processed",
-            ));
+            return Err(ApiError::bad_request("Document is currently being processed").into());
         }
         "pending" | "failed" => {
             // Allowed to process - will acquire lock
         }
         _ => {
-            return Err(ApiError::bad_request(format!(
-                "Unknown document status: {}",
-                document.status
-            )));
+            return Err(
+                ApiError::bad_request(format!("Unknown document status: {}", document.status))
+                    .into(),
+            );
         }
     }
 
@@ -738,9 +736,12 @@ pub async fn process_document(
         .map_err(ApiError::db_error)?;
 
     if !acquired {
-        return Err(ApiError::bad_request(
-            "Failed to acquire processing lock (document may be processing by another request)",
-        ));
+        return Err(
+            ApiError::bad_request(
+                "Failed to acquire processing lock (document may be processing by another request)",
+            )
+            .into(),
+        );
     }
 
     // Process with error handling - on failure, mark as failed
@@ -803,10 +804,10 @@ async fn process_document_inner(
             .ingest_markdown_bytes(&file_data, &document.name)
             .map_err(|e| ApiError::db_error(format!("Failed to parse markdown: {}", e)))?
     } else {
-        return Err(ApiError::bad_request(format!(
-            "Unsupported document type: {}",
-            document.mime_type
-        )));
+        return Err(
+            ApiError::bad_request(format!("Unsupported document type: {}", document.mime_type))
+                .into(),
+        );
     };
 
     info!(
@@ -880,8 +881,8 @@ async fn process_document_inner(
         .bind(document_id)
         .bind(chunk.chunk_index as i64)
         .bind(chunk.page_number.map(|p| p as i64))
-        .bind(chunk.start_offset.map(|o| o as i64))
-        .bind(chunk.end_offset.map(|o| o as i64))
+        .bind(chunk.start_offset as i64)
+        .bind(chunk.end_offset as i64)
         .bind(&chunk_hash)
         .bind(&text_preview)
         .bind(embedding_json.as_deref())
@@ -996,7 +997,7 @@ async fn process_document_inner(
 
 #[cfg(feature = "embeddings")]
 async fn embed_with_backoff(
-    embedding_model: &Arc<dyn adapteros_ingest_docs::EmbeddingModel>,
+    embedding_model: &Arc<dyn adapteros_ingest_docs::EmbeddingModel + Send + Sync>,
     text: &str,
 ) -> adapteros_core::Result<Vec<f32>> {
     let mut attempt = 0usize;

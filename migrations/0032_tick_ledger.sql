@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS tick_ledger_entries (
     tenant_id TEXT NOT NULL,
     host_id TEXT NOT NULL,
     task_id TEXT NOT NULL,
-    event_type TEXT NOT NULL, -- TaskSpawned, TaskCompleted, TaskFailed, TaskTimeout, TickAdvanced
+    event_type TEXT NOT NULL, -- TaskSpawned, TaskCompleted, TaskFailed, TaskTimeout, InferenceStarted, TickAdvanced
     event_hash TEXT NOT NULL, -- BLAKE3 hash of event data (hex)
     timestamp_us INTEGER NOT NULL,
     prev_entry_hash TEXT, -- Previous entry hash for Merkle chain
@@ -61,4 +61,3 @@ CREATE INDEX IF NOT EXISTS idx_consistency_tenant
 -- Index for host-pair lookups
 CREATE INDEX IF NOT EXISTS idx_consistency_hosts 
     ON tick_ledger_consistency_reports(host_a, host_b, created_at DESC);
-

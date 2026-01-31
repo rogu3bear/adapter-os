@@ -273,6 +273,7 @@ async fn main() -> Result<()> {
             config_ctx.server_config.clone(),
             &mut shutdown_coordinator,
             executor_ctx.background_tasks.clone(),
+            &db_ctx.boot_state,
             production_mode,
         )
         .await?;
@@ -280,7 +281,7 @@ async fn main() -> Result<()> {
         // =====================================================================
         // Phase 10a: Application State
         // =====================================================================
-        let (state, shutdown_coordinator, diag_receiver) = build_app_state(
+        let (state, shutdown_coordinator, diag_receiver, shutdown_rx) = build_app_state(
             db_ctx.db.clone(),
             api_config,
             config_ctx.server_config.clone(),
@@ -354,12 +355,12 @@ async fn main() -> Result<()> {
             cli.strict,
         )?;
 
-        Ok::<_, anyhow::Error>((db_ctx.boot_state, boot_artifacts, shutdown_coordinator))
+        Ok::<_, anyhow::Error>((db_ctx.boot_state, boot_artifacts, shutdown_coordinator, shutdown_rx))
     })
     .await;
 
     // Handle boot timeout
-    let (boot_state, boot_artifacts, shutdown_coordinator) = match boot_result {
+    let (boot_state, boot_artifacts, shutdown_coordinator, shutdown_rx) = match boot_result {
         Ok(Ok(artifacts)) => {
             let boot_duration = boot_start.elapsed();
             info!(
@@ -421,6 +422,7 @@ async fn main() -> Result<()> {
         shutdown_coordinator,
         drain_timeout: boot_artifacts.bind_config.drain_timeout,
         in_flight_requests: boot_artifacts.in_flight_requests,
+        shutdown_rx,
     };
 
     boot_state.start_phase("bind");

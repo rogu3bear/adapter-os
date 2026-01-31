@@ -6,8 +6,8 @@ use super::dialogs::EditStackDialog;
 use super::helpers::{lifecycle_badge_variant, workflow_type_label};
 use crate::api::{ApiClient, StackResponse};
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ErrorDisplay, Link, LinkVariant,
-    LoadingDisplay, RefreshButton,
+    Badge, BadgeVariant, BreadcrumbItem, BreadcrumbTrail, Button, ButtonSize, ButtonVariant, Card,
+    ErrorDisplay, LoadingDisplay, RefreshButton,
 };
 use crate::hooks::{use_api, use_api_resource, LoadingState};
 use adapteros_api_types::AdapterResponse;
@@ -46,13 +46,14 @@ pub fn StackDetail() -> impl IntoView {
 
     view! {
         <div class="space-y-6">
+            // Breadcrumb navigation
+            <BreadcrumbTrail items=vec![
+                BreadcrumbItem::link("Stacks", "/stacks"),
+                BreadcrumbItem::current(stack_id.get()),
+            ]/>
+
             <div class="flex items-center justify-between">
-                <div class="flex items-center gap-4">
-                    <Link href="/stacks" variant=LinkVariant::Muted>
-                        "< Runtime Stacks"
-                    </Link>
-                    <h1 class="text-3xl font-bold tracking-tight">"Stack Details"</h1>
-                </div>
+                <h1 class="text-3xl font-bold tracking-tight">"Stack Details"</h1>
                 <div class="flex items-center gap-2">
                     <RefreshButton on_click=Callback::new(move |_| trigger_refresh())/>
                     <Button

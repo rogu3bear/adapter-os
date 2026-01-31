@@ -3,7 +3,7 @@
 //! Right panel that shows detailed information about the selected item.
 
 use super::state::{DataSource, DatasetStatus, DocumentStatus, PreprocessStatus};
-use crate::api::{DatasetResponse, DocumentResponse};
+use crate::api::{DatasetResponse, DocumentResponse, PreprocessedCacheEntry};
 use crate::components::{Badge, BadgeVariant, Button, ButtonVariant, Card, Spinner};
 use leptos::prelude::*;
 
@@ -54,6 +54,9 @@ pub fn DataDetailPanel(
     /// Preprocess status (when source is Preprocessed)
     #[prop(optional)]
     preprocess_status: Option<Signal<PreprocessStatus>>,
+    /// Preprocessed cache entry (when source is Preprocessed)
+    #[prop(optional)]
+    preprocessed_entry: Option<Signal<Option<PreprocessedCacheEntry>>>,
     /// Whether data is loading
     #[prop(into, default = Signal::derive(|| false))]
     loading: Signal<bool>,
@@ -114,9 +117,11 @@ pub fn DataDetailPanel(
                             },
                             DataSource::Preprocessed => {
                                 let status = preprocess_status.map(|s| s.get()).unwrap_or_default();
+                                let entry = preprocessed_entry.and_then(|e| e.get());
                                 view! {
                                     <PreprocessDetail
                                         dataset_id=id.clone()
+                                        entry=entry
                                         status=status
                                         on_close=on_close
                                         on_invalidate_cache=on_invalidate_cache
@@ -430,12 +435,18 @@ fn DatasetDetail(
 #[component]
 fn PreprocessDetail(
     dataset_id: String,
+    entry: Option<PreprocessedCacheEntry>,
     status: PreprocessStatus,
     on_close: Callback<()>,
     on_invalidate_cache: Option<Callback<String>>,
 ) -> impl IntoView {
     let ds_id = dataset_id.clone();
     let ds_id_for_action = dataset_id.clone();
+
+    let title = entry
+        .as_ref()
+        .and_then(|e| e.dataset_name.clone())
+        .unwrap_or_else(|| dataset_id.clone());
 
     let status_variant = match status {
         PreprocessStatus::Cached => BadgeVariant::Success,
@@ -447,7 +458,7 @@ fn PreprocessDetail(
     view! {
         <div class="data-detail-content">
             <div class="data-detail-header">
-                <h2 class="data-detail-title">"Preprocess Cache"</h2>
+                <h2 class="data-detail-title">{title}</h2>
                 <button
                     type="button"
                     class="data-detail-close"
@@ -464,6 +475,27 @@ fn PreprocessDetail(
                         <dt>"Dataset ID"</dt>
                         <dd class="font-mono text-sm">{ds_id}</dd>
                     </div>
+                    {entry.as_ref().map(|e| {
+                        let produced_at = e.produced_at.clone().unwrap_or_default();
+                        view! {
+                            <div class="data-detail-metadata-item">
+                                <dt>"Preprocess ID"</dt>
+                                <dd class="font-mono text-sm">{e.preprocess_id.clone()}</dd>
+                            </div>
+                            <div class="data-detail-metadata-item">
+                                <dt>"Backend"</dt>
+                                <dd>{e.backend.clone()}</dd>
+                            </div>
+                            <div class="data-detail-metadata-item">
+                                <dt>"Examples"</dt>
+                                <dd>{e.example_count}</dd>
+                            </div>
+                            <div class="data-detail-metadata-item">
+                                <dt>"Produced"</dt>
+                                <dd>{produced_at}</dd>
+                            </div>
+                        }
+                    })}
                     <div class="data-detail-metadata-item">
                         <dt>"Status"</dt>
                         <dd>

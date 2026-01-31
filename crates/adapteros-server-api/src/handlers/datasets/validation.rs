@@ -1744,7 +1744,7 @@ pub async fn validate_dataset(
 mod validation_tests {
     use super::*;
     use axum::http::StatusCode;
-    use tempfile::tempdir;
+    use crate::test_utils;
     use tokio::fs::File;
     use tokio::io::AsyncWriteExt;
 
@@ -1815,7 +1815,7 @@ mod validation_tests {
 
     #[tokio::test]
     async fn test_file_size_rule() {
-        let dir = tempdir().unwrap();
+        let dir = test_utils::tempdir();
         let path = create_test_file(dir.path(), "test.jsonl", "").await;
 
         let rule = FileSizeRule;
@@ -1828,7 +1828,7 @@ mod validation_tests {
 
     #[tokio::test]
     async fn test_file_extension_rule() {
-        let dir = tempdir().unwrap();
+        let dir = test_utils::tempdir();
         let path = create_test_file(dir.path(), "test.xyz", "content").await;
 
         let rule = FileExtensionRule;
@@ -1841,7 +1841,7 @@ mod validation_tests {
 
     #[tokio::test]
     async fn test_jsonl_format_rule_valid() {
-        let dir = tempdir().unwrap();
+        let dir = test_utils::tempdir();
         let content = r#"{"prompt": "Hello", "completion": "World"}
 {"prompt": "Foo", "completion": "Bar"}"#;
         let path = create_test_file(dir.path(), "test.jsonl", content).await;
@@ -1855,7 +1855,7 @@ mod validation_tests {
 
     #[tokio::test]
     async fn test_jsonl_format_rule_valid_raw_text() {
-        let dir = tempdir().unwrap();
+        let dir = test_utils::tempdir();
         let content = r#"{"text": "Hello"}"#;
         let path = create_test_file(dir.path(), "test.jsonl", content).await;
 
@@ -1868,7 +1868,7 @@ mod validation_tests {
 
     #[tokio::test]
     async fn test_jsonl_format_rule_invalid_json() {
-        let dir = tempdir().unwrap();
+        let dir = test_utils::tempdir();
         let content = r#"{"valid": true}
 {invalid json}
 {"also_valid": true}"#;
@@ -1890,7 +1890,7 @@ mod validation_tests {
 
     #[tokio::test]
     async fn test_jsonl_format_rule_missing_field() {
-        let dir = tempdir().unwrap();
+        let dir = test_utils::tempdir();
         let content = r#"{"prompt": "Hello"}"#; // missing completion
         let path = create_test_file(dir.path(), "test.jsonl", content).await;
 
@@ -1912,7 +1912,7 @@ mod validation_tests {
 
     #[tokio::test]
     async fn test_jsonl_format_rule_missing_prompt() {
-        let dir = tempdir().unwrap();
+        let dir = test_utils::tempdir();
         let content = r#"{"completion": "World"}"#;
         let path = create_test_file(dir.path(), "test.jsonl", content).await;
 
@@ -1934,7 +1934,7 @@ mod validation_tests {
 
     #[tokio::test]
     async fn test_jsonl_format_rule_empty_prompt() {
-        let dir = tempdir().unwrap();
+        let dir = test_utils::tempdir();
         let content = r#"{"prompt": "", "completion": "World"}"#;
         let path = create_test_file(dir.path(), "test.jsonl", content).await;
 
@@ -1955,7 +1955,7 @@ mod validation_tests {
 
     #[tokio::test]
     async fn test_jsonl_format_rule_invalid_response_type() {
-        let dir = tempdir().unwrap();
+        let dir = test_utils::tempdir();
         let content = r#"{"prompt": "Hello", "completion": 42}"#;
         let path = create_test_file(dir.path(), "test.jsonl", content).await;
 
@@ -1975,7 +1975,7 @@ mod validation_tests {
 
     #[tokio::test]
     async fn test_jsonl_format_rule_mixed_schema() {
-        let dir = tempdir().unwrap();
+        let dir = test_utils::tempdir();
         let content = r#"{"prompt": "A", "completion": "B"}
 {"text": "C"}"#;
         let path = create_test_file(dir.path(), "test.jsonl", content).await;
@@ -1989,7 +1989,7 @@ mod validation_tests {
 
     #[tokio::test]
     async fn test_quick_validate_file() {
-        let dir = tempdir().unwrap();
+        let dir = test_utils::tempdir();
         let content = r#"{"data": "test"}"#;
         let path = create_test_file(dir.path(), "test.jsonl", content).await;
 
@@ -2000,7 +2000,7 @@ mod validation_tests {
 
     #[tokio::test]
     async fn test_deep_validate_file() {
-        let dir = tempdir().unwrap();
+        let dir = test_utils::tempdir();
         let content = r#"{"prompt": "Hello", "completion": "World"}"#;
         let path = create_test_file(dir.path(), "test.jsonl", content).await;
 
@@ -2013,7 +2013,7 @@ mod validation_tests {
 
     #[tokio::test]
     async fn test_composite_validator() {
-        let dir = tempdir().unwrap();
+        let dir = test_utils::tempdir();
         let path = create_test_file(dir.path(), "test.jsonl", "{}").await;
 
         let config = ValidationConfig::default();

@@ -96,9 +96,10 @@ mod tests {
     use std::fs;
     use std::path::PathBuf;
     use tempfile::TempDir;
+    use crate::test_utils;
 
     fn new_test_tempdir() -> TempDir {
-        TempDir::with_prefix("aos-test-").expect("create temp dir")
+        test_utils::tempdir_with_prefix("aos-test-")
     }
 
     #[test]

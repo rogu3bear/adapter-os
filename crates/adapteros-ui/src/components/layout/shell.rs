@@ -79,6 +79,14 @@ pub fn Shell(children: Children) -> impl IntoView {
     view! {
         <StatusCenterProvider>
             <div class="shell">
+                // Skip to main content link for keyboard accessibility
+                <a
+                    href="#main-content"
+                    class="skip-to-main"
+                >
+                    "Skip to main content"
+                </a>
+
                 // PRD-UI-000: Offline banner for API connectivity status
                 <OfflineBanner/>
                 // Version drift banner prompts reload when backend/frontend versions differ
@@ -92,7 +100,7 @@ pub fn Shell(children: Children) -> impl IntoView {
                 <div class="shell-content">
                     // Main workspace wrapper
                     <Workspace class="shell-workspace">
-                        <main class="shell-main">
+                        <main id="main-content" class="shell-main" tabindex="-1">
                             {children()}
                         </main>
                     </Workspace>

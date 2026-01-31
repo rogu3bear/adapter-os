@@ -4,7 +4,7 @@
 
 use crate::api::{ApiClient, ApiError};
 use crate::boot_log;
-use adapteros_api_types::UserInfoResponse;
+use adapteros_api_types::{FailureCode, UserInfoResponse};
 use leptos::prelude::*;
 use serde::Deserialize;
 use std::sync::Arc;
@@ -57,6 +57,75 @@ fn mock_dev_user() -> UserInfoResponse {
 /// Dev: 3 seconds, Prod: 10 seconds (allows for cold start)
 const AUTH_TIMEOUT_MS: u32 = if cfg!(debug_assertions) { 3000 } else { 10000 };
 
+/// Classified authentication errors with user-friendly messages
+#[derive(Debug, Clone)]
+pub enum AuthError {
+    /// Token expired or invalid - user should re-login
+    TokenExpired,
+    /// Token was revoked (e.g., password changed, admin action)
+    TokenRevoked,
+    /// User doesn't have access to the requested tenant
+    TenantMismatch,
+    /// Tenant ID missing from claims
+    TenantMissing,
+    /// Server unavailable or network error (retryable)
+    ServerUnavailable,
+    /// Generic auth failure with message
+    Other(String),
+}
+
+impl AuthError {
+    /// User-facing error message
+    ///
+    /// Uses standardized wording:
+    /// - "Log in" for auth actions (not "Sign in")
+    /// - "Retry" for retryable errors
+    pub fn message(&self) -> &str {
+        match self {
+            Self::TokenExpired => "Your session has expired. Log in again.",
+            Self::TokenRevoked => "Your session was revoked. Log in again.",
+            Self::TenantMismatch => "You don't have access to this workspace.",
+            Self::TenantMissing => "No workspace associated with your account.",
+            Self::ServerUnavailable => "Unable to reach the server. Retry or check your connection.",
+            Self::Other(msg) => msg,
+        }
+    }
+
+    /// Whether this error is retryable (vs requiring re-login)
+    pub fn is_retryable(&self) -> bool {
+        matches!(self, Self::ServerUnavailable)
+    }
+
+    /// Whether this error requires the user to log in again
+    pub fn requires_login(&self) -> bool {
+        matches!(
+            self,
+            Self::TokenExpired | Self::TokenRevoked | Self::TenantMismatch | Self::TenantMissing
+        )
+    }
+
+    /// Classify an ApiError into an AuthError
+    fn from_api_error(err: &ApiError) -> Self {
+        match err {
+            ApiError::Unauthorized => Self::TokenExpired,
+            ApiError::Forbidden(msg) if msg.contains("revoked") => Self::TokenRevoked,
+            ApiError::Forbidden(_) => Self::TenantMismatch,
+            ApiError::Network(_) => Self::ServerUnavailable,
+            ApiError::Structured { failure_code, .. } => match failure_code {
+                Some(FailureCode::TenantAccessDenied) => Self::TenantMismatch,
+                _ => Self::Other(err.to_string()),
+            },
+            _ => Self::Other(err.to_string()),
+        }
+    }
+}
+
+impl std::fmt::Display for AuthError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message())
+    }
+}
+
 /// Authentication state
 #[derive(Debug, Clone)]
 pub enum AuthState {
@@ -68,8 +137,8 @@ pub enum AuthState {
     Unauthenticated,
     /// Authenticated with user info
     Authenticated(Box<UserInfoResponse>),
-    /// Auth error
-    Error(String),
+    /// Auth error with classified error type
+    Error(AuthError),
     /// Auth check timed out
     Timeout,
 }
@@ -89,6 +158,14 @@ impl AuthState {
     pub fn user(&self) -> Option<&UserInfoResponse> {
         match self {
             Self::Authenticated(user) => Some(user),
+            _ => None,
+        }
+    }
+
+    /// Get the auth error if in error state
+    pub fn error(&self) -> Option<&AuthError> {
+        match self {
+            Self::Error(err) => Some(err),
             _ => None,
         }
     }
@@ -139,19 +216,30 @@ impl AuthAction {
                 // Fetch user info to confirm auth
                 match self.client.me().await {
                     Ok(user) => {
+                        // Validate tenant_id is present
+                        if user.tenant_id.is_empty() {
+                            boot_log("auth", "login failed: tenant_id missing from claims");
+                            self.client.clear_auth_status();
+                            self.state.set(AuthState::Error(AuthError::TenantMissing));
+                            return Err(ApiError::Validation(
+                                "No workspace associated with account".to_string(),
+                            ));
+                        }
                         self.state.set(AuthState::Authenticated(Box::new(user)));
                         Ok(())
                     }
                     Err(e) => {
                         self.client.clear_auth_status();
-                        self.state.set(AuthState::Error(e.to_string()));
+                        self.state
+                            .set(AuthState::Error(AuthError::from_api_error(&e)));
                         Err(e)
                     }
                 }
             }
             Err(e) => {
                 self.client.clear_auth_status();
-                self.state.set(AuthState::Error(e.to_string()));
+                self.state
+                    .set(AuthState::Error(AuthError::from_api_error(&e)));
                 Err(e)
             }
         }
@@ -200,6 +288,13 @@ impl AuthAction {
 
         match result {
             Ok(user) => {
+                // Validate tenant_id is present
+                if user.tenant_id.is_empty() {
+                    boot_log("auth", "check_auth failed: tenant_id missing from claims");
+                    self.client.clear_auth_status();
+                    self.state.set(AuthState::Error(AuthError::TenantMissing));
+                    return;
+                }
                 boot_log("auth", &format!("authenticated as {}", user.email));
                 self.client.set_auth_status(true);
                 self.state.set(AuthState::Authenticated(Box::new(user)));
@@ -210,9 +305,10 @@ impl AuthAction {
                 self.state.set(AuthState::Unauthenticated);
             }
             Err(e) => {
-                boot_log("auth", &format!("error: {}", e));
+                let auth_error = AuthError::from_api_error(&e);
+                boot_log("auth", &format!("error: {} ({})", auth_error, e));
                 self.client.clear_auth_status();
-                self.state.set(AuthState::Error(e.to_string()));
+                self.state.set(AuthState::Error(auth_error));
             }
         }
     }

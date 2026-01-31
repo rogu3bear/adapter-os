@@ -10,6 +10,7 @@
 //! - Server validation is authoritative (never trust client)
 //! - Errors map to specific fields (not generic "form invalid")
 //! - Form state persists after validation failure
+//! - **Validate on blur or submit, not on every keystroke**
 //!
 //! ## Rule Categories
 //! - **Presence**: Required
@@ -26,15 +27,20 @@
 //!
 //! ## Usage Pattern
 //! ```rust
-//! let errors = use_form_errors();
+//! let form = use_form_state();
 //! let rules = rules::adapter_name();
-//! if let Err(msg) = validate_field(&name, &rules) {
-//!     errors.update(|e| e.insert("name".into(), msg));
+//!
+//! // Validate on blur (after first interaction)
+//! form.validate_on_blur("name", &name_value, &rules);
+//!
+//! // Validate all on submit
+//! if form.validate_on_submit() {
+//!     // proceed with submission
 //! }
 //! ```
 
 use leptos::prelude::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// A validation rule that can be applied to form fields
 #[derive(Clone, Debug)]
@@ -272,6 +278,195 @@ pub fn validate_and_update(
     }
 }
 
+/// Form state with touched field tracking for blur-based validation.
+///
+/// Fields are only validated after they've been "touched" (blurred at least once)
+/// or after form submit. This prevents showing errors on every keystroke.
+#[derive(Clone, Debug, Default)]
+pub struct FormState {
+    /// Validation errors per field
+    errors: HashMap<String, String>,
+    /// Fields that have been touched (blurred at least once)
+    touched: HashSet<String>,
+    /// Whether form has been submitted (validates all fields)
+    submitted: bool,
+}
+
+impl FormState {
+    /// Create a new empty FormState
+    pub fn new() -> Self {
+        Self {
+            errors: HashMap::new(),
+            touched: HashSet::new(),
+            submitted: false,
+        }
+    }
+
+    /// Mark a field as touched (after blur event)
+    pub fn touch(&mut self, field: &str) {
+        self.touched.insert(field.to_string());
+    }
+
+    /// Check if a field has been touched
+    pub fn is_touched(&self, field: &str) -> bool {
+        self.touched.contains(field)
+    }
+
+    /// Check if a field should show its error.
+    /// Only shows error if field was touched or form was submitted.
+    pub fn should_show_error(&self, field: &str) -> bool {
+        self.submitted || self.touched.contains(field)
+    }
+
+    /// Set an error for a field (internal)
+    fn set_error(&mut self, field: &str, error: String) {
+        self.errors.insert(field.to_string(), error);
+    }
+
+    /// Clear the error for a field
+    pub fn clear_error(&mut self, field: &str) {
+        self.errors.remove(field);
+    }
+
+    /// Get the error for a field, but only if it should be shown
+    pub fn get_visible_error(&self, field: &str) -> Option<&String> {
+        if self.should_show_error(field) {
+            self.errors.get(field)
+        } else {
+            None
+        }
+    }
+
+    /// Get the raw error for a field (regardless of touched state)
+    pub fn get_error(&self, field: &str) -> Option<&String> {
+        self.errors.get(field)
+    }
+
+    /// Check if a field has a visible error
+    pub fn has_visible_error(&self, field: &str) -> bool {
+        self.should_show_error(field) && self.errors.contains_key(field)
+    }
+
+    /// Check if any field has a visible error
+    pub fn has_any_visible_error(&self) -> bool {
+        if self.submitted {
+            !self.errors.is_empty()
+        } else {
+            self.touched.iter().any(|f| self.errors.contains_key(f))
+        }
+    }
+
+    /// Check if the form is valid (no errors at all)
+    pub fn is_valid(&self) -> bool {
+        self.errors.is_empty()
+    }
+
+    /// Mark form as submitted (shows all errors)
+    pub fn mark_submitted(&mut self) {
+        self.submitted = true;
+    }
+
+    /// Check if form has been submitted
+    pub fn is_submitted(&self) -> bool {
+        self.submitted
+    }
+
+    /// Clear all state (errors, touched, submitted)
+    pub fn clear_all(&mut self) {
+        self.errors.clear();
+        self.touched.clear();
+        self.submitted = false;
+    }
+
+    /// Reset for a new submission attempt (clears errors and submitted flag, keeps touched)
+    pub fn reset_for_retry(&mut self) {
+        self.errors.clear();
+        self.submitted = false;
+    }
+}
+
+/// Hook to create a reactive form state with touched field tracking
+pub fn use_form_state() -> RwSignal<FormState> {
+    RwSignal::new(FormState::new())
+}
+
+/// Validate a field on blur (after first interaction).
+///
+/// Call this from an `on:blur` handler. The field will be marked as touched
+/// and validated. Errors will be shown for this field going forward.
+pub fn validate_on_blur(
+    field: &str,
+    value: &str,
+    rules: &[ValidationRule],
+    state: RwSignal<FormState>,
+) -> bool {
+    state.update(|s| {
+        s.touch(field);
+        if let Some(error) = validate_field(value, rules) {
+            s.set_error(field, error);
+        } else {
+            s.clear_error(field);
+        }
+    });
+    state.get_untracked().get_error(field).is_none()
+}
+
+/// Validate a field silently (update error state but don't mark as touched).
+///
+/// Use this for re-validation on subsequent input changes after initial blur.
+/// Only updates the error state if the field was already touched.
+pub fn validate_silently(
+    field: &str,
+    value: &str,
+    rules: &[ValidationRule],
+    state: RwSignal<FormState>,
+) -> bool {
+    let is_touched = state.get_untracked().is_touched(field);
+    if is_touched {
+        state.update(|s| {
+            if let Some(error) = validate_field(value, rules) {
+                s.set_error(field, error);
+            } else {
+                s.clear_error(field);
+            }
+        });
+    }
+    state.get_untracked().get_error(field).is_none()
+}
+
+/// Validate a single field for form submission.
+///
+/// Returns true if valid. The field is NOT marked as touched (use for submit validation).
+pub fn validate_for_submit(
+    field: &str,
+    value: &str,
+    rules: &[ValidationRule],
+    state: RwSignal<FormState>,
+) -> bool {
+    if let Some(error) = validate_field(value, rules) {
+        state.update(|s| s.set_error(field, error));
+        false
+    } else {
+        state.update(|s| s.clear_error(field));
+        true
+    }
+}
+
+/// Mark form as submitted and return whether it's valid.
+///
+/// After calling this, all field errors will be visible regardless of touched state.
+pub fn mark_submitted(state: RwSignal<FormState>) -> bool {
+    state.update(|s| s.mark_submitted());
+    state.get_untracked().is_valid()
+}
+
+/// Get a derived signal for a field's visible error.
+///
+/// Returns `None` if the field hasn't been touched and form hasn't been submitted.
+pub fn use_field_error(state: RwSignal<FormState>, field: &'static str) -> Signal<Option<String>> {
+    Signal::derive(move || state.get().get_visible_error(field).cloned())
+}
+
 /// Common validation rule sets
 pub mod rules {
     use super::ValidationRule;
@@ -404,5 +599,84 @@ mod tests {
 
         errors.clear("email");
         assert!(errors.is_valid());
+    }
+
+    #[test]
+    fn test_form_state_touched() {
+        let mut state = FormState::new();
+        assert!(!state.is_touched("email"));
+        assert!(!state.should_show_error("email"));
+
+        state.touch("email");
+        assert!(state.is_touched("email"));
+        assert!(state.should_show_error("email"));
+        assert!(!state.is_touched("name")); // Other fields unaffected
+    }
+
+    #[test]
+    fn test_form_state_visible_errors() {
+        let mut state = FormState::new();
+        state.set_error("email", "Invalid email".to_string());
+
+        // Error exists but shouldn't be visible until touched
+        assert!(state.get_error("email").is_some());
+        assert!(state.get_visible_error("email").is_none());
+        assert!(!state.has_visible_error("email"));
+
+        // After touching, error becomes visible
+        state.touch("email");
+        assert!(state.get_visible_error("email").is_some());
+        assert!(state.has_visible_error("email"));
+    }
+
+    #[test]
+    fn test_form_state_submitted() {
+        let mut state = FormState::new();
+        state.set_error("email", "Invalid email".to_string());
+        state.set_error("name", "Name required".to_string());
+
+        // Before submit, errors are hidden (not touched)
+        assert!(state.get_visible_error("email").is_none());
+        assert!(state.get_visible_error("name").is_none());
+        assert!(!state.has_any_visible_error());
+
+        // After submit, all errors become visible
+        state.mark_submitted();
+        assert!(state.is_submitted());
+        assert!(state.get_visible_error("email").is_some());
+        assert!(state.get_visible_error("name").is_some());
+        assert!(state.has_any_visible_error());
+    }
+
+    #[test]
+    fn test_form_state_clear_all() {
+        let mut state = FormState::new();
+        state.touch("email");
+        state.set_error("email", "Invalid".to_string());
+        state.mark_submitted();
+
+        assert!(state.is_touched("email"));
+        assert!(state.is_submitted());
+        assert!(state.get_error("email").is_some());
+
+        state.clear_all();
+        assert!(!state.is_touched("email"));
+        assert!(!state.is_submitted());
+        assert!(state.get_error("email").is_none());
+    }
+
+    #[test]
+    fn test_form_state_reset_for_retry() {
+        let mut state = FormState::new();
+        state.touch("email");
+        state.set_error("email", "Invalid".to_string());
+        state.mark_submitted();
+
+        state.reset_for_retry();
+
+        // Touched state preserved, errors and submitted cleared
+        assert!(state.is_touched("email"));
+        assert!(!state.is_submitted());
+        assert!(state.get_error("email").is_none());
     }
 }

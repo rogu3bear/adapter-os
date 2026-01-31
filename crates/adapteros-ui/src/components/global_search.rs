@@ -3,17 +3,38 @@
 use crate::signals::use_search;
 use leptos::prelude::*;
 
+/// Detect if the user is on macOS (for keyboard shortcut display)
+fn is_macos() -> bool {
+    #[cfg(target_arch = "wasm32")]
+    {
+        if let Some(window) = web_sys::window() {
+            if let Ok(navigator) = window.navigator().platform() {
+                return navigator.to_lowercase().contains("mac");
+            }
+        }
+        false
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        cfg!(target_os = "macos")
+    }
+}
+
 /// Button that opens the command palette.
 #[component]
 pub fn SearchTriggerButton(#[prop(optional, into)] placeholder: Option<String>) -> impl IntoView {
     let search = use_search();
     let label = placeholder.unwrap_or_else(|| "Search...".to_string());
 
+    // Determine platform-appropriate modifier key
+    let modifier_key = if is_macos() { "\u{2318}" } else { "Ctrl" };
+
     view! {
         <button
             class="search-trigger"
             on:click=move |_| search.open()
-            aria-label="Open search"
+            aria-label="Open command palette"
+            title="Open command palette"
         >
             <span class="search-trigger-icon">
                 <svg
@@ -31,8 +52,8 @@ pub fn SearchTriggerButton(#[prop(optional, into)] placeholder: Option<String>) 
                 </svg>
             </span>
             <span class="search-trigger-label">{label}</span>
-            <span class="search-trigger-kbd">
-                <kbd>"Ctrl"</kbd>
+            <span class="search-trigger-kbd" aria-label=format!("{} K to open command palette", modifier_key)>
+                <kbd>{modifier_key}</kbd>
                 <kbd>"K"</kbd>
             </span>
         </button>

@@ -1896,6 +1896,69 @@
     background-color: hsl(210 40% 96.1% / 0.05);
 }
 
+/* Remove focus outline on main when jumped to via skip link */
+.shell-main:focus {
+    outline: none;
+}
+
+/* Skip to main content link - visible on focus for keyboard users */
+.skip-to-main {
+    position: absolute;
+    top: -100px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 9999;
+    padding: 0.75rem 1.5rem;
+    background-color: var(--color-primary);
+    color: var(--color-primary-foreground);
+    font-weight: 500;
+    font-size: 0.875rem;
+    text-decoration: none;
+    border-radius: var(--radius);
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    transition: top 0.2s ease;
+}
+
+.skip-to-main:focus {
+    top: 1rem;
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
+}
+
+/* ===== SplitPanel Layout ===== */
+/* Mobile back button with 44px minimum touch target (WCAG 2.5.5) */
+.split-panel-back-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 44px;
+    min-width: 44px;
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--color-muted-foreground);
+    background-color: transparent;
+    border: none;
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: color 0.15s ease, background-color 0.15s ease;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.split-panel-back-btn:hover {
+    color: var(--color-foreground);
+    background-color: var(--color-muted);
+}
+
+.split-panel-back-btn:focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
+}
+
+.split-panel-back-btn:active {
+    background-color: var(--color-accent);
+}
+
 /* ===== Workspace Layout ===== */
 .workspace {
     display: flex;
@@ -4688,4 +4751,487 @@
 .dark .telemetry-overlay {
     background: var(--glass-bg-1);
     box-shadow: var(--glass-shadow-md);
+}
+
+/* ===== Progress Stages (Multi-Step Progress) ===== */
+/*
+ * Vertical list of stages for long-running operations.
+ * Shows step-by-step progress instead of a single spinner.
+ */
+.progress-stages {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.progress-stages-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.progress-stages-title {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--color-foreground);
+}
+
+.progress-stages-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.progress-stage {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.5rem;
+    border-radius: var(--radius);
+    transition: background-color 150ms ease;
+}
+
+.progress-stage-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.25rem;
+    height: 1.25rem;
+    flex-shrink: 0;
+    margin-top: 0.125rem;
+}
+
+.progress-stage-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    min-width: 0;
+}
+
+.progress-stage-label {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--color-foreground);
+}
+
+.progress-stage-detail {
+    font-size: 0.75rem;
+    color: var(--color-muted-foreground);
+}
+
+/* Pending state */
+.progress-stage-pending {
+    opacity: 0.5;
+}
+
+.progress-stage-pending .progress-stage-label {
+    color: var(--color-muted-foreground);
+}
+
+.progress-stage-dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background-color: var(--color-muted-foreground);
+}
+
+/* Active state */
+.progress-stage-active {
+    background-color: hsl(var(--color-primary-hsl) / 0.1);
+}
+
+.progress-stage-active .progress-stage-label {
+    color: var(--color-primary);
+}
+
+.progress-stage-spinner {
+    width: 1rem;
+    height: 1rem;
+    position: relative;
+}
+
+.progress-stage-spinner-dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background-color: var(--color-primary);
+    animation: progress-stage-pulse 1s ease-in-out infinite;
+}
+
+@keyframes progress-stage-pulse {
+    0%, 100% {
+        opacity: 0.4;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 1;
+        transform: scale(1.2);
+    }
+}
+
+/* Done state */
+.progress-stage-done .progress-stage-icon {
+    color: var(--color-status-success);
+}
+
+.progress-stage-done .progress-stage-label {
+    color: var(--color-muted-foreground);
+}
+
+/* Error state */
+.progress-stage-error {
+    background-color: hsl(var(--color-destructive-hsl) / 0.1);
+}
+
+.progress-stage-error .progress-stage-icon {
+    color: var(--color-destructive);
+}
+
+.progress-stage-error .progress-stage-label {
+    color: var(--color-destructive);
+}
+
+/* Inline progress */
+.inline-progress {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.inline-progress-label {
+    font-size: 0.875rem;
+    color: var(--color-foreground);
+}
+
+.inline-progress-detail {
+    font-size: 0.75rem;
+    color: var(--color-muted-foreground);
+}
+
+/* Glass theme */
+.theme-glass .progress-stage-active {
+    background-color: var(--glass-bg-1);
+    border: 1px solid var(--glass-border);
+}
+
+.theme-glass .progress-stage-error {
+    background-color: hsl(var(--color-destructive-hsl) / 0.1);
+    border: 1px solid hsl(var(--color-destructive-hsl) / 0.3);
+}
+
+/* ========================================
+   Touch Target & Responsive Styles
+   PRD-UI: Minimum 44x44px touch targets
+   ======================================== */
+
+/* Touch target sizing - applied on touch-capable viewports */
+@media (pointer: coarse), (max-width: 1024px) {
+    /* TopBar touch targets */
+    .topbar-action {
+        min-width: 44px;
+        min-height: 44px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* Taskbar touch targets */
+    .taskbar-btn {
+        min-width: 44px;
+        min-height: 44px;
+        padding: 10px;
+    }
+
+    /* Module buttons in taskbar */
+    .module-btn {
+        min-width: 44px;
+        min-height: 44px;
+        padding: 10px 12px;
+    }
+
+    /* List row touch targets */
+    .list-row-touch,
+    .table-row {
+        min-height: 44px;
+    }
+
+    /* Start button */
+    .start-btn {
+        min-width: 44px;
+        min-height: 44px;
+    }
+}
+
+/* Explicit touch target class for any interactive element */
+.touch-target {
+    position: relative;
+}
+
+.touch-target::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    min-width: 44px;
+    min-height: 44px;
+    width: 100%;
+    height: 100%;
+}
+
+/* ========================================
+   Responsive TopBar
+   Collapses to compact/hamburger on mobile
+   ======================================== */
+
+/* TopBar base - full width header */
+.topbar {
+    height: 2.5rem; /* 40px */
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-background);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    padding: 0 1rem;
+    flex-shrink: 0;
+}
+
+/* Desktop: full search and actions visible */
+.topbar-search {
+    flex: 1;
+    display: flex;
+    justify-content: center;
+    max-width: 480px;
+    margin: 0 auto;
+}
+
+.topbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+/* Hide mobile-only elements on desktop */
+.topbar-hamburger {
+    display: none;
+}
+
+/* Mobile TopBar: compact mode */
+@media (max-width: 639px) {
+    .topbar {
+        height: 3rem; /* Taller for touch */
+        padding: 0 0.5rem;
+    }
+
+    /* Hide product name text on mobile, keep logo/icon */
+    .topbar-brand-text {
+        display: none;
+    }
+
+    /* Hide full search on mobile - use icon trigger */
+    .topbar-search {
+        display: none;
+    }
+
+    /* Show hamburger menu button */
+    .topbar-hamburger {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 44px;
+        min-height: 44px;
+        padding: 10px;
+        border-radius: 6px;
+        background: transparent;
+        border: none;
+        color: var(--color-foreground);
+        cursor: pointer;
+        transition: background-color 200ms ease;
+    }
+
+    .topbar-hamburger:hover {
+        background: var(--color-muted);
+    }
+
+    .topbar-hamburger:active {
+        background: var(--color-accent);
+    }
+
+    /* Keep only essential actions visible */
+    .topbar-action-secondary {
+        display: none;
+    }
+
+    /* User menu collapses to avatar only */
+    .topbar-user-email {
+        display: none;
+    }
+
+    /* Compact action spacing */
+    .topbar-actions {
+        gap: 0.25rem;
+    }
+
+    /* Ensure touch targets for all visible actions */
+    .topbar-actions > button,
+    .topbar-actions > a,
+    .topbar-actions > div > button {
+        min-width: 44px;
+        min-height: 44px;
+    }
+}
+
+/* Tablet: Partial collapse */
+@media (min-width: 640px) and (max-width: 1023px) {
+    .topbar-search {
+        max-width: 320px;
+    }
+
+    /* Hide less essential text */
+    .topbar-user-email {
+        display: none;
+    }
+}
+
+/* Mobile menu overlay (slides in from left) */
+.mobile-menu-overlay {
+    position: fixed;
+    inset: 0;
+    background: hsla(0, 0%, 0%, 0.5);
+    z-index: 100;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 200ms ease, visibility 200ms ease;
+}
+
+.mobile-menu-overlay.open {
+    opacity: 1;
+    visibility: visible;
+}
+
+.mobile-menu {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: min(80vw, 320px);
+    background: var(--color-background);
+    border-right: 1px solid var(--color-border);
+    box-shadow: var(--glass-shadow-lg);
+    z-index: 101;
+    transform: translateX(-100%);
+    transition: transform 300ms ease;
+    display: flex;
+    flex-direction: column;
+}
+
+.mobile-menu-overlay.open .mobile-menu {
+    transform: translateX(0);
+}
+
+.mobile-menu-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--color-border);
+    min-height: 48px;
+}
+
+.mobile-menu-close {
+    min-width: 44px;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    background: transparent;
+    border: none;
+    color: var(--color-foreground);
+    cursor: pointer;
+}
+
+.mobile-menu-close:hover {
+    background: var(--color-muted);
+}
+
+.mobile-menu-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1rem;
+}
+
+.mobile-menu-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.mobile-menu-link {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    min-height: 44px;
+    border-radius: 6px;
+    text-decoration: none;
+    color: var(--color-foreground);
+    transition: background-color 200ms ease;
+}
+
+.mobile-menu-link:hover {
+    background: var(--color-muted);
+}
+
+.mobile-menu-link.active {
+    background: var(--color-primary);
+    color: var(--color-primary-foreground);
+}
+
+.mobile-menu-link svg {
+    width: 1.25rem;
+    height: 1.25rem;
+    flex-shrink: 0;
+}
+
+/* Compact/hamburger icon animation */
+.hamburger-icon {
+    width: 20px;
+    height: 14px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+.hamburger-icon span {
+    display: block;
+    height: 2px;
+    width: 100%;
+    background: currentColor;
+    border-radius: 1px;
+    transition: transform 200ms ease, opacity 200ms ease;
+}
+
+.hamburger-icon.open span:first-child {
+    transform: translateY(6px) rotate(45deg);
+}
+
+.hamburger-icon.open span:nth-child(2) {
+    opacity: 0;
+}
+
+.hamburger-icon.open span:last-child {
+    transform: translateY(-6px) rotate(-45deg);
+}
+
+/* Glass theme overrides for mobile menu */
+.theme-glass .mobile-menu {
+    background: var(--glass-bg-3);
+    border-color: var(--glass-border);
+    backdrop-filter: blur(var(--glass-blur-3)) saturate(var(--glass-saturation));
+    -webkit-backdrop-filter: blur(var(--glass-blur-3)) saturate(var(--glass-saturation));
 }

@@ -2,7 +2,7 @@
 //!
 //! Subcomponents for displaying worker lists, details, and metrics.
 
-use crate::api::{ApiClient, WorkerMetricsResponse};
+use crate::api::{ApiClient, ApiError, WorkerMetricsResponse};
 use crate::components::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, Spinner, StatusColor,
     StatusIndicator, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -13,7 +13,8 @@ use leptos::prelude::*;
 use std::sync::Arc;
 
 use super::utils::{
-    format_timestamp, format_uptime, short_hash, short_id, status_badge_variant, WORKERS_PAGE_SIZE,
+    format_timestamp, format_uptime, health_badge_variant, short_hash, short_id,
+    status_badge_variant, WorkerHealthRecord, WorkerHealthSummary, WORKERS_PAGE_SIZE,
 };
 use crate::components::{IconPause, IconRefresh, IconServer, IconStop, IconX};
 
@@ -22,7 +23,10 @@ use crate::components::{IconPause, IconRefresh, IconServer, IconStop, IconX};
 // ============================================================================
 
 #[component]
-pub fn WorkersSummary(workers: Vec<WorkerResponse>) -> impl IntoView {
+pub fn WorkersSummary(
+    workers: Vec<WorkerResponse>,
+    health_summary: Option<WorkerHealthSummary>,
+) -> impl IntoView {
     let total = workers.len();
     let healthy = workers.iter().filter(|w| w.status == "healthy").count();
     let draining = workers.iter().filter(|w| w.status == "draining").count();
@@ -38,6 +42,45 @@ pub fn WorkersSummary(workers: Vec<WorkerResponse>) -> impl IntoView {
     // Count unique backends (available for future use)
     let _backends: std::collections::HashSet<_> =
         workers.iter().filter_map(|w| w.backend.as_ref()).collect();
+
+    let health_card = health_summary.map(|summary| {
+        let counts = summary.summary;
+        let updated = format_timestamp(&summary.timestamp);
+        let show_updated = updated != "-";
+        view! {
+            <Card title="Health Summary".to_string()>
+                <div class="space-y-2 text-xs">
+                    <div class="flex items-center justify-between">
+                        <span class="text-muted-foreground">"Total"</span>
+                        <span class="font-semibold">{counts.total}</span>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-muted-foreground">"Healthy"</span>
+                        <Badge variant=health_badge_variant("healthy")>{counts.healthy}</Badge>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-muted-foreground">"Degraded"</span>
+                        <Badge variant=health_badge_variant("degraded")>{counts.degraded}</Badge>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-muted-foreground">"Crashed"</span>
+                        <Badge variant=health_badge_variant("crashed")>{counts.crashed}</Badge>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-muted-foreground">"Unknown"</span>
+                        <Badge variant=health_badge_variant("unknown")>{counts.unknown}</Badge>
+                    </div>
+                </div>
+                {show_updated.then(|| {
+                    view! {
+                        <p class="mt-2 text-2xs text-muted-foreground">
+                            {"Updated: "}{updated}
+                        </p>
+                    }
+                })}
+            </Card>
+        }
+    });
 
     view! {
         <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
@@ -82,6 +125,8 @@ pub fn WorkersSummary(workers: Vec<WorkerResponse>) -> impl IntoView {
                     {format!("{} / {} MB", total_cache_used, total_cache_max)}
                 </p>
             </Card>
+
+            {health_card}
         </div>
     }
 }
@@ -94,6 +139,7 @@ pub fn WorkersSummary(workers: Vec<WorkerResponse>) -> impl IntoView {
 pub fn WorkersList(
     workers: Vec<WorkerResponse>,
     selected_worker: RwSignal<Option<String>>,
+    health_map: std::collections::HashMap<String, WorkerHealthRecord>,
     on_drain: Callback<String>,
     on_stop: Callback<String>,
 ) -> impl IntoView {
@@ -127,11 +173,11 @@ pub fn WorkersList(
                         <TableHeader>
                             <TableRow>
                                 <TableHead>"ID"</TableHead>
-                                <TableHead>"Node"</TableHead>
-                                <TableHead>"Status"</TableHead>
+                                <TableHead>"Health"</TableHead>
                                 <TableHead>"Backend"</TableHead>
                                 <TableHead>"Model"</TableHead>
                                 <TableHead>"Cache"</TableHead>
+                                <TableHead>"Errors"</TableHead>
                                 <TableHead>"Last Seen"</TableHead>
                                 <TableHead class="text-right">"Actions"</TableHead>
                             </TableRow>
@@ -141,6 +187,7 @@ pub fn WorkersList(
                                 let count = visible_count.get();
                                 let on_drain = on_drain.clone();
                                 let on_stop = on_stop.clone();
+                                let health_map = health_map.clone();
                                 workers.iter().take(count).map(|worker| {
                                     let worker_id = worker.id.clone();
                                     let worker_id_drain = worker.id.clone();
@@ -149,10 +196,12 @@ pub fn WorkersList(
                                     let on_stop = on_stop.clone();
                                     let is_healthy = worker.status == "healthy";
                                     let is_draining = worker.status == "draining";
+                                    let health = health_map.get(&worker.id).cloned();
 
                                     view! {
                                         <WorkerRow
                                             worker=worker.clone()
+                                            health=health
                                             on_select=Callback::new(move |_| {
                                                 selected_worker.set(Some(worker_id.clone()));
                                             })
@@ -199,31 +248,44 @@ pub fn WorkersList(
 #[component]
 pub fn WorkerRow(
     worker: WorkerResponse,
+    health: Option<WorkerHealthRecord>,
     on_select: Callback<()>,
     on_drain: Callback<()>,
     on_stop: Callback<()>,
     show_drain: bool,
     show_stop: bool,
 ) -> impl IntoView {
-    let status_variant = match worker.status.as_str() {
+    let _status_variant = match worker.status.as_str() {
         "healthy" => BadgeVariant::Success,
         "draining" => BadgeVariant::Warning,
         "registered" => BadgeVariant::Secondary,
         "error" | "stopped" => BadgeVariant::Destructive,
         _ => BadgeVariant::Secondary,
     };
+    let health_status = health
+        .as_ref()
+        .map(|h| h.health_status.clone())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "unknown".to_string());
+    let health_variant = health_badge_variant(health_status.as_str());
+    let errors_24h = health.as_ref().map(|h| h.recent_incidents_24h).unwrap_or(0);
 
     let short_worker_id = if worker.id.len() > 12 {
         format!("{}...", &worker.id[..12])
     } else {
         worker.id.clone()
     };
+    let short_tenant_id = short_id(&worker.tenant_id);
 
     let backend = worker
         .backend
         .clone()
         .filter(|b| !b.is_empty())
         .unwrap_or_else(|| "Unknown".to_string());
+    let capabilities = worker.capabilities.clone();
+    let has_capabilities = !capabilities.is_empty();
+    let visible_caps: Vec<String> = capabilities.iter().take(3).cloned().collect();
+    let extra_caps = capabilities.len().saturating_sub(visible_caps.len());
     let model = worker
         .model_id
         .clone()
@@ -262,23 +324,65 @@ pub fn WorkerRow(
                 >
                     {short_worker_id.clone()}
                 </button>
+                <div class="text-xs text-muted-foreground font-mono mt-1" title=worker.tenant_id.clone()>
+                    {"tenant: "}{short_tenant_id}
+                </div>
             </TableCell>
             <TableCell>
-                <span class="text-sm">{worker.node_id.clone()}</span>
+                <div class="flex flex-col gap-1">
+                    <Badge variant=health_variant>
+                        {health_status.clone()}
+                    </Badge>
+                    <span class="text-xs text-muted-foreground">{worker.status.clone()}</span>
+                </div>
             </TableCell>
             <TableCell>
-                <Badge variant=status_variant>
-                    {worker.status.clone()}
-                </Badge>
-            </TableCell>
-            <TableCell>
-                <span class="text-sm">{backend}</span>
+                <div class="space-y-1">
+                    <span class="text-sm">{backend}</span>
+                    {has_capabilities.then(move || {
+                        let visible_caps = visible_caps.clone();
+                        view! {
+                            <div class="flex flex-wrap gap-1">
+                                {visible_caps.into_iter().map(|cap| view! {
+                                    <Badge variant=BadgeVariant::Secondary>
+                                        {cap}
+                                    </Badge>
+                                }).collect::<Vec<_>>()}
+                                {if extra_caps > 0 {
+                                    Some(view! {
+                                        <Badge variant=BadgeVariant::Outline>
+                                            {format!("+{}", extra_caps)}
+                                        </Badge>
+                                    })
+                                } else {
+                                    None
+                                }}
+                            </div>
+                        }
+                    })}
+                    {(!has_capabilities).then(|| view! {
+                        <span class="text-xs text-muted-foreground">"No capabilities"</span>
+                    })}
+                </div>
             </TableCell>
             <TableCell>
                 <span class="text-sm font-mono" title=model>{short_model}</span>
             </TableCell>
             <TableCell>
                 <span class="text-sm">{cache_display}</span>
+            </TableCell>
+            <TableCell>
+                {if errors_24h > 0 {
+                    view! {
+                        <Badge variant=BadgeVariant::Destructive>
+                            {format!("{} in 24h", errors_24h)}
+                        </Badge>
+                    }.into_any()
+                } else {
+                    view! {
+                        <span class="text-sm text-muted-foreground">"-"</span>
+                    }.into_any()
+                }}
             </TableCell>
             <TableCell>
                 <span class="text-sm text-muted-foreground">{format_timestamp(&last_seen)}</span>
@@ -316,9 +420,22 @@ pub fn WorkerRow(
 // ============================================================================
 
 #[component]
-pub fn WorkerDetailPanel(worker: WorkerResponse, on_close: Callback<()>) -> impl IntoView {
+pub fn WorkerDetailPanel(
+    worker: WorkerResponse,
+    health: Option<WorkerHealthRecord>,
+    on_close: Callback<()>,
+) -> impl IntoView {
     let navigate = use_navigate();
     let worker_id = worker.id.clone();
+    let health_status = health
+        .as_ref()
+        .map(|h| h.health_status.clone())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "unknown".to_string());
+    let recent_incidents = health
+        .as_ref()
+        .map(|h| h.recent_incidents_24h.to_string())
+        .unwrap_or_else(|| "-".to_string());
 
     // Fetch metrics for this worker
     let (metrics, _refetch_metrics) = use_api_resource({
@@ -326,6 +443,15 @@ pub fn WorkerDetailPanel(worker: WorkerResponse, on_close: Callback<()>) -> impl
         move |client: Arc<ApiClient>| {
             let id = worker_id.clone();
             async move { client.get_worker_metrics(&id).await }
+        }
+    });
+
+    // Fetch recent error logs for this worker
+    let (error_logs, _refetch_error_logs) = use_api_resource({
+        let worker_id = worker.id.clone();
+        move |client: Arc<ApiClient>| {
+            let id = worker_id.clone();
+            async move { client.get_worker_logs(&id, Some("error"), Some(5)).await }
         }
     });
 
@@ -368,6 +494,8 @@ pub fn WorkerDetailPanel(worker: WorkerResponse, on_close: Callback<()>) -> impl
                     <DetailItem label="Node ID" value=worker.node_id.clone()/>
                     <DetailItem label="Tenant ID" value=worker.tenant_id.clone()/>
                     <DetailItem label="Plan ID" value=worker.plan_id.clone()/>
+                    <DetailItem label="Health" value=health_status/>
+                    <DetailItem label="Incidents (24h)" value=recent_incidents/>
                     <DetailItem label="Backend" value=worker.backend.clone().filter(|b| !b.is_empty()).unwrap_or_else(|| "Unknown".to_string())/>
                     <DetailItem label="Model" value=worker.model_id.clone().filter(|m| !m.is_empty()).unwrap_or_else(|| "Not assigned".to_string())/>
                     <DetailItem label="PID" value=worker.pid.map(|p| p.to_string()).unwrap_or("-".to_string())/>
@@ -437,6 +565,52 @@ pub fn WorkerDetailPanel(worker: WorkerResponse, on_close: Callback<()>) -> impl
                         _ => view! {}.into_any(),
                     }
                 }}
+
+                // Recent errors
+                <div>
+                    <h4 class="text-sm font-medium mb-2">"Recent Errors"</h4>
+                    {match error_logs.get() {
+                        LoadingState::Idle | LoadingState::Loading => view! {
+                            <div class="flex items-center gap-2 text-muted-foreground">
+                                <Spinner/>
+                                <span>"Loading errors..."</span>
+                            </div>
+                        }.into_any(),
+                        LoadingState::Loaded(logs) => {
+                            if logs.is_empty() {
+                                view! {
+                                    <p class="text-sm text-muted-foreground">"No recent errors"</p>
+                                }.into_any()
+                            } else {
+                                view! {
+                                    <div class="space-y-2">
+                                        {logs.into_iter().map(|log| view! {
+                                            <div class="rounded-md border p-2">
+                                                <p class="text-xs text-muted-foreground">{format_timestamp(&log.timestamp)}</p>
+                                                <p class="text-sm">{log.message}</p>
+                                            </div>
+                                        }).collect::<Vec<_>>()}
+                                    </div>
+                                }.into_any()
+                            }
+                        }
+                        LoadingState::Error(e) => {
+                            if matches!(&e, ApiError::Forbidden(_)) {
+                                view! {
+                                    <p class="text-sm text-muted-foreground">
+                                        "Recent errors require Operator or Admin permissions."
+                                    </p>
+                                }.into_any()
+                            } else {
+                                view! {
+                                    <p class="text-sm text-destructive">
+                                        {format!("Failed to load errors: {}", e)}
+                                    </p>
+                                }.into_any()
+                            }
+                        }
+                    }}
+                </div>
             </div>
         </Card>
     }
@@ -469,6 +643,23 @@ pub fn WorkerDetailView(
     let is_healthy = worker.status == "healthy";
     let is_draining = worker.status == "draining";
     let worker_id = worker.id.clone();
+    let worker_id_for_health = worker.id.clone();
+
+    // Fetch worker health summary for health status + incidents
+    let (health_summary, refetch_health) = use_api_resource(|client: Arc<ApiClient>| async move {
+        client
+            .get::<WorkerHealthSummary>("/v1/workers/health/summary")
+            .await
+    });
+
+    // Fetch recent error logs for this worker
+    let (error_logs, refetch_error_logs) = use_api_resource({
+        let worker_id = worker.id.clone();
+        move |client: Arc<ApiClient>| {
+            let id = worker_id.clone();
+            async move { client.get_worker_logs(&id, Some("error"), Some(10)).await }
+        }
+    });
 
     view! {
         <div class="space-y-6">
@@ -483,7 +674,11 @@ pub fn WorkerDetailView(
                 <div class="flex items-center gap-2">
                     <Button
                         variant=ButtonVariant::Secondary
-                        on_click=Callback::new(move |_| on_refresh.run(()))
+                        on_click=Callback::new(move |_| {
+                            on_refresh.run(());
+                            refetch_health.run(());
+                            refetch_error_logs.run(());
+                        })
                     >
                         <IconRefresh/>
                         "Refresh"
@@ -567,6 +762,32 @@ pub fn WorkerDetailView(
                     <DetailItem label="Node ID" value=worker.node_id.clone()/>
                     <DetailItem label="Tenant ID" value=worker.tenant_id.clone()/>
                     <DetailItem label="Plan ID" value=worker.plan_id.clone()/>
+                    {move || {
+                        let (health_status, incidents) = match health_summary.get() {
+                            LoadingState::Loaded(ref summary) => {
+                                let record = summary
+                                    .workers
+                                    .iter()
+                                    .find(|r| r.worker_id == worker_id_for_health)
+                                    .cloned();
+                                let status = record
+                                    .as_ref()
+                                    .map(|r| r.health_status.clone())
+                                    .filter(|s| !s.is_empty())
+                                    .unwrap_or_else(|| "unknown".to_string());
+                                let incidents = record
+                                    .as_ref()
+                                    .map(|r| r.recent_incidents_24h.to_string())
+                                    .unwrap_or_else(|| "-".to_string());
+                                (status, incidents)
+                            }
+                            _ => ("unknown".to_string(), "-".to_string()),
+                        };
+                        view! {
+                            <DetailItem label="Health" value=health_status/>
+                            <DetailItem label="Incidents (24h)" value=incidents/>
+                        }
+                    }}
                     <DetailItem label="Backend" value=worker.backend.clone().filter(|b| !b.is_empty()).unwrap_or_else(|| "Unknown".to_string())/>
                     <DetailItem label="Model ID" value=worker.model_id.clone().filter(|m| !m.is_empty()).unwrap_or_else(|| "Not assigned".to_string())/>
                     <DetailItem label="Model Hash" value=worker.model_hash.clone().map(|h| short_hash(&h)).unwrap_or("-".to_string())/>
@@ -657,6 +878,51 @@ pub fn WorkerDetailView(
             {metrics.map(|m| view! {
                 <WorkerMetricsCard metrics=m/>
             })}
+
+            // Recent errors card
+            <Card title="Recent Errors".to_string()>
+                {match error_logs.get() {
+                    LoadingState::Idle | LoadingState::Loading => view! {
+                        <div class="flex items-center gap-2 text-muted-foreground">
+                            <Spinner/>
+                            <span>"Loading errors..."</span>
+                        </div>
+                    }.into_any(),
+                    LoadingState::Loaded(logs) => {
+                        if logs.is_empty() {
+                            view! {
+                                <p class="text-sm text-muted-foreground">"No recent errors"</p>
+                            }.into_any()
+                        } else {
+                            view! {
+                                <div class="space-y-3">
+                                    {logs.into_iter().map(|log| view! {
+                                        <div class="rounded-md border p-3">
+                                            <p class="text-xs text-muted-foreground">{format_timestamp(&log.timestamp)}</p>
+                                            <p class="text-sm">{log.message}</p>
+                                        </div>
+                                    }).collect::<Vec<_>>()}
+                                </div>
+                            }.into_any()
+                        }
+                    }
+                    LoadingState::Error(e) => {
+                        if matches!(&e, ApiError::Forbidden(_)) {
+                            view! {
+                                <p class="text-sm text-muted-foreground">
+                                    "Recent errors require Operator or Admin permissions."
+                                </p>
+                            }.into_any()
+                        } else {
+                            view! {
+                                <p class="text-sm text-destructive">
+                                    {format!("Failed to load errors: {}", e)}
+                                </p>
+                            }.into_any()
+                        }
+                    }
+                }}
+            </Card>
         </div>
     }
 }

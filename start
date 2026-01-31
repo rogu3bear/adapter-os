@@ -6,6 +6,10 @@
 #   ./start up           Same as above
 #   ./start down         Graceful shutdown
 #   ./start status       Show service status
+#   ./start backend      Start backend only
+#   ./start worker       Start worker only
+#   ./start secd         Start Secure Enclave Daemon only
+#   ./start node         Start Node Agent only
 #   ./start preflight    Run system checks without starting
 #   ./start help         Show this help
 #
@@ -625,6 +629,10 @@ Commands:
   up, start     Start backend + worker [default]
   down, stop    Graceful shutdown
   status        Show service status
+  backend       Start backend only
+  worker        Start worker only
+  secd          Start Secure Enclave Daemon only
+  node          Start Node Agent only
   preflight     Run system checks without starting
   help          Show this help
 
@@ -1432,6 +1440,30 @@ main() {
             ;;
         backend)
             start_backend
+            ;;
+        worker)
+            if [ -x scripts/service-manager.sh ]; then
+                scripts/service-manager.sh start worker
+            else
+                fg_error "service-manager.sh not found"
+                exit 1
+            fi
+            ;;
+        secd)
+            if [ -x scripts/service-manager.sh ]; then
+                scripts/service-manager.sh start secd
+            else
+                fg_error "service-manager.sh not found"
+                exit 1
+            fi
+            ;;
+        node)
+            if [ -x scripts/service-manager.sh ]; then
+                scripts/service-manager.sh start node
+            else
+                fg_error "service-manager.sh not found"
+                exit 1
+            fi
             ;;
         preflight|check)
             print_banner

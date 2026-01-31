@@ -481,6 +481,7 @@ pub fn cors_layer() -> CorsLayer {
             header::CONTENT_TYPE,
             header::ACCEPT,
             HeaderName::from_static("x-csrf-token"),
+            HeaderName::from_static("idempotency-key"),
         ])
         .allow_credentials(true)
         .max_age(std::time::Duration::from_secs(86400))

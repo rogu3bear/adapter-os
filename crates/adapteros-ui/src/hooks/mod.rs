@@ -354,3 +354,179 @@ pub fn use_navigate() -> impl Fn(&str) {
 pub fn use_api() -> Arc<ApiClient> {
     Arc::new(ApiClient::new())
 }
+
+/// State for optimistic updates with rollback capability
+#[derive(Clone)]
+pub struct OptimisticState<T: Clone + Send + Sync + 'static> {
+    /// The actual state signal
+    pub value: RwSignal<T>,
+    /// Whether an update is in flight
+    pub pending: RwSignal<bool>,
+    /// Error from the last update attempt
+    pub error: RwSignal<Option<ApiError>>,
+}
+
+impl<T: Clone + Send + Sync + 'static> OptimisticState<T> {
+    /// Create a new optimistic state with an initial value
+    pub fn new(initial: T) -> Self {
+        Self {
+            value: RwSignal::new(initial),
+            pending: RwSignal::new(false),
+            error: RwSignal::new(None),
+        }
+    }
+
+    /// Get the current value
+    pub fn get(&self) -> T {
+        self.value.get()
+    }
+
+    /// Check if an update is pending
+    pub fn is_pending(&self) -> bool {
+        self.pending.get()
+    }
+
+    /// Get the error from the last update, if any
+    pub fn get_error(&self) -> Option<ApiError> {
+        self.error.get()
+    }
+
+    /// Clear any error state
+    pub fn clear_error(&self) {
+        self.error.set(None);
+    }
+}
+
+/// Hook for optimistic updates with automatic rollback on error.
+///
+/// Updates the UI immediately, then makes the API call. If the call fails,
+/// rolls back to the previous value and shows a toast notification.
+///
+/// # Example
+/// ```rust,ignore
+/// let (toggle_state, update_toggle) = use_optimistic(
+///     false,
+///     move |new_value| async move {
+///         api.update_setting(new_value).await
+///     }
+/// );
+///
+/// // In view:
+/// <Toggle
+///     checked=Signal::derive(move || toggle_state.get())
+///     on_change=move |val| update_toggle(val)
+/// />
+/// ```
+pub fn use_optimistic<T, F, Fut>(
+    initial: T,
+    update_fn: F,
+) -> (OptimisticState<T>, impl Fn(T) + Clone)
+where
+    T: Clone + PartialEq + Send + Sync + 'static,
+    F: Fn(T) -> Fut + Clone + 'static,
+    Fut: std::future::Future<Output = ApiResult<()>> + 'static,
+{
+    let state = OptimisticState::new(initial);
+    let state_for_update = state.clone();
+
+    let update = move |new_value: T| {
+        let state = state_for_update.clone();
+        let update_fn = update_fn.clone();
+
+        // Capture the old value for rollback
+        let old_value = state.value.get_untracked();
+
+        // Skip if value hasn't changed
+        if old_value == new_value {
+            return;
+        }
+
+        // Optimistically update immediately
+        state.value.set(new_value.clone());
+        state.pending.set(true);
+        state.error.set(None);
+
+        // Make the API call
+        wasm_bindgen_futures::spawn_local(async move {
+            match update_fn(new_value).await {
+                Ok(()) => {
+                    // Success - update is already applied
+                    state.pending.set(false);
+                }
+                Err(e) => {
+                    // Failure - rollback to previous value
+                    state.value.set(old_value);
+                    state.pending.set(false);
+                    state.error.set(Some(e.clone()));
+
+                    // Show error toast if notifications context is available
+                    if let Some(notifications) =
+                        crate::signals::notifications::try_use_notifications()
+                    {
+                        notifications.error("Update failed", &e.to_string());
+                    }
+                }
+            }
+        });
+    };
+
+    (state, update)
+}
+
+/// Variant of use_optimistic that returns data from the update
+pub fn use_optimistic_with_response<T, R, F, Fut>(
+    initial: T,
+    update_fn: F,
+) -> (OptimisticState<T>, impl Fn(T) + Clone)
+where
+    T: Clone + PartialEq + Send + Sync + 'static,
+    R: 'static,
+    F: Fn(T) -> Fut + Clone + 'static,
+    Fut: std::future::Future<Output = ApiResult<R>> + 'static,
+{
+    let state = OptimisticState::new(initial);
+    let state_for_update = state.clone();
+
+    let update = move |new_value: T| {
+        let state = state_for_update.clone();
+        let update_fn = update_fn.clone();
+
+        // Capture the old value for rollback
+        let old_value = state.value.get_untracked();
+
+        // Skip if value hasn't changed
+        if old_value == new_value {
+            return;
+        }
+
+        // Optimistically update immediately
+        state.value.set(new_value.clone());
+        state.pending.set(true);
+        state.error.set(None);
+
+        // Make the API call
+        wasm_bindgen_futures::spawn_local(async move {
+            match update_fn(new_value).await {
+                Ok(_response) => {
+                    // Success - update is already applied
+                    state.pending.set(false);
+                }
+                Err(e) => {
+                    // Failure - rollback to previous value
+                    state.value.set(old_value);
+                    state.pending.set(false);
+                    state.error.set(Some(e.clone()));
+
+                    // Show error toast if notifications context is available
+                    if let Some(notifications) =
+                        crate::signals::notifications::try_use_notifications()
+                    {
+                        notifications.error("Update failed", &e.to_string());
+                    }
+                }
+            }
+        });
+    };
+
+    (state, update)
+}

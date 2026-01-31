@@ -3,6 +3,7 @@
 //! Pure helper functions for formatting and display.
 
 use crate::components::BadgeVariant;
+use serde::Deserialize;
 
 /// Page size for client-side pagination (reduces initial DOM nodes)
 pub const WORKERS_PAGE_SIZE: usize = 25;
@@ -126,6 +127,66 @@ pub fn status_badge_variant(status: &str) -> BadgeVariant {
         "draining" => BadgeVariant::Warning,
         "registered" => BadgeVariant::Secondary,
         "error" | "stopped" => BadgeVariant::Destructive,
+        _ => BadgeVariant::Secondary,
+    }
+}
+
+/// Health summary response from /v1/workers/health/summary
+#[allow(dead_code)] // Parsed for future UI panels; not yet rendered.
+#[derive(Debug, Clone, Deserialize)]
+pub struct WorkerHealthSummary {
+    pub summary: WorkerHealthSummaryCounts,
+    pub workers: Vec<WorkerHealthRecord>,
+    #[serde(default)]
+    pub timestamp: String,
+}
+
+/// Summary counts for worker health
+#[allow(dead_code)] // Parsed for future UI panels; not yet rendered.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct WorkerHealthSummaryCounts {
+    #[serde(default)]
+    pub total: usize,
+    #[serde(default)]
+    pub healthy: usize,
+    #[serde(default)]
+    pub degraded: usize,
+    #[serde(default)]
+    pub crashed: usize,
+    #[serde(default)]
+    pub unknown: usize,
+}
+
+/// Per-worker health record (subset of /v1/workers/health/summary)
+#[allow(dead_code)] // Parsed for future UI panels; not yet rendered.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct WorkerHealthRecord {
+    #[serde(default)]
+    pub worker_id: String,
+    #[serde(default)]
+    pub tenant_id: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub health_status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avg_latency_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_response_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub consecutive_slow: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub consecutive_failures: Option<i64>,
+    #[serde(default)]
+    pub recent_incidents_24h: i64,
+}
+
+/// Map worker health status to badge variant
+pub fn health_badge_variant(status: &str) -> BadgeVariant {
+    match status {
+        "healthy" => BadgeVariant::Success,
+        "degraded" => BadgeVariant::Warning,
+        "crashed" | "unhealthy" => BadgeVariant::Destructive,
         _ => BadgeVariant::Secondary,
     }
 }

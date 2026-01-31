@@ -10,7 +10,9 @@
 use crate::api::ApiClient;
 use crate::api::DatasetManifest;
 use crate::components::spinner::SpinnerSize;
-use crate::components::{Badge, BadgeVariant, Button, ButtonVariant, FormField, Input, Spinner};
+use crate::components::{
+    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, FormField, Input, Spinner,
+};
 use adapteros_api_types::TRAINING_DATA_CONTRACT_VERSION;
 #[cfg(target_arch = "wasm32")]
 use gloo_file::futures::read_as_text;
@@ -19,6 +21,7 @@ use gloo_file::Blob;
 use leptos::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use send_wrapper::SendWrapper;
+use uuid::Uuid;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsCast;
 #[cfg(target_arch = "wasm32")]
@@ -367,6 +370,7 @@ pub fn DatasetUploadWizard(
 
     let name = RwSignal::new(String::new());
     let description = RwSignal::new(String::new());
+    let idempotency_key = RwSignal::new(String::new());
     let mode = RwSignal::new(UploadMode::ManifestJsonl);
     let text_strategy = RwSignal::new(TextStrategy::Echo);
     let csv_headers = RwSignal::new(Vec::<String>::new());
@@ -402,6 +406,7 @@ pub fn DatasetUploadWizard(
         preview_rows.set(Vec::new());
         upload_error.set(None);
         status.set(String::new());
+        idempotency_key.set(String::new());
     });
 
     let refresh_preview: Callback<()> = {
@@ -652,6 +657,8 @@ pub fn DatasetUploadWizard(
         #[cfg(target_arch = "wasm32")]
         let description = description.clone();
         #[cfg(target_arch = "wasm32")]
+        let idempotency_key = idempotency_key.clone();
+        #[cfg(target_arch = "wasm32")]
         let mode = mode.clone();
         #[cfg(target_arch = "wasm32")]
         let csv_mapping = csv_mapping.clone();
@@ -740,7 +747,17 @@ pub fn DatasetUploadWizard(
                         }
                     }
 
-                    match client.upload_dataset(&form).await {
+                    let idempotency_value = idempotency_key.get();
+                    let idempotency_header = if idempotency_value.trim().is_empty() {
+                        None
+                    } else {
+                        Some(idempotency_value.trim().to_string())
+                    };
+
+                    match client
+                        .upload_dataset(&form, idempotency_header.as_deref())
+                        .await
+                    {
                         Ok(resp) => {
                             status.set(format!(
                                 "Dataset {} uploaded ({} files, {} bytes)",
@@ -775,6 +792,10 @@ pub fn DatasetUploadWizard(
         })
     };
 
+    let generate_idempotency_key = Callback::new(move |_| {
+        idempotency_key.set(Uuid::new_v4().to_string());
+    });
+
     let dialog = move || -> AnyView {
         let manifest_handler = handle_manifest_file.clone();
         let data_handler = handle_data_file.clone();
@@ -807,6 +828,22 @@ pub fn DatasetUploadWizard(
                                     placeholder="What is in this dataset?"
                                 />
                             </FormField>
+                            <FormField label="Idempotency Key (optional)" name="idempotency_key" required=false>
+                                <Input
+                                    value=idempotency_key
+                                    placeholder="uuid-or-unique-key".to_string()
+                                />
+                            </FormField>
+                            <div class="flex items-center justify-between text-xs text-muted-foreground">
+                                <span>"Reuse the same key to safely retry an upload."</span>
+                                <Button
+                                    variant=ButtonVariant::Ghost
+                                    size=ButtonSize::Sm
+                                    on_click=generate_idempotency_key
+                                >
+                                    "Generate"
+                                </Button>
+                            </div>
 
                             <div class="space-y-2">
                                 <label class="text-sm font-medium">"Format"</label>

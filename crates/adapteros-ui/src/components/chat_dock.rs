@@ -3,9 +3,15 @@
 //! A persistent chat panel that stays visible across page navigation.
 //! Provides a command console for interacting with adapterOS.
 
+use crate::api::ApiClient;
 use crate::components::{Button, ButtonSize, Spinner, Textarea};
+use crate::components::inference_guidance::guidance_for;
+use crate::components::status_center::use_status_center;
+use crate::hooks::{use_api_resource, LoadingState};
 use crate::signals::{use_chat, ChatTarget, ContextToggle, DockState};
+use adapteros_api_types::InferenceReadyState;
 use leptos::prelude::*;
+use std::sync::Arc;
 
 /// Chat Dock component - persistent chat panel on the right side (wrapper)
 #[component]
@@ -845,6 +851,9 @@ fn ClearButton() -> impl IntoView {
 fn ChatInput() -> impl IntoView {
     let (chat_state, chat_action) = use_chat();
     let message = RwSignal::new(String::new());
+    let (system_status, _refetch_status) =
+        use_api_resource(|client: Arc<ApiClient>| async move { client.system_status().await });
+    let status_center = use_status_center();
 
     // Create derived signals for state tracking
     let is_loading = Memo::new(move |_| chat_state.get().loading);
@@ -892,6 +901,51 @@ fn ChatInput() -> impl IntoView {
                     }
                 }
             >
+                {move || {
+                    match system_status.get() {
+                        LoadingState::Loaded(status) => {
+                            if matches!(status.inference_ready, InferenceReadyState::True) {
+                                view! {}.into_any()
+                            } else {
+                                let guidance = guidance_for(
+                                    status.inference_ready,
+                                    status.inference_blockers.first(),
+                                );
+                                let action = guidance.action;
+                                view! {
+                                    <div class="rounded-md border border-warning/40 bg-warning/10 p-2 text-xs">
+                                        <div class="flex flex-wrap items-start justify-between gap-2">
+                                            <div>
+                                                <p class="font-medium text-warning-foreground">"Inference isn't ready"</p>
+                                                <p class="text-xs text-muted-foreground">
+                                                    {format!("{}.", guidance.reason)}
+                                                </p>
+                                            </div>
+                                            <div class="flex items-center gap-2">
+                                                <a href=action.href class="btn btn-outline btn-sm">
+                                                    {action.label}
+                                                </a>
+                                                {if let Some(ctx) = status_center {
+                                                    Some(view! {
+                                                        <button
+                                                            class="text-xs text-muted-foreground hover:text-foreground"
+                                                            on:click=move |_| ctx.open()
+                                                        >
+                                                            "Why?"
+                                                        </button>
+                                                    })
+                                                } else {
+                                                    None
+                                                }}
+                                            </div>
+                                        </div>
+                                    </div>
+                                }.into_any()
+                            }
+                        }
+                        _ => view! {}.into_any(),
+                    }
+                }}
                 <Textarea
                     value=message
                     placeholder="Type a message...".to_string()

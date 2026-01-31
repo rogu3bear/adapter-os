@@ -211,6 +211,17 @@ impl ApiClient {
         self.handle_response(response).await
     }
 
+    /// Perform a GET request and return status + JSON body (even on non-2xx)
+    pub async fn get_with_status<T: DeserializeOwned>(&self, path: &str) -> ApiResult<(u16, T)> {
+        let response = self.request("GET", path).send().await?;
+        let status = response.status();
+        let json = response
+            .json()
+            .await
+            .map_err(|e| ApiError::Serialization(e.to_string()))?;
+        Ok((status, json))
+    }
+
     /// Perform a GET request and return the text body
     pub async fn get_text(&self, path: &str) -> ApiResult<String> {
         let response = self.request("GET", path).send().await?;
@@ -565,11 +576,25 @@ impl ApiClient {
         self.get("/v1/training/backend-readiness").await
     }
 
+    /// Get preprocessed cache count
+    pub async fn get_preprocessed_cache_count(
+        &self,
+    ) -> ApiResult<adapteros_api_types::training::PreprocessedCacheCountResponse> {
+        self.get("/v1/training/preprocessed-cache/count").await
+    }
+
+    /// List preprocessed cache entries
+    pub async fn list_preprocessed_cache(
+        &self,
+    ) -> ApiResult<adapteros_api_types::training::PreprocessedCacheListResponse> {
+        self.get("/v1/training/preprocessed-cache").await
+    }
+
     // --- Models ---
 
     /// List all models with stats
     pub async fn list_models(&self) -> ApiResult<ModelListResponse> {
-        self.get("/v1/models").await
+        self.get("/internal/models").await
     }
 
     /// List all models status
@@ -955,7 +980,15 @@ impl ApiClient {
         &self,
         run_id: &str,
     ) -> ApiResult<adapteros_api_types::diagnostics::DiagExportResponse> {
-        self.get(&format!("/v1/diag/runs/{}/export", run_id)).await
+        let request = adapteros_api_types::diagnostics::DiagExportRequest {
+            trace_id: run_id.to_string(),
+            format: "json".to_string(),
+            include_events: true,
+            include_timing: true,
+            include_metadata: true,
+            max_events: None,
+        };
+        self.post("/v1/diag/export", &request).await
     }
 
     // --- Search ---
@@ -1263,6 +1296,7 @@ impl ApiClient {
     pub async fn upload_dataset(
         &self,
         form_data: &web_sys::FormData,
+        idempotency_key: Option<&str>,
     ) -> ApiResult<adapteros_api_types::UploadDatasetResponse> {
         use wasm_bindgen::JsCast;
         use wasm_bindgen_futures::JsFuture;
@@ -1279,6 +1313,18 @@ impl ApiClient {
             headers
                 .set("Authorization", &format!("Bearer {}", token))
                 .map_err(|_| ApiError::Network("Failed to set Authorization header".into()))?;
+        }
+        if let Some(key) = idempotency_key.and_then(|value| {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
+        }) {
+            headers
+                .set("Idempotency-Key", key)
+                .map_err(|_| ApiError::Network("Failed to set Idempotency-Key header".into()))?;
         }
         opts.set_headers(&headers);
 
@@ -1449,8 +1495,8 @@ impl ApiClient {
         worker_id: Option<&str>,
     ) -> ApiResult<Vec<ProcessHealthMetricResponse>> {
         let path = match worker_id {
-            Some(id) => format!("/v1/monitoring/health?worker_id={}", id),
-            None => "/v1/monitoring/health".to_string(),
+            Some(id) => format!("/v1/monitoring/health-metrics?worker_id={}", id),
+            None => "/v1/monitoring/health-metrics".to_string(),
         };
         self.get(&path).await
     }
@@ -1748,6 +1794,27 @@ impl ApiClient {
     /// Delete an error alert rule
     pub async fn delete_error_alert_rule(&self, id: &str) -> ApiResult<()> {
         self.delete(&format!("/v1/error-alerts/rules/{}", id)).await
+    }
+
+    /// List error alert history
+    pub async fn list_error_alert_history(
+        &self,
+        unresolved_only: Option<bool>,
+        limit: Option<i64>,
+    ) -> ApiResult<ErrorAlertHistoryListResponse> {
+        let mut params = Vec::new();
+        if let Some(flag) = unresolved_only {
+            params.push(format!("unresolved_only={}", flag));
+        }
+        if let Some(limit) = limit {
+            params.push(format!("limit={}", limit));
+        }
+        let path = if params.is_empty() {
+            "/v1/error-alerts/history".to_string()
+        } else {
+            format!("/v1/error-alerts/history?{}", params.join("&"))
+        };
+        self.get(&path).await
     }
 
     // --- Embedding Benchmarks ---

@@ -2,6 +2,7 @@ use crate::auth::Claims;
 use crate::state::AppState;
 use crate::types::*;
 use adapteros_db::users::Role;
+use adapteros_policy::validation::validate_customization;
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -10,6 +11,20 @@ use axum::{
 use std::collections::HashMap;
 
 /// Assign policies to tenant
+#[utoipa::path(
+    post,
+    path = "/v1/tenants/{tenant_id}/policies",
+    request_body = AssignPoliciesRequest,
+    params(
+        ("tenant_id" = String, Path, description = "Tenant ID")
+    ),
+    responses(
+        (status = 200, description = "Policies assigned", body = AssignPoliciesResponse),
+        (status = 403, description = "Forbidden", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "policies"
+)]
 pub async fn assign_tenant_policies(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -51,6 +66,16 @@ pub async fn assign_tenant_policies(
 }
 
 /// List policies
+#[utoipa::path(
+    get,
+    path = "/v1/policies",
+    responses(
+        (status = 200, description = "Policy packs", body = Vec<PolicyPackResponse>),
+        (status = 403, description = "Forbidden", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "policies"
+)]
 pub async fn list_policies(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -85,6 +110,19 @@ pub async fn list_policies(
 }
 
 /// Get policy by CPID
+#[utoipa::path(
+    get,
+    path = "/v1/policies/{cpid}",
+    params(
+        ("cpid" = String, Path, description = "Policy CPID")
+    ),
+    responses(
+        (status = 200, description = "Policy pack", body = PolicyPackResponse),
+        (status = 404, description = "Policy pack not found", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "policies"
+)]
 pub async fn get_policy(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -125,6 +163,17 @@ pub async fn get_policy(
 }
 
 /// Validate policy (stub)
+#[utoipa::path(
+    post,
+    path = "/v1/policies/validate",
+    request_body = ValidatePolicyRequest,
+    responses(
+        (status = 200, description = "Validation result", body = PolicyValidationResponse),
+        (status = 403, description = "Forbidden", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "policies"
+)]
 pub async fn validate_policy(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -136,34 +185,10 @@ pub async fn validate_policy(
         crate::permissions::Permission::PolicyValidate,
     )?;
 
-    // Basic JSON validation
-    let result = match serde_json::from_str::<serde_json::Value>(&req.content) {
-        Ok(_) => {
-            // Audit log: policy validation success
-            // Use content hash as identifier since ValidatePolicyRequest doesn't have cpid
-            let content_hash = adapteros_core::B3Hash::hash(req.content.as_bytes()).to_string();
-            if let Err(e) = crate::audit_helper::log_success(
-                &state.db,
-                &claims,
-                crate::audit_helper::actions::POLICY_VALIDATE,
-                crate::audit_helper::resources::POLICY,
-                Some(&content_hash),
-            )
-            .await
-            {
-                tracing::warn!(error = %e, "Audit log failed");
-            }
-
-            Json(PolicyValidationResponse {
-                valid: true,
-                errors: vec![],
-                hash_b3: Some(content_hash),
-            })
-        }
+    let content_hash = adapteros_core::B3Hash::hash(req.content.as_bytes()).to_string();
+    let parsed = match serde_json::from_str::<serde_json::Value>(&req.content) {
+        Ok(value) => value,
         Err(e) => {
-            // Audit log: policy validation failure
-            // Use content hash as identifier since ValidatePolicyRequest doesn't have cpid
-            let content_hash = adapteros_core::B3Hash::hash(req.content.as_bytes()).to_string();
             if let Err(audit_err) = crate::audit_helper::log_failure(
                 &state.db,
                 &claims,
@@ -177,18 +202,184 @@ pub async fn validate_policy(
                 tracing::warn!(error = %audit_err, "Audit log failed");
             }
 
-            Json(PolicyValidationResponse {
+            return Ok(Json(PolicyValidationResponse {
                 valid: false,
                 errors: vec![format!("Invalid JSON: {}", e)],
                 hash_b3: None,
-            })
+            }));
         }
     };
 
-    Ok(result)
+    let mut errors = Vec::new();
+
+    let root = match parsed.as_object() {
+        Some(root) => root,
+        None => {
+            errors.push("Policy must be a JSON object".to_string());
+            let valid = false;
+            return Ok(Json(PolicyValidationResponse {
+                valid,
+                errors,
+                hash_b3: None,
+            }));
+        }
+    };
+
+    let has_pack_schema = root.contains_key("schema") || root.contains_key("packs");
+    if has_pack_schema {
+        if let Some(schema) = root.get("schema") {
+            if schema != "adapteros.policy.v1" {
+                errors.push(
+                    "Invalid policy schema version (expected adapteros.policy.v1)".to_string(),
+                );
+            }
+        } else {
+            errors.push("Missing policy schema version".to_string());
+        }
+
+        let packs = root.get("packs");
+        match packs.and_then(|p| p.as_object()) {
+            Some(packs_obj) => {
+                for (pack_name, pack_value) in packs_obj {
+                    let pack_json = match serde_json::to_string(pack_value) {
+                        Ok(json) => json,
+                        Err(e) => {
+                            errors.push(format!("pack {}: failed to serialize: {}", pack_name, e));
+                            continue;
+                        }
+                    };
+
+                    match validate_customization(pack_name, &pack_json) {
+                        Ok(result) => {
+                            for err in result.errors {
+                                errors.push(format!("pack {}: {}", pack_name, err));
+                            }
+                            for warn in result.warnings {
+                                tracing::warn!(
+                                    pack = %pack_name,
+                                    warning = %warn,
+                                    "Policy validation warning"
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            errors.push(format!("pack {}: {}", pack_name, e));
+                        }
+                    }
+                }
+            }
+            None => errors.push("Missing or invalid packs object".to_string()),
+        }
+    } else {
+        let policy_type = root
+            .get("type")
+            .or_else(|| root.get("policy_type"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+
+        let policy_type = match policy_type {
+            Some(policy_type) => policy_type,
+            None => {
+                errors.push("Policy must include a non-empty 'type' field".to_string());
+                let valid = false;
+                return Ok(Json(PolicyValidationResponse {
+                    valid,
+                    errors,
+                    hash_b3: None,
+                }));
+            }
+        };
+
+        let config_value = if let Some(config) = root.get("config") {
+            config.clone()
+        } else {
+            let mut config_obj = root.clone();
+            config_obj.remove("type");
+            config_obj.remove("policy_type");
+            serde_json::Value::Object(config_obj)
+        };
+
+        if !config_value.is_object() {
+            errors.push("Policy config must be a JSON object".to_string());
+        } else {
+            let config_json = match serde_json::to_string(&config_value) {
+                Ok(json) => json,
+                Err(e) => {
+                    errors.push(format!("Failed to serialize policy config: {}", e));
+                    String::new()
+                }
+            };
+
+            if !config_json.is_empty() {
+                match validate_customization(&policy_type, &config_json) {
+                    Ok(result) => {
+                        for err in result.errors {
+                            errors.push(format!("pack {}: {}", policy_type, err));
+                        }
+                        for warn in result.warnings {
+                            tracing::warn!(
+                                pack = %policy_type,
+                                warning = %warn,
+                                "Policy validation warning"
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        errors.push(format!("pack {}: {}", policy_type, e));
+                    }
+                }
+            }
+        }
+    }
+
+    let valid = errors.is_empty();
+
+    if valid {
+        if let Err(e) = crate::audit_helper::log_success(
+            &state.db,
+            &claims,
+            crate::audit_helper::actions::POLICY_VALIDATE,
+            crate::audit_helper::resources::POLICY,
+            Some(&content_hash),
+        )
+        .await
+        {
+            tracing::warn!(error = %e, "Audit log failed");
+        }
+    } else if let Err(audit_err) = crate::audit_helper::log_failure(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::POLICY_VALIDATE,
+        crate::audit_helper::resources::POLICY,
+        Some(&content_hash),
+        &format!("Validation failed: {}", errors.join("; ")),
+    )
+    .await
+    {
+        tracing::warn!(error = %audit_err, "Audit log failed");
+    }
+
+    Ok(Json(PolicyValidationResponse {
+        valid,
+        errors,
+        hash_b3: valid.then_some(content_hash),
+    }))
 }
 
 /// Apply policy
+#[utoipa::path(
+    post,
+    path = "/v1/policies/apply",
+    request_body = ApplyPolicyRequest,
+    responses(
+        (status = 200, description = "Policy applied", body = PolicyPackResponse),
+        (status = 400, description = "Invalid policy", body = ErrorResponse),
+        (status = 403, description = "Forbidden", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "policies"
+)]
 pub async fn apply_policy(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -371,6 +562,19 @@ pub async fn apply_policy(
 }
 
 /// Sign policy with Ed25519 using server's configured signing key (PRD-SEC-01)
+#[utoipa::path(
+    post,
+    path = "/v1/policies/{cpid}/sign",
+    params(
+        ("cpid" = String, Path, description = "Policy CPID")
+    ),
+    responses(
+        (status = 200, description = "Policy signed", body = SignPolicyResponse),
+        (status = 403, description = "Forbidden", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "policies"
+)]
 pub async fn sign_policy(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -415,6 +619,19 @@ pub async fn sign_policy(
 }
 
 /// Verify policy signature using server's public key (PRD-SEC-01)
+#[utoipa::path(
+    get,
+    path = "/v1/policies/{cpid}/verify",
+    params(
+        ("cpid" = String, Path, description = "Policy CPID")
+    ),
+    responses(
+        (status = 200, description = "Signature verification", body = VerifyPolicyResponse),
+        (status = 404, description = "Policy not found", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "policies"
+)]
 pub async fn verify_policy_signature(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -539,6 +756,17 @@ pub async fn verify_policy_signature(
 }
 
 /// Compare two policy versions
+#[utoipa::path(
+    post,
+    path = "/v1/policies/compare",
+    request_body = PolicyComparisonRequest,
+    responses(
+        (status = 200, description = "Policy comparison", body = PolicyComparisonResponse),
+        (status = 404, description = "Policy pack not found", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "policies"
+)]
 pub async fn compare_policy_versions(
     State(state): State<AppState>,
     Extension(_claims): Extension<Claims>,
@@ -651,6 +879,19 @@ pub async fn compare_policy_versions(
 }
 
 /// Export policy as downloadable bundle
+#[utoipa::path(
+    get,
+    path = "/v1/policies/{cpid}/export",
+    params(
+        ("cpid" = String, Path, description = "Policy CPID")
+    ),
+    responses(
+        (status = 200, description = "Policy export", body = ExportPolicyResponse),
+        (status = 404, description = "Policy pack not found", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "policies"
+)]
 pub async fn export_policy(
     State(state): State<AppState>,
     Extension(_claims): Extension<Claims>,

@@ -24,6 +24,18 @@ use axum::{
 use serde_json::Value;
 
 /// List all tenants with pagination
+#[utoipa::path(
+    get,
+    path = "/v1/tenants",
+    params(
+        PaginationParams
+    ),
+    responses(
+        (status = 200, description = "Tenants list", body = PaginatedResponse<TenantResponse>),
+        (status = 403, description = "Forbidden", body = ErrorResponse)
+    ),
+    tag = "tenants"
+)]
 pub async fn list_tenants(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -62,6 +74,17 @@ pub async fn list_tenants(
 }
 
 /// Create tenant (admin only)
+#[utoipa::path(
+    post,
+    path = "/v1/tenants",
+    request_body = CreateTenantRequest,
+    responses(
+        (status = 200, description = "Tenant created", body = TenantResponse),
+        (status = 403, description = "Forbidden", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "tenants"
+)]
 pub async fn create_tenant(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,

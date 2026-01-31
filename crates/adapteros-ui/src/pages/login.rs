@@ -1,20 +1,46 @@
 //! Login page
 
-use crate::components::{Button, Card, FormField, Input};
+use crate::components::{Button, Card, Checkbox, FormField, Input, OfflineBanner};
 use crate::signals::use_auth;
 use crate::validation::{use_form_errors, validate_field, ValidationRule};
 use leptos::prelude::*;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+/// Extract returnUrl query parameter from current URL
+fn get_return_url() -> Option<String> {
+    web_sys::window()
+        .and_then(|w| w.location().search().ok())
+        .and_then(|search| {
+            if search.is_empty() {
+                return None;
+            }
+            // Parse query string manually (search includes leading ?)
+            let query = search.trim_start_matches('?');
+            for pair in query.split('&') {
+                if let Some((key, value)) = pair.split_once('=') {
+                    if key == "returnUrl" {
+                        // Decode URI component
+                        return js_sys::decode_uri_component(value).ok().map(|s| s.into());
+                    }
+                }
+            }
+            None
+        })
+}
+
 /// Login page
 #[component]
 pub fn Login() -> impl IntoView {
     let username = RwSignal::new(String::new());
     let password = RwSignal::new(String::new());
+    let remember_me = RwSignal::new(false);
     let error = RwSignal::new(Option::<String>::None);
     let loading = RwSignal::new(false);
     let errors = use_form_errors();
+
+    // Capture returnUrl on mount (where to redirect after login)
+    let return_url = StoredValue::new(get_return_url());
 
     // Track mounted state to prevent setting signals after unmount
     let is_mounted = Arc::new(AtomicBool::new(true));
@@ -37,9 +63,12 @@ pub fn Login() -> impl IntoView {
     // Redirect if already authenticated
     Effect::new(move || {
         if auth_state.get().is_authenticated() {
-            // Navigate to dashboard
+            // Navigate to returnUrl if present, otherwise dashboard
+            let target = return_url
+                .get_value()
+                .unwrap_or_else(|| "/dashboard".to_string());
             if let Some(window) = web_sys::window() {
-                let _ = window.location().set_href("/dashboard");
+                let _ = window.location().set_href(&target);
             }
         }
     });
@@ -83,9 +112,12 @@ pub fn Login() -> impl IntoView {
             wasm_bindgen_futures::spawn_local(async move {
                 match action.login(&username_val, &password_val).await {
                     Ok(_) => {
-                        // Navigate to dashboard
+                        // Navigate to returnUrl if present, otherwise dashboard
+                        let target = return_url
+                            .get_value()
+                            .unwrap_or_else(|| "/dashboard".to_string());
                         if let Some(window) = web_sys::window() {
-                            let _ = window.location().set_href("/dashboard");
+                            let _ = window.location().set_href(&target);
                         }
                     }
                     Err(e) => {
@@ -101,7 +133,10 @@ pub fn Login() -> impl IntoView {
     };
 
     view! {
-        <div class="flex min-h-screen items-center justify-center bg-muted/40">
+        <div class="min-h-screen bg-muted/40">
+            // Show backend status at top of login page
+            <OfflineBanner/>
+            <div class="flex min-h-screen items-center justify-center">
             <Card
                 title="Login".to_string()
                 description="Enter your credentials to access adapterOS".to_string()
@@ -142,6 +177,15 @@ pub fn Login() -> impl IntoView {
                         />
                     </FormField>
 
+                    // "Remember me" checkbox - UI ready for when backend supports session duration control
+                    <div class="flex items-center justify-between">
+                        <Checkbox
+                            checked=Signal::derive(move || remember_me.get())
+                            on_change=Callback::new(move |checked| remember_me.set(checked))
+                            label="Remember me".to_string()
+                        />
+                    </div>
+
                     {move || {
                         error.get().map(|e| view! {
                             <div class="rounded-md border border-destructive bg-destructive/10 p-3 text-sm text-destructive">
@@ -158,10 +202,11 @@ pub fn Login() -> impl IntoView {
                             move |_| do_login()
                         })
                     >
-                        "Sign In"
+                        "Log in"
                     </Button>
                 </form>
             </Card>
+            </div>
         </div>
     }
 }

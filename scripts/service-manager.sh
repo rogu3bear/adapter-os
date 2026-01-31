@@ -5,7 +5,7 @@
 # Copyright (c) 2025 JKCA / James KC Auchterlonie. All rights reserved.
 #
 # Usage:
-#   ./scripts/service-manager.sh start <service>     Start a service (backend, ui)
+#   ./scripts/service-manager.sh start <service>     Start a service (backend, worker, secd, node, ui)
 #   ./scripts/service-manager.sh stop all [mode]    Stop all services (graceful|fast|immediate)
 #   ./scripts/service-manager.sh status             Show status of all services
 #
@@ -1803,7 +1803,7 @@ usage() {
     echo ""
     echo "SERVICES:"
     echo "  backend     Backend API server"
-    echo "  ui          Web UI development server"
+    echo "  ui          Static UI served by backend (no process); use trunk serve for dev"
     echo "  worker      Inference worker (ML model server)"
     echo "  secd        Secure Enclave Daemon"
     echo "  node        Node Agent (cluster management)"
@@ -1815,9 +1815,10 @@ usage() {
     echo ""
     echo "EXAMPLES:"
     echo "  $0 start backend          # Start backend server"
-    echo "  $0 start ui               # Start web UI"
+    echo "  $0 start ui               # No-op (UI is served by backend)"
     echo "  $0 start secd             # Start Secure Enclave Daemon"
     echo "  $0 start node             # Start Node Agent"
+    echo "  $0 start-all              # Start backend + worker (UI served by backend)"
     echo "  $0 stop all               # Stop all services gracefully"
     echo "  $0 stop all fast          # Fast stop all services"
     echo "  $0 restart backend        # Restart backend gracefully"

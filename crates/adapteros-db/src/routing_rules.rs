@@ -8,6 +8,7 @@ use sqlx::{FromRow, SqlitePool};
 
 /// A rule for routing requests based on Identity Set conditions
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct RoutingRule {
     pub id: Option<String>,
     pub identity_dataset_id: Option<String>,
@@ -21,6 +22,7 @@ pub struct RoutingRule {
 
 /// Parameters for creating a new routing rule
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct CreateRoutingRuleParams {
     pub identity_dataset_id: String,
     pub condition_logic: String,

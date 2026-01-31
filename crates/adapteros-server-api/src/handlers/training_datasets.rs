@@ -17,6 +17,8 @@ use axum::{
     Extension, Json,
 };
 #[cfg(feature = "embeddings")]
+use axum::response::IntoResponse;
+#[cfg(feature = "embeddings")]
 use bytes::Bytes;
 use serde::Deserialize;
 use std::sync::Arc;
@@ -56,20 +58,35 @@ pub async fn create_training_dataset_from_upload(
     while let Some(field) = multipart
         .next_field()
         .await
-        .map_err(ApiError::bad_request)?
+        .map_err(|e| ApiError::bad_request(e.to_string()))?
     {
         let name = field.name().unwrap_or("").to_string();
         match name.as_str() {
             "name" => {
-                dataset_name = Some(field.text().await.map_err(ApiError::bad_request)?);
+                dataset_name = Some(
+                    field
+                        .text()
+                        .await
+                        .map_err(|e| ApiError::bad_request(e.to_string()))?,
+                );
             }
             "description" => {
-                description = Some(field.text().await.map_err(ApiError::bad_request)?);
+                description = Some(
+                    field
+                        .text()
+                        .await
+                        .map_err(|e| ApiError::bad_request(e.to_string()))?,
+                );
             }
             "file" => {
                 file_name = field.file_name().map(|s| s.to_string());
                 mime_type = field.content_type().map(|ct| ct.to_string());
-                file_bytes = Some(field.bytes().await.map_err(ApiError::bad_request)?);
+                file_bytes = Some(
+                    field
+                        .bytes()
+                        .await
+                        .map_err(|e| ApiError::bad_request(e.to_string()))?,
+                );
             }
             other => {
                 debug!(
@@ -96,13 +113,21 @@ pub async fn create_training_dataset_from_upload(
             },
         )
         .await
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+        .map_err(ApiError::from)?;
 
     Ok(Json(dataset))
 }
 
 /// Stub when embeddings feature is disabled.
 #[cfg(not(feature = "embeddings"))]
+#[utoipa::path(
+    post,
+    path = "/v1/training/datasets/from-upload",
+    responses(
+        (status = 501, description = "Embeddings feature disabled", body = ErrorResponse)
+    ),
+    tag = "datasets"
+)]
 pub async fn create_training_dataset_from_upload(
     State(_state): State<AppState>,
     Extension(_claims): Extension<Claims>,

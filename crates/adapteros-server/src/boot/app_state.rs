@@ -28,7 +28,7 @@ use anyhow::Result;
 use ed25519_dalek::SigningKey;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 use tracing::{info, instrument, warn};
 
 use crate::boot::BackgroundTaskSpawner;
@@ -73,6 +73,7 @@ pub async fn build_app_state(
     AppState,
     ShutdownCoordinator,
     Option<mpsc::Receiver<DiagEnvelope>>,
+    broadcast::Receiver<()>,
 )> {
     info!(target: "boot", phase = 10, name = "services", "═══ BOOT PHASE 10/12: Service Initialization ═══");
 
@@ -110,6 +111,7 @@ pub async fn build_app_state(
 
     // Create broadcast channel for dataset progress (capacity 100)
     let (dataset_progress_tx, _) = tokio::sync::broadcast::channel(100);
+    let (shutdown_tx, shutdown_rx) = broadcast::channel(4);
 
     // Wire training service to DB + dataset storage so training uses real datasets (not synthetic).
     let (training_storage_root, training_artifacts_root) = {
@@ -171,6 +173,7 @@ pub async fn build_app_state(
     .with_tick_ledger(tick_ledger.clone())
     .with_health_monitor(health_monitor.clone())
     .with_background_task_tracker(Arc::clone(&background_tasks))
+    .with_shutdown_signal(Arc::new(shutdown_tx))
     .with_federation(federation_daemon_for_state)
     .with_policy_watcher(policy_watcher)
     .with_pause_tracker(Arc::new(ServerPauseTracker::new()))
@@ -367,5 +370,5 @@ pub async fn build_app_state(
         None
     };
 
-    Ok((state, shutdown_coordinator, diag_receiver))
+    Ok((state, shutdown_coordinator, diag_receiver, shutdown_rx))
 }

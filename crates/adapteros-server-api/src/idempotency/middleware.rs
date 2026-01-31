@@ -42,6 +42,15 @@ pub async fn idempotency_middleware(
         return next.run(req).await;
     }
 
+    // Skip idempotency handling for SSE streams to avoid buffering the response
+    if let Some(accept) = req.headers().get(header::ACCEPT) {
+        if let Ok(accept_str) = accept.to_str() {
+            if accept_str.contains("text/event-stream") {
+                return next.run(req).await;
+            }
+        }
+    }
+
     // Extract idempotency key from header
     let key = match req.headers().get(IDEMPOTENCY_KEY_HEADER) {
         Some(value) => match value.to_str() {

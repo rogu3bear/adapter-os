@@ -18,9 +18,10 @@
 
 use crate::api::ApiClient;
 use crate::components::{
-    AdapterDetailPanel, AsyncBoundary, AsyncBoundaryWithErrorRender, Badge, BadgeVariant, Button,
-    ButtonVariant, Card, EmptyState, EmptyStateVariant, ErrorDisplay, Link, LinkVariant,
-    SplitPanel, SplitRatio, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    AdapterDetailPanel, AsyncBoundary, AsyncBoundaryWithErrorRender, Badge, BadgeVariant,
+    BreadcrumbItem, BreadcrumbTrail, Button, ButtonVariant, Card, EmptyState, EmptyStateVariant,
+    ErrorDisplay, Link, SplitPanel, SplitRatio, Table, TableBody, TableCell, TableHead,
+    TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use crate::signals::refetch::{use_refetch_signal, RefetchTopic};
@@ -339,15 +340,19 @@ pub fn AdapterDetail() -> impl IntoView {
 
     let refetch_signal = StoredValue::new(refetch);
 
+    // Derive adapter name for breadcrumb (shows ID until loaded)
+    let adapter_name_for_breadcrumb = Signal::derive(move || adapter_id.get());
+
     view! {
         <div class="p-6 space-y-6">
+            // Breadcrumb navigation
+            <BreadcrumbTrail items=vec![
+                BreadcrumbItem::link("Adapters", "/adapters"),
+                BreadcrumbItem::current(adapter_name_for_breadcrumb.get()),
+            ]/>
+
             <div class="flex items-center justify-between">
-                <div class="flex items-center gap-4">
-                    <Link href="/adapters" variant=LinkVariant::Muted>
-                        "← Adapters"
-                    </Link>
-                    <h1 class="text-3xl font-bold tracking-tight">"Adapter Details"</h1>
-                </div>
+                <h1 class="text-3xl font-bold tracking-tight">"Adapter Details"</h1>
                 <Button
                     variant=ButtonVariant::Primary
                     on_click=Callback::new(move |_| refetch.run(()))

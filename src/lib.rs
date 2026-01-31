@@ -1,4 +1,4 @@
-//! adapterOS Integration Tests
+//! dapterOS Integration Tests
 //!
 //! This file enables workspace-level integration tests to be discovered by cargo.
 //! The actual test implementations are in the tests/ directory.

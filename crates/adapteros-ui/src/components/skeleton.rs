@@ -233,3 +233,159 @@ pub fn SkeletonButton(
         ></div>
     }
 }
+
+/// Skeleton detail section - simulates a detail/definition list layout
+///
+/// Useful for detail pages that show key-value pairs (e.g., adapter details,
+/// dataset overview, etc.)
+#[component]
+pub fn SkeletonDetailSection(
+    /// Animation variant (shimmer or pulse)
+    #[prop(optional)]
+    variant: SkeletonVariant,
+    /// Number of rows to render
+    #[prop(default = 4)]
+    rows: usize,
+    /// Whether to include a title skeleton
+    #[prop(optional)]
+    has_title: bool,
+    /// Additional CSS classes
+    #[prop(optional, into)]
+    class: String,
+) -> impl IntoView {
+    let full_class = format!("card skeleton-detail-section {}", class);
+    let variant_class = variant.class();
+
+    view! {
+        <div class=full_class aria-hidden="true">
+            {if has_title {
+                Some(view! {
+                    <div class="card-header">
+                        <div
+                            class=format!("{} skeleton-text", variant_class)
+                            style="width: 40%; height: 1.25rem;"
+                        ></div>
+                    </div>
+                })
+            } else {
+                None
+            }}
+            <div class="card-content" style="display: flex; flex-direction: column; gap: 0.75rem;">
+                {(0..rows)
+                    .map(|i| {
+                        // Vary widths for visual interest
+                        let label_width = match i % 3 {
+                            0 => "25%",
+                            1 => "30%",
+                            _ => "20%",
+                        };
+                        let value_width = match i % 4 {
+                            0 => "45%",
+                            1 => "60%",
+                            2 => "35%",
+                            _ => "50%",
+                        };
+                        view! {
+                            <div class="flex justify-between items-center py-1">
+                                <div
+                                    class=format!("{} skeleton-text", variant_class)
+                                    style=format!("width: {};", label_width)
+                                ></div>
+                                <div
+                                    class=format!("{} skeleton-text", variant_class)
+                                    style=format!("width: {};", value_width)
+                                ></div>
+                            </div>
+                        }
+                    })
+                    .collect::<Vec<_>>()}
+            </div>
+        </div>
+    }
+}
+
+/// Skeleton page header - simulates a page header with title and optional actions
+#[component]
+pub fn SkeletonPageHeader(
+    /// Animation variant (shimmer or pulse)
+    #[prop(optional)]
+    variant: SkeletonVariant,
+    /// Whether to show action button skeletons
+    #[prop(optional)]
+    has_actions: bool,
+    /// Additional CSS classes
+    #[prop(optional, into)]
+    class: String,
+) -> impl IntoView {
+    let full_class = format!("skeleton-page-header {}", class);
+    let variant_class = variant.class();
+
+    view! {
+        <div class=format!("{} flex items-center justify-between mb-6", full_class) aria-hidden="true">
+            <div>
+                <div
+                    class=format!("{} skeleton-text", variant_class)
+                    style="width: 12rem; height: 2rem; margin-bottom: 0.5rem;"
+                ></div>
+                <div
+                    class=format!("{} skeleton-text", variant_class)
+                    style="width: 20rem; height: 1rem;"
+                ></div>
+            </div>
+            {if has_actions {
+                Some(view! {
+                    <div class="flex gap-2">
+                        <div
+                            class=format!("{}", variant_class)
+                            style="width: 5rem; height: 2.5rem; border-radius: 0.375rem;"
+                        ></div>
+                        <div
+                            class=format!("{}", variant_class)
+                            style="width: 6rem; height: 2.5rem; border-radius: 0.375rem;"
+                        ></div>
+                    </div>
+                })
+            } else {
+                None
+            }}
+        </div>
+    }
+}
+
+/// Skeleton stats grid - simulates a grid of stat cards
+#[component]
+pub fn SkeletonStatsGrid(
+    /// Animation variant (shimmer or pulse)
+    #[prop(optional)]
+    variant: SkeletonVariant,
+    /// Number of stat cards
+    #[prop(default = 4)]
+    count: usize,
+    /// Additional CSS classes
+    #[prop(optional, into)]
+    class: String,
+) -> impl IntoView {
+    let full_class = format!("grid gap-4 md:grid-cols-2 lg:grid-cols-4 {}", class);
+    let variant_class = variant.class();
+
+    view! {
+        <div class=full_class aria-hidden="true">
+            {(0..count)
+                .map(|_| {
+                    view! {
+                        <div class="card p-4">
+                            <div
+                                class=format!("{} skeleton-text", variant_class)
+                                style="width: 50%; height: 0.875rem; margin-bottom: 0.5rem;"
+                            ></div>
+                            <div
+                                class=format!("{} skeleton-text", variant_class)
+                                style="width: 40%; height: 2rem;"
+                            ></div>
+                        </div>
+                    }
+                })
+                .collect::<Vec<_>>()}
+        </div>
+    }
+}

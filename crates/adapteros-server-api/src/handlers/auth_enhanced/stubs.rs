@@ -86,3 +86,35 @@ pub async fn mfa_verify_handler() -> (StatusCode, Json<ErrorResponse>) {
 pub async fn mfa_disable_handler() -> (StatusCode, Json<ErrorResponse>) {
     stub_not_implemented_error()
 }
+
+// ============================================================================
+// Dev bypass stubs (when dev-bypass feature is disabled)
+// ============================================================================
+
+#[cfg(not(all(feature = "dev-bypass", debug_assertions)))]
+#[utoipa::path(
+    post,
+    path = "/v1/auth/dev-bypass",
+    responses(
+        (status = 501, description = "Dev bypass disabled")
+    ),
+    tag = "auth"
+)]
+pub async fn dev_bypass_handler() -> (StatusCode, Json<ErrorResponse>) {
+    stub_not_implemented_error()
+}
+
+#[cfg(not(all(feature = "dev-bypass", debug_assertions)))]
+#[utoipa::path(
+    post,
+    path = "/v1/dev/bootstrap",
+    responses(
+        (status = 501, description = "Dev bootstrap disabled")
+    ),
+    tag = "dev"
+)]
+pub async fn dev_bootstrap_handler(
+    Json(_body): Json<serde_json::Value>,
+) -> (StatusCode, Json<ErrorResponse>) {
+    stub_not_implemented_error()
+}

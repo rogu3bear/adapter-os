@@ -135,10 +135,10 @@ use crate::handlers::rag_common::{
 use crate::middleware::policy_enforcement::{compute_policy_mask_digest, enforce_at_hook};
 use crate::state::AppState;
 use crate::types::{
-    new_run_envelope, set_policy_mask, set_router_seed, set_worker_context, ChunkReference,
-    InferenceError, InferenceRequestInternal, InferenceResult, PlacementReplay,
-    PlacementTraceEntry, RagEvidence, ReplayContext, RouterCandidateRecord, RouterDecisionRecord,
-    SamplingParams, TokenUsage, WorkerInferRequest, MAX_REPLAY_TEXT_SIZE,
+    new_run_envelope, new_run_envelope_no_tick, set_policy_mask, set_router_seed,
+    set_worker_context, ChunkReference, InferenceError, InferenceRequestInternal, InferenceResult,
+    PlacementReplay, PlacementTraceEntry, RagEvidence, ReplayContext, RouterCandidateRecord,
+    RouterDecisionRecord, SamplingParams, TokenUsage, WorkerInferRequest, MAX_REPLAY_TEXT_SIZE,
     SAMPLING_ALGORITHM_VERSION,
 };
 use crate::uds_client::{UdsClient, WorkerStreamEvent, WorkerStreamToken};
@@ -154,6 +154,7 @@ use adapteros_core::{
 };
 use adapteros_db::workers::WorkerWithBinding;
 use adapteros_db::{chat_sessions::ChatSession, CreateReplayMetadataParams};
+use adapteros_deterministic_exec::{ExecutorEvent, TaskId};
 use adapteros_policy::hooks::{HookContext, PolicyHook};
 #[allow(unused_imports)]
 use adapteros_telemetry::diagnostics::DiagStage;
@@ -276,13 +277,31 @@ impl<'a> InferenceCore<'a> {
         let mut all_policy_decisions = Vec::new();
         if request.run_envelope.is_none() {
             if let Some(claims) = request.claims.as_ref() {
-                request.run_envelope = Some(new_run_envelope(
-                    self.state,
-                    claims,
-                    request.request_id.clone(),
-                    request.reasoning_mode,
-                ));
+                let envelope = if should_capture {
+                    new_run_envelope(
+                        self.state,
+                        claims,
+                        request.request_id.clone(),
+                        request.reasoning_mode,
+                    )
+                } else {
+                    new_run_envelope_no_tick(
+                        self.state,
+                        claims,
+                        request.request_id.clone(),
+                        request.reasoning_mode,
+                    )
+                };
+                request.run_envelope = Some(envelope);
             } else {
+                let tick = if should_capture {
+                    self.state
+                        .tick_ledger
+                        .as_ref()
+                        .map(|ledger| ledger.increment_tick())
+                } else {
+                    None
+                };
                 request.run_envelope = Some(RunEnvelope {
                     run_id: request.request_id.clone(),
                     schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
@@ -297,11 +316,7 @@ impl<'a> InferenceCore<'a> {
                     plan_id: None,
                     policy_mask_digest_b3: None,
                     router_seed: None,
-                    tick: self
-                        .state
-                        .tick_ledger
-                        .as_ref()
-                        .map(|ledger| ledger.increment_tick()),
+                    tick,
                     worker_id: None,
                     reasoning_mode: request.reasoning_mode,
                     determinism_version: crate::types::run_envelope::RUN_ENVELOPE_VERSION
@@ -315,6 +330,41 @@ impl<'a> InferenceCore<'a> {
                 });
             }
         }
+        if should_capture {
+            if let Some(ledger) = self.state.tick_ledger.as_ref() {
+                let (run_id, tick) = match request.run_envelope.as_mut() {
+                    Some(envelope) => {
+                        let tick = match envelope.tick {
+                            Some(tick) => tick,
+                            None => {
+                                let tick = ledger.increment_tick();
+                                envelope.tick = Some(tick);
+                                tick
+                            }
+                        };
+                        (Some(envelope.run_id.clone()), Some(tick))
+                    }
+                    None => (None, None),
+                };
+
+                if let (Some(run_id), Some(tick)) = (run_id, tick) {
+                    let mut hasher = blake3::Hasher::new();
+                    hasher.update(b"inference_run");
+                    hasher.update(run_id.as_bytes());
+                    let task_id = TaskId::from_bytes(*hasher.finalize().as_bytes());
+                    let event = ExecutorEvent::inference_started(run_id.clone(), tick);
+                    if let Err(e) = ledger.record_tick_at(tick, task_id, &event).await {
+                        warn!(
+                            run_id = %run_id,
+                            tick,
+                            error = %e,
+                            "Failed to record inference tick ledger entry"
+                        );
+                    }
+                }
+            }
+        }
+
         if let Some(token) = cancellation_token.as_ref() {
             if token.is_cancelled() {
                 return Err(InferenceError::ClientClosed(
@@ -383,33 +433,6 @@ impl<'a> InferenceCore<'a> {
             request.routing_determinism_mode = Some(RoutingDeterminismMode::Deterministic);
         }
 
-        // Stage 3: Policy Hooks (OnRequestBeforeRouting)
-        // ┌─────────────────────────────────────────────────────────────────┐
-        // │  - Execute policy packs: egress, determinism, isolation, evidence│
-        // │  - Generate policy mask for router                               │
-        // └─────────────────────────────────────────────────────────────────┘
-        let hook_ctx = HookContext::new(
-            request.cpid.clone(),
-            request.request_id.clone(),
-            PolicyHook::OnRequestBeforeRouting,
-            "inference",
-        )
-        .with_input(request.prompt.clone());
-
-        let decisions = enforce_at_hook(self.state, &hook_ctx)
-            .await
-            .map_err(|e| {
-                let violation = e.violations.first();
-                InferenceError::PolicyViolation {
-                    tenant_id: request.cpid.clone(),
-                    policy_id: violation
-                        .map(|v| v.policy_pack_id.clone())
-                        .unwrap_or_else(|| "unknown".to_string()),
-                    reason: e.message,
-                }
-            })?;
-        all_policy_decisions.extend(decisions);
-
         // 0.5 Resolve effective adapter set and stack metadata
         self.resolve_effective_adapters(&mut request, session.as_ref())
             .await?;
@@ -446,6 +469,37 @@ impl<'a> InferenceCore<'a> {
                 );
             }
         }
+
+        // Stage 3: Policy Hooks (OnRequestBeforeRouting)
+        // ┌─────────────────────────────────────────────────────────────────┐
+        // │  - Execute policy packs: egress, determinism, isolation, evidence│
+        // │  - Generate policy mask for router                               │
+        // └─────────────────────────────────────────────────────────────────┘
+        let hook_ctx = HookContext::new(
+            request.cpid.clone(),
+            request.request_id.clone(),
+            PolicyHook::OnRequestBeforeRouting,
+            "inference",
+        )
+        .with_input(request.prompt.clone())
+        .with_metadata(
+            "adapter_ids",
+            serde_json::json!(request.effective_adapter_ids),
+        );
+
+        let decisions = enforce_at_hook(self.state, &hook_ctx)
+            .await
+            .map_err(|e| {
+                let violation = e.violations.first();
+                InferenceError::PolicyViolation {
+                    tenant_id: request.cpid.clone(),
+                    policy_id: violation
+                        .map(|v| v.policy_pack_id.clone())
+                        .unwrap_or_else(|| "unknown".to_string()),
+                    reason: e.message,
+                }
+            })?;
+        all_policy_decisions.extend(decisions);
 
         // 0.6 Resolve execution policy (determinism, routing, golden)
         // Uses the unified resolve_tenant_execution_policy function which handles:
@@ -649,6 +703,10 @@ impl<'a> InferenceCore<'a> {
             "inference",
         )
         .with_input(augmented_prompt.clone())
+        .with_metadata(
+            "adapter_ids",
+            serde_json::json!(request.effective_adapter_ids),
+        )
         .with_metadata("model_id", serde_json::json!(request.model))
         .with_metadata("worker_id", serde_json::json!(selected_worker_id));
 
@@ -736,72 +794,7 @@ impl<'a> InferenceCore<'a> {
                 .await?;
         }
 
-        // Stage 3: Policy Hooks (OnRequestBeforeRouting)
-        // ┌─────────────────────────────────────────────────────────────────┐
-        // │ Policy Hook Point: Pre-routing validation                       │
-        // │ - Enforces tenant-level constraints before adapter selection    │
-        // │ - Validates input prompt safety and resource budgets            │
-        // │ - Rejection at this stage prevents all downstream computation   │
-        // └─────────────────────────────────────────────────────────────────┘
-        let routing_hook_ctx = HookContext::new(
-            request.cpid.clone(),
-            request.request_id.clone(),
-            PolicyHook::OnRequestBeforeRouting,
-            "inference",
-        )
-        .with_metadata(
-            "adapter_ids",
-            serde_json::json!(request.effective_adapter_ids),
-        );
-
-        let routing_decisions = enforce_at_hook(self.state, &routing_hook_ctx)
-            .await
-            .map_err(|e| {
-                let violation = e.violations.first();
-                InferenceError::PolicyViolation {
-                    tenant_id: request.cpid.clone(),
-                    policy_id: violation
-                        .map(|v| v.policy_pack_id.clone())
-                        .unwrap_or_else(|| "unknown".to_string()),
-                    reason: e.message,
-                }
-            })?;
-        all_policy_decisions.extend(routing_decisions);
-
         let routing_policy = Some(execution_policy.routing.clone().unwrap_or_default());
-
-        // Stage 7: Policy Hooks (OnBeforeInference)
-        // ┌─────────────────────────────────────────────────────────────────┐
-        // │ Policy Hook Point: Pre-execution validation                     │
-        // │ - Enforces quota limits and rate limiting                      │
-        // │ - Final validation of resolved worker and placement             │
-        // │ - Captures policy mask for deterministic replay verification   │
-        // └─────────────────────────────────────────────────────────────────┘
-        let before_hook_ctx = HookContext::new(
-            request.cpid.clone(),
-            request.request_id.clone(),
-            PolicyHook::OnBeforeInference,
-            "inference",
-        )
-        .with_metadata(
-            "adapter_ids",
-            serde_json::json!(request.effective_adapter_ids),
-        )
-        .with_metadata("worker_id", serde_json::json!(selected_worker_id));
-
-        let before_decisions = enforce_at_hook(self.state, &before_hook_ctx)
-            .await
-            .map_err(|e| {
-                let violation = e.violations.first();
-                InferenceError::PolicyViolation {
-                    tenant_id: request.cpid.clone(),
-                    policy_id: violation
-                        .map(|v| v.policy_pack_id.clone())
-                        .unwrap_or_else(|| "unknown".to_string()),
-                    reason: e.message,
-                }
-            })?;
-        all_policy_decisions.extend(before_decisions);
 
         // Compute policy mask digest for the worker call
         let policy_mask_digest = compute_policy_mask_digest(&all_policy_decisions);

@@ -157,13 +157,14 @@ where
                     if selected {
                         view! {
                             <div class="space-y-4">
-                                // Back button
+                                // Back button with 44px minimum touch target for mobile accessibility
                                 <button
-                                    class="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+                                    class="split-panel-back-btn"
                                     on:click=move |_| on_close.run(())
+                                    aria-label=back_text.clone()
                                 >
                                     <BackArrowIcon/>
-                                    {back_text.clone()}
+                                    <span>{back_text.clone()}</span>
                                 </button>
 
                                 // Detail content
