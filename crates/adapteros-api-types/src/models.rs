@@ -72,7 +72,7 @@ pub struct AllModelsStatusResponse {
     pub active_model_count: i64,
 }
 
-/// Model list response (from /v1/models endpoint)
+/// Model list response (from /internal/models endpoint)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 pub struct ModelListResponse<T> {

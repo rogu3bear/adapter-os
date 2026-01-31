@@ -43,8 +43,14 @@ pub fn TrainingData() -> impl IntoView {
     let selected_id = RwSignal::new(None::<String>);
 
     // Fetch datasets
-    let (datasets, refetch_datasets) =
-        use_api_resource(move |client: Arc<ApiClient>| async move { client.list_datasets().await });
+    let (datasets, refetch_datasets) = use_api_resource(move |client: Arc<ApiClient>| async move {
+        client.list_datasets().await
+    });
+
+    // Fetch preprocessed cache list
+    let (preprocessed_cache, _refetch_preprocessed) = use_api_resource(
+        move |client: Arc<ApiClient>| async move { client.list_preprocessed_cache().await },
+    );
 
     // Fetch documents
     let (documents, refetch_documents) = use_api_resource(
@@ -90,10 +96,14 @@ pub fn TrainingData() -> impl IntoView {
             }
             _ => Vec::new(),
         },
-        DataSource::Preprocessed => {
-            // Not yet implemented
-            Vec::new()
-        }
+        DataSource::Preprocessed => match preprocessed_cache.get() {
+            LoadingState::Loaded(data) => data
+                .entries
+                .iter()
+                .map(DataListItem::from_preprocessed)
+                .collect(),
+            _ => Vec::new(),
+        },
     });
 
     // Loading state based on active source
@@ -104,7 +114,9 @@ pub fn TrainingData() -> impl IntoView {
         DataSource::Documents => {
             matches!(documents.get(), LoadingState::Idle | LoadingState::Loading)
         }
-        DataSource::Preprocessed => false,
+        DataSource::Preprocessed => {
+            matches!(preprocessed_cache.get(), LoadingState::Idle | LoadingState::Loading)
+        }
     });
 
     // Selected dataset (for detail panel)
@@ -112,6 +124,19 @@ pub fn TrainingData() -> impl IntoView {
         let id = selected_id.get()?;
         match datasets.get() {
             LoadingState::Loaded(data) => data.datasets.iter().find(|d| d.id == id).cloned(),
+            _ => None,
+        }
+    });
+
+    // Selected preprocessed entry (for detail panel)
+    let selected_preprocessed = Signal::derive(move || {
+        let id = selected_id.get()?;
+        match preprocessed_cache.get() {
+            LoadingState::Loaded(data) => data
+                .entries
+                .iter()
+                .find(|entry| format!("{}::{}", entry.dataset_id, entry.preprocess_id) == id)
+                .cloned(),
             _ => None,
         }
     });
@@ -292,6 +317,7 @@ pub fn TrainingData() -> impl IntoView {
                                 item_id=item_id_signal
                                 document=selected_document
                                 dataset=selected_dataset
+                                preprocessed_entry=selected_preprocessed
                                 loading=is_loading
                                 on_close=Callback::new(move |_| on_close_detail())
                                 on_create_dataset=on_create_dataset

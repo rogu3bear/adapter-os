@@ -3,7 +3,7 @@
 //! Displays a list of items based on the active data source (documents, datasets, or preprocessed).
 
 use super::state::{DataSort, DataSource, DatasetStatus, DocumentStatus};
-use crate::api::{DatasetResponse, DocumentResponse};
+use crate::api::{DatasetResponse, DocumentResponse, PreprocessedCacheEntry};
 use crate::components::{Badge, BadgeVariant, Spinner};
 use leptos::prelude::*;
 
@@ -62,6 +62,27 @@ impl DataListItem {
             format: Some(doc.mime_type.clone()),
             created_at: doc.created_at.clone(),
             updated_at: doc.updated_at.clone().unwrap_or_default(),
+        }
+    }
+
+    /// Convert a PreprocessedCacheEntry to a DataListItem.
+    pub fn from_preprocessed(entry: &PreprocessedCacheEntry) -> Self {
+        Self {
+            id: format!("{}::{}", entry.dataset_id, entry.preprocess_id),
+            name: entry
+                .dataset_name
+                .clone()
+                .unwrap_or_else(|| entry.dataset_id.clone()),
+            description: Some(format!(
+                "Cache {} · {} examples",
+                entry.preprocess_id, entry.example_count
+            )),
+            status: "cached".to_string(),
+            status_variant: BadgeVariant::Success,
+            size_bytes: 0,
+            format: Some(entry.backend.clone()),
+            created_at: entry.produced_at.clone().unwrap_or_default(),
+            updated_at: entry.produced_at.clone().unwrap_or_default(),
         }
     }
 }

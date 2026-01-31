@@ -583,11 +583,18 @@ impl ApiClient {
         self.get("/v1/training/preprocessed-cache/count").await
     }
 
+    /// List preprocessed cache entries
+    pub async fn list_preprocessed_cache(
+        &self,
+    ) -> ApiResult<adapteros_api_types::training::PreprocessedCacheListResponse> {
+        self.get("/v1/training/preprocessed-cache").await
+    }
+
     // --- Models ---
 
     /// List all models with stats
     pub async fn list_models(&self) -> ApiResult<ModelListResponse> {
-        self.get("/v1/models").await
+        self.get("/internal/models").await
     }
 
     /// List all models status

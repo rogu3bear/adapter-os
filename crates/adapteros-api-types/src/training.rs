@@ -1914,6 +1914,32 @@ pub struct PreprocessedCacheCountResponse {
     pub dataset_count: u64,
 }
 
+/// Preprocessed cache entry summary.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct PreprocessedCacheEntry {
+    pub dataset_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dataset_name: Option<String>,
+    pub preprocess_id: String,
+    pub backend: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub produced_at: Option<String>,
+    pub example_count: usize,
+}
+
+/// Response for GET /v1/training/preprocessed-cache
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct PreprocessedCacheListResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
+    pub entries: Vec<PreprocessedCacheEntry>,
+    pub total: u64,
+}
+
 /// Summary of a job in the training queue
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "server", derive(utoipa::ToSchema))]

@@ -42,7 +42,7 @@ use axum::{
     response::Json,
 };
 use blake3::Hasher;
-use chrono::Utc;
+use chrono::{TimeZone, Utc};
 use futures_util::stream::{self, Stream};
 use serde::Deserialize;
 use std::convert::Infallible;
@@ -68,6 +68,14 @@ const CANONICAL_TRUST_STATES: &[&str] = &[
 ];
 
 const PREPROCESS_CACHE_MARKER: &str = "manifest.json";
+
+#[derive(Debug, serde::Deserialize)]
+struct PreprocessManifestSummary {
+    preprocess_id: String,
+    backend: String,
+    produced_at_unix_ms: u64,
+    example_count: usize,
+}
 
 fn canonical_trust_state(raw: &str) -> String {
     let normalized = match raw.trim().to_ascii_lowercase().as_str() {
@@ -231,6 +239,179 @@ pub async fn get_preprocessed_cache_count(
             schema_version: adapteros_api_types::schema_version(),
             count: total,
             dataset_count: datasets_with_cache,
+        },
+    ))
+}
+
+/// List preprocessed cache entries for training datasets.
+///
+/// Returns manifest-derived entries under
+/// `<datasets_root>/<tenant_id>/<dataset_id>/preprocessed/*/manifest.json`.
+#[utoipa::path(
+    get,
+    path = "/v1/training/preprocessed-cache",
+    responses(
+        (
+            status = 200,
+            description = "Preprocessed cache entries",
+            body = adapteros_api_types::training::PreprocessedCacheListResponse
+        ),
+        (status = 403, description = "Access denied", body = ErrorResponse)
+    ),
+    tag = "training"
+)]
+pub async fn list_preprocessed_cache(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+) -> Result<Json<adapteros_api_types::training::PreprocessedCacheListResponse>, ApiError> {
+    require_permission(&claims, Permission::TrainingView)?;
+
+    let datasets_root = {
+        let cfg = state
+            .config
+            .read()
+            .map_err(|_| ApiError::internal("config lock poisoned"))?;
+        PathBuf::from(cfg.paths.datasets_root.clone())
+    };
+
+    if datasets_root.as_os_str().is_empty() {
+        return Ok(Json(
+            adapteros_api_types::training::PreprocessedCacheListResponse {
+                schema_version: adapteros_api_types::schema_version(),
+                entries: Vec::new(),
+                total: 0,
+            },
+        ));
+    }
+
+    let tenant_root = datasets_root.join(&claims.tenant_id);
+    let canonical_root = match canonicalize_strict_in_allowed_roots(
+        &tenant_root,
+        &[datasets_root.clone()],
+    ) {
+        Ok(path) => path,
+        Err(AosError::NotFound(_)) => {
+            return Ok(Json(
+                adapteros_api_types::training::PreprocessedCacheListResponse {
+                    schema_version: adapteros_api_types::schema_version(),
+                    entries: Vec::new(),
+                    total: 0,
+                },
+            ))
+        }
+        Err(err) => {
+            return Err(ApiError::forbidden(format!(
+                "Dataset root rejected: {}",
+                err
+            )))
+        }
+    };
+
+    let dataset_records = state
+        .db
+        .list_training_datasets_for_tenant(&claims.tenant_id, 1000)
+        .await
+        .map_err(|e| ApiError::db_error(format!("Failed to list datasets: {}", e)))?;
+    let mut dataset_names = std::collections::HashMap::new();
+    for record in dataset_records {
+        dataset_names.insert(record.id, record.name);
+    }
+
+    let mut entries: Vec<adapteros_api_types::training::PreprocessedCacheEntry> = Vec::new();
+    let mut dataset_dirs = match tokio::fs::read_dir(&canonical_root).await {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(Json(
+                adapteros_api_types::training::PreprocessedCacheListResponse {
+                    schema_version: adapteros_api_types::schema_version(),
+                    entries: Vec::new(),
+                    total: 0,
+                },
+            ))
+        }
+        Err(err) => return Err(ApiError::internal(format!("Failed to read dataset root: {err}"))),
+    };
+
+    while let Some(entry) = dataset_dirs
+        .next_entry()
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to read dataset dir: {e}")))?
+    {
+        let metadata = entry
+            .metadata()
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to stat dataset dir: {e}")))?;
+        if !metadata.is_dir() {
+            continue;
+        }
+
+        let dataset_id = match entry.file_name().into_string() {
+            Ok(name) => name,
+            Err(_) => continue,
+        };
+
+        let preprocess_root = entry.path().join("preprocessed");
+        let mut preproc_entries = match tokio::fs::read_dir(&preprocess_root).await {
+            Ok(entries) => entries,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(err) => {
+                return Err(ApiError::internal(format!(
+                    "Failed to read preprocessed cache: {err}"
+                )))
+            }
+        };
+
+        while let Some(preproc_entry) = preproc_entries
+            .next_entry()
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to read preprocessed entry: {e}")))?
+        {
+            let preproc_meta = preproc_entry
+                .metadata()
+                .await
+                .map_err(|e| ApiError::internal(format!("Failed to stat preprocessed entry: {e}")))?;
+            if !preproc_meta.is_dir() {
+                continue;
+            }
+
+            let manifest_path = preproc_entry.path().join(PREPROCESS_CACHE_MARKER);
+            let manifest_bytes = match tokio::fs::read(&manifest_path).await {
+                Ok(bytes) => bytes,
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(err) => {
+                    return Err(ApiError::internal(format!(
+                        "Failed to read preprocessed manifest: {err}"
+                    )))
+                }
+            };
+
+            let manifest: PreprocessManifestSummary = match serde_json::from_slice(&manifest_bytes)
+            {
+                Ok(value) => value,
+                Err(_) => continue,
+            };
+
+            let produced_at = Some(
+                Utc.timestamp_millis(manifest.produced_at_unix_ms as i64)
+                    .to_rfc3339(),
+            );
+
+            entries.push(adapteros_api_types::training::PreprocessedCacheEntry {
+                dataset_id: dataset_id.clone(),
+                dataset_name: dataset_names.get(&dataset_id).cloned(),
+                preprocess_id: manifest.preprocess_id,
+                backend: manifest.backend,
+                produced_at,
+                example_count: manifest.example_count,
+            });
+        }
+    }
+
+    Ok(Json(
+        adapteros_api_types::training::PreprocessedCacheListResponse {
+            schema_version: adapteros_api_types::schema_version(),
+            total: entries.len() as u64,
+            entries,
         },
     ))
 }

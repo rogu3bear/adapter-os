@@ -208,7 +208,7 @@ pub struct ModelArchitectureSummary {
     pub vocab_size: Option<usize>,
 }
 
-/// Model with stats response (from /v1/models endpoint)
+/// Model with stats response (from /internal/models endpoint)
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ModelWithStatsResponse {
     pub id: String,
@@ -965,6 +965,28 @@ pub struct PreprocessedCacheCountResponse {
     pub schema_version: String,
     pub count: u64,
     pub dataset_count: u64,
+}
+
+/// Preprocessed cache entry summary
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PreprocessedCacheEntry {
+    pub dataset_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dataset_name: Option<String>,
+    pub preprocess_id: String,
+    pub backend: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub produced_at: Option<String>,
+    pub example_count: usize,
+}
+
+/// Preprocessed cache list response
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PreprocessedCacheListResponse {
+    #[serde(default)]
+    pub schema_version: String,
+    pub entries: Vec<PreprocessedCacheEntry>,
+    pub total: u64,
 }
 
 fn default_validation_mode() -> String {
