@@ -87,6 +87,7 @@ pub fn report_error(error: &ApiError, page: Option<&str>, is_authenticated: bool
 /// 1. Reports the error to the server for persistent logging
 /// 2. Shows an actionable error toast with the error details
 /// 3. Includes a copyable diagnostic bundle (JSON) for debugging
+/// 4. Uses warning variant for ADAPTER_IN_FLIGHT errors (user-recoverable)
 ///
 /// Use this instead of `report_error` when you want the user to see the error.
 ///
@@ -109,10 +110,15 @@ pub fn report_error_with_toast(
         let bundle = DiagnosticBundle::from_error(error, page);
         let details = bundle.to_json_string();
 
-        // Build a user-friendly message
-        let message = build_user_message(error);
+        // Use user_message() for user-friendly display
+        let message = error.user_message();
 
-        notifications.error_with_details(title, &message, &details);
+        // Use warning variant for ADAPTER_IN_FLIGHT (user-recoverable)
+        if error.is_adapter_in_flight() {
+            notifications.warning_with_details(title, &message, &details);
+        } else {
+            notifications.error_with_details(title, &message, &details);
+        }
     } else {
         // Fallback: log to console if notification context not available
         #[cfg(target_arch = "wasm32")]
@@ -127,30 +133,6 @@ pub fn report_error_with_toast(
                 )
                 .into(),
             );
-        }
-    }
-}
-
-/// Build a user-friendly error message from an ApiError.
-fn build_user_message(error: &ApiError) -> String {
-    match error {
-        ApiError::Aborted => "The request was cancelled.".to_string(),
-        ApiError::Network(msg) => format!("Network error: {}", msg),
-        ApiError::Http { status, message } => {
-            format!("HTTP {} error: {}", status, message)
-        }
-        ApiError::Unauthorized => "Your session has expired. Please log in again.".to_string(),
-        ApiError::Forbidden(msg) => format!("Access denied: {}", msg),
-        ApiError::NotFound(msg) => format!("Not found: {}", msg),
-        ApiError::Validation(msg) => format!("Validation error: {}", msg),
-        ApiError::Server(msg) => format!("Server error: {}", msg),
-        ApiError::Serialization(msg) => format!("Data format error: {}", msg),
-        ApiError::RateLimited { retry_after } => match retry_after {
-            Some(ms) => format!("Too many requests. Try again in {} seconds.", ms / 1000),
-            None => "Too many requests. Please wait a moment.".to_string(),
-        },
-        ApiError::Structured { error, code, .. } => {
-            format!("{} ({})", error, code)
         }
     }
 }
