@@ -21,7 +21,9 @@ use crate::state::AppState;
 #[cfg(all(feature = "dev-bypass", debug_assertions))]
 use crate::types::ErrorResponse;
 #[cfg(all(feature = "dev-bypass", debug_assertions))]
-use adapteros_api_types::auth::LoginResponse;
+use adapteros_api_types::auth::{LoginResponse, TenantSummary};
+#[cfg(all(feature = "dev-bypass", debug_assertions))]
+use adapteros_api_types::API_SCHEMA_VERSION;
 #[cfg(all(feature = "dev-bypass", debug_assertions))]
 use adapteros_db::users::{Role, User};
 #[cfg(all(feature = "dev-bypass", debug_assertions))]
@@ -44,11 +46,12 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 #[cfg(all(feature = "dev-bypass", debug_assertions))]
-use super::helpers::{log_auth_event, ADMIN_TENANT_WILDCARD};
-#[cfg(all(feature = "dev-bypass", debug_assertions))]
-use super::tokens::collect_tenant_summaries;
+use super::audit::{log_auth_event, AuthEvent};
 #[cfg(all(feature = "dev-bypass", debug_assertions))]
 use super::types::{DevBootstrapRequest, DevBootstrapResponse};
+
+#[cfg(all(feature = "dev-bypass", debug_assertions))]
+const ADMIN_TENANT_WILDCARD: &str = "*";
 
 /// Development bypass handler - creates admin user session
 /// Only available in debug builds - generates proper JWT even in dev mode
@@ -90,16 +93,14 @@ pub async fn dev_bypass_handler(
             principal_type: Some(PrincipalType::DevBypass),
         };
         log_auth_event(
-            &state.db,
-            &guard_claims,
-            "auth.dev_login",
-            "session",
-            None,
-            "failure",
-            Some("dev bypass disabled"),
+            AuthEvent::DevBypassLogin,
+            Some(&guard_claims.sub),
+            Some(&guard_claims.email),
+            Some(&guard_claims.tenant_id),
             Some(&client_ip.0),
-        )
-        .await;
+            None,
+            Some("dev bypass disabled"),
+        );
         return Err((
             StatusCode::FORBIDDEN,
             Json(
@@ -516,16 +517,14 @@ pub async fn dev_bypass_handler(
     })?;
 
     log_auth_event(
-        &state.db,
-        &claims,
-        "auth.dev_login",
-        "session",
-        Some(&claims.jti),
-        "success",
-        None,
+        AuthEvent::DevBypassLogin,
+        Some(&claims.sub),
+        Some(&claims.email),
+        Some(&claims.tenant_id),
         Some(&client_ip.0),
-    )
-    .await;
+        Some(&claims.jti),
+        None,
+    );
 
     info!(
         user_id = %user_id,
@@ -588,6 +587,74 @@ pub async fn dev_bypass_handler(
             mfa_level: None,
         }),
     ))
+}
+
+#[cfg(all(feature = "dev-bypass", debug_assertions))]
+async fn collect_tenant_summaries(
+    state: &AppState,
+    _user_id: &str,
+    _role: &str,
+    tenant_id: &str,
+    admin_tenants: &[String],
+) -> Result<Vec<TenantSummary>, (StatusCode, Json<ErrorResponse>)> {
+    let has_wildcard = admin_tenants.iter().any(|t| t == ADMIN_TENANT_WILDCARD);
+
+    if has_wildcard {
+        let (db_tenants, _total) =
+            state
+                .db
+                .list_tenants_paginated(100, 0)
+                .await
+                .map_err(|e| {
+                    warn!(error = %e, "Failed to list tenants for dev bypass");
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(
+                            ErrorResponse::new("Failed to retrieve tenants")
+                                .with_code("DATABASE_ERROR"),
+                        ),
+                    )
+                })?;
+
+        return Ok(db_tenants
+            .into_iter()
+            .map(|t| TenantSummary {
+                schema_version: API_SCHEMA_VERSION.to_string(),
+                id: t.id,
+                name: t.name,
+                status: t.status,
+                created_at: Some(t.created_at),
+            })
+            .collect());
+    }
+
+    let mut tenant_summaries = Vec::new();
+
+    if let Ok(Some(primary)) = state.db.get_tenant(tenant_id).await {
+        tenant_summaries.push(TenantSummary {
+            schema_version: API_SCHEMA_VERSION.to_string(),
+            id: primary.id,
+            name: primary.name,
+            status: primary.status,
+            created_at: Some(primary.created_at),
+        });
+    }
+
+    for admin_tenant in admin_tenants {
+        if admin_tenant != tenant_id {
+            if let Ok(Some(tenant)) = state.db.get_tenant(admin_tenant).await {
+                tenant_summaries.push(TenantSummary {
+                    schema_version: API_SCHEMA_VERSION.to_string(),
+                    id: tenant.id,
+                    name: tenant.name,
+                    status: tenant.status,
+                    created_at: Some(tenant.created_at),
+                });
+            }
+        }
+    }
+
+    Ok(tenant_summaries)
 }
 
 /// Development bootstrap endpoint - creates system tenant and admin user

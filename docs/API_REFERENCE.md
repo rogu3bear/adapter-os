@@ -1788,7 +1788,7 @@ Content-Type: application/json
 
 ### Service Control
 
-The Service Control API provides endpoints for managing system services. These endpoints proxy requests to the supervisor API and require `NodeManage` permission.
+The Service Control API provides endpoints for managing system services. These endpoints proxy requests to the supervisor API and require `NodeManage` permission. Configure the supervisor via `SUPERVISOR_API_URL` or `AOS_PANEL_PORT`; otherwise these endpoints return 503 `SUPERVISOR_NOT_CONFIGURED` (common when running `./start` without a supervisor).
 
 **Start Service:**
 ```http
@@ -2908,7 +2908,7 @@ Content-Type: application/json
 
 {
   "reason": "Planned maintenance",
-  "delay_seconds": 300
+  "mode": "drain"
 }
 ```
 
@@ -2916,18 +2916,20 @@ Content-Type: application/json
 ```http
 POST /admin/lifecycle/request-maintenance
 Authorization: Bearer <admin_token>
+Content-Type: application/json
+
+{
+  "reason": "Planned maintenance",
+  "scope": "all"
+}
 ```
 
 **Safe Restart:**
 ```http
 POST /admin/lifecycle/safe-restart
 Authorization: Bearer <admin_token>
-Content-Type: application/json
-
-{
-  "drain_timeout_seconds": 600
-}
 ```
+**Note:** Safe restart sets maintenance + drain and triggers an in-process shutdown after drain; an external supervisor should restart the process if configured.
 
 ### Storage & KV Isolation
 

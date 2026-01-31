@@ -79,6 +79,27 @@ Note: `loading-adapters` may transition directly to `ready` when worker discover
 | `stopping` | Component shutdown (ordered termination) | <30s | - |
 | `failed` | Terminal failure state | - | - |
 
+## main.rs Phase Names ↔ BootState Transitions
+
+Boot phase names recorded via `start_phase()`/`finish_phase_*()` are timing markers (surfaced in `/readyz` as `phases`). BootState transitions are separate and occur in boot modules. This table maps the canonical phase labels to the BootState transitions they trigger (if any).
+
+| Phase name (`start_phase`) | Code path | BootState transition(s) |
+|---|---|---|
+| `config_load` | `crates/adapteros-server/src/boot/config.rs` | `start()` → `starting` |
+| `security_init` | `crates/adapteros-server/src/main.rs` | none (remains `starting`) |
+| `executor_init` | `crates/adapteros-server/src/main.rs` | none (remains `starting`) |
+| `preflight` | `crates/adapteros-server/src/main.rs` | none (remains `starting`) |
+| `invariants` | `crates/adapteros-server/src/main.rs` | none (remains `starting`) |
+| `db_connect` | `crates/adapteros-server/src/boot/database.rs` | `db-connecting` |
+| `migrations` | `crates/adapteros-server/src/boot/migrations.rs` | `migrating` → `seeding` → `loading-policies` |
+| `post_db_invariants` | `crates/adapteros-server/src/main.rs` | none (remains `loading-policies`) |
+| `startup_recovery` | `crates/adapteros-server/src/main.rs` | none (remains `loading-policies`) |
+| `router_build` | `crates/adapteros-server/src/main.rs` | none (remains `loading-policies`) |
+| `worker_attach` | `crates/adapteros-server/src/main.rs` | none (remains `loading-policies`) |
+| `bind` | `crates/adapteros-server/src/boot/server.rs` | `ready` → `fully-ready` |
+
+**Unlabeled transitions:** `crates/adapteros-server/src/boot/finalization.rs` transitions to `starting-backend` → `loading-base-models` → `loading-adapters` → `worker-discovery` but does not emit a `start_phase` label.
+
 ## Transition Rules
 
 1. **Forward Only**: Normal boot progresses forward through phases monotonically

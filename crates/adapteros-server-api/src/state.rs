@@ -957,6 +957,8 @@ pub struct AppState {
     pub runtime_mode: Option<RuntimeMode>,
     // Strict mode (fail-closed on errors)
     pub strict_mode: bool,
+    // Shutdown signal broadcast for in-process safe restart/shutdown
+    pub shutdown_tx: Arc<broadcast::Sender<()>>,
     // In-flight request counter for graceful shutdown
     pub in_flight_requests: Arc<AtomicUsize>,
     // Plugin event bus for dispatching events to plugins
@@ -1032,6 +1034,7 @@ impl AppState {
 
         // Create telemetry broadcast channel
         let (telemetry_tx, _) = broadcast::channel(1000);
+        let (shutdown_tx, _) = broadcast::channel(4);
 
         // JWT algorithm selection: respect jwt_mode config, with build-type defaults
         // Must compute before struct init since config is moved
@@ -1194,6 +1197,7 @@ impl AppState {
             runtime_mode: None,
             // Strict mode defaults to false, set via with_strict_mode
             strict_mode: false,
+            shutdown_tx: Arc::new(shutdown_tx),
             // Initialize in-flight request counter
             in_flight_requests: Arc::new(AtomicUsize::new(0)),
             // Event bus is set later via with_event_bus
@@ -1250,6 +1254,12 @@ impl AppState {
     /// Set boot state manager for lifecycle tracking
     pub fn with_boot_state(mut self, boot_state: BootStateManager) -> Self {
         self.boot_state = Some(boot_state);
+        self
+    }
+
+    /// Set shutdown signal broadcast channel (used for in-process shutdown).
+    pub fn with_shutdown_signal(mut self, shutdown_tx: Arc<broadcast::Sender<()>>) -> Self {
+        self.shutdown_tx = shutdown_tx;
         self
     }
 

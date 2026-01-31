@@ -150,6 +150,20 @@ pub async fn get_adapter_activations(
 }
 
 /// Get adapter health (activation logs, memory usage, policy violations)
+#[utoipa::path(
+    get,
+    path = "/v1/adapters/{adapter_id}/health",
+    params(
+        ("adapter_id" = String, Path, description = "Adapter identifier")
+    ),
+    responses(
+        (status = 200, description = "Adapter health", body = AdapterHealthResponse),
+        (status = 403, description = "Forbidden", body = ErrorResponse),
+        (status = 404, description = "Adapter not found", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "adapters"
+)]
 pub async fn get_adapter_health(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,

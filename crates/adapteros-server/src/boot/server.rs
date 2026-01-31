@@ -27,6 +27,7 @@
 //!     shutdown_coordinator,
 //!     drain_timeout,
 //!     in_flight_requests,
+//!     shutdown_rx,
 //! };
 //!
 //! bind_and_serve(mode, app, config).await?;
@@ -40,6 +41,7 @@ use std::net::{SocketAddr, TcpListener};
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::broadcast;
 use tracing::{error, info, instrument, warn};
 
 /// Server binding mode.
@@ -94,6 +96,8 @@ pub struct ServerBindConfig {
     pub drain_timeout: Duration,
     /// Counter for in-flight requests
     pub in_flight_requests: Arc<AtomicUsize>,
+    /// Shutdown signal receiver (in-process trigger)
+    pub shutdown_rx: broadcast::Receiver<()>,
 }
 
 /// Result of server binding operation.
@@ -199,6 +203,7 @@ pub async fn bind_and_serve(
         shutdown_coordinator,
         drain_timeout,
         in_flight_requests,
+        shutdown_rx,
     } = config;
 
     match mode {
@@ -229,6 +234,7 @@ pub async fn bind_and_serve(
                 shutdown_coordinator,
                 drain_timeout,
                 in_flight_requests,
+                shutdown_rx,
             )
             .await
         }
@@ -257,6 +263,7 @@ pub async fn bind_and_serve(
                 shutdown_coordinator,
                 drain_timeout,
                 in_flight_requests,
+                shutdown_rx,
             )
             .await
         }
@@ -279,6 +286,7 @@ async fn serve_and_shutdown(
     shutdown_coordinator: ShutdownCoordinator,
     drain_timeout: Duration,
     in_flight_requests: Arc<AtomicUsize>,
+    shutdown_rx: broadcast::Receiver<()>,
 ) -> Result<(), BindError> {
     // Mark ready - binding succeeded
     boot_state.ready().await;
@@ -292,6 +300,7 @@ async fn serve_and_shutdown(
                     boot_state.clone(),
                     Arc::clone(&in_flight_requests),
                     drain_timeout,
+                    shutdown_rx,
                 ))
                 .await?;
         }
@@ -301,6 +310,7 @@ async fn serve_and_shutdown(
                     boot_state.clone(),
                     Arc::clone(&in_flight_requests),
                     drain_timeout,
+                    shutdown_rx,
                 ))
                 .await?;
         }

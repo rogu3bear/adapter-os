@@ -3,7 +3,7 @@
 //! Ensures all background services are properly terminated in correct order.
 //! 【2025-11-22†feature(shutdown)†coordinator-implementation】
 
-use adapteros_deterministic_exec::select::select_2;
+use adapteros_deterministic_exec::select::select_3;
 use adapteros_deterministic_exec::DeterministicJoinHandle;
 use adapteros_server_api::boot_state::BootStateManager;
 use adapteros_server_api::state::BackgroundTaskTracker;
@@ -527,7 +527,7 @@ pub async fn apply_background_task_degraded(
 
 /// Graceful shutdown handler for Axum HTTP server.
 ///
-/// Waits for either Ctrl+C (SIGINT) or SIGTERM signals, then:
+/// Waits for Ctrl+C (SIGINT), SIGTERM, or an internal shutdown signal, then:
 /// 1. Transitions boot state to draining
 /// 2. Waits for in-flight requests to complete (with timeout)
 /// 3. Transitions boot state to stopping
@@ -535,6 +535,7 @@ pub async fn shutdown_signal_with_drain(
     boot_state: BootStateManager,
     in_flight_requests: Arc<AtomicUsize>,
     drain_timeout: Duration,
+    mut shutdown_rx: broadcast::Receiver<()>,
 ) {
     let ctrl_c = async {
         match signal::ctrl_c().await {
@@ -568,9 +569,19 @@ pub async fn shutdown_signal_with_drain(
     #[cfg(not(unix))]
     let terminate = std::future::pending::<()>();
 
+    let internal = async {
+        loop {
+            match shutdown_rx.recv().await {
+                Ok(()) => break,
+                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    };
+
     // Use deterministic select instead of tokio::select!
-    // Left (ctrl_c) has priority over Right (terminate)
-    let _ = select_2(ctrl_c, terminate).await;
+    // Priority: ctrl_c -> terminate -> internal signal
+    let _ = select_3(ctrl_c, terminate, internal).await;
 
     info!("Shutdown signal received");
 
