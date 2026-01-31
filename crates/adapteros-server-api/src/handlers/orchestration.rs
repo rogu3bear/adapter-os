@@ -114,6 +114,23 @@ pub struct PromptAnalysisRequest {
     pub prompt: String,
 }
 
+/// Session summary for orchestration UI
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct OrchestrationSessionSummary {
+    pub id: String,
+    pub status: String,
+    pub created_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adapters: Option<Vec<String>>,
+}
+
+/// Response wrapper for orchestration sessions
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct OrchestrationSessionsResponse {
+    pub sessions: Vec<OrchestrationSessionSummary>,
+}
+
 /// Get orchestration configuration (single-node stub)
 #[utoipa::path(
     get,
@@ -179,6 +196,25 @@ pub async fn get_orchestration_config(
         });
 
     Ok(Json(config))
+}
+
+/// List orchestration sessions (empty for single-node/dev)
+#[utoipa::path(
+    get,
+    path = "/v1/orchestration/sessions",
+    responses(
+        (status = 200, description = "Orchestration sessions", body = OrchestrationSessionsResponse),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden")
+    ),
+    tag = "orchestration"
+)]
+pub async fn list_orchestration_sessions(
+    Extension(claims): Extension<Claims>,
+) -> Result<Json<OrchestrationSessionsResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
+
+    Ok(Json(OrchestrationSessionsResponse { sessions: Vec::new() }))
 }
 
 /// Update orchestration configuration

@@ -52,6 +52,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::auth_enhanced::auth_health_handler,
         handlers::auth_enhanced::refresh_token_handler,
         handlers::auth_enhanced::register_handler,
+        handlers::auth::auth_me,
         handlers::meta,
         handlers::search::global_search,
         handlers::client_errors::report_client_error_anonymous,
@@ -366,6 +367,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::orchestration::analyze_orchestration_prompt,
         handlers::orchestration::get_orchestration_metrics,
         handlers::orchestration::get_orchestration_config,
+        handlers::orchestration::list_orchestration_sessions,
         handlers::orchestration::update_orchestration_config,
         handlers::settings::get_settings,
         handlers::settings::update_settings,
@@ -2197,6 +2199,10 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/orchestration/metrics",
             get(handlers::orchestration::get_orchestration_metrics),
+        )
+        .route(
+            "/v1/orchestration/sessions",
+            get(handlers::orchestration::list_orchestration_sessions),
         )
         .route(
             "/v1/orchestration/config",
