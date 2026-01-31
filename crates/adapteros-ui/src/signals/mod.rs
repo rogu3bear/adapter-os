@@ -10,11 +10,12 @@ pub mod refetch;
 pub mod search;
 pub mod settings;
 
-pub use auth::{provide_auth_context, use_auth, AuthAction, AuthContext, AuthState};
+pub use auth::{provide_auth_context, use_auth, AuthAction, AuthContext, AuthError, AuthState};
 pub use chat::{
     provide_chat_context, use_chat, AdapterStateInfo, ChatAction, ChatContext, ChatMessage,
     ChatSessionMeta, ChatSessionsManager, ChatState, ChatTarget, ContextToggle, ContextToggles,
-    DockState, PageContext, StoredChatSession, StoredMessage, SuggestedAdapter,
+    DockState, PageContext, StoredChatSession, StoredMessage, StreamNotice, StreamNoticeTone,
+    SuggestedAdapter,
 };
 pub use modal::{
     provide_modal_context, use_is_modal_open, use_modal, use_modal_context, use_modal_state,

@@ -8,11 +8,12 @@ use tracing::warn;
 pub const RUN_ENVELOPE_VERSION: &str = "v1";
 
 /// Build a canonical run envelope at the API edge.
-pub fn new_run_envelope(
+fn build_run_envelope(
     state: &AppState,
     claims: &Claims,
     run_id: String,
     reasoning_mode: bool,
+    tick: Option<u64>,
 ) -> RunEnvelope {
     let mut roles = claims.roles.clone();
     roles.push(claims.role.clone());
@@ -44,11 +45,6 @@ pub fn new_run_envelope(
         );
     }
 
-    let tick = state
-        .tick_ledger
-        .as_ref()
-        .map(|ledger| ledger.increment_tick());
-
     RunEnvelope {
         run_id,
         schema_version: API_SCHEMA_VERSION.to_string(),
@@ -65,6 +61,30 @@ pub fn new_run_envelope(
         boot_trace_id: state.boot_state.as_ref().map(|boot| boot.boot_trace_id()),
         created_at: Utc::now(),
     }
+}
+
+/// Build a canonical run envelope at the API edge (assigns a logical tick).
+pub fn new_run_envelope(
+    state: &AppState,
+    claims: &Claims,
+    run_id: String,
+    reasoning_mode: bool,
+) -> RunEnvelope {
+    let tick = state
+        .tick_ledger
+        .as_ref()
+        .map(|ledger| ledger.increment_tick());
+    build_run_envelope(state, claims, run_id, reasoning_mode, tick)
+}
+
+/// Build a run envelope without assigning a logical tick (used for replay paths).
+pub fn new_run_envelope_no_tick(
+    state: &AppState,
+    claims: &Claims,
+    run_id: String,
+    reasoning_mode: bool,
+) -> RunEnvelope {
+    build_run_envelope(state, claims, run_id, reasoning_mode, None)
 }
 
 /// Record policy mask digest onto the envelope.

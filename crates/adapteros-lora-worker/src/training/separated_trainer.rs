@@ -633,6 +633,29 @@ mod tests {
     use super::*;
     use adapteros_types::training::{ExampleMetadataV1, TRAINING_DATA_CONTRACT_VERSION};
 
+    fn mlx_device_available_for_tests() -> bool {
+        #[cfg(feature = "multi-backend")]
+        {
+            #[cfg(target_os = "macos")]
+            {
+                if metal::Device::system_default().is_some() {
+                    return true;
+                }
+                eprintln!("SKIPPED: MLX tests require a Metal device");
+                return false;
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                eprintln!("SKIPPED: MLX tests require macOS Metal support");
+                return false;
+            }
+        }
+        #[cfg(not(feature = "multi-backend"))]
+        {
+            true
+        }
+    }
+
     fn make_metadata(row_id: u64, weight: f32) -> ExampleMetadataV1 {
         // Include sample_role for negative weights so separate_examples() can identify them
         let provenance = if weight < 0.0 {
@@ -645,6 +668,10 @@ mod tests {
 
     #[test]
     fn test_separated_training() {
+        if !mlx_device_available_for_tests() {
+            return;
+        }
+
         let config = TrainingConfig {
             rank: 4,
             alpha: 16.0,
@@ -715,6 +742,10 @@ mod tests {
 
     #[test]
     fn test_cross_entropy_loss_computation() {
+        if !mlx_device_available_for_tests() {
+            return;
+        }
+
         let config = TrainingConfig {
             rank: 4,
             alpha: 16.0,

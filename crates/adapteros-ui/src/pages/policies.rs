@@ -5,7 +5,8 @@
 use crate::api::client::{ApiClient, PolicyPackResponse, PolicyValidationResponse};
 use crate::components::{
     Badge, BadgeVariant, Button, ButtonVariant, Card, EmptyState, EmptyStateVariant, ErrorDisplay,
-    Spinner, SplitPanel, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    Input, Spinner, SplitPanel, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    Textarea,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use leptos::prelude::*;
@@ -16,6 +17,10 @@ use std::sync::Arc;
 pub fn Policies() -> impl IntoView {
     // Selected policy CPID for detail panel
     let selected_cpid = RwSignal::new(None::<String>);
+    let show_create = RwSignal::new(false);
+    let new_cpid = RwSignal::new(String::new());
+    let new_description = RwSignal::new(String::new());
+    let new_content = RwSignal::new(String::new());
 
     // Fetch policies
     let (policies, refetch_policies) =
@@ -27,6 +32,17 @@ pub fn Policies() -> impl IntoView {
 
     let on_close_detail = move || {
         selected_cpid.set(None);
+    };
+
+    let on_policy_created = {
+        let refetch_policies = refetch_policies.clone();
+        Callback::new(move |_| {
+            show_create.set(false);
+            new_cpid.set(String::new());
+            new_description.set(String::new());
+            new_content.set(String::new());
+            refetch_policies.run(());
+        })
     };
 
     // Derive selection state for SplitPanel
@@ -54,8 +70,65 @@ pub fn Policies() -> impl IntoView {
                                     >
                                         "Refresh"
                                     </Button>
+                                    <Button
+                                        variant=ButtonVariant::Primary
+                                        on_click=Callback::new(move |_| {
+                                            if show_create.get() {
+                                                show_create.set(false);
+                                                new_cpid.set(String::new());
+                                                new_description.set(String::new());
+                                                new_content.set(String::new());
+                                            } else {
+                                                show_create.set(true);
+                                            }
+                                        })
+                                    >
+                                        {move || if show_create.get() { "Cancel" } else { "New Policy Pack" }}
+                                    </Button>
                                 </div>
                             </div>
+
+                            // Create policy pack
+                            {move || {
+                                if show_create.get() {
+                                    view! {
+                                        <Card
+                                            title="Create Policy Pack".to_string()
+                                            description="Create a new policy pack and activate it for enforcement.".to_string()
+                                        >
+                                            <div class="space-y-4">
+                                                <Input
+                                                    value=new_cpid
+                                                    label="CPID".to_string()
+                                                    placeholder="e.g., policy-pack-001".to_string()
+                                                    required=true
+                                                />
+                                                <Input
+                                                    value=new_description
+                                                    label="Description (optional)".to_string()
+                                                    placeholder="Short description of this policy pack".to_string()
+                                                />
+                                                <Textarea
+                                                    value=new_content
+                                                    label="Policy JSON".to_string()
+                                                    aria_label="Policy JSON".to_string()
+                                                    rows=14
+                                                    class="font-mono text-xs bg-zinc-950 text-status-success min-h-48".to_string()
+                                                />
+                                                <PolicyActionsCard
+                                                    cpid=new_cpid
+                                                    content=new_content
+                                                    description=new_description
+                                                    apply_label="Create & Apply".to_string()
+                                                    on_applied=on_policy_created
+                                                />
+                                            </div>
+                                        </Card>
+                                    }.into_any()
+                                } else {
+                                    view! {}.into_any()
+                                }
+                            }}
 
                             // Policy list
                             {move || {
@@ -95,6 +168,7 @@ pub fn Policies() -> impl IntoView {
                         <PolicyDetail
                             cpid=cpid
                             on_close=on_close_detail
+                            on_updated=refetch_policies.clone()
                         />
                     }
                 }
@@ -176,7 +250,11 @@ fn PolicyList(
 
 /// Policy detail panel
 #[component]
-fn PolicyDetail(cpid: String, on_close: impl Fn() + Copy + 'static) -> impl IntoView {
+fn PolicyDetail(
+    cpid: String,
+    on_close: impl Fn() + Copy + 'static,
+    on_updated: Callback<()>,
+) -> impl IntoView {
     let cpid_for_fetch = cpid.clone();
 
     // Fetch policy details
@@ -223,8 +301,14 @@ fn PolicyDetail(cpid: String, on_close: impl Fn() + Copy + 'static) -> impl Into
                         }.into_any()
                     }
                     LoadingState::Loaded(data) => {
+                        let refetch_detail = refetch.clone();
+                        let on_updated = on_updated.clone();
+                        let on_applied = Callback::new(move |_| {
+                            refetch_detail.run(());
+                            on_updated.run(());
+                        });
                         view! {
-                            <PolicyDetailContent policy=data/>
+                            <PolicyDetailContent policy=data on_applied=on_applied/>
                         }.into_any()
                     }
                     LoadingState::Error(e) => {
@@ -243,13 +327,18 @@ fn PolicyDetail(cpid: String, on_close: impl Fn() + Copy + 'static) -> impl Into
 
 /// Policy detail content
 #[component]
-fn PolicyDetailContent(policy: PolicyPackResponse) -> impl IntoView {
+fn PolicyDetailContent(policy: PolicyPackResponse, on_applied: Callback<()>) -> impl IntoView {
     // Clone all fields upfront to avoid partial move issues
     let cpid = policy.cpid.clone();
     let hash_b3 = policy.hash_b3.clone();
     let hash_b3_title = policy.hash_b3.clone();
     let created_at = policy.created_at.clone();
-    let content = policy.content.clone();
+    let original_content = policy.content.clone();
+    let content_signal = RwSignal::new(policy.content.clone());
+    let cpid_signal = RwSignal::new(cpid.clone());
+    let description_signal = RwSignal::new(String::new());
+    let original_for_reset = original_content.clone();
+    let has_changes = Signal::derive(move || content_signal.get() != original_content);
 
     view! {
         // Metadata
@@ -273,32 +362,59 @@ fn PolicyDetailContent(policy: PolicyPackResponse) -> impl IntoView {
         </Card>
 
         // Policy content
-        <Card title="Policy Content".to_string() class="mt-4".to_string()>
-            <div class="bg-zinc-950 rounded-md p-4 overflow-auto max-h-96">
-                <pre class="text-xs text-status-success font-mono whitespace-pre-wrap">
-                    {content}
-                </pre>
+        <Card
+            title="Policy Content".to_string()
+            description="Edit policy JSON and apply changes to update enforcement.".to_string()
+            class="mt-4".to_string()
+        >
+            <div class="flex items-center justify-between mb-2">
+                <p class="text-xs text-muted-foreground">
+                    {move || if has_changes.get() { "Unsaved changes" } else { "No local changes" }}
+                </p>
+                <Button
+                    variant=ButtonVariant::Ghost
+                    on_click=Callback::new(move |_| content_signal.set(original_for_reset.clone()))
+                    disabled=Signal::derive(move || !has_changes.get())
+                >
+                    "Reset"
+                </Button>
             </div>
+            <Textarea
+                value=content_signal
+                label="Policy JSON".to_string()
+                aria_label="Policy JSON".to_string()
+                rows=16
+                class="font-mono text-xs bg-zinc-950 text-status-success min-h-56".to_string()
+            />
         </Card>
 
         // Actions (role-gated via backend)
-        <PolicyActionsCard policy=policy/>
+        <PolicyActionsCard
+            cpid=cpid_signal
+            content=content_signal
+            description=description_signal
+            apply_label="Apply".to_string()
+            on_applied=on_applied
+        />
     }
 }
 
 /// Policy actions card with validation and apply functionality
 #[component]
-fn PolicyActionsCard(policy: PolicyPackResponse) -> impl IntoView {
+fn PolicyActionsCard(
+    cpid: RwSignal<String>,
+    content: RwSignal<String>,
+    description: RwSignal<String>,
+    apply_label: String,
+    on_applied: Callback<()>,
+) -> impl IntoView {
     let (validating, set_validating) = signal(false);
     let (validation_result, set_validation_result) =
         signal(None::<Result<PolicyValidationResponse, String>>);
 
-    let content = policy.content.clone();
-    let cpid = policy.cpid.clone();
-
     // Validate handler
     let on_validate = move |_| {
-        let content = content.clone();
+        let content = content.get();
         set_validating.set(true);
         set_validation_result.set(None);
 
@@ -311,23 +427,58 @@ fn PolicyActionsCard(policy: PolicyPackResponse) -> impl IntoView {
     };
 
     // Apply handler (reapply with current content)
-    let content_for_apply = policy.content.clone();
     let (applying, set_applying) = signal(false);
     let (apply_result, set_apply_result) = signal(None::<Result<(), String>>);
 
+    Effect::new(move |_| {
+        let _ = content.get();
+        let _ = cpid.get();
+        set_validation_result.set(None);
+        set_apply_result.set(None);
+    });
+
     let on_apply = move |_| {
-        let cpid = cpid.clone();
-        let content = content_for_apply.clone();
+        let cpid_value = cpid.get();
+        let content_value = content.get();
+        let description_value = description.get();
+        let on_applied = on_applied.clone();
+        if cpid_value.trim().is_empty() {
+            set_apply_result.set(Some(Err("CPID is required".to_string())));
+            return;
+        }
+        if content_value.trim().is_empty() {
+            set_apply_result.set(Some(Err("Policy content is required".to_string())));
+            return;
+        }
         set_applying.set(true);
         set_apply_result.set(None);
 
         wasm_bindgen_futures::spawn_local(async move {
             let client = ApiClient::new();
-            let result = client.apply_policy(&cpid, &content, None).await;
-            set_apply_result.set(Some(result.map(|_| ()).map_err(|e| e.to_string())));
+            let description = if description_value.trim().is_empty() {
+                None
+            } else {
+                Some(description_value)
+            };
+            let result = client
+                .apply_policy(&cpid_value, &content_value, description)
+                .await;
+            match result {
+                Ok(_) => {
+                    set_apply_result.set(Some(Ok(())));
+                    on_applied.run(());
+                }
+                Err(e) => {
+                    set_apply_result.set(Some(Err(e.to_string())));
+                }
+            }
             set_applying.set(false);
         });
     };
+
+    let apply_disabled = Signal::derive(move || {
+        applying.get() || cpid.get().trim().is_empty() || content.get().trim().is_empty()
+    });
 
     view! {
         <Card title="Actions".to_string() class="mt-4".to_string()>
@@ -335,7 +486,7 @@ fn PolicyActionsCard(policy: PolicyPackResponse) -> impl IntoView {
                 <Button
                     variant=ButtonVariant::Outline
                     on_click=Callback::new(on_validate)
-                    disabled=Signal::derive(move || validating.get())
+                    disabled=Signal::derive(move || validating.get() || content.get().trim().is_empty())
                 >
                     {move || if validating.get() {
                         view! { <Spinner/> }.into_any()
@@ -346,12 +497,12 @@ fn PolicyActionsCard(policy: PolicyPackResponse) -> impl IntoView {
                 <Button
                     variant=ButtonVariant::Primary
                     on_click=Callback::new(on_apply)
-                    disabled=Signal::derive(move || applying.get())
+                    disabled=apply_disabled
                 >
                     {move || if applying.get() {
                         view! { <Spinner/> }.into_any()
                     } else {
-                        view! { "Apply" }.into_any()
+                        view! { {apply_label.clone()} }.into_any()
                     }}
                 </Button>
             </div>

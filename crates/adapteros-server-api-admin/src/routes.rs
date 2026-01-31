@@ -71,7 +71,7 @@ where
 /// ### Lifecycle (admin only)
 /// - `POST /admin/lifecycle/request-shutdown` - Request shutdown
 /// - `POST /admin/lifecycle/request-maintenance` - Request maintenance mode
-/// - `POST /admin/lifecycle/safe-restart` - Safe restart (drain + supervisor restart)
+/// - `POST /admin/lifecycle/safe-restart` - Safe restart (maintenance + drain; supervisor restart)
 ///
 /// ### Services (NodeManage permission)
 /// - `POST /v1/services/:id/start` - Start a service

@@ -51,7 +51,7 @@ Events are chained via `prev_entry_hash` fields, enabling:
 |------|---------|
 | `DeterministicExecutor` | Main executor with spawn/run methods |
 | `TaskId` | BLAKE3-hashed deterministic task identifier |
-| `ExecutorEvent` | Logged events (spawn, complete, timeout, tick) |
+| `ExecutorEvent` | Logged events (spawn, complete, timeout, inference_started, tick) |
 | `GlobalTickLedger` | Persistent cross-host tick tracking |
 | `TickTimeout` / `TickDelay` | Tick-based timing primitives |
 | `ExecutorSnapshot` | Serializable state for crash recovery |

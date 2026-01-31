@@ -703,6 +703,7 @@ mod path_policy_tests {
 #[cfg(test)]
 mod safety_scan_tests {
     use super::*;
+    use crate::test_utils;
 
     fn mk_row(prompt: &str, response: &str, row_id: &str) -> CanonicalRow {
         CanonicalRow {
@@ -736,7 +737,7 @@ mod safety_scan_tests {
 
     #[tokio::test]
     async fn safety_scan_marks_parse_errors_as_anomaly() {
-        let tmp = tempfile::TempDir::with_prefix("aos-test-").expect("tempdir");
+        let tmp = test_utils::tempdir_with_prefix("aos-test-");
         let path = tmp.path().join("data.jsonl");
         let row = mk_row("ok prompt", "resp", "row-1");
         let content = format!(

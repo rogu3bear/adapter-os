@@ -267,6 +267,12 @@ pub enum ExecutorEvent {
         agent_id: Option<String>,
         hash: [u8; 32],
     },
+    /// Inference run started at the API edge
+    InferenceStarted {
+        run_id: String,
+        tick: u64,
+        hash: [u8; 32],
+    },
     /// Tick counter advanced
     TickAdvanced {
         from_tick: u64,
@@ -286,6 +292,17 @@ pub enum EnforcementMode {
     Warn,
     /// Fail execution on policy violations
     Enforce,
+}
+
+impl ExecutorEvent {
+    pub fn inference_started(run_id: String, tick: u64) -> Self {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"inference_started");
+        hasher.update(run_id.as_bytes());
+        hasher.update(&tick.to_le_bytes());
+        let hash = *hasher.finalize().as_bytes();
+        ExecutorEvent::InferenceStarted { run_id, tick, hash }
+    }
 }
 
 /// Configuration for the deterministic executor
@@ -836,6 +853,12 @@ impl DeterministicExecutor {
                         timeout_ticks,
                         "Replaying task timeout"
                     );
+                    if self.config.enable_event_logging {
+                        self.event_log.lock().push(event.clone());
+                    }
+                }
+                ExecutorEvent::InferenceStarted { run_id, tick, hash: _ } => {
+                    info!(run_id = %run_id, tick, "Replaying inference start");
                     if self.config.enable_event_logging {
                         self.event_log.lock().push(event.clone());
                     }

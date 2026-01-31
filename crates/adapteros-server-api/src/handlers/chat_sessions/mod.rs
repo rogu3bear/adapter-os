@@ -19,18 +19,18 @@
 //!
 //! 【2025-01-25†prd-ux-01†chat_sessions_handlers】
 
-mod archive;
-mod categories;
-mod collection;
-mod contacts;
-mod core;
-mod fork;
-mod messages;
-mod provenance;
-mod search;
-mod sharing;
-mod tags;
-mod types;
+pub(crate) mod archive;
+pub(crate) mod categories;
+pub(crate) mod collection;
+pub(crate) mod contacts;
+pub(crate) mod core;
+pub(crate) mod fork;
+pub(crate) mod messages;
+pub(crate) mod provenance;
+pub(crate) mod search;
+pub(crate) mod sharing;
+pub(crate) mod tags;
+pub(crate) mod types;
 
 // Re-export all types
 pub use types::*;
@@ -55,30 +55,36 @@ pub use provenance::{__path_get_chat_provenance, get_chat_provenance};
 // Re-export collection handlers and OpenAPI path function
 pub use collection::{__path_update_session_collection, update_session_collection};
 
-// Re-export tag handlers (no OpenAPI path attributes)
+// Re-export tag handlers and OpenAPI path functions
 pub use tags::{
-    assign_tags_to_session, create_chat_tag, delete_chat_tag, get_session_tags, list_chat_tags,
-    remove_tag_from_session, update_chat_tag,
+    __path_assign_tags_to_session, __path_create_chat_tag, __path_delete_chat_tag,
+    __path_get_session_tags, __path_list_chat_tags, __path_remove_tag_from_session,
+    __path_update_chat_tag, assign_tags_to_session, create_chat_tag, delete_chat_tag,
+    get_session_tags, list_chat_tags, remove_tag_from_session, update_chat_tag,
 };
 
-// Re-export category handlers (no OpenAPI path attributes)
+// Re-export category handlers and OpenAPI path functions
 pub use categories::{
-    create_chat_category, delete_chat_category, list_chat_categories, set_session_category,
-    update_chat_category,
+    __path_create_chat_category, __path_delete_chat_category, __path_list_chat_categories,
+    __path_set_session_category, __path_update_chat_category, create_chat_category,
+    delete_chat_category, list_chat_categories, set_session_category, update_chat_category,
 };
 
-// Re-export archive handlers (no OpenAPI path attributes)
+// Re-export archive handlers and OpenAPI path functions
 pub use archive::{
-    archive_session, hard_delete_session, list_archived_sessions, list_deleted_sessions,
-    restore_session,
+    __path_archive_session, __path_hard_delete_session, __path_list_archived_sessions,
+    __path_list_deleted_sessions, __path_restore_session, archive_session, hard_delete_session,
+    list_archived_sessions, list_deleted_sessions, restore_session,
 };
 
-// Re-export search handlers (no OpenAPI path attributes)
-pub use search::search_chat_sessions;
+// Re-export search handlers and OpenAPI path function
+pub use search::{__path_search_chat_sessions, search_chat_sessions};
 
-// Re-export sharing handlers (no OpenAPI path attributes)
+// Re-export sharing handlers and OpenAPI path functions
 pub use sharing::{
-    get_session_shares, get_sessions_shared_with_me, revoke_session_share, share_session,
+    __path_get_session_shares, __path_get_sessions_shared_with_me, __path_revoke_session_share,
+    __path_share_session, get_session_shares, get_sessions_shared_with_me, revoke_session_share,
+    share_session,
 };
 
 // Re-export contact handlers and their OpenAPI path functions

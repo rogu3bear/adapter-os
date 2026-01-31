@@ -76,7 +76,8 @@ const MODULE_ITEMS: &[ModuleItem] = &[
     ),
 ];
 
-/// Bottom taskbar with start button, module shortcuts, and system tray
+/// Bottom taskbar with start button, module shortcuts, and system tray.
+/// Touch targets meet minimum 44x44px on touch-capable viewports.
 #[component]
 pub fn Taskbar() -> impl IntoView {
     let (start_menu_open, set_start_menu_open) = signal(false);
@@ -89,7 +90,7 @@ pub fn Taskbar() -> impl IntoView {
             <div class="relative">
                 <button
                     class=move || format!(
-                        "flex items-center gap-2 px-3 py-1.5 rounded-md transition-colors {}",
+                        "start-btn taskbar-btn flex items-center gap-2 px-3 py-1.5 rounded-md transition-colors {}",
                         if start_menu_open.get() {
                             "bg-primary text-primary-foreground"
                         } else {
@@ -157,7 +158,7 @@ pub fn Taskbar() -> impl IntoView {
                     view! {
                         <button
                             class=move || format!(
-                                "relative flex items-center gap-2 px-3 py-1.5 rounded-md transition-colors {}",
+                                "taskbar-btn relative flex items-center gap-2 px-3 py-1.5 rounded-md transition-colors {}",
                                 if chat_state.get().dock_state == DockState::Docked {
                                     "bg-primary/20 text-primary"
                                 } else {
@@ -211,7 +212,8 @@ pub fn Taskbar() -> impl IntoView {
     }
 }
 
-/// Module button for taskbar - represents a navigation module
+/// Module button for taskbar - represents a navigation module.
+/// Touch targets meet minimum 44x44px on touch-capable viewports.
 #[component]
 fn ModuleButton(
     href: &'static str,
@@ -223,7 +225,7 @@ fn ModuleButton(
         <a
             href=href
             class=move || format!(
-                "group flex items-center gap-2 px-3 py-1.5 rounded-md transition-colors relative {}",
+                "module-btn group flex items-center gap-2 px-3 py-1.5 rounded-md transition-colors relative {}",
                 if is_active() {
                     "bg-muted text-foreground"
                 } else {

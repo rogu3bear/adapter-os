@@ -30,6 +30,10 @@ AOS_DEV_NO_AUTH=1 cargo run -p adapteros-server -- --config configs/cp.toml
 
 # Boot (backend + worker, serves UI from static/)
 ./start
+./start backend          # backend only
+./start worker           # worker only
+./start secd             # Secure Enclave Daemon only
+./start node             # Node Agent only
 
 # Build Metal shaders
 cd metal && bash build.sh
@@ -43,6 +47,10 @@ cargo nt        # Run tests with nextest (progress bar)
 cargo ntf       # Tests with immediate failure output
 sccache --show-stats  # View compilation cache stats
 ```
+
+Service manager (explicit per-service control): `scripts/service-manager.sh start <backend|worker|secd|node|ui>` (`ui` is a no-op; static UI is served by the backend).
+
+Service control APIs (`/v1/services/*`) require a supervisor (see `deploy/supervisor.yaml`) configured via `SUPERVISOR_API_URL` or `AOS_PANEL_PORT`. Admin safe-restart triggers an in-process shutdown after drain; an external supervisor should restart the process if configured.
 
 ## Repo Info Preference
 
@@ -424,7 +432,7 @@ The system **rejects** these for persistent storage:
 ### Agent Hygiene Rules
 
 1. **NEVER create `var/` directories inside crates** - Tests must clean up after themselves
-2. **NEVER write to `/tmp`** for persistent data - Use `./var/` with `AOS_VAR_DIR` override
+2. **NEVER write to `/tmp`** for persistent data - Use `var/` with `AOS_VAR_DIR` override
 3. **NEVER commit files to var/** - It is gitignored for a reason
 4. **Clean test artifacts** - Remove `*-test.sqlite3`, `*.tmp`, UUID-named dirs after tests
 

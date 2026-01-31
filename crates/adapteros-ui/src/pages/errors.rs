@@ -1,17 +1,19 @@
 //! Error Monitor page
 //!
-//! Real-time error monitoring with live feed, history, analytics, and alerts.
+//! Real-time error monitoring with live feed, history, analytics, alerts, and crashes.
 //! Uses SSE for real-time error streaming via `/v1/stream/client-errors`.
 
 use crate::api::{
-    use_sse_json, ApiClient, CreateErrorAlertRuleRequest, ErrorAlertRuleResponse, SseState,
+    use_sse_json, ApiClient, CreateErrorAlertRuleRequest, ErrorAlertHistoryListResponse,
+    ErrorAlertHistoryResponse, ErrorAlertRuleResponse, ProcessCrashDumpResponse, SseState,
     UpdateErrorAlertRuleRequest,
 };
 use crate::components::{
-    AsyncBoundary, Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, Dialog, Input,
-    Select, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    AsyncBoundary, Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, Dialog,
+    EmptyState, Input, LoadingDisplay, Select, Table, TableBody, TableCell, TableHead, TableHeader,
+    TableRow,
 };
-use crate::hooks::use_api_resource;
+use crate::hooks::{use_api_resource, LoadingState};
 use adapteros_api_types::telemetry::{ClientErrorItem, ClientErrorStatsResponse};
 use leptos::prelude::*;
 use std::collections::VecDeque;
@@ -58,6 +60,11 @@ pub fn Errors() -> impl IntoView {
                         label="Alerts".to_string()
                         active=active_tab
                     />
+                    <TabButton
+                        tab="crashes".to_string()
+                        label="Crashes".to_string()
+                        active=active_tab
+                    />
                 </nav>
             </div>
 
@@ -69,6 +76,7 @@ pub fn Errors() -> impl IntoView {
                         "history" => view! { <HistorySection/> }.into_any(),
                         "analytics" => view! { <AnalyticsSection/> }.into_any(),
                         "alerts" => view! { <AlertsSection/> }.into_any(),
+                        "crashes" => view! { <CrashesSection/> }.into_any(),
                         _ => view! { <LiveFeedSection/> }.into_any(),
                     }
                 }}
@@ -553,6 +561,160 @@ fn StatsDisplay(stats: ClientErrorStatsResponse) -> impl IntoView {
     }
 }
 
+/// Alert history panel - recent alert triggers
+#[component]
+fn AlertHistoryPanel() -> impl IntoView {
+    let status_filter = RwSignal::new("unresolved".to_string());
+
+    let (history, refetch_history) = use_api_resource(move |client: Arc<ApiClient>| {
+        let unresolved_only = if status_filter.get() == "unresolved" {
+            Some(true)
+        } else {
+            None
+        };
+        async move {
+            client
+                .list_error_alert_history(unresolved_only, Some(50))
+                .await
+        }
+    });
+
+    Effect::new(move || {
+        let _ = status_filter.get();
+        refetch_history.run(());
+    });
+
+    view! {
+        <Card>
+            <div class="flex items-center justify-between mb-4">
+                <div>
+                    <h3 class="text-lg font-semibold">"Triggered Alerts"</h3>
+                    <p class="text-sm text-muted-foreground">
+                        "Recent alert rule activations and acknowledgements"
+                    </p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <Select
+                        value=status_filter
+                        label="Status".to_string()
+                        options=vec![
+                            ("unresolved".to_string(), "Unresolved".to_string()),
+                            ("all".to_string(), "All".to_string()),
+                        ]
+                        class="w-36".to_string()
+                    />
+                    <Button
+                        variant=ButtonVariant::Outline
+                        size=ButtonSize::Sm
+                        on_click=Callback::new(move |_| refetch_history.run(()))
+                    >
+                        "Refresh"
+                    </Button>
+                </div>
+            </div>
+
+            <AsyncBoundary
+                state=history
+                on_retry=Callback::new(move |_| refetch_history.run(()))
+                render=move |data: ErrorAlertHistoryListResponse| {
+                    if data.alerts.is_empty() {
+                        view! {
+                            <EmptyState
+                                title="No alerts triggered"
+                                description="Alert history will appear here when rules fire."
+                                icon="bell"
+                            />
+                        }.into_any()
+                    } else {
+                        let shown = data.alerts.len();
+                        let total = data.total;
+                        let rows: Vec<_> = data.alerts
+                            .into_iter()
+                            .map(|alert| view! { <AlertHistoryRow alert=alert/> })
+                            .collect();
+                        view! {
+                            <div>
+                                <div class="px-4 py-2 text-sm text-muted-foreground border-b">
+                                    {format!("Showing {} of {} alerts", shown, total)}
+                                </div>
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead>"Triggered"</TableHead>
+                                            <TableHead>"Rule"</TableHead>
+                                            <TableHead>"Errors"</TableHead>
+                                            <TableHead>"Status"</TableHead>
+                                            <TableHead>"Acknowledged"</TableHead>
+                                            <TableHead>"Resolved"</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {rows}
+                                    </TableBody>
+                                </Table>
+                            </div>
+                        }.into_any()
+                    }
+                }
+            />
+        </Card>
+    }
+}
+
+/// Alert history row
+#[component]
+fn AlertHistoryRow(alert: ErrorAlertHistoryResponse) -> impl IntoView {
+    let (status_label, status_variant) = if alert.resolved_at.is_some() {
+        ("Resolved", BadgeVariant::Success)
+    } else if alert.acknowledged_at.is_some() {
+        ("Acknowledged", BadgeVariant::Secondary)
+    } else {
+        ("Active", BadgeVariant::Warning)
+    };
+
+    let rule_label = alert
+        .rule_name
+        .clone()
+        .unwrap_or_else(|| truncate_message(&alert.rule_id, 12));
+    let rule_title = alert.rule_id.clone();
+    let acknowledged = alert
+        .acknowledged_at
+        .as_deref()
+        .map(format_date_time)
+        .unwrap_or_else(|| "-".to_string());
+    let resolved = alert
+        .resolved_at
+        .as_deref()
+        .map(format_date_time)
+        .unwrap_or_else(|| "-".to_string());
+    let resolution_note = alert.resolution_note.clone().unwrap_or_default();
+
+    view! {
+        <TableRow>
+            <TableCell>
+                <span class="text-xs text-muted-foreground font-mono">
+                    {format_date_time(&alert.triggered_at)}
+                </span>
+            </TableCell>
+            <TableCell>
+                <span class="text-sm font-mono" title=rule_title>{rule_label}</span>
+            </TableCell>
+            <TableCell>
+                <span class="text-sm font-medium">{alert.error_count.to_string()}</span>
+            </TableCell>
+            <TableCell>
+                <Badge variant=status_variant>{status_label}</Badge>
+            </TableCell>
+            <TableCell>
+                <span class="text-xs text-muted-foreground">{acknowledged}</span>
+            </TableCell>
+            <TableCell>
+                <span class="text-xs text-muted-foreground" title=resolution_note>{resolved}</span>
+            </TableCell>
+        </TableRow>
+    }
+}
+
 /// Alerts section - manages error alert rules
 #[component]
 fn AlertsSection() -> impl IntoView {
@@ -565,77 +727,303 @@ fn AlertsSection() -> impl IntoView {
     let show_create_dialog = RwSignal::new(false);
 
     view! {
+        <div class="space-y-6">
+            <AlertHistoryPanel/>
+
+            <div class="space-y-4">
+                // Header with create button
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h3 class="text-lg font-semibold">"Alert Rules"</h3>
+                        <p class="text-sm text-muted-foreground">
+                            "Configure threshold-based alerts for error monitoring"
+                        </p>
+                    </div>
+                    <div class="flex gap-2">
+                        <Button
+                            variant=ButtonVariant::Outline
+                            size=ButtonSize::Sm
+                            on_click=Callback::new(move |_| refetch_rules.run(()))
+                        >
+                            "Refresh"
+                        </Button>
+                        <Button
+                            variant=ButtonVariant::Primary
+                            size=ButtonSize::Sm
+                            on_click=Callback::new(move |_| show_create_dialog.set(true))
+                        >
+                            "+ New Rule"
+                        </Button>
+                    </div>
+                </div>
+
+                // Rules list
+                <AsyncBoundary
+                    state=rules
+                    on_retry={Callback::new(move |_| refetch_rules.run(()))}
+                    render={move |rules_list: Vec<ErrorAlertRuleResponse>| {
+                        if rules_list.is_empty() {
+                            view! {
+                                <Card>
+                                    <div class="p-8 text-center">
+                                        <div class="rounded-full bg-muted p-3 mx-auto w-fit mb-4">
+                                            <svg
+                                                xmlns="http://www.w3.org/2000/svg"
+                                                class="h-8 w-8 text-muted-foreground"
+                                                viewBox="0 0 24 24"
+                                                fill="none"
+                                                stroke="currentColor"
+                                                stroke-width="1.5"
+                                            >
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0"/>
+                                            </svg>
+                                        </div>
+                                        <p class="text-muted-foreground">
+                                            "No alert rules configured. Create your first rule to get notified when errors exceed thresholds."
+                                        </p>
+                                    </div>
+                                </Card>
+                            }.into_any()
+                        } else {
+                            view! {
+                                <AlertRulesList rules=rules_list on_update={Callback::new(move |_| refetch_rules.run(()))}/>
+                            }.into_any()
+                        }
+                    }}
+                />
+
+                // Create dialog
+                <CreateAlertRuleDialog
+                    open=show_create_dialog
+                    on_created=Callback::new(move |_| {
+                        show_create_dialog.set(false);
+                        refetch_rules.run(());
+                    })
+                />
+            </div>
+        </div>
+    }
+}
+
+/// Crash dumps section - worker crash data
+#[component]
+fn CrashesSection() -> impl IntoView {
+    let selected_worker_id = RwSignal::new(String::new());
+
+    let (workers, refetch_workers) =
+        use_api_resource(move |client: Arc<ApiClient>| async move { client.list_workers().await });
+
+    let (crashes, refetch_crashes) = use_api_resource(move |client: Arc<ApiClient>| {
+        let worker_id = selected_worker_id.get();
+        async move {
+            if worker_id.is_empty() {
+                Ok(Vec::new())
+            } else {
+                client.get_worker_crashes(&worker_id).await
+            }
+        }
+    });
+
+    // Auto-select a crashed worker (or first worker) once list loads
+    Effect::new(move || {
+        if !selected_worker_id.get().is_empty() {
+            return;
+        }
+        if let LoadingState::Loaded(ref list) = workers.get() {
+            if let Some(worker) = list
+                .iter()
+                .find(|w| w.status == "crashed")
+                .or_else(|| list.first())
+            {
+                selected_worker_id.set(worker.id.clone());
+            }
+        }
+    });
+
+    // Refetch crashes when selection changes
+    Effect::new(move || {
+        let id = selected_worker_id.get();
+        if !id.is_empty() {
+            refetch_crashes.run(());
+        }
+    });
+
+    view! {
         <div class="space-y-4">
-            // Header with create button
             <div class="flex items-center justify-between">
                 <div>
-                    <h3 class="text-lg font-semibold">"Alert Rules"</h3>
+                    <h3 class="text-lg font-semibold">"Crash Dumps"</h3>
                     <p class="text-sm text-muted-foreground">
-                        "Configure threshold-based alerts for error monitoring"
+                        "Worker crash reports and recovery details"
                     </p>
                 </div>
-                <div class="flex gap-2">
+                <div class="flex items-center gap-2">
+                    {move || {
+                        match workers.get() {
+                            LoadingState::Loaded(list) if !list.is_empty() => {
+                                let options: Vec<(String, String)> = list
+                                    .iter()
+                                    .map(|worker| {
+                                        let label = format!("{} ({})", truncate_message(&worker.id, 12), worker.status);
+                                        (worker.id.clone(), label)
+                                    })
+                                    .collect();
+                                view! {
+                                    <Select
+                                        value=selected_worker_id
+                                        label="Worker".to_string()
+                                        options=options
+                                        class="w-56".to_string()
+                                    />
+                                }.into_any()
+                            }
+                            LoadingState::Loaded(_) => view! {
+                                <span class="text-xs text-muted-foreground">"No workers"</span>
+                            }.into_any(),
+                            LoadingState::Error(_) => view! {
+                                <span class="text-xs text-destructive">"Failed to load workers"</span>
+                            }.into_any(),
+                            LoadingState::Idle | LoadingState::Loading => view! {
+                                <span class="text-xs text-muted-foreground">"Loading workers..."</span>
+                            }.into_any(),
+                        }
+                    }}
                     <Button
                         variant=ButtonVariant::Outline
                         size=ButtonSize::Sm
-                        on_click=Callback::new(move |_| refetch_rules.run(()))
+                        on_click=Callback::new(move |_| {
+                            refetch_workers.run(());
+                            refetch_crashes.run(());
+                        })
                     >
                         "Refresh"
-                    </Button>
-                    <Button
-                        variant=ButtonVariant::Primary
-                        size=ButtonSize::Sm
-                        on_click=Callback::new(move |_| show_create_dialog.set(true))
-                    >
-                        "+ New Rule"
                     </Button>
                 </div>
             </div>
 
-            // Rules list
-            <AsyncBoundary
-                state=rules
-                on_retry={Callback::new(move |_| refetch_rules.run(()))}
-                render={move |rules_list: Vec<ErrorAlertRuleResponse>| {
-                    if rules_list.is_empty() {
+            {move || match workers.get() {
+                LoadingState::Idle | LoadingState::Loading => {
+                    view! { <LoadingDisplay message="Loading workers..."/> }.into_any()
+                }
+                LoadingState::Error(e) => {
+                    view! {
+                        <Card>
+                            <div class="p-4 text-sm text-destructive">
+                                {format!("Failed to load workers: {}", e)}
+                            </div>
+                        </Card>
+                    }.into_any()
+                }
+                LoadingState::Loaded(list) => {
+                    if list.is_empty() {
                         view! {
                             <Card>
-                                <div class="p-8 text-center">
-                                    <div class="rounded-full bg-muted p-3 mx-auto w-fit mb-4">
-                                        <svg
-                                            xmlns="http://www.w3.org/2000/svg"
-                                            class="h-8 w-8 text-muted-foreground"
-                                            viewBox="0 0 24 24"
-                                            fill="none"
-                                            stroke="currentColor"
-                                            stroke-width="1.5"
-                                        >
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0"/>
-                                        </svg>
-                                    </div>
-                                    <p class="text-muted-foreground">
-                                        "No alert rules configured. Create your first rule to get notified when errors exceed thresholds."
-                                    </p>
-                                </div>
+                                <EmptyState
+                                    title="No workers available"
+                                    description="Crash dumps will appear once workers are registered."
+                                />
                             </Card>
                         }.into_any()
                     } else {
                         view! {
-                            <AlertRulesList rules=rules_list on_update={Callback::new(move |_| refetch_rules.run(()))}/>
+                            <Card>
+                                <AsyncBoundary
+                                    state=crashes
+                                    on_retry=Callback::new(move |_| refetch_crashes.run(()))
+                                    loading_message="Loading crash dumps...".to_string()
+                                    render=move |data| {
+                                        let data: Vec<ProcessCrashDumpResponse> = data;
+                                        if selected_worker_id.get().is_empty() {
+                                            view! {
+                                                <EmptyState
+                                                    title="Select a worker"
+                                                    description="Choose a worker to view crash dumps."
+                                                />
+                                            }.into_any()
+                                        } else if data.is_empty() {
+                                            view! {
+                                                <EmptyState
+                                                    title="No crash dumps"
+                                                    description="No crash data recorded for this worker."
+                                                />
+                                            }.into_any()
+                                        } else {
+                                            let rows: Vec<_> = data
+                                                .into_iter()
+                                                .map(|crash| view! { <CrashRow crash=crash/> })
+                                                .collect();
+                                            view! {
+                                                <Table>
+                                                    <TableHeader>
+                                                        <TableRow>
+                                                            <TableHead>"Time"</TableHead>
+                                                            <TableHead>"Worker"</TableHead>
+                                                            <TableHead>"Type"</TableHead>
+                                                            <TableHead>"Recovery"</TableHead>
+                                                            <TableHead>"Details"</TableHead>
+                                                        </TableRow>
+                                                    </TableHeader>
+                                                    <TableBody>
+                                                        {rows}
+                                                    </TableBody>
+                                                </Table>
+                                            }.into_any()
+                                        }
+                                    }
+                                />
+                            </Card>
                         }.into_any()
                     }
-                }}
-            />
-
-            // Create dialog
-            <CreateAlertRuleDialog
-                open=show_create_dialog
-                on_created=Callback::new(move |_| {
-                    show_create_dialog.set(false);
-                    refetch_rules.run(());
-                })
-            />
+                }
+            }}
         </div>
+    }
+}
+
+/// Crash dump row
+#[component]
+fn CrashRow(crash: ProcessCrashDumpResponse) -> impl IntoView {
+    let stack = crash
+        .stack_trace
+        .clone()
+        .unwrap_or_else(|| "No stack trace".to_string());
+    let stack_preview = truncate_message(&stack, 80);
+    let worker_label = truncate_message(&crash.worker_id, 12);
+    let recovery_label = crash
+        .recovery_action
+        .clone()
+        .unwrap_or_else(|| "—".to_string());
+    let recovered_at = crash
+        .recovered_at
+        .as_deref()
+        .map(format_date_time)
+        .unwrap_or_else(|| "-".to_string());
+
+    view! {
+        <TableRow>
+            <TableCell>
+                <span class="text-xs text-muted-foreground font-mono">
+                    {format_date_time(&crash.crash_timestamp)}
+                </span>
+            </TableCell>
+            <TableCell>
+                <span class="text-xs font-mono" title=crash.worker_id.clone()>{worker_label}</span>
+            </TableCell>
+            <TableCell>
+                <span class="text-sm font-medium">{crash.crash_type.clone()}</span>
+            </TableCell>
+            <TableCell>
+                <div class="space-y-1">
+                    <span class="text-sm">{recovery_label}</span>
+                    <span class="text-xs text-muted-foreground">
+                        {"Recovered: "}{recovered_at}
+                    </span>
+                </div>
+            </TableCell>
+            <TableCell>
+                <span class="text-xs text-muted-foreground" title=stack>{stack_preview}</span>
+            </TableCell>
+        </TableRow>
     }
 }
 
@@ -930,6 +1318,15 @@ fn SseIndicator(state: RwSignal<SseState>) -> impl IntoView {
             <div class=format!("w-2 h-2 rounded-full {}", color)/>
             <span class="text-xs text-muted-foreground">{label}</span>
         </div>
+    }
+}
+
+/// Format date/time for display
+fn format_date_time(ts: &str) -> String {
+    if ts.len() >= 16 {
+        format!("{} {}", &ts[0..10], &ts[11..16])
+    } else {
+        ts.to_string()
     }
 }
 

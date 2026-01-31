@@ -52,54 +52,67 @@ mod version_archive;
 
 // Lifecycle handlers
 pub use lifecycle::{
-    activate_adapter, demote_adapter_lifecycle, promote_adapter_lifecycle, AdapterActivateRequest,
-    LifecycleTransitionRequest, LifecycleTransitionResponse,
+    __path_activate_adapter, __path_demote_adapter_lifecycle, __path_promote_adapter_lifecycle,
+    activate_adapter, demote_adapter_lifecycle, promote_adapter_lifecycle,
+    AdapterActivateRequest, LifecycleTransitionRequest, LifecycleTransitionResponse,
 };
 
 // Lineage handlers
 pub use lineage::{
-    get_adapter_detail, get_adapter_lineage, AdapterDetailResponse, AdapterLineageResponse,
-    LineageNode,
+    __path_get_adapter_detail, __path_get_adapter_lineage, get_adapter_detail,
+    get_adapter_lineage, AdapterDetailResponse, AdapterLineageResponse, LineageNode,
 };
 
 // Strength handlers
-pub use strength::{update_adapter_strength, UpdateAdapterStrengthRequest};
+pub use strength::{
+    __path_update_adapter_strength, update_adapter_strength, UpdateAdapterStrengthRequest,
+};
 
 // Pinning handlers
 pub use pinning::{
-    get_pin_status, pin_adapter, unpin_adapter, PinAdapterRequest, PinAdapterResponse,
-    PinStatusResponse, UnpinAdapterResponse,
+    __path_get_pin_status, __path_pin_adapter, __path_unpin_adapter, get_pin_status, pin_adapter,
+    unpin_adapter, PinAdapterRequest, PinAdapterResponse, PinStatusResponse, UnpinAdapterResponse,
 };
 
 // Swap handlers
-pub use swap::swap_adapters;
+pub use swap::{__path_swap_adapters, swap_adapters};
 
 // Stats handlers
-pub use stats::get_adapter_stats;
+pub use stats::{__path_get_adapter_stats, get_adapter_stats};
 
 // Category policies handlers
-pub use category_policies::{get_category_policy, list_category_policies, update_category_policy};
+pub use category_policies::{
+    __path_get_category_policy, __path_list_category_policies, __path_update_category_policy,
+    get_category_policy, list_category_policies, update_category_policy,
+};
 
 // Import handlers
-pub use import::import_adapter;
+pub use import::{__path_import_adapter, import_adapter};
 
 // Training snapshots handlers
-pub use training_snapshots::{export_training_provenance, get_adapter_training_snapshot};
+pub use training_snapshots::{
+    __path_export_training_provenance, __path_get_adapter_training_snapshot,
+    export_training_provenance, get_adapter_training_snapshot,
+};
 
 // Archive handlers
 pub use archive::{
-    archive_adapter, get_archive_status, unarchive_adapter, ArchiveAdapterRequest,
-    ArchiveAdapterResponse, ArchiveStatusResponse, UnarchiveAdapterResponse,
+    __path_archive_adapter, __path_get_archive_status, __path_unarchive_adapter, archive_adapter,
+    get_archive_status, unarchive_adapter, ArchiveAdapterRequest, ArchiveAdapterResponse,
+    ArchiveStatusResponse, UnarchiveAdapterResponse,
 };
 
 // Export handlers
-pub use export::export_adapter;
+pub use export::{__path_export_adapter, export_adapter};
 
 // Version archive handlers
-pub use version_archive::{archive_adapter_version, unarchive_adapter_version};
+pub use version_archive::{
+    __path_archive_adapter_version, __path_unarchive_adapter_version, archive_adapter_version,
+    unarchive_adapter_version,
+};
 
 // Duplicate handlers
-pub use duplicate::{duplicate_adapter, DuplicateAdapterRequest};
+pub use duplicate::{__path_duplicate_adapter, duplicate_adapter, DuplicateAdapterRequest};
 
 // ============================================================================
 // Re-export adapter functions from parent handlers module for routes.rs
@@ -110,12 +123,18 @@ pub use duplicate::{duplicate_adapter, DuplicateAdapterRequest};
 // - adapter_health: get_adapter_activations, get_adapter_health, verify_gpu_integrity
 // - adapter_versions: get_adapter_version, list_adapter_versions
 pub use super::adapter_health::{
+    __path_get_adapter_activations, __path_get_adapter_health, __path_verify_gpu_integrity,
     get_adapter_activations, get_adapter_health, verify_gpu_integrity,
 };
-pub use super::adapter_lifecycle::promote_adapter_state;
-pub use super::adapter_versions::{get_adapter_version, list_adapter_versions};
+pub use super::adapter_lifecycle::{__path_promote_adapter_state, promote_adapter_state};
+pub use super::adapter_versions::{
+    __path_get_adapter_version, __path_list_adapter_versions, get_adapter_version,
+    list_adapter_versions,
+};
 pub use super::{
-    get_adapter, get_adapter_metrics, get_adapter_repository, get_adapter_repository_policy,
-    get_commit, get_commit_diff, get_quality_metrics, get_system_metrics,
-    list_adapter_repositories, list_adapters, list_commits,
+    __path_get_adapter, __path_get_adapter_metrics, __path_get_commit, __path_get_commit_diff,
+    __path_get_quality_metrics, __path_get_system_metrics, __path_list_adapters,
+    __path_list_commits, get_adapter, get_adapter_metrics, get_adapter_repository,
+    get_adapter_repository_policy, get_commit, get_commit_diff, get_quality_metrics,
+    get_system_metrics, list_adapter_repositories, list_adapters, list_commits,
 };

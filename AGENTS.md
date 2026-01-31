@@ -12,6 +12,11 @@ Agents should assume the code already exists; new code is only tasteful when you
 # Development
 ./start
 AOS_DEV_NO_AUTH=1 ./start
+./start backend
+./start worker
+./start secd
+./start node
+scripts/service-manager.sh start <backend|worker|secd|node|ui>
 
 # Build
 cargo build --release --workspace
@@ -40,6 +45,11 @@ cargo clippy --workspace -- -D warnings
 ## Repo Info Preference
 
 - Prefer using the `gh` CLI to fetch repository info and fill out repo metadata.
+
+## Service Supervisor Notes
+
+- Service control APIs (`/v1/services/*`) require a configured supervisor (`SUPERVISOR_API_URL` or `AOS_PANEL_PORT`), see `deploy/supervisor.yaml`.
+- Admin safe-restart triggers an in-process shutdown after drain; an external supervisor should restart the process if configured.
 
 ## UI Visuals Priority (Current Focus)
 

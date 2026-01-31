@@ -6,6 +6,8 @@
 use crate::api::{api_base_url, ApiClient, ApiError, InferenceRequest};
 use adapteros_api_types::inference::ContextRequest;
 use chrono::{DateTime, Utc};
+#[cfg(target_arch = "wasm32")]
+use gloo_timers::callback::Timeout;
 use leptos::prelude::*;
 use send_wrapper::SendWrapper;
 use serde::{Deserialize, Serialize};
@@ -150,6 +152,57 @@ pub struct StreamTraceInfo {
     pub prompt_tokens: Option<u32>,
     pub completion_tokens: Option<u32>,
     pub backend_used: Option<String>,
+}
+
+/// Streaming status notice for the UI.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StreamNotice {
+    pub message: String,
+    pub tone: StreamNoticeTone,
+    pub retryable: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StreamNoticeTone {
+    Info,
+    Warning,
+    Error,
+}
+
+impl StreamNotice {
+    fn info(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            tone: StreamNoticeTone::Info,
+            retryable: false,
+        }
+    }
+
+    fn warning(message: impl Into<String>, retryable: bool) -> Self {
+        Self {
+            message: message.into(),
+            tone: StreamNoticeTone::Warning,
+            retryable,
+        }
+    }
+
+    fn error(message: impl Into<String>, retryable: bool) -> Self {
+        Self {
+            message: message.into(),
+            tone: StreamNoticeTone::Error,
+            retryable,
+        }
+    }
+}
+
+/// Stream recovery metadata (idempotency + last request linkage).
+#[derive(Debug, Clone)]
+pub struct StreamRecovery {
+    pub idempotency_key: String,
+    pub user_message_id: String,
+    pub user_message: String,
+    pub assistant_message_id: String,
+    pub request_id: Option<String>,
 }
 
 // ============================================================================
@@ -348,6 +401,12 @@ pub struct ChatState {
     pub suggested_adapters: Vec<SuggestedAdapter>,
     /// User-pinned adapters to include in next request
     pub pinned_adapters: Vec<String>,
+    /// Streaming status notice for the UI
+    pub stream_notice: Option<StreamNotice>,
+    /// Stream recovery metadata (idempotency + last request linkage)
+    pub stream_recovery: Option<StreamRecovery>,
+    /// Assistant message IDs that were cancelled/partial (exclude from prompt + persistence)
+    pub partial_assistant_ids: Vec<String>,
 }
 
 /// Suggested adapter from router preview
@@ -419,6 +478,9 @@ impl Default for ChatState {
             active_adapters: Vec::new(),
             suggested_adapters: Vec::new(),
             pinned_adapters: Vec::new(),
+            stream_notice: None,
+            stream_recovery: None,
+            partial_assistant_ids: Vec::new(),
         }
     }
 }
@@ -446,7 +508,80 @@ impl ChatAction {
 
     /// Send a message with SSE streaming (preferred method)
     pub fn send_message_streaming(&self, content: String) {
-        // Normalize content - trim whitespace
+        let content = content.trim().to_string();
+        if content.is_empty() {
+            return;
+        }
+
+        let idempotency_key = uuid::Uuid::new_v4().to_string();
+        self.start_streaming_request(
+            content,
+            true,
+            idempotency_key,
+            None,
+            StreamNotice::info("Waiting for server..."),
+        );
+    }
+
+    /// Cancel the current streaming request
+    pub fn cancel_stream(&self) {
+        // Use try_get to avoid panic if signal is disposed during navigation
+        if let Some(cell) = self.abort_controller.try_get() {
+            if let Some(controller) = cell.borrow_mut().take() {
+                controller.abort();
+            }
+        }
+        // Use try_update to avoid panic if signal is disposed during navigation
+        let _ = self.state.try_update(|s| {
+            s.streaming = false;
+            s.loading = false;
+            s.stream_notice = Some(StreamNotice::warning("Stream cancelled", true));
+            // Mark the last message as no longer streaming and track as partial
+            let mut partial_id = None;
+            if let Some(last) = s.messages.last_mut() {
+                if last.role == "assistant" {
+                    if last.content.is_empty() {
+                        s.messages.pop();
+                    } else {
+                        last.is_streaming = false;
+                        partial_id = Some(last.id.clone());
+                    }
+                }
+            }
+            if let Some(id) = partial_id {
+                mark_partial_assistant(s, &id);
+            }
+        });
+    }
+
+    /// Retry the most recent streaming request (uses last idempotency key).
+    pub fn retry_last_stream(&self) {
+        let current_state = self.state.get_untracked();
+        if current_state.loading || current_state.streaming {
+            return;
+        }
+
+        let Some(recovery) = current_state.stream_recovery.clone() else {
+            return;
+        };
+
+        self.start_streaming_request(
+            recovery.user_message.clone(),
+            false,
+            recovery.idempotency_key.clone(),
+            Some(recovery.user_message_id.clone()),
+            StreamNotice::info("Retrying..."),
+        );
+    }
+
+    fn start_streaming_request(
+        &self,
+        content: String,
+        include_user_message: bool,
+        idempotency_key: String,
+        user_message_id_override: Option<String>,
+        notice: StreamNotice,
+    ) {
         let content = content.trim().to_string();
         if content.is_empty() {
             return;
@@ -457,21 +592,52 @@ impl ChatAction {
             return;
         }
 
-        // Add user message with FIFO eviction (content already trimmed)
+        let mut user_message_id = user_message_id_override;
+
+        if include_user_message {
+            let user_message = ChatMessage::user(content.clone());
+            user_message_id = Some(user_message.id.clone());
+            self.state.update(|s| {
+                s.messages.push(user_message);
+                evict_old_messages(&mut s.messages, MAX_MESSAGES);
+            });
+        }
+
+        // Mark request start + notice
         self.state.update(|s| {
-            s.messages.push(ChatMessage::user(content.clone()));
-            evict_old_messages(&mut s.messages, MAX_MESSAGES);
             s.loading = true;
             s.streaming = true;
             s.error = None;
+            s.stream_notice = Some(notice);
         });
 
         // Build the prompt with context and history
         let prompt = self.build_prompt(&content);
 
         // Add placeholder assistant message for streaming
+        let assistant_message = ChatMessage::assistant_streaming();
+        let assistant_message_id = assistant_message.id.clone();
+        let resolved_user_message_id = user_message_id.clone().or_else(|| {
+            self.state
+                .get_untracked()
+                .messages
+                .iter()
+                .rev()
+                .find(|m| m.role == "user")
+                .map(|m| m.id.clone())
+        });
         self.state.update(|s| {
-            s.messages.push(ChatMessage::assistant_streaming());
+            s.messages.push(assistant_message);
+            evict_old_messages(&mut s.messages, MAX_MESSAGES);
+            s.stream_recovery = Some(StreamRecovery {
+                idempotency_key: idempotency_key.clone(),
+                user_message_id: resolved_user_message_id
+                    .clone()
+                    .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+                user_message: content.clone(),
+                assistant_message_id: assistant_message_id.clone(),
+                request_id: None,
+            });
         });
 
         // Create AbortController for this request
@@ -531,7 +697,9 @@ impl ChatAction {
                 backend: backend_opt,
             };
 
-            match stream_inference_to_state(&request, state, signal.as_ref()).await {
+            match stream_inference_to_state(&request, state, signal.as_ref(), Some(idempotency_key))
+                .await
+            {
                 Ok(trace_info) => {
                     // Mark the last message as no longer streaming and add trace info
                     // Use try_update to avoid panic if signal is disposed during navigation
@@ -547,33 +715,57 @@ impl ChatAction {
                                 last.backend_used = trace_info.backend_used;
                             }
                         }
+                        s.stream_notice = None;
+                        s.stream_recovery = None;
                         // When dock is open, mark new messages as read immediately
                         if s.dock_state == DockState::Docked {
                             s.mark_as_read();
                         }
                     });
                 }
-                Err(e) => {
-                    if is_abort_error(&e) {
+                Err(failure) => {
+                    if is_abort_error(&failure.message) {
                         // Stream was cancelled by user - mark message as no longer streaming
                         // Use try_update to avoid panic if signal is disposed during navigation
                         let _ = state.try_update(|s| {
+                            let mut partial_id = None;
                             if let Some(last) = s.messages.last_mut() {
                                 if last.role == "assistant" {
-                                    last.is_streaming = false;
+                                    if last.content.is_empty() {
+                                        s.messages.pop();
+                                    } else {
+                                        last.is_streaming = false;
+                                        partial_id = Some(last.id.clone());
+                                    }
                                 }
+                            }
+                            if let Some(id) = partial_id {
+                                mark_partial_assistant(s, &id);
                             }
                         });
                     } else {
-                        // Remove the empty assistant message on error
+                        let notice = stream_notice_from_failure(&failure);
+                        // Remove empty assistant message on error; keep partial otherwise
                         // Use try_update to avoid panic if signal is disposed during navigation
                         let _ = state.try_update(|s| {
+                            let mut partial_id = None;
+                            let mut remove_last = false;
                             if let Some(last) = s.messages.last() {
-                                if last.role == "assistant" && last.content.is_empty() {
-                                    s.messages.pop();
+                                if last.role == "assistant" {
+                                    if last.content.is_empty() {
+                                        remove_last = true;
+                                    } else {
+                                        partial_id = Some(last.id.clone());
+                                    }
                                 }
                             }
-                            s.error = Some(e);
+                            if remove_last {
+                                s.messages.pop();
+                            } else if let Some(id) = partial_id {
+                                mark_partial_assistant(s, &id);
+                            }
+                            s.error = Some(failure.message.clone());
+                            s.stream_notice = Some(notice);
                         });
                     }
                 }
@@ -588,27 +780,6 @@ impl ChatAction {
             // Clear the abort controller - use try_get to avoid panic if disposed
             if let Some(cell) = abort_controller.try_get() {
                 *cell.borrow_mut() = None;
-            }
-        });
-    }
-
-    /// Cancel the current streaming request
-    pub fn cancel_stream(&self) {
-        // Use try_get to avoid panic if signal is disposed during navigation
-        if let Some(cell) = self.abort_controller.try_get() {
-            if let Some(controller) = cell.borrow_mut().take() {
-                controller.abort();
-            }
-        }
-        // Use try_update to avoid panic if signal is disposed during navigation
-        let _ = self.state.try_update(|s| {
-            s.streaming = false;
-            s.loading = false;
-            // Mark the last message as no longer streaming
-            if let Some(last) = s.messages.last_mut() {
-                if last.role == "assistant" {
-                    last.is_streaming = false;
-                }
             }
         });
     }
@@ -695,6 +866,9 @@ impl ChatAction {
         let history: Vec<String> = state
             .messages
             .iter()
+            .filter(|m| {
+                !(m.role == "assistant" && state.partial_assistant_ids.iter().any(|id| id == &m.id))
+            })
             .map(|m| format!("{}: {}", m.role, m.content))
             .collect();
 
@@ -766,6 +940,9 @@ impl ChatAction {
             s.error = None;
             s.last_read_message_id = None;
             s.active_adapters.clear();
+            s.stream_notice = None;
+            s.stream_recovery = None;
+            s.partial_assistant_ids.clear();
         });
     }
 
@@ -773,6 +950,7 @@ impl ChatAction {
     pub fn clear_error(&self) {
         self.state.update(|s| {
             s.error = None;
+            s.stream_notice = None;
         });
     }
 
@@ -823,6 +1001,9 @@ impl ChatAction {
                 })
                 .collect();
             s.error = None;
+            s.stream_notice = None;
+            s.stream_recovery = None;
+            s.partial_assistant_ids.clear();
             // Mark all restored messages as read
             s.last_read_message_id = s.messages.last().map(|m| m.id.clone());
         });
@@ -1028,22 +1209,114 @@ pub fn is_abort_error(error: &str) -> bool {
         || error.contains("The operation was aborted")
 }
 
-/// Parse an SSE event and extract token content plus trace info
-fn parse_sse_event_with_info(event_data: &str) -> ParsedSseEvent {
-    let mut result = ParsedSseEvent::default();
+#[derive(Debug, Clone)]
+struct SseEnvelope {
+    event_type: Option<String>,
+    data: String,
+}
 
-    let mut data_line: Option<&str> = None;
+#[derive(Debug, Clone, Deserialize)]
+struct StreamErrorPayload {
+    code: String,
+    message: String,
+    retryable: bool,
+    #[allow(dead_code)]
+    correlation_id: Option<String>,
+}
 
-    for line in event_data.lines() {
-        if let Some(stripped) = line.strip_prefix("data: ") {
-            data_line = Some(stripped);
+#[derive(Debug, Clone)]
+struct StreamFailure {
+    message: String,
+    code: Option<String>,
+    retryable: bool,
+}
+
+impl StreamFailure {
+    fn new(message: impl Into<String>, code: Option<String>, retryable: bool) -> Self {
+        Self {
+            message: message.into(),
+            code,
+            retryable,
+        }
+    }
+}
+
+struct SlowNoticeTimer {
+    #[cfg(target_arch = "wasm32")]
+    handle: Option<Timeout>,
+}
+
+impl SlowNoticeTimer {
+    fn start(state: RwSignal<ChatState>, delay_ms: u32) -> Self {
+        #[cfg(target_arch = "wasm32")]
+        {
+            let handle = Timeout::new(delay_ms, move || {
+                let _ = state.try_update(|s| {
+                    if s.loading && s.streaming {
+                        s.stream_notice = Some(StreamNotice::warning("Server slow", false));
+                    }
+                });
+            });
+            return Self {
+                handle: Some(handle),
+            };
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let _ = state;
+            let _ = delay_ms;
+            return Self {};
         }
     }
 
-    let data = match data_line {
-        Some(d) => d,
-        None => return result,
-    };
+    fn cancel(&mut self) {
+        #[cfg(target_arch = "wasm32")]
+        if let Some(handle) = self.handle.take() {
+            handle.cancel();
+        }
+    }
+}
+
+impl Drop for SlowNoticeTimer {
+    fn drop(&mut self) {
+        self.cancel();
+    }
+}
+
+/// Parse a raw SSE event into its envelope (event type + data).
+fn parse_sse_envelope(event_data: &str) -> Option<SseEnvelope> {
+    let mut event_type: Option<String> = None;
+    let mut data_lines: Vec<String> = Vec::new();
+
+    for line in event_data.lines() {
+        if let Some(stripped) = line.strip_prefix("event: ") {
+            event_type = Some(stripped.trim().to_string());
+            continue;
+        }
+
+        if let Some(stripped) = line.strip_prefix("data:") {
+            let data = stripped.strip_prefix(' ').unwrap_or(stripped);
+            let trimmed = data.trim();
+            if trimmed == "[DONE]" || trimmed == "data: [DONE]" {
+                continue;
+            }
+            data_lines.push(data.to_string());
+        }
+    }
+
+    if data_lines.is_empty() {
+        return None;
+    }
+
+    Some(SseEnvelope {
+        event_type,
+        data: data_lines.join("\n"),
+    })
+}
+
+/// Parse an SSE payload and extract token content plus trace info.
+fn parse_sse_payload_with_info(data: &str) -> ParsedSseEvent {
+    let mut result = ParsedSseEvent::default();
 
     // Check for [DONE] marker
     if data == "[DONE]" {
@@ -1097,6 +1370,59 @@ fn parse_sse_event_with_info(event_data: &str) -> ParsedSseEvent {
     result
 }
 
+fn mark_partial_assistant(state: &mut ChatState, assistant_id: &str) {
+    if !state
+        .partial_assistant_ids
+        .iter()
+        .any(|id| id == assistant_id)
+    {
+        state.partial_assistant_ids.push(assistant_id.to_string());
+    }
+}
+
+fn stream_notice_from_failure(failure: &StreamFailure) -> StreamNotice {
+    let code = failure.code.as_deref().unwrap_or("");
+    let message_lower = failure.message.to_lowercase();
+
+    let label = if matches!(
+        code,
+        "BACKPRESSURE" | "CACHE_BUDGET_EXCEEDED" | "REQUEST_TIMEOUT" | "STREAM_IDLE_TIMEOUT"
+    ) {
+        "Server slow"
+    } else if matches!(
+        code,
+        "WORKER_DEGRADED"
+            | "WORKER_NOT_AVAILABLE"
+            | "NO_COMPATIBLE_WORKER"
+            | "WORKER_ID_UNAVAILABLE"
+    ) {
+        "Worker busy"
+    } else if matches!(code, "SERVICE_UNAVAILABLE") {
+        if message_lower.contains("worker") {
+            "Worker busy"
+        } else {
+            "Server busy"
+        }
+    } else if matches!(
+        code,
+        "DUPLICATE_REQUEST" | "IDEMPOTENCY_CONFLICT" | "IDEMPOTENCY_TIMEOUT"
+    ) {
+        "Request already in progress"
+    } else if message_lower.contains("network") || message_lower.contains("fetch failed") {
+        "Connection lost"
+    } else {
+        "Stream error"
+    };
+
+    let notice = if failure.retryable {
+        StreamNotice::warning(label, true)
+    } else {
+        StreamNotice::error(label, false)
+    };
+
+    notice
+}
+
 /// Helper to safely update state, returning false if signal is disposed
 fn try_update_state<F: FnOnce(&mut ChatState)>(state: RwSignal<ChatState>, f: F) -> bool {
     // Use try_update which returns None if the signal is disposed
@@ -1108,11 +1434,13 @@ async fn stream_inference_to_state(
     request: &StreamingInferRequest,
     state: RwSignal<ChatState>,
     abort_signal: Option<&AbortSignal>,
-) -> Result<StreamTraceInfo, String> {
+    idempotency_key: Option<String>,
+) -> Result<StreamTraceInfo, StreamFailure> {
     let url = format!("{}/v1/infer/stream", api_base_url());
 
-    let body = serde_json::to_string(request)
-        .map_err(|e| format!("Failed to serialize request: {}", e))?;
+    let body = serde_json::to_string(request).map_err(|e| {
+        StreamFailure::new(format!("Failed to serialize request: {}", e), None, false)
+    })?;
 
     // Create fetch request with POST method
     let opts = RequestInit::new();
@@ -1125,84 +1453,116 @@ async fn stream_inference_to_state(
         opts.set_signal(Some(signal));
     }
 
-    let request_obj = Request::new_with_str_and_init(&url, &opts)
-        .map_err(|e| format!("Failed to create request: {:?}", e))?;
+    let request_obj = Request::new_with_str_and_init(&url, &opts).map_err(|e| {
+        StreamFailure::new(format!("Failed to create request: {:?}", e), None, false)
+    })?;
 
     request_obj
         .headers()
         .set("Content-Type", "application/json")
-        .map_err(|e| format!("Failed to set Content-Type header: {:?}", e))?;
+        .map_err(|e| {
+            StreamFailure::new(
+                format!("Failed to set Content-Type header: {:?}", e),
+                None,
+                false,
+            )
+        })?;
 
     request_obj
         .headers()
         .set("Accept", "text/event-stream")
-        .map_err(|e| format!("Failed to set Accept header: {:?}", e))?;
+        .map_err(|e| {
+            StreamFailure::new(format!("Failed to set Accept header: {:?}", e), None, false)
+        })?;
 
     if let Some(csrf_token) = get_csrf_token() {
         request_obj
             .headers()
             .set("X-CSRF-Token", &csrf_token)
-            .map_err(|e| format!("Failed to set CSRF header: {:?}", e))?;
+            .map_err(|e| {
+                StreamFailure::new(format!("Failed to set CSRF header: {:?}", e), None, false)
+            })?;
     }
 
-    let window = web_sys::window().ok_or("No window object")?;
+    if let Some(key) = idempotency_key.as_deref() {
+        let _ = request_obj.headers().set("Idempotency-Key", key);
+    }
+
+    let window =
+        web_sys::window().ok_or_else(|| StreamFailure::new("No window object", None, false))?;
     let response: Response = JsFuture::from(window.fetch_with_request(&request_obj))
         .await
         .map_err(|e| {
-            // Prefer proper DomException type checking over fragile string matching
             if is_abort_error_js(&e) {
-                return "AbortError: The operation was aborted".to_string();
+                return StreamFailure::new("AbortError: The operation was aborted", None, false);
             }
-            // Fallback to string matching for edge cases (nested errors, already-stringified)
             let error_str = format!("{:?}", e);
             if is_abort_error(&error_str) {
-                "AbortError: The operation was aborted".to_string()
+                StreamFailure::new("AbortError: The operation was aborted", None, false)
             } else {
-                format!("Fetch failed: {:?}", e)
+                StreamFailure::new(format!("Fetch failed: {:?}", e), None, true)
             }
         })?
         .dyn_into()
-        .map_err(|_| "Response is not a Response object")?;
+        .map_err(|_| StreamFailure::new("Response is not a Response object", None, false))?;
 
     if !response.ok() {
         let status = response.status();
         let status_text = response.status_text();
-        return Err(format!("HTTP error {}: {}", status, status_text));
+        let body_text = match response.text() {
+            Ok(promise) => JsFuture::from(promise)
+                .await
+                .ok()
+                .and_then(|v| v.as_string())
+                .unwrap_or_else(|| status_text.clone()),
+            Err(_) => status_text.clone(),
+        };
+        let api_error = ApiError::from_response(status as u16, &body_text);
+        return Err(StreamFailure::new(
+            api_error.to_string(),
+            api_error.code().map(|c| c.to_string()),
+            api_error.is_retryable(),
+        ));
     }
 
-    let body_stream = response.body().ok_or("No response body")?;
+    let body_stream = response
+        .body()
+        .ok_or_else(|| StreamFailure::new("No response body", None, false))?;
     let reader = body_stream
         .get_reader()
         .dyn_into::<web_sys::ReadableStreamDefaultReader>()
-        .map_err(|_| "Failed to get reader")?;
+        .map_err(|_| StreamFailure::new("Failed to get reader", None, false))?;
 
     let mut buffer = String::new();
     let mut trace_info = StreamTraceInfo::default();
+    let mut slow_timer = SlowNoticeTimer::start(state, 6000);
 
     loop {
         if let Some(signal) = abort_signal {
             if signal.aborted() {
                 let _ = reader.cancel();
-                return Err("AbortError: The operation was aborted".to_string());
+                return Err(StreamFailure::new(
+                    "AbortError: The operation was aborted",
+                    None,
+                    false,
+                ));
             }
         }
 
         let result = JsFuture::from(reader.read()).await.map_err(|e| {
-            // Prefer proper DomException type checking over fragile string matching
             if is_abort_error_js(&e) {
-                return "AbortError: The operation was aborted".to_string();
+                return StreamFailure::new("AbortError: The operation was aborted", None, false);
             }
-            // Fallback to string matching for edge cases (nested errors, already-stringified)
             let error_str = format!("{:?}", e);
             if is_abort_error(&error_str) {
-                "AbortError: The operation was aborted".to_string()
+                StreamFailure::new("AbortError: The operation was aborted", None, false)
             } else {
-                format!("Read failed: {:?}", e)
+                StreamFailure::new(format!("Read failed: {:?}", e), None, true)
             }
         })?;
 
         let done = js_sys::Reflect::get(&result, &JsValue::from_str("done"))
-            .map_err(|_| "Failed to get done property")?
+            .map_err(|_| StreamFailure::new("Failed to get done property", None, false))?
             .as_bool()
             .unwrap_or(true);
 
@@ -1211,7 +1571,7 @@ async fn stream_inference_to_state(
         }
 
         let value = js_sys::Reflect::get(&result, &JsValue::from_str("value"))
-            .map_err(|_| "Failed to get value property")?;
+            .map_err(|_| StreamFailure::new("Failed to get value property", None, false))?;
 
         if value.is_undefined() {
             continue;
@@ -1230,7 +1590,65 @@ async fn stream_inference_to_state(
             // Use drain to remove processed bytes in-place (O(n) single operation)
             buffer.drain(..event_end + 2);
 
-            let parsed = parse_sse_event_with_info(&event_data);
+            let Some(envelope) = parse_sse_envelope(&event_data) else {
+                continue;
+            };
+
+            let event_type = envelope.event_type.as_deref().unwrap_or("message");
+            let data = envelope.data;
+
+            if event_type == "stream_started" {
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&data) {
+                    let request_id = parsed
+                        .get("request_id")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    let idempotency_key = parsed
+                        .get("idempotency_key")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    // Update recovery with request_id if we have one
+                    let _ = state.try_update(|s| {
+                        if let Some(recovery) = s.stream_recovery.as_mut() {
+                            recovery.request_id = request_id.clone();
+                            if let Some(key) = idempotency_key.clone() {
+                                recovery.idempotency_key = key;
+                            }
+                        }
+                    });
+                }
+                continue;
+            }
+
+            if event_type == "stream_finished" {
+                continue;
+            }
+
+            if event_type == "aos.run_envelope" {
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&data) {
+                    if let Some(run_id) = parsed.get("run_id").and_then(|v| v.as_str()) {
+                        trace_info.trace_id = Some(run_id.to_string());
+                    }
+                }
+                continue;
+            }
+
+            if event_type == "error" {
+                if let Ok(payload) = serde_json::from_str::<StreamErrorPayload>(&data) {
+                    return Err(StreamFailure::new(
+                        payload.message,
+                        Some(payload.code),
+                        payload.retryable,
+                    ));
+                }
+                return Err(StreamFailure::new(
+                    "Stream error",
+                    Some("STREAM_ERROR".to_string()),
+                    true,
+                ));
+            }
+
+            let parsed = parse_sse_payload_with_info(&data);
 
             if let Some(token_content) = parsed.token {
                 // Append token to the last (assistant) message
@@ -1243,10 +1661,12 @@ async fn stream_inference_to_state(
                     }
                     // No longer loading once we have first token
                     s.loading = false;
+                    s.stream_notice = None;
                 }) {
                     // Signal disposed, bail out early
                     return Ok(trace_info);
                 }
+                slow_timer.cancel();
             }
 
             // Capture trace info from Done event
@@ -1295,6 +1715,8 @@ async fn stream_inference_to_state(
             }
         }
     }
+
+    slow_timer.cancel();
 
     // Warn if buffer has unprocessed data (indicates incomplete event)
     if !buffer.is_empty() {
@@ -1509,6 +1931,10 @@ impl ChatSessionsManager {
             messages: state
                 .messages
                 .iter()
+                .filter(|m| {
+                    !(m.role == "assistant"
+                        && state.partial_assistant_ids.iter().any(|id| id == &m.id))
+                })
                 .map(|m| {
                     let timestamp_str = m.timestamp.to_rfc3339();
                     debug_assert!(
@@ -1612,6 +2038,9 @@ mod tests {
                 active_adapters: Vec::new(),
                 suggested_adapters: Vec::new(),
                 pinned_adapters: Vec::new(),
+                stream_notice: None,
+                stream_recovery: None,
+                partial_assistant_ids: Vec::new(),
             }
         }
 

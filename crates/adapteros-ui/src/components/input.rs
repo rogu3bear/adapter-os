@@ -24,6 +24,15 @@ pub fn Input(
     /// Maximum character count (shows counter when set)
     #[prop(optional)]
     max_length: Option<usize>,
+    /// Callback fired on blur (for validation timing)
+    #[prop(optional)]
+    on_blur: Option<Callback<()>>,
+    /// Hint text displayed below the input
+    #[prop(optional, into)]
+    hint: Option<String>,
+    /// Accessible label for inputs without visible label (layout constraints)
+    #[prop(optional, into)]
+    aria_label: Option<String>,
 ) -> impl IntoView {
     let base_class = "input";
 
@@ -45,10 +54,32 @@ pub fn Input(
 
     let field_ctx = use_form_field_context();
     let input_id = id.or_else(|| field_ctx.as_ref().map(|ctx| ctx.field_id.clone()));
+    let has_field_context = field_ctx.is_some(); // FormField provides its own label
     let described_by = field_ctx.and_then(|ctx| ctx.described_by.clone());
 
     // Character counter
     let char_count = move || value.get().len();
+
+    // Determine if we have any form of accessible label
+    let has_visible_label = !label.is_empty();
+    let effective_aria_label = if has_visible_label || has_field_context {
+        None // Label is visible, no need for aria-label
+    } else {
+        aria_label.clone()
+    };
+
+    // Build hint ID for aria-describedby if hint is provided
+    let hint_id = hint
+        .as_ref()
+        .map(|_| format!("{}-hint", input_id.as_deref().unwrap_or("input")));
+
+    // Combine described_by with hint_id
+    let full_described_by = match (&described_by, &hint_id) {
+        (Some(d), Some(h)) => Some(format!("{} {}", d, h)),
+        (Some(d), None) => Some(d.clone()),
+        (None, Some(h)) => Some(h.clone()),
+        (None, None) => None,
+    };
 
     view! {
         <div class="grid w-full gap-1.5">
@@ -75,10 +106,16 @@ pub fn Input(
                     required=required
                     maxlength=max_length.map(|n| n.to_string())
                     aria-invalid=error.is_some().to_string()
-                    aria-describedby=described_by
+                    aria-describedby=full_described_by
+                    aria-label=effective_aria_label
                     prop:value=move || value.get()
                     on:input=move |ev| {
                         value.set(event_target_value(&ev));
+                    }
+                    on:blur=move |_| {
+                        if let Some(ref cb) = on_blur {
+                            cb.run(());
+                        }
                     }
                 />
                 {valid.then(|| view! {
@@ -94,6 +131,12 @@ pub fn Input(
                     </span>
                 })}
             </div>
+            {hint.clone().map(|text| {
+                let id = hint_id.clone();
+                view! {
+                    <p id=id class="form-field-hint text-xs text-muted-foreground">{text}</p>
+                }
+            })}
             {max_length.map(|max| {
                 view! {
                     <div class="flex justify-end">
@@ -125,20 +168,59 @@ pub fn Textarea(
     #[prop(optional)] rows: Option<u32>,
     #[prop(optional, into)] class: String,
     #[prop(optional, into)] aria_label: String,
+    /// Mark field as required (shows * indicator)
+    #[prop(optional)]
+    required: bool,
+    /// Callback fired on blur (for validation timing)
+    #[prop(optional)]
+    on_blur: Option<Callback<()>>,
+    /// Hint text displayed below the textarea
+    #[prop(optional, into)]
+    hint: Option<String>,
+    /// Error message to display
+    #[prop(optional, into)]
+    error: Option<String>,
 ) -> impl IntoView {
     let base_class = "input input-textarea";
 
-    let full_class = format!("{} {}", base_class, class);
+    let state_class = if error.is_some() { "input-error" } else { "" };
+
+    let full_class = format!("{} {} {}", base_class, state_class, class);
 
     let field_ctx = use_form_field_context();
     let input_id = id.or_else(|| field_ctx.as_ref().map(|ctx| ctx.field_id.clone()));
+    let has_field_context = field_ctx.is_some();
     let described_by = field_ctx.and_then(|ctx| ctx.described_by.clone());
+
+    // Determine if we have any form of accessible label
+    let has_visible_label = label.is_some();
+    let effective_aria_label = if has_visible_label || has_field_context || aria_label.is_empty() {
+        None
+    } else {
+        Some(aria_label.clone())
+    };
+
+    // Build hint ID for aria-describedby if hint is provided
+    let hint_id = hint
+        .as_ref()
+        .map(|_| format!("{}-hint", input_id.as_deref().unwrap_or("textarea")));
+
+    // Combine described_by with hint_id
+    let full_described_by = match (&described_by, &hint_id) {
+        (Some(d), Some(h)) => Some(format!("{} {}", d, h)),
+        (Some(d), None) => Some(d.clone()),
+        (None, Some(h)) => Some(h.clone()),
+        (None, None) => None,
+    };
 
     view! {
         <div class="grid w-full gap-1.5">
             {label.map(|l| view! {
                 <label class="label" for=input_id.clone()>
                     {l}
+                    {required.then(|| view! {
+                        <span class="form-field-required" aria-hidden="true">"*"</span>
+                    })}
                 </label>
             })}
             <textarea
@@ -147,14 +229,30 @@ pub fn Textarea(
                 class=full_class
                 placeholder=placeholder
                 disabled=disabled
+                required=required
                 rows=rows.unwrap_or(3)
-                aria-label=move || (!aria_label.is_empty()).then(|| aria_label.clone())
-                aria-describedby=described_by
+                aria-label=effective_aria_label
+                aria-describedby=full_described_by
+                aria-invalid=error.is_some().to_string()
                 prop:value=move || value.get()
                 on:input=move |ev| {
                     value.set(event_target_value(&ev));
                 }
+                on:blur=move |_| {
+                    if let Some(ref cb) = on_blur {
+                        cb.run(());
+                    }
+                }
             />
+            {hint.clone().map(|text| {
+                let id = hint_id.clone();
+                view! {
+                    <p id=id class="form-field-hint text-xs text-muted-foreground">{text}</p>
+                }
+            })}
+            {error.map(|e| view! {
+                <p class="form-field-error" role="alert">{e}</p>
+            })}
         </div>
     }
 }

@@ -207,12 +207,16 @@ pub async fn safe_restart(
     boot_state.maintenance("safe-restart").await;
     boot_state.drain().await;
 
+    if state.shutdown_tx.send(()).is_err() {
+        warn!("Safe restart requested but shutdown signal receiver is unavailable");
+    }
+
     Ok(Json(serde_json::json!({
         "accepted": true,
         "mode": "safe-restart",
         "restart_executed": false,
         "restart_delegated": true,
-        "message": "Drain initiated; external supervisor should restart when safe",
+        "message": "Drain initiated; process will exit when safe; external supervisor should restart",
         "lifecycle": map_boot_state(&boot_state.current_state())
     })))
 }

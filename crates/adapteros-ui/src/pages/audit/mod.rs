@@ -221,22 +221,23 @@ pub fn Audit() -> impl IntoView {
                     action_filter=action_filter
                     status_filter=status_filter
                     resource_filter=resource_filter
+                    on_filters_changed=refetch_logs.clone()
                 />
 
                 // Tab content
                 {move || {
                     match active_tab.get() {
                         AuditTab::Timeline => {
-                            view! { <TimelineTab logs=logs/> }.into_any()
+                            view! { <TimelineTab logs=logs on_retry=Callback::new(move |_| refetch_logs.run(()))/> }.into_any()
                         }
                         AuditTab::HashChain => {
-                            view! { <HashChainTab chain=chain/> }.into_any()
+                            view! { <HashChainTab chain=chain on_retry=Callback::new(move |_| refetch_chain.run(()))/> }.into_any()
                         }
                         AuditTab::MerkleTree => {
-                            view! { <MerkleTreeTab chain=chain verification=verification/> }.into_any()
+                            view! { <MerkleTreeTab chain=chain verification=verification /> }.into_any()
                         }
                         AuditTab::Compliance => {
-                            view! { <ComplianceTab compliance=compliance/> }.into_any()
+                            view! { <ComplianceTab compliance=compliance on_retry=Callback::new(move |_| refetch_compliance.run(()))/> }.into_any()
                         }
                         AuditTab::Embeddings => {
                             view! { <EmbeddingsTab/> }.into_any()

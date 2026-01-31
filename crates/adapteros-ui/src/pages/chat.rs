@@ -4,14 +4,20 @@
 //! the global chat state from signals/chat.rs for unified state management
 //! with the dock panel.
 
+use crate::api::ApiClient;
 use crate::components::{
-    AdapterBar, AdapterHeat, AdapterMagnet, Badge, BadgeVariant, Button, Card, ConfirmationDialog,
-    ConfirmationSeverity, EmptyState, EmptyStateVariant, Spinner, SuggestedAdapterView,
-    SuggestedAdaptersBar, Textarea, TraceButton, TracePanel,
+    AdapterBar, AdapterHeat, AdapterMagnet, Badge, BadgeVariant, Button, ButtonSize, ButtonVariant,
+    Card, ConfirmationDialog, ConfirmationSeverity, EmptyState, EmptyStateVariant, Spinner,
+    SuggestedAdapterView, SuggestedAdaptersBar, Textarea, TraceButton, TracePanel,
 };
-use crate::signals::{use_chat, ChatSessionMeta, ChatSessionsManager};
+use crate::components::inference_guidance::guidance_for;
+use crate::components::status_center::use_status_center;
+use crate::hooks::{use_api_resource, LoadingState};
+use crate::signals::{use_chat, ChatSessionMeta, ChatSessionsManager, StreamNoticeTone};
+use adapteros_api_types::InferenceReadyState;
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
+use std::sync::Arc;
 
 /// Maximum prompt length for URL-embedded prompts (bytes).
 /// This prevents DoS attacks from extremely long URLs that could:
@@ -151,15 +157,6 @@ pub fn Chat() -> impl IntoView {
                 }}
             </Card>
 
-            // Quick start suggestions (when no sessions)
-            {move || {
-                if sessions.get().is_empty() && !dock_has_messages.get() {
-                    Some(view! { <QuickStartSuggestions/> })
-                } else {
-                    None
-                }
-            }}
-
             // Delete confirmation dialog
             <ConfirmationDialog
                 open=show_delete_confirm
@@ -245,70 +242,6 @@ fn SessionCard(session: ChatSessionMeta, on_delete: Callback<()>) -> impl IntoVi
     }
 }
 
-/// Quick start suggestions
-#[component]
-fn QuickStartSuggestions() -> impl IntoView {
-    let suggestions = [
-        (
-            "Explain adapters",
-            "How do LoRA adapters work and when should I use them?",
-        ),
-        (
-            "Write a function",
-            "Write a Python function to validate email addresses with tests",
-        ),
-        (
-            "Review code",
-            "Review this code for bugs: fn add(a: i32, b: i32) -> i32 { a - b }",
-        ),
-        (
-            "Training guide",
-            "Walk me through training a custom adapter from my documentation",
-        ),
-    ];
-
-    view! {
-        <Card title="Quick Start".to_string() description="Try one of these prompts".to_string()>
-            <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 p-4">
-                {suggestions.iter().map(|(title, prompt)| {
-                    let title = title.to_string();
-                    let prompt = prompt.to_string();
-                    let prompt_display = prompt.clone();
-                    view! {
-                        <button
-                            class="text-left p-3 rounded-lg border hover:bg-muted/50 transition-colors"
-                            on:click=move |_| {
-                                let session_id = format!("session-{}", uuid::Uuid::new_v4());
-                                // Validate and truncate prompt if too long for URL embedding
-                                let safe_prompt = if prompt.len() > MAX_URL_PROMPT_LENGTH {
-                                    // Truncate at char boundary with indicator
-                                    let mut truncated = prompt.chars().take(MAX_URL_PROMPT_LENGTH - 3).collect::<String>();
-                                    truncated.push_str("...");
-                                    web_sys::console::warn_1(
-                                        &format!("Prompt truncated from {} to {} chars for URL safety", prompt.len(), truncated.len()).into()
-                                    );
-                                    truncated
-                                } else {
-                                    prompt.clone()
-                                };
-                                // Navigate with prompt as query param (handled by session page)
-                                if let Some(window) = web_sys::window() {
-                                    let _ = window.location().set_href(
-                                        &format!("/chat/{}?prompt={}", session_id, js_sys::encode_uri_component(&safe_prompt))
-                                    );
-                                }
-                            }
-                        >
-                            <p class="font-medium text-sm">{title}</p>
-                            <p class="text-xs text-muted-foreground mt-1 line-clamp-1">{prompt_display}</p>
-                        </button>
-                    }
-                }).collect::<Vec<_>>()}
-            </div>
-        </Card>
-    }
-}
-
 /// Format a timestamp as relative time
 fn format_relative_time(timestamp: &str) -> String {
     use chrono::{DateTime, Utc};
@@ -349,6 +282,9 @@ pub fn ChatSession() -> impl IntoView {
 
     // Use global chat state
     let (chat_state, chat_action) = use_chat();
+    let (system_status, _refetch_status) =
+        use_api_resource(|client: Arc<ApiClient>| async move { client.system_status().await });
+    let status_center = use_status_center();
 
     // Local state for input and trace panel
     let message = RwSignal::new(String::new());
@@ -495,6 +431,11 @@ pub fn ChatSession() -> impl IntoView {
     });
     let can_send = Memo::new(move |_| !message.get().trim().is_empty() && !is_busy.get());
     let error = Memo::new(move |_| chat_state.get().error.clone());
+    let can_retry = Memo::new(move |_| {
+        let state = chat_state.get();
+        !state.loading && !state.streaming && state.stream_recovery.is_some()
+    });
+    let retry_disabled = Signal::derive(move || !can_retry.get());
 
     // Convert active_adapters to AdapterMagnets for the AdapterBar
     let adapter_magnets = Memo::new(move |_| {
@@ -591,6 +532,14 @@ pub fn ChatSession() -> impl IntoView {
         })
     };
 
+    // Retry handler
+    let do_retry = {
+        let action = chat_action.clone();
+        Callback::new(move |_: ()| {
+            action.retry_last_stream();
+        })
+    };
+
     view! {
         <div class="p-6 flex h-full min-h-0 flex-col gap-4">
             // Header
@@ -633,6 +582,40 @@ pub fn ChatSession() -> impl IntoView {
                     }}
                 </div>
             </div>
+
+            // Stream notice (slow server, worker busy, etc.)
+            {move || {
+                chat_state.get().stream_notice.clone().map(|notice| {
+                    let message = notice.message.clone();
+                    let retryable = notice.retryable;
+                    let variant = match notice.tone {
+                        StreamNoticeTone::Info => BadgeVariant::Secondary,
+                        StreamNoticeTone::Warning => BadgeVariant::Warning,
+                        StreamNoticeTone::Error => BadgeVariant::Destructive,
+                    };
+                    view! {
+                        <div class="flex items-center gap-3 text-xs">
+                            <Badge variant=variant>{message}</Badge>
+                            {move || {
+                                if retryable {
+                                    view! {
+                                        <Button
+                                            variant=ButtonVariant::Outline
+                                            size=ButtonSize::Sm
+                                            disabled=retry_disabled.clone()
+                                            on_click=do_retry.clone()
+                                        >
+                                            "Retry"
+                                        </Button>
+                                    }.into_any()
+                                } else {
+                                    view! {}.into_any()
+                                }
+                            }}
+                        </div>
+                    }
+                })
+            }}
 
             // Adapter Bar - shows active adapters as colored magnets
             <AdapterBar adapters=adapter_magnets/>
@@ -799,16 +782,87 @@ pub fn ChatSession() -> impl IntoView {
                     <div class="mb-4 rounded-md border border-destructive bg-destructive/10 p-3 text-sm text-destructive">
                         <div class="flex items-center justify-between gap-2">
                             <p class="text-sm text-destructive">{e}</p>
-                            <button
-                                class="text-sm font-medium text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-muted transition-colors"
-                                on:click=move |_| action.clear_error()
-                                aria-label="Dismiss error"
-                            >
-                                "Dismiss"
-                            </button>
+                            <div class="flex items-center gap-2">
+                                {move || {
+                                    let retryable = chat_state
+                                        .get()
+                                        .stream_notice
+                                        .as_ref()
+                                        .map(|n| n.retryable)
+                                        .unwrap_or(false);
+                                    if retryable {
+                                        view! {
+                                        <Button
+                                            variant=ButtonVariant::Outline
+                                            size=ButtonSize::Sm
+                                            disabled=retry_disabled.clone()
+                                            on_click=do_retry.clone()
+                                        >
+                                            "Retry"
+                                        </Button>
+                                        }.into_any()
+                                    } else {
+                                        view! {}.into_any()
+                                    }
+                                }}
+                                <button
+                                    class="text-sm font-medium text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-muted transition-colors"
+                                    on:click=move |_| action.clear_error()
+                                    aria-label="Dismiss error"
+                                >
+                                    "Dismiss"
+                                </button>
+                            </div>
                         </div>
                     </div>
                 })
+            }}
+
+            // Inference readiness banner
+            {move || {
+                match system_status.get() {
+                    LoadingState::Loaded(status) => {
+                        if matches!(status.inference_ready, InferenceReadyState::True) {
+                            view! {}.into_any()
+                        } else {
+                            let guidance = guidance_for(
+                                status.inference_ready,
+                                status.inference_blockers.first(),
+                            );
+                            let action = guidance.action;
+                            view! {
+                                <div class="rounded-md border border-warning/40 bg-warning/10 p-3 text-sm">
+                                    <div class="flex flex-wrap items-start justify-between gap-3">
+                                        <div>
+                                            <p class="font-medium text-warning-foreground">"Inference isn't ready"</p>
+                                            <p class="text-xs text-muted-foreground">
+                                                {format!("{}.", guidance.reason)}
+                                            </p>
+                                        </div>
+                                        <div class="flex items-center gap-2">
+                                            <a href=action.href class="btn btn-outline btn-sm">
+                                                {action.label}
+                                            </a>
+                                            {if let Some(ctx) = status_center {
+                                                Some(view! {
+                                                    <button
+                                                        class="text-xs text-muted-foreground hover:text-foreground"
+                                                        on:click=move |_| ctx.open()
+                                                    >
+                                                        "Why?"
+                                                    </button>
+                                                })
+                                            } else {
+                                                None
+                                            }}
+                                        </div>
+                                    </div>
+                                </div>
+                            }.into_any()
+                        }
+                    }
+                    _ => view! {}.into_any(),
+                }
             }}
 
             // Input
@@ -895,4 +949,7 @@ fn set_timeout_simple<F: FnOnce() + 'static>(f: F, ms: i32) {
 
 /// Non-WASM stub (for tests)
 #[cfg(not(target_arch = "wasm32"))]
-fn set_timeout_simple<F: FnOnce() + 'static>(_f: F, _ms: i32) {}
+fn set_timeout_simple<F: FnOnce() + 'static>(f: F, _ms: i32) {
+    // Non-WASM: run immediately; debounce disabled in tests/SSR.
+    f();
+}

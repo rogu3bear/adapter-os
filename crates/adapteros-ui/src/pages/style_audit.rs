@@ -3,12 +3,11 @@
 //! Visual component gallery for baseline snapshots and visual regression testing.
 //! Renders all components in all variants for both light and dark modes.
 
-use crate::api::ApiClient;
+use crate::api::{ApiClient, ProcessHealthMetricResponse};
 use crate::components::charts::{
     types::{ChartPoint, DataSeries, TimeSeriesData},
     LineChart, Sparkline, SparklineMetric,
 };
-use crate::components::start_menu::{StartButton, StartMenu};
 use crate::components::trace_viewer::TraceDetailStandalone;
 use crate::components::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ConfirmationDialog,
@@ -17,7 +16,9 @@ use crate::components::{
     TableHeader, TableRow, Textarea, Toggle, WarningBanner,
 };
 use crate::hooks::{use_api_resource, LoadingState};
+use chrono::DateTime;
 use leptos::prelude::*;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Style Audit page - component gallery for visual testing
@@ -49,39 +50,30 @@ pub fn StyleAudit() -> impl IntoView {
     let input_value = RwSignal::new(String::new());
     let textarea_value = RwSignal::new(String::new());
     let toggle_checked = RwSignal::new(false);
-    let show_start_menu = RwSignal::new(false);
 
-    // Chart mock data
-    let chart_data = Memo::new(move |_| {
-        let mut data = TimeSeriesData::new();
-        let mut series1 = DataSeries::new("Requests", "var(--color-primary, #3b82f6)");
-        let mut series2 = DataSeries::new("Errors", "var(--color-red-500, #ef4444)");
+    // Fetch health metrics for live charts
+    let (health_metrics, _refetch_health) =
+        use_api_resource(move |client: Arc<ApiClient>| async move {
+            client.get_process_health_metrics(None).await
+        });
 
-        let now = 1700000000000u64; // Fixed baseline timestamp
-        for i in 0..20 {
-            let t = now + i * 60000;
-            let v1 = 50.0 + (i as f64 * 0.5).sin() * 20.0 + (i as f64);
-            let v2 = 5.0 + (i as f64 * 0.8).cos() * 2.0;
-            series1.push(ChartPoint::new(t, v1));
-            series2.push(ChartPoint::new(t, v2));
-        }
-
-        data.add_series(series1);
-        data.add_series(series2);
-        data
+    let chart_payload = Memo::new(move |_| match health_metrics.get() {
+        LoadingState::Loaded(metrics) => build_metric_series(&metrics),
+        _ => (TimeSeriesData::new(), Vec::new()),
     });
 
-    let sparkline_values =
-        Signal::derive(move || vec![10.0, 15.0, 12.0, 20.0, 25.0, 22.0, 30.0, 35.0, 28.0, 40.0]);
+    let chart_data = Signal::derive(move || chart_payload.get().0.clone());
+    let sparkline_values = Signal::derive(move || chart_payload.get().1.clone());
 
     // Trace fetch state (live diagnostic)
     let trace_id_input = RwSignal::new(String::new());
     let requested_trace_id = RwSignal::new(String::new());
 
     // Fetch recent traces on mount, auto-load the first one
-    let (recent_traces, _refetch_traces) = use_api_resource(move |client: Arc<ApiClient>| async move {
-        client.list_inference_traces(None, Some(5)).await
-    });
+    let (recent_traces, _refetch_traces) =
+        use_api_resource(move |client: Arc<ApiClient>| async move {
+            client.list_inference_traces(None, Some(5)).await
+        });
 
     let (trace_detail, refetch_trace) = use_api_resource({
         let requested_trace_id = requested_trace_id.clone();
@@ -290,21 +282,6 @@ pub fn StyleAudit() -> impl IntoView {
                                         }
                                     }}
                                 </div>
-                            </div>
-                        </SubSection>
-                    </ComponentSection>
-
-                    // ===== NAVIGATION =====
-                    <ComponentSection title="Navigation">
-                        <SubSection title="Start Menu">
-                            <div class="h-64 border rounded bg-muted/10 relative p-4 flex items-end">
-                                <div class="relative">
-                                    <StartButton open=show_start_menu/>
-                                    <StartMenu open=show_start_menu/>
-                                </div>
-                                <p class="ml-4 text-sm text-muted-foreground pb-2">
-                                    "Click Start to open the menu (renders fixed at bottom-left of viewport)"
-                                </p>
                             </div>
                         </SubSection>
                     </ComponentSection>
@@ -656,6 +633,76 @@ pub fn StyleAudit() -> impl IntoView {
             </div>
         </div>
     }
+}
+
+fn build_metric_series(
+    metrics: &[ProcessHealthMetricResponse],
+) -> (TimeSeriesData, Vec<f64>) {
+    let mut data = TimeSeriesData::new();
+    if metrics.is_empty() {
+        return (data, Vec::new());
+    }
+
+    let mut grouped: HashMap<String, Vec<ChartPoint>> = HashMap::new();
+    for metric in metrics {
+        let ts = DateTime::parse_from_rfc3339(&metric.collected_at)
+            .ok()
+            .and_then(|dt| dt.timestamp_millis().try_into().ok());
+        if let Some(timestamp) = ts {
+            grouped
+                .entry(metric.metric_name.clone())
+                .or_default()
+                .push(ChartPoint::new(timestamp, metric.metric_value));
+        }
+    }
+
+    if grouped.is_empty() {
+        return (data, Vec::new());
+    }
+
+    let mut names: Vec<String> = grouped.keys().cloned().collect();
+    names.sort();
+    let primary_name = if names.iter().any(|n| n == "cpu_usage_percent") {
+        "cpu_usage_percent".to_string()
+    } else {
+        names[0].clone()
+    };
+
+    let mut primary_points = grouped.remove(&primary_name).unwrap_or_default();
+    primary_points.sort_by_key(|p| p.timestamp);
+    if primary_points.len() > 20 {
+        primary_points.drain(0..primary_points.len().saturating_sub(20));
+    }
+    let mut primary_series =
+        DataSeries::new(primary_name.clone(), "var(--color-primary, #3b82f6)");
+    for point in &primary_points {
+        primary_series.push(point.clone());
+    }
+    data.add_series(primary_series);
+
+    if let Some(secondary_name) = names.into_iter().find(|n| n != &primary_name) {
+        let mut secondary_points = grouped.remove(&secondary_name).unwrap_or_default();
+        secondary_points.sort_by_key(|p| p.timestamp);
+        if secondary_points.len() > 20 {
+            secondary_points.drain(0..secondary_points.len().saturating_sub(20));
+        }
+        let mut secondary_series =
+            DataSeries::new(secondary_name, "var(--color-red-500, #ef4444)");
+        for point in &secondary_points {
+            secondary_series.push(point.clone());
+        }
+        data.add_series(secondary_series);
+    }
+
+    let sparkline_values = primary_points
+        .iter()
+        .rev()
+        .take(10)
+        .rev()
+        .map(|p| p.value)
+        .collect();
+
+    (data, sparkline_values)
 }
 
 /// Section wrapper for component groups

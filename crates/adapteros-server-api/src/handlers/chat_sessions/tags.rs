@@ -22,6 +22,15 @@ use super::types::{AssignTagsRequest, CreateTagRequest, UpdateTagRequest};
 /// List all tags for the tenant
 ///
 /// GET /v1/chat/tags
+#[utoipa::path(
+    get,
+    path = "/v1/chat/tags",
+    responses(
+        (status = 200, description = "Chat tags"),
+        (status = 403, description = "Forbidden")
+    ),
+    tag = "chat"
+)]
 pub async fn list_chat_tags(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -44,6 +53,17 @@ pub async fn list_chat_tags(
 /// Create a new tag
 ///
 /// POST /v1/chat/tags
+#[utoipa::path(
+    post,
+    path = "/v1/chat/tags",
+    request_body = CreateTagRequest,
+    responses(
+        (status = 201, description = "Tag created"),
+        (status = 400, description = "Invalid request"),
+        (status = 403, description = "Forbidden")
+    ),
+    tag = "chat"
+)]
 pub async fn create_chat_tag(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -77,6 +97,20 @@ pub async fn create_chat_tag(
 /// Update a tag
 ///
 /// PUT /v1/chat/tags/:tag_id
+#[utoipa::path(
+    put,
+    path = "/v1/chat/tags/{tag_id}",
+    request_body = UpdateTagRequest,
+    params(
+        ("tag_id" = String, Path, description = "Tag ID")
+    ),
+    responses(
+        (status = 200, description = "Tag updated"),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Tag not found")
+    ),
+    tag = "chat"
+)]
 pub async fn update_chat_tag(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -121,6 +155,19 @@ pub async fn update_chat_tag(
 /// Delete a tag
 ///
 /// DELETE /v1/chat/tags/:tag_id
+#[utoipa::path(
+    delete,
+    path = "/v1/chat/tags/{tag_id}",
+    params(
+        ("tag_id" = String, Path, description = "Tag ID")
+    ),
+    responses(
+        (status = 204, description = "Tag deleted"),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Tag not found")
+    ),
+    tag = "chat"
+)]
 pub async fn delete_chat_tag(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -152,6 +199,20 @@ pub async fn delete_chat_tag(
 /// Assign tags to a session
 ///
 /// POST /v1/chat/sessions/:session_id/tags
+#[utoipa::path(
+    post,
+    path = "/v1/chat/sessions/{session_id}/tags",
+    request_body = AssignTagsRequest,
+    params(
+        ("session_id" = String, Path, description = "Session ID")
+    ),
+    responses(
+        (status = 200, description = "Tags assigned"),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Session not found")
+    ),
+    tag = "chat"
+)]
 pub async fn assign_tags_to_session(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -190,6 +251,19 @@ pub async fn assign_tags_to_session(
 /// Get tags for a session
 ///
 /// GET /v1/chat/sessions/:session_id/tags
+#[utoipa::path(
+    get,
+    path = "/v1/chat/sessions/{session_id}/tags",
+    params(
+        ("session_id" = String, Path, description = "Session ID")
+    ),
+    responses(
+        (status = 200, description = "Session tags"),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Session not found")
+    ),
+    tag = "chat"
+)]
 pub async fn get_session_tags(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -221,6 +295,20 @@ pub async fn get_session_tags(
 /// Remove a tag from a session
 ///
 /// DELETE /v1/chat/sessions/:session_id/tags/:tag_id
+#[utoipa::path(
+    delete,
+    path = "/v1/chat/sessions/{session_id}/tags/{tag_id}",
+    params(
+        ("session_id" = String, Path, description = "Session ID"),
+        ("tag_id" = String, Path, description = "Tag ID")
+    ),
+    responses(
+        (status = 204, description = "Tag removed"),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Session or tag not found")
+    ),
+    tag = "chat"
+)]
 pub async fn remove_tag_from_session(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,

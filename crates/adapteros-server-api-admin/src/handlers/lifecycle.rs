@@ -205,7 +205,7 @@ pub async fn request_maintenance<S: AdminAppState>(
     })))
 }
 
-/// Request safe restart (drain + stop, delegated to supervisor)
+/// Request safe restart (maintenance + drain, delegated to supervisor)
 #[utoipa::path(
     post,
     path = "/admin/lifecycle/safe-restart",

@@ -14,6 +14,15 @@ use serde::Deserialize;
 use std::collections::HashMap;
 
 /// List nodes
+#[utoipa::path(
+    get,
+    path = "/v1/nodes",
+    responses(
+        (status = 200, description = "Nodes list", body = Vec<NodeResponse>),
+        (status = 403, description = "Forbidden", body = ErrorResponse)
+    ),
+    tag = "nodes"
+)]
 pub async fn list_nodes(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -43,6 +52,17 @@ pub async fn list_nodes(
 }
 
 /// Register node
+#[utoipa::path(
+    post,
+    path = "/v1/nodes/register",
+    request_body = RegisterNodeRequest,
+    responses(
+        (status = 200, description = "Node registered", body = NodeResponse),
+        (status = 403, description = "Forbidden", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "nodes"
+)]
 pub async fn register_node(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -100,6 +120,19 @@ pub async fn register_node(
 }
 
 /// Test node connection (ping)
+#[utoipa::path(
+    post,
+    path = "/v1/nodes/{node_id}/ping",
+    params(
+        ("node_id" = String, Path, description = "Node ID")
+    ),
+    responses(
+        (status = 200, description = "Ping result", body = NodePingResponse),
+        (status = 404, description = "Node not found", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "nodes"
+)]
 pub async fn test_node_connection(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -190,6 +223,19 @@ pub async fn test_node_connection(
 }
 
 /// Mark node offline
+#[utoipa::path(
+    post,
+    path = "/v1/nodes/{node_id}/offline",
+    params(
+        ("node_id" = String, Path, description = "Node ID")
+    ),
+    responses(
+        (status = 204, description = "Node marked offline"),
+        (status = 404, description = "Node not found", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "nodes"
+)]
 pub async fn mark_node_offline(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -227,6 +273,19 @@ pub async fn mark_node_offline(
 }
 
 /// Evict node (delete from registry)
+#[utoipa::path(
+    delete,
+    path = "/v1/nodes/{node_id}",
+    params(
+        ("node_id" = String, Path, description = "Node ID")
+    ),
+    responses(
+        (status = 204, description = "Node evicted"),
+        (status = 404, description = "Node not found", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "nodes"
+)]
 pub async fn evict_node(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -285,6 +344,19 @@ pub async fn evict_node(
 }
 
 /// Get node details
+#[utoipa::path(
+    get,
+    path = "/v1/nodes/{node_id}/details",
+    params(
+        ("node_id" = String, Path, description = "Node ID")
+    ),
+    responses(
+        (status = 200, description = "Node details", body = NodeDetailsResponse),
+        (status = 404, description = "Node not found", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "nodes"
+)]
 pub async fn get_node_details(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -560,6 +632,18 @@ pub struct ListJobsQuery {
 }
 
 /// List jobs
+#[utoipa::path(
+    get,
+    path = "/v1/jobs",
+    params(
+        ("tenant_id" = Option<String>, Query, description = "Filter by tenant ID")
+    ),
+    responses(
+        (status = 200, description = "Jobs list", body = Vec<JobResponse>),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "jobs"
+)]
 pub async fn list_jobs(
     State(state): State<AppState>,
     Extension(_claims): Extension<Claims>,
@@ -598,6 +682,17 @@ pub async fn list_jobs(
 // ============================================================================
 
 /// Spawn worker via node agent
+#[utoipa::path(
+    post,
+    path = "/v1/workers/spawn",
+    request_body = SpawnWorkerRequest,
+    responses(
+        (status = 200, description = "Worker spawned", body = WorkerResponse),
+        (status = 404, description = "Node not found", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "workers"
+)]
 pub async fn worker_spawn(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -796,6 +891,19 @@ pub struct ListWorkersQuery {
 }
 
 /// List workers with optional tenant filter
+#[utoipa::path(
+    get,
+    path = "/v1/workers",
+    params(
+        ("tenant_id" = Option<String>, Query, description = "Filter by tenant ID")
+    ),
+    responses(
+        (status = 200, description = "Workers list", body = Vec<WorkerResponse>),
+        (status = 403, description = "Forbidden", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "workers"
+)]
 pub async fn list_workers(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -1286,6 +1394,14 @@ pub async fn get_worker_health_summary(
 ///
 /// Returns build fingerprint including version, git SHA, platform, enabled features, and backends.
 /// This endpoint is public (no auth required) for service discovery and monitoring.
+#[utoipa::path(
+    get,
+    path = "/version",
+    responses(
+        (status = 200, description = "Build info", body = adapteros_core::BuildInfo)
+    ),
+    tag = "system"
+)]
 pub async fn get_version() -> Json<adapteros_core::BuildInfo> {
     Json(adapteros_core::BuildInfo::current())
 }

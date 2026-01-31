@@ -162,12 +162,20 @@ pub fn ToastItem(
 }
 
 /// Container for toast notifications
+///
+/// Uses aria-live="polite" to announce notifications to screen readers
+/// without interrupting the current task.
 #[component]
 pub fn ToastContainer() -> impl IntoView {
     let (state, action) = use_notification_context();
 
     view! {
-        <div class="toast-container" aria-label="Notifications">
+        <div
+            class="toast-container"
+            aria-label="Notifications"
+            aria-live="polite"
+            aria-atomic="false"
+        >
             <For
                 each=move || state.get().toasts.clone()
                 key=|toast| toast.id.clone()

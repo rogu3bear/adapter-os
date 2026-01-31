@@ -732,18 +732,22 @@ impl TrainingDatasetService for DefaultTrainingDatasetService {
         }
 
         let document_id = Uuid::now_v7().to_string();
-        let storage_root = std::env::var("AOS_DOCUMENTS_DIR").ok().unwrap_or_else(|| {
-            let config = self.state.config.read().map_err(|_| {
-                tracing::error!("Config lock poisoned");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("config lock poisoned").with_code("CONFIG_UNAVAILABLE"),
-                    ),
-                )
-            })?;
-            config.paths.documents_root.clone()
-        });
+        let storage_root = match std::env::var("AOS_DOCUMENTS_DIR") {
+            Ok(value) => value,
+            Err(_) => {
+                let config = self.state.config.read().map_err(|_| {
+                    tracing::error!("Config lock poisoned");
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(
+                            ErrorResponse::new("config lock poisoned")
+                                .with_code("CONFIG_UNAVAILABLE"),
+                        ),
+                    )
+                })?;
+                config.paths.documents_root.clone()
+            }
+        };
 
         let root = PathBuf::from(&storage_root);
         let root = if root.is_absolute() {
@@ -753,7 +757,7 @@ impl TrainingDatasetService for DefaultTrainingDatasetService {
                 .unwrap_or_else(|_| StdPath::new("/").to_path_buf())
                 .join(root)
         };
-        reject_forbidden_tmp_path(&root, "documents-root").map_err(ApiError::internal)?;
+        reject_forbidden_tmp_path(&root, "documents-root").map_err(ApiError::from)?;
 
         let tenant_path = root.join(&claims.tenant_id);
         fs::create_dir_all(&tenant_path)
@@ -889,7 +893,7 @@ impl TrainingDatasetService for DefaultTrainingDatasetService {
 
 #[cfg(feature = "embeddings")]
 async fn embed_chunk_with_backoff(
-    embedding_model: &Arc<dyn adapteros_ingest_docs::EmbeddingModel>,
+    embedding_model: &Arc<dyn adapteros_ingest_docs::EmbeddingModel + Send + Sync>,
     text: &str,
 ) -> adapteros_core::Result<Vec<f32>> {
     let mut attempt = 0usize;

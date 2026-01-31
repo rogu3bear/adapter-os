@@ -130,7 +130,7 @@ pub fn BreadcrumbTrail(
 }
 
 /// Convert URL segment to human-readable label
-fn humanize_segment(segment: &str) -> String {
+pub fn humanize_segment(segment: &str) -> String {
     // Handle common patterns
     match segment {
         "api-keys" => "API Keys".to_string(),

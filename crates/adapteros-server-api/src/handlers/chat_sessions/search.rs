@@ -20,6 +20,19 @@ use super::types::SearchSessionsQuery;
 /// Search chat sessions and messages
 ///
 /// GET /v1/chat/sessions/search
+#[utoipa::path(
+    get,
+    path = "/v1/chat/sessions/search",
+    params(
+        SearchSessionsQuery
+    ),
+    responses(
+        (status = 200, description = "Search results"),
+        (status = 400, description = "Invalid query"),
+        (status = 403, description = "Forbidden")
+    ),
+    tag = "chat"
+)]
 pub async fn search_chat_sessions(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,

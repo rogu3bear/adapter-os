@@ -1305,6 +1305,20 @@ pub async fn create_process_monitoring_report(
 }
 
 /// List monitoring rules (from adapteros_system_metrics)
+#[utoipa::path(
+    get,
+    path = "/v1/monitoring/rules",
+    params(
+        ("tenant_id" = Option<String>, Query, description = "Filter by tenant ID"),
+        ("is_active" = Option<bool>, Query, description = "Filter by active status")
+    ),
+    responses(
+        (status = 200, description = "Monitoring rules", body = Vec<MonitoringRuleResponse>),
+        (status = 403, description = "Forbidden", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "monitoring"
+)]
 pub async fn list_monitoring_rules(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,

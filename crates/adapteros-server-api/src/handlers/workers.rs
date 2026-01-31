@@ -1047,6 +1047,17 @@ pub struct HistoryQuery {
 ///   "timestamp": "2025-01-15T10:30:00Z"
 /// }
 /// ```
+#[utoipa::path(
+    post,
+    path = "/v1/workers/fatal",
+    request_body = crate::types::WorkerFatal,
+    responses(
+        (status = 200, description = "Worker fatal incident recorded"),
+        (status = 404, description = "Worker not found", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "workers"
+)]
 pub async fn receive_worker_fatal(
     State(state): State<AppState>,
     Json(fatal_msg): Json<crate::types::WorkerFatal>,

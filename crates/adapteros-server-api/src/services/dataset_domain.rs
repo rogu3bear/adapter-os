@@ -742,7 +742,7 @@ struct SplitAccumulator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
+    use crate::test_utils;
 
     fn mk_row(prompt: &str, response: &str) -> CanonicalRow {
         let mut row = CanonicalRow {
@@ -759,7 +759,7 @@ mod tests {
 
     #[tokio::test]
     async fn canonicalizes_jsonl_and_builds_manifest() {
-        let tmp = tempdir().unwrap();
+        let tmp = test_utils::tempdir();
         let jsonl_path = tmp.path().join("data.jsonl");
         let content = r#"
 {"prompt":"p1","response":"r1"}

@@ -126,13 +126,13 @@ fn is_cross_device(err: &std::io::Error) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
+    use crate::test_utils;
     use tokio::io::AsyncWriteExt;
 
     #[tokio::test]
     async fn finalize_uses_copy_fallback_when_forced() {
         std::env::set_var("AOS_TEST_FORCE_COPY", "1");
-        let dir = tempdir().unwrap();
+        let dir = test_utils::tempdir();
         let from = dir.path().join("from.aos");
         let to = dir.path().join("dest.aos");
 

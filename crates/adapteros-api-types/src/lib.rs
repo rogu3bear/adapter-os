@@ -327,7 +327,7 @@ pub struct ModelRuntimeHealth {
 
 /// Pagination parameters
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema, utoipa::IntoParams))]
 pub struct PaginationParams {
     #[serde(default = "default_page")]
     pub page: u32,

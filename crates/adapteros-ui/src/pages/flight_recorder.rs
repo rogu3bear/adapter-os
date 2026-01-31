@@ -536,12 +536,7 @@ fn QuickActionButton(
     let on_click = move |_| {
         match action.clone() {
             QuickAction::CopyText(text) => {
-                copy_to_clipboard(
-                    &text,
-                    set_copied,
-                    notifications.clone(),
-                    "Run ID",
-                );
+                copy_to_clipboard(&text, set_copied, notifications.clone(), "Run ID");
             }
             QuickAction::CopyReceiptHash(run_id) => {
                 let Some(digest) = run_id.get() else {

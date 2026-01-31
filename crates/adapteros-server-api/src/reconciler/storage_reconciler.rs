@@ -761,11 +761,11 @@ impl StorageReconciler {
 mod tests {
     use super::*;
     use adapteros_db::Db;
-    use tempfile::tempdir;
+    use crate::test_utils;
 
     #[tokio::test]
     async fn reconciler_detects_missing_and_orphan_dataset_files() {
-        let tmp = tempdir().unwrap();
+        let tmp = test_utils::tempdir();
         let datasets_root = tmp.path().join("datasets");
         let adapters_root = tmp.path().join("adapters");
         fs::create_dir_all(&datasets_root).await.unwrap();
@@ -873,7 +873,7 @@ mod tests {
 
     #[tokio::test]
     async fn reconciler_detects_size_mismatch() {
-        let tmp = tempdir().unwrap();
+        let tmp = test_utils::tempdir();
         let datasets_root = tmp.path().join("datasets");
         let adapters_root = tmp.path().join("adapters");
         fs::create_dir_all(&datasets_root).await.unwrap();
@@ -936,7 +936,7 @@ mod tests {
 
     #[tokio::test]
     async fn reconciler_detects_empty_files() {
-        let tmp = tempdir().unwrap();
+        let tmp = test_utils::tempdir();
         let datasets_root = tmp.path().join("datasets");
         let adapters_root = tmp.path().join("adapters");
         fs::create_dir_all(&datasets_root).await.unwrap();
@@ -997,7 +997,7 @@ mod tests {
 
     #[tokio::test]
     async fn reconciler_config_fast_skips_hashes() {
-        let tmp = tempdir().unwrap();
+        let tmp = test_utils::tempdir();
         let datasets_root = tmp.path().join("datasets");
         let adapters_root = tmp.path().join("adapters");
         fs::create_dir_all(&datasets_root).await.unwrap();
@@ -1107,7 +1107,7 @@ mod tests {
     #[tokio::test]
     #[cfg(unix)]
     async fn reconciler_handles_symlinks() {
-        let tmp = tempdir().unwrap();
+        let tmp = test_utils::tempdir();
         let datasets_root = tmp.path().join("datasets");
         let adapters_root = tmp.path().join("adapters");
         fs::create_dir_all(&datasets_root).await.unwrap();
@@ -1182,7 +1182,7 @@ mod tests {
 
     #[tokio::test]
     async fn reconciler_detects_stale_temp_files() {
-        let tmp = tempdir().unwrap();
+        let tmp = test_utils::tempdir();
         let datasets_root = tmp.path().join("datasets");
         let adapters_root = tmp.path().join("adapters");
         fs::create_dir_all(&datasets_root).await.unwrap();
@@ -1221,7 +1221,7 @@ mod tests {
 
     #[tokio::test]
     async fn reconciler_detects_stale_chunked_uploads() {
-        let tmp = tempdir().unwrap();
+        let tmp = test_utils::tempdir();
         let datasets_root = tmp.path().join("datasets");
         let adapters_root = tmp.path().join("adapters");
         fs::create_dir_all(&datasets_root).await.unwrap();
@@ -1257,7 +1257,7 @@ mod tests {
 
     #[tokio::test]
     async fn reconciler_records_tenant_id_on_issues() {
-        let tmp = tempdir().unwrap();
+        let tmp = test_utils::tempdir();
         let datasets_root = tmp.path().join("datasets");
         let adapters_root = tmp.path().join("adapters");
         fs::create_dir_all(&datasets_root).await.unwrap();
@@ -1379,7 +1379,7 @@ mod tests {
 
     #[tokio::test]
     async fn reconciler_detects_hash_mismatch() {
-        let tmp = tempdir().unwrap();
+        let tmp = test_utils::tempdir();
         let datasets_root = tmp.path().join("datasets");
         let adapters_root = tmp.path().join("adapters");
         fs::create_dir_all(&datasets_root).await.unwrap();

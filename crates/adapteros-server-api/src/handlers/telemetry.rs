@@ -47,6 +47,15 @@ pub struct ActivityEventResponse {
 }
 
 /// GET /api/metrics/snapshot - Get current metrics snapshot
+#[utoipa::path(
+    get,
+    path = "/v1/metrics/snapshot",
+    responses(
+        (status = 200, description = "Current metrics snapshot", body = MetricsSnapshotResponse),
+        (status = 403, description = "Forbidden", body = ErrorResponse)
+    ),
+    tag = "metrics"
+)]
 pub async fn get_metrics_snapshot(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -112,6 +121,21 @@ pub struct MetricsSeriesQuery {
 }
 
 /// GET /api/metrics/series - Get time series data for metrics
+#[utoipa::path(
+    get,
+    path = "/v1/metrics/series",
+    params(
+        ("series_name" = Option<String>, Query, description = "Series name filter"),
+        ("start_ms" = Option<u64>, Query, description = "Start time (ms since epoch)"),
+        ("end_ms" = Option<u64>, Query, description = "End time (ms since epoch)")
+    ),
+    responses(
+        (status = 200, description = "Metrics series", body = Vec<MetricsSeriesResponse>),
+        (status = 400, description = "Invalid query", body = ErrorResponse),
+        (status = 403, description = "Forbidden", body = ErrorResponse)
+    ),
+    tag = "metrics"
+)]
 pub async fn get_metrics_series(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -188,6 +212,24 @@ pub struct LogsQueryParams {
 }
 
 /// GET /api/logs/query - Query logs with filters
+#[utoipa::path(
+    get,
+    path = "/v1/logs/query",
+    params(
+        ("limit" = Option<usize>, Query, description = "Max results"),
+        ("tenant_id" = Option<String>, Query, description = "Tenant ID"),
+        ("event_type" = Option<String>, Query, description = "Event type"),
+        ("level" = Option<String>, Query, description = "Log level"),
+        ("component" = Option<String>, Query, description = "Component"),
+        ("trace_id" = Option<String>, Query, description = "Trace ID")
+    ),
+    responses(
+        (status = 200, description = "Log events"),
+        (status = 400, description = "Invalid query"),
+        (status = 403, description = "Forbidden")
+    ),
+    tag = "telemetry"
+)]
 pub async fn query_logs(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -229,6 +271,22 @@ pub async fn query_logs(
 }
 
 /// GET /api/logs/stream - SSE stream of logs
+#[utoipa::path(
+    get,
+    path = "/v1/logs/stream",
+    params(
+        ("limit" = Option<usize>, Query, description = "Max buffered results"),
+        ("tenant_id" = Option<String>, Query, description = "Tenant ID"),
+        ("event_type" = Option<String>, Query, description = "Event type"),
+        ("level" = Option<String>, Query, description = "Log level"),
+        ("component" = Option<String>, Query, description = "Component"),
+        ("trace_id" = Option<String>, Query, description = "Trace ID")
+    ),
+    responses(
+        (status = 200, description = "Log stream (SSE)")
+    ),
+    tag = "streams"
+)]
 pub async fn stream_logs(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,

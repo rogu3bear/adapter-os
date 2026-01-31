@@ -2444,6 +2444,7 @@ fn current_timestamp() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils;
     use crate::handlers::rag_common::parse_rag_doc_id;
     use crate::state::MetricsConfig;
     use crate::telemetry::MetricsRegistry;
@@ -2461,7 +2462,7 @@ mod tests {
     async fn build_test_state() -> AppState {
         let db = adapteros_db::Db::new_in_memory().await.unwrap();
         let jwt_secret = b"streaming-test-secret-32-bytes!".to_vec();
-        let base_tempdir = tempfile::TempDir::with_prefix("aos-test-streaming-infer-").unwrap();
+        let base_tempdir = test_utils::tempdir_with_prefix("aos-test-streaming-infer-");
         let base_dir = base_tempdir.into_path();
         for dir in [
             "artifacts",

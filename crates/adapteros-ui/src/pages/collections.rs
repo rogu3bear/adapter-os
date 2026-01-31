@@ -10,16 +10,18 @@
 
 use crate::api::{
     ApiClient, CollectionDetailResponse, CollectionResponse, CreateCollectionRequest,
+    DocumentListParams, DocumentListResponse,
 };
 use crate::components::{
-    async_state::AsyncBoundary, Badge, BadgeVariant, Button, ButtonVariant, Card,
-    ConfirmationDialog, ConfirmationSeverity, Dialog, Input, Link, LinkVariant, Table, TableBody,
-    TableCell, TableHead, TableHeader, TableRow, Textarea,
+    async_state::AsyncBoundary, Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card,
+    Checkbox, ConfirmationDialog, ConfirmationSeverity, Dialog, Input, Link, LinkVariant, Select,
+    Spinner, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Textarea,
 };
-use crate::hooks::use_api_resource;
+use crate::hooks::{use_api_resource, LoadingState};
 use crate::signals::use_notifications;
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 /// Collections list page
@@ -321,6 +323,7 @@ pub fn CollectionDetail() -> impl IntoView {
     let show_delete_confirm = RwSignal::new(false);
     let deleting = RwSignal::new(false);
     let notifications = use_notifications();
+    let show_add_dialog = RwSignal::new(false);
 
     // Trigger for refetch
     let (refetch_trigger, set_refetch_trigger) = signal(0u32);
@@ -416,6 +419,12 @@ pub fn CollectionDetail() -> impl IntoView {
                         "Refresh"
                     </Button>
                     <Button
+                        variant=ButtonVariant::Primary
+                        on_click=Callback::new(move |_| show_add_dialog.set(true))
+                    >
+                        "Add Documents"
+                    </Button>
+                    <Button
                         variant=ButtonVariant::Destructive
                         on_click=Callback::new(move |_| show_delete_confirm.set(true))
                     >
@@ -427,13 +436,24 @@ pub fn CollectionDetail() -> impl IntoView {
             // Main content
             {
                 let remove_handler = create_remove_handler.clone();
+                let refetch = refetch.clone();
                 view! {
                     <AsyncBoundary
                         state=collection
                         render=move |data| {
                             let handler = remove_handler.clone();
                             view! {
-                                <CollectionDetailContent collection=data remove_document=handler/>
+                                <CollectionDetailContent
+                                    collection=data.clone()
+                                    remove_document=handler
+                                    on_add_documents=Callback::new(move |_| show_add_dialog.set(true))
+                                />
+                                <AddDocumentsDialog
+                                    open=show_add_dialog
+                                    collection_id=data.collection_id.clone()
+                                    existing_documents=data.documents.iter().map(|d| d.document_id.clone()).collect()
+                                    on_added=Callback::new(move |_| refetch())
+                                />
                             }
                         }
                     />
@@ -459,6 +479,7 @@ pub fn CollectionDetail() -> impl IntoView {
 fn CollectionDetailContent<F>(
     collection: CollectionDetailResponse,
     remove_document: F,
+    on_add_documents: Callback<()>,
 ) -> impl IntoView
 where
     F: Fn(String) + Clone + Send + 'static,
@@ -541,7 +562,17 @@ where
                             <polyline points="14 2 14 8 20 8"/>
                         </svg>
                         <p class="text-muted-foreground">"No documents in this collection"</p>
-                        <p class="text-sm text-muted-foreground mt-1">"Add documents via the API to use RAG-enabled inference."</p>
+                        <p class="text-sm text-muted-foreground mt-1">
+                            "Add documents to enable RAG-enabled inference."
+                        </p>
+                        <div class="mt-4 flex justify-center">
+                            <Button
+                                variant=ButtonVariant::Primary
+                                on_click=Callback::new(move |_| on_add_documents.run(()))
+                            >
+                                "Add Documents"
+                            </Button>
+                        </div>
                     </div>
                 }.into_any()
             } else {
@@ -604,6 +635,329 @@ where
                 }.into_any()
             }}
         </Card>
+    }
+}
+
+#[component]
+fn AddDocumentsDialog(
+    open: RwSignal<bool>,
+    collection_id: String,
+    existing_documents: Vec<String>,
+    on_added: Callback<()>,
+) -> impl IntoView {
+    let existing_set: Arc<HashSet<String>> =
+        Arc::new(existing_documents.into_iter().collect::<HashSet<_>>());
+
+    let status_filter = RwSignal::new("indexed".to_string());
+    let search_query = RwSignal::new(String::new());
+    let (page, set_page) = signal(1u32);
+    let (refetch_trigger, set_refetch_trigger) = signal(0u32);
+    let selected_ids = RwSignal::new(Vec::<String>::new());
+    let adding = RwSignal::new(false);
+    let error_msg = RwSignal::new(None::<String>);
+
+    let (documents, _) = use_api_resource(move |client: Arc<ApiClient>| {
+        let is_open = open.get();
+        let page = page.get();
+        let status_value = status_filter.get();
+        let _trigger = refetch_trigger.get();
+        async move {
+            if !is_open {
+                return Ok(DocumentListResponse {
+                    schema_version: String::new(),
+                    data: Vec::new(),
+                    total: 0,
+                    page: 1,
+                    limit: 20,
+                    pages: 1,
+                });
+            }
+            let status = if status_value.is_empty() {
+                None
+            } else {
+                Some(status_value)
+            };
+            let params = DocumentListParams {
+                status,
+                page: Some(page),
+                limit: Some(20),
+            };
+            client.list_documents(Some(&params)).await
+        }
+    });
+
+    // Refetch and reset selection when dialog opens or filter changes
+    Effect::new(move || {
+        if open.get() {
+            selected_ids.set(Vec::new());
+            error_msg.set(None);
+            set_refetch_trigger.update(|t| *t += 1);
+        }
+    });
+
+    Effect::new(move || {
+        let _ = status_filter.get();
+        set_page.set(1);
+        set_refetch_trigger.update(|t| *t += 1);
+    });
+
+    let toggle_selected = {
+        let selected_ids = selected_ids.clone();
+        move |doc_id: String, checked: bool| {
+            selected_ids.update(|ids| {
+                if checked {
+                    if !ids.contains(&doc_id) {
+                        ids.push(doc_id);
+                    }
+                } else {
+                    ids.retain(|id| id != &doc_id);
+                }
+            });
+        }
+    };
+
+    let add_selected = Callback::new({
+        let selected_ids = selected_ids.clone();
+        let collection_id = collection_id.clone();
+        let on_added = on_added.clone();
+        move |_| {
+            let ids = selected_ids.get();
+            if ids.is_empty() {
+                error_msg.set(Some("Select at least one document to add.".into()));
+                return;
+            }
+            adding.set(true);
+            error_msg.set(None);
+            let client = Arc::new(ApiClient::new());
+            let on_added = on_added.clone();
+            let open = open;
+            let selected_ids = selected_ids.clone();
+            let collection_id = collection_id.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let mut failures = Vec::new();
+                for doc_id in ids.iter() {
+                    if let Err(e) = client
+                        .add_document_to_collection(&collection_id, doc_id)
+                        .await
+                    {
+                        failures.push((doc_id.clone(), e.to_string()));
+                    }
+                }
+
+                if failures.is_empty() {
+                    selected_ids.set(Vec::new());
+                    open.set(false);
+                    on_added.run(());
+                } else {
+                    let first = failures.first().map(|(_, e)| e.clone()).unwrap_or_default();
+                    error_msg.set(Some(format!(
+                        "Failed to add {} document(s): {}",
+                        failures.len(),
+                        first
+                    )));
+                }
+                adding.set(false);
+            });
+        }
+    });
+
+    let selected_count = Signal::derive(move || selected_ids.get().len());
+
+    view! {
+        <Dialog
+            open=open
+            title="Add Documents"
+            description="Select indexed documents to include in this collection."
+            size=crate::components::DialogSize::Lg
+        >
+            <div class="space-y-4 py-2">
+                <div class="grid gap-3 md:grid-cols-2">
+                    <Select
+                        value=status_filter
+                        options=vec![
+                            ("indexed".to_string(), "Indexed".to_string()),
+                            ("processing".to_string(), "Processing".to_string()),
+                            ("failed".to_string(), "Failed".to_string()),
+                            ("".to_string(), "All Statuses".to_string()),
+                        ]
+                        class="w-full".to_string()
+                    />
+                    <Input
+                        value=search_query
+                        label="Search".to_string()
+                        placeholder="Filter by name or ID".to_string()
+                    />
+                </div>
+
+                {move || {
+                    match documents.get() {
+                        LoadingState::Idle | LoadingState::Loading => {
+                            view! {
+                                <div class="flex items-center justify-center py-6">
+                                    <Spinner/>
+                                </div>
+                            }.into_any()
+                        }
+                        LoadingState::Loaded(data) => {
+                            let search = search_query.get().to_lowercase();
+                            let existing = existing_set.clone();
+                            let DocumentListResponse {
+                                data: docs,
+                                page: current_page,
+                                pages: total_pages,
+                                ..
+                            } = data;
+                            let filtered = docs
+                                .into_iter()
+                                .filter(|doc| !existing.contains(&doc.document_id))
+                                .filter(|doc| {
+                                    if search.is_empty() {
+                                        true
+                                    } else {
+                                        doc.name.to_lowercase().contains(&search)
+                                            || doc.document_id.to_lowercase().contains(&search)
+                                    }
+                                })
+                                .collect::<Vec<_>>();
+
+                            if filtered.is_empty() {
+                                return view! {
+                                    <div class="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+                                        "No eligible documents found."
+                                    </div>
+                                }.into_any();
+                            }
+
+                            view! {
+                                <div class="space-y-3">
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead class="w-12">""</TableHead>
+                                                <TableHead>"Name"</TableHead>
+                                                <TableHead>"Status"</TableHead>
+                                                <TableHead>"Size"</TableHead>
+                                                <TableHead>"Created"</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {filtered.into_iter().map(|doc| {
+                                                let doc_id = doc.document_id.clone();
+                                                let doc_id_for_toggle = doc_id.clone();
+                                                let doc_id_for_selected = doc_id.clone();
+                                                let is_selected = Signal::derive({
+                                                    let selected_ids = selected_ids.clone();
+                                                    move || selected_ids.get().contains(&doc_id_for_selected)
+                                                });
+                                                let status_variant = match doc.status.as_str() {
+                                                    "indexed" => BadgeVariant::Success,
+                                                    "processing" => BadgeVariant::Secondary,
+                                                    "failed" => BadgeVariant::Destructive,
+                                                    _ => BadgeVariant::Secondary,
+                                                };
+
+                                                view! {
+                                                    <TableRow>
+                                                        <TableCell>
+                                                            <Checkbox
+                                                                checked=is_selected
+                                                                on_change=Callback::new({
+                                                                    let toggle_selected = toggle_selected.clone();
+                                                                    move |checked| toggle_selected(doc_id_for_toggle.clone(), checked)
+                                                                })
+                                                            />
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <div>
+                                                                <p class="font-medium">{doc.name.clone()}</p>
+                                                                <p class="text-xs text-muted-foreground font-mono">{doc_id.clone()}</p>
+                                                            </div>
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <Badge variant=status_variant>{doc.status.clone()}</Badge>
+                                                        </TableCell>
+                                                        <TableCell>{format_bytes(doc.size_bytes)}</TableCell>
+                                                        <TableCell>
+                                                            <span class="text-sm text-muted-foreground">
+                                                                {format_date(&doc.created_at)}
+                                                            </span>
+                                                        </TableCell>
+                                                    </TableRow>
+                                                }
+                                            }).collect::<Vec<_>>()}
+                                        </TableBody>
+                                    </Table>
+
+                                    {if total_pages > 1 {
+                                        Some(view! {
+                                            <div class="flex items-center justify-between text-sm text-muted-foreground">
+                                                <span>{format!("Page {} of {}", current_page, total_pages)}</span>
+                                                <div class="flex items-center gap-2">
+                                                    <Button
+                                                        variant=ButtonVariant::Outline
+                                                        size=ButtonSize::Sm
+                                                        disabled=Signal::derive(move || current_page <= 1)
+                                                        on_click=Callback::new(move |_| set_page.set(current_page.saturating_sub(1)))
+                                                    >
+                                                        "Previous"
+                                                    </Button>
+                                                    <Button
+                                                        variant=ButtonVariant::Outline
+                                                        size=ButtonSize::Sm
+                                                        disabled=Signal::derive(move || current_page >= total_pages)
+                                                        on_click=Callback::new(move |_| set_page.set((current_page + 1).min(total_pages)))
+                                                    >
+                                                        "Next"
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                        })
+                                    } else {
+                                        None
+                                    }}
+                                </div>
+                            }.into_any()
+                        }
+                        LoadingState::Error(e) => {
+                            view! {
+                                <div class="rounded-lg border border-destructive bg-destructive/10 p-4">
+                                    <p class="text-destructive">{e.to_string()}</p>
+                                </div>
+                            }.into_any()
+                        }
+                    }
+                }}
+
+                {move || error_msg.get().map(|err| view! {
+                    <div class="rounded-md border border-destructive bg-destructive/10 p-3 text-sm text-destructive">
+                        {err}
+                    </div>
+                })}
+            </div>
+
+            <div class="flex items-center justify-between gap-2">
+                <span class="text-sm text-muted-foreground">
+                    {move || format!("Selected: {}", selected_count.get())}
+                </span>
+                <div class="flex items-center gap-2">
+                    <Button
+                        variant=ButtonVariant::Outline
+                        on_click=Callback::new(move |_| open.set(false))
+                        disabled=Signal::derive(move || adding.get())
+                    >
+                        "Cancel"
+                    </Button>
+                    <Button
+                        variant=ButtonVariant::Primary
+                        loading=Signal::derive(move || adding.get())
+                        disabled=Signal::derive(move || adding.get() || selected_count.get() == 0)
+                        on_click=add_selected
+                    >
+                        "Add Selected"
+                    </Button>
+                </div>
+            </div>
+        </Dialog>
     }
 }
 

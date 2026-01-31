@@ -4,6 +4,12 @@ use adapteros_db::sqlite_backend::SqliteBackend;
 use adapteros_db::traits::{CreateStackRequest, DatabaseBackend};
 use uuid::Uuid;
 
+fn version_num(version: &str) -> u64 {
+    version
+        .parse::<u64>()
+        .expect("stack.version should be numeric")
+}
+
 fn stack_name() -> String {
     format!("stack.test.{}", Uuid::new_v4().simple())
 }
@@ -35,7 +41,11 @@ async fn test_stack_version_starts_at_one() {
         .unwrap()
         .unwrap();
 
-    assert_eq!(stack.version, 1, "New stack should start at version 1");
+    assert_eq!(
+        version_num(&stack.version),
+        1,
+        "New stack should start at version 1"
+    );
 }
 
 #[tokio::test]
@@ -67,7 +77,7 @@ async fn test_stack_version_increments_on_adapter_change() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(stack_v1.version, 1);
+    assert_eq!(version_num(&stack_v1.version), 1);
 
     // Update with different adapter_ids
     let update_req = CreateStackRequest {
@@ -92,7 +102,8 @@ async fn test_stack_version_increments_on_adapter_change() {
         .unwrap()
         .unwrap();
     assert_eq!(
-        stack_v2.version, 2,
+        version_num(&stack_v2.version),
+        2,
         "Version should increment when adapter_ids change"
     );
 }
@@ -141,7 +152,8 @@ async fn test_stack_version_increments_on_workflow_change() {
         .unwrap()
         .unwrap();
     assert_eq!(
-        stack_v2.version, 2,
+        version_num(&stack_v2.version),
+        2,
         "Version should increment when workflow_type changes"
     );
 }
@@ -191,7 +203,8 @@ async fn test_stack_version_no_increment_on_metadata_change() {
         .unwrap()
         .unwrap();
     assert_eq!(
-        stack.version, 1,
+        version_num(&stack.version),
+        1,
         "Version should NOT increment for metadata-only changes"
     );
     assert_eq!(stack.name, renamed, "Name should be updated");
@@ -247,8 +260,8 @@ async fn test_stack_version_multiple_increments() {
             .unwrap()
             .unwrap();
         assert_eq!(
-            stack.version,
-            i,
+            version_num(&stack.version),
+            i as u64,
             "Version should be {} after {} updates",
             i,
             i - 1
@@ -260,7 +273,11 @@ async fn test_stack_version_multiple_increments() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(final_stack.version, 6, "Final version should be 6");
+    assert_eq!(
+        version_num(&final_stack.version),
+        6,
+        "Final version should be 6"
+    );
 }
 
 #[tokio::test]
@@ -290,6 +307,10 @@ async fn test_list_stacks_includes_version() {
     assert_eq!(stacks.len(), 3);
 
     for stack in stacks {
-        assert_eq!(stack.version, 1, "All new stacks should have version 1");
+        assert_eq!(
+            version_num(&stack.version),
+            1,
+            "All new stacks should have version 1"
+        );
     }
 }

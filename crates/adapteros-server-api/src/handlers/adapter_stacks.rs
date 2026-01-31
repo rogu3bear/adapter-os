@@ -1573,6 +1573,17 @@ pub async fn get_stack_policies(
 ///
 /// Streams real-time policy compliance updates for a specific stack.
 /// Useful for live monitoring of policy enforcement and violations.
+#[utoipa::path(
+    get,
+    path = "/v1/stream/stack-policies/{id}",
+    params(
+        ("id" = String, Path, description = "Stack ID")
+    ),
+    responses(
+        (status = 200, description = "Stack policy stream (SSE)")
+    ),
+    tag = "streams"
+)]
 pub async fn stack_policy_stream(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,

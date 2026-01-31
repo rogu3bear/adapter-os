@@ -647,7 +647,7 @@ pub async fn execute_replay(
         );
     }
 
-    let mut run_envelope = new_run_envelope(&state, &claims, replay_id.clone(), false);
+    let mut run_envelope = new_run_envelope_no_tick(&state, &claims, replay_id.clone(), false);
     run_envelope.manifest_hash_b3 = Some(metadata.manifest_hash.clone());
     set_policy_mask(&mut run_envelope, stored_policy_mask_digest.as_ref());
 

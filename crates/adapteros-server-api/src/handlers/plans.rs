@@ -18,6 +18,18 @@ pub struct ListPlansQuery {
 }
 
 /// Build a plan (creates a background job)
+#[utoipa::path(
+    post,
+    path = "/v1/plans/build",
+    request_body = BuildPlanRequest,
+    responses(
+        (status = 200, description = "Plan build job created", body = JobResponse),
+        (status = 400, description = "Invalid request", body = ErrorResponse),
+        (status = 403, description = "Forbidden", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "plans"
+)]
 pub async fn build_plan(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -69,6 +81,19 @@ pub async fn build_plan(
 }
 
 /// List plans with optional tenant filter
+#[utoipa::path(
+    get,
+    path = "/v1/plans",
+    params(
+        ("tenant_id" = Option<String>, Query, description = "Filter by tenant ID")
+    ),
+    responses(
+        (status = 200, description = "Plans list", body = Vec<PlanResponse>),
+        (status = 403, description = "Forbidden", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "plans"
+)]
 pub async fn list_plans(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -144,6 +169,19 @@ pub async fn list_plans(
 }
 
 /// Get plan details
+#[utoipa::path(
+    get,
+    path = "/v1/plans/{plan_id}/details",
+    params(
+        ("plan_id" = String, Path, description = "Plan ID")
+    ),
+    responses(
+        (status = 200, description = "Plan details", body = PlanDetailsResponse),
+        (status = 404, description = "Plan not found", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "plans"
+)]
 pub async fn get_plan_details(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -225,6 +263,19 @@ pub async fn get_plan_details(
 }
 
 /// Rebuild plan
+#[utoipa::path(
+    post,
+    path = "/v1/plans/{plan_id}/rebuild",
+    params(
+        ("plan_id" = String, Path, description = "Plan ID")
+    ),
+    responses(
+        (status = 200, description = "Plan rebuilt", body = PlanRebuildResponse),
+        (status = 404, description = "Plan not found", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "plans"
+)]
 pub async fn rebuild_plan(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -318,6 +369,17 @@ pub async fn rebuild_plan(
 }
 
 /// Compare plans
+#[utoipa::path(
+    post,
+    path = "/v1/plans/compare",
+    request_body = ComparePlansRequest,
+    responses(
+        (status = 200, description = "Plan comparison", body = PlanComparisonResponse),
+        (status = 404, description = "Plan not found", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "plans"
+)]
 pub async fn compare_plans(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -394,6 +456,19 @@ pub async fn compare_plans(
 }
 
 /// Export plan manifest
+#[utoipa::path(
+    get,
+    path = "/v1/plans/{plan_id}/manifest",
+    params(
+        ("plan_id" = String, Path, description = "Plan ID")
+    ),
+    responses(
+        (status = 200, description = "Plan manifest", body = serde_json::Value),
+        (status = 404, description = "Plan not found", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "plans"
+)]
 pub async fn export_plan_manifest(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -435,6 +510,18 @@ pub async fn export_plan_manifest(
 }
 
 /// Check promotion gates
+#[utoipa::path(
+    get,
+    path = "/v1/cp/promotion-gates/{cpid}",
+    params(
+        ("cpid" = String, Path, description = "Control plane ID")
+    ),
+    responses(
+        (status = 200, description = "Promotion gates", body = PromotionGatesResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "promotion"
+)]
 pub async fn promotion_gates(
     State(_state): State<AppState>,
     Extension(_claims): Extension<Claims>,

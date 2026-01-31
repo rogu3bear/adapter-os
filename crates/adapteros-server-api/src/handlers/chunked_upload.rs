@@ -1025,6 +1025,7 @@ impl FileValidator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils;
 
     #[test]
     fn test_compression_format_detection() {
@@ -1044,7 +1045,7 @@ mod tests {
 
     #[test]
     fn test_upload_session_creation() {
-        let temp_dir = tempfile::TempDir::with_prefix("aos-test-").unwrap();
+        let temp_dir = test_utils::tempdir_with_prefix("aos-test-");
         let session = UploadSession {
             schema_version: UPLOAD_SESSION_SCHEMA_VERSION,
             session_id: "test-123".to_string(),

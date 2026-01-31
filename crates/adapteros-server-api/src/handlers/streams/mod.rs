@@ -63,6 +63,14 @@ fn create_replay_stream(
 
 /// SSE stream for system metrics
 /// Pushes SystemMetrics every 5 seconds with monotonic IDs and replay support
+#[utoipa::path(
+    get,
+    path = "/v1/stream/metrics",
+    responses(
+        (status = 200, description = "System metrics stream (SSE)")
+    ),
+    tag = "streams"
+)]
 pub async fn system_metrics_stream(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -165,6 +173,14 @@ pub async fn system_metrics_stream(
 
 /// SSE stream for telemetry events
 /// Streams telemetry events in real-time via broadcast channel with replay support
+#[utoipa::path(
+    get,
+    path = "/v1/stream/telemetry",
+    responses(
+        (status = 200, description = "Telemetry events stream (SSE)")
+    ),
+    tag = "streams"
+)]
 pub async fn telemetry_events_stream(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -301,6 +317,14 @@ pub async fn telemetry_events_stream(
 
 /// SSE stream for adapter state transitions
 /// Streams adapter lifecycle events with replay support
+#[utoipa::path(
+    get,
+    path = "/v1/stream/adapters",
+    responses(
+        (status = 200, description = "Adapter state stream (SSE)")
+    ),
+    tag = "streams"
+)]
 pub async fn adapter_state_stream(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,

@@ -34,6 +34,14 @@ pub fn training_routes() -> Router<AppState> {
             post(handlers::get_preprocess_status),
         )
         .route(
+            "/v1/training/preprocessed-cache/count",
+            get(handlers::training::get_preprocessed_cache_count),
+        )
+        .route(
+            "/v1/training/preprocessed-cache",
+            get(handlers::training::list_preprocessed_cache),
+        )
+        .route(
             "/v1/training/jobs/{job_id}",
             get(handlers::get_training_job),
         )

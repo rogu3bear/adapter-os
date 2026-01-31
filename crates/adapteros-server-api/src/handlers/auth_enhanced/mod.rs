@@ -36,6 +36,12 @@ pub use dev_bypass::{
     dev_bypass_handler,
 };
 
+#[cfg(not(all(feature = "dev-bypass", debug_assertions)))]
+pub use stubs::{
+    __path_dev_bootstrap_handler, __path_dev_bypass_handler, dev_bootstrap_handler,
+    dev_bypass_handler,
+};
+
 // Tenant switch handler (fully implemented)
 pub use tenant_switch::{__path_switch_tenant_handler, switch_tenant_handler};
 
