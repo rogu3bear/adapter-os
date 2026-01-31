@@ -421,6 +421,28 @@ impl ApiClient {
         self.get("/v1/adapters/in-flight").await
     }
 
+    /// Transition adapter lifecycle state
+    ///
+    /// Changes an adapter's lifecycle state (e.g., draft -> active, active -> deprecated).
+    /// Requires a reason for audit trail purposes.
+    pub async fn transition_adapter_lifecycle(
+        &self,
+        adapter_id: &str,
+        new_state: &str,
+        reason: &str,
+    ) -> ApiResult<adapteros_api_types::AdapterResponse> {
+        #[derive(serde::Serialize)]
+        struct TransitionRequest<'a> {
+            new_state: &'a str,
+            reason: &'a str,
+        }
+        self.post(
+            &format!("/v1/adapters/{}/lifecycle", adapter_id),
+            &TransitionRequest { new_state, reason },
+        )
+        .await
+    }
+
     // --- System ---
 
     /// Get system status
