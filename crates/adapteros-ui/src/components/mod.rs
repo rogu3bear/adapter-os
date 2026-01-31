@@ -5,6 +5,7 @@
 pub mod action_card;
 pub mod adapter_bar;
 pub mod adapter_detail_panel;
+pub mod adapter_lifecycle_controls;
 pub mod async_state;
 pub mod auth;
 pub mod breadcrumb_trail;
@@ -55,6 +56,7 @@ pub use adapter_bar::{
     SuggestedAdaptersBar,
 };
 pub use adapter_detail_panel::{AdapterDetailPanel, AdapterSuggestionContext};
+pub use adapter_lifecycle_controls::AdapterLifecycleControls;
 pub use async_state::{
     AsyncBoundary, AsyncBoundaryWithEmpty, AsyncBoundaryWithErrorRender, Breadcrumb, DetailRow,
     EmptyState, EmptyStateVariant, ErrorDisplay, LoadingDisplay, PageHeader, RefreshButton,
