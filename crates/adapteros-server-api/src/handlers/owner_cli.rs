@@ -427,19 +427,32 @@ mod tests {
         assert!(result.stderr.is_empty());
     }
 
+    fn aosctl_available() -> bool {
+        let Some(paths) = std::env::var_os("PATH") else {
+            return false;
+        };
+        std::env::split_paths(&paths).any(|path| path.join("aosctl").exists())
+    }
+
     // Note: Tests for actual aosctl commands require the aosctl binary to be available
     // These tests are integration tests and should run in CI with the full build
     #[tokio::test]
-    #[ignore = "Requires aosctl binary in PATH - run with --ignored for integration testing [tracking: STAB-IGN-0066]"]
     async fn test_execute_command_status() {
+        if !aosctl_available() {
+            eprintln!("skipping: aosctl not found in PATH");
+            return;
+        }
         let result = execute_command("aosctl status").await.unwrap();
         // Real aosctl should return 0 on success
         assert!(result.exit_code == 0 || !result.stderr.is_empty());
     }
 
     #[tokio::test]
-    #[ignore = "Requires aosctl binary in PATH - run with --ignored for integration testing [tracking: STAB-IGN-0067]"]
     async fn test_execute_command_adapters_list() {
+        if !aosctl_available() {
+            eprintln!("skipping: aosctl not found in PATH");
+            return;
+        }
         let result = execute_command("aosctl adapters list").await.unwrap();
         // May succeed or fail depending on database state
         assert!(result.exit_code >= 0);
