@@ -218,9 +218,9 @@ impl GlobalTickLedger {
         self.local_tick.load(Ordering::SeqCst)
     }
 
-    /// Increment tick counter
+    /// Increment tick counter and return the assigned tick.
     pub fn increment_tick(&self) -> u64 {
-        self.local_tick.fetch_add(1, Ordering::SeqCst) + 1
+        self.local_tick.fetch_add(1, Ordering::SeqCst)
     }
 
     /// Record a tick event
@@ -232,7 +232,27 @@ impl GlobalTickLedger {
     pub async fn record_tick(&self, task_id: TaskId, event: &ExecutorEvent) -> Result<B3Hash> {
         // Atomically fetch-and-increment tick to ensure uniqueness
         let tick = self.local_tick.fetch_add(1, Ordering::SeqCst);
+        self.record_tick_with_assigned_tick(tick, task_id, event).await
+    }
 
+    /// Record a tick event at a pre-assigned tick.
+    pub async fn record_tick_at(
+        &self,
+        tick: u64,
+        task_id: TaskId,
+        event: &ExecutorEvent,
+    ) -> Result<B3Hash> {
+        self.local_tick
+            .fetch_max(tick.saturating_add(1), Ordering::SeqCst);
+        self.record_tick_with_assigned_tick(tick, task_id, event).await
+    }
+
+    async fn record_tick_with_assigned_tick(
+        &self,
+        tick: u64,
+        task_id: TaskId,
+        event: &ExecutorEvent,
+    ) -> Result<B3Hash> {
         // Use deterministic timestamps if enabled (tick * 1000us), otherwise wall-clock
         // Note: Wall-clock timestamps are non-deterministic but excluded from event_hash
         let timestamp_us = if self.use_deterministic_timestamps {
@@ -273,6 +293,7 @@ impl GlobalTickLedger {
             ExecutorEvent::TaskCompleted { .. } => "TaskCompleted",
             ExecutorEvent::TaskFailed { .. } => "TaskFailed",
             ExecutorEvent::TaskTimeout { .. } => "TaskTimeout",
+            ExecutorEvent::InferenceStarted { .. } => "InferenceStarted",
             ExecutorEvent::TickAdvanced { .. } => "TickAdvanced",
         };
 
