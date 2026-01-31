@@ -966,4 +966,7 @@ fn set_timeout_simple<F: FnOnce() + 'static>(f: F, ms: i32) {
 
 /// Non-WASM stub (for tests)
 #[cfg(not(target_arch = "wasm32"))]
-fn set_timeout_simple<F: FnOnce() + 'static>(_f: F, _ms: i32) {}
+fn set_timeout_simple<F: FnOnce() + 'static>(f: F, _ms: i32) {
+    // Non-WASM: run immediately; debounce disabled in tests/SSR.
+    f();
+}

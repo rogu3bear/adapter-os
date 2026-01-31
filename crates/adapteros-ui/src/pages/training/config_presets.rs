@@ -281,30 +281,44 @@ pub fn TrainingConfigPresets(
             </div>
 
             // Time estimate (when available)
-            {move || time_estimate.get().map(|minutes| {
-                let formatted = if minutes < 1.0 {
-                    "< 1 min".to_string()
-                } else if minutes < 60.0 {
-                    format!("~{:.0} min", minutes)
-                } else {
-                    let hours = minutes / 60.0;
-                    format!("~{:.1} hrs", hours)
-                };
+            {move || match time_estimate.get() {
+                Some(minutes) => {
+                    let formatted = if minutes < 1.0 {
+                        "< 1 min".to_string()
+                    } else if minutes < 60.0 {
+                        format!("~{:.0} min", minutes)
+                    } else {
+                        let hours = minutes / 60.0;
+                        format!("~{:.1} hrs", hours)
+                    };
 
-                view! {
-                    <div class="rounded-lg border border-primary/20 bg-primary/5 p-3">
+                    view! {
+                        <div class="rounded-lg border border-primary/20 bg-primary/5 p-3">
+                            <div class="flex items-center gap-2">
+                                <svg class="w-4 h-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                </svg>
+                                <span class="text-sm">
+                                    "Estimated training time (rough): "
+                                    <span class="font-medium">{formatted}</span>
+                                </span>
+                            </div>
+                        </div>
+                    }.into_any()
+                }
+                None => view! {
+                    <div class="rounded-lg border border-muted/60 bg-muted/30 p-3">
                         <div class="flex items-center gap-2">
-                            <svg class="w-4 h-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <svg class="w-4 h-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
                             </svg>
-                            <span class="text-sm">
-                                "Estimated training time: "
-                                <span class="font-medium">{formatted}</span>
+                            <span class="text-sm text-muted-foreground">
+                                "Estimated training time: unavailable (select a dataset)"
                             </span>
                         </div>
                     </div>
-                }
-            })}
+                }.into_any(),
+            }}
 
             // Configuration parameters
             <div class="space-y-4">

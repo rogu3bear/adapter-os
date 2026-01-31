@@ -4,6 +4,7 @@
 //! in the bottom taskbar. Features collapsible sections, disabled items with
 //! explanations, and keyboard navigation.
 
+use crate::api::ui_build_version;
 use leptos::prelude::*;
 use leptos_router::hooks::use_navigate;
 
@@ -388,9 +389,9 @@ pub fn Taskbar() -> impl IntoView {
             // Spacer
             <div class="flex-1"/>
 
-            // Quick info area (placeholder)
+            // Quick info area
             <div class="text-xs text-muted-foreground">
-                "adapterOS v0.1.0"
+                {format!("adapterOS v{}", ui_build_version())}
             </div>
         </div>
     }
