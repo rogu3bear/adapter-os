@@ -22,6 +22,7 @@ use crate::components::{
     ButtonVariant, Card, EmptyState, EmptyStateVariant, ErrorDisplay, Link, LinkVariant,
     SplitPanel, SplitRatio, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
+use crate::contexts::use_in_flight;
 use crate::hooks::{use_api_resource, LoadingState};
 use crate::signals::refetch::{use_refetch_signal, RefetchTopic};
 use adapteros_api_types::AdapterResponse;
@@ -139,6 +140,7 @@ fn AdaptersListInteractive(
     on_select: Callback<String>,
 ) -> impl IntoView {
     let total = adapters.len();
+    let in_flight = use_in_flight();
 
     if adapters.is_empty() {
         return view! {
@@ -185,11 +187,13 @@ fn AdaptersListInteractive(
                         adapters.iter().take(count).map(|adapter| {
                             let id = adapter.id.clone();
                             let id_for_click = id.clone();
+                            let id_for_in_flight = id.clone();
                             let name = adapter.name.clone();
                             let lifecycle = adapter.lifecycle_state.clone();
                             let tier = adapter.tier.clone();
                             let is_selected = current_selected.as_ref() == Some(&id);
                             let on_select = on_select.clone();
+                            let in_flight = in_flight.clone();
 
                             // Lifecycle badge variant
                             let lifecycle_variant = match lifecycle.as_str() {
@@ -198,6 +202,11 @@ fn AdaptersListInteractive(
                                 "retired" => BadgeVariant::Destructive,
                                 _ => BadgeVariant::Secondary,
                             };
+
+                            // Check if adapter is in-flight
+                            let is_in_flight = Signal::derive(move || {
+                                in_flight.is_in_flight(&id_for_in_flight)
+                            });
 
                             view! {
                                 <tr
@@ -215,9 +224,14 @@ fn AdaptersListInteractive(
                                         <span class="font-medium">{name}</span>
                                     </TableCell>
                                     <TableCell>
-                                        <Badge variant=lifecycle_variant>
-                                            {lifecycle}
-                                        </Badge>
+                                        <div class="flex items-center gap-2">
+                                            <Badge variant=lifecycle_variant>
+                                                {lifecycle}
+                                            </Badge>
+                                            {move || is_in_flight.get().then(|| view! {
+                                                <Badge variant=BadgeVariant::Warning>"In Use"</Badge>
+                                            })}
+                                        </div>
                                     </TableCell>
                                     <TableCell>
                                         <span class="text-sm text-muted-foreground">{tier}</span>
