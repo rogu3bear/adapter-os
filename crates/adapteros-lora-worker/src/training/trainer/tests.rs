@@ -329,18 +329,22 @@ fn test_coreml_latency_metrics_tracking() {
 
 #[test]
 fn test_available_backends_detection() {
+    std::env::set_var("AOS_FORCE_GPU_BACKEND", "cpu");
     let backends = MicroLoRATrainer::detect_available_backends();
     // At minimum, CPU should always be available
     assert!(!backends.is_empty());
     let has_cpu = backends.iter().any(|(b, _)| *b == TrainingBackend::Cpu);
     assert!(has_cpu, "CPU backend should always be available");
+    std::env::remove_var("AOS_FORCE_GPU_BACKEND");
 }
 
 #[test]
 fn test_describe_available_backends() {
+    std::env::set_var("AOS_FORCE_GPU_BACKEND", "cpu");
     let desc = MicroLoRATrainer::describe_available_backends();
     assert!(desc.contains("Available training backends:"));
     assert!(desc.contains("CPU")); // At minimum, CPU should be listed
+    std::env::remove_var("AOS_FORCE_GPU_BACKEND");
 }
 
 #[test]

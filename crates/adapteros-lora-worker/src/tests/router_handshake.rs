@@ -28,7 +28,13 @@ mod tests {
         ];
 
         // 2. Initialize Metal Device & RingBuffer
-        let device = Device::system_default().expect("Metal device required");
+        let device = match Device::system_default() {
+            Some(device) => device,
+            None => {
+                eprintln!("skipping: metal device required");
+                return;
+            }
+        };
         let device_arc = Arc::new(device);
         let mut ring_buffer =
             RingBuffer::new(device_arc.clone(), 8).expect("RingBuffer init failed");
