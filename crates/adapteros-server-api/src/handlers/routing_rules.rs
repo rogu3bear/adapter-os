@@ -12,6 +12,18 @@ use axum::{
 };
 
 /// List routing rules for an Identity Set
+#[utoipa::path(
+    get,
+    path = "/v1/routing-rules/identity/{identity_dataset_id}",
+    params(
+        ("identity_dataset_id" = String, Path, description = "Identity dataset ID")
+    ),
+    responses(
+        (status = 200, description = "Routing rules"),
+        (status = 500, description = "Internal error")
+    ),
+    tag = "routing"
+)]
 pub async fn list_rules(
     State(state): State<AppState>,
     _identity: Principal,
@@ -25,6 +37,16 @@ pub async fn list_rules(
 }
 
 /// Create a new routing rule
+#[utoipa::path(
+    post,
+    path = "/v1/routing-rules",
+    responses(
+        (status = 200, description = "Routing rule created"),
+        (status = 400, description = "Invalid request"),
+        (status = 500, description = "Internal error")
+    ),
+    tag = "routing"
+)]
 pub async fn create_rule(
     State(state): State<AppState>,
     identity: Principal,
@@ -44,6 +66,19 @@ pub async fn create_rule(
 }
 
 /// Delete a routing rule
+#[utoipa::path(
+    delete,
+    path = "/v1/routing-rules/{rule_id}",
+    params(
+        ("rule_id" = String, Path, description = "Routing rule ID")
+    ),
+    responses(
+        (status = 204, description = "Routing rule deleted"),
+        (status = 404, description = "Routing rule not found"),
+        (status = 500, description = "Internal error")
+    ),
+    tag = "routing"
+)]
 pub async fn delete_rule(
     State(state): State<AppState>,
     _identity: Principal,

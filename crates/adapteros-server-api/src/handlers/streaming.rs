@@ -128,6 +128,14 @@ pub struct AdapterStateEvent {
 /// event: metrics
 /// data: {"timestamp":..., "latency":{...}, "throughput":{...}, ...}
 /// ```
+#[utoipa::path(
+    get,
+    path = "/v1/stream/metrics",
+    responses(
+        (status = 200, description = "System metrics stream (SSE)")
+    ),
+    tag = "streams"
+)]
 pub async fn system_metrics_stream(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -265,6 +273,14 @@ pub async fn system_metrics_stream(
 /// event: telemetry
 /// data: {"events": [...], "count": 5}
 /// ```
+#[utoipa::path(
+    get,
+    path = "/v1/stream/telemetry",
+    responses(
+        (status = 200, description = "Telemetry events stream (SSE)")
+    ),
+    tag = "streams"
+)]
 pub async fn telemetry_events_stream(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -468,6 +484,14 @@ pub async fn telemetry_events_stream(
 /// event: adapter_state
 /// data: {"adapters": [...], "count": 3}
 /// ```
+#[utoipa::path(
+    get,
+    path = "/v1/stream/adapters",
+    responses(
+        (status = 200, description = "Adapter state stream (SSE)")
+    ),
+    tag = "streams"
+)]
 pub async fn adapter_state_stream(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -709,6 +733,14 @@ pub enum BootProgressEvent {
 /// event: boot_progress
 /// data: {"event_type": "StateChanged", "previous": "booting", "current": "loading-base-models", ...}
 /// ```
+#[utoipa::path(
+    get,
+    path = "/v1/stream/boot-progress",
+    responses(
+        (status = 200, description = "Boot progress stream (SSE)")
+    ),
+    tag = "streams"
+)]
 pub async fn boot_progress_stream(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -1645,6 +1677,14 @@ pub struct TraceReceiptEvent {
 /// event: trace_receipts
 /// data: {"receipts": [...], "count": 2}
 /// ```
+#[utoipa::path(
+    get,
+    path = "/v1/stream/trace-receipts",
+    responses(
+        (status = 200, description = "Trace receipts stream (SSE)")
+    ),
+    tag = "streams"
+)]
 pub async fn trace_receipts_stream(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,

@@ -23,6 +23,20 @@ use super::types::{ArchiveSessionRequest, ListArchivedQuery};
 /// Archive a session
 ///
 /// POST /v1/chat/sessions/:session_id/archive
+#[utoipa::path(
+    post,
+    path = "/v1/chat/sessions/{session_id}/archive",
+    request_body = ArchiveSessionRequest,
+    params(
+        ("session_id" = String, Path, description = "Session ID")
+    ),
+    responses(
+        (status = 204, description = "Session archived"),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Session not found")
+    ),
+    tag = "chat"
+)]
 pub async fn archive_session(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -55,6 +69,19 @@ pub async fn archive_session(
 /// Restore a deleted or archived session (admin-only)
 ///
 /// POST /v1/chat/sessions/:session_id/restore
+#[utoipa::path(
+    post,
+    path = "/v1/chat/sessions/{session_id}/restore",
+    params(
+        ("session_id" = String, Path, description = "Session ID")
+    ),
+    responses(
+        (status = 204, description = "Session restored"),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Session not found")
+    ),
+    tag = "chat"
+)]
 pub async fn restore_session(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -88,6 +115,19 @@ pub async fn restore_session(
 /// Permanently delete a session
 ///
 /// DELETE /v1/chat/sessions/:session_id/permanent
+#[utoipa::path(
+    delete,
+    path = "/v1/chat/sessions/{session_id}/permanent",
+    params(
+        ("session_id" = String, Path, description = "Session ID")
+    ),
+    responses(
+        (status = 204, description = "Session deleted"),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Session not found")
+    ),
+    tag = "chat"
+)]
 pub async fn hard_delete_session(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -121,6 +161,18 @@ pub async fn hard_delete_session(
 /// List archived sessions
 ///
 /// GET /v1/chat/sessions/archived
+#[utoipa::path(
+    get,
+    path = "/v1/chat/sessions/archived",
+    params(
+        ListArchivedQuery
+    ),
+    responses(
+        (status = 200, description = "Archived sessions"),
+        (status = 403, description = "Forbidden")
+    ),
+    tag = "chat"
+)]
 pub async fn list_archived_sessions(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -144,6 +196,18 @@ pub async fn list_archived_sessions(
 /// List deleted sessions (trash)
 ///
 /// GET /v1/chat/sessions/trash
+#[utoipa::path(
+    get,
+    path = "/v1/chat/sessions/trash",
+    params(
+        ListArchivedQuery
+    ),
+    responses(
+        (status = 200, description = "Deleted sessions"),
+        (status = 403, description = "Forbidden")
+    ),
+    tag = "chat"
+)]
 pub async fn list_deleted_sessions(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,

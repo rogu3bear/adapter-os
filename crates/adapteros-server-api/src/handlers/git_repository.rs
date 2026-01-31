@@ -14,6 +14,7 @@ use axum::{
 };
 use git2::Repository;
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 use std::collections::HashMap;
 use std::path::Path as StdPath;
 use tokio::time::{timeout, Duration};
@@ -22,7 +23,7 @@ use uuid::Uuid;
 use walkdir::WalkDir;
 
 /// Git repository registration request
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct RegisterRepositoryRequest {
     pub repo_id: String,
     pub path: String,
@@ -31,7 +32,7 @@ pub struct RegisterRepositoryRequest {
 }
 
 /// Git repository registration response
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct RegisterRepositoryResponse {
     pub repo_id: String,
     pub status: String,
@@ -41,7 +42,7 @@ pub struct RegisterRepositoryResponse {
 }
 
 /// Repository analysis result
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RepositoryAnalysis {
     pub repo_id: String,
     pub languages: Vec<LanguageInfo>,
@@ -52,7 +53,7 @@ pub struct RepositoryAnalysis {
 }
 
 /// Language detection result
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct LanguageInfo {
     pub name: String,
     pub files: usize,
@@ -61,7 +62,7 @@ pub struct LanguageInfo {
 }
 
 /// Framework detection result
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct FrameworkInfo {
     pub name: String,
     pub version: Option<String>,
@@ -70,7 +71,7 @@ pub struct FrameworkInfo {
 }
 
 /// Security scan result
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct SecurityScanResult {
     pub violations: Vec<SecurityViolation>,
     pub scan_timestamp: String,
@@ -78,7 +79,7 @@ pub struct SecurityScanResult {
 }
 
 /// Security violation
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct SecurityViolation {
     pub file_path: String,
     pub pattern: String,
@@ -87,7 +88,7 @@ pub struct SecurityViolation {
 }
 
 /// Git repository information
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct GitInfo {
     pub branch: String,
     pub commit_count: usize,
@@ -96,7 +97,7 @@ pub struct GitInfo {
 }
 
 /// Evidence span for repository analysis
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct EvidenceSpan {
     pub span_id: String,
     pub evidence_type: String,
@@ -107,7 +108,7 @@ pub struct EvidenceSpan {
 }
 
 /// Repository training request
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct TrainRepositoryRequest {
     pub repo_id: String,
     pub base_model_id: String,
@@ -115,7 +116,7 @@ pub struct TrainRepositoryRequest {
 }
 
 /// Training configuration
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct TrainingConfig {
     pub rank: usize,
     pub alpha: usize,
@@ -126,7 +127,7 @@ pub struct TrainingConfig {
 }
 
 /// Repository training response
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct TrainRepositoryResponse {
     pub training_id: String,
     pub status: String,
@@ -138,6 +139,18 @@ pub struct TrainRepositoryResponse {
 ///
 /// Evidence: docs/code-intelligence/code-policies.md:45-78
 /// Policy: Evidence requirements for code suggestions
+#[utoipa::path(
+    post,
+    path = "/v1/git/repositories",
+    request_body = RegisterRepositoryRequest,
+    responses(
+        (status = 200, description = "Repository registered", body = RegisterRepositoryResponse),
+        (status = 400, description = "Invalid request", body = ErrorResponse),
+        (status = 403, description = "Forbidden", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "git"
+)]
 pub async fn register_git_repository(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -371,6 +384,19 @@ pub async fn register_git_repository(
 ///
 /// Evidence: docs/code-intelligence/code-policies.md:45-78
 /// Policy: Evidence requirements for analysis retrieval
+#[utoipa::path(
+    get,
+    path = "/v1/git/repositories/{repo_id}/analysis",
+    params(
+        ("repo_id" = String, Path, description = "Repository ID")
+    ),
+    responses(
+        (status = 200, description = "Repository analysis", body = RepositoryAnalysis),
+        (status = 404, description = "Repository not found", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "git"
+)]
 pub async fn get_repository_analysis(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -428,6 +454,20 @@ pub async fn get_repository_analysis(
 ///
 /// Evidence: docs/code-intelligence/code-implementation-roadmap.md:173-270
 /// Pattern: Training pipeline with evidence-based adapter creation
+#[utoipa::path(
+    post,
+    path = "/v1/git/repositories/{repo_id}/train",
+    request_body = TrainRepositoryRequest,
+    params(
+        ("repo_id" = String, Path, description = "Repository ID")
+    ),
+    responses(
+        (status = 200, description = "Training started", body = TrainRepositoryResponse),
+        (status = 404, description = "Repository not found", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "git"
+)]
 pub async fn train_repository_adapter(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,

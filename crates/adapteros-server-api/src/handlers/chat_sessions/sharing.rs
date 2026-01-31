@@ -21,6 +21,20 @@ use super::types::{ListArchivedQuery, ShareSessionRequest};
 /// Share a session
 ///
 /// POST /v1/chat/sessions/:session_id/shares
+#[utoipa::path(
+    post,
+    path = "/v1/chat/sessions/{session_id}/shares",
+    request_body = ShareSessionRequest,
+    params(
+        ("session_id" = String, Path, description = "Session ID")
+    ),
+    responses(
+        (status = 201, description = "Session shared"),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Session not found")
+    ),
+    tag = "chat"
+)]
 pub async fn share_session(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -126,6 +140,19 @@ pub async fn share_session(
 /// Get shares for a session
 ///
 /// GET /v1/chat/sessions/:session_id/shares
+#[utoipa::path(
+    get,
+    path = "/v1/chat/sessions/{session_id}/shares",
+    params(
+        ("session_id" = String, Path, description = "Session ID")
+    ),
+    responses(
+        (status = 200, description = "Session shares"),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Session not found")
+    ),
+    tag = "chat"
+)]
 pub async fn get_session_shares(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -184,6 +211,20 @@ pub async fn get_session_shares(
 /// Revoke a session share
 ///
 /// DELETE /v1/chat/sessions/:session_id/shares/:share_id
+#[utoipa::path(
+    delete,
+    path = "/v1/chat/sessions/{session_id}/shares/{share_id}",
+    params(
+        ("session_id" = String, Path, description = "Session ID"),
+        ("share_id" = String, Path, description = "Share ID")
+    ),
+    responses(
+        (status = 204, description = "Share revoked"),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Share not found")
+    ),
+    tag = "chat"
+)]
 pub async fn revoke_session_share(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -248,6 +289,18 @@ pub async fn revoke_session_share(
 /// Get sessions shared with the current user
 ///
 /// GET /v1/chat/sessions/shared-with-me
+#[utoipa::path(
+    get,
+    path = "/v1/chat/sessions/shared-with-me",
+    params(
+        ListArchivedQuery
+    ),
+    responses(
+        (status = 200, description = "Shared sessions"),
+        (status = 403, description = "Forbidden")
+    ),
+    tag = "chat"
+)]
 pub async fn get_sessions_shared_with_me(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,

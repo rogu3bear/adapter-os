@@ -22,6 +22,15 @@ use super::types::{CreateCategoryRequest, SetCategoryRequest, UpdateCategoryRequ
 /// List all categories for the tenant
 ///
 /// GET /v1/chat/categories
+#[utoipa::path(
+    get,
+    path = "/v1/chat/categories",
+    responses(
+        (status = 200, description = "Chat categories"),
+        (status = 403, description = "Forbidden")
+    ),
+    tag = "chat"
+)]
 pub async fn list_chat_categories(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -44,6 +53,17 @@ pub async fn list_chat_categories(
 /// Create a new category
 ///
 /// POST /v1/chat/categories
+#[utoipa::path(
+    post,
+    path = "/v1/chat/categories",
+    request_body = CreateCategoryRequest,
+    responses(
+        (status = 201, description = "Category created"),
+        (status = 400, description = "Invalid request"),
+        (status = 403, description = "Forbidden")
+    ),
+    tag = "chat"
+)]
 pub async fn create_chat_category(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -84,6 +104,20 @@ pub async fn create_chat_category(
 /// Update a category
 ///
 /// PUT /v1/chat/categories/:category_id
+#[utoipa::path(
+    put,
+    path = "/v1/chat/categories/{category_id}",
+    request_body = UpdateCategoryRequest,
+    params(
+        ("category_id" = String, Path, description = "Category ID")
+    ),
+    responses(
+        (status = 200, description = "Category updated"),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Category not found")
+    ),
+    tag = "chat"
+)]
 pub async fn update_chat_category(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -128,6 +162,19 @@ pub async fn update_chat_category(
 /// Delete a category
 ///
 /// DELETE /v1/chat/categories/:category_id
+#[utoipa::path(
+    delete,
+    path = "/v1/chat/categories/{category_id}",
+    params(
+        ("category_id" = String, Path, description = "Category ID")
+    ),
+    responses(
+        (status = 204, description = "Category deleted"),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Category not found")
+    ),
+    tag = "chat"
+)]
 pub async fn delete_chat_category(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -166,6 +213,20 @@ pub async fn delete_chat_category(
 /// Set the category for a session
 ///
 /// PUT /v1/chat/sessions/:session_id/category
+#[utoipa::path(
+    put,
+    path = "/v1/chat/sessions/{session_id}/category",
+    request_body = SetCategoryRequest,
+    params(
+        ("session_id" = String, Path, description = "Session ID")
+    ),
+    responses(
+        (status = 204, description = "Category set"),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Session not found")
+    ),
+    tag = "chat"
+)]
 pub async fn set_session_category(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,

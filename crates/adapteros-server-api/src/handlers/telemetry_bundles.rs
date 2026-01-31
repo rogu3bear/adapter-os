@@ -14,6 +14,15 @@ use axum::{
 };
 
 /// List telemetry bundles
+#[utoipa::path(
+    get,
+    path = "/v1/telemetry/bundles",
+    responses(
+        (status = 200, description = "Telemetry bundles", body = Vec<TelemetryBundleResponse>),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "telemetry"
+)]
 pub async fn list_telemetry_bundles(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -55,6 +64,19 @@ pub async fn list_telemetry_bundles(
 }
 
 /// Export telemetry bundle as NDJSON
+#[utoipa::path(
+    get,
+    path = "/v1/telemetry/bundles/{bundle_id}/export",
+    params(
+        ("bundle_id" = String, Path, description = "Bundle ID")
+    ),
+    responses(
+        (status = 200, description = "Bundle export", body = ExportTelemetryBundleResponse),
+        (status = 404, description = "Bundle not found", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "telemetry"
+)]
 pub async fn export_telemetry_bundle(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -97,6 +119,19 @@ pub async fn export_telemetry_bundle(
 }
 
 /// Verify telemetry bundle Ed25519 signature
+#[utoipa::path(
+    post,
+    path = "/v1/telemetry/bundles/{bundle_id}/verify",
+    params(
+        ("bundle_id" = String, Path, description = "Bundle ID")
+    ),
+    responses(
+        (status = 200, description = "Verification result", body = VerifyBundleSignatureResponse),
+        (status = 400, description = "Invalid bundle ID", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "telemetry"
+)]
 pub async fn verify_bundle_signature(
     State(state): State<AppState>,
     Extension(_claims): Extension<Claims>,
@@ -234,6 +269,17 @@ pub async fn verify_bundle_signature(
 }
 
 /// Purge old telemetry bundles based on retention policy
+#[utoipa::path(
+    post,
+    path = "/v1/telemetry/bundles/purge",
+    request_body = PurgeOldBundlesRequest,
+    responses(
+        (status = 200, description = "Purge completed", body = PurgeOldBundlesResponse),
+        (status = 403, description = "Forbidden", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "telemetry"
+)]
 pub async fn purge_old_bundles(
     State(_state): State<AppState>,
     Extension(claims): Extension<Claims>,

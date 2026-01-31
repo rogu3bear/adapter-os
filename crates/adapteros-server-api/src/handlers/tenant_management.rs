@@ -592,6 +592,20 @@ pub struct HydrateTenantRequest {
 }
 
 /// Assign adapters to tenant
+#[utoipa::path(
+    post,
+    path = "/v1/tenants/{tenant_id}/adapters",
+    request_body = AssignAdaptersRequest,
+    params(
+        ("tenant_id" = String, Path, description = "Tenant ID")
+    ),
+    responses(
+        (status = 200, description = "Adapters assigned", body = AssignAdaptersResponse),
+        (status = 403, description = "Forbidden", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "tenants"
+)]
 pub async fn assign_tenant_adapters(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
