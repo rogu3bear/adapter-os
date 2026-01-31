@@ -1,6 +1,6 @@
 //! Login page
 
-use crate::components::{Button, Card, FormField, Input};
+use crate::components::{Button, Card, FormField, Input, OfflineBanner};
 use crate::signals::use_auth;
 use crate::validation::{use_form_errors, validate_field, ValidationRule};
 use leptos::prelude::*;
@@ -101,7 +101,10 @@ pub fn Login() -> impl IntoView {
     };
 
     view! {
-        <div class="flex min-h-screen items-center justify-center bg-muted/40">
+        <div class="min-h-screen bg-muted/40">
+            // Show backend status at top of login page
+            <OfflineBanner/>
+            <div class="flex min-h-screen items-center justify-center">
             <Card
                 title="Login".to_string()
                 description="Enter your credentials to access adapterOS".to_string()
@@ -162,6 +165,7 @@ pub fn Login() -> impl IntoView {
                     </Button>
                 </form>
             </Card>
+            </div>
         </div>
     }
 }

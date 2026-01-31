@@ -9,8 +9,9 @@ use leptos::prelude::*;
 /// Protected route wrapper
 ///
 /// Redirects to login if not authenticated.
+/// Shows error UI for auth failures (with retry for transient errors).
 /// Shows timeout error if auth check takes too long.
-/// Uses leptos_router navigation instead of full page reload to prevent infinite loops.
+/// Uses pathname check to prevent redirect loops when already on login page.
 #[component]
 pub fn ProtectedRoute(children: Children) -> impl IntoView {
     web_sys::console::log_1(&"[ProtectedRoute] Rendering...".into());
@@ -34,13 +35,18 @@ pub fn ProtectedRoute(children: Children) -> impl IntoView {
 
     let is_timeout = Memo::new(move |_| matches!(auth_state.get(), AuthState::Timeout));
 
-    // Track if we need to redirect (but don't redirect yet)
-    let needs_redirect = Memo::new(move |_| {
-        matches!(
-            auth_state.get(),
-            AuthState::Unauthenticated | AuthState::Error(_)
-        )
+    // Track error state - show UI instead of silent redirect
+    let error_info = Memo::new(move |_| {
+        if let AuthState::Error(ref err) = auth_state.get() {
+            Some((err.message().to_string(), err.is_retryable(), err.requires_login()))
+        } else {
+            None
+        }
     });
+
+    // Only redirect for Unauthenticated (not Error - we show UI for errors)
+    let needs_redirect =
+        Memo::new(move |_| matches!(auth_state.get(), AuthState::Unauthenticated));
 
     // Handle redirect for unauthenticated
     // Only redirect if not already on login page to prevent infinite loop
@@ -57,7 +63,7 @@ pub fn ProtectedRoute(children: Children) -> impl IntoView {
         }
     });
 
-    // Retry handler for timeout state
+    // Retry handler for timeout/error states
     let retry_auth = {
         let action = auth_action.clone();
         move |_| {
@@ -67,9 +73,10 @@ pub fn ProtectedRoute(children: Children) -> impl IntoView {
             });
         }
     };
+    let retry_auth_error = retry_auth.clone();
 
     view! {
-        // Loading spinner (only during initial check, not timeout)
+        // Loading spinner (only during initial check)
         <div
             class="flex min-h-screen items-center justify-center"
             style:display=move || if is_loading.get() { "flex" } else { "none" }
@@ -106,6 +113,53 @@ pub fn ProtectedRoute(children: Children) -> impl IntoView {
                     </a>
                 </div>
             </div>
+        </div>
+
+        // Auth error state - show user-friendly message with appropriate actions
+        <div
+            class="flex min-h-screen items-center justify-center"
+            style:display=move || if error_info.get().is_some() { "flex" } else { "none" }
+        >
+            {move || {
+                error_info.get().map(|(message, is_retryable, requires_login)| {
+                    let retry_handler = retry_auth_error.clone();
+                    view! {
+                        <div class="text-center max-w-md p-6 rounded-lg border border-destructive/50 bg-destructive/10">
+                            <div class="text-destructive text-4xl mb-4">"⚠"</div>
+                            <h2 class="text-lg font-semibold text-destructive mb-2">"Authentication Error"</h2>
+                            <p class="text-sm text-muted-foreground mb-4">
+                                {message}
+                            </p>
+                            <div class="flex gap-3 justify-center">
+                                {is_retryable.then(|| view! {
+                                    <button
+                                        class="px-4 py-2 rounded-md bg-primary text-primary-foreground hover:bg-primary/90"
+                                        on:click=move |e| retry_handler(e)
+                                    >
+                                        "Retry"
+                                    </button>
+                                })}
+                                {requires_login.then(|| view! {
+                                    <a
+                                        href="/login"
+                                        class="px-4 py-2 rounded-md bg-primary text-primary-foreground hover:bg-primary/90"
+                                    >
+                                        "Log In"
+                                    </a>
+                                })}
+                                {(!is_retryable && !requires_login).then(|| view! {
+                                    <a
+                                        href="/login"
+                                        class="px-4 py-2 rounded-md border border-input bg-background hover:bg-accent"
+                                    >
+                                        "Go to Login"
+                                    </a>
+                                })}
+                            </div>
+                        </div>
+                    }
+                })
+            }}
         </div>
 
         // Protected content

@@ -41,7 +41,7 @@ use leptos_router::components::*;
 use leptos_router::path;
 
 use crate::api::ApiClient;
-use components::{AuthProvider, CommandPalette, ProtectedRoute, Shell};
+use components::{AuthProvider, CommandPalette, ProtectedRoute, Shell, ToastContainer};
 use signals::{
     provide_chat_context, provide_notifications_context, provide_refetch_context,
     provide_search_context,
@@ -171,6 +171,8 @@ pub fn App() -> impl IntoView {
                         <ChatProvider>
                             <RefetchProvider>
                                 <Router>
+                            // Toast container for app-wide notifications
+                            <ToastContainer/>
                             <Routes fallback=|| view! { <pages::NotFound/> }>
                         <Route path=path!("/login") view=pages::Login/>
                         <Route path=path!("/") view=|| view! { <ProtectedRoute><Shell><pages::Dashboard/></Shell></ProtectedRoute> }/>

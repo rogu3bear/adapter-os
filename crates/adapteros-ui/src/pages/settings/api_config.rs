@@ -184,8 +184,8 @@ pub fn ApiConfigSection() -> impl IntoView {
                             AuthState::Unauthenticated => view! {
                                 <p class="text-sm text-muted-foreground">"Not authenticated."</p>
                             }.into_any(),
-                            AuthState::Error(msg) => view! {
-                                <p class="text-sm text-destructive">{format!("Authentication error: {}", msg)}</p>
+                            AuthState::Error(err) => view! {
+                                <p class="text-sm text-destructive">{format!("Authentication error: {}", err.message())}</p>
                             }.into_any(),
                             AuthState::Timeout => view! {
                                 <p class="text-sm text-destructive">"Authentication check timed out."</p>
