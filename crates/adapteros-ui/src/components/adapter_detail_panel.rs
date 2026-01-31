@@ -14,6 +14,7 @@ use adapteros_api_types::AdapterResponse;
 use leptos::prelude::*;
 
 use crate::components::{Badge, BadgeVariant, Button, ButtonVariant, Card, Spinner};
+use crate::contexts::use_in_flight;
 
 /// Format bytes into human-readable string.
 fn format_bytes(bytes: i64) -> String {
@@ -159,10 +160,14 @@ fn AdapterDetailContent(
     on_load: Option<Callback<String>>,
     on_unload: Option<Callback<String>>,
 ) -> impl IntoView {
+    // Access in-flight context
+    let in_flight = use_in_flight();
+
     // Clone values needed for closures
     let adapter_id_for_pin = adapter.adapter_id.clone();
     let adapter_id_for_load = adapter.adapter_id.clone();
     let adapter_id_for_unload = adapter.adapter_id.clone();
+    let adapter_id_for_flight = adapter.adapter_id.clone();
 
     // Derive lifecycle badge variant
     let lifecycle_variant = match adapter.lifecycle_state.as_str() {
@@ -230,6 +235,9 @@ fn AdapterDetailContent(
     let suggestion_gate = suggestion_context.gate_value;
     let suggestion_pinned = suggestion_context.is_pinned;
 
+    // Derive reactive in-flight status
+    let is_in_flight = Signal::derive(move || in_flight.is_in_flight(&adapter_id_for_flight));
+
     view! {
         <div class="adapter-detail-content">
             // Header with close button
@@ -256,6 +264,9 @@ fn AdapterDetailContent(
             <div class="adapter-detail-status">
                 <Badge variant=lifecycle_variant>{lifecycle_state}</Badge>
                 <Badge variant=runtime_variant>{runtime_state}</Badge>
+                {move || is_in_flight.get().then(|| view! {
+                    <Badge variant=BadgeVariant::Warning>"In Use"</Badge>
+                })}
                 {is_pinned.then(|| view! {
                     <Badge variant=BadgeVariant::Secondary>
                         <span class="flex items-center gap-1">
