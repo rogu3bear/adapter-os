@@ -184,6 +184,24 @@ impl NotificationAction {
         );
     }
 
+    /// Show a warning toast with expandable details.
+    ///
+    /// Use this for surfacing warnings where users may want to copy diagnostic info
+    /// (e.g., in-flight adapter conflicts, rate limiting).
+    pub fn warning_with_details(&self, title: &str, message: &str, details: &str) {
+        self.push_toast(
+            Toast {
+                id: Uuid::new_v4().to_string(),
+                title: title.to_string(),
+                message: message.to_string(),
+                details: Some(details.to_string()),
+                severity: ToastSeverity::Warning,
+                dismissible: true,
+            },
+            Some(10_000), // 10 seconds for warnings with details
+        );
+    }
+
     fn push_simple(&self, severity: ToastSeverity, title: &str, message: &str) {
         self.push_toast(
             Toast {

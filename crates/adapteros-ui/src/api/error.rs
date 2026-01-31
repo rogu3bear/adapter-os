@@ -134,6 +134,23 @@ impl ApiError {
     pub fn has_failure_code(&self, code: FailureCode) -> bool {
         self.failure_code() == Some(code)
     }
+
+    /// Check if this is an in-flight adapter error (HTTP 409 with ADAPTER_IN_FLIGHT code)
+    pub fn is_adapter_in_flight(&self) -> bool {
+        self.code() == Some("ADAPTER_IN_FLIGHT")
+    }
+
+    /// Get user-friendly message for display.
+    ///
+    /// Returns a context-appropriate message for specific error codes,
+    /// falling back to the standard error message for others.
+    pub fn user_message(&self) -> String {
+        if self.is_adapter_in_flight() {
+            "This adapter is currently in use for inference. Please wait for active requests to complete before making changes.".to_string()
+        } else {
+            self.to_string()
+        }
+    }
 }
 
 impl From<gloo_net::Error> for ApiError {
@@ -237,5 +254,26 @@ mod tests {
     fn test_validation_error_not_retryable() {
         let error = ApiError::Validation("Invalid email".to_string());
         assert!(!error.is_retryable());
+    }
+
+    #[test]
+    fn test_is_adapter_in_flight() {
+        let body = r#"{"error":"Adapter is currently in use","code":"ADAPTER_IN_FLIGHT"}"#;
+        let error = ApiError::from_response(409, body);
+
+        assert!(error.is_adapter_in_flight());
+        assert!(error.user_message().contains("currently in use for inference"));
+    }
+
+    #[test]
+    fn test_is_adapter_in_flight_false_for_other_errors() {
+        let error = ApiError::Validation("Invalid input".to_string());
+        assert!(!error.is_adapter_in_flight());
+    }
+
+    #[test]
+    fn test_user_message_regular_error() {
+        let error = ApiError::NotFound("Resource not found".to_string());
+        assert_eq!(error.user_message(), "Not found: Resource not found");
     }
 }
