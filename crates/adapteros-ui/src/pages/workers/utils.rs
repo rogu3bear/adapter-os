@@ -132,6 +132,7 @@ pub fn status_badge_variant(status: &str) -> BadgeVariant {
 }
 
 /// Health summary response from /v1/workers/health/summary
+#[allow(dead_code)] // Parsed for future UI panels; not yet rendered.
 #[derive(Debug, Clone, Deserialize)]
 pub struct WorkerHealthSummary {
     pub summary: WorkerHealthSummaryCounts,
@@ -141,6 +142,7 @@ pub struct WorkerHealthSummary {
 }
 
 /// Summary counts for worker health
+#[allow(dead_code)] // Parsed for future UI panels; not yet rendered.
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct WorkerHealthSummaryCounts {
     #[serde(default)]
@@ -156,6 +158,7 @@ pub struct WorkerHealthSummaryCounts {
 }
 
 /// Per-worker health record (subset of /v1/workers/health/summary)
+#[allow(dead_code)] // Parsed for future UI panels; not yet rendered.
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct WorkerHealthRecord {
     #[serde(default)]
