@@ -5,11 +5,11 @@
 //! with the dock panel.
 
 use crate::components::{
-    AdapterBar, AdapterHeat, AdapterMagnet, Badge, BadgeVariant, Button, Card, ConfirmationDialog,
-    ConfirmationSeverity, EmptyState, EmptyStateVariant, Spinner, SuggestedAdapterView,
-    SuggestedAdaptersBar, Textarea, TraceButton, TracePanel,
+    AdapterBar, AdapterHeat, AdapterMagnet, Badge, BadgeVariant, Button, ButtonSize,
+    ButtonVariant, Card, ConfirmationDialog, ConfirmationSeverity, EmptyState, EmptyStateVariant,
+    Spinner, SuggestedAdapterView, SuggestedAdaptersBar, Textarea, TraceButton, TracePanel,
 };
-use crate::signals::{use_chat, ChatSessionMeta, ChatSessionsManager};
+use crate::signals::{use_chat, ChatSessionMeta, ChatSessionsManager, StreamNoticeTone};
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
 
@@ -495,6 +495,10 @@ pub fn ChatSession() -> impl IntoView {
     });
     let can_send = Memo::new(move |_| !message.get().trim().is_empty() && !is_busy.get());
     let error = Memo::new(move |_| chat_state.get().error.clone());
+    let can_retry = Memo::new(move |_| {
+        let state = chat_state.get();
+        !state.loading && !state.streaming && state.stream_recovery.is_some()
+    });
 
     // Convert active_adapters to AdapterMagnets for the AdapterBar
     let adapter_magnets = Memo::new(move |_| {
@@ -591,6 +595,14 @@ pub fn ChatSession() -> impl IntoView {
         })
     };
 
+    // Retry handler
+    let do_retry = {
+        let action = chat_action.clone();
+        Callback::new(move |_: ()| {
+            action.retry_last_stream();
+        })
+    };
+
     view! {
         <div class="p-6 flex h-full min-h-0 flex-col gap-4">
             // Header
@@ -633,6 +645,40 @@ pub fn ChatSession() -> impl IntoView {
                     }}
                 </div>
             </div>
+
+            // Stream notice (slow server, worker busy, etc.)
+            {move || {
+                chat_state.get().stream_notice.clone().map(|notice| {
+                    let message = notice.message.clone();
+                    let retryable = notice.retryable;
+                    let variant = match notice.tone {
+                        StreamNoticeTone::Info => BadgeVariant::Secondary,
+                        StreamNoticeTone::Warning => BadgeVariant::Warning,
+                        StreamNoticeTone::Error => BadgeVariant::Destructive,
+                    };
+                    view! {
+                        <div class="flex items-center gap-3 text-xs">
+                            <Badge variant=variant>{message}</Badge>
+                            {move || {
+                                if retryable {
+                                    view! {
+                                        <Button
+                                            variant=ButtonVariant::Outline
+                                            size=ButtonSize::Sm
+                                            disabled=move || !can_retry.get()
+                                            on_click=Some(do_retry.clone())
+                                        >
+                                            "Retry"
+                                        </Button>
+                                    }.into_any()
+                                } else {
+                                    view! {}.into_any()
+                                }
+                            }}
+                        </div>
+                    }
+                })
+            }}
 
             // Adapter Bar - shows active adapters as colored magnets
             <AdapterBar adapters=adapter_magnets/>
@@ -799,13 +845,37 @@ pub fn ChatSession() -> impl IntoView {
                     <div class="mb-4 rounded-md border border-destructive bg-destructive/10 p-3 text-sm text-destructive">
                         <div class="flex items-center justify-between gap-2">
                             <p class="text-sm text-destructive">{e}</p>
-                            <button
-                                class="text-sm font-medium text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-muted transition-colors"
-                                on:click=move |_| action.clear_error()
-                                aria-label="Dismiss error"
-                            >
-                                "Dismiss"
-                            </button>
+                            <div class="flex items-center gap-2">
+                                {move || {
+                                    let retryable = chat_state
+                                        .get()
+                                        .stream_notice
+                                        .as_ref()
+                                        .map(|n| n.retryable)
+                                        .unwrap_or(false);
+                                    if retryable {
+                                        view! {
+                                            <Button
+                                                variant=ButtonVariant::Outline
+                                                size=ButtonSize::Sm
+                                                disabled=move || !can_retry.get()
+                                                on_click=Some(do_retry.clone())
+                                            >
+                                                "Retry"
+                                            </Button>
+                                        }.into_any()
+                                    } else {
+                                        view! {}.into_any()
+                                    }
+                                }}
+                                <button
+                                    class="text-sm font-medium text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-muted transition-colors"
+                                    on:click=move |_| action.clear_error()
+                                    aria-label="Dismiss error"
+                                >
+                                    "Dismiss"
+                                </button>
+                            </div>
                         </div>
                     </div>
                 })
