@@ -2,7 +2,7 @@
 //!
 //! Model management with list view and status display.
 
-use crate::api::client::{ApiClient, ModelListResponse, ModelStatusResponse};
+use crate::api::{ApiClient, ApiError, AllModelsStatusResponse, ModelLoadStatus, ModelStatusResponse};
 use crate::components::{
     Badge, BadgeVariant, Button, ButtonVariant, Card, ErrorDisplay, Spinner, SplitPanel, Table,
     TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -17,9 +17,10 @@ pub fn Models() -> impl IntoView {
     // Selected model ID for detail panel
     let selected_model_id = RwSignal::new(None::<String>);
 
-    // Fetch models
-    let (models, refetch_models) =
-        use_api_resource(move |client: Arc<ApiClient>| async move { client.list_models().await });
+    // Fetch base model status list
+    let (models, refetch_models) = use_api_resource(move |client: Arc<ApiClient>| async move {
+        client.list_models_status().await
+    });
 
     let on_model_select = move |model_id: String| {
         selected_model_id.set(Some(model_id));
@@ -74,12 +75,24 @@ pub fn Models() -> impl IntoView {
                                         }.into_any()
                                     }
                                     LoadingState::Error(e) => {
-                                        view! {
-                                            <ErrorDisplay
-                                                error=e
-                                                on_retry=refetch_models
-                                            />
-                                        }.into_any()
+                                        if matches!(&e, ApiError::Forbidden(_)) {
+                                            view! {
+                                                <Card>
+                                                    <div class="py-6 px-4 text-sm text-muted-foreground">
+                                                        "Base model status requires admin permissions."
+                                                    </div>
+                                                </Card>
+                                            }
+                                            .into_any()
+                                        } else {
+                                            view! {
+                                                <ErrorDisplay
+                                                    error=e
+                                                    on_retry=refetch_models
+                                                />
+                                            }
+                                            .into_any()
+                                        }
                                     }
                                 }
                             }}
@@ -103,7 +116,7 @@ pub fn Models() -> impl IntoView {
 /// Model list component
 #[component]
 fn ModelList(
-    models: ModelListResponse,
+    models: AllModelsStatusResponse,
     selected_id: RwSignal<Option<String>>,
     on_select: impl Fn(String) + Copy + Send + 'static,
 ) -> impl IntoView {
@@ -136,18 +149,20 @@ fn ModelList(
             <Table>
                 <TableHeader>
                     <TableRow>
-                        <TableHead>"Name"</TableHead>
-                        <TableHead>"Format"</TableHead>
-                        <TableHead>"Backend"</TableHead>
-                        <TableHead>"Size"</TableHead>
+                        <TableHead>"Model"</TableHead>
                         <TableHead>"Status"</TableHead>
+                        <TableHead>"Load State"</TableHead>
+                        <TableHead>"Memory"</TableHead>
+                        <TableHead>"Loaded At"</TableHead>
+                        <TableHead>"Updated"</TableHead>
+                        <TableHead>"Error"</TableHead>
                     </TableRow>
                 </TableHeader>
                 <TableBody>
                     {models.models
                         .into_iter()
                         .map(|model| {
-                            let model_id = model.id.clone();
+                            let model_id = model.model_id.clone();
                             let model_id_for_click = model_id.clone();
 
                             view! {
@@ -158,29 +173,40 @@ fn ModelList(
                                 >
                                     <TableCell>
                                         <div>
-                                            <p class="font-medium">{model.name.clone()}</p>
+                                            <p class="font-medium">{model.model_name.clone()}</p>
                                             <p class="text-xs text-muted-foreground font-mono">
-                                                {model.id.clone().chars().take(8).collect::<String>()}"..."
+                                                {model.model_id.clone().chars().take(8).collect::<String>()}"..."
                                             </p>
                                         </div>
                                     </TableCell>
                                     <TableCell>
-                                        <Badge variant=BadgeVariant::Outline>
-                                            {model.format.clone().unwrap_or_else(|| "unknown".to_string())}
-                                        </Badge>
+                                        <ModelStatusBadge status=model.status/>
                                     </TableCell>
                                     <TableCell>
-                                        <span class="text-sm">
-                                            {model.backend.clone().unwrap_or_else(|| "-".to_string())}
+                                        <LoadStateBadge loaded=model.is_loaded/>
+                                    </TableCell>
+                                    <TableCell>
+                                        <span class="text-sm text-muted-foreground">
+                                            {model
+                                                .memory_usage_mb
+                                                .map(|m| format!("{} MB", m))
+                                                .unwrap_or_else(|| "-".to_string())}
                                         </span>
                                     </TableCell>
                                     <TableCell>
                                         <span class="text-sm text-muted-foreground">
-                                            {format_size(model.size_bytes.unwrap_or(0))}
+                                            {model.loaded_at.clone().map(|ts| format_date(&ts)).unwrap_or_else(|| "-".to_string())}
                                         </span>
                                     </TableCell>
                                     <TableCell>
-                                        <ModelStatusBadge status=model.import_status.clone().unwrap_or_else(|| "ready".to_string())/>
+                                        <span class="text-sm text-muted-foreground">
+                                            {format_date(&model.updated_at)}
+                                        </span>
+                                    </TableCell>
+                                    <TableCell>
+                                        <span class=if model.error_message.is_some() { "text-sm text-destructive truncate max-w-[240px]" } else { "text-sm text-muted-foreground" } title=model.error_message.clone().unwrap_or_default()>
+                                            {model.error_message.clone().unwrap_or_else(|| "-".to_string())}
+                                        </span>
                                     </TableCell>
                                 </tr>
                             }
@@ -195,13 +221,23 @@ fn ModelList(
 
 /// Model status badge
 #[component]
-fn ModelStatusBadge(status: String) -> impl IntoView {
-    let (variant, label) = match status.to_lowercase().as_str() {
-        "ready" | "imported" | "complete" => (BadgeVariant::Success, "Ready"),
-        "loading" | "importing" => (BadgeVariant::Default, "Loading"),
-        "unloaded" => (BadgeVariant::Secondary, "Unloaded"),
-        "error" | "failed" => (BadgeVariant::Destructive, "Error"),
-        _ => (BadgeVariant::Secondary, "Unknown"),
+fn ModelStatusBadge(status: ModelLoadStatus) -> impl IntoView {
+    let (variant, label) = model_status_label(status);
+
+    view! {
+        <Badge variant=variant>
+            {label}
+        </Badge>
+    }
+}
+
+/// Model load state badge
+#[component]
+fn LoadStateBadge(loaded: bool) -> impl IntoView {
+    let (variant, label) = if loaded {
+        (BadgeVariant::Success, "Loaded")
+    } else {
+        (BadgeVariant::Secondary, "Unloaded")
     };
 
     view! {
@@ -289,6 +325,7 @@ fn ModelDetailContent(
     } else {
         BadgeVariant::Secondary
     };
+    let status_label = model_status_label(model.status);
 
     let is_loaded = model.is_loaded;
     let model_id_load = model_id.clone();
@@ -338,9 +375,14 @@ fn ModelDetailContent(
         <Card title="Status".to_string()>
             <div class="space-y-4">
                 <div class="flex items-center justify-between">
-                    <Badge variant=status_variant>
-                        {if model.is_loaded { "Loaded" } else { "Unloaded" }}
-                    </Badge>
+                    <div class="flex items-center gap-2">
+                        <Badge variant=status_variant>
+                            {if model.is_loaded { "Loaded" } else { "Unloaded" }}
+                        </Badge>
+                        <Badge variant=status_label.0>
+                            {status_label.1}
+                        </Badge>
+                    </div>
                     <div class="flex gap-2">
                         {move || {
                             if loading.get() {
@@ -432,21 +474,14 @@ fn ModelDetailContent(
 // Utility functions
 // ============================================================================
 
-/// Format byte size for display
-fn format_size(bytes: i64) -> String {
-    if bytes <= 0 {
-        return "-".to_string();
-    }
-
-    let gb = bytes as f64 / 1_073_741_824.0;
-    let mb = bytes as f64 / 1_048_576.0;
-
-    if gb >= 1.0 {
-        format!("{:.1} GB", gb)
-    } else if mb >= 1.0 {
-        format!("{:.1} MB", mb)
-    } else {
-        format!("{} B", bytes)
+fn model_status_label(status: ModelLoadStatus) -> (BadgeVariant, &'static str) {
+    match status {
+        ModelLoadStatus::Ready => (BadgeVariant::Success, "Ready"),
+        ModelLoadStatus::Loading => (BadgeVariant::Default, "Loading"),
+        ModelLoadStatus::Unloading => (BadgeVariant::Default, "Unloading"),
+        ModelLoadStatus::Checking => (BadgeVariant::Default, "Checking"),
+        ModelLoadStatus::Error => (BadgeVariant::Destructive, "Error"),
+        ModelLoadStatus::NoModel => (BadgeVariant::Secondary, "Unloaded"),
     }
 }
 

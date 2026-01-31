@@ -211,6 +211,17 @@ impl ApiClient {
         self.handle_response(response).await
     }
 
+    /// Perform a GET request and return status + JSON body (even on non-2xx)
+    pub async fn get_with_status<T: DeserializeOwned>(&self, path: &str) -> ApiResult<(u16, T)> {
+        let response = self.request("GET", path).send().await?;
+        let status = response.status();
+        let json = response
+            .json()
+            .await
+            .map_err(|e| ApiError::Serialization(e.to_string()))?;
+        Ok((status, json))
+    }
+
     /// Perform a GET request and return the text body
     pub async fn get_text(&self, path: &str) -> ApiResult<String> {
         let response = self.request("GET", path).send().await?;
@@ -1748,6 +1759,27 @@ impl ApiClient {
     /// Delete an error alert rule
     pub async fn delete_error_alert_rule(&self, id: &str) -> ApiResult<()> {
         self.delete(&format!("/v1/error-alerts/rules/{}", id)).await
+    }
+
+    /// List error alert history
+    pub async fn list_error_alert_history(
+        &self,
+        unresolved_only: Option<bool>,
+        limit: Option<i64>,
+    ) -> ApiResult<ErrorAlertHistoryListResponse> {
+        let mut params = Vec::new();
+        if let Some(flag) = unresolved_only {
+            params.push(format!("unresolved_only={}", flag));
+        }
+        if let Some(limit) = limit {
+            params.push(format!("limit={}", limit));
+        }
+        let path = if params.is_empty() {
+            "/v1/error-alerts/history".to_string()
+        } else {
+            format!("/v1/error-alerts/history?{}", params.join("&"))
+        };
+        self.get(&path).await
     }
 
     // --- Embedding Benchmarks ---

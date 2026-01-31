@@ -8,12 +8,13 @@
 mod components;
 mod utils;
 
-use crate::api::{use_sse_json_events, ApiClient, SseState};
+use crate::api::{use_sse_json_events, ApiClient, ReadyzResponse, SseState, SystemHealthResponse, SystemReadyResponse};
 use crate::components::{Button, ButtonVariant, ErrorDisplay, Spinner};
 use crate::hooks::{use_api_resource, use_polling, use_sse_notifications, LoadingState};
 use crate::pages::workers::dialogs::{PlanOption, SpawnWorkerDialog};
 use adapteros_api_types::{
-    workers::WorkerStatusUpdate, SpawnWorkerRequest, SystemStateResponse, WorkerResponse,
+    workers::WorkerStatusUpdate, HealthResponse, SpawnWorkerRequest, SystemStateResponse,
+    WorkerResponse,
 };
 use leptos::prelude::*;
 use std::collections::HashMap;
@@ -57,6 +58,20 @@ pub fn System() -> impl IntoView {
     // Fetch models status (admin-only endpoint; handled gracefully on error)
     let (models_status, refetch_models_status) =
         use_api_resource(|client: Arc<ApiClient>| async move { client.list_models_status().await });
+
+    // Fetch health endpoints (return status even on non-2xx)
+    let (healthz, refetch_healthz) = use_api_resource(|client: Arc<ApiClient>| async move {
+        client.get_with_status::<HealthResponse>("/healthz").await
+    });
+    let (readyz, refetch_readyz) = use_api_resource(|client: Arc<ApiClient>| async move {
+        client.get_with_status::<ReadyzResponse>("/readyz").await
+    });
+    let (healthz_all, refetch_healthz_all) = use_api_resource(|client: Arc<ApiClient>| async move {
+        client.get::<SystemHealthResponse>("/healthz/all").await
+    });
+    let (system_ready, refetch_system_ready) = use_api_resource(|client: Arc<ApiClient>| async move {
+        client.get_with_status::<SystemReadyResponse>("/system/ready").await
+    });
 
     // Fetch system state (tenants, stacks, services)
     let (system_state, refetch_state) = use_api_resource(|client: Arc<ApiClient>| async move {
@@ -151,6 +166,10 @@ pub fn System() -> impl IntoView {
         refetch_metrics.run(());
         refetch_state.run(());
         refetch_models_status.run(());
+        refetch_healthz.run(());
+        refetch_readyz.run(());
+        refetch_healthz_all.run(());
+        refetch_system_ready.run(());
         // Only refetch workers if SSE is not connected
         // Use get_untracked since we're in an async context outside reactive tracking
         if sse_status.get_untracked() != SseState::Connected {
@@ -176,6 +195,10 @@ pub fn System() -> impl IntoView {
                                 refetch_metrics.run(());
                                 refetch_state.run(());
                                 refetch_models_status.run(());
+                                refetch_healthz.run(());
+                                refetch_readyz.run(());
+                                refetch_healthz_all.run(());
+                                refetch_system_ready.run(());
                             })
                         >
                             <IconRefresh/>
@@ -237,6 +260,10 @@ pub fn System() -> impl IntoView {
                             };
                             let state_data = system_state.get();
                             let models_status_data = models_status.get();
+                            let healthz_data = healthz.get();
+                            let readyz_data = readyz.get();
+                            let healthz_all_data = healthz_all.get();
+                            let system_ready_data = system_ready.get();
                             view! {
                                 <SystemContent
                                     status=status_data
@@ -245,6 +272,10 @@ pub fn System() -> impl IntoView {
                                     metrics=metrics_data
                                     state=state_data
                                     models_status=models_status_data
+                                    healthz=healthz_data
+                                    readyz=readyz_data
+                                    healthz_all=healthz_all_data
+                                    system_ready=system_ready_data
                                     worker_status_overrides=overrides
                                 />
                             }.into_any()

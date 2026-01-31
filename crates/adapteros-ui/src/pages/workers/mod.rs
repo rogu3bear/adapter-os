@@ -12,11 +12,13 @@ use crate::components::{Button, ButtonVariant, ErrorDisplay, Spinner};
 use crate::hooks::{use_api_resource, use_navigate, use_polling, LoadingState};
 use adapteros_api_types::SpawnWorkerRequest;
 use leptos::prelude::*;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::components::{IconArrowLeft, IconPlus, IconRefresh, IconX};
 use components::{WorkerDetailPanel, WorkerDetailView, WorkersList, WorkersSummary};
 use dialogs::{PlanOption, SpawnWorkerDialog};
+use utils::{WorkerHealthRecord, WorkerHealthSummary};
 
 /// Workers management page
 #[component]
@@ -24,6 +26,11 @@ pub fn Workers() -> impl IntoView {
     // Fetch workers list
     let (workers, refetch_workers) =
         use_api_resource(|client: Arc<ApiClient>| async move { client.list_workers().await });
+
+    // Fetch worker health summary (health status + incident counts)
+    let (worker_health, refetch_worker_health) = use_api_resource(|client: Arc<ApiClient>| async move {
+        client.get::<WorkerHealthSummary>("/v1/workers/health/summary").await
+    });
 
     // Fetch nodes for spawn form
     let (nodes, _refetch_nodes) =
@@ -51,6 +58,7 @@ pub fn Workers() -> impl IntoView {
     // Using use_polling hook which properly cleans up on unmount
     let _ = use_polling(10_000, move || async move {
         refetch_workers.run(());
+        refetch_worker_health.run(());
     });
 
     view! {
@@ -66,7 +74,10 @@ pub fn Workers() -> impl IntoView {
                 <div class="flex items-center gap-2">
                     <Button
                         variant=ButtonVariant::Secondary
-                        on_click=Callback::new(move |_| refetch_workers.run(()))
+                        on_click=Callback::new(move |_| {
+                            refetch_workers.run(());
+                            refetch_worker_health.run(());
+                        })
                     >
                         <IconRefresh/>
                         "Refresh"
@@ -107,6 +118,15 @@ pub fn Workers() -> impl IntoView {
                     LoadingState::Loaded(p) => p,
                     _ => Vec::new(),
                 };
+                let health_map: HashMap<String, WorkerHealthRecord> = match worker_health.get() {
+                    LoadingState::Loaded(ref summary) => summary
+                        .workers
+                        .iter()
+                        .cloned()
+                        .map(|record| (record.worker_id.clone(), record))
+                        .collect(),
+                    _ => HashMap::new(),
+                };
 
                 match workers_state {
                     LoadingState::Idle | LoadingState::Loading => {
@@ -125,6 +145,7 @@ pub fn Workers() -> impl IntoView {
                             <WorkersList
                                 workers=workers_data.clone()
                                 selected_worker=selected_worker
+                                health_map=health_map.clone()
                                 on_drain=Callback::new({
                                     move |worker_id: String| {
                                         action_loading.set(true);
@@ -168,9 +189,11 @@ pub fn Workers() -> impl IntoView {
                             // Worker detail panel
                             {move || selected_worker.get().and_then(|worker_id| {
                                 let worker = workers_data.iter().find(|w| w.id == worker_id).cloned();
+                                let health = health_map.get(&worker_id).cloned();
                                 worker.map(|w| view! {
                                     <WorkerDetailPanel
                                         worker=w
+                                        health=health
                                         on_close=Callback::new(move |_| selected_worker.set(None))
                                     />
                                 })

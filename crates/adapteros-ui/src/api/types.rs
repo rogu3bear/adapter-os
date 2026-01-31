@@ -166,6 +166,35 @@ pub struct ErrorAlertRulesListResponse {
     pub total: usize,
 }
 
+/// Error alert history item
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ErrorAlertHistoryResponse {
+    pub id: String,
+    pub rule_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rule_name: Option<String>,
+    pub tenant_id: String,
+    pub triggered_at: String,
+    pub error_count: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sample_error_ids: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub acknowledged_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub acknowledged_by: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolved_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolution_note: Option<String>,
+}
+
+/// List error alert history response
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ErrorAlertHistoryListResponse {
+    pub alerts: Vec<ErrorAlertHistoryResponse>,
+    pub total: usize,
+}
+
 /// Model architecture summary
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ModelArchitectureSummary {
@@ -1065,6 +1094,86 @@ pub struct UpdateCodePolicyRequest {
 }
 
 // ============================================================================
+// Health endpoint types (UI-only)
+// ============================================================================
+
+/// Component health status from /healthz/all and /system/ready
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ComponentStatus {
+    Healthy,
+    Degraded,
+    Unhealthy,
+}
+
+/// Individual component health check
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ComponentHealth {
+    pub component: String,
+    pub status: ComponentStatus,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<serde_json::Value>,
+    pub timestamp: u64,
+}
+
+/// Aggregate health response for /healthz/all
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SystemHealthResponse {
+    pub overall_status: ComponentStatus,
+    pub components: Vec<ComponentHealth>,
+    pub timestamp: u64,
+}
+
+/// Single readiness check in /readyz
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ReadyzCheck {
+    pub ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latency_ms: Option<u64>,
+}
+
+/// Readiness checks summary in /readyz
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ReadyzChecks {
+    pub db: ReadyzCheck,
+    pub worker: ReadyzCheck,
+    pub models_seeded: ReadyzCheck,
+}
+
+/// Readiness response from /readyz
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ReadyzResponse {
+    pub ready: bool,
+    pub checks: ReadyzChecks,
+}
+
+/// System readiness response from /system/ready
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SystemReadyResponse {
+    pub ready: bool,
+    pub overall_status: ComponentStatus,
+    #[serde(default)]
+    pub components: Vec<ComponentHealth>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub boot_elapsed_ms: Option<u64>,
+    #[serde(default)]
+    pub critical_degraded: Vec<String>,
+    #[serde(default)]
+    pub non_critical_degraded: Vec<String>,
+    #[serde(default)]
+    pub maintenance: bool,
+    #[serde(default)]
+    pub reason: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+}
+
+// ============================================================================
 // Process Monitoring types
 // ============================================================================
 
@@ -1088,9 +1197,13 @@ pub struct ProcessCrashDumpResponse {
     pub crash_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stack_trace: Option<String>,
-    pub timestamp: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub core_dump_path: Option<String>,
+    pub memory_snapshot_json: Option<String>,
+    pub crash_timestamp: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recovery_action: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recovered_at: Option<String>,
 }
 
 /// Process health metric

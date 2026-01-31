@@ -3,12 +3,16 @@
 //! Real-time process monitoring with alerts, anomalies, and health metrics.
 
 use crate::api::{
-    ApiClient, ProcessAlertResponse, ProcessAnomalyResponse, ProcessHealthMetricResponse,
+    ApiClient, ComponentStatus, ProcessAlertResponse, ProcessAnomalyResponse,
+    ProcessHealthMetricResponse, ReadyzCheck, ReadyzChecks, ReadyzResponse, SystemHealthResponse,
+    SystemReadyResponse,
 };
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ErrorDisplay, Spinner,
+    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ErrorDisplay, Spinner, Table,
+    TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, use_polling, LoadingState};
+use adapteros_api_types::HealthResponse;
 use leptos::prelude::*;
 use std::sync::Arc;
 
@@ -41,12 +45,32 @@ pub fn Monitoring() -> impl IntoView {
             client.get_system_overview().await
         });
 
+    // Fetch health endpoints
+    let (healthz, refetch_healthz) = use_api_resource(move |client: Arc<ApiClient>| async move {
+        client.get_with_status::<HealthResponse>("/healthz").await
+    });
+    let (readyz, refetch_readyz) = use_api_resource(move |client: Arc<ApiClient>| async move {
+        client.get_with_status::<ReadyzResponse>("/readyz").await
+    });
+    let (healthz_all, refetch_healthz_all) =
+        use_api_resource(move |client: Arc<ApiClient>| async move {
+            client.get::<SystemHealthResponse>("/healthz/all").await
+        });
+    let (system_ready, refetch_system_ready) =
+        use_api_resource(move |client: Arc<ApiClient>| async move {
+            client.get_with_status::<SystemReadyResponse>("/system/ready").await
+        });
+
     // Set up polling (every 10 seconds)
     let _ = use_polling(10_000, move || async move {
         refetch_alerts.run(());
         refetch_anomalies.run(());
         refetch_health.run(());
         refetch_overview.run(());
+        refetch_healthz.run(());
+        refetch_readyz.run(());
+        refetch_healthz_all.run(());
+        refetch_system_ready.run(());
     });
 
     // Count active alerts
@@ -78,6 +102,10 @@ pub fn Monitoring() -> impl IntoView {
                         refetch_anomalies.run(());
                         refetch_health.run(());
                         refetch_overview.run(());
+                        refetch_healthz.run(());
+                        refetch_readyz.run(());
+                        refetch_healthz_all.run(());
+                        refetch_system_ready.run(());
                     })
                 >
                     "Refresh"
@@ -111,10 +139,25 @@ pub fn Monitoring() -> impl IntoView {
                 <Card>
                     <div class="flex items-center justify-between">
                         <span class="text-sm font-medium text-muted-foreground">"Health Status"</span>
-                        <Badge variant=BadgeVariant::Success>"Online"</Badge>
+                        {move || match healthz.get() {
+                            LoadingState::Loaded((status_code, data)) => {
+                                let variant = health_status_variant(status_code, &data.status);
+                                view! { <Badge variant=variant>{data.status}</Badge> }.into_any()
+                            }
+                            LoadingState::Loading | LoadingState::Idle => view! { <Spinner/> }.into_any(),
+                            LoadingState::Error(_) => view! { <Badge variant=BadgeVariant::Destructive>"Error"</Badge> }.into_any(),
+                        }}
                     </div>
                 </Card>
             </div>
+
+            // Health endpoints
+            <HealthEndpointsCard
+                healthz=healthz.get()
+                readyz=readyz.get()
+                healthz_all=healthz_all.get()
+                system_ready=system_ready.get()
+            />
 
             // Tab navigation
             <div class="border-b">
@@ -357,6 +400,214 @@ fn SummaryCard(title: &'static str, count: Signal<usize>, variant: BadgeVariant)
                 </Badge>
             </div>
         </Card>
+    }
+}
+
+/// Health endpoints summary card
+#[component]
+fn HealthEndpointsCard(
+    healthz: LoadingState<(u16, HealthResponse)>,
+    readyz: LoadingState<(u16, ReadyzResponse)>,
+    healthz_all: LoadingState<SystemHealthResponse>,
+    system_ready: LoadingState<(u16, SystemReadyResponse)>,
+) -> impl IntoView {
+    view! {
+        <Card title="Health Endpoints".to_string() description="Live status from /healthz, /readyz, /system/ready".to_string()>
+            <Table>
+                <TableHeader>
+                    <TableRow>
+                        <TableHead>"Endpoint"</TableHead>
+                        <TableHead>"Status"</TableHead>
+                        <TableHead>"Details"</TableHead>
+                    </TableRow>
+                </TableHeader>
+                <TableBody>
+                    {match healthz {
+                        LoadingState::Idle | LoadingState::Loading => view! {
+                            <TableRow>
+                                <TableCell><span class="font-mono text-sm">"/healthz"</span></TableCell>
+                                <TableCell><Spinner/></TableCell>
+                                <TableCell><span class="text-sm text-muted-foreground">"Loading..."</span></TableCell>
+                            </TableRow>
+                        }.into_any(),
+                        LoadingState::Loaded((status_code, data)) => {
+                            let variant = health_status_variant(status_code, &data.status);
+                            let details = match &data.build_id {
+                                Some(build) => format!("HTTP {} | v{} | {}", status_code, data.version, build),
+                                None => format!("HTTP {} | v{}", status_code, data.version),
+                            };
+                            view! {
+                                <TableRow>
+                                    <TableCell><span class="font-mono text-sm">"/healthz"</span></TableCell>
+                                    <TableCell>
+                                        <Badge variant=variant>{data.status}</Badge>
+                                    </TableCell>
+                                    <TableCell>
+                                        <span class="text-sm text-muted-foreground">{details}</span>
+                                    </TableCell>
+                                </TableRow>
+                            }.into_any()
+                        }
+                        LoadingState::Error(e) => view! {
+                            <TableRow>
+                                <TableCell><span class="font-mono text-sm">"/healthz"</span></TableCell>
+                                <TableCell><Badge variant=BadgeVariant::Destructive>"Error"</Badge></TableCell>
+                                <TableCell><span class="text-sm text-destructive">{e.to_string()}</span></TableCell>
+                            </TableRow>
+                        }.into_any(),
+                    }}
+
+                    {match readyz {
+                        LoadingState::Idle | LoadingState::Loading => view! {
+                            <TableRow>
+                                <TableCell><span class="font-mono text-sm">"/readyz"</span></TableCell>
+                                <TableCell><Spinner/></TableCell>
+                                <TableCell><span class="text-sm text-muted-foreground">"Loading..."</span></TableCell>
+                            </TableRow>
+                        }.into_any(),
+                        LoadingState::Loaded((status_code, data)) => {
+                            let (variant, label) = if data.ready {
+                                (BadgeVariant::Success, "ready")
+                            } else if status_code >= 500 {
+                                (BadgeVariant::Destructive, "not ready")
+                            } else {
+                                (BadgeVariant::Warning, "degraded")
+                            };
+                            let summary = readiness_checks_summary(&data.checks);
+                            view! {
+                                <TableRow>
+                                    <TableCell><span class="font-mono text-sm">"/readyz"</span></TableCell>
+                                    <TableCell>
+                                        <Badge variant=variant>{label}</Badge>
+                                    </TableCell>
+                                    <TableCell>
+                                        <span class="text-sm text-muted-foreground">
+                                            {format!("HTTP {} | {}", status_code, summary)}
+                                        </span>
+                                    </TableCell>
+                                </TableRow>
+                            }.into_any()
+                        }
+                        LoadingState::Error(e) => view! {
+                            <TableRow>
+                                <TableCell><span class="font-mono text-sm">"/readyz"</span></TableCell>
+                                <TableCell><Badge variant=BadgeVariant::Destructive>"Error"</Badge></TableCell>
+                                <TableCell><span class="text-sm text-destructive">{e.to_string()}</span></TableCell>
+                            </TableRow>
+                        }.into_any(),
+                    }}
+
+                    {match system_ready {
+                        LoadingState::Idle | LoadingState::Loading => view! {
+                            <TableRow>
+                                <TableCell><span class="font-mono text-sm">"/system/ready"</span></TableCell>
+                                <TableCell><Spinner/></TableCell>
+                                <TableCell><span class="text-sm text-muted-foreground">"Loading..."</span></TableCell>
+                            </TableRow>
+                        }.into_any(),
+                        LoadingState::Loaded((status_code, data)) => {
+                            let (variant, label) = if data.ready {
+                                (BadgeVariant::Success, "ready")
+                            } else if data.maintenance {
+                                (BadgeVariant::Warning, "maintenance")
+                            } else {
+                                (BadgeVariant::Destructive, "not ready")
+                            };
+                            let reason = if data.reason.is_empty() { "ready".to_string() } else { data.reason.clone() };
+                            view! {
+                                <TableRow>
+                                    <TableCell><span class="font-mono text-sm">"/system/ready"</span></TableCell>
+                                    <TableCell>
+                                        <Badge variant=variant>{label}</Badge>
+                                    </TableCell>
+                                    <TableCell>
+                                        <span class="text-sm text-muted-foreground">
+                                            {format!("HTTP {} | {}", status_code, reason)}
+                                        </span>
+                                    </TableCell>
+                                </TableRow>
+                            }.into_any()
+                        }
+                        LoadingState::Error(e) => view! {
+                            <TableRow>
+                                <TableCell><span class="font-mono text-sm">"/system/ready"</span></TableCell>
+                                <TableCell><Badge variant=BadgeVariant::Destructive>"Error"</Badge></TableCell>
+                                <TableCell><span class="text-sm text-destructive">{e.to_string()}</span></TableCell>
+                            </TableRow>
+                        }.into_any(),
+                    }}
+
+                    {match healthz_all {
+                        LoadingState::Idle | LoadingState::Loading => view! {
+                            <TableRow>
+                                <TableCell><span class="font-mono text-sm">"/healthz/all"</span></TableCell>
+                                <TableCell><Spinner/></TableCell>
+                                <TableCell><span class="text-sm text-muted-foreground">"Loading..."</span></TableCell>
+                            </TableRow>
+                        }.into_any(),
+                        LoadingState::Loaded(data) => {
+                            let (variant, label) = component_status_badge(data.overall_status);
+                            view! {
+                                <TableRow>
+                                    <TableCell><span class="font-mono text-sm">"/healthz/all"</span></TableCell>
+                                    <TableCell>
+                                        <Badge variant=variant>{label}</Badge>
+                                    </TableCell>
+                                    <TableCell>
+                                        <span class="text-sm text-muted-foreground">
+                                            {format!("{} components", data.components.len())}
+                                        </span>
+                                    </TableCell>
+                                </TableRow>
+                            }.into_any()
+                        }
+                        LoadingState::Error(e) => view! {
+                            <TableRow>
+                                <TableCell><span class="font-mono text-sm">"/healthz/all"</span></TableCell>
+                                <TableCell><Badge variant=BadgeVariant::Destructive>"Error"</Badge></TableCell>
+                                <TableCell><span class="text-sm text-destructive">{e.to_string()}</span></TableCell>
+                            </TableRow>
+                        }.into_any(),
+                    }}
+                </TableBody>
+            </Table>
+        </Card>
+    }
+}
+
+fn component_status_badge(status: ComponentStatus) -> (BadgeVariant, &'static str) {
+    match status {
+        ComponentStatus::Healthy => (BadgeVariant::Success, "healthy"),
+        ComponentStatus::Degraded => (BadgeVariant::Warning, "degraded"),
+        ComponentStatus::Unhealthy => (BadgeVariant::Destructive, "unhealthy"),
+    }
+}
+
+fn readiness_checks_summary(checks: &ReadyzChecks) -> String {
+    format!(
+        "db: {} | worker: {} | models: {}",
+        check_label(&checks.db),
+        check_label(&checks.worker),
+        check_label(&checks.models_seeded),
+    )
+}
+
+fn check_label(check: &ReadyzCheck) -> &'static str {
+    if check.ok { "ok" } else { "fail" }
+}
+
+fn health_status_variant(status_code: u16, status: &str) -> BadgeVariant {
+    let status_lower = status.to_lowercase();
+    if status_code >= 500 || status_lower.contains("failed") {
+        BadgeVariant::Destructive
+    } else if status_lower.contains("degrad")
+        || status_lower.contains("boot")
+        || status_lower.contains("drain")
+        || status_lower.contains("maintenance")
+    {
+        BadgeVariant::Warning
+    } else {
+        BadgeVariant::Success
     }
 }
 
