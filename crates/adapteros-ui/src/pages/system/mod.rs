@@ -8,7 +8,10 @@
 mod components;
 mod utils;
 
-use crate::api::{use_sse_json_events, ApiClient, ReadyzResponse, SseState, SystemHealthResponse, SystemReadyResponse};
+use crate::api::{
+    use_sse_json_events, ApiClient, ReadyzResponse, SseState, SystemHealthResponse,
+    SystemReadyResponse,
+};
 use crate::components::{Button, ButtonVariant, ErrorDisplay, Spinner};
 use crate::hooks::{use_api_resource, use_polling, use_sse_notifications, LoadingState};
 use crate::pages::workers::dialogs::{PlanOption, SpawnWorkerDialog};
@@ -66,12 +69,16 @@ pub fn System() -> impl IntoView {
     let (readyz, refetch_readyz) = use_api_resource(|client: Arc<ApiClient>| async move {
         client.get_with_status::<ReadyzResponse>("/readyz").await
     });
-    let (healthz_all, refetch_healthz_all) = use_api_resource(|client: Arc<ApiClient>| async move {
-        client.get::<SystemHealthResponse>("/healthz/all").await
-    });
-    let (system_ready, refetch_system_ready) = use_api_resource(|client: Arc<ApiClient>| async move {
-        client.get_with_status::<SystemReadyResponse>("/system/ready").await
-    });
+    let (healthz_all, refetch_healthz_all) =
+        use_api_resource(|client: Arc<ApiClient>| async move {
+            client.get::<SystemHealthResponse>("/healthz/all").await
+        });
+    let (system_ready, refetch_system_ready) =
+        use_api_resource(|client: Arc<ApiClient>| async move {
+            client
+                .get_with_status::<SystemReadyResponse>("/system/ready")
+                .await
+        });
 
     // Fetch system state (tenants, stacks, services)
     let (system_state, refetch_state) = use_api_resource(|client: Arc<ApiClient>| async move {

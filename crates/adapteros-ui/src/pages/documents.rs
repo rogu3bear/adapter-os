@@ -5,8 +5,8 @@
 use crate::api::client::{ChunkListResponse, DocumentListParams, DocumentResponse};
 use crate::api::ApiClient;
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ConfirmationDialog,
-    ConfirmationSeverity, Dialog, Link, LinkVariant, Select, Spinner, Table, TableBody, TableCell,
+    Badge, BadgeVariant, BreadcrumbItem, BreadcrumbTrail, Button, ButtonSize, ButtonVariant, Card,
+    ConfirmationDialog, ConfirmationSeverity, Dialog, Select, Spinner, Table, TableBody, TableCell,
     TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState};
@@ -189,10 +189,7 @@ pub fn Documents() -> impl IntoView {
 }
 
 #[component]
-fn DocumentsList(
-    documents: Vec<DocumentResponse>,
-    on_upload: Callback<()>,
-) -> impl IntoView {
+fn DocumentsList(documents: Vec<DocumentResponse>, on_upload: Callback<()>) -> impl IntoView {
     if documents.is_empty() {
         return view! {
             <Card>
@@ -306,10 +303,7 @@ fn DocumentsList(
 
 /// Document upload dialog with validation and progress.
 #[component]
-fn DocumentUploadDialog(
-    open: RwSignal<bool>,
-    on_success: Callback<String>,
-) -> impl IntoView {
+fn DocumentUploadDialog(open: RwSignal<bool>, on_success: Callback<String>) -> impl IntoView {
     const MAX_FILE_SIZE: u64 = 50 * 1024 * 1024;
 
     #[cfg(target_arch = "wasm32")]
@@ -432,7 +426,8 @@ fn DocumentUploadDialog(
         }
     });
 
-    let upload_disabled = Signal::derive(move || uploading.get() || selected_file_name.get().is_none());
+    let upload_disabled =
+        Signal::derive(move || uploading.get() || selected_file_name.get().is_none());
 
     view! {
         <Dialog
@@ -535,13 +530,14 @@ pub fn DocumentDetail() -> impl IntoView {
 
     view! {
         <div class="space-y-6">
+            // Breadcrumb navigation
+            <BreadcrumbTrail items=vec![
+                BreadcrumbItem::link("Documents", "/documents"),
+                BreadcrumbItem::current(document_id.get()),
+            ]/>
+
             <div class="flex items-center justify-between">
-                <div class="flex items-center gap-4">
-                    <Link href="/documents" variant=LinkVariant::Muted>
-                        "< Documents"
-                    </Link>
-                    <h1 class="text-3xl font-bold tracking-tight">"Document Details"</h1>
-                </div>
+                <h1 class="text-3xl font-bold tracking-tight">"Document Details"</h1>
                 <div class="flex items-center gap-2">
                     <Button
                         variant=ButtonVariant::Primary

@@ -477,9 +477,7 @@ fn PolicyActionsCard(
     };
 
     let apply_disabled = Signal::derive(move || {
-        applying.get()
-            || cpid.get().trim().is_empty()
-            || content.get().trim().is_empty()
+        applying.get() || cpid.get().trim().is_empty() || content.get().trim().is_empty()
     });
 
     view! {

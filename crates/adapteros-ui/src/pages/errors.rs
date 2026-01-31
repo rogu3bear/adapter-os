@@ -9,8 +9,9 @@ use crate::api::{
     UpdateErrorAlertRuleRequest,
 };
 use crate::components::{
-    AsyncBoundary, Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, Dialog, EmptyState,
-    Input, LoadingDisplay, Select, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    AsyncBoundary, Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, Dialog,
+    EmptyState, Input, LoadingDisplay, Select, Table, TableBody, TableCell, TableHead, TableHeader,
+    TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use adapteros_api_types::telemetry::{ClientErrorItem, ClientErrorStatsResponse};
@@ -571,7 +572,11 @@ fn AlertHistoryPanel() -> impl IntoView {
         } else {
             None
         };
-        async move { client.list_error_alert_history(unresolved_only, Some(50)).await }
+        async move {
+            client
+                .list_error_alert_history(unresolved_only, Some(50))
+                .await
+        }
     });
 
     Effect::new(move || {

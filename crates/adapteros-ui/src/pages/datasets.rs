@@ -5,9 +5,9 @@
 
 use crate::api::{ApiClient, DatasetListResponse, DatasetVersionsResponse};
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonVariant, Card, ConfirmationDialog, ConfirmationSeverity,
-    EmptyState, ErrorDisplay, LoadingDisplay, PageHeader, RefreshButton, Spinner, Table, TableBody,
-    TableCell, TableHead, TableHeader, TableRow,
+    Badge, BadgeVariant, BreadcrumbItem, BreadcrumbTrail, Button, ButtonVariant, Card,
+    ConfirmationDialog, ConfirmationSeverity, EmptyState, ErrorDisplay, LoadingDisplay, PageHeader,
+    RefreshButton, Spinner, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api, use_api_resource, LoadingState};
 use crate::pages::training::dataset_wizard::{DatasetUploadOutcome, DatasetUploadWizard};
@@ -38,7 +38,10 @@ pub fn Datasets() -> impl IntoView {
     let on_upload = Callback::new(move |_| show_upload_dialog.set(true));
     let on_dataset_uploaded = Callback::new(move |outcome: DatasetUploadOutcome| {
         refetch_trigger.update(|n| *n = n.wrapping_add(1));
-        navigate(&format!("/datasets/{}", outcome.dataset_id), Default::default());
+        navigate(
+            &format!("/datasets/{}", outcome.dataset_id),
+            Default::default(),
+        );
     });
 
     view! {
@@ -379,6 +382,12 @@ pub fn DatasetDetail() -> impl IntoView {
 
     view! {
         <div class="space-y-6">
+            // Breadcrumb navigation
+            <BreadcrumbTrail items=vec![
+                BreadcrumbItem::link("Datasets", "/datasets"),
+                BreadcrumbItem::current(dataset_id()),
+            ]/>
+
             {move || {
                 match dataset.get() {
                     LoadingState::Idle | LoadingState::Loading => {

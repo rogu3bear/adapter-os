@@ -2,7 +2,9 @@
 //!
 //! Model management with list view and status display.
 
-use crate::api::{ApiClient, ApiError, AllModelsStatusResponse, ModelLoadStatus, ModelStatusResponse};
+use crate::api::{
+    AllModelsStatusResponse, ApiClient, ApiError, ModelLoadStatus, ModelStatusResponse,
+};
 use crate::components::{
     Badge, BadgeVariant, Button, ButtonVariant, Card, ErrorDisplay, Spinner, SplitPanel, Table,
     TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -18,9 +20,10 @@ pub fn Models() -> impl IntoView {
     let selected_model_id = RwSignal::new(None::<String>);
 
     // Fetch base model status list
-    let (models, refetch_models) = use_api_resource(move |client: Arc<ApiClient>| async move {
-        client.list_models_status().await
-    });
+    let (models, refetch_models) =
+        use_api_resource(
+            move |client: Arc<ApiClient>| async move { client.list_models_status().await },
+        );
 
     let on_model_select = move |model_id: String| {
         selected_model_id.set(Some(model_id));
@@ -409,6 +412,22 @@ fn ModelDetailContent(
                         }}
                     </div>
                 </div>
+
+                {if matches!(model.status, ModelLoadStatus::Loading) {
+                    Some(view! {
+                        <p class="text-xs text-muted-foreground">
+                            "Model loading. Inference will be ready once loading completes."
+                        </p>
+                    })
+                } else if !model.is_loaded {
+                    Some(view! {
+                        <p class="text-xs text-muted-foreground">
+                            "Load this model to enable inference and chat."
+                        </p>
+                    })
+                } else {
+                    None
+                }}
 
                 {model.error_message.clone().map(|err| view! {
                     <div class="rounded-lg border border-destructive bg-destructive/10 p-3">

@@ -19,6 +19,22 @@
 //! - Use resource name (e.g., "my-adapter-v2") for targeted deletions
 //! - Use action verb (e.g., "DELETE", "REVOKE") for bulk or anonymous operations
 //!
+//! # Impact Summaries (PRD-UI-150)
+//!
+//! For destructive actions, dialogs should display an impact summary showing
+//! what will be affected. Use the `impact_items` prop to list affected resources:
+//!
+//! ```rust
+//! ConfirmationDialog {
+//!     title: "Delete Stack",
+//!     impact_items: vec![
+//!         ("Adapter associations", "3 adapters will be disassociated"),
+//!         ("Inference sessions", "Active sessions will be terminated"),
+//!     ],
+//!     ..
+//! }
+//! ```
+//!
 //! # Accessibility features
 //! - Escape key closes the dialog (when not loading)
 //! - Enter key confirms (when valid and not loading)
@@ -67,6 +83,25 @@ impl ConfirmationSeverity {
     }
 }
 
+/// Impact item for destructive action summaries
+#[derive(Clone, Debug)]
+pub struct ImpactItem {
+    /// Category/type of impact (e.g., "Adapters", "Stack associations")
+    pub label: String,
+    /// Description of what will happen (e.g., "3 adapters will be removed")
+    pub description: String,
+}
+
+impl ImpactItem {
+    /// Create a new impact item
+    pub fn new(label: impl Into<String>, description: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+            description: description.into(),
+        }
+    }
+}
+
 /// ConfirmationDialog component
 ///
 /// For destructive operations, requires the user to type a confirmation phrase.
@@ -83,6 +118,9 @@ impl ConfirmationSeverity {
 ///         severity=ConfirmationSeverity::Destructive
 ///         confirm_text="DELETE"
 ///         typed_confirmation=Some("my-adapter".to_string())
+///         impact_items=vec![
+///             ImpactItem::new("Stack associations", "2 stacks will lose this adapter"),
+///         ]
 ///         on_confirm=Callback::new(move |_| {
 ///             // Perform deletion
 ///         })
@@ -113,6 +151,10 @@ pub fn ConfirmationDialog(
     /// Only applies to Destructive severity
     #[prop(optional, into)]
     typed_confirmation: Option<String>,
+    /// Impact summary items showing what will be affected
+    /// Displayed as a list before the confirmation input
+    #[prop(optional)]
+    impact_items: Vec<ImpactItem>,
     /// Callback when user confirms
     on_confirm: Callback<()>,
     /// Optional callback when user cancels
@@ -329,13 +371,43 @@ pub fn ConfirmationDialog(
                     </button>
                 </div>
 
+                // Impact summary for destructive actions
+                {if !impact_items.is_empty() {
+                    let items = impact_items.clone();
+                    Some(view! {
+                        <div class="mt-4 rounded-md border border-destructive/30 bg-destructive/5 p-3">
+                            <h3 class="text-sm font-medium text-destructive mb-2">"Impact Summary"</h3>
+                            <ul class="space-y-1">
+                                {items.into_iter().map(|item| {
+                                    view! {
+                                        <li class="flex items-start gap-2 text-sm">
+                                            <span class="text-destructive mt-0.5">
+                                                <svg aria-hidden="true" class="h-3 w-3" fill="currentColor" viewBox="0 0 8 8">
+                                                    <circle cx="4" cy="4" r="3" />
+                                                </svg>
+                                            </span>
+                                            <span>
+                                                <span class="font-medium">{item.label}</span>
+                                                ": "
+                                                <span class="text-muted-foreground">{item.description}</span>
+                                            </span>
+                                        </li>
+                                    }
+                                }).collect::<Vec<_>>()}
+                            </ul>
+                        </div>
+                    })
+                } else {
+                    None
+                }}
+
                 // Typed confirmation input (for destructive actions)
                 {move || {
                     if severity == ConfirmationSeverity::Destructive {
                         typed_confirmation.clone().map(|confirm_phrase| {
                             view! {
                                 <div class="mt-6">
-                                    <label class="block text-sm font-medium text-foreground mb-2">
+                                    <label class="block text-sm font-medium text-foreground mb-2" for="confirm-dialog-input">
                                         "To confirm, type "
                                         <span class="font-mono bg-muted px-1.5 py-0.5 rounded text-destructive">
                                             {confirm_phrase.clone()}
@@ -343,6 +415,7 @@ pub fn ConfirmationDialog(
                                         " below:"
                                     </label>
                                     <input
+                                        id="confirm-dialog-input"
                                         type="text"
                                         class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                                         placeholder=format!("Type {} to confirm", confirm_phrase)

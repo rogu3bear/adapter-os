@@ -8,14 +8,16 @@ pub mod dialogs;
 mod utils;
 
 use crate::api::ApiClient;
-use crate::components::{Button, ButtonVariant, ErrorDisplay, Spinner};
-use crate::hooks::{use_api_resource, use_navigate, use_polling, LoadingState};
+use crate::components::{
+    BreadcrumbItem, BreadcrumbTrail, Button, ButtonVariant, ErrorDisplay, Spinner,
+};
+use crate::hooks::{use_api_resource, use_polling, LoadingState};
 use adapteros_api_types::SpawnWorkerRequest;
 use leptos::prelude::*;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::components::{IconArrowLeft, IconPlus, IconRefresh, IconX};
+use crate::components::{IconPlus, IconRefresh, IconX};
 use components::{WorkerDetailPanel, WorkerDetailView, WorkersList, WorkersSummary};
 use dialogs::{PlanOption, SpawnWorkerDialog};
 use utils::{WorkerHealthRecord, WorkerHealthSummary};
@@ -28,9 +30,12 @@ pub fn Workers() -> impl IntoView {
         use_api_resource(|client: Arc<ApiClient>| async move { client.list_workers().await });
 
     // Fetch worker health summary (health status + incident counts)
-    let (worker_health, refetch_worker_health) = use_api_resource(|client: Arc<ApiClient>| async move {
-        client.get::<WorkerHealthSummary>("/v1/workers/health/summary").await
-    });
+    let (worker_health, refetch_worker_health) =
+        use_api_resource(|client: Arc<ApiClient>| async move {
+            client
+                .get::<WorkerHealthSummary>("/v1/workers/health/summary")
+                .await
+        });
 
     // Fetch nodes for spawn form
     let (nodes, _refetch_nodes) =
@@ -251,7 +256,6 @@ pub fn Workers() -> impl IntoView {
 #[component]
 pub fn WorkerDetail() -> impl IntoView {
     let params = leptos_router::hooks::use_params_map();
-    let navigate = use_navigate();
 
     let worker_id = move || params.with(|p| p.get("id").unwrap_or_default());
 
@@ -283,16 +287,11 @@ pub fn WorkerDetail() -> impl IntoView {
 
     view! {
         <div class="space-y-6">
-            // Back button
-            <div class="flex items-center gap-4">
-                <Button
-                    variant=ButtonVariant::Ghost
-                    on_click=Callback::new(move |_| navigate("/workers"))
-                >
-                    <IconArrowLeft/>
-                    "Back to Workers"
-                </Button>
-            </div>
+            // Breadcrumb navigation
+            <BreadcrumbTrail items=vec![
+                BreadcrumbItem::link("Workers", "/workers"),
+                BreadcrumbItem::current(worker_id()),
+            ]/>
 
             {move || {
                 let worker_state = worker.get();

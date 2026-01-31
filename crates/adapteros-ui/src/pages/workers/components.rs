@@ -647,7 +647,9 @@ pub fn WorkerDetailView(
 
     // Fetch worker health summary for health status + incidents
     let (health_summary, refetch_health) = use_api_resource(|client: Arc<ApiClient>| async move {
-        client.get::<WorkerHealthSummary>("/v1/workers/health/summary").await
+        client
+            .get::<WorkerHealthSummary>("/v1/workers/health/summary")
+            .await
     });
 
     // Fetch recent error logs for this worker

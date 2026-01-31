@@ -74,7 +74,6 @@ fn build_modules() -> Vec<NavModule> {
             items: &[
                 ("Routing Debug", "/routing"),
                 ("Run Diff", "/diff"),
-                ("Style Audit", "/style-audit"),
             ],
             collapsed: true, // Tools collapsed by default
         },
@@ -116,22 +115,6 @@ pub fn StartMenu(on_close: impl Fn() + Clone + Send + Sync + 'static) -> impl In
                 }).collect::<Vec<_>>()}
             </div>
 
-            // Footer
-            <div class="p-3 border-t border-border">
-                <div class="flex items-center justify-between text-xs text-muted-foreground">
-                    <span>"v0.13.1"</span>
-                    <a
-                        href="/settings"
-                        class="hover:text-foreground transition-colors"
-                        on:click={
-                            let on_close = on_close.clone();
-                            move |_| on_close()
-                        }
-                    >
-                        "Settings"
-                    </a>
-                </div>
-            </div>
         </div>
     }
 }

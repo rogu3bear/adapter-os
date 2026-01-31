@@ -9,6 +9,10 @@ use std::sync::Arc;
 
 /// Banner displayed when the backend is unreachable.
 ///
+/// Standardized wording:
+/// - "Retry" for refetch operations
+/// - Shows cached data availability message
+///
 /// Also tracks state transitions and shows a "Reconnected" toast when
 /// recovering from an offline state.
 #[component]
@@ -41,11 +45,15 @@ pub fn OfflineBanner() -> impl IntoView {
 
     view! {
         <Show when=move || matches!(health.get(), LoadingState::Error(_))>
-            <div class="offline-banner">
+            <div
+                class="offline-banner"
+                role="alert"
+                aria-live="polite"
+            >
                 <div class="offline-banner-content">
-                    <span class="offline-banner-title">"Backend Offline"</span>
+                    <span class="offline-banner-title">"Backend offline"</span>
                     <span class="offline-banner-message">
-                        "Unable to reach the adapterOS API. Some data may be stale."
+                        "Unable to reach the adapterOS API. You can keep viewing cached data."
                     </span>
                 </div>
                 <Button

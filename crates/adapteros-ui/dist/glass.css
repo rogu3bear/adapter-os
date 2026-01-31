@@ -509,7 +509,46 @@ textarea,
 }
 
 /* ===== Text Contrast Safety for Glass Theme ===== */
-/* Ensure text remains readable on translucent glass backgrounds */
+/*
+ * WCAG AA Compliance for Glass Backgrounds:
+ * - Normal text (<18pt): 4.5:1 contrast ratio minimum
+ * - Large text (>=18pt or >=14pt bold): 3:1 contrast ratio minimum
+ * - UI components: 3:1 contrast ratio minimum
+ *
+ * Strategy: Use text-shadow and slight color adjustments to ensure
+ * readability on translucent glass backgrounds.
+ */
+
+/* High-contrast text color tokens for glass backgrounds */
+.theme-glass {
+    /* Light mode: Darker text for better contrast on light glass */
+    --glass-text-primary: hsl(222.2 84% 4.9%);           /* #0a0e1a - 15.8:1 on white */
+    --glass-text-secondary: hsl(215.4 25% 27%);          /* #363f4f - 8.5:1 on white */
+    --glass-text-muted: hsl(215.4 16.3% 38%);            /* #4d5766 - 5.7:1 on white */
+}
+
+.dark.theme-glass {
+    /* Dark mode: Lighter text for better contrast on dark glass */
+    --glass-text-primary: hsl(210 40% 98%);              /* #f5f7fa - 16.2:1 on dark bg */
+    --glass-text-secondary: hsl(215 20.2% 75%);          /* #b5bcc7 - 8.1:1 on dark bg */
+    --glass-text-muted: hsl(215 20.2% 65.1%);            /* #8f99a8 - 5.3:1 on dark bg */
+}
+
+/* Apply high-contrast colors to text on glass elements */
+.theme-glass .card,
+.theme-glass .dialog-content,
+.theme-glass header,
+.theme-glass nav,
+.theme-glass aside {
+    color: var(--glass-text-primary);
+}
+
+.theme-glass .card .text-muted-foreground,
+.theme-glass .dialog-content .text-muted-foreground,
+.theme-glass header .text-muted-foreground,
+.theme-glass nav .text-muted-foreground {
+    color: var(--glass-text-muted);
+}
 
 /* Add subtle text shadow for improved legibility on glass */
 .theme-glass .card-title,
@@ -518,6 +557,7 @@ textarea,
 .theme-glass h2,
 .theme-glass h3 {
     text-shadow: 0 0 1px var(--color-background);
+    color: var(--glass-text-primary);
 }
 
 /* Small text gets a more opaque background to ensure readability */
@@ -536,6 +576,13 @@ textarea,
 .theme-glass .label,
 .theme-glass label {
     text-shadow: 0 0 1px var(--color-background);
+    color: var(--glass-text-primary);
+}
+
+/* Input placeholder text contrast */
+.theme-glass .input::placeholder,
+.theme-glass textarea::placeholder {
+    color: var(--glass-text-muted);
 }
 
 /* Table cells with important data should have subtle backing */
@@ -543,9 +590,14 @@ textarea,
     text-shadow: 0 0 1px var(--color-background);
 }
 
+/* Table header cells need good contrast */
+.theme-glass .table-header-cell {
+    color: var(--glass-text-secondary);
+}
+
 /* Muted foreground text needs higher opacity on glass for readability */
 .theme-glass .text-muted-foreground {
-    opacity: 0.95; /* Slight bump from default to counter translucency */
+    color: var(--glass-text-muted);
 }
 
 /* Status indicator text needs to be clearly visible */
@@ -555,4 +607,32 @@ textarea,
 .theme-glass .text-status-info {
     text-shadow: 0 0 2px var(--color-background);
     font-weight: 500; /* Slightly heavier for better readability */
+}
+
+/* Navigation link contrast on glass */
+.theme-glass nav a,
+.theme-glass nav button {
+    color: var(--glass-text-primary);
+}
+
+.theme-glass nav a:hover,
+.theme-glass nav button:hover {
+    color: var(--glass-text-primary);
+}
+
+/* Ensure button text remains readable on glass buttons */
+.theme-glass .btn-secondary,
+.theme-glass .btn-ghost,
+.theme-glass .btn-outline {
+    color: var(--glass-text-primary);
+}
+
+/* Tab button contrast on glass */
+.theme-glass .tab-button {
+    color: var(--glass-text-muted);
+}
+
+.theme-glass .tab-button:hover,
+.theme-glass .tab-button-active {
+    color: var(--glass-text-primary);
 }

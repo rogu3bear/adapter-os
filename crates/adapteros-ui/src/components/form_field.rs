@@ -1,12 +1,25 @@
 //! Form field wrappers for consistent labels, help, and errors.
+//!
+//! # Accessibility Requirements (PRD-UI-150)
+//!
+//! Every form field MUST have a visible label. The `FormField` component enforces this:
+//! - The `label` prop is required and renders a visible `<label>` element
+//! - For inputs where layout constraints prevent a visible label, use `aria-label` on the Input
+//! - Placeholder text is NOT a substitute for a label
+//!
+//! Optional hint text can be added below the label for additional context.
 
 use leptos::prelude::*;
 
 /// Context provided by FormField for child inputs.
 #[derive(Clone)]
 pub struct FormFieldContext {
+    /// Unique ID for the input element
     pub field_id: String,
+    /// Combined IDs for aria-describedby (help text + error)
     pub described_by: Option<String>,
+    /// Whether this field is required
+    pub required: bool,
 }
 
 /// Read the current form field context (if any).
@@ -50,13 +63,42 @@ pub fn LabelWithHelp(
 }
 
 /// Form field wrapper with label, help text, and error display.
+///
+/// # Label Requirement
+///
+/// The `label` prop is required. Every form field must have a visible label for accessibility.
+/// Placeholder text is not a substitute for a proper label.
+///
+/// # Example
+///
+/// ```rust
+/// <FormField
+///     label="Email Address"
+///     name="email"
+///     required=true
+///     help="We'll never share your email."
+///     error=email_error_signal
+/// >
+///     <Input value=email placeholder="you@example.com" />
+/// </FormField>
+/// ```
 #[component]
 pub fn FormField(
-    #[prop(into)] label: String,
-    #[prop(into)] name: String,
-    #[prop(optional)] required: bool,
-    #[prop(optional, into)] help: Option<String>,
-    #[prop(optional)] error: Option<Signal<Option<String>>>,
+    /// Visible label text (required for accessibility)
+    #[prop(into)]
+    label: String,
+    /// Field name used for ID generation and form submission
+    #[prop(into)]
+    name: String,
+    /// Whether the field is required (shows asterisk indicator)
+    #[prop(optional)]
+    required: bool,
+    /// Help text displayed below the input (for additional context)
+    #[prop(optional, into)]
+    help: Option<String>,
+    /// Reactive error signal (error shown when Some)
+    #[prop(optional)]
+    error: Option<Signal<Option<String>>>,
     children: Children,
 ) -> impl IntoView {
     let field_id = format!("field-{}", name);
@@ -81,6 +123,7 @@ pub fn FormField(
     provide_context(FormFieldContext {
         field_id: field_id.clone(),
         described_by: described_by.clone(),
+        required,
     });
 
     view! {

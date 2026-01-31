@@ -1529,7 +1529,11 @@ fn readiness_checks_summary(checks: &ReadyzChecks) -> String {
 }
 
 fn check_label(check: &ReadyzCheck) -> &'static str {
-    if check.ok { "ok" } else { "fail" }
+    if check.ok {
+        "ok"
+    } else {
+        "fail"
+    }
 }
 
 fn health_status_variant(status_code: u16, status: &str) -> BadgeVariant {

@@ -76,13 +76,17 @@ pub enum AuthError {
 
 impl AuthError {
     /// User-facing error message
+    ///
+    /// Uses standardized wording:
+    /// - "Log in" for auth actions (not "Sign in")
+    /// - "Retry" for retryable errors
     pub fn message(&self) -> &str {
         match self {
-            Self::TokenExpired => "Your session has expired. Please log in again.",
-            Self::TokenRevoked => "Your session was revoked. Please log in again.",
+            Self::TokenExpired => "Your session has expired. Log in again.",
+            Self::TokenRevoked => "Your session was revoked. Log in again.",
             Self::TenantMismatch => "You don't have access to this workspace.",
             Self::TenantMissing => "No workspace associated with your account.",
-            Self::ServerUnavailable => "Unable to reach the server. Check your connection.",
+            Self::ServerUnavailable => "Unable to reach the server. Retry or check your connection.",
             Self::Other(msg) => msg,
         }
     }
@@ -226,14 +230,16 @@ impl AuthAction {
                     }
                     Err(e) => {
                         self.client.clear_auth_status();
-                        self.state.set(AuthState::Error(AuthError::from_api_error(&e)));
+                        self.state
+                            .set(AuthState::Error(AuthError::from_api_error(&e)));
                         Err(e)
                     }
                 }
             }
             Err(e) => {
                 self.client.clear_auth_status();
-                self.state.set(AuthState::Error(AuthError::from_api_error(&e)));
+                self.state
+                    .set(AuthState::Error(AuthError::from_api_error(&e)));
                 Err(e)
             }
         }

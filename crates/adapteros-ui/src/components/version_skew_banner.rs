@@ -1,4 +1,10 @@
 //! Banner to detect and surface frontend/backend version drift.
+//!
+//! Standardized wording:
+//! - "A new version is available" for version skew
+//! - "Reload page" for full page reload
+//! - "Retry" for recheck operation
+
 use crate::api::{ui_build_version, ApiClient};
 use crate::components::Button;
 use crate::hooks::{use_api_resource, LoadingState};
@@ -6,6 +12,10 @@ use leptos::prelude::*;
 use std::sync::Arc;
 
 /// Shows a reload prompt when the UI build version differs from backend health version.
+///
+/// Uses standardized wording:
+/// - Title: "A new version is available"
+/// - Actions: "Retry" (recheck), "Reload page" (hard reload)
 #[component]
 pub fn VersionSkewBanner() -> impl IntoView {
     let ui_version = ui_build_version();
@@ -32,19 +42,19 @@ pub fn VersionSkewBanner() -> impl IntoView {
                 _ => false,
             }
         >
-            <div class="offline-banner">
+            <div class="offline-banner" role="alert" aria-live="polite">
                 <div class="offline-banner-content">
-                    <span class="offline-banner-title">"Update available"</span>
+                    <span class="offline-banner-title">"A new version is available"</span>
                     <span class="offline-banner-message">
                         {move || {
                             if let LoadingState::Loaded(data) = health.get() {
                                 format!(
-                                    "Frontend {} differs from backend {}. Reload to pick up the latest assets.",
+                                    "Frontend {} differs from backend {}.",
                                     ui_version,
                                     data.version
                                 )
                             } else {
-                                "Frontend build differs from backend. Reload to update.".to_string()
+                                "Frontend build differs from backend.".to_string()
                             }
                         }}
                     </span>
@@ -55,10 +65,10 @@ pub fn VersionSkewBanner() -> impl IntoView {
                         class="offline-banner-action".to_string()
                         on_click=Callback::new(move |_| retry.with_value(|f| f.run(())))
                     >
-                        "Recheck"
+                        "Retry"
                     </Button>
                     <Button class="offline-banner-action".to_string() on_click=hard_reload>
-                        "Reload"
+                        "Reload page"
                     </Button>
                 </div>
             </div>

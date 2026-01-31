@@ -139,15 +139,15 @@ fn build_user_message(error: &ApiError) -> String {
         ApiError::Http { status, message } => {
             format!("HTTP {} error: {}", status, message)
         }
-        ApiError::Unauthorized => "Your session has expired. Please log in again.".to_string(),
+        ApiError::Unauthorized => "Your session has expired. Log in again.".to_string(),
         ApiError::Forbidden(msg) => format!("Access denied: {}", msg),
         ApiError::NotFound(msg) => format!("Not found: {}", msg),
         ApiError::Validation(msg) => format!("Validation error: {}", msg),
         ApiError::Server(msg) => format!("Server error: {}", msg),
         ApiError::Serialization(msg) => format!("Data format error: {}", msg),
         ApiError::RateLimited { retry_after } => match retry_after {
-            Some(ms) => format!("Too many requests. Try again in {} seconds.", ms / 1000),
-            None => "Too many requests. Please wait a moment.".to_string(),
+            Some(ms) => format!("Too many requests. Retry in {} seconds.", ms / 1000),
+            None => "Too many requests. Retry later.".to_string(),
         },
         ApiError::Structured { error, code, .. } => {
             format!("{} ({})", error, code)

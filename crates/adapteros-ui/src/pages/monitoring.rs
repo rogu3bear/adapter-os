@@ -58,7 +58,9 @@ pub fn Monitoring() -> impl IntoView {
         });
     let (system_ready, refetch_system_ready) =
         use_api_resource(move |client: Arc<ApiClient>| async move {
-            client.get_with_status::<SystemReadyResponse>("/system/ready").await
+            client
+                .get_with_status::<SystemReadyResponse>("/system/ready")
+                .await
         });
 
     // Set up polling (every 10 seconds)
@@ -593,7 +595,11 @@ fn readiness_checks_summary(checks: &ReadyzChecks) -> String {
 }
 
 fn check_label(check: &ReadyzCheck) -> &'static str {
-    if check.ok { "ok" } else { "fail" }
+    if check.ok {
+        "ok"
+    } else {
+        "fail"
+    }
 }
 
 fn health_status_variant(status_code: u16, status: &str) -> BadgeVariant {

@@ -867,11 +867,7 @@ impl ChatAction {
             .messages
             .iter()
             .filter(|m| {
-                !(m.role == "assistant"
-                    && state
-                        .partial_assistant_ids
-                        .iter()
-                        .any(|id| id == &m.id))
+                !(m.role == "assistant" && state.partial_assistant_ids.iter().any(|id| id == &m.id))
             })
             .map(|m| format!("{}: {}", m.role, m.content))
             .collect();
@@ -1257,8 +1253,7 @@ impl SlowNoticeTimer {
             let handle = Timeout::new(delay_ms, move || {
                 let _ = state.try_update(|s| {
                     if s.loading && s.streaming {
-                        s.stream_notice =
-                            Some(StreamNotice::warning("Server slow", false));
+                        s.stream_notice = Some(StreamNotice::warning("Server slow", false));
                     }
                 });
             });
@@ -1391,10 +1386,7 @@ fn stream_notice_from_failure(failure: &StreamFailure) -> StreamNotice {
 
     let label = if matches!(
         code,
-        "BACKPRESSURE"
-            | "CACHE_BUDGET_EXCEEDED"
-            | "REQUEST_TIMEOUT"
-            | "STREAM_IDLE_TIMEOUT"
+        "BACKPRESSURE" | "CACHE_BUDGET_EXCEEDED" | "REQUEST_TIMEOUT" | "STREAM_IDLE_TIMEOUT"
     ) {
         "Server slow"
     } else if matches!(
@@ -1446,8 +1438,9 @@ async fn stream_inference_to_state(
 ) -> Result<StreamTraceInfo, StreamFailure> {
     let url = format!("{}/v1/infer/stream", api_base_url());
 
-    let body = serde_json::to_string(request)
-        .map_err(|e| StreamFailure::new(format!("Failed to serialize request: {}", e), None, false))?;
+    let body = serde_json::to_string(request).map_err(|e| {
+        StreamFailure::new(format!("Failed to serialize request: {}", e), None, false)
+    })?;
 
     // Create fetch request with POST method
     let opts = RequestInit::new();
@@ -1479,11 +1472,7 @@ async fn stream_inference_to_state(
         .headers()
         .set("Accept", "text/event-stream")
         .map_err(|e| {
-            StreamFailure::new(
-                format!("Failed to set Accept header: {:?}", e),
-                None,
-                false,
-            )
+            StreamFailure::new(format!("Failed to set Accept header: {:?}", e), None, false)
         })?;
 
     if let Some(csrf_token) = get_csrf_token() {
@@ -1491,11 +1480,7 @@ async fn stream_inference_to_state(
             .headers()
             .set("X-CSRF-Token", &csrf_token)
             .map_err(|e| {
-                StreamFailure::new(
-                    format!("Failed to set CSRF header: {:?}", e),
-                    None,
-                    false,
-                )
+                StreamFailure::new(format!("Failed to set CSRF header: {:?}", e), None, false)
             })?;
     }
 
@@ -1509,19 +1494,11 @@ async fn stream_inference_to_state(
         .await
         .map_err(|e| {
             if is_abort_error_js(&e) {
-                return StreamFailure::new(
-                    "AbortError: The operation was aborted",
-                    None,
-                    false,
-                );
+                return StreamFailure::new("AbortError: The operation was aborted", None, false);
             }
             let error_str = format!("{:?}", e);
             if is_abort_error(&error_str) {
-                StreamFailure::new(
-                    "AbortError: The operation was aborted",
-                    None,
-                    false,
-                )
+                StreamFailure::new("AbortError: The operation was aborted", None, false)
             } else {
                 StreamFailure::new(format!("Fetch failed: {:?}", e), None, true)
             }
@@ -1548,10 +1525,9 @@ async fn stream_inference_to_state(
         ));
     }
 
-    let body_stream =
-        response
-            .body()
-            .ok_or_else(|| StreamFailure::new("No response body", None, false))?;
+    let body_stream = response
+        .body()
+        .ok_or_else(|| StreamFailure::new("No response body", None, false))?;
     let reader = body_stream
         .get_reader()
         .dyn_into::<web_sys::ReadableStreamDefaultReader>()
@@ -1575,19 +1551,11 @@ async fn stream_inference_to_state(
 
         let result = JsFuture::from(reader.read()).await.map_err(|e| {
             if is_abort_error_js(&e) {
-                return StreamFailure::new(
-                    "AbortError: The operation was aborted",
-                    None,
-                    false,
-                );
+                return StreamFailure::new("AbortError: The operation was aborted", None, false);
             }
             let error_str = format!("{:?}", e);
             if is_abort_error(&error_str) {
-                StreamFailure::new(
-                    "AbortError: The operation was aborted",
-                    None,
-                    false,
-                )
+                StreamFailure::new("AbortError: The operation was aborted", None, false)
             } else {
                 StreamFailure::new(format!("Read failed: {:?}", e), None, true)
             }
@@ -1965,10 +1933,7 @@ impl ChatSessionsManager {
                 .iter()
                 .filter(|m| {
                     !(m.role == "assistant"
-                        && state
-                            .partial_assistant_ids
-                            .iter()
-                            .any(|id| id == &m.id))
+                        && state.partial_assistant_ids.iter().any(|id| id == &m.id))
                 })
                 .map(|m| {
                     let timestamp_str = m.timestamp.to_rfc3339();

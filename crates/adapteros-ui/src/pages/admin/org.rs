@@ -13,9 +13,8 @@ use std::sync::Arc;
 #[component]
 pub fn OrgSection() -> impl IntoView {
     let (auth_state, _) = use_auth();
-    let (tenants, refetch) = use_api_resource(|client: Arc<ApiClient>| async move {
-        client.list_user_tenants().await
-    });
+    let (tenants, refetch) =
+        use_api_resource(|client: Arc<ApiClient>| async move { client.list_user_tenants().await });
 
     view! {
         <div class="max-w-2xl">

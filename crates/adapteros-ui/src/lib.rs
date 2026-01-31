@@ -26,6 +26,7 @@
 
 pub mod api;
 pub mod components;
+pub mod constants;
 pub mod hooks;
 pub mod pages;
 pub mod search;

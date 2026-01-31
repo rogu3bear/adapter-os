@@ -13,7 +13,6 @@ use crate::components::spinner::SpinnerSize;
 use crate::components::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, FormField, Input, Spinner,
 };
-use uuid::Uuid;
 use adapteros_api_types::TRAINING_DATA_CONTRACT_VERSION;
 #[cfg(target_arch = "wasm32")]
 use gloo_file::futures::read_as_text;
@@ -22,6 +21,7 @@ use gloo_file::Blob;
 use leptos::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use send_wrapper::SendWrapper;
+use uuid::Uuid;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsCast;
 #[cfg(target_arch = "wasm32")]

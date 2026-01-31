@@ -26,16 +26,17 @@ pub mod glass_toggle;
 pub mod global_search;
 pub mod icons;
 pub mod input;
+pub mod inference_guidance;
 pub mod layout;
 pub mod link;
 pub mod notification_provider;
 pub mod offline_banner;
+pub mod progress_stages;
 pub mod responsive;
 pub mod search_results;
 pub mod skeleton;
 pub mod spinner;
 pub mod split_panel;
-pub mod start_menu;
 pub mod status;
 pub mod status_center;
 pub mod table;
@@ -65,7 +66,9 @@ pub use card::Card;
 pub use chat_dock::{ChatDock, ChatDockPanel, MobileChatOverlay, NarrowChatDock};
 pub use checkbox::Checkbox;
 pub use command_palette::CommandPalette;
-pub use confirmation_dialog::{ConfirmationDialog, ConfirmationSeverity, SimpleConfirmDialog};
+pub use confirmation_dialog::{
+    ConfirmationDialog, ConfirmationSeverity, ImpactItem, SimpleConfirmDialog,
+};
 pub use danger_zone::{DangerZone, DangerZoneItem, InfoBanner, WarningBanner};
 pub use data_table::{Column, DataTable};
 pub use diag_diff::DiffResults;
@@ -79,17 +82,17 @@ pub use input::{Input, Textarea};
 pub use layout::{Header, Shell, Sidebar, Taskbar, TopBar};
 pub use link::{Link, LinkVariant};
 pub use offline_banner::OfflineBanner;
+pub use progress_stages::{InlineProgress, ProgressController, ProgressStage, ProgressStages};
 pub use responsive::{
     use_breakpoint, use_is_desktop_or_larger, use_is_mobile, use_is_tablet_or_smaller, Breakpoint,
 };
 pub use search_results::{SearchEmptyState, SearchResultsList};
 pub use skeleton::{
-    Skeleton, SkeletonAvatar, SkeletonButton, SkeletonCard, SkeletonTable, SkeletonText,
-    SkeletonVariant,
+    Skeleton, SkeletonAvatar, SkeletonButton, SkeletonCard, SkeletonDetailSection,
+    SkeletonPageHeader, SkeletonStatsGrid, SkeletonTable, SkeletonText, SkeletonVariant,
 };
 pub use spinner::Spinner;
 pub use split_panel::{SplitMode, SplitPanel, SplitRatio};
-pub use start_menu::{MenuGroup, MenuItem, MenuItemState, StartButton, StartMenu};
 pub use status::{
     BackendStatus, BackendStatusBadge, BackendStatusIndicator, Badge, BadgeVariant, StatusColor,
     StatusIndicator,

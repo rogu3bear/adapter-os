@@ -2,8 +2,16 @@
 //!
 //! Uses semantic CSS classes from components.css.
 //! Implements ARIA dialog pattern with keyboard handling (PRD-UI-160).
+//!
+//! Accessibility features:
+//! - Focus trap: Tab cycles through focusable elements within dialog
+//! - Escape closes: Press Escape to close the dialog
+//! - Focus restoration: Returns focus to trigger element on close
+//! - ARIA: role="dialog", aria-modal="true", aria-labelledby, aria-describedby
 
 use leptos::prelude::*;
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
@@ -15,6 +23,32 @@ static DIALOG_COUNTER: AtomicU32 = AtomicU32::new(0);
 fn next_dialog_id() -> String {
     let id = DIALOG_COUNTER.fetch_add(1, Ordering::Relaxed);
     format!("dialog-{}", id)
+}
+
+/// Selector for focusable elements within a dialog
+const FOCUSABLE_SELECTOR: &str =
+    "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1']):not([disabled])";
+
+/// Get all focusable elements within a container element
+fn get_focusable_elements(
+    document: &web_sys::Document,
+    dialog_id: &str,
+) -> Vec<web_sys::HtmlElement> {
+    let mut elements = Vec::new();
+
+    // Build a selector that scopes to this dialog
+    let scoped_selector = format!("#{} {}", dialog_id, FOCUSABLE_SELECTOR);
+
+    if let Ok(node_list) = document.query_selector_all(&scoped_selector) {
+        for i in 0..node_list.length() {
+            if let Some(node) = node_list.item(i) {
+                if let Ok(el) = node.dyn_into::<web_sys::HtmlElement>() {
+                    elements.push(el);
+                }
+            }
+        }
+    }
+    elements
 }
 
 /// Dialog size variants
@@ -45,12 +79,14 @@ impl DialogSize {
     }
 }
 
-/// Dialog component with keyboard handling
+/// Dialog component with keyboard handling and focus trap
 ///
 /// Implements WCAG 2.1 modal dialog requirements:
 /// - Escape key closes dialog
 /// - Uses role="dialog" and aria-modal="true"
 /// - Focus is moved to dialog on open
+/// - Focus trap keeps Tab cycling within dialog
+/// - Focus returns to trigger element on close
 #[component]
 pub fn Dialog(
     #[prop(into)] open: RwSignal<bool>,
@@ -74,14 +110,41 @@ pub fn Dialog(
     let desc_id = format!("{}-desc", &dialog_id);
 
     // Clone for closures
-    let dialog_id_for_effect = dialog_id.clone();
+    let dialog_id_for_focus = dialog_id.clone();
     let dialog_id_for_keyboard = dialog_id.clone();
 
+    // Track the element ID that had focus before dialog opened (for focus restoration)
+    // We store the ID as a String since HtmlElement is not Send+Sync
+    let trigger_element_id: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+    let trigger_element_id_for_effect = trigger_element_id.clone();
+
     // Focus management - focus first focusable element when dialog opens
+    // and restore focus when it closes
     Effect::new(move || {
         let is_open = open.get();
+        let dialog_id = dialog_id_for_focus.clone();
+        let trigger_id = trigger_element_id_for_effect.clone();
+
         if is_open {
-            let dialog_id = dialog_id_for_effect.clone();
+            // Store the currently focused element's ID before opening
+            if let Some(document) = web_sys::window().and_then(|w| w.document()) {
+                if let Some(active) = document.active_element() {
+                    // Try to get the element's ID, or generate one
+                    let id = active.id();
+                    if !id.is_empty() {
+                        *trigger_id.borrow_mut() = Some(id);
+                    } else {
+                        // Generate a temporary ID for focus restoration
+                        let temp_id = format!(
+                            "dialog-trigger-{}",
+                            DIALOG_COUNTER.load(Ordering::Relaxed)
+                        );
+                        active.set_id(&temp_id);
+                        *trigger_id.borrow_mut() = Some(temp_id);
+                    }
+                }
+            }
+
             wasm_bindgen_futures::spawn_local(async move {
                 // Small delay to ensure DOM is updated
                 gloo_timers::future::TimeoutFuture::new(10).await;
@@ -89,9 +152,7 @@ pub fn Dialog(
                 if let Some(document) = web_sys::window().and_then(|w| w.document()) {
                     if let Some(dialog) = document.get_element_by_id(&dialog_id) {
                         // Try to focus first focusable element
-                        if let Ok(Some(focusable)) = dialog.query_selector(
-                            "button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])"
-                        ) {
+                        if let Ok(Some(focusable)) = dialog.query_selector(FOCUSABLE_SELECTOR) {
                             if let Some(el) = focusable.dyn_ref::<web_sys::HtmlElement>() {
                                 let _ = el.focus();
                             }
@@ -102,10 +163,25 @@ pub fn Dialog(
                     }
                 }
             });
+        } else {
+            // Restore focus to trigger element when dialog closes
+            if let Some(trigger_id_str) = trigger_id.borrow_mut().take() {
+                if let Some(document) = web_sys::window().and_then(|w| w.document()) {
+                    if let Some(el) = document.get_element_by_id(&trigger_id_str) {
+                        if let Some(html_el) = el.dyn_ref::<web_sys::HtmlElement>() {
+                            let _ = html_el.focus();
+                        }
+                        // Clean up temporary IDs we created
+                        if trigger_id_str.starts_with("dialog-trigger-") {
+                            el.remove_attribute("id").ok();
+                        }
+                    }
+                }
+            }
         }
     });
 
-    // Keyboard handler for Escape key
+    // Keyboard handler for Escape and Tab (focus trap)
     // Use a guard to prevent multiple listener registrations (memory leak prevention)
     let keyboard_handler_registered = StoredValue::new(false);
 
@@ -127,9 +203,42 @@ pub fn Dialog(
                             let is_within = dialog.contains(Some(&active))
                                 || active.class_list().contains("dialog-overlay");
 
-                            if is_within && event.key() == "Escape" {
-                                event.prevent_default();
-                                open_signal.set(false);
+                            if !is_within {
+                                return;
+                            }
+
+                            match event.key().as_str() {
+                                "Escape" => {
+                                    event.prevent_default();
+                                    open_signal.set(false);
+                                }
+                                "Tab" => {
+                                    // Implement focus trap
+                                    let focusables = get_focusable_elements(&document, &dialog_id);
+                                    if focusables.is_empty() {
+                                        // No focusable elements, prevent Tab from leaving
+                                        event.prevent_default();
+                                        return;
+                                    }
+
+                                    let first = &focusables[0];
+                                    let last = &focusables[focusables.len() - 1];
+
+                                    if event.shift_key() {
+                                        // Shift+Tab: if on first element, wrap to last
+                                        if active == *first.as_ref() {
+                                            event.prevent_default();
+                                            let _ = last.focus();
+                                        }
+                                    } else {
+                                        // Tab: if on last element, wrap to first
+                                        if active == *last.as_ref() {
+                                            event.prevent_default();
+                                            let _ = first.focus();
+                                        }
+                                    }
+                                }
+                                _ => {}
                             }
                         }
                     }

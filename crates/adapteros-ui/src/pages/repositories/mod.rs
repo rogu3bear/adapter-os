@@ -7,7 +7,9 @@ mod dialogs;
 mod list;
 
 use crate::api::ApiClient;
-use crate::components::{Button, ButtonVariant, Link, LinkVariant, Select, Spinner};
+use crate::components::{
+    BreadcrumbItem, BreadcrumbTrail, Button, ButtonVariant, Select, Spinner,
+};
 use crate::hooks::{use_api_resource, LoadingState};
 use detail::{RepositoryDetailPanel, RepositoryDetailStandalone};
 use dialogs::RegisterRepositoryDialog;
@@ -151,12 +153,13 @@ pub fn RepositoryDetail() -> impl IntoView {
 
     view! {
         <div class="space-y-6">
-            <div class="flex items-center gap-4">
-                <Link href="/repositories" variant=LinkVariant::Muted>
-                    "<- Repositories"
-                </Link>
-                <h1 class="text-3xl font-bold tracking-tight">"Repository Details"</h1>
-            </div>
+            // Breadcrumb navigation
+            <BreadcrumbTrail items=vec![
+                BreadcrumbItem::link("Repositories", "/repositories"),
+                BreadcrumbItem::current(repo_id.get()),
+            ]/>
+
+            <h1 class="text-3xl font-bold tracking-tight">"Repository Details"</h1>
 
             <RepositoryDetailStandalone repo_id=repo_id.get()/>
         </div>
