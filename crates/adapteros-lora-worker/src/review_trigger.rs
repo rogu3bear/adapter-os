@@ -305,7 +305,11 @@ impl ReviewTriggerDetector {
         if self.buffer.len() <= max_len {
             self.buffer.clone()
         } else {
-            let start = self.buffer.len() - max_len;
+            let mut start = self.buffer.len() - max_len;
+            // Ensure we start at a UTF-8 character boundary
+            while start < self.buffer.len() && !self.buffer.is_char_boundary(start) {
+                start += 1;
+            }
             format!("...{}", &self.buffer[start..])
         }
     }
@@ -463,5 +467,25 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn context_preview_handles_multibyte_utf8() {
+        let config = ReviewTriggerConfig::default();
+        let mut detector = ReviewTriggerDetector::new(config);
+
+        // Feed multilingual text with multi-byte UTF-8 characters
+        // Chinese, Thai, Arabic, etc. are multi-byte
+        let multilingual = "批准 eBook铊 Markus桀 低声 Hương打败批评นั่ง糊争 personality الوطنية спин ができる";
+        // Repeat to exceed 200 bytes
+        for _ in 0..10 {
+            detector.on_token(multilingual);
+        }
+
+        // This should NOT panic - the bug was slicing at non-char boundary
+        let preview = detector.context_preview();
+        assert!(preview.starts_with("..."));
+        // Verify it's valid UTF-8 (would panic on invalid)
+        assert!(preview.len() > 0);
     }
 }
