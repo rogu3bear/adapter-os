@@ -138,7 +138,7 @@ pub fn humanize_segment(segment: &str) -> String {
         _ => {
             // Replace hyphens/underscores with spaces and capitalize
             segment
-                .split(|c| c == '-' || c == '_')
+                .split(['-', '_'])
                 .map(|word| {
                     let mut chars = word.chars();
                     match chars.next() {

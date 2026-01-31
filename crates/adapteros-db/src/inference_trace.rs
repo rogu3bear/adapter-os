@@ -1049,26 +1049,17 @@ pub async fn recompute_receipt(db: &Db, trace_id: &str) -> Result<TraceReceiptVe
             .try_get::<i64, _>("tenant_kv_bytes_used")
             .unwrap_or(0)
             .max(0) as u64;
-        let kv_evictions = row
-            .try_get::<i64, _>("kv_evictions")
-            .unwrap_or(0)
-            .max(0) as u32;
+        let kv_evictions = row.try_get::<i64, _>("kv_evictions").unwrap_or(0).max(0) as u32;
         let kv_residency_policy_id: Option<String> =
             row.try_get("kv_residency_policy_id").ok().flatten();
-        let kv_quota_enforced = row
-            .try_get::<i64, _>("kv_quota_enforced")
-            .unwrap_or(0)
-            != 0;
+        let kv_quota_enforced = row.try_get::<i64, _>("kv_quota_enforced").unwrap_or(0) != 0;
         // Prefix KV cache fields
         let prefix_kv_key_hex: Option<String> = row.try_get("prefix_kv_key_b3").ok().flatten();
         let prefix_kv_key_b3 = prefix_kv_key_hex
             .as_deref()
             .and_then(|hex| B3Hash::from_hex(hex).ok());
         let prefix_cache_hit = row.try_get::<i64, _>("prefix_cache_hit").unwrap_or(0) != 0;
-        let prefix_kv_bytes = row
-            .try_get::<i64, _>("prefix_kv_bytes")
-            .unwrap_or(0)
-            .max(0) as u64;
+        let prefix_kv_bytes = row.try_get::<i64, _>("prefix_kv_bytes").unwrap_or(0).max(0) as u64;
         // Model cache identity v2 digest (PRD-06)
         let model_cache_identity_v2_digest_bytes: Option<Vec<u8>> = row
             .try_get("model_cache_identity_v2_digest_b3")
