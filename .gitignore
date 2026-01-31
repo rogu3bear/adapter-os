@@ -168,6 +168,7 @@ training/datasets/**/*.json
 !training/datasets/MIGRATION.md
 !training/datasets/**/README.md
 !training/datasets/**/.gitkeep
+training/datasets/docs/all_docs_identity/
 training/data/
 training/*.jsonl
 training/*.json
