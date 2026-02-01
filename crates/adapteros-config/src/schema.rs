@@ -998,6 +998,19 @@ pub fn default_schema() -> ConfigSchema {
     );
 
     schema.add_variable(
+        ConfigVariable::new("AOS_SERVER_WORKER_HEARTBEAT_SECS")
+            .config_type(ConfigType::Integer {
+                min: Some(1),
+                max: Some(600),
+            })
+            .default_value("30")
+            .description("Expected heartbeat interval for workers in seconds")
+            .category("SERVER")
+            .config_key("server.worker.heartbeat.interval.secs")
+            .build(),
+    );
+
+    schema.add_variable(
         ConfigVariable::new("AOS_REFERENCE_MODE")
             .config_type(ConfigType::Bool)
             .default_value("false")
@@ -1960,6 +1973,76 @@ pub fn default_schema() -> ConfigSchema {
             .build(),
     );
 
+    // =========================================================================
+    // MODEL_SERVER - Shared Model Server configuration for multi-worker deployments
+    // =========================================================================
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_MODEL_SERVER_ENABLED")
+            .config_type(ConfigType::Bool)
+            .default_value("false")
+            .description("Enable Model Server mode (workers connect to shared gRPC server)")
+            .category("MODEL_SERVER")
+            .config_key("model_server.enabled")
+            .toml_key("model_server.enabled")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_MODEL_SERVER_ADDR")
+            .config_type(ConfigType::String)
+            .default_value("http://127.0.0.1:50051")
+            .description("Model Server gRPC address (e.g., http://127.0.0.1:50051). Used for containerized deployments.")
+            .category("MODEL_SERVER")
+            .config_key("model_server.server_addr")
+            .toml_key("model_server.server_addr")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_MODEL_SERVER_MAX_KV_CACHE_SESSIONS")
+            .config_type(ConfigType::Integer {
+                min: Some(1),
+                max: Some(1024),
+            })
+            .default_value("32")
+            .description("Maximum number of KV cache sessions (conversation contexts)")
+            .category("MODEL_SERVER")
+            .config_key("model_server.max_kv_cache_sessions")
+            .toml_key("model_server.max_kv_cache_sessions")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_MODEL_SERVER_HOT_ADAPTER_THRESHOLD")
+            .config_type(ConfigType::Float {
+                min: Some(0.0),
+                max: Some(1.0),
+            })
+            .default_value("0.10")
+            .description("Hot adapter promotion threshold (0.0-1.0). Adapters above this activation rate are cached.")
+            .category("MODEL_SERVER")
+            .config_key("model_server.hot_adapter_threshold")
+            .toml_key("model_server.hot_adapter_threshold")
+            .build(),
+    );
+
+    schema.add_variable(
+        ConfigVariable::new("AOS_MODEL_SERVER_KV_CACHE_LIMIT_MB")
+            .config_type(ConfigType::Integer {
+                min: Some(0),
+                max: None,
+            })
+            .default_value("0")
+            .description(
+                "KV cache memory limit in MB (0 = automatic based on available GPU memory)",
+            )
+            .category("MODEL_SERVER")
+            .config_key("model_server.kv_cache_limit_mb")
+            .toml_key("model_server.kv_cache_limit_mb")
+            .build(),
+    );
+
     schema
 }
 
@@ -1994,6 +2077,7 @@ mod tests {
         assert!(categories.contains(&"CIRCUIT_BREAKER"));
         assert!(categories.contains(&"BUILD"));
         assert!(categories.contains(&"CIRCUIT_BREAKER"));
+        assert!(categories.contains(&"MODEL_SERVER"));
     }
 
     #[test]

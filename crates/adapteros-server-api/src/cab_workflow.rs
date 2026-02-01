@@ -230,10 +230,7 @@ impl CABWorkflow {
         .await?;
 
         let row = row.ok_or_else(|| {
-            AosError::Promotion(format!(
-                "Replay test bundle not found: {}",
-                test_bundle_id
-            ))
+            AosError::Promotion(format!("Replay test bundle not found: {}", test_bundle_id))
         })?;
 
         let expected_output: String = row.try_get("expected_output")?;

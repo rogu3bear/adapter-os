@@ -43,6 +43,10 @@ loom = []
 #   - The "scaled token ID proxy" approach has been removed as it produced incorrect adapters
 #   - Use multi-backend feature to enable MLX training support
 base-model-training = ["multi-backend"]
+# Model server mode: Workers connect to shared Model Server instead of loading model locally
+#   - Reduces GPU memory usage by ~65% (one model copy instead of N)
+#   - Requires adapteros-model-server running
+model-server = ["dep:adapteros-model-server", "dep:tonic"]
 # Residency testing features
 ci-residency = []                    # Enable standard CI residency tests
 hardware-residency = []             # Enable hardware residency tests (Mac Studio)
@@ -73,6 +77,7 @@ adapteros-memory = { path = "../adapteros-memory" }
 adapteros-types = { path = "../adapteros-types" }
 adapteros-api-types = { path = "../adapteros-api-types" }
 adapteros-boot = { path = "../adapteros-boot" }
+adapteros-model-server = { path = "../adapteros-model-server", optional = true }
 lru = "0.16"
 ed25519-dalek = { workspace = true }
 # adapteros-lint = { path = "../adapteros-lint" }  # Temporarily disabled due to dependency issues
@@ -122,6 +127,7 @@ ureq = "3.0"  # PRD-09: Blocking HTTP client for panic hook
 libc = "0.2"
 clap = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tonic = { version = "0.12", optional = true }
 [[bin]]
 name = "aos-worker"
 path = "src/bin/aos_worker.rs"

@@ -7,9 +7,7 @@ mod dialogs;
 mod list;
 
 use crate::api::ApiClient;
-use crate::components::{
-    BreadcrumbItem, BreadcrumbTrail, Button, ButtonVariant, Select, Spinner,
-};
+use crate::components::{BreadcrumbItem, BreadcrumbTrail, Button, ButtonVariant, Select, Spinner};
 use crate::hooks::{use_api_resource, LoadingState};
 use detail::{RepositoryDetailPanel, RepositoryDetailStandalone};
 use dialogs::RegisterRepositoryDialog;

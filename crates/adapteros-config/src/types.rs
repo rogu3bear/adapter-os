@@ -38,6 +38,9 @@ pub struct ServerConfig {
     /// Useful for deployments where control plane starts independently of workers.
     #[serde(default = "default_false")]
     pub skip_worker_check: bool,
+    /// Expected heartbeat interval for workers (default: 30s)
+    #[serde(default = "default_worker_heartbeat_interval_secs")]
+    pub worker_heartbeat_interval_secs: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -197,6 +200,10 @@ pub fn default_health_check_worker_timeout_ms() -> u64 {
 
 pub fn default_health_check_models_timeout_ms() -> u64 {
     2000
+}
+
+pub fn default_worker_heartbeat_interval_secs() -> u64 {
+    30
 }
 
 pub fn default_bind() -> String {
@@ -360,6 +367,86 @@ pub fn default_worker_deadline_secs() -> u64 {
 
 pub fn default_health_check_interval_secs() -> u64 {
     30
+}
+
+// ============================================================================
+// Model Server Configuration
+// ============================================================================
+
+/// Configuration for Model Server mode (shared model inference).
+///
+/// When enabled, workers connect to a shared Model Server instead of loading
+/// the model locally. This reduces GPU memory usage by ~65% for multi-worker
+/// deployments (one model copy instead of N workers × model).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelServerConfig {
+    /// Enable Model Server mode (workers connect to shared server)
+    /// Default: false (workers load models directly - legacy mode)
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// gRPC server address (e.g., "http://127.0.0.1:50051")
+    /// Default: "http://127.0.0.1:50051"
+    #[serde(default = "default_model_server_addr")]
+    pub server_addr: String,
+
+    /// Maximum number of KV cache sessions (conversation contexts)
+    /// Default: 32
+    #[serde(default = "default_max_kv_cache_sessions")]
+    pub max_kv_cache_sessions: u32,
+
+    /// Hot adapter promotion threshold (0.0 to 1.0)
+    /// Adapters with activation rate above this threshold are cached in Model Server
+    /// Default: 0.10 (10%)
+    #[serde(default = "default_hot_adapter_threshold")]
+    pub hot_adapter_threshold: f32,
+
+    /// KV cache memory limit in MB (0 = automatic based on available GPU memory)
+    /// Default: 0 (automatic)
+    #[serde(default)]
+    pub kv_cache_limit_mb: u64,
+}
+
+impl Default for ModelServerConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            server_addr: default_model_server_addr(),
+            max_kv_cache_sessions: default_max_kv_cache_sessions(),
+            hot_adapter_threshold: default_hot_adapter_threshold(),
+            kv_cache_limit_mb: 0,
+        }
+    }
+}
+
+/// Default Model Server gRPC address.
+/// Returns "http://127.0.0.1:50051".
+pub fn default_model_server_addr() -> String {
+    "http://127.0.0.1:50051".to_string()
+}
+
+/// Resolve Model Server address with environment variable override.
+///
+/// Checks `AOS_MODEL_SERVER_ADDR` environment variable first, falling back
+/// to the default address if not set. This is useful for containerized
+/// deployments where the Model Server address is injected via environment.
+///
+/// # Example
+///
+/// ```bash
+/// # Override in container deployment
+/// export AOS_MODEL_SERVER_ADDR=http://model-server.internal:50051
+/// ```
+pub fn resolve_model_server_addr() -> String {
+    std::env::var("AOS_MODEL_SERVER_ADDR").unwrap_or_else(|_| default_model_server_addr())
+}
+
+pub fn default_max_kv_cache_sessions() -> u32 {
+    32
+}
+
+pub fn default_hot_adapter_threshold() -> f32 {
+    0.10
 }
 
 // ============================================================================

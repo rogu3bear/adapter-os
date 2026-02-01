@@ -8,8 +8,8 @@ use crate::api::{
     SystemHealthResponse, SystemReadyResponse,
 };
 use crate::components::{
-    Badge, BadgeVariant, Card, Spinner, StatusColor, StatusIndicator, Table, TableBody, TableCell,
-    TableHead, TableHeader, TableRow,
+    Badge, BadgeVariant, Card, Spinner, StatusColor, StatusIndicator, StatusVariant, Table,
+    TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::LoadingState;
 use adapteros_api_types::{
@@ -386,14 +386,7 @@ fn WorkersSection(workers: Vec<WorkerResponse>) -> impl IntoView {
 #[component]
 fn WorkerRow(worker: WorkerResponse) -> impl IntoView {
     let status = worker.status.as_str();
-
-    let status_variant = match status {
-        "healthy" => BadgeVariant::Success,
-        "draining" => BadgeVariant::Warning,
-        "error" | "stopped" => BadgeVariant::Destructive,
-        "registered" | "created" => BadgeVariant::Secondary,
-        _ => BadgeVariant::Secondary,
-    };
+    let status_variant = StatusVariant::from_worker_status(status).to_badge_variant();
 
     // Determine if this worker is in a transitional state
     let is_transitional = matches!(status, "draining" | "created" | "registered");
@@ -592,12 +585,7 @@ fn NodesSection(nodes: Vec<NodeResponse>) -> impl IntoView {
 /// Single node row component
 #[component]
 fn NodeRow(node: NodeResponse) -> impl IntoView {
-    let status_variant = match node.node.status.as_str() {
-        "healthy" | "active" => BadgeVariant::Success,
-        "draining" => BadgeVariant::Warning,
-        "error" | "offline" => BadgeVariant::Destructive,
-        _ => BadgeVariant::Secondary,
-    };
+    let status_variant = StatusVariant::from_worker_status(&node.node.status).to_badge_variant();
 
     let short_id = if node.node.id.len() > 8 {
         format!("{}...", &node.node.id[..8])

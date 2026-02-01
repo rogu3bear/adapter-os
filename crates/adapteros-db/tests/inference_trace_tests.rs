@@ -109,6 +109,8 @@ async fn trace_persistence_and_receipt_verification() -> anyhow::Result<()> {
             // P0-1: Cache attestation (not needed when prefix_cached_token_count = 0)
             cache_attestation: None,
             worker_public_key: None,
+            // UMA telemetry (PRD §5.5)
+            copy_bytes: None,
         })
         .await?;
 
@@ -197,6 +199,8 @@ async fn trace_persistence_and_receipt_verification() -> anyhow::Result<()> {
             // P0-1: Cache attestation (not needed when prefix_cached_token_count = 0)
             cache_attestation: None,
             worker_public_key: None,
+            // UMA telemetry (PRD §5.5)
+            copy_bytes: None,
         })
         .await?;
     assert_eq!(

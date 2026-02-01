@@ -318,6 +318,10 @@ pub fn auto_select_backend(capabilities: &BackendCapabilities) -> Result<Backend
             BackendKind::Auto => {
                 // Auto should never appear in the priority list
             }
+            BackendKind::ModelServer => {
+                // ModelServer is explicitly requested, not auto-selected
+                skipped.push("modelserver_requires_explicit_config".to_string());
+            }
         }
     }
 
@@ -372,6 +376,7 @@ pub fn select_backend_from_execution_profile(
                             BackendChoice::CPU => "coreml_unavailable_fallback_cpu",
                             BackendChoice::CoreML => "coreml_unavailable_fallback_coreml",
                             BackendChoice::Auto => "coreml_unavailable_fallback_auto",
+                            BackendChoice::ModelServer => "coreml_unavailable_fallback_modelserver",
                         }),
                     }
                 }
@@ -437,6 +442,11 @@ pub fn select_backend_from_execution_profile(
             return Err(AosError::Config(
                 "CPU backend is not supported for inference kernels".to_string(),
             ))
+        }
+        BackendKind::ModelServer => {
+            // ModelServer is always accepted when explicitly requested
+            // Configuration validation happens in the backend factory
+            BackendSelection::new(BackendChoice::ModelServer)
         }
     };
 

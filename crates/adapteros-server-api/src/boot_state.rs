@@ -206,6 +206,8 @@ pub mod failure_codes {
     pub const OTEL_INIT_FAILED: &str = "OTEL_INIT_FAILED";
     /// Invariant validation failed
     pub const INVARIANTS_FAILED: &str = "INVARIANTS_FAILED";
+    /// Model Server readiness check failed
+    pub const MODEL_SERVER_FAILED: &str = "MODEL_SERVER_FAILED";
 }
 
 /// Degraded state reason for non-critical dependency failures

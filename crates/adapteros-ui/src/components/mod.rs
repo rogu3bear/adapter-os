@@ -25,8 +25,8 @@ pub mod form_field;
 pub mod glass_toggle;
 pub mod global_search;
 pub mod icons;
-pub mod input;
 pub mod inference_guidance;
+pub mod input;
 pub mod layout;
 pub mod link;
 pub mod notification_provider;
@@ -69,7 +69,9 @@ pub use command_palette::CommandPalette;
 pub use confirmation_dialog::{
     ConfirmationDialog, ConfirmationSeverity, ImpactItem, SimpleConfirmDialog,
 };
-pub use danger_zone::{DangerZone, DangerZoneItem, InfoBanner, WarningBanner};
+pub use danger_zone::{
+    AlertBanner, BannerVariant, DangerZone, DangerZoneItem, InfoBanner, WarningBanner,
+};
 pub use data_table::{Column, DataTable};
 pub use diag_diff::DiffResults;
 pub use dialog::{Dialog, DialogSize};
@@ -95,12 +97,12 @@ pub use spinner::Spinner;
 pub use split_panel::{SplitMode, SplitPanel, SplitRatio};
 pub use status::{
     BackendStatus, BackendStatusBadge, BackendStatusIndicator, Badge, BadgeVariant, StatusColor,
-    StatusIndicator,
+    StatusIconBox, StatusIndicator, StatusVariant, WorkerStatusBadge,
 };
 pub use table::{
     SortDirection, Table, TableBody, TableCell, TableHead, TableHeadSortable, TableHeader, TableRow,
 };
-pub use tabs::{TabButton, TabButtonEnum, TabNav, TabNavEnum, TabPanel, TabPanelEnum};
+pub use tabs::{TabButton, TabNav, TabPanel};
 pub use toggle::{Select, Toggle};
 pub use trace_viewer::{
     TokenDecisions, TraceButton, TraceDetailStandalone, TracePanel, TraceViewer,

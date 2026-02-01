@@ -4,9 +4,9 @@
 //! Provides a command console for interacting with adapterOS.
 
 use crate::api::ApiClient;
-use crate::components::{Button, ButtonSize, Spinner, Textarea};
 use crate::components::inference_guidance::guidance_for;
 use crate::components::status_center::use_status_center;
+use crate::components::{Button, ButtonSize, Spinner, Textarea};
 use crate::hooks::{use_api_resource, LoadingState};
 use crate::signals::{use_chat, ChatTarget, ContextToggle, DockState};
 use adapteros_api_types::InferenceReadyState;

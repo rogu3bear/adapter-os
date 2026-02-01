@@ -99,6 +99,8 @@ async fn golden_path_inference_over_uds() -> Result<(), Box<dyn std::error::Erro
             manifest_hash: manifest_hash.clone(),
             backend: Some(backend.clone()),
             model_hash_b3: Some(manifest.base.model_hash.to_hex()),
+            tokenizer_hash_b3: Some(manifest.base.tokenizer_hash.to_hex()),
+            tokenizer_vocab_size: Some(manifest.base.vocab_size as i64),
             capabilities_json: None,
             schema_version: API_SCHEMA_VERSION.to_string(),
             api_version: API_SCHEMA_VERSION.to_string(),

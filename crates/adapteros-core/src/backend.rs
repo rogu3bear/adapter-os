@@ -33,6 +33,9 @@ pub enum BackendKind {
     /// CPU-only execution
     #[serde(alias = "cpu_only", alias = "cpu-only")]
     CPU,
+    /// Model Server - delegates inference to shared model server
+    #[serde(alias = "model_server", alias = "model-server")]
+    ModelServer,
 }
 
 impl BackendKind {
@@ -45,6 +48,7 @@ impl BackendKind {
             BackendKind::MlxBridge => "mlxbridge",
             BackendKind::Metal => "metal",
             BackendKind::CPU => "cpu",
+            BackendKind::ModelServer => "modelserver",
         }
     }
 
@@ -59,18 +63,28 @@ impl BackendKind {
     /// - `coreml`, `metal` → `"accelerated"` (Apple hardware acceleration)
     /// - `cpu` → `"cpu"` (explicit CPU execution)
     /// - `auto` → `"auto"` (auto-selection, should resolve before response)
+    /// - `modelserver` → `"remote"` (delegated to shared model server)
     pub fn normalized_id(&self) -> &'static str {
         match self {
             BackendKind::Mlx | BackendKind::MlxBridge => "native",
             BackendKind::CoreML | BackendKind::Metal => "accelerated",
             BackendKind::CPU => "cpu",
             BackendKind::Auto => "auto",
+            BackendKind::ModelServer => "remote",
         }
     }
 
     /// List of canonical variants for error reporting.
     pub fn variants() -> &'static [&'static str] {
-        &["auto", "coreml", "mlx", "mlxbridge", "metal", "cpu"]
+        &[
+            "auto",
+            "coreml",
+            "mlx",
+            "mlxbridge",
+            "metal",
+            "cpu",
+            "modelserver",
+        ]
     }
 
     /// Canonical MLX-first priority list for inference backends.
@@ -145,13 +159,17 @@ impl From<adapteros_types::training::TrainingBackendKind> for BackendKind {
 ///
 /// Note: `BackendKind::MlxBridge` maps to `TrainingBackendKind::Mlx` since
 /// the training subsystem doesn't distinguish between MLX variants.
+/// `BackendKind::ModelServer` maps to `TrainingBackendKind::Mlx` since the
+/// Model Server typically uses MLX for inference.
 impl From<BackendKind> for adapteros_types::training::TrainingBackendKind {
     fn from(backend: BackendKind) -> Self {
         use adapteros_types::training::TrainingBackendKind;
         match backend {
             BackendKind::Auto => TrainingBackendKind::Auto,
             BackendKind::CoreML => TrainingBackendKind::CoreML,
-            BackendKind::Mlx | BackendKind::MlxBridge => TrainingBackendKind::Mlx,
+            BackendKind::Mlx | BackendKind::MlxBridge | BackendKind::ModelServer => {
+                TrainingBackendKind::Mlx
+            }
             BackendKind::Metal => TrainingBackendKind::Metal,
             BackendKind::CPU => TrainingBackendKind::Cpu,
         }
@@ -172,6 +190,7 @@ impl FromStr for BackendKind {
             // "accelerated" is the normalized_id() for CoreML/Metal (used in responses)
             "metal" | "accelerated" => BackendKind::Metal,
             "cpu" | "cpuonly" => BackendKind::CPU,
+            "modelserver" | "model_server" | "remote" => BackendKind::ModelServer,
             other => {
                 // Handle descriptive backend names like "MLX FFI (Apple Silicon)"
                 if other.starts_with("mlx ffi") || other.starts_with("mlxffi") {
@@ -205,6 +224,7 @@ mod tests {
             BackendKind::MlxBridge,
             BackendKind::Metal,
             BackendKind::CPU,
+            BackendKind::ModelServer,
         ] {
             let rendered = kind.to_string();
             let parsed = BackendKind::from_str(&rendered).unwrap();
@@ -239,7 +259,7 @@ mod tests {
         let err = BackendKind::from_str("unknown-backend").unwrap_err();
         assert!(err
             .to_string()
-            .contains("Expected one of: auto, coreml, mlx, mlxbridge, metal, cpu"));
+            .contains("Expected one of: auto, coreml, mlx, mlxbridge, metal, cpu, modelserver"));
     }
 
     #[test]
@@ -338,5 +358,28 @@ mod tests {
 
         // Auto stays as "auto" (should resolve before response)
         assert_eq!(BackendKind::Auto.normalized_id(), "auto");
+
+        // Model Server normalizes to "remote"
+        assert_eq!(BackendKind::ModelServer.normalized_id(), "remote");
+    }
+
+    #[test]
+    fn parses_model_server_aliases() {
+        assert_eq!(
+            BackendKind::from_str("modelserver").unwrap(),
+            BackendKind::ModelServer
+        );
+        assert_eq!(
+            BackendKind::from_str("model_server").unwrap(),
+            BackendKind::ModelServer
+        );
+        assert_eq!(
+            BackendKind::from_str("model-server").unwrap(),
+            BackendKind::ModelServer
+        );
+        assert_eq!(
+            BackendKind::from_str("remote").unwrap(),
+            BackendKind::ModelServer
+        );
     }
 }

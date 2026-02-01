@@ -424,6 +424,8 @@ async fn test_gold_standard_e2e_inference() {
         manifest_hash: manifest_hash.to_string(),
         backend: Some(backend_name.to_string()),
         model_hash_b3: None,
+        tokenizer_hash_b3: None,
+        tokenizer_vocab_size: None,
         capabilities_json: None,
         schema_version: API_SCHEMA_VERSION.to_string(),
         api_version: API_SCHEMA_VERSION.to_string(),

@@ -123,6 +123,8 @@ async fn evidence_bundle_contains_required_files() -> anyhow::Result<()> {
         // P0-1: Cache attestation (not needed when prefix_cached_token_count = 0)
         cache_attestation: None,
         worker_public_key: None,
+        // UMA telemetry (PRD §5.5)
+        copy_bytes: None,
     };
     sink.finalize(finalization).await?;
     sink.flush().await?;

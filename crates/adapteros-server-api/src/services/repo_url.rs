@@ -93,10 +93,10 @@ pub async fn infer_repo_urls_parallel(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils;
     use std::fs;
     use std::path::PathBuf;
     use tempfile::TempDir;
-    use crate::test_utils;
 
     fn new_test_tempdir() -> TempDir {
         test_utils::tempdir_with_prefix("aos-test-")

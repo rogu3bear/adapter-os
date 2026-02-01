@@ -86,7 +86,9 @@ impl AuthError {
             Self::TokenRevoked => "Your session was revoked. Log in again.",
             Self::TenantMismatch => "You don't have access to this workspace.",
             Self::TenantMissing => "No workspace associated with your account.",
-            Self::ServerUnavailable => "Unable to reach the server. Retry or check your connection.",
+            Self::ServerUnavailable => {
+                "Unable to reach the server. Retry or check your connection."
+            }
             Self::Other(msg) => msg,
         }
     }

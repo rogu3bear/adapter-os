@@ -16,11 +16,12 @@ use adapteros_server::boot::api_config::{build_api_config, spawn_sighup_handler}
 use adapteros_server::boot::background_tasks::spawn_all_background_tasks;
 use adapteros_server::boot::migrations::run_migrations;
 use adapteros_server::boot::{
-    bind_and_serve, bind_error_exit_code, build_app_state, enforce_invariants, finalize_boot,
-    initialize_config, initialize_database, initialize_executor, initialize_federation,
-    initialize_metrics, initialize_security, log_effective_config, run_preflight_checks,
-    run_startup_recovery, validate_boot_invariants, validate_post_db_invariants,
-    validate_production_security_env, write_boot_report, BindMode, ServerBindConfig,
+    bind_and_serve, bind_error_exit_code, build_app_state, check_model_server_readiness,
+    enforce_invariants, finalize_boot, initialize_config, initialize_database, initialize_executor,
+    initialize_federation, initialize_metrics, initialize_security, log_effective_config,
+    run_preflight_checks, run_startup_recovery, validate_boot_invariants,
+    validate_post_db_invariants, validate_production_security_env, write_boot_report, BindMode,
+    ServerBindConfig,
 };
 use adapteros_server::cli::Cli;
 use adapteros_server_api::boot_state::failure_codes;
@@ -137,6 +138,23 @@ async fn main() -> Result<()> {
             anyhow::anyhow!("{}", e)
         })?;
         boot_state.finish_phase_ok("invariants");
+
+        // =====================================================================
+        // Phase 4c: Model Server Readiness (if enabled)
+        // =====================================================================
+        boot_state.start_phase("model_server_readiness");
+        let effective_config = adapteros_config::effective_config()?;
+        let _model_server_ctx = check_model_server_readiness(effective_config)
+            .await
+            .map_err(|e| {
+                boot_state.finish_phase_err(
+                    "model_server_readiness",
+                    failure_codes::MODEL_SERVER_FAILED,
+                    Some(e.to_string()),
+                );
+                e
+            })?;
+        boot_state.finish_phase_ok("model_server_readiness");
 
         // =====================================================================
         // Phase 5: Database Connection
@@ -355,7 +373,12 @@ async fn main() -> Result<()> {
             cli.strict,
         )?;
 
-        Ok::<_, anyhow::Error>((db_ctx.boot_state, boot_artifacts, shutdown_coordinator, shutdown_rx))
+        Ok::<_, anyhow::Error>((
+            db_ctx.boot_state,
+            boot_artifacts,
+            shutdown_coordinator,
+            shutdown_rx,
+        ))
     })
     .await;
 

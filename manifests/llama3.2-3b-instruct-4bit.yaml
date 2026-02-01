@@ -1,0 +1,94 @@
+schema: adapteros.manifest.v3
+base:
+  model_id: "Llama-3.2-3B-Instruct"
+  model_hash: "58a7af3d54d7ce3e92f4900f2e968aa806a18d7a6197cc0f5d7eb081811a3ab1"
+  arch: "LlamaForCausalLM"
+  vocab_size: 128256
+  hidden_dim: 3072
+  n_layers: 28
+  n_heads: 24
+  config_hash: "7a129586f764191ec7e79dd076c0e3d51340e6aaa815edbd13f32a58c4a3d607"
+  tokenizer_hash: "51e63f3c7d58ec06403bc442606644976fb4b92b45171faebcd67927d8a437eb"
+  tokenizer_cfg_hash: "0754b49891ffa4f566b96071abe613b86a204d391a5fbc61f160d52515807bff"
+adapters: []
+router:
+  k_sparse: 3
+  gate_quant: "q15"
+  entropy_floor: 0.02
+  tau: 1.0
+  sample_tokens_full: 128
+telemetry:
+  schema_hash: "0000000000000000000000000000000000000000000000000000000000000000"
+  sampling:
+    token: 0.05
+    router: 1.0
+    inference: 1.0
+  router_full_tokens: 128
+  bundle:
+    max_events: 500000
+    max_bytes: 268435456
+policies:
+  egress:
+    mode: "deny_all"
+    serve_requires_pf: false
+    allow_tcp: false
+    allow_udp: false
+    uds_paths:
+      - "./var/run/aos/default"
+  determinism:
+    require_metallib_embed: false
+    require_kernel_hash_match: false
+    rng: "hkdf_seeded"
+    retrieval_tie_break:
+      - "score_desc"
+      - "doc_id_asc"
+  evidence:
+    require_open_book: false
+    min_spans: 0
+    prefer_latest_revision: true
+    warn_on_superseded: false
+  refusal:
+    abstain_threshold: 0.55
+    missing_fields_templates: {}
+  numeric:
+    canonical_units: {}
+    max_rounding_error: 0.5
+    require_units_in_trace: false
+  rag:
+    index_scope: "per_tenant"
+    doc_tags_required: []
+    embedding_model_hash: "0000000000000000000000000000000000000000000000000000000000000000"
+    topk: 5
+    order:
+      - "score_desc"
+  isolation:
+    process_model: "per_tenant"
+    uds_root: "./var/run/aos/default"
+    forbid_shm: false
+  performance:
+    latency_p95_ms: 100
+    router_overhead_pct_max: 10
+    throughput_tokens_per_s_min: 10
+    max_tokens: 2048
+    cpu_threshold_pct: 95.0
+    memory_threshold_pct: 95.0
+    circuit_breaker_threshold: 10
+  memory:
+    min_headroom_pct: 10
+    evict_order:
+      - "ephemeral_ttl"
+      - "cold_lru"
+    k_reduce_before_evict: true
+  artifacts:
+    require_signature: false
+    require_sbom: false
+    cas_only: false
+  drift:
+    os_build_tolerance: 100
+    gpu_driver_tolerance: 100
+    env_hash_tolerance: 100
+    allow_warnings: true
+    block_on_critical: false
+seeds:
+  global: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+  manifest_hash: "0000000000000000000000000000000000000000000000000000000000000000"

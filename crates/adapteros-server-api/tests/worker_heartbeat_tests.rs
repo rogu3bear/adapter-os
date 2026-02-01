@@ -100,7 +100,7 @@ async fn test_heartbeat_updates_last_seen_at() {
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
     // Send heartbeat
-    db.update_worker_heartbeat(worker_id, None)
+    db.update_worker_heartbeat(worker_id, None, None, None)
         .await
         .expect("Heartbeat should succeed");
 
@@ -126,7 +126,7 @@ async fn test_heartbeat_unknown_worker_returns_not_found() {
 
     // Try to send heartbeat for non-existent worker
     let result = db
-        .update_worker_heartbeat("non-existent-worker", None)
+        .update_worker_heartbeat("non-existent-worker", None, None, None)
         .await;
 
     // Should return NotFound error
@@ -160,7 +160,7 @@ async fn test_heartbeat_with_status_update() {
     assert_eq!(worker.status, "serving");
 
     // Send heartbeat with status update
-    db.update_worker_heartbeat(worker_id, Some("draining"))
+    db.update_worker_heartbeat(worker_id, Some("draining"), None, None)
         .await
         .expect("Heartbeat with status should succeed");
 
@@ -185,7 +185,7 @@ async fn test_multiple_heartbeats_succeed() {
 
     // Send multiple heartbeats
     for i in 0..5 {
-        db.update_worker_heartbeat(worker_id, None)
+        db.update_worker_heartbeat(worker_id, None, None, None)
             .await
             .unwrap_or_else(|e| panic!("Heartbeat {} should succeed: {}", i, e));
     }
@@ -217,6 +217,8 @@ fn test_heartbeat_request_serialization() {
         cache_max_mb: Some(512),
         cache_pinned_entries: Some(2),
         cache_active_entries: Some(1),
+        tokenizer_hash_b3: None,
+        tokenizer_vocab_size: None,
     };
 
     let json = serde_json::to_string(&req).expect("Should serialize");
@@ -248,6 +250,8 @@ fn test_heartbeat_request_optional_fields() {
         cache_max_mb: None,
         cache_pinned_entries: None,
         cache_active_entries: None,
+        tokenizer_hash_b3: None,
+        tokenizer_vocab_size: None,
     };
 
     let json = serde_json::to_string(&req).expect("Should serialize");

@@ -136,6 +136,34 @@ impl StopPolicySpec {
     }
 }
 
+/// Tokenization request for direct access to the model tokenizer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct TokenizeRequest {
+    /// Model ID whose tokenizer should be used
+    pub model_id: String,
+    /// Raw text to tokenize
+    pub text: String,
+}
+
+/// Tokenization response returning token IDs and metadata.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct TokenizeResponse {
+    /// Token IDs produced by the tokenizer
+    pub token_ids: Vec<u32>,
+    /// Number of tokens emitted
+    pub token_count: usize,
+    /// Hash of the tokenizer.json used (BLAKE3 hex)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tokenizer_hash_b3: Option<String>,
+    /// Vocabulary size reported by the tokenizer
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tokenizer_vocab_size: Option<u32>,
+}
+
 /// Context request for inference with UI context toggles.
 ///
 /// Allows the UI to inject contextual information into inference requests,

@@ -209,7 +209,8 @@ async fn init_in_memory_db() -> Result<Arc<Db>> {
             crypto_receipt_digest_b3 BLOB,
             receipt_parity_verified INTEGER,
             tenant_id TEXT,
-            created_at TEXT
+            created_at TEXT,
+            copy_bytes INTEGER
         );
         "#,
     )
@@ -267,6 +268,8 @@ async fn run_trace_once(
         // P0-1: Cache attestation (not needed when prefix_cached_token_count = 0)
         cache_attestation: None,
         worker_public_key: None,
+        // UMA telemetry (PRD §5.5)
+        copy_bytes: None,
     };
 
     let receipt = sink.finalize(finalization).await?;

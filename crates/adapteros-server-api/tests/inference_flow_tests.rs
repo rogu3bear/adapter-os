@@ -224,6 +224,8 @@ async fn ready_model_happy_path_inference_and_routing() {
         manifest_hash: manifest_hash.to_string(),
         backend: None,
         model_hash_b3: None,
+        tokenizer_hash_b3: None,
+        tokenizer_vocab_size: None,
         capabilities_json: None,
         schema_version: API_SCHEMA_VERSION.to_string(),
         api_version: API_SCHEMA_VERSION.to_string(),

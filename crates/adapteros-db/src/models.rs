@@ -285,6 +285,10 @@ pub struct Worker {
     pub backend: Option<String>,
     pub model_hash_b3: Option<String>,
     pub capabilities_json: Option<String>,
+    #[sqlx(default)]
+    pub tokenizer_hash_b3: Option<String>,
+    #[sqlx(default)]
+    pub tokenizer_vocab_size: Option<i64>,
 }
 
 impl Db {

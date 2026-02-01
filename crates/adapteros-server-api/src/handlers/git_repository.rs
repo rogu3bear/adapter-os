@@ -14,11 +14,11 @@ use axum::{
 };
 use git2::Repository;
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
 use std::collections::HashMap;
 use std::path::Path as StdPath;
 use tokio::time::{timeout, Duration};
 use tracing::info;
+use utoipa::ToSchema;
 use uuid::Uuid;
 use walkdir::WalkDir;
 
@@ -587,10 +587,10 @@ pub async fn train_repository_adapter(
             training_config,
             None, // template_id
             Some(repo_id.clone()),
-            None, // target_branch
-            None, // base_version_id
-            None, // dataset_id
-            None, // dataset_version_ids
+            None,                               // target_branch
+            None,                               // base_version_id
+            None,                               // dataset_id
+            None,                               // dataset_version_ids
             analysis.evidence_spans.is_empty(), // synthetic_mode: only true when no evidence
             if analysis.evidence_spans.is_empty() {
                 adapteros_types::training::DataLineageMode::Synthetic

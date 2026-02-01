@@ -104,6 +104,8 @@ fuzz_target!(|data: &[u8]| {
                 // P0-1: Cache attestation for provable cache credits
                 cache_attestation: None,
                 worker_public_key: None,
+                // UMA telemetry (PRD §5.5)
+                copy_bytes: None,
             })
             .await;
 

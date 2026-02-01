@@ -857,7 +857,11 @@ impl DeterministicExecutor {
                         self.event_log.lock().push(event.clone());
                     }
                 }
-                ExecutorEvent::InferenceStarted { run_id, tick, hash: _ } => {
+                ExecutorEvent::InferenceStarted {
+                    run_id,
+                    tick,
+                    hash: _,
+                } => {
                     info!(run_id = %run_id, tick, "Replaying inference start");
                     if self.config.enable_event_logging {
                         self.event_log.lock().push(event.clone());

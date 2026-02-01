@@ -590,13 +590,13 @@ pub async fn streaming_infer_with_progress(
         let resolved = resolve_session_token_lock(&state, &claims, &token.0.lock).await?;
         if let (Some(requested), Some(locked)) = (req.coreml_mode, resolved.coreml_mode) {
             if requested != locked {
-                return Err(ApiError::forbidden("session token coreml_mode mismatch").with_details(
-                    format!(
+                return Err(ApiError::forbidden("session token coreml_mode mismatch")
+                    .with_details(format!(
                         "requested {}, token {}",
                         requested.as_str(),
                         locked.as_str()
-                    ),
-                ).into());
+                    ))
+                    .into());
             }
         }
         Some(resolved)
@@ -813,13 +813,13 @@ pub async fn streaming_infer(
         let resolved = resolve_session_token_lock(&state, &claims, &token.0.lock).await?;
         if let (Some(requested), Some(locked)) = (req.coreml_mode, resolved.coreml_mode) {
             if requested != locked {
-                return Err(ApiError::forbidden("session token coreml_mode mismatch").with_details(
-                    format!(
+                return Err(ApiError::forbidden("session token coreml_mode mismatch")
+                    .with_details(format!(
                         "requested {}, token {}",
                         requested.as_str(),
                         locked.as_str()
-                    ),
-                ).into());
+                    ))
+                    .into());
             }
         }
         Some(resolved)
@@ -2444,10 +2444,10 @@ fn current_timestamp() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils;
     use crate::handlers::rag_common::parse_rag_doc_id;
     use crate::state::MetricsConfig;
     use crate::telemetry::MetricsRegistry;
+    use crate::test_utils;
     use crate::{ApiConfig, PathsConfig};
     use adapteros_core::{BackendKind, SeedMode};
     use adapteros_metrics_exporter::MetricsExporter;

@@ -255,13 +255,6 @@ pub fn WorkerRow(
     show_drain: bool,
     show_stop: bool,
 ) -> impl IntoView {
-    let _status_variant = match worker.status.as_str() {
-        "healthy" => BadgeVariant::Success,
-        "draining" => BadgeVariant::Warning,
-        "registered" => BadgeVariant::Secondary,
-        "error" | "stopped" => BadgeVariant::Destructive,
-        _ => BadgeVariant::Secondary,
-    };
     let health_status = health
         .as_ref()
         .map(|h| h.health_status.clone())

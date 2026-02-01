@@ -100,7 +100,8 @@ async fn init_test_db() -> Result<Arc<Db>> {
             crypto_receipt_digest_b3 BLOB,
             receipt_parity_verified INTEGER,
             tenant_id TEXT,
-            created_at TEXT
+            created_at TEXT,
+            copy_bytes INTEGER
         );
         "#,
     )
@@ -271,6 +272,8 @@ async fn test_stop_controller_budget_max_persisted_to_receipt() -> Result<()> {
         // P0-1: Cache attestation (not needed when prefix_cached_token_count = 0)
         cache_attestation: None,
         worker_public_key: None,
+        // UMA telemetry (PRD §5.5)
+        copy_bytes: None,
     };
 
     let receipt = sink.finalize(finalization).await?;
@@ -372,6 +375,8 @@ async fn test_stop_controller_completion_confident_persisted() -> Result<()> {
         // P0-1: Cache attestation (not needed when prefix_cached_token_count = 0)
         cache_attestation: None,
         worker_public_key: None,
+        // UMA telemetry (PRD §5.5)
+        copy_bytes: None,
     };
 
     sink.finalize(finalization).await?;
@@ -465,6 +470,8 @@ async fn test_stop_controller_repetition_guard_persisted() -> Result<()> {
         // P0-1: Cache attestation (not needed when prefix_cached_token_count = 0)
         cache_attestation: None,
         worker_public_key: None,
+        // UMA telemetry (PRD §5.5)
+        copy_bytes: None,
     };
 
     sink.finalize(finalization).await?;
@@ -555,6 +562,8 @@ async fn test_stop_controller_length_eos_persisted() -> Result<()> {
         // P0-1: Cache attestation (not needed when prefix_cached_token_count = 0)
         cache_attestation: None,
         worker_public_key: None,
+        // UMA telemetry (PRD §5.5)
+        copy_bytes: None,
     };
 
     sink.finalize(finalization).await?;
@@ -652,6 +661,8 @@ async fn test_determinism_same_policy_same_receipt_digest() -> Result<()> {
         // P0-1: Cache attestation (not needed when prefix_cached_token_count = 0)
         cache_attestation: None,
         worker_public_key: None,
+        // UMA telemetry (PRD §5.5)
+        copy_bytes: None,
     };
     let receipt1 = sink1.finalize(finalization1).await?;
 
@@ -701,6 +712,8 @@ async fn test_determinism_same_policy_same_receipt_digest() -> Result<()> {
         // P0-1: Cache attestation (not needed when prefix_cached_token_count = 0)
         cache_attestation: None,
         worker_public_key: None,
+        // UMA telemetry (PRD §5.5)
+        copy_bytes: None,
     };
     let receipt2 = sink2.finalize(finalization2).await?;
 
@@ -891,6 +904,8 @@ async fn test_stop_policy_digest_committed_to_merkle_bundle() -> Result<()> {
         // P0-1: Cache attestation (not needed when prefix_cached_token_count = 0)
         cache_attestation: None,
         worker_public_key: None,
+        // UMA telemetry (PRD §5.5)
+        copy_bytes: None,
     };
 
     let receipt = sink.finalize(finalization).await?;
@@ -978,6 +993,8 @@ async fn test_stop_policy_digest_committed_to_merkle_bundle() -> Result<()> {
         // P0-1: Cache attestation (not needed when prefix_cached_token_count = 0)
         cache_attestation: None,
         worker_public_key: None,
+        // UMA telemetry (PRD §5.5)
+        copy_bytes: None,
     };
 
     sink2.finalize(finalization2).await?;

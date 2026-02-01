@@ -5,13 +5,13 @@
 //! with the dock panel.
 
 use crate::api::ApiClient;
+use crate::components::inference_guidance::guidance_for;
+use crate::components::status_center::use_status_center;
 use crate::components::{
     AdapterBar, AdapterHeat, AdapterMagnet, Badge, BadgeVariant, Button, ButtonSize, ButtonVariant,
     Card, ConfirmationDialog, ConfirmationSeverity, EmptyState, EmptyStateVariant, Spinner,
     SuggestedAdapterView, SuggestedAdaptersBar, Textarea, TraceButton, TracePanel,
 };
-use crate::components::inference_guidance::guidance_for;
-use crate::components::status_center::use_status_center;
 use crate::hooks::{use_api_resource, LoadingState};
 use crate::signals::{use_chat, ChatSessionMeta, ChatSessionsManager, StreamNoticeTone};
 use adapteros_api_types::InferenceReadyState;

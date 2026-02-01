@@ -45,22 +45,23 @@
 use leptos::prelude::*;
 
 // =============================================================================
-// String-based Tab Navigation
+// Generic Tab Navigation
 // =============================================================================
 
-/// Tab navigation with string-based tab identifiers.
-///
-/// Best for simple cases where tabs are known at compile time.
+/// Tab navigation with generic tab identifiers.
 #[component]
-pub fn TabNav(
+pub fn TabNav<T>(
     /// List of (tab_id, label) pairs
-    tabs: Vec<(&'static str, &'static str)>,
+    tabs: Vec<(T, &'static str)>,
     /// Signal holding the currently active tab ID
-    active: RwSignal<String>,
+    active: RwSignal<T>,
     /// Optional aria-label for accessibility
     #[prop(optional, into)]
     aria_label: Option<String>,
-) -> impl IntoView {
+) -> impl IntoView
+where
+    T: Clone + PartialEq + Send + Sync + 'static,
+{
     let aria = aria_label.unwrap_or_else(|| "Tab navigation".to_string());
 
     view! {
@@ -68,10 +69,9 @@ pub fn TabNav(
             {tabs
                 .into_iter()
                 .map(|(id, label)| {
-                    let tab_id = id.to_string();
-                    let tab_id_clone = tab_id.clone();
-                    let tab_id_for_aria = tab_id.clone();
-                    let tab_id_for_class = tab_id.clone();
+                    let tab_id = id.clone();
+                    let tab_id_for_aria = id.clone();
+                    let tab_id_for_class = id.clone();
 
                     view! {
                         <button
@@ -85,7 +85,7 @@ pub fn TabNav(
                                     "tab-button"
                                 }
                             }
-                            on:click=move |_| active.set(tab_id_clone.clone())
+                            on:click=move |_| active.set(tab_id.clone())
                         >
                             {label}
                         </button>
@@ -96,105 +96,22 @@ pub fn TabNav(
     }
 }
 
-/// Individual tab button (for custom layouts)
+/// Generic tab button (for custom layouts)
 #[component]
-pub fn TabButton(
+pub fn TabButton<T>(
     /// Tab identifier
-    #[prop(into)]
-    tab: String,
-    /// Display label
-    #[prop(into)]
-    label: String,
-    /// Signal holding active tab
-    active: RwSignal<String>,
-) -> impl IntoView {
-    let tab_for_aria = tab.clone();
-    let tab_for_class = tab.clone();
-    let tab_for_click = tab.clone();
-
-    view! {
-        <button
-            role="tab"
-            type="button"
-            aria-selected=move || (active.get() == tab_for_aria).to_string()
-            class=move || {
-                if active.get() == tab_for_class {
-                    "tab-button tab-button-active"
-                } else {
-                    "tab-button"
-                }
-            }
-            on:click=move |_| active.set(tab_for_click.clone())
-        >
-            {label}
-        </button>
-    }
-}
-
-// =============================================================================
-// Enum-based Tab Navigation
-// =============================================================================
-
-/// Tab navigation with enum-based tab identifiers.
-///
-/// Provides type safety when tabs are defined as enums.
-#[component]
-pub fn TabNavEnum<T>(
-    /// List of (tab_variant, label) pairs
-    tabs: Vec<(T, &'static str)>,
-    /// Signal holding the currently active tab variant
-    active: RwSignal<T>,
-    /// Optional aria-label for accessibility
-    #[prop(optional, into)]
-    aria_label: Option<String>,
-) -> impl IntoView
-where
-    T: Clone + PartialEq + Send + Sync + 'static,
-{
-    let aria = aria_label.unwrap_or_else(|| "Tab navigation".to_string());
-
-    view! {
-        <nav role="tablist" aria-label=aria class="tab-nav">
-            {tabs
-                .into_iter()
-                .map(|(tab_variant, label)| {
-                    let variant_for_aria = tab_variant.clone();
-                    let variant_for_class = tab_variant.clone();
-                    let variant_for_click = tab_variant.clone();
-
-                    view! {
-                        <button
-                            role="tab"
-                            type="button"
-                            aria-selected=move || (active.get() == variant_for_aria).to_string()
-                            class=move || {
-                                if active.get() == variant_for_class {
-                                    "tab-button tab-button-active"
-                                } else {
-                                    "tab-button"
-                                }
-                            }
-                            on:click=move |_| active.set(variant_for_click.clone())
-                        >
-                            {label}
-                        </button>
-                    }
-                })
-                .collect_view()}
-        </nav>
-    }
-}
-
-/// Tab button for enum-based tabs (for custom layouts)
-#[component]
-pub fn TabButtonEnum<T>(
-    /// Tab variant
     tab: T,
     /// Display label
     #[prop(into)]
     label: String,
     /// Signal holding active tab
     active: RwSignal<T>,
+    /// Optional additional classes
+    #[prop(optional, into)]
+    class: String,
+    /// Optional badge count to display next to label
+    #[prop(optional, into)]
+    badge_count: Option<Signal<usize>>,
 ) -> impl IntoView
 where
     T: Clone + PartialEq + Send + Sync + 'static,
@@ -209,15 +126,38 @@ where
             type="button"
             aria-selected=move || (active.get() == tab_for_aria).to_string()
             class=move || {
-                if active.get() == tab_for_class {
-                    "tab-button tab-button-active"
+                let is_active = active.get() == tab_for_class;
+                let mut base = "whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded-t-sm".to_string();
+
+                if is_active {
+                    base.push_str(" border-primary text-primary");
                 } else {
-                    "tab-button"
+                    base.push_str(" border-transparent text-muted-foreground hover:text-foreground hover:border-muted");
+                }
+
+                if !class.is_empty() {
+                    format!("{} {}", base, class)
+                } else {
+                    base
                 }
             }
             on:click=move |_| active.set(tab_for_click.clone())
         >
             {label}
+            {move || {
+                badge_count.and_then(|count| {
+                    let c = count.get();
+                    if c > 0 {
+                        Some(view! {
+                            <span class="ml-1 rounded-full bg-destructive/10 px-2 py-0.5 text-xs text-destructive">
+                                {c.to_string()}
+                            </span>
+                        })
+                    } else {
+                        None
+                    }
+                })
+            }}
         </button>
     }
 }
@@ -226,40 +166,19 @@ where
 // Tab Panel (content container)
 // =============================================================================
 
-/// Container for tab content with proper ARIA attributes
+/// Container for tab content with proper ARIA attributes.
+/// Works with any type T that implements PartialEq.
 #[component]
-pub fn TabPanel(
+pub fn TabPanel<T>(
     /// Tab identifier this panel belongs to
-    #[prop(into)]
-    tab: String,
-    /// Currently active tab
-    active: RwSignal<String>,
-    /// Panel content
-    children: Children,
-) -> impl IntoView {
-    let tab_for_hidden = tab.clone();
-    let tab_for_class = tab.clone();
-
-    view! {
-        <div
-            role="tabpanel"
-            aria-hidden=move || (active.get() != tab_for_hidden).to_string()
-            class=move || if active.get() == tab_for_class { "block" } else { "hidden" }
-        >
-            {children()}
-        </div>
-    }
-}
-
-/// Tab panel for enum-based tabs
-#[component]
-pub fn TabPanelEnum<T>(
-    /// Tab variant this panel belongs to
     tab: T,
     /// Currently active tab
     active: RwSignal<T>,
     /// Panel content
     children: Children,
+    /// Optional additional classes
+    #[prop(optional, into)]
+    class: String,
 ) -> impl IntoView
 where
     T: Clone + PartialEq + Send + Sync + 'static,
@@ -271,7 +190,14 @@ where
         <div
             role="tabpanel"
             aria-hidden=move || (active.get() != tab_for_hidden).to_string()
-            class=move || if active.get() == tab_for_class { "block" } else { "hidden" }
+            class=move || {
+                let display = if active.get() == tab_for_class { "block" } else { "hidden" };
+                if class.is_empty() {
+                    display.to_string()
+                } else {
+                    format!("{} {}", display, class)
+                }
+            }
         >
             {children()}
         </div>

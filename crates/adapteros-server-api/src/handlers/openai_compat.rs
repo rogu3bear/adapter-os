@@ -383,13 +383,7 @@ pub async fn chat_completions(
     // Branch based on streaming mode
     if req.stream.unwrap_or(false) {
         // Note: streaming does not use cache (cache only after stream completes)
-        match chat_completions_streaming(
-            State(state),
-            Extension(claims),
-            session_token,
-            req,
-        )
-        .await
+        match chat_completions_streaming(State(state), Extension(claims), session_token, req).await
         {
             Ok(sse) => sse.into_response(),
             Err((status, Json(err))) => (status, Json(err)).into_response(),

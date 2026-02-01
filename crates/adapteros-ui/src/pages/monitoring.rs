@@ -8,8 +8,8 @@ use crate::api::{
     SystemReadyResponse,
 };
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ErrorDisplay, Spinner, Table,
-    TableBody, TableCell, TableHead, TableHeader, TableRow,
+    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ErrorDisplay, Spinner, TabButton,
+    Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, use_polling, LoadingState};
 use adapteros_api_types::HealthResponse;
@@ -20,7 +20,7 @@ use std::sync::Arc;
 #[component]
 pub fn Monitoring() -> impl IntoView {
     // Active tab state
-    let active_tab = RwSignal::new("alerts".to_string());
+    let active_tab = RwSignal::new("alerts");
 
     // Fetch process alerts
     let (alerts, refetch_alerts) = use_api_resource(move |client: Arc<ApiClient>| async move {
@@ -173,7 +173,7 @@ pub fn Monitoring() -> impl IntoView {
             // Tab content
             <div class="py-4">
                 {move || {
-                    match active_tab.get().as_str() {
+                    match active_tab.get() {
                         "alerts" => {
                             match alerts.get() {
                                 LoadingState::Idle | LoadingState::Loading => {
@@ -614,45 +614,6 @@ fn health_status_variant(status_code: u16, status: &str) -> BadgeVariant {
         BadgeVariant::Warning
     } else {
         BadgeVariant::Success
-    }
-}
-
-/// Tab button component
-#[component]
-fn TabButton(
-    tab: &'static str,
-    label: &'static str,
-    active: RwSignal<String>,
-    badge_count: Signal<usize>,
-) -> impl IntoView {
-    let is_active = move || active.get() == tab;
-
-    view! {
-        <button
-            class=move || {
-                let base = "whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors flex items-center gap-2";
-                if is_active() {
-                    format!("{} border-primary text-primary", base)
-                } else {
-                    format!("{} border-transparent text-muted-foreground hover:text-foreground hover:border-muted", base)
-                }
-            }
-            on:click=move |_| active.set(tab.to_string())
-        >
-            {label}
-            {move || {
-                let count = badge_count.get();
-                if count > 0 {
-                    Some(view! {
-                        <span class="ml-1 rounded-full bg-destructive/10 px-2 py-0.5 text-xs text-destructive">
-                            {count.to_string()}
-                        </span>
-                    })
-                } else {
-                    None
-                }
-            }}
-        </button>
     }
 }
 

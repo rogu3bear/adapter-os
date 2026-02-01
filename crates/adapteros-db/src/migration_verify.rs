@@ -415,7 +415,10 @@ mod tests {
         }
         let migrations_dir = "../../migrations";
         if !std::path::Path::new(migrations_dir).exists() {
-            eprintln!("skipping: migrations directory not found at {}", migrations_dir);
+            eprintln!(
+                "skipping: migrations directory not found at {}",
+                migrations_dir
+            );
             return;
         }
 

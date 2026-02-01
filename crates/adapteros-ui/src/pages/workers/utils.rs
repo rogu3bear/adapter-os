@@ -2,7 +2,7 @@
 //!
 //! Pure helper functions for formatting and display.
 
-use crate::components::BadgeVariant;
+use crate::components::{BadgeVariant, StatusVariant};
 use serde::Deserialize;
 
 /// Page size for client-side pagination (reduces initial DOM nodes)
@@ -120,15 +120,9 @@ pub fn format_relative_date(iso_date: &str) -> String {
     }
 }
 
-/// Map worker status string to badge variant
+/// Map worker status string to badge variant via StatusVariant
 pub fn status_badge_variant(status: &str) -> BadgeVariant {
-    match status {
-        "healthy" => BadgeVariant::Success,
-        "draining" => BadgeVariant::Warning,
-        "registered" => BadgeVariant::Secondary,
-        "error" | "stopped" => BadgeVariant::Destructive,
-        _ => BadgeVariant::Secondary,
-    }
+    StatusVariant::from_worker_status(status).to_badge_variant()
 }
 
 /// Health summary response from /v1/workers/health/summary
@@ -181,12 +175,7 @@ pub struct WorkerHealthRecord {
     pub recent_incidents_24h: i64,
 }
 
-/// Map worker health status to badge variant
+/// Map worker health status to badge variant via StatusVariant
 pub fn health_badge_variant(status: &str) -> BadgeVariant {
-    match status {
-        "healthy" => BadgeVariant::Success,
-        "degraded" => BadgeVariant::Warning,
-        "crashed" | "unhealthy" => BadgeVariant::Destructive,
-        _ => BadgeVariant::Secondary,
-    }
+    StatusVariant::from_worker_status(status).to_badge_variant()
 }
