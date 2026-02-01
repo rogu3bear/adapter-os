@@ -247,6 +247,40 @@ pub enum AosError {
         model_key: Option<String>,
     },
 
+    /// Cannot unload a pinned cache entry
+    ///
+    /// This error occurs when attempting to explicitly unload a model that
+    /// is pinned. Pinned entries must be unpinned first via `unpin()`.
+    #[error("Cache entry pinned: {key} - {reason}")]
+    CacheEntryPinned {
+        /// Model key identifier
+        key: String,
+        /// Reason for the error
+        reason: String,
+    },
+
+    /// Cannot unload a cache entry with active references
+    ///
+    /// This error occurs when attempting to explicitly unload a model that
+    /// has in-flight inference requests. Wait for requests to complete.
+    #[error("Cache entry active: {key} - {reason}")]
+    CacheEntryActive {
+        /// Model key identifier
+        key: String,
+        /// Reason for the error
+        reason: String,
+    },
+
+    /// Cache entry not found
+    ///
+    /// This error occurs when attempting to unload a model that is not
+    /// present in the cache.
+    #[error("Cache entry not found: {key}")]
+    CacheEntryNotFound {
+        /// Model key identifier
+        key: String,
+    },
+
     #[error("Resource unavailable: {0}")]
     Unavailable(String),
 

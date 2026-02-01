@@ -126,10 +126,26 @@ pub struct DependencyHealth {
 const DEFAULT_READY_FLAG_PATH: &str = "var/run/system_ready";
 const DEFAULT_BOOT_LOG_PATH: &str = "var/log/boot-times.log";
 
-/// Returns the UI health URL, respecting AOS_UI_PORT for port offset strategy
-fn default_ui_health_url() -> String {
-    let port = std::env::var("AOS_UI_PORT").unwrap_or_else(|_| "3200".to_string());
-    format!("http://127.0.0.1:{}/healthz", port)
+/// Returns the UI health URL, respecting AOS_UI_PORT for port offset strategy.
+/// Returns None if AOS_UI_HEALTH_SKIP is set, indicating static assets should be checked instead.
+fn ui_health_url() -> Option<String> {
+    // Skip external health check if explicitly disabled
+    if std::env::var("AOS_UI_HEALTH_SKIP").is_ok() {
+        return None;
+    }
+
+    // Use explicit URL if provided
+    if let Ok(url) = std::env::var("AOS_UI_HEALTH_URL") {
+        return Some(url);
+    }
+
+    // Only check trunk dev server if AOS_UI_PORT is explicitly set (dev mode)
+    if let Ok(port) = std::env::var("AOS_UI_PORT") {
+        return Some(format!("http://127.0.0.1:{}/healthz", port));
+    }
+
+    // Default: no external check (rely on embedded static assets)
+    None
 }
 
 impl ComponentHealth {
@@ -1274,10 +1290,54 @@ async fn has_healthy_worker(state: &AppState, summary: &[WorkerHealthSummary]) -
 }
 
 async fn check_ui_health() -> ComponentHealth {
-    let url = std::env::var("AOS_UI_HEALTH_URL")
-        .ok()
-        .unwrap_or_else(default_ui_health_url);
+    // Check if we should probe an external UI server (trunk dev server)
+    let Some(url) = ui_health_url() else {
+        // No external URL configured - check for embedded static assets
+        // The UI is served from embedded assets via RustEmbed in adapteros-server
+        // We check if index.html exists to verify the UI was built
+        let static_dir = StdPath::new("static");
+        let index_path = static_dir.join("index.html");
 
+        // Check for static directory with index.html (production build output)
+        if index_path.exists() {
+            return ComponentHealth::new(
+                "ui",
+                ComponentStatus::Healthy,
+                "UI served from static assets",
+            )
+            .with_details(serde_json::json!({
+                "mode": "embedded",
+                "path": index_path.display().to_string()
+            }));
+        }
+
+        // Also check the server crate's static directory (where trunk builds to)
+        let server_static = StdPath::new("crates/adapteros-server/static/index.html");
+        if server_static.exists() {
+            return ComponentHealth::new(
+                "ui",
+                ComponentStatus::Healthy,
+                "UI served from embedded static assets",
+            )
+            .with_details(serde_json::json!({
+                "mode": "embedded",
+                "path": server_static.display().to_string()
+            }));
+        }
+
+        // No static assets found - UI not built
+        return ComponentHealth::new(
+            "ui",
+            ComponentStatus::Degraded,
+            "UI not built (run: cd crates/adapteros-ui && trunk build --release)",
+        )
+        .with_details(serde_json::json!({
+            "mode": "embedded",
+            "error": "index.html not found in static/ directory"
+        }));
+    };
+
+    // External health check mode (trunk dev server or explicit URL)
     let client = match reqwest::Client::builder()
         .connect_timeout(Duration::from_millis(500))
         .timeout(Duration::from_secs(2))

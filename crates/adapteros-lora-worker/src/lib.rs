@@ -241,6 +241,8 @@ mod inference_management;
 pub mod inference_metrics;
 pub mod inference_pause;
 pub mod inference_pipeline;
+#[cfg(feature = "model-server")]
+pub mod kernel_wrapper_model_server;
 pub mod kv_quota;
 pub mod kvcache;
 pub mod launcher;
@@ -255,6 +257,8 @@ pub mod mlx_subprocess_bridge;
 pub mod model_handle_cache;
 pub mod model_key;
 pub mod model_loader;
+#[cfg(feature = "model-server")]
+pub mod model_server_client;
 pub mod panic_utils;
 pub mod patch_generator;
 pub mod patch_telemetry;
@@ -400,7 +404,8 @@ pub use anomaly_detection::{
     AnomalyDetectionConfig, AnomalyDetector, AnomalyScore, DetectionAlgorithm,
 };
 pub use backend_factory::{
-    create_backend, create_backend_from_config, create_backend_with_model, BackendChoice,
+    create_backend, create_backend_cached, create_backend_from_config, create_backend_with_model,
+    BackendChoice,
 };
 pub use backoff::{BackoffConfig, CircuitBreaker as BackoffCircuitBreaker};
 pub use backpressure::{
@@ -472,6 +477,10 @@ pub use vision_adapter::{
 pub use vision_lora::{
     load_vision_lora, VisionLoraRegistry, VisionLoraWeights, VisionMergePlan, VisionTask,
 };
+
+// Re-export Model Server client for workers connecting to shared model server
+#[cfg(feature = "model-server")]
+pub use model_server_client::{ModelServerClient, ModelServerClientConfig};
 
 // Re-export kernel-level determinism policy enforcement (Patent 3535886.0002 Claim 5)
 pub use adapteros_policy::packs::determinism::{
@@ -608,6 +617,8 @@ fn declared_determinism_level(backend: BackendKind) -> DeterminismLevel {
         BackendKind::Metal => DeterminismLevel::BitExact,
         BackendKind::CPU => DeterminismLevel::None,
         BackendKind::Auto => DeterminismLevel::None,
+        // Model Server inherits determinism from the remote server's backend
+        BackendKind::ModelServer => DeterminismLevel::BitExact,
     }
 }
 
@@ -2006,6 +2017,8 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             BackendKind::CoreML => BackendType::CoreML,
             BackendKind::Metal => BackendType::Metal,
             BackendKind::Mlx | BackendKind::MlxBridge => BackendType::MLX,
+            // Model Server uses MLX backend remotely
+            BackendKind::ModelServer => BackendType::MLX,
             BackendKind::CPU | BackendKind::Auto => BackendType::Mock, // Fallback for non-accelerated
         };
 
@@ -3568,6 +3581,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                         // P0-1: Cache attestation for billing fraud prevention
                         cache_attestation: None,
                         worker_public_key: None,
+                        copy_bytes: None,
                     })
                     .await
                 {
@@ -4360,6 +4374,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                     // P0-1: Cache attestation for billing fraud prevention
                     cache_attestation: None,
                     worker_public_key: None,
+                    copy_bytes: None,
                 })
                 .await
             {

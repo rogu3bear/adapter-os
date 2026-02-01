@@ -190,6 +190,9 @@ pub const ADAPTER_NOT_FOUND: &str = "ADAPTER_NOT_FOUND";
 /// Requested model not found
 pub const MODEL_NOT_FOUND: &str = "MODEL_NOT_FOUND";
 
+/// Requested cache entry not found
+pub const CACHE_ENTRY_NOT_FOUND: &str = "CACHE_ENTRY_NOT_FOUND";
+
 // =============================================================================
 // 409 Conflict - Hash Mismatches and State Conflicts
 // =============================================================================

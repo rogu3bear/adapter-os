@@ -78,8 +78,6 @@ pub mod api_error;
 pub mod audit_helper;
 pub mod auth;
 pub mod auth_common;
-#[cfg(test)]
-pub(crate) mod test_utils;
 pub mod backpressure;
 pub mod boot_state;
 pub mod cab_workflow;
@@ -120,9 +118,9 @@ pub mod request_tracker;
 pub mod routes;
 pub mod runtime_mode;
 pub mod security;
-pub mod session_tokens;
 pub mod self_hosting;
 pub mod services;
+pub mod session_tokens;
 pub mod settings_loader;
 pub mod signing;
 pub mod sse;
@@ -132,12 +130,15 @@ pub mod storage_usage;
 pub mod supervisor_client;
 pub mod telemetry;
 pub mod telemetry_ext;
+#[cfg(test)]
+pub(crate) mod test_utils;
 pub mod types;
 pub mod uds_client;
 pub mod uds_metrics;
 pub mod validation;
 pub mod worker_capabilities;
 pub mod worker_health;
+pub mod worker_selector;
 
 pub use auth::{is_dev_bypass_enabled, set_dev_bypass_from_config, Claims};
 pub use event_bus::EventBus;
@@ -162,6 +163,10 @@ pub use uds_client::{
 };
 pub use worker_health::{
     HealthConfig, WorkerHealthMonitor, WorkerHealthStatus, WorkerHealthSummary,
+};
+pub use worker_selector::{
+    IndexedWorker, RequiredCapabilities, SelectionError, WorkerRequirements, WorkerSelectionResult,
+    WorkerSelector,
 };
 
 // Progress tracking service

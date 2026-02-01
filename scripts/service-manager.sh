@@ -17,6 +17,18 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 # =============================================================================
+# Load Environment
+# =============================================================================
+# Source .env file if it exists (before configuration section)
+# This ensures DEFAULT_MANIFEST_HASH and AOS_MANIFEST_HASH from .env are respected
+if [ -f "$PROJECT_ROOT/.env" ]; then
+    # shellcheck disable=SC1091
+    set -a  # Auto-export variables
+    source "$PROJECT_ROOT/.env"
+    set +a
+fi
+
+# =============================================================================
 # Configuration
 # =============================================================================
 
@@ -47,9 +59,9 @@ NODE_PORT="${AOS_NODE_PORT:-9443}"
 # Canonical dev model (single source of truth)
 DEFAULT_MODEL_DIR="/var/models/Llama-3.2-3B-Instruct-4bit"
 DEFAULT_MANIFEST_PATH="$PROJECT_ROOT/manifests/mistral7b-4bit-mlx.yaml"
-# Must match DEFAULT_MANIFEST_HASH in adapteros-server/src/boot/app_state.rs for worker routing
-# This is the hash of mistral7b-4bit-mlx.yaml computed via ManifestV3::compute_hash()
-DEFAULT_MANIFEST_HASH="${DEFAULT_MANIFEST_HASH:-07578bfa5014183755ff8fb1ae2d91cf3544a28903bf5c483f38292d6a0fadf7}"
+# Manifest hash is loaded from .env (DEFAULT_MANIFEST_HASH or AOS_MANIFEST_HASH)
+# No hardcoded fallback - .env is the single source of truth for the hash value
+DEFAULT_MANIFEST_HASH="${DEFAULT_MANIFEST_HASH:-${AOS_MANIFEST_HASH:-}}"
 
 # Worker database tracking
 WORKER_ID_FILE="$PID_DIR/worker.id"

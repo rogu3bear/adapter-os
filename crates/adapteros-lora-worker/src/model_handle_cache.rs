@@ -318,6 +318,26 @@ pub struct CacheStats {
     pub stale_pin_gc_count: u64,
 }
 
+/// Current cache state snapshot for status reporting
+///
+/// This provides a read-consistent view of the cache for monitoring,
+/// health checks, and graceful shutdown coordination.
+#[derive(Debug, Clone)]
+pub struct CacheStatus {
+    /// Keys of all currently loaded models (as short hex strings)
+    pub loaded_model_keys: Vec<String>,
+    /// Number of pinned entries that cannot be evicted
+    pub pinned_count: usize,
+    /// Total memory usage of all cached models in bytes
+    pub cache_memory_bytes: u64,
+    /// Cache hit ratio (0.0 to 1.0)
+    pub hit_ratio: f32,
+    /// Number of currently active models (in-flight inference)
+    pub active_count: usize,
+    /// Number of models eligible for eviction (not pinned, not active)
+    pub evictable_count: usize,
+}
+
 /// Base model pinning state and residency counters.
 #[derive(Debug, Default, Clone)]
 pub struct BaseModelPinState {
@@ -786,9 +806,8 @@ impl ModelHandleCache {
                 }
             }
         }
-
-        // Base models are considered active while resident.
-        let _ = self.mark_active(key);
+        // Note: Base models are NOT marked active here - being pinned is sufficient
+        // to prevent eviction. "Active" means in-flight inference, tracked via begin_use/end_use.
 
         Ok(handle)
     }
@@ -1059,6 +1078,190 @@ impl ModelHandleCache {
         }
 
         gc_count
+    }
+
+    /// Explicitly unload a model from the cache
+    ///
+    /// This is useful for graceful transitions where you want to explicitly
+    /// release a model before loading its replacement, or for cleanup during
+    /// shutdown sequences.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The model is pinned (must call `unpin()` first)
+    /// - The model has active references (in-flight inference)
+    /// - The model is not in the cache
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Unpin first if pinned
+    /// cache.unpin(&old_key);
+    /// // Then unload
+    /// cache.unload(&old_key)?;
+    /// ```
+    pub fn unload(&self, key: &ModelKey) -> Result<()> {
+        // Check if pinned
+        if self.is_pinned(key) {
+            return Err(AosError::CacheEntryPinned {
+                key: key.short_hex(),
+                reason: "Cannot unload pinned model. Call unpin() first.".to_string(),
+            });
+        }
+
+        // Check if active
+        if self.is_active(key) {
+            return Err(AosError::CacheEntryActive {
+                key: key.short_hex(),
+                reason: "Cannot unload model with active references. Wait for in-flight requests to complete.".to_string(),
+            });
+        }
+
+        // Acquire write lock and remove
+        let mut cache = self.cache.write();
+
+        // Verify entry exists
+        let entry = cache
+            .remove(key)
+            .ok_or_else(|| AosError::CacheEntryNotFound {
+                key: key.short_hex(),
+            })?;
+
+        // Clean up active counts (defensive - should already be empty)
+        self.active_counts.write().remove(key);
+
+        // Notify listeners
+        self.notify_evict(key);
+        self.listeners.write().remove(key);
+
+        // Update stats
+        {
+            let mut stats = self.stats.write();
+            stats.evictions += 1;
+            stats.total_memory_bytes = stats.total_memory_bytes.saturating_sub(entry.memory_bytes);
+        }
+
+        tracing::info!(
+            key = %key.short_hex(),
+            memory_mb = entry.memory_bytes / (1024 * 1024),
+            "Model explicitly unloaded from cache"
+        );
+
+        Ok(())
+    }
+
+    /// Prepare for model switch: load new model, then unpin and mark old for eviction
+    ///
+    /// This method performs a graceful model transition by:
+    /// 1. Loading the new model first (so we don't drop the old before replacement is ready)
+    /// 2. Unpinning the old model if it was pinned
+    /// 3. Marking the old model for eviction (will be evicted on next memory pressure)
+    ///
+    /// The old model is NOT immediately evicted to allow in-flight requests to complete.
+    /// It will be evicted when memory pressure requires it.
+    ///
+    /// # Arguments
+    ///
+    /// * `from` - The model key to transition away from
+    /// * `to` - The model key to transition to
+    /// * `loader` - Function to load the new model (returns handle + memory size)
+    ///
+    /// # Returns
+    ///
+    /// The handle for the newly loaded model.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let new_handle = cache.transition_model(&old_key, &new_key, || {
+    ///     Ok((ModelHandle::Metal(Arc::new(model_bytes)), size))
+    /// })?;
+    /// ```
+    pub fn transition_model<F>(
+        &self,
+        from: &ModelKey,
+        to: &ModelKey,
+        loader: F,
+    ) -> Result<ModelHandle>
+    where
+        F: FnOnce() -> Result<(ModelHandle, u64)>,
+    {
+        tracing::info!(
+            from = %from.short_hex(),
+            to = %to.short_hex(),
+            "Starting model transition"
+        );
+
+        // Step 1: Load new model first (ensures we have replacement before dropping old)
+        let new_handle = self.get_or_load(to, loader)?;
+
+        // Step 2: Unpin old model if pinned (allows eviction under memory pressure)
+        let was_pinned = self.unpin(from);
+        if was_pinned {
+            tracing::debug!(
+                from = %from.short_hex(),
+                "Unpinned old model during transition"
+            );
+        }
+
+        // Step 3: Mark old model as inactive (if we had marked it active)
+        // Note: We don't force-evict here - the old model may still have
+        // in-flight requests. It will be evicted on next memory pressure.
+        let _ = self.mark_inactive(from);
+
+        tracing::info!(
+            from = %from.short_hex(),
+            to = %to.short_hex(),
+            was_pinned = was_pinned,
+            "Model transition complete. Old model marked for eviction."
+        );
+
+        Ok(new_handle)
+    }
+
+    /// Get current cache state for status reporting
+    ///
+    /// Returns a consistent snapshot of the cache state including:
+    /// - All loaded model keys
+    /// - Pinned entry count
+    /// - Total memory usage
+    /// - Hit ratio
+    /// - Active and evictable counts
+    ///
+    /// This is useful for health checks, monitoring dashboards, and
+    /// graceful shutdown coordination.
+    pub fn get_cache_status(&self) -> CacheStatus {
+        let cache = self.cache.read();
+        let pinned = self.pinned_keys.read();
+        let active = self.active_counts.read();
+        let stats = self.stats.read();
+
+        let loaded_model_keys: Vec<String> = cache.keys().map(|k| k.short_hex()).collect();
+
+        let active_count = active.values().filter(|&&c| c > 0).count();
+
+        let evictable_count = cache
+            .keys()
+            .filter(|k| !pinned.contains(*k) && active.get(*k).copied().unwrap_or(0) == 0)
+            .count();
+
+        let cache_memory_bytes: u64 = cache.values().map(|e| e.memory_bytes).sum();
+
+        let hit_ratio = if stats.hits + stats.misses == 0 {
+            0.0
+        } else {
+            stats.hits as f32 / (stats.hits + stats.misses) as f32
+        };
+
+        CacheStatus {
+            loaded_model_keys,
+            pinned_count: pinned.len(),
+            cache_memory_bytes,
+            hit_ratio,
+            active_count,
+            evictable_count,
+        }
     }
 
     /// Unpin all entries (emergency memory recovery)
@@ -2641,5 +2844,280 @@ mod tests {
         }
 
         assert_eq!(cache.pinned_count(), 100);
+    }
+
+    // ========================================
+    // Explicit unload tests
+    // ========================================
+
+    #[test]
+    fn test_unload_success() {
+        let cache = ModelHandleCache::new(1024);
+        let key = make_key(BackendType::Metal, b"unload_test");
+
+        cache
+            .get_or_load(&key, || {
+                Ok((ModelHandle::Metal(Arc::new(vec![1, 2, 3])), 100))
+            })
+            .unwrap();
+
+        assert_eq!(cache.len(), 1);
+
+        // Unload should succeed
+        cache.unload(&key).expect("Unload should succeed");
+
+        assert_eq!(cache.len(), 0);
+        let stats = cache.stats();
+        assert_eq!(stats.evictions, 1, "Unload should count as eviction");
+    }
+
+    #[test]
+    fn test_unload_fails_when_pinned() {
+        let cache = ModelHandleCache::new(1024);
+        let key = make_key(BackendType::Metal, b"pinned_unload");
+
+        cache
+            .get_or_load_base_model(&key, || Ok((ModelHandle::Metal(Arc::new(vec![1])), 100)))
+            .unwrap();
+
+        assert!(cache.is_pinned(&key));
+
+        // Unload should fail
+        let err = cache.unload(&key).unwrap_err();
+        assert!(
+            err.to_string().contains("pinned"),
+            "Error should mention pinned: {}",
+            err
+        );
+
+        // Entry should still be there
+        assert_eq!(cache.len(), 1);
+
+        // After unpinning, unload should work
+        cache.unpin(&key);
+        cache
+            .unload(&key)
+            .expect("Unload should succeed after unpin");
+        assert_eq!(cache.len(), 0);
+    }
+
+    #[test]
+    fn test_unload_fails_when_active() {
+        let cache = ModelHandleCache::new(1024);
+        let key = make_key(BackendType::Metal, b"active_unload");
+
+        cache
+            .get_or_load(&key, || Ok((ModelHandle::Metal(Arc::new(vec![1])), 100)))
+            .unwrap();
+
+        // Mark as active
+        let _guard = cache.begin_use(&key).expect("begin_use should succeed");
+
+        // Unload should fail
+        let err = cache.unload(&key).unwrap_err();
+        assert!(
+            err.to_string().contains("active"),
+            "Error should mention active: {}",
+            err
+        );
+
+        // Entry should still be there
+        assert_eq!(cache.len(), 1);
+    }
+
+    #[test]
+    fn test_unload_not_found() {
+        let cache = ModelHandleCache::new(1024);
+        let key = make_key(BackendType::Metal, b"not_in_cache");
+
+        let err = cache.unload(&key).unwrap_err();
+        assert!(
+            err.to_string().contains("not found"),
+            "Error should mention not found: {}",
+            err
+        );
+    }
+
+    // ========================================
+    // Model transition tests
+    // ========================================
+
+    #[test]
+    fn test_transition_model_success() {
+        let cache = ModelHandleCache::new(1024);
+        let old_key = make_key(BackendType::Metal, b"old_model");
+        let new_key = make_key(BackendType::Metal, b"new_model");
+
+        // Load old model and pin it
+        cache
+            .get_or_load_base_model(&old_key, || {
+                Ok((ModelHandle::Metal(Arc::new(vec![1, 2, 3])), 100))
+            })
+            .unwrap();
+
+        assert!(cache.is_pinned(&old_key));
+        assert_eq!(cache.len(), 1);
+
+        // Transition to new model
+        let new_handle = cache
+            .transition_model(&old_key, &new_key, || {
+                Ok((ModelHandle::Metal(Arc::new(vec![4, 5, 6])), 150))
+            })
+            .expect("Transition should succeed");
+
+        assert!(matches!(new_handle, ModelHandle::Metal(_)));
+
+        // Both models should be in cache (old marked for eviction but not yet evicted)
+        assert_eq!(cache.len(), 2);
+
+        // Old model should be unpinned
+        assert!(!cache.is_pinned(&old_key));
+    }
+
+    #[test]
+    fn test_transition_model_new_already_cached() {
+        let cache = ModelHandleCache::new(1024);
+        let old_key = make_key(BackendType::Metal, b"old_model");
+        let new_key = make_key(BackendType::Metal, b"new_model");
+
+        // Load both models
+        cache
+            .get_or_load_base_model(&old_key, || {
+                Ok((ModelHandle::Metal(Arc::new(vec![1, 2, 3])), 100))
+            })
+            .unwrap();
+        cache
+            .get_or_load(&new_key, || {
+                Ok((ModelHandle::Metal(Arc::new(vec![4, 5, 6])), 150))
+            })
+            .unwrap();
+
+        assert_eq!(cache.len(), 2);
+
+        let mut load_count = 0;
+
+        // Transition should reuse cached new model
+        let _handle = cache
+            .transition_model(&old_key, &new_key, || {
+                load_count += 1;
+                Ok((ModelHandle::Metal(Arc::new(vec![7, 8, 9])), 150))
+            })
+            .expect("Transition should succeed");
+
+        // Loader should not have been called (cache hit)
+        assert_eq!(load_count, 0);
+
+        // Old should be unpinned
+        assert!(!cache.is_pinned(&old_key));
+    }
+
+    #[test]
+    fn test_transition_from_unpinned() {
+        let cache = ModelHandleCache::new(1024);
+        let old_key = make_key(BackendType::Metal, b"old_unpinned");
+        let new_key = make_key(BackendType::Metal, b"new_model");
+
+        // Load old model without pinning
+        cache
+            .get_or_load(&old_key, || {
+                Ok((ModelHandle::Metal(Arc::new(vec![1, 2, 3])), 100))
+            })
+            .unwrap();
+
+        assert!(!cache.is_pinned(&old_key));
+
+        // Transition should still work
+        let _handle = cache
+            .transition_model(&old_key, &new_key, || {
+                Ok((ModelHandle::Metal(Arc::new(vec![4, 5, 6])), 150))
+            })
+            .expect("Transition should succeed");
+
+        assert_eq!(cache.len(), 2);
+    }
+
+    // ========================================
+    // Cache status tests
+    // ========================================
+
+    #[test]
+    fn test_get_cache_status_empty() {
+        let cache = ModelHandleCache::new(1024);
+        let status = cache.get_cache_status();
+
+        assert!(status.loaded_model_keys.is_empty());
+        assert_eq!(status.pinned_count, 0);
+        assert_eq!(status.cache_memory_bytes, 0);
+        assert_eq!(status.hit_ratio, 0.0);
+        assert_eq!(status.active_count, 0);
+        assert_eq!(status.evictable_count, 0);
+    }
+
+    #[test]
+    fn test_get_cache_status_with_models() {
+        let cache = ModelHandleCache::new(1024);
+        let key1 = make_key(BackendType::Metal, b"model1");
+        let key2 = make_key(BackendType::Metal, b"model2");
+        let key3 = make_key(BackendType::Metal, b"model3");
+
+        // Load pinned model
+        cache
+            .get_or_load_base_model(&key1, || {
+                Ok((ModelHandle::Metal(Arc::new(vec![0; 100])), 100))
+            })
+            .unwrap();
+
+        // Load unpinned model
+        cache
+            .get_or_load(&key2, || {
+                Ok((ModelHandle::Metal(Arc::new(vec![0; 200])), 200))
+            })
+            .unwrap();
+
+        // Load and mark active
+        cache
+            .get_or_load(&key3, || {
+                Ok((ModelHandle::Metal(Arc::new(vec![0; 150])), 150))
+            })
+            .unwrap();
+        let _guard = cache.begin_use(&key3).unwrap();
+
+        // Generate a cache hit
+        cache
+            .get_or_load(&key2, || {
+                Ok((ModelHandle::Metal(Arc::new(vec![0; 200])), 200))
+            })
+            .unwrap();
+
+        let status = cache.get_cache_status();
+
+        assert_eq!(status.loaded_model_keys.len(), 3);
+        assert_eq!(status.pinned_count, 1);
+        assert_eq!(status.cache_memory_bytes, 450); // 100 + 200 + 150
+        assert!(status.hit_ratio > 0.0); // We had hits and misses
+        assert_eq!(status.active_count, 1); // key3 is active
+        assert_eq!(status.evictable_count, 1); // only key2 is evictable
+    }
+
+    #[test]
+    fn test_get_cache_status_hit_ratio() {
+        let cache = ModelHandleCache::new(1024);
+        let key = make_key(BackendType::Metal, b"model");
+
+        // First load (miss)
+        cache
+            .get_or_load(&key, || Ok((ModelHandle::Metal(Arc::new(vec![1])), 1)))
+            .unwrap();
+
+        // Three hits
+        for _ in 0..3 {
+            cache
+                .get_or_load(&key, || Ok((ModelHandle::Metal(Arc::new(vec![2])), 1)))
+                .unwrap();
+        }
+
+        let status = cache.get_cache_status();
+        // 3 hits / (3 hits + 1 miss) = 0.75
+        assert!((status.hit_ratio - 0.75).abs() < 0.01);
     }
 }
