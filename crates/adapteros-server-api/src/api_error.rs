@@ -940,6 +940,19 @@ impl From<AosError> for ApiError {
                 warn!("Quota exceeded for resource '{}': {}", resource, err);
                 ApiError::too_many_requests(format!("Quota exceeded for {}", resource))
             }
+
+            // Cache entry state errors - return 409 Conflict
+            AosError::CacheEntryPinned { key, .. } => {
+                warn!("Cache entry '{}' is pinned: {}", key, err);
+                ApiError::conflict(err.to_string())
+            }
+            AosError::CacheEntryActive { key, .. } => {
+                warn!("Cache entry '{}' is active: {}", key, err);
+                ApiError::conflict(err.to_string())
+            }
+            AosError::CacheEntryNotFound { key, .. } => {
+                ApiError::new(StatusCode::NOT_FOUND, error_codes::CACHE_ENTRY_NOT_FOUND, format!("Cache entry '{}' not found", key))
+            }
         }
     }
 }

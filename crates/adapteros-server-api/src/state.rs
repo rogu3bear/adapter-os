@@ -52,6 +52,23 @@ pub enum RagStatus {
     },
 }
 
+/// Cache statistics for a worker
+#[derive(Debug, Clone, Default)]
+pub struct CacheStats {
+    /// Current cache memory usage in MB
+    pub used_mb: Option<u32>,
+    /// Maximum cache memory budget in MB
+    pub max_mb: Option<u32>,
+    /// Number of pinned cache entries (cannot be evicted)
+    pub pinned_entries: Option<u32>,
+    /// Number of active cache entries (in-use, cannot be evicted)
+    pub active_entries: Option<u32>,
+    /// Total cache memory usage in bytes (more precise)
+    pub memory_bytes: Option<u64>,
+    /// Cache hit ratio (0.0 to 1.0)
+    pub hit_ratio: Option<f32>,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct WorkerRuntimeInfo {
     pub backend: Option<String>,
@@ -66,6 +83,16 @@ pub struct WorkerRuntimeInfo {
     pub cache_pinned_entries: Option<u32>,
     /// Number of active cache entries (in-use, cannot be evicted)
     pub cache_active_entries: Option<u32>,
+    /// Tokenizer hash advertised by the worker (BLAKE3 hex)
+    pub tokenizer_hash_b3: Option<String>,
+    /// Tokenizer vocabulary size reported by the worker
+    pub tokenizer_vocab_size: Option<u32>,
+    /// BLAKE3 hash of currently loaded model (for routing affinity)
+    pub loaded_model_hash: Option<String>,
+    /// Current model load state (unloaded, loading, loaded, error)
+    pub model_load_state: Option<adapteros_api_types::workers::WorkerModelLoadState>,
+    /// Aggregated cache statistics for smarter routing
+    pub cache_stats: Option<CacheStats>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -87,6 +114,45 @@ pub struct BackgroundTaskSnapshot {
     pub spawned: Vec<BackgroundTaskEntry>,
     #[serde(default)]
     pub failed: Vec<BackgroundTaskFailure>,
+}
+
+/// Model Server connection state for shared model inference
+#[derive(Debug, Clone)]
+pub struct ModelServerState {
+    /// Whether model server mode is enabled
+    pub enabled: bool,
+    /// Server address (e.g., "http://127.0.0.1:50051")
+    pub server_addr: Option<String>,
+    /// Whether currently connected
+    pub connected: bool,
+    /// Model name loaded on server
+    pub model_name: Option<String>,
+    /// Number of active sessions
+    pub active_sessions: u32,
+    /// Number of hot adapters
+    pub hot_adapters: u32,
+    /// KV cache utilization (0.0-1.0)
+    pub kv_cache_utilization: f32,
+    /// Total requests served
+    pub total_requests: u64,
+    /// Average latency in milliseconds
+    pub avg_latency_ms: f32,
+}
+
+impl Default for ModelServerState {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            server_addr: None,
+            connected: false,
+            model_name: None,
+            active_sessions: 0,
+            hot_adapters: 0,
+            kv_cache_utilization: 0.0,
+            total_requests: 0,
+            avg_latency_ms: 0.0,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -1006,6 +1072,8 @@ pub struct AppState {
     pub tenant_metrics_service: Arc<adapteros_db::TenantMetricsService>,
     // Semantic inference cache for deterministic response reuse
     pub inference_cache: Arc<crate::inference_cache::InferenceCache>,
+    // Model Server state for shared model inference (optional, enabled via config)
+    pub model_server_state: Arc<std::sync::RwLock<ModelServerState>>,
 }
 
 impl AppState {
@@ -1243,6 +1311,8 @@ impl AppState {
             )),
             // Semantic inference cache from config
             inference_cache,
+            // Model server state - initialized to disabled, set via with_model_server
+            model_server_state: Arc::new(std::sync::RwLock::new(ModelServerState::default())),
         }
     }
 
@@ -1688,6 +1758,92 @@ impl AppState {
             self.db.clone(),
             TelemetryWorkerConfig::default(),
         )
+    }
+
+    /// Get model server status for API response
+    pub async fn get_model_server_status(
+        &self,
+    ) -> Option<crate::handlers::model_server::ModelServerStatusResponse> {
+        let state = self.model_server_state.read().ok()?;
+
+        if !state.enabled {
+            return None;
+        }
+
+        Some(crate::handlers::model_server::ModelServerStatusResponse {
+            enabled: state.enabled,
+            connected: state.connected,
+            server_addr: state.server_addr.clone(),
+            active_sessions: state.active_sessions,
+            hot_adapters: state.hot_adapters,
+            kv_cache_utilization: state.kv_cache_utilization * 100.0, // Convert to percentage
+            total_requests: state.total_requests,
+            avg_latency_ms: state.avg_latency_ms,
+            model_name: state.model_name.clone(),
+        })
+    }
+
+    /// Warmup model server KV cache for a session
+    pub async fn warmup_model_server(
+        &self,
+        request: &crate::handlers::model_server::WarmupRequest,
+    ) -> Result<crate::handlers::model_server::WarmupResponse, String> {
+        let state = self
+            .model_server_state
+            .read()
+            .map_err(|e| format!("Failed to read model server state: {}", e))?;
+
+        if !state.enabled || !state.connected {
+            return Err("Model server not available".to_string());
+        }
+
+        // TODO: Implement actual warmup via gRPC client when model server integration is complete
+        // For now, return a placeholder response
+        Ok(crate::handlers::model_server::WarmupResponse {
+            success: true,
+            cached_tokens: request.input_ids.len() as u32,
+            latency_ms: 0.0,
+        })
+    }
+
+    /// Initiate model server drain for graceful shutdown
+    pub async fn drain_model_server(
+        &self,
+        grace_period_secs: u32,
+    ) -> Result<crate::handlers::model_server::DrainResponse, String> {
+        let state = self
+            .model_server_state
+            .read()
+            .map_err(|e| format!("Failed to read model server state: {}", e))?;
+
+        if !state.enabled || !state.connected {
+            return Err("Model server not available".to_string());
+        }
+
+        // TODO: Implement actual drain via gRPC client when model server integration is complete
+        // For now, return a placeholder response
+        Ok(crate::handlers::model_server::DrainResponse {
+            initiated: true,
+            draining_sessions: state.active_sessions,
+            estimated_completion_secs: grace_period_secs,
+        })
+    }
+
+    /// Configure model server state (called during boot when model server is enabled)
+    pub fn with_model_server_config(self, enabled: bool, server_addr: Option<String>) -> Self {
+        if let Ok(mut state) = self.model_server_state.write() {
+            state.enabled = enabled;
+            state.server_addr = server_addr;
+        }
+        self
+    }
+
+    /// Update model server connection status
+    pub fn set_model_server_connected(&self, connected: bool, model_name: Option<String>) {
+        if let Ok(mut state) = self.model_server_state.write() {
+            state.connected = connected;
+            state.model_name = model_name;
+        }
     }
 }
 

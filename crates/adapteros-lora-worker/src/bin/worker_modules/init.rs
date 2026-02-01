@@ -21,8 +21,8 @@ use adapteros_config::{
     resolve_worker_socket_for_worker,
 };
 use adapteros_core::{
-    constants::DEFAULT_ADAPTER_CACHE_SIZE, resolve_var_dir, AosError, B3Hash, ExecutionProfile,
-    Result, SeedMode, WorkerStatus,
+    constants::DEFAULT_ADAPTER_CACHE_SIZE, resolve_var_dir, tokenizer_config::SpecialTokenMap,
+    AosError, B3Hash, ExecutionProfile, Result, SeedMode, WorkerStatus,
 };
 use adapteros_lora_kernel_api::MockKernels;
 use adapteros_lora_worker::{
@@ -330,6 +330,63 @@ pub async fn run_worker() -> Result<()> {
         "Manifest loaded and verified"
     );
     let model_hash_hex = manifest.base.model_hash.to_hex();
+    let tokenizer_hash_hex = manifest.base.tokenizer_hash.to_hex();
+
+    // Validate tokenizer early to avoid late MLX failures and enforce manifest fidelity.
+    // Retry lightly on transient I/O errors (e.g., slow network FS) but fail-fast on schema/logic issues.
+    let tokenizer_meta = {
+        let mut attempt = 0;
+        let mut last_err: Option<AosError> = None;
+        loop {
+            attempt += 1;
+            match SpecialTokenMap::validate_tokenizer(
+                &tokenizer_path,
+                Some(manifest.base.vocab_size as usize),
+            ) {
+                Ok(meta) => break meta,
+                Err(e) => {
+                    let msg = format!("{}", e);
+                    let fatal = msg.contains("vocab_size")
+                        || msg.contains("hash mismatch")
+                        || msg.contains("missing model")
+                        || msg.contains("invalid JSON");
+                    if fatal || attempt >= 3 {
+                        error!(
+                            attempt,
+                            fatal,
+                            error = %e,
+                            path = %tokenizer_path.display(),
+                            "Tokenizer validation failed"
+                        );
+                        return Err(e);
+                    }
+                    warn!(
+                        attempt,
+                        error = %e,
+                        "Tokenizer validation transient error; retrying with backoff"
+                    );
+                    tokio::time::sleep(Duration::from_millis(200 * attempt as u64)).await;
+                    last_err = Some(e);
+                }
+            }
+        }
+    };
+
+    if tokenizer_meta.hash != manifest.base.tokenizer_hash {
+        return Err(AosError::Validation(format!(
+            "Tokenizer hash mismatch: manifest {} != computed {}",
+            manifest.base.tokenizer_hash.to_hex(),
+            tokenizer_meta.hash.to_hex()
+        )));
+    }
+
+    info!(
+        vocab_size = tokenizer_meta.vocab_size,
+        added_tokens = tokenizer_meta.added_tokens,
+        normalizer = ?tokenizer_meta.normalizer,
+        tokenizer_hash = %manifest.base.tokenizer_hash.to_hex(),
+        "Tokenizer validated and schema checked"
+    );
 
     let mock_backend = is_mock_backend(&args.backend);
     let prod_runtime = is_prod_runtime();
@@ -666,6 +723,8 @@ pub async fn run_worker() -> Result<()> {
             manifest_hash: &manifest_hash_hex,
             backend: backend_label,
             model_hash: &model_hash_hex,
+            tokenizer_hash_b3: &manifest.base.tokenizer_hash.to_hex(),
+            tokenizer_vocab_size: manifest.base.vocab_size,
             uds_path: &uds_path_str,
             capabilities: &capabilities,
             capabilities_detail: &capabilities_detail,
@@ -683,6 +742,8 @@ pub async fn run_worker() -> Result<()> {
                     &args.backend,
                     &model_hash_hex,
                     &manifest_hash_hex,
+                    &manifest.base.tokenizer_hash.to_hex(),
+                    manifest.base.vocab_size,
                 );
                 info!(
                     heartbeat_interval = result.heartbeat_interval_secs,
@@ -704,6 +765,8 @@ pub async fn run_worker() -> Result<()> {
                     &args.backend,
                     &model_hash_hex,
                     &manifest_hash_hex,
+                    &manifest.base.tokenizer_hash.to_hex(),
+                    manifest.base.vocab_size,
                 );
                 error!(reason = %reason, "Worker registration failed - exiting");
                 return Err(AosError::Worker(format!("Registration failed: {}", reason)));
@@ -763,7 +826,7 @@ pub async fn run_worker() -> Result<()> {
     };
 
     let worker = Worker::new(
-        manifest,
+        manifest.clone(),
         &args.tenant_id,
         kernels,
         available_backends,
@@ -935,6 +998,8 @@ pub async fn run_worker() -> Result<()> {
             &args.backend,
             &model_hash_hex,
             &manifest_hash_hex,
+            &tokenizer_hash_hex,
+            manifest.base.vocab_size,
         );
     }
 
@@ -949,6 +1014,8 @@ pub async fn run_worker() -> Result<()> {
     let backend_health = args.backend.clone();
     let model_hash_health = model_hash_hex.clone();
     let manifest_hash_health = manifest_hash_hex.clone();
+    let tokenizer_hash_health = tokenizer_hash_hex.clone();
+    let tokenizer_vocab_health = manifest.base.vocab_size;
     let drain_flag_health = drain_flag.clone();
     let health_monitor_handle = tokio::spawn(async move {
         if let Err(e) = health_monitor_for_task
@@ -971,6 +1038,8 @@ pub async fn run_worker() -> Result<()> {
                             &backend_health,
                             &model_hash_health,
                             &manifest_hash_health,
+                            &tokenizer_hash_health,
+                            tokenizer_vocab_health,
                         );
                     }
                     drain_flag_health.store(true, Ordering::Relaxed);
@@ -1031,6 +1100,8 @@ pub async fn run_worker() -> Result<()> {
                     &args.backend,
                     &model_hash_hex,
                     &manifest_hash_hex,
+                    &tokenizer_hash_hex,
+                    manifest.base.vocab_size,
                 );
             }
             serve_fut.await
@@ -1082,6 +1153,8 @@ pub async fn run_worker() -> Result<()> {
             &args.backend,
             &model_hash_hex,
             &manifest_hash_hex,
+            &tokenizer_hash_hex,
+            manifest.base.vocab_size,
         );
     }
 

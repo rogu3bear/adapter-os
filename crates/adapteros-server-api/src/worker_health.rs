@@ -5,8 +5,11 @@
 //! - Degraded/crashed state detection
 //! - Health-aware worker selection for routing
 //! - Background polling for idle worker crash detection
+//! - Model-state-aware routing for smarter request distribution
 
+use crate::state::WorkerRuntimeInfo;
 use crate::uds_client::UdsClient;
+use adapteros_api_types::workers::WorkerModelLoadState;
 use adapteros_db::workers::{WorkerIncidentType, WorkerWithBinding};
 use adapteros_db::Db;
 use dashmap::DashMap;
@@ -530,6 +533,180 @@ impl WorkerHealthMonitor {
         candidates.first().map(|(w, _, _)| *w)
     }
 
+    /// Get the best worker considering model state for smarter routing
+    ///
+    /// This method factors in model load state to avoid routing to workers that are:
+    /// - Currently loading a model (would queue the request)
+    /// - Near memory pressure (might trigger OOM or slowdown)
+    ///
+    /// Selection criteria (in priority order):
+    /// 1. Filter out crashed workers and workers mid-load
+    /// 2. Prefer workers with the requested model already loaded
+    /// 3. Prefer healthy over degraded
+    /// 4. Penalize workers near memory pressure (>80% cache utilization)
+    /// 5. Among same status, pick lowest average latency
+    pub fn get_best_worker_for_model<'a>(
+        &self,
+        workers: &'a [WorkerWithBinding],
+        target_model_hash: Option<&str>,
+        worker_runtime: &DashMap<String, WorkerRuntimeInfo>,
+    ) -> Option<&'a WorkerWithBinding> {
+        if workers.is_empty() {
+            return None;
+        }
+
+        // Build candidate list with extended scoring
+        let mut candidates: Vec<WorkerCandidate<'a>> = workers
+            .iter()
+            .map(|w| {
+                let (health_status, latency) = self
+                    .worker_metrics
+                    .get(&w.id)
+                    .map(|m| (m.health_status, m.avg_latency_ms))
+                    .unwrap_or((WorkerHealthStatus::Unknown, 0.0));
+
+                let runtime = worker_runtime.get(&w.id);
+                let (model_load_state, loaded_model_hash, memory_pressure) =
+                    if let Some(ref rt) = runtime {
+                        let pressure = rt
+                            .cache_stats
+                            .as_ref()
+                            .and_then(|cs| {
+                                match (cs.used_mb, cs.max_mb) {
+                                    (Some(used), Some(max)) if max > 0 => {
+                                        Some(used as f32 / max as f32)
+                                    }
+                                    _ => cs.memory_bytes.and_then(|bytes| {
+                                        // Assume 16GB max if not specified (common for Apple Silicon)
+                                        let max_bytes = 16 * 1024 * 1024 * 1024u64;
+                                        Some(bytes as f32 / max_bytes as f32)
+                                    }),
+                                }
+                            })
+                            .unwrap_or(0.0);
+                        (
+                            rt.model_load_state.clone(),
+                            rt.loaded_model_hash.clone(),
+                            pressure,
+                        )
+                    } else {
+                        (None, None, 0.0)
+                    };
+
+                WorkerCandidate {
+                    worker: w,
+                    health_status,
+                    latency,
+                    model_load_state,
+                    loaded_model_hash,
+                    memory_pressure,
+                }
+            })
+            .collect();
+
+        // Filter out crashed workers and workers currently loading
+        candidates.retain(|c| {
+            c.health_status != WorkerHealthStatus::Crashed
+                && !matches!(c.model_load_state, Some(WorkerModelLoadState::Loading))
+        });
+
+        if candidates.is_empty() {
+            return None;
+        }
+
+        // Sort by model affinity, health, memory pressure, then latency
+        candidates.sort_by(|a, b| {
+            // 1. Prefer workers with target model already loaded
+            let model_affinity_a = if let Some(target) = target_model_hash {
+                a.loaded_model_hash
+                    .as_ref()
+                    .map(|h| h == target)
+                    .unwrap_or(false)
+            } else {
+                false
+            };
+            let model_affinity_b = if let Some(target) = target_model_hash {
+                b.loaded_model_hash
+                    .as_ref()
+                    .map(|h| h == target)
+                    .unwrap_or(false)
+            } else {
+                false
+            };
+
+            // Model affinity is highest priority (true < false in our ordering)
+            model_affinity_b.cmp(&model_affinity_a).then_with(|| {
+                // 2. Health status priority
+                let health_priority_a = match a.health_status {
+                    WorkerHealthStatus::Healthy => 0,
+                    WorkerHealthStatus::Degraded => 1,
+                    WorkerHealthStatus::Unknown => 2,
+                    WorkerHealthStatus::Crashed => 3,
+                };
+                let health_priority_b = match b.health_status {
+                    WorkerHealthStatus::Healthy => 0,
+                    WorkerHealthStatus::Degraded => 1,
+                    WorkerHealthStatus::Unknown => 2,
+                    WorkerHealthStatus::Crashed => 3,
+                };
+
+                health_priority_a.cmp(&health_priority_b).then_with(|| {
+                    // 3. Memory pressure (lower is better, penalize >80%)
+                    let pressure_penalty_a = if a.memory_pressure > 0.8 { 1 } else { 0 };
+                    let pressure_penalty_b = if b.memory_pressure > 0.8 { 1 } else { 0 };
+
+                    pressure_penalty_a.cmp(&pressure_penalty_b).then_with(|| {
+                        // 4. Latency (lower is better)
+                        a.latency
+                            .partial_cmp(&b.latency)
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                            .then_with(|| {
+                                // 5. Deterministic tie-breaker
+                                a.worker.id.cmp(&b.worker.id)
+                            })
+                    })
+                })
+            })
+        });
+
+        candidates.first().map(|c| c.worker)
+    }
+
+    /// Check if a worker has the specified model loaded and ready
+    pub fn has_model_loaded(
+        &self,
+        worker_id: &str,
+        model_hash: &str,
+        worker_runtime: &DashMap<String, WorkerRuntimeInfo>,
+    ) -> bool {
+        worker_runtime.get(worker_id).map_or(false, |rt| {
+            matches!(rt.model_load_state, Some(WorkerModelLoadState::Loaded))
+                && rt
+                    .loaded_model_hash
+                    .as_ref()
+                    .map_or(false, |h| h == model_hash)
+        })
+    }
+
+    /// Get memory pressure level for a worker (0.0 = no pressure, 1.0 = fully utilized)
+    pub fn get_memory_pressure(
+        &self,
+        worker_id: &str,
+        worker_runtime: &DashMap<String, WorkerRuntimeInfo>,
+    ) -> f32 {
+        worker_runtime
+            .get(worker_id)
+            .and_then(|rt| {
+                rt.cache_stats
+                    .as_ref()
+                    .and_then(|cs| match (cs.used_mb, cs.max_mb) {
+                        (Some(used), Some(max)) if max > 0 => Some(used as f32 / max as f32),
+                        _ => None,
+                    })
+            })
+            .unwrap_or(0.0)
+    }
+
     /// Get health metrics for a specific worker
     pub fn get_worker_metrics(&self, worker_id: &str) -> Option<WorkerMetrics> {
         self.worker_metrics.get(worker_id).map(|m| m.clone())
@@ -674,6 +851,16 @@ pub struct WorkerHealthSummary {
     pub total_failures: u64,
     pub consecutive_slow: usize,
     pub consecutive_failures: usize,
+}
+
+/// Internal struct for model-aware worker selection scoring
+struct WorkerCandidate<'a> {
+    worker: &'a WorkerWithBinding,
+    health_status: WorkerHealthStatus,
+    latency: f64,
+    model_load_state: Option<WorkerModelLoadState>,
+    loaded_model_hash: Option<String>,
+    memory_pressure: f32,
 }
 
 #[cfg(test)]

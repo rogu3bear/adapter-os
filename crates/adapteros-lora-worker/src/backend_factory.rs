@@ -102,6 +102,7 @@ pub fn create_backend_from_config(config: &ModelConfig) -> Result<KernelBox> {
         BackendPreference::Mlx => BackendChoice::Mlx,
         BackendPreference::MlxBridge => BackendChoice::MlxBridge,
         BackendPreference::CPU => BackendChoice::CPU,
+        BackendPreference::ModelServer => BackendChoice::ModelServer,
     };
     create_backend_with_model(choice, &config.path)
 }
@@ -333,6 +334,12 @@ pub fn create_backend_with_model(choice: BackendChoice, model_path: &Path) -> Re
         }
         BackendChoice::Mlx => create_mlx_backend(model_path, None, None),
         BackendChoice::MlxBridge => create_mlx_bridge_backend(model_path, None),
+        #[cfg(feature = "model-server")]
+        BackendChoice::ModelServer => create_model_server_backend(model_path),
+        #[cfg(not(feature = "model-server"))]
+        BackendChoice::ModelServer => Err(AosError::Config(
+            "Model Server backend requires the 'model-server' feature. Rebuild with --features model-server".to_string(),
+        )),
     }
 }
 
@@ -397,6 +404,12 @@ pub fn create_backend_with_model_hashes(
         BackendChoice::CoreML => {
             create_coreml_backend(model_path, manifest_hash, model_weights_hash)
         }
+        #[cfg(feature = "model-server")]
+        BackendChoice::ModelServer => create_model_server_backend(model_path),
+        #[cfg(not(feature = "model-server"))]
+        BackendChoice::ModelServer => Err(AosError::Config(
+            "Model Server backend requires the 'model-server' feature. Rebuild with --features model-server".to_string(),
+        )),
         // Other backends fallback to basic path (no hash verification)
         _ => create_backend_with_model(choice, model_path),
     }
@@ -1063,6 +1076,79 @@ fn create_coreml_backend(
     ))
 }
 
+/// Create Model Server backend that delegates inference to a shared model server
+///
+/// This backend doesn't load the model locally. Instead, it connects to a Model Server
+/// process that holds the model in GPU memory. Multiple workers can share the same
+/// Model Server, reducing overall GPU memory usage significantly.
+#[cfg(feature = "model-server")]
+fn create_model_server_backend(model_path: &Path) -> Result<KernelBox> {
+    use crate::kernel_wrapper_model_server::ModelServerKernels;
+    use crate::model_server_client::ModelServerClientConfig;
+
+    // Get Model Server configuration from effective config
+    let (server_addr, vocab_size) = if let Some(cfg) = adapteros_config::try_effective_config() {
+        if !cfg.model_server.enabled {
+            return Err(AosError::Config(
+                "Model Server backend requested but model_server.enabled is false in config. \
+                 Set [model_server] enabled = true to use this backend."
+                    .to_string(),
+            ));
+        }
+        let addr = cfg.model_server.server_addr.clone();
+
+        // Try to get vocab size from model config
+        let vocab =
+            if let Ok(Some(model_cfg)) = model_config::load_and_validate_model_config(model_path) {
+                model_cfg.vocab_size
+            } else {
+                // Default vocab size for common models
+                warn!(
+                    model_path = %model_path.display(),
+                    "Could not load config.json for vocab size, using default 151936"
+                );
+                151936 // Qwen default
+            };
+
+        (addr, vocab)
+    } else {
+        return Err(AosError::Config(
+            "Model Server backend requires effective config to be initialized. \
+             Ensure the control plane has loaded configuration before creating backends."
+                .to_string(),
+        ));
+    };
+
+    info!(
+        backend = "model_server",
+        server_addr = %server_addr,
+        vocab_size = vocab_size,
+        model_path = %model_path.display(),
+        "Creating Model Server kernel backend"
+    );
+
+    // Create client configuration
+    let client_config = ModelServerClientConfig::with_addr(&server_addr);
+
+    // Generate a session ID for KV cache management
+    let session_id = uuid::Uuid::new_v4().to_string();
+
+    // Create the Model Server kernels wrapper
+    let kernels = ModelServerKernels::new(client_config, session_id, vocab_size);
+
+    Ok(Box::new(kernels))
+}
+
+/// Fallback when model-server feature is not enabled
+#[cfg(not(feature = "model-server"))]
+fn create_model_server_backend(_model_path: &Path) -> Result<KernelBox> {
+    Err(AosError::Config(
+        "Model Server backend requires the 'model-server' feature to be enabled. \
+         Rebuild with --features model-server to use this backend."
+            .to_string(),
+    ))
+}
+
 pub(crate) fn model_allowed_roots() -> Result<Vec<PathBuf>> {
     let location = resolve_base_model_location(None, None, false)?;
     if !location.cache_root.exists() {
@@ -1127,10 +1213,17 @@ fn derive_manifest_hash_from_config(model_path: &Path) -> Result<B3Hash> {
 /// Create a kernel backend based on the choice (backward-compatible)
 ///
 /// This function maintains backward compatibility for code that doesn't need model paths.
-/// - For Auto/Metal/CoreML: Works as before (no model path needed)
-/// - For Mlx: Reads model path from `AOS_MODEL_PATH` env var, errors if not set
+/// All backends now go through `ModelHandleCache` for deduplication.
 ///
-/// For new code, prefer using `create_backend_from_config` or `create_backend_with_model`.
+/// - For Auto: Selects best available backend, then creates it through cache
+/// - For Metal/CoreML/Mlx: Reads model path from env, creates through cache
+///
+/// For new code, prefer using `create_backend_cached` or `create_backend_from_config`.
+///
+/// # Warning
+///
+/// This function derives manifest hash from config.json for cache identity. For proper
+/// determinism with integrity verification, use `create_backend_cached` with explicit hashes.
 pub fn create_backend(choice: BackendChoice) -> Result<KernelBox> {
     match choice {
         BackendChoice::Auto => {
@@ -1141,94 +1234,27 @@ pub fn create_backend(choice: BackendChoice) -> Result<KernelBox> {
         BackendChoice::CPU => Err(AosError::Config(
             "CPU backend is not supported for inference kernels".to_string(),
         )),
-        BackendChoice::Metal => {
-            #[cfg(target_os = "macos")]
-            {
-                use adapteros_lora_kernel_mtl::MetalKernels;
-                info!("Creating Metal kernel backend");
-                Ok(Box::new(MetalKernels::new()?))
-            }
-            #[cfg(not(target_os = "macos"))]
-            {
-                Err(AosError::Config("Metal backend requires macOS".to_string()))
-            }
-        }
-        BackendChoice::CoreML => {
-            #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
-            {
-                use adapteros_lora_kernel_coreml::{init_coreml, CoreMLBackend};
-
-                // Initialize CoreML runtime
-                init_coreml()?;
-
-                let settings = resolve_coreml_backend_settings();
-
-                info!(
-                    backend = "coreml",
-                    compute_preference = %settings.preference,
-                    compute_units = ?settings.compute_units,
-                    production_mode = settings.production_mode,
-                    gpu_available = settings.gpu_available,
-                    ane_available = settings.ane_available,
-                    gpu_used = settings.gpu_used,
-                    ane_used = settings.ane_used,
-                    "Creating CoreML kernel backend"
-                );
-                if settings.production_mode && !settings.ane_used {
-                    return Err(AosError::Config(
-                        "CoreML production mode requires deterministic ANE-only compute units; ANE unavailable or not selected"
-                            .to_string(),
-                    ));
-                }
-                let backend = CoreMLBackend::new(settings.compute_units, settings.production_mode)?;
-                Ok(Box::new(backend))
-            }
-            #[cfg(all(target_os = "macos", not(feature = "coreml-backend")))]
-            {
-                Err(AosError::Config(
-                    "CoreML backend requires 'coreml-backend' feature to be enabled. \
-                     Build with: cargo build --features coreml-backend"
-                        .to_string(),
-                ))
-            }
-            #[cfg(not(target_os = "macos"))]
-            {
-                Err(AosError::Config(
-                    "CoreML backend requires macOS".to_string(),
-                ))
-            }
-        }
-        BackendChoice::Mlx => {
-            // For backward compatibility, read model path from environment variable (validated)
+        BackendChoice::Metal | BackendChoice::CoreML | BackendChoice::Mlx => {
+            // All GPU backends require a model path and go through cache
             let model_path = resolve_mlx_model_path_from_env()?;
 
-            #[cfg(feature = "multi-backend")]
-            {
-                // Derive a deterministic manifest hash from config.json so the legacy
-                // entry point still seeds MLX and uses the cache identity path.
-                let manifest_hash = derive_manifest_hash_from_config(&model_path).map_err(|e| {
-                    AosError::Config(format!(
-                        "Failed to derive manifest hash for MLX backend: {}",
-                        e
-                    ))
-                })?;
-
-                create_backend_with_model_hashes(
-                    BackendChoice::Mlx,
-                    &model_path,
-                    Some(&manifest_hash),
-                    None,
-                )
-            }
-            #[cfg(not(feature = "multi-backend"))]
-            {
-                let _ = model_path;
-                Err(AosError::Config(
-                    "MLX backend requires 'multi-backend' feature to be enabled. \
-                     Build with: cargo build --features multi-backend"
-                        .to_string(),
+            // Derive manifest hash from config.json for cache identity
+            let manifest_hash = derive_manifest_hash_from_config(&model_path).map_err(|e| {
+                AosError::Config(format!(
+                    "Failed to derive manifest hash for {:?} backend: {}",
+                    choice, e
                 ))
-            }
+            })?;
+
+            info!(
+                backend = ?choice,
+                model_path = %model_path.display(),
+                manifest_hash = %manifest_hash.to_hex(),
+                "Creating backend through cache (legacy entry point)"
+            );
+
+            // Route through cached creation path (no model weights verification in legacy path)
+            create_backend_with_model_hashes(choice, &model_path, Some(&manifest_hash), None)
         }
         BackendChoice::MlxBridge => {
             // MLX Bridge requires a model path from environment variable
@@ -1248,6 +1274,87 @@ pub fn create_backend(choice: BackendChoice) -> Result<KernelBox> {
                 ))
             }
         }
+        BackendChoice::ModelServer => {
+            #[cfg(feature = "model-server")]
+            {
+                // Model Server requires model path from environment variable
+                let model_path = resolve_mlx_model_path_from_env()?;
+                create_model_server_backend(&model_path)
+            }
+            #[cfg(not(feature = "model-server"))]
+            {
+                Err(AosError::Config(
+                    "Model Server backend requires the 'model-server' feature. \
+                     Rebuild with --features model-server"
+                        .to_string(),
+                ))
+            }
+        }
+    }
+}
+
+/// Create a kernel backend through `ModelHandleCache` with explicit hashes
+///
+/// This is the **primary entry point** for creating backends with proper caching
+/// and optional integrity verification. All backend creation should route through
+/// this function to benefit from model deduplication.
+///
+/// # Arguments
+///
+/// * `choice` - Backend type to create (Auto resolved to concrete type first)
+/// * `model_path` - Path to the model directory
+/// * `manifest_hash` - Hash of manifest JSON (used for cache key identity)
+/// * `model_weights_hash` - Hash of model weights (used for integrity verification)
+///
+/// # Cache Behavior
+///
+/// Models are cached by `(backend_type, manifest_hash, kernel_version, quantization, fusion_mode)`
+/// to ensure different configurations are cached separately. The cache uses LRU eviction
+/// with pinning support for base models.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use std::path::Path;
+/// use adapteros_core::B3Hash;
+/// use adapteros_lora_worker::backend_factory::{BackendChoice, create_backend_cached};
+///
+/// let manifest_hash = B3Hash::hash(b"manifest-content");
+/// let weights_hash = B3Hash::hash(b"weights-content");
+///
+/// let backend = create_backend_cached(
+///     BackendChoice::Mlx,
+///     Path::new("var/model-cache/models/llama-3b"),
+///     Some(&manifest_hash),
+///     Some(&weights_hash),
+/// )?;
+/// ```
+pub fn create_backend_cached(
+    choice: BackendChoice,
+    model_path: &Path,
+    manifest_hash: Option<&B3Hash>,
+    model_weights_hash: Option<&B3Hash>,
+) -> Result<KernelBox> {
+    match choice {
+        BackendChoice::Auto => {
+            let capabilities = detect_capabilities();
+            let selected = auto_select_backend(&capabilities)?;
+            create_backend_cached(selected, model_path, manifest_hash, model_weights_hash)
+        }
+        BackendChoice::CPU => Err(AosError::Config(
+            "CPU backend is not supported for inference kernels".to_string(),
+        )),
+        BackendChoice::Metal | BackendChoice::CoreML | BackendChoice::Mlx => {
+            // All GPU backends go through create_backend_with_model_hashes which uses cache
+            create_backend_with_model_hashes(choice, model_path, manifest_hash, model_weights_hash)
+        }
+        BackendChoice::MlxBridge => create_mlx_bridge_backend(model_path, manifest_hash),
+        #[cfg(feature = "model-server")]
+        BackendChoice::ModelServer => create_model_server_backend(model_path),
+        #[cfg(not(feature = "model-server"))]
+        BackendChoice::ModelServer => Err(AosError::Config(
+            "Model Server backend requires the 'model-server' feature. Rebuild with --features model-server".to_string(),
+        )),
     }
 }
 

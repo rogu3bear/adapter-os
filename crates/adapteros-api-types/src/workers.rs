@@ -6,6 +6,45 @@ use serde::{Deserialize, Serialize};
 
 use crate::schema_version;
 
+/// Worker-specific model load state for smarter routing decisions
+///
+/// Enables the control plane to route requests to workers with models already loaded,
+/// avoiding cold-start latency and memory pressure from concurrent model loads.
+///
+/// Note: This is distinct from `ModelLoadStatus` in `model_status.rs` which is used
+/// for model management APIs. This type is specifically for worker runtime state.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum WorkerModelLoadState {
+    /// No model currently loaded in memory
+    Unloaded,
+    /// Model is actively being loaded (weights transfer in progress)
+    Loading,
+    /// Model is fully loaded and ready for inference
+    Loaded,
+    /// Model load failed with an error message
+    #[serde(rename = "error")]
+    Error(String),
+}
+
+impl Default for WorkerModelLoadState {
+    fn default() -> Self {
+        WorkerModelLoadState::Unloaded
+    }
+}
+
+impl std::fmt::Display for WorkerModelLoadState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            WorkerModelLoadState::Unloaded => write!(f, "unloaded"),
+            WorkerModelLoadState::Loading => write!(f, "loading"),
+            WorkerModelLoadState::Loaded => write!(f, "loaded"),
+            WorkerModelLoadState::Error(msg) => write!(f, "error: {}", msg),
+        }
+    }
+}
+
 /// Worker registration request
 ///
 /// Sent by worker on startup to register with the control plane.
@@ -28,6 +67,12 @@ pub struct WorkerRegistrationRequest {
     /// Base model hash advertised by worker
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_hash: Option<String>,
+    /// Tokenizer hash (BLAKE3 hex) loaded by the worker
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tokenizer_hash_b3: Option<String>,
+    /// Tokenizer vocabulary size observed by the worker
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tokenizer_vocab_size: Option<u32>,
     /// Schema version (e.g., "1.0")
     pub schema_version: String,
     /// API version for CP-worker protocol (e.g., "1.0")
@@ -127,6 +172,12 @@ pub struct WorkerStatusNotification {
     pub status: String,
     /// Reason for the status change
     pub reason: String,
+    /// Tokenizer hash (BLAKE3 hex) loaded by the worker
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tokenizer_hash_b3: Option<String>,
+    /// Tokenizer vocabulary size observed by the worker
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tokenizer_vocab_size: Option<u32>,
     /// Current cache memory usage in MB
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_used_mb: Option<u32>,
@@ -139,6 +190,18 @@ pub struct WorkerStatusNotification {
     /// Number of active cache entries (in-use, cannot be evicted)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_active_entries: Option<u32>,
+    /// BLAKE3 hash of the currently loaded model (for routing affinity)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub loaded_model_hash: Option<String>,
+    /// Current model load state (unloaded, loading, loaded, error)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_load_state: Option<WorkerModelLoadState>,
+    /// Total cache memory usage in bytes (more precise than cache_used_mb)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_memory_bytes: Option<u64>,
+    /// Cache hit ratio (0.0 to 1.0) for performance monitoring
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_hit_ratio: Option<f32>,
 }
 
 /// Spawn worker request
@@ -183,6 +246,12 @@ pub struct WorkerResponse {
     /// Base model hash (BLAKE3 hex) expected/loaded by this worker (from manifest/worker)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_hash: Option<String>,
+    /// Tokenizer hash (BLAKE3 hex) loaded by this worker
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tokenizer_hash_b3: Option<String>,
+    /// Tokenizer vocab size loaded by this worker
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tokenizer_vocab_size: Option<u32>,
     /// Whether the worker is in a state that implies the base model is loaded
     #[serde(default)]
     pub model_loaded: bool,
@@ -241,6 +310,12 @@ pub struct WorkerHeartbeatRequest {
     /// Number of active cache entries (in-use, cannot be evicted)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_active_entries: Option<u32>,
+    /// Tokenizer hash (BLAKE3 hex) loaded by this worker
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tokenizer_hash_b3: Option<String>,
+    /// Tokenizer vocab size loaded by this worker
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tokenizer_vocab_size: Option<u32>,
 }
 
 /// Worker heartbeat response

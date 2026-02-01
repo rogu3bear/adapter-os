@@ -8,7 +8,9 @@ use adapteros_api_types::workers::{
     WorkerRegistrationRequest, WorkerRegistrationResponse, WorkerStatusNotification,
 };
 use adapteros_config::reject_tmp_socket;
-use adapteros_core::{identity::IdentityEnvelope, version::API_SCHEMA_VERSION, WorkerStatus};
+use adapteros_core::{
+    identity::IdentityEnvelope, version::API_SCHEMA_VERSION, AosError, WorkerStatus,
+};
 use adapteros_db::users::Role;
 use adapteros_db::workers::{is_schema_compatible, WorkerRegistrationParams};
 use adapteros_telemetry::{build_health_event, make_health_payload, HealthEventKind};
@@ -17,6 +19,7 @@ use axum::{
     Extension, Json,
 };
 use serde::Deserialize;
+use std::str::FromStr;
 use tracing::{error, info, warn};
 
 #[derive(Deserialize)]
@@ -192,6 +195,8 @@ pub async fn worker_spawn(
         backend: None,
         model_id: None,
         model_hash: None,
+        tokenizer_hash_b3: None,
+        tokenizer_vocab_size: None,
         model_loaded: false,
         cache_used_mb: None,
         cache_max_mb: None,
@@ -267,6 +272,15 @@ pub async fn list_workers(
                 (None, None, None, None)
             };
 
+        let tokenizer_hash_b3 = runtime
+            .as_ref()
+            .and_then(|rt| rt.tokenizer_hash_b3.clone())
+            .or_else(|| w.tokenizer_hash_b3.clone());
+        let tokenizer_vocab_size = runtime
+            .as_ref()
+            .and_then(|rt| rt.tokenizer_vocab_size)
+            .or_else(|| w.tokenizer_vocab_size.map(|v| v as u32));
+
         // Parse capabilities from JSON
         let capabilities = w
             .capabilities_json
@@ -300,6 +314,8 @@ pub async fn list_workers(
             model_id,
             model_hash: w.model_hash_b3.clone(),
             model_loaded: w.model_hash_b3.is_some(),
+            tokenizer_hash_b3,
+            tokenizer_vocab_size,
             cache_used_mb,
             cache_max_mb,
             cache_pinned_entries,
@@ -759,6 +775,8 @@ pub async fn register_worker(
         manifest_hash: req.manifest_hash.clone(),
         backend: req.backend.clone(),
         model_hash_b3: req.model_hash.clone(),
+        tokenizer_hash_b3: req.tokenizer_hash_b3.clone(),
+        tokenizer_vocab_size: req.tokenizer_vocab_size.map(|v| v as i64),
         capabilities_json: capabilities_detail
             .as_ref()
             .and_then(|caps| serde_json::to_string(caps).ok())
@@ -790,6 +808,11 @@ pub async fn register_worker(
             cache_max_mb: None,
             cache_pinned_entries: None,
             cache_active_entries: None,
+            tokenizer_hash_b3: req.tokenizer_hash_b3.clone(),
+            tokenizer_vocab_size: req.tokenizer_vocab_size,
+            loaded_model_hash: None,
+            model_load_state: None,
+            cache_stats: None,
         },
     );
 
@@ -934,13 +957,18 @@ pub async fn notify_worker_status(
     )
     .await;
 
-    // Update cache metrics in worker runtime if provided
-    if req.cache_used_mb.is_some()
+    // Update cache metrics and model state in worker runtime if provided
+    let has_cache_updates = req.cache_used_mb.is_some()
         || req.cache_max_mb.is_some()
         || req.cache_pinned_entries.is_some()
         || req.cache_active_entries.is_some()
-    {
+        || req.cache_memory_bytes.is_some()
+        || req.cache_hit_ratio.is_some();
+    let has_model_updates = req.loaded_model_hash.is_some() || req.model_load_state.is_some();
+
+    if has_cache_updates || has_model_updates {
         if let Some(mut entry) = state.worker_runtime.get_mut(&req.worker_id) {
+            // Update legacy cache fields for backward compatibility
             if let Some(v) = req.cache_used_mb {
                 entry.cache_used_mb = Some(v);
             }
@@ -953,7 +981,60 @@ pub async fn notify_worker_status(
             if let Some(v) = req.cache_active_entries {
                 entry.cache_active_entries = Some(v);
             }
+
+            // Update model state for smarter routing
+            if let Some(ref hash) = req.loaded_model_hash {
+                entry.loaded_model_hash = Some(hash.clone());
+            }
+            if let Some(ref load_state) = req.model_load_state {
+                entry.model_load_state = Some(load_state.clone());
+            }
+
+            // Update aggregated cache stats
+            if has_cache_updates {
+                let cache_stats = entry.cache_stats.get_or_insert_with(Default::default);
+                if let Some(v) = req.cache_used_mb {
+                    cache_stats.used_mb = Some(v);
+                }
+                if let Some(v) = req.cache_max_mb {
+                    cache_stats.max_mb = Some(v);
+                }
+                if let Some(v) = req.cache_pinned_entries {
+                    cache_stats.pinned_entries = Some(v);
+                }
+                if let Some(v) = req.cache_active_entries {
+                    cache_stats.active_entries = Some(v);
+                }
+                if let Some(v) = req.cache_memory_bytes {
+                    cache_stats.memory_bytes = Some(v);
+                }
+                if let Some(v) = req.cache_hit_ratio {
+                    cache_stats.hit_ratio = Some(v);
+                }
+            }
         }
+    }
+
+    // Persist tokenizer metadata when provided
+    if req.tokenizer_hash_b3.is_some() || req.tokenizer_vocab_size.is_some() {
+        if let Some(mut entry) = state.worker_runtime.get_mut(&req.worker_id) {
+            if let Some(hash) = req.tokenizer_hash_b3.clone() {
+                entry.tokenizer_hash_b3 = Some(hash);
+            }
+            if let Some(vocab) = req.tokenizer_vocab_size {
+                entry.tokenizer_vocab_size = Some(vocab);
+            }
+        }
+
+        let _ = state
+            .db
+            .update_worker_heartbeat(
+                &req.worker_id,
+                None,
+                req.tokenizer_hash_b3.as_deref(),
+                req.tokenizer_vocab_size.map(|v| v as i64),
+            )
+            .await;
     }
 
     Ok(Json(serde_json::json!({
@@ -961,6 +1042,82 @@ pub async fn notify_worker_status(
         "worker_id": req.worker_id,
         "status": req.status,
     })))
+}
+
+/// Worker heartbeat endpoint
+///
+/// Lightweight liveness update that also captures tokenizer metadata and cache stats.
+#[utoipa::path(
+    post,
+    path = "/v1/workers/heartbeat",
+    request_body = WorkerHeartbeatRequest,
+    responses(
+        (status = 200, description = "Heartbeat accepted", body = WorkerHeartbeatResponse),
+        (status = 404, description = "Worker not found", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    tag = "workers"
+)]
+pub async fn worker_heartbeat(
+    State(state): State<AppState>,
+    Json(req): Json<WorkerHeartbeatRequest>,
+) -> Result<Json<WorkerHeartbeatResponse>, ApiError> {
+    // Validate status enum
+    WorkerStatus::from_str(&req.status)
+        .map_err(|e| ApiError::bad_request("invalid status").with_details(e.to_string()))?;
+
+    // Persist heartbeat timestamp and tokenizer metadata
+    if let Err(e) = state
+        .db
+        .update_worker_heartbeat(
+            &req.worker_id,
+            Some(&req.status),
+            req.tokenizer_hash_b3.as_deref(),
+            req.tokenizer_vocab_size.map(|v| v as i64),
+        )
+        .await
+    {
+        return match e {
+            AosError::NotFound(_) => {
+                Err(ApiError::not_found("worker")
+                    .with_details(format!("Worker ID: {}", req.worker_id)))
+            }
+            _ => {
+                Err(ApiError::internal("failed to record worker heartbeat")
+                    .with_details(e.to_string()))
+            }
+        };
+    }
+
+    // Update runtime cache
+    let mut entry = state
+        .worker_runtime
+        .entry(req.worker_id.clone())
+        .or_default();
+
+    if let Some(v) = req.cache_used_mb {
+        entry.cache_used_mb = Some(v);
+    }
+    if let Some(v) = req.cache_max_mb {
+        entry.cache_max_mb = Some(v);
+    }
+    if let Some(v) = req.cache_pinned_entries {
+        entry.cache_pinned_entries = Some(v);
+    }
+    if let Some(v) = req.cache_active_entries {
+        entry.cache_active_entries = Some(v);
+    }
+    if let Some(hash) = req.tokenizer_hash_b3.clone() {
+        entry.tokenizer_hash_b3 = Some(hash);
+    }
+    if let Some(vocab) = req.tokenizer_vocab_size {
+        entry.tokenizer_vocab_size = Some(vocab);
+    }
+
+    Ok(Json(WorkerHeartbeatResponse {
+        acknowledged: true,
+        next_heartbeat_secs: 30,
+    }))
 }
 
 /// Get worker status history

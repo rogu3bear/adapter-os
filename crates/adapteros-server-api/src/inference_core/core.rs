@@ -146,6 +146,7 @@ use crate::uds_metrics::record_uds_timings;
 use crate::worker_capabilities::{
     capability_reasons, parse_worker_capabilities, RequiredModes, WorkerCapabilityExclusion,
 };
+use crate::worker_selector::{RequiredCapabilities, WorkerRequirements, WorkerSelector};
 use adapteros_api_types::inference::ReplayGuarantee;
 use adapteros_api_types::{RunActor, RunEnvelope};
 use adapteros_config::PlacementConfig;
@@ -2182,8 +2183,10 @@ impl<'a> InferenceCore<'a> {
 
     /// Select a compatible worker with manifest + health filtering.
     ///
-    /// Uses retry logic with bounded attempts to handle transient worker unavailability.
-    /// In dev mode, returns a degraded error after retries instead of hard failure.
+    /// Uses the unified WorkerSelector for single-pass selection that combines:
+    /// - Database query for compatible workers
+    /// - Capability filtering with pre-indexed capabilities
+    /// - Health-aware selection integrated into scoring
     ///
     /// # Retry Behavior
     ///
@@ -2195,46 +2198,27 @@ impl<'a> InferenceCore<'a> {
         &self,
         request: &InferenceRequestInternal,
     ) -> Result<WorkerWithBinding, InferenceError> {
-        let required_modes = RequiredModes::from_request(request);
-        let require_backend = if request.allow_fallback {
-            None
-        } else {
-            match request.backend_profile {
-                Some(BackendKind::Auto) | None => None,
-                Some(kind) => Some(kind),
+        let required_manifest = self.state.manifest_hash.as_deref().ok_or_else(|| {
+            InferenceError::NoCompatibleWorker {
+                required_hash: "unset".to_string(),
+                tenant_id: request.cpid.clone(),
+                available_count: 0,
+                reason: "Manifest hash not configured on control plane".to_string(),
+                details: None,
             }
-        };
+        })?;
 
-        self.select_worker_for_tenant_with_requirements(
-            &request.cpid,
-            Some(required_modes),
-            request.require_determinism,
-            require_backend,
-        )
-        .await
+        // Build requirements from the request
+        let requirements = WorkerRequirements::from_request(request, required_manifest);
+
+        // Use the unified selector with retry
+        self.select_worker_with_unified_selector(requirements).await
     }
 
     pub(crate) async fn select_worker_for_tenant(
         &self,
         tenant_id: &str,
     ) -> Result<WorkerWithBinding, InferenceError> {
-        self.select_worker_for_tenant_with_requirements(tenant_id, None, false, None)
-            .await
-    }
-
-    async fn select_worker_for_tenant_with_requirements(
-        &self,
-        tenant_id: &str,
-        required_modes: Option<RequiredModes>,
-        require_determinism: bool,
-        require_backend: Option<BackendKind>,
-    ) -> Result<WorkerWithBinding, InferenceError> {
-        use std::time::{Duration, Instant};
-
-        const MAX_ATTEMPTS: u32 = 3;
-        const BASE_DELAY: Duration = Duration::from_secs(2);
-        const MAX_ELAPSED: Duration = Duration::from_secs(30);
-
         let required_manifest = self.state.manifest_hash.as_deref().ok_or_else(|| {
             InferenceError::NoCompatibleWorker {
                 required_hash: "unset".to_string(),
@@ -2245,152 +2229,163 @@ impl<'a> InferenceCore<'a> {
             }
         })?;
 
-        let deadline = Instant::now() + MAX_ELAPSED;
-        let mut attempt: u32 = 0;
-        let mut delay = BASE_DELAY;
+        // Build minimal requirements for tenant
+        let requirements = WorkerRequirements::for_tenant(tenant_id, required_manifest);
 
-        loop {
-            attempt += 1;
-            let remaining = deadline.saturating_duration_since(Instant::now());
+        // Use the unified selector with retry
+        self.select_worker_with_unified_selector(requirements).await
+    }
 
-            // Try to find a compatible worker
-            let workers = self
-                .state
-                .db
-                .list_compatible_workers_for_tenant(required_manifest, tenant_id)
-                .await
-                .map_err(|e| {
-                    InferenceError::WorkerError(format!("Failed to list compatible workers: {}", e))
-                })?;
+    /// Internal method that uses the unified WorkerSelector with retry logic.
+    ///
+    /// This replaces the previous multi-step flow with a single-pass selection:
+    /// 1. Creates a WorkerSelector with DB and health monitor
+    /// 2. Uses select_with_retry for automatic retry handling
+    /// 3. Converts SelectionError to InferenceError with dev mode handling
+    async fn select_worker_with_unified_selector(
+        &self,
+        requirements: WorkerRequirements,
+    ) -> Result<WorkerWithBinding, InferenceError> {
+        use std::time::Duration;
 
-            let candidate_count = workers.len();
-            let (filtered_workers, exclusions) = if let Some(ref required_modes) = required_modes {
-                self.filter_workers_by_capabilities(
-                    workers,
-                    required_modes,
-                    require_backend,
-                    require_determinism,
-                )
-            } else {
-                (workers, Vec::new())
-            };
+        const MAX_ATTEMPTS: u32 = 3;
+        const BASE_DELAY: Duration = Duration::from_secs(2);
+        const MAX_ELAPSED: Duration = Duration::from_secs(30);
 
-            if let Some(worker) = self
-                .state
-                .health_monitor
-                .as_ref()
-                .and_then(|hm| hm.get_best_worker_with_binding(&filtered_workers))
-                .cloned()
-                .or_else(|| filtered_workers.first().cloned())
-            {
-                if attempt > 1 {
-                    info!(
-                        tenant_id = %tenant_id,
-                        worker_id = %worker.id,
-                        attempt = attempt,
-                        "Selected compatible worker after retry"
-                    );
-                } else {
-                    debug!(
-                        tenant_id = %tenant_id,
-                        worker_id = %worker.id,
-                        manifest_hash = %worker.manifest_hash_b3.as_deref().unwrap_or("none"),
-                        required_manifest = %required_manifest,
-                        "Selected compatible worker for inference"
-                    );
-                }
-                return Ok(worker);
-            }
+        // Create unified selector (borrows db from state)
+        let selector = WorkerSelector::new(self.state.db.raw(), self.state.health_monitor.clone());
 
-            // No worker found - determine reason and decide whether to retry
-            let mut exclusion_details = None;
-            let (available_count, reason, retryable) =
-                if required_modes.is_some() && !exclusions.is_empty() {
-                    warn!(
-                        tenant_id = %tenant_id,
-                        required_modes = ?required_modes.as_ref(),
-                        require_backend = ?require_backend.map(|b| b.as_str()),
-                        require_determinism = require_determinism,
-                        excluded_workers = ?exclusions,
-                        "All compatible workers excluded by capability requirements"
-                    );
-                    exclusion_details = Some(serde_json::json!({
-                        "required_modes": required_modes.as_ref(),
-                        "require_backend": require_backend.map(|b| b.as_str()),
-                        "require_determinism": require_determinism,
-                        "excluded_workers": exclusions,
-                    }));
-                    (
-                        candidate_count,
-                        "Workers excluded by capability requirements".to_string(),
-                        false,
-                    )
-                } else {
-                    let (count, reason) = self
-                        .diagnose_worker_unavailability(required_manifest, tenant_id)
-                        .await;
-                    (count, reason, true)
-                };
-
-            // Check if we should retry
-            let should_retry = retryable && attempt < MAX_ATTEMPTS && !remaining.is_zero();
-
-            if should_retry {
-                warn!(
-                    attempt = attempt,
-                    max_attempts = MAX_ATTEMPTS,
-                    delay_ms = delay.as_millis() as u64,
-                    remaining_budget_ms = remaining.as_millis() as u64,
-                    tenant_id = %tenant_id,
-                    reason = %reason,
-                    "No compatible worker found, retrying"
-                );
-
-                // Sleep for the delay (capped by remaining budget)
-                let actual_delay = delay.min(remaining);
-                tokio::time::sleep(actual_delay).await;
-
-                // Calculate next delay (2s -> 4s)
-                delay *= 2;
-            } else {
-                // All retries exhausted - check if we're in dev mode for graceful degradation
+        // Use selector with retry
+        match selector
+            .select_with_retry(&requirements, MAX_ATTEMPTS, BASE_DELAY, MAX_ELAPSED)
+            .await
+        {
+            Ok(worker) => Ok(worker),
+            Err(e) => {
+                // Convert SelectionError to InferenceError with dev mode handling
                 let is_dev_mode = self.state.runtime_mode.map(|m| m.is_dev()).unwrap_or(false);
 
-                if is_dev_mode {
-                    // In dev mode, return a degraded error that can be handled gracefully
-                    warn!(
-                        tenant_id = %tenant_id,
-                        attempts = attempt,
-                        reason = %reason,
-                        "Worker discovery failed in dev mode - system degraded"
-                    );
-                    return Err(InferenceError::WorkerDegraded {
-                        tenant_id: tenant_id.to_string(),
-                        reason: format!(
-                            "No compatible worker after {} attempts (dev mode): {}",
-                            attempt, reason
-                        ),
-                    });
-                } else {
-                    // In prod/staging mode, hard failure
-                    error!(
-                        tenant_id = %tenant_id,
-                        attempts = attempt,
-                        reason = %reason,
-                        "Worker discovery failed after all retries"
-                    );
-                    return Err(InferenceError::NoCompatibleWorker {
-                        required_hash: required_manifest.to_string(),
-                        tenant_id: tenant_id.to_string(),
-                        available_count,
-                        reason,
-                        details: exclusion_details,
-                    });
+                match e {
+                    crate::worker_selector::SelectionError::DatabaseError(msg) => {
+                        Err(InferenceError::WorkerError(format!(
+                            "Failed to list compatible workers: {}",
+                            msg
+                        )))
+                    }
+                    crate::worker_selector::SelectionError::NoCompatibleWorker {
+                        tenant_id,
+                        manifest_hash,
+                        candidates_considered,
+                        candidates_after_filter,
+                        exclusions,
+                    } => {
+                        // Diagnose the specific reason
+                        let (reason, available_count) = if candidates_considered == 0 {
+                            let (count, reason) = self
+                                .diagnose_worker_unavailability(&manifest_hash, &tenant_id)
+                                .await;
+                            (reason, count)
+                        } else if !exclusions.is_empty() {
+                            (
+                                "Workers excluded by capability requirements".to_string(),
+                                candidates_considered,
+                            )
+                        } else {
+                            (
+                                format!(
+                                    "No workers passed filtering ({} considered, {} after filter)",
+                                    candidates_considered, candidates_after_filter
+                                ),
+                                candidates_considered,
+                            )
+                        };
+
+                        if is_dev_mode {
+                            warn!(
+                                tenant_id = %tenant_id,
+                                reason = %reason,
+                                "Worker discovery failed in dev mode - system degraded"
+                            );
+                            Err(InferenceError::WorkerDegraded {
+                                tenant_id,
+                                reason: format!("No compatible worker (dev mode): {}", reason),
+                            })
+                        } else {
+                            error!(
+                                tenant_id = %tenant_id,
+                                reason = %reason,
+                                "Worker discovery failed after all retries"
+                            );
+                            let exclusion_details = if !exclusions.is_empty() {
+                                Some(serde_json::json!({
+                                    "excluded_workers": exclusions,
+                                }))
+                            } else {
+                                None
+                            };
+
+                            Err(InferenceError::NoCompatibleWorker {
+                                required_hash: manifest_hash,
+                                tenant_id,
+                                available_count,
+                                reason,
+                                details: exclusion_details,
+                            })
+                        }
+                    }
                 }
             }
         }
     }
 
+    /// Legacy method for backward compatibility.
+    ///
+    /// This method is kept for callers that need the old API. Internally it delegates
+    /// to the unified selector.
+    #[allow(dead_code)]
+    async fn select_worker_for_tenant_with_requirements(
+        &self,
+        tenant_id: &str,
+        required_modes: Option<RequiredModes>,
+        require_determinism: bool,
+        require_backend: Option<BackendKind>,
+    ) -> Result<WorkerWithBinding, InferenceError> {
+        let required_manifest = self.state.manifest_hash.as_deref().ok_or_else(|| {
+            InferenceError::NoCompatibleWorker {
+                required_hash: "unset".to_string(),
+                tenant_id: tenant_id.to_string(),
+                available_count: 0,
+                reason: "Manifest hash not configured on control plane".to_string(),
+                details: None,
+            }
+        })?;
+
+        // Build requirements from the legacy parameters
+        let capabilities = if let Some(modes) = required_modes {
+            RequiredCapabilities {
+                modes,
+                backend: require_backend,
+                require_determinism,
+            }
+        } else {
+            RequiredCapabilities::any()
+        };
+
+        let requirements = WorkerRequirements {
+            tenant_id: tenant_id.to_string(),
+            manifest_hash: required_manifest.to_string(),
+            capabilities,
+            prefer_cache_hit: false,
+        };
+
+        self.select_worker_with_unified_selector(requirements).await
+    }
+
+    /// Legacy filter method for backward compatibility.
+    ///
+    /// This is kept for any callers that might use it directly.
+    /// The unified WorkerSelector now handles this inline.
+    #[allow(dead_code)]
     fn filter_workers_by_capabilities(
         &self,
         workers: Vec<WorkerWithBinding>,
