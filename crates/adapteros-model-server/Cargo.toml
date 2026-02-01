@@ -1,0 +1,68 @@
+[package]
+name = "adapteros-model-server"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Model server for shared model loading - reduces GPU memory by sharing base model across workers"
+
+[features]
+default = []
+# Enable MLX backend for model loading
+mlx = ["adapteros-lora-mlx-ffi"]
+
+[dependencies]
+# Core dependencies
+adapteros-core = { path = "../adapteros-core" }
+adapteros-config = { path = "../adapteros-config" }
+adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
+
+# Optional MLX FFI for model loading
+adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true }
+
+# gRPC and protobuf
+tonic = "0.12"
+prost = "0.13"
+
+# Async runtime
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# SafeTensors parsing (for adapter weights)
+safetensors = { workspace = true }
+half = { workspace = true }
+
+# Utilities
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+blake3 = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+dashmap = { workspace = true }
+parking_lot = { workspace = true }
+clap = { workspace = true }
+
+# Unix domain sockets
+hyper = { workspace = true }
+hyper-util = { workspace = true }
+tower = { workspace = true }
+
+[build-dependencies]
+tonic-build = "0.12"
+
+[[bin]]
+name = "aos-model-srv"
+path = "src/bin/aos_model_srv.rs"
+
+[dev-dependencies]
+tempfile = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "model_server_performance"
+harness = false

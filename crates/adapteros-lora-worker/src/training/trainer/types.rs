@@ -189,6 +189,7 @@ impl TryFrom<BackendKind> for TrainingBackend {
             BackendKind::CoreML => Ok(TrainingBackend::CoreML),
             BackendKind::Mlx => Ok(TrainingBackend::Mlx),
             BackendKind::MlxBridge => Ok(TrainingBackend::Mlx), // MlxBridge uses Mlx for training
+            BackendKind::ModelServer => Ok(TrainingBackend::Mlx), // ModelServer uses Mlx for training
             BackendKind::Metal => Ok(TrainingBackend::Metal),
             BackendKind::CPU => Ok(TrainingBackend::Cpu),
             BackendKind::Auto => Err(AosError::Config(

@@ -80,6 +80,8 @@ async fn readyz_returns_200_when_all_checks_pass() -> Result<(), Box<dyn std::er
             manifest_hash: "test-hash".to_string(),
             backend: Some("mlx".to_string()),
             model_hash_b3: None,
+            tokenizer_hash_b3: None,
+            tokenizer_vocab_size: None,
             capabilities_json: None,
             schema_version: "1".to_string(),
             api_version: "1".to_string(),

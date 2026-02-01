@@ -108,24 +108,23 @@ pub async fn infer(
         let resolved = resolve_session_token_lock(&state, &claims, &token.0.lock).await?;
         if let (Some(requested), Some(locked)) = (req.backend, resolved.backend_profile) {
             if requested != locked {
-                return Err(ApiError::forbidden("session token backend mismatch").with_details(
-                    format!(
+                return Err(
+                    ApiError::forbidden("session token backend mismatch").with_details(format!(
                         "requested {}, token {}",
                         requested.as_str(),
                         locked.as_str()
-                    ),
-                ));
+                    )),
+                );
             }
         }
         if let (Some(requested), Some(locked)) = (req.coreml_mode, resolved.coreml_mode) {
             if requested != locked {
-                return Err(ApiError::forbidden("session token coreml_mode mismatch").with_details(
-                    format!(
+                return Err(ApiError::forbidden("session token coreml_mode mismatch")
+                    .with_details(format!(
                         "requested {}, token {}",
                         requested.as_str(),
                         locked.as_str()
-                    ),
-                ));
+                    )));
             }
         }
         Some(resolved)

@@ -217,6 +217,7 @@ pub fn build_capabilities_detail(backend_choice: BackendChoice) -> WorkerCapabil
         BackendChoice::Metal => "metal",
         BackendChoice::CPU => "cpu",
         BackendChoice::Auto => "auto",
+        BackendChoice::ModelServer => "model_server",
     };
 
     let (supports_step, supports_bulk, supports_logits, supports_streaming) = match backend_choice {

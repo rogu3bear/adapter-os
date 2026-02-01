@@ -456,6 +456,9 @@ pub struct ServerConfigApi {
     /// When true, the control plane can report ready without worker connectivity.
     #[serde(default)]
     pub skip_worker_check: bool,
+    /// Expected heartbeat interval for workers (seconds)
+    #[serde(default = "default_worker_heartbeat_interval_secs")]
+    pub worker_heartbeat_interval_secs: u64,
 }
 
 fn default_health_check_db_timeout_ms() -> u64 {
@@ -468,6 +471,10 @@ fn default_health_check_worker_timeout_ms() -> u64 {
 
 fn default_health_check_models_timeout_ms() -> u64 {
     2000
+}
+
+fn default_worker_heartbeat_interval_secs() -> u64 {
+    30
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

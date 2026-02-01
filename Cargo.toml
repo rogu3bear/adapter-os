@@ -93,6 +93,7 @@ members = [
     "crates/adapteros-server-api-types",  # Shared types for server-api crates
     "crates/adapteros-server-api-admin",  # Admin and policy endpoints
     "crates/adapteros-server-api-models",  # Model management endpoints
+    "crates/adapteros-model-server",  # Shared model server for worker memory efficiency
 ]
 
 [workspace.package]
@@ -172,6 +173,7 @@ federation = []  # Federation daemon and cross-node communication
 rag-pgvector = []  # Vector database integration (pgvector) for RAG
 secure-enclave = []  # macOS Secure Enclave support
 cdp = []  # Chrome DevTools Protocol support
+model-server = ["adapteros-lora-worker/model-server"]  # Model Server shared memory mode
 
 [dependencies]
 # Re-export key crates for integration tests
@@ -427,6 +429,7 @@ adapteros-types = { path = "crates/adapteros-types" }
 adapteros-boot = { path = "crates/adapteros-boot" }
 adapteros-federation = { path = "crates/adapteros-federation" }
 adapteros-secd = { path = "crates/adapteros-secd" }
+adapteros-model-server = { path = "crates/adapteros-model-server", features = ["mlx"] }
 reqwest = { workspace = true }
 toml = { workspace = true }
 futures-util = { workspace = true }

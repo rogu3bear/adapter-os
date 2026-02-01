@@ -81,8 +81,7 @@ pub struct ProgressOperation {
 }
 
 /// Progress filter for querying operations
-#[derive(Debug, Clone, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct ProgressFilter {
     pub tenant_id: Option<String>,
     pub event_type: Option<String>,
@@ -181,75 +180,105 @@ impl ProgressService {
         use prometheus::{CounterVec, GaugeVec, HistogramVec, Opts};
 
         let operations_started_total = CounterVec::new(
-            Opts::new("progress_operations_started_total", "Total number of operations started")
-                .namespace("adapteros"),
+            Opts::new(
+                "progress_operations_started_total",
+                "Total number of operations started",
+            )
+            .namespace("adapteros"),
             &["event_type", "tenant_id"],
-        ).expect("Failed to create Prometheus metric");
+        )
+        .expect("Failed to create Prometheus metric");
 
         let operations_completed_total = CounterVec::new(
-            Opts::new("progress_operations_completed_total", "Total number of operations completed")
-                .namespace("adapteros"),
+            Opts::new(
+                "progress_operations_completed_total",
+                "Total number of operations completed",
+            )
+            .namespace("adapteros"),
             &["event_type", "tenant_id"],
-        ).expect("Failed to create Prometheus metric");
+        )
+        .expect("Failed to create Prometheus metric");
 
         let operations_failed_total = CounterVec::new(
-            Opts::new("progress_operations_failed_total", "Total number of operations failed")
-                .namespace("adapteros"),
+            Opts::new(
+                "progress_operations_failed_total",
+                "Total number of operations failed",
+            )
+            .namespace("adapteros"),
             &["event_type", "tenant_id"],
-        ).expect("Failed to create Prometheus metric");
+        )
+        .expect("Failed to create Prometheus metric");
 
         let operations_cancelled_total = CounterVec::new(
-            Opts::new("progress_operations_cancelled_total", "Total number of operations cancelled")
-                .namespace("adapteros"),
+            Opts::new(
+                "progress_operations_cancelled_total",
+                "Total number of operations cancelled",
+            )
+            .namespace("adapteros"),
             &["event_type", "tenant_id"],
-        ).expect("Failed to create Prometheus metric");
+        )
+        .expect("Failed to create Prometheus metric");
 
         let active_operations = GaugeVec::new(
-            Opts::new("progress_active_operations", "Number of currently active operations")
-                .namespace("adapteros"),
+            Opts::new(
+                "progress_active_operations",
+                "Number of currently active operations",
+            )
+            .namespace("adapteros"),
             &["event_type", "tenant_id"],
-        ).expect("Failed to create Prometheus metric");
+        )
+        .expect("Failed to create Prometheus metric");
 
         let operation_duration_seconds = HistogramVec::new(
             prometheus::HistogramOpts::new(
                 "progress_operation_duration_seconds",
-                "Duration of completed operations in seconds"
+                "Duration of completed operations in seconds",
             )
             .namespace("adapteros")
-            .buckets(vec![1.0, 5.0, 10.0, 30.0, 60.0, 300.0, 600.0, 1800.0, 3600.0]),
+            .buckets(vec![
+                1.0, 5.0, 10.0, 30.0, 60.0, 300.0, 600.0, 1800.0, 3600.0,
+            ]),
             &["event_type", "status"],
-        ).expect("Failed to create Prometheus metric");
+        )
+        .expect("Failed to create Prometheus metric");
 
         let db_operation_duration_seconds = HistogramVec::new(
             prometheus::HistogramOpts::new(
                 "progress_db_operation_duration_seconds",
-                "Duration of database operations in seconds"
+                "Duration of database operations in seconds",
             )
             .namespace("adapteros")
             .buckets(vec![0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0]),
             &["operation"],
-        ).expect("Failed to create Prometheus metric");
+        )
+        .expect("Failed to create Prometheus metric");
 
         let query_duration_seconds = HistogramVec::new(
             prometheus::HistogramOpts::new(
                 "progress_query_duration_seconds",
-                "Duration of progress queries in seconds"
+                "Duration of progress queries in seconds",
             )
             .namespace("adapteros")
             .buckets(vec![0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0]),
             &[],
-        ).expect("Failed to create Prometheus metric");
+        )
+        .expect("Failed to create Prometheus metric");
 
         let events_emitted_total = CounterVec::new(
-            Opts::new("progress_events_emitted_total", "Total number of progress events emitted")
-                .namespace("adapteros"),
+            Opts::new(
+                "progress_events_emitted_total",
+                "Total number of progress events emitted",
+            )
+            .namespace("adapteros"),
             &["event_type"],
-        ).expect("Failed to create Prometheus metric");
+        )
+        .expect("Failed to create Prometheus metric");
 
         let sse_subscribers = prometheus::Gauge::new(
             "progress_sse_subscribers",
-            "Number of active SSE subscribers"
-        ).expect("Failed to create Prometheus metric");
+            "Number of active SSE subscribers",
+        )
+        .expect("Failed to create Prometheus metric");
 
         ProgressMetrics {
             operations_started_total,
@@ -338,9 +367,9 @@ impl ProgressService {
         };
 
         let records = self.db.get_progress_events(query).await?;
-        let record = records.first().ok_or_else(|| {
-            AosError::NotFound(format!("Operation not found: {}", operation_id))
-        })?;
+        let record = records
+            .first()
+            .ok_or_else(|| AosError::NotFound(format!("Operation not found: {}", operation_id)))?;
 
         // Update in database
         self.db
@@ -394,9 +423,9 @@ impl ProgressService {
             ..Default::default()
         };
         let records = self.db.get_progress_events(query).await?;
-        let record = records.first().ok_or_else(|| {
-            AosError::NotFound(format!("Operation not found: {}", operation_id))
-        })?;
+        let record = records
+            .first()
+            .ok_or_else(|| AosError::NotFound(format!("Operation not found: {}", operation_id)))?;
 
         let final_status_str = final_status.to_string();
         self.db
@@ -555,7 +584,8 @@ impl ProgressService {
     /// Record operation start metric
     fn record_operation_started(&self, event_type: &str, tenant_id: &str) {
         if let Some(ref metrics) = self.metrics {
-            let _ = metrics.operations_started_total
+            let _ = metrics
+                .operations_started_total
                 .with_label_values(&[event_type, tenant_id])
                 .inc();
         }
@@ -564,10 +594,12 @@ impl ProgressService {
     /// Record operation completion metric
     fn record_operation_completed(&self, event_type: &str, tenant_id: &str, duration_secs: f64) {
         if let Some(ref metrics) = self.metrics {
-            let _ = metrics.operations_completed_total
+            let _ = metrics
+                .operations_completed_total
                 .with_label_values(&[event_type, tenant_id])
                 .inc();
-            let _ = metrics.operation_duration_seconds
+            let _ = metrics
+                .operation_duration_seconds
                 .with_label_values(&[event_type, "completed"])
                 .observe(duration_secs);
         }
@@ -576,10 +608,12 @@ impl ProgressService {
     /// Record operation failure metric
     fn record_operation_failed(&self, event_type: &str, tenant_id: &str, duration_secs: f64) {
         if let Some(ref metrics) = self.metrics {
-            let _ = metrics.operations_failed_total
+            let _ = metrics
+                .operations_failed_total
                 .with_label_values(&[event_type, tenant_id])
                 .inc();
-            let _ = metrics.operation_duration_seconds
+            let _ = metrics
+                .operation_duration_seconds
                 .with_label_values(&[event_type, "failed"])
                 .observe(duration_secs);
         }
@@ -746,7 +780,6 @@ impl ProgressService {
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {

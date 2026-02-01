@@ -877,6 +877,8 @@ pub async fn worker_spawn(
         backend: None,
         model_id: None,
         model_hash: None,
+        tokenizer_hash_b3: None,
+        tokenizer_vocab_size: None,
         model_loaded: false,
         cache_used_mb: None,
         cache_max_mb: None,
@@ -1003,8 +1005,31 @@ pub async fn list_workers(
             }
         };
 
-        let model_hash = resolved_model_hash.or(runtime.model_hash);
+        let model_hash = resolved_model_hash
+            .or(runtime.model_hash.clone())
+            .or(w.model_hash_b3.clone());
         let model_loaded = matches!(w.status.as_str(), "healthy" | "draining" | "serving");
+        let backend = runtime.backend.clone().or(w.backend.clone());
+        let tokenizer_hash_b3 = runtime
+            .tokenizer_hash_b3
+            .clone()
+            .or_else(|| w.tokenizer_hash_b3.clone());
+        let tokenizer_vocab_size = runtime
+            .tokenizer_vocab_size
+            .or_else(|| w.tokenizer_vocab_size.map(|v| v as u32));
+        let capabilities = if runtime.capabilities.is_empty() {
+            w.capabilities_json
+                .as_ref()
+                .and_then(|json| serde_json::from_str::<Vec<String>>(json).ok())
+                .unwrap_or_default()
+        } else {
+            runtime.capabilities.clone()
+        };
+        let capabilities_detail = runtime.capabilities_detail.clone().or_else(|| {
+            w.capabilities_json
+                .as_ref()
+                .and_then(|json| serde_json::from_str(json).ok())
+        });
 
         response.push(WorkerResponse {
             schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
@@ -1017,11 +1042,13 @@ pub async fn list_workers(
             status: w.status,
             started_at: w.started_at,
             last_seen_at: w.last_seen_at,
-            capabilities: runtime.capabilities,
-            capabilities_detail: runtime.capabilities_detail,
-            backend: runtime.backend,
+            capabilities,
+            capabilities_detail,
+            backend,
             model_id,
             model_hash,
+            tokenizer_hash_b3,
+            tokenizer_vocab_size,
             model_loaded,
             cache_used_mb: runtime.cache_used_mb,
             cache_max_mb: runtime.cache_max_mb,

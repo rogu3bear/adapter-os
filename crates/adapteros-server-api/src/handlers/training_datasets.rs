@@ -11,13 +11,13 @@ use crate::state::AppState;
 #[cfg(feature = "embeddings")]
 use crate::types::DatasetResponse;
 use crate::types::{CanonicalRow, DatasetManifest, ErrorResponse};
+#[cfg(feature = "embeddings")]
+use axum::response::IntoResponse;
 use axum::{
     extract::{Multipart, Path, Query, State},
     http::StatusCode,
     Extension, Json,
 };
-#[cfg(feature = "embeddings")]
-use axum::response::IntoResponse;
 #[cfg(feature = "embeddings")]
 use bytes::Bytes;
 use serde::Deserialize;

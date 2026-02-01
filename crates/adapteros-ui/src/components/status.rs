@@ -311,3 +311,159 @@ pub fn BackendStatusIndicator(
         </div>
     }
 }
+
+// =============================================================================
+// StatusVariant - Semantic status states for consistent styling
+// =============================================================================
+
+/// Semantic status variants for UI elements.
+///
+/// Replaces ad-hoc color logic like `if healthy { "bg-green-500/10" }` with
+/// typed variants that map to CSS classes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum StatusVariant {
+    /// Success/healthy/ready state (green)
+    Success,
+    /// Warning/degraded/draining state (yellow)
+    Warning,
+    /// Error/failed state (red)
+    Error,
+    /// Informational state (blue)
+    Info,
+    /// Unknown/offline/inactive state (gray)
+    #[default]
+    Muted,
+}
+
+impl StatusVariant {
+    /// CSS class for the status icon box
+    pub fn icon_box_class(&self) -> &'static str {
+        match self {
+            Self::Success => "status-icon-box status-icon-box--success",
+            Self::Warning => "status-icon-box status-icon-box--warning",
+            Self::Error => "status-icon-box status-icon-box--error",
+            Self::Info => "status-icon-box status-icon-box--info",
+            Self::Muted => "status-icon-box status-icon-box--muted",
+        }
+    }
+
+    /// Convert to StatusColor for compatibility with StatusIndicator
+    pub fn to_status_color(&self) -> StatusColor {
+        match self {
+            Self::Success => StatusColor::Green,
+            Self::Warning => StatusColor::Yellow,
+            Self::Error => StatusColor::Red,
+            Self::Info => StatusColor::Blue,
+            Self::Muted => StatusColor::Gray,
+        }
+    }
+
+    /// Convert to BadgeVariant for compatibility with Badge
+    pub fn to_badge_variant(&self) -> BadgeVariant {
+        match self {
+            Self::Success => BadgeVariant::Success,
+            Self::Warning => BadgeVariant::Warning,
+            Self::Error => BadgeVariant::Destructive,
+            Self::Info => BadgeVariant::Default,
+            Self::Muted => BadgeVariant::Secondary,
+        }
+    }
+
+    /// Create from a worker status string
+    pub fn from_worker_status(status: &str) -> Self {
+        match status {
+            "healthy" | "running" | "active" => Self::Success,
+            "draining" | "starting" | "pending" => Self::Warning,
+            "error" | "stopped" | "failed" | "crashed" | "unhealthy" => Self::Error,
+            "idle" => Self::Info,
+            _ => Self::Muted,
+        }
+    }
+
+    /// Create from a boolean condition (true = success, false = error)
+    pub fn from_bool(ok: bool) -> Self {
+        if ok {
+            Self::Success
+        } else {
+            Self::Error
+        }
+    }
+}
+
+// =============================================================================
+// StatusIconBox - Semantic icon container with status-based styling
+// =============================================================================
+
+/// A styled icon container with status-based background and text colors.
+///
+/// Replaces inline patterns like:
+/// ```ignore
+/// format!("flex items-center justify-center w-10 h-10 rounded-lg {}",
+///     if is_ready { "bg-green-500/10 text-green-500" } else { "bg-red-500/10 text-red-500" }
+/// )
+/// ```
+///
+/// With semantic usage:
+/// ```ignore
+/// <StatusIconBox status=StatusVariant::Success>
+///     <IconCheckCircle class="h-5 w-5"/>
+/// </StatusIconBox>
+/// ```
+#[component]
+pub fn StatusIconBox(
+    /// The status variant determining the color scheme
+    #[prop(optional)]
+    status: StatusVariant,
+    /// Additional CSS classes
+    #[prop(optional, into)]
+    class: String,
+    /// Icon or content to display inside the box
+    children: Children,
+) -> impl IntoView {
+    let full_class = if class.is_empty() {
+        status.icon_box_class().to_string()
+    } else {
+        format!("{} {}", status.icon_box_class(), class)
+    };
+
+    view! {
+        <div class=full_class aria-hidden="true">
+            {children()}
+        </div>
+    }
+}
+
+// =============================================================================
+// WorkerStatusBadge - Worker status string to badge mapper
+// =============================================================================
+
+/// Maps worker status strings to appropriate badge styling.
+///
+/// Replaces boilerplate like:
+/// ```ignore
+/// let status_variant = match worker.status.as_str() {
+///     "healthy" => BadgeVariant::Success,
+///     "draining" => BadgeVariant::Warning,
+///     "error" | "stopped" => BadgeVariant::Destructive,
+///     _ => BadgeVariant::Secondary,
+/// };
+/// ```
+///
+/// With:
+/// ```ignore
+/// <WorkerStatusBadge status=worker.status.clone() />
+/// ```
+#[component]
+pub fn WorkerStatusBadge(
+    /// The worker status string (e.g., "healthy", "draining", "error")
+    #[prop(into)]
+    status: String,
+) -> impl IntoView {
+    let variant = StatusVariant::from_worker_status(&status);
+
+    view! {
+        <Badge variant=variant.to_badge_variant()>
+            {status}
+        </Badge>
+    }
+}

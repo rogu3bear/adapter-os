@@ -8,6 +8,7 @@ mod preferences;
 mod profile;
 mod system_info;
 
+use crate::components::TabButton;
 use api_config::ApiConfigSection;
 use leptos::prelude::*;
 use preferences::PreferencesSection;
@@ -18,7 +19,7 @@ use system_info::SystemInfoSection;
 #[component]
 pub fn Settings() -> impl IntoView {
     // Active tab state
-    let active_tab = RwSignal::new("profile".to_string());
+    let active_tab = RwSignal::new("profile");
 
     view! {
         <div class="p-6 space-y-6">
@@ -28,22 +29,22 @@ pub fn Settings() -> impl IntoView {
                 <div class="border-b">
                     <nav class="-mb-px flex space-x-8" role="tablist">
                         <TabButton
-                            tab="profile".to_string()
+                            tab="profile"
                             label="Profile".to_string()
                             active=active_tab
                         />
                         <TabButton
-                            tab="api".to_string()
+                            tab="api"
                             label="API Configuration".to_string()
                             active=active_tab
                         />
                         <TabButton
-                            tab="preferences".to_string()
+                            tab="preferences"
                             label="UI Preferences".to_string()
                             active=active_tab
                         />
                         <TabButton
-                            tab="system".to_string()
+                            tab="system"
                             label="System Info".to_string()
                             active=active_tab
                         />
@@ -53,7 +54,7 @@ pub fn Settings() -> impl IntoView {
                 // Tab content
                 <div class="py-4">
                     {move || {
-                        match active_tab.get().as_str() {
+                        match active_tab.get() {
                             "profile" => view! { <ProfileSection/> }.into_any(),
                             "api" => view! { <ApiConfigSection/> }.into_any(),
                             "preferences" => view! { <PreferencesSection/> }.into_any(),
@@ -63,37 +64,5 @@ pub fn Settings() -> impl IntoView {
                     }}
                 </div>
         </div>
-    }
-}
-
-/// Tab button component
-#[component]
-fn TabButton(tab: String, label: String, active: RwSignal<String>) -> impl IntoView {
-    let tab_value = tab.clone();
-    let is_active = move || active.get() == tab_value;
-
-    view! {
-        <button
-            class={
-                let is_active = is_active.clone();
-                move || {
-                    let base = "whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded-t-sm";
-                    if is_active() {
-                        format!("{} border-primary text-primary", base)
-                    } else {
-                        format!("{} border-transparent text-muted-foreground hover:text-foreground hover:border-muted", base)
-                    }
-                }
-            }
-            type="button"
-            role="tab"
-            aria-selected=is_active
-            on:click={
-                let tab = tab.clone();
-                move |_| active.set(tab.clone())
-            }
-        >
-            {label}
-        </button>
     }
 }

@@ -140,3 +140,17 @@ max_log_files = 30
 include_request_id = true
 # Capture panics to log file
 capture_panics = true
+
+[model_server]
+# Model Server mode: Workers connect to shared Model Server instead of loading model locally
+# This reduces GPU memory usage by ~65% (one model copy instead of N workers × model)
+# Default: false (workers load models directly - legacy mode)
+enabled = false
+# gRPC server address for Model Server
+server_addr = "http://127.0.0.1:50051"
+# Maximum KV cache sessions (each session is a conversation context)
+max_kv_cache_sessions = 32
+# Hot adapter promotion threshold (adapters with >10% activation are cached in Model Server)
+hot_adapter_threshold = 0.10
+# KV cache memory limit in MB (0 = automatic based on available GPU memory)
+kv_cache_limit_mb = 0

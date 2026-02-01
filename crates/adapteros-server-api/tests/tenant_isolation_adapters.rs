@@ -280,6 +280,8 @@ async fn pinned_adapter_cross_tenant_is_indistinguishable_from_not_found() -> Re
             manifest_hash: "test-manifest-hash".to_string(),
             backend: Some("mlx".to_string()),
             model_hash_b3: None,
+            tokenizer_hash_b3: None,
+            tokenizer_vocab_size: None,
             capabilities_json: None,
             schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
             api_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),

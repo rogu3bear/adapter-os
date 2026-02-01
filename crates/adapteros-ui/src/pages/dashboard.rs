@@ -2,13 +2,13 @@
 
 use crate::api::{use_sse_json_events, ActivityEventResponse, ApiClient, SseState};
 use crate::boot_log;
-use crate::components::{
-    Badge, BadgeVariant, Button, ButtonVariant, Card, ChartPoint,
-    DataSeries, EmptyState, EmptyStateVariant, IconCheckCircle, IconCog, IconPlay, IconServer,
-    LineChart, SparklineMetric, Spinner, StatusColor, StatusIndicator, TimeSeriesData,
-};
 use crate::components::inference_guidance::guidance_for;
 use crate::components::status_center::use_status_center;
+use crate::components::{
+    Button, ButtonVariant, Card, ChartPoint, DataSeries, EmptyState, EmptyStateVariant,
+    IconCheckCircle, IconCog, IconPlay, IconServer, LineChart, SparklineMetric, Spinner,
+    StatusColor, StatusIconBox, StatusIndicator, StatusVariant, TimeSeriesData, WorkerStatusBadge,
+};
 use crate::hooks::{use_api_resource, use_sse_notifications, LoadingState};
 use crate::signals::use_auth;
 use adapteros_api_types::{
@@ -364,8 +364,8 @@ fn DashboardContent(
     let is_ready = matches!(status.readiness.overall, ApiStatusIndicator::Ready);
     let db_status = matches!(status.readiness.checks.db.status, ApiStatusIndicator::Ready);
     let inference_needs_attention = !matches!(status.inference_ready, InferenceReadyState::True);
-    let inference_guidance =
-        inference_needs_attention.then(|| guidance_for(status.inference_ready, status.inference_blockers.first()));
+    let inference_guidance = inference_needs_attention
+        .then(|| guidance_for(status.inference_ready, status.inference_blockers.first()));
 
     let inference_text = match status.inference_ready {
         InferenceReadyState::True => "Ready",
@@ -381,14 +381,11 @@ fn DashboardContent(
             // System Status Card
             <Card title="System Status".to_string()>
                 <div class="flex items-center gap-3">
-                    <div class=format!(
-                        "flex items-center justify-center w-10 h-10 rounded-lg {}",
-                        if is_ready { "bg-green-500/10 text-green-500" } else { "bg-red-500/10 text-red-500" }
-                    )>
+                    <StatusIconBox status=StatusVariant::from_bool(is_ready)>
                         <IconCheckCircle class="h-5 w-5".to_string() />
-                    </div>
+                    </StatusIconBox>
                     <StatusIndicator
-                        color=if is_ready { StatusColor::Green } else { StatusColor::Red }
+                        color=StatusVariant::from_bool(is_ready).to_status_color()
                         pulsing=is_ready
                         label=if is_ready { "Ready".to_string() } else { "Not Ready".to_string() }
                     />
@@ -398,16 +395,13 @@ fn DashboardContent(
             // Inference Status
             <Card title="Inference".to_string()>
                 <div class="flex items-center gap-3">
-                    <div class=format!(
-                        "flex items-center justify-center w-10 h-10 rounded-lg {}",
-                        match status.inference_ready {
-                            InferenceReadyState::True => "bg-green-500/10 text-green-500",
-                            InferenceReadyState::False => "bg-red-500/10 text-red-500",
-                            InferenceReadyState::Unknown => "bg-yellow-500/10 text-yellow-500",
-                        }
-                    )>
+                    <StatusIconBox status=match status.inference_ready {
+                        InferenceReadyState::True => StatusVariant::Success,
+                        InferenceReadyState::False => StatusVariant::Error,
+                        InferenceReadyState::Unknown => StatusVariant::Warning,
+                    }>
                         <IconPlay class="h-5 w-5".to_string() />
-                    </div>
+                    </StatusIconBox>
                     <div>
                         <div class="text-2xl font-bold">{inference_text}</div>
                         <p class="text-xs text-muted-foreground">"Inference status"</p>
@@ -448,12 +442,9 @@ fn DashboardContent(
             // Database Status
             <Card title="Database".to_string()>
                 <div class="flex items-center gap-3">
-                    <div class=format!(
-                        "flex items-center justify-center w-10 h-10 rounded-lg {}",
-                        if db_status { "bg-green-500/10 text-green-500" } else { "bg-red-500/10 text-red-500" }
-                    )>
+                    <StatusIconBox status=StatusVariant::from_bool(db_status)>
                         <IconServer class="h-5 w-5".to_string() />
-                    </div>
+                    </StatusIconBox>
                     <div>
                         <div class="text-2xl font-bold">
                             {if db_status { "Connected" } else { "Disconnected" }}
@@ -466,12 +457,9 @@ fn DashboardContent(
             // Workers Status
             <Card title="Workers".to_string()>
                 <div class="flex items-center gap-3">
-                    <div class=format!(
-                        "flex items-center justify-center w-10 h-10 rounded-lg {}",
-                        if healthy_workers > 0 { "bg-green-500/10 text-green-500" } else { "bg-muted text-muted-foreground" }
-                    )>
+                    <StatusIconBox status={if healthy_workers > 0 { StatusVariant::Success } else { StatusVariant::Muted }}>
                         <IconCog class="h-5 w-5".to_string() />
-                    </div>
+                    </StatusIconBox>
                     <div>
                         <div class="text-2xl font-bold">
                             {format!("{} / {}", healthy_workers, total_workers)}
@@ -545,12 +533,6 @@ fn DashboardContent(
                 view! {
                     <div class="space-y-2">
                         {workers.into_iter().map(|worker| {
-                            let status_variant = match worker.status.as_str() {
-                                "healthy" => BadgeVariant::Success,
-                                "draining" => BadgeVariant::Warning,
-                                "error" | "stopped" => BadgeVariant::Destructive,
-                                _ => BadgeVariant::Secondary,
-                            };
                             view! {
                                 <div class="flex items-center justify-between p-2 rounded-lg border">
                                     <div class="flex items-center gap-3">
@@ -561,9 +543,7 @@ fn DashboardContent(
                                             </p>
                                         </div>
                                     </div>
-                                    <Badge variant=status_variant>
-                                        {worker.status.clone()}
-                                    </Badge>
+                                    <WorkerStatusBadge status=worker.status.clone() />
                                 </div>
                             }
                         }).collect::<Vec<_>>()}

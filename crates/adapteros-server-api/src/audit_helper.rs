@@ -345,6 +345,7 @@ pub mod actions {
 
     // Inference actions
     pub const INFERENCE_EXECUTE: &str = "inference.execute";
+    pub const TOKENIZE_EXECUTE: &str = "tokenize.execute";
 
     // Preflight actions (Gap 4 fix - bypass audit logging)
     pub const PREFLIGHT_PASSED: &str = "preflight.passed";
@@ -501,6 +502,7 @@ pub mod actions {
 /// Resource types as constants
 pub mod resources {
     pub const ADAPTER: &str = "adapter";
+    pub const MODEL: &str = "model";
     pub const TRAINING_JOB: &str = "training_job";
     pub const TENANT: &str = "tenant";
     pub const NODE: &str = "node";

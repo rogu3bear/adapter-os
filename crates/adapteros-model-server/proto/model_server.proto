@@ -1,0 +1,204 @@
+syntax = "proto3";
+
+package adapteros.model_server;
+
+// ModelServer service for shared model inference
+// Workers connect to this server instead of loading the model themselves
+service ModelServer {
+  // Execute a forward pass and return logits
+  rpc Forward(ForwardRequest) returns (ForwardResponse);
+
+  // Execute a streaming forward pass (for token-by-token generation)
+  rpc ForwardStream(ForwardRequest) returns (stream ForwardToken);
+
+  // Health check endpoint
+  rpc Health(HealthRequest) returns (HealthResponse);
+
+  // Get current model status and memory usage
+  rpc Status(StatusRequest) returns (StatusResponse);
+
+  // Warmup KV cache for a session
+  rpc Warmup(WarmupRequest) returns (WarmupResponse);
+
+  // Drain server for graceful shutdown
+  rpc Drain(DrainRequest) returns (DrainResponse);
+
+  // Adapter management for hybrid hot/cold strategy
+  rpc LoadAdapter(LoadAdapterRequest) returns (LoadAdapterResponse);
+  rpc UnloadAdapter(UnloadAdapterRequest) returns (UnloadAdapterResponse);
+  rpc ListAdapters(ListAdaptersRequest) returns (ListAdaptersResponse);
+}
+
+// Forward pass request
+message ForwardRequest {
+  // Session ID for KV cache management
+  string session_id = 1;
+
+  // Input token IDs
+  repeated uint32 input_ids = 2;
+
+  // Current position in the sequence
+  uint32 position = 3;
+
+  // Maximum sequence length (for KV cache allocation)
+  uint32 max_seq_len = 4;
+
+  // Optional adapter IDs to apply (for hot adapters in hybrid mode)
+  repeated uint32 adapter_ids = 5;
+
+  // Optional Q15 gates for adapters (must match adapter_ids length)
+  repeated int32 adapter_gates_q15 = 6;
+
+  // Deterministic seed for reproducibility
+  bytes manifest_seed = 7;
+
+  // Whether to include hidden states in response
+  bool include_hidden_states = 8;
+}
+
+// Forward pass response
+message ForwardResponse {
+  // Output logits (vocab_size floats)
+  repeated float logits = 1;
+
+  // Updated position after forward pass
+  uint32 position = 2;
+
+  // Optional hidden states (if requested)
+  repeated float hidden_states = 3;
+
+  // KV cache hit info
+  bool kv_cache_hit = 4;
+  uint32 cached_tokens = 5;
+
+  // Latency metrics
+  double forward_latency_ms = 6;
+}
+
+// Streaming token response
+message ForwardToken {
+  // Generated token ID
+  uint32 token_id = 1;
+
+  // Token text (decoded)
+  string text = 2;
+
+  // Token index in the generated sequence
+  uint32 index = 3;
+
+  // Whether this is the final token
+  bool is_final = 4;
+
+  // Final response (included with last token)
+  ForwardResponse final_response = 5;
+}
+
+// Health check
+message HealthRequest {}
+
+message HealthResponse {
+  enum Status {
+    UNKNOWN = 0;
+    HEALTHY = 1;
+    DEGRADED = 2;
+    UNHEALTHY = 3;
+  }
+  Status status = 1;
+  string message = 2;
+  string model_id = 3;
+  uint64 uptime_seconds = 4;
+}
+
+// Status request
+message StatusRequest {}
+
+message StatusResponse {
+  // Model info
+  string model_id = 1;
+  string model_path = 2;
+  uint64 model_memory_bytes = 3;
+
+  // KV cache info
+  uint32 active_sessions = 4;
+  uint64 kv_cache_bytes_used = 5;
+  uint64 kv_cache_bytes_total = 6;
+
+  // Adapter info
+  uint32 loaded_adapters = 7;
+  uint64 adapter_memory_bytes = 8;
+
+  // Activation stats (for hybrid adapter strategy)
+  repeated AdapterActivationStats adapter_stats = 9;
+}
+
+message AdapterActivationStats {
+  uint32 adapter_id = 1;
+  string adapter_name = 2;
+  uint64 activation_count = 3;
+  double activation_rate = 4;  // Percentage of requests using this adapter
+  bool is_hot = 5;  // Whether adapter is cached in model server
+}
+
+// Warmup request for KV cache prefill
+message WarmupRequest {
+  string session_id = 1;
+  repeated uint32 input_ids = 2;
+  uint32 max_seq_len = 3;
+}
+
+message WarmupResponse {
+  bool success = 1;
+  uint32 cached_tokens = 2;
+  string error = 3;
+}
+
+// Drain request for graceful shutdown
+message DrainRequest {
+  // Grace period in seconds
+  uint32 grace_period_secs = 1;
+}
+
+message DrainResponse {
+  bool accepted = 1;
+  uint32 active_requests = 2;
+}
+
+// Adapter management messages
+message LoadAdapterRequest {
+  uint32 adapter_id = 1;
+  string adapter_name = 2;
+  bytes adapter_weights = 3;
+  bool promote_to_hot = 4;  // Force hot status (bypass activation threshold)
+}
+
+message LoadAdapterResponse {
+  bool success = 1;
+  bool is_hot = 2;
+  uint64 memory_bytes = 3;
+  string error = 4;
+}
+
+message UnloadAdapterRequest {
+  uint32 adapter_id = 1;
+}
+
+message UnloadAdapterResponse {
+  bool success = 1;
+  uint64 freed_bytes = 2;
+  string error = 3;
+}
+
+message ListAdaptersRequest {}
+
+message ListAdaptersResponse {
+  repeated AdapterInfo adapters = 1;
+}
+
+message AdapterInfo {
+  uint32 adapter_id = 1;
+  string adapter_name = 2;
+  uint64 memory_bytes = 3;
+  bool is_hot = 4;
+  uint64 activation_count = 5;
+  double activation_rate = 6;
+}

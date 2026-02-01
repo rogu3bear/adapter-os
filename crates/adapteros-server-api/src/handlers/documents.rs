@@ -721,10 +721,11 @@ pub async fn process_document(
             // Allowed to process - will acquire lock
         }
         _ => {
-            return Err(
-                ApiError::bad_request(format!("Unknown document status: {}", document.status))
-                    .into(),
-            );
+            return Err(ApiError::bad_request(format!(
+                "Unknown document status: {}",
+                document.status
+            ))
+            .into());
         }
     }
 
@@ -736,12 +737,10 @@ pub async fn process_document(
         .map_err(ApiError::db_error)?;
 
     if !acquired {
-        return Err(
-            ApiError::bad_request(
-                "Failed to acquire processing lock (document may be processing by another request)",
-            )
-            .into(),
-        );
+        return Err(ApiError::bad_request(
+            "Failed to acquire processing lock (document may be processing by another request)",
+        )
+        .into());
     }
 
     // Process with error handling - on failure, mark as failed
@@ -804,10 +803,11 @@ async fn process_document_inner(
             .ingest_markdown_bytes(&file_data, &document.name)
             .map_err(|e| ApiError::db_error(format!("Failed to parse markdown: {}", e)))?
     } else {
-        return Err(
-            ApiError::bad_request(format!("Unsupported document type: {}", document.mime_type))
-                .into(),
-        );
+        return Err(ApiError::bad_request(format!(
+            "Unsupported document type: {}",
+            document.mime_type
+        ))
+        .into());
     };
 
     info!(

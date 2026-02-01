@@ -58,6 +58,7 @@ pub fn build_api_config(server_config: Arc<RwLock<Config>>) -> Result<Arc<RwLock
             health_check_worker_timeout_ms: 5000,
             health_check_models_timeout_ms: 15000,
             skip_worker_check: cfg.server.skip_worker_check,
+            worker_heartbeat_interval_secs: cfg.server.worker_heartbeat_interval_secs,
         },
         security: adapteros_server_api::state::SecurityConfigApi {
             jwt_mode: cfg.security.jwt_mode.clone(),

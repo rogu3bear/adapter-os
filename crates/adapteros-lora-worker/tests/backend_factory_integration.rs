@@ -528,6 +528,7 @@ fn test_backend_choice_exhaustive_matching() {
             BackendChoice::MlxBridge => println!("MLX Bridge backend"),
             BackendChoice::Auto => println!("Auto-selected backend"),
             BackendChoice::CPU => println!("CPU backend (unsupported for inference kernels)"),
+            BackendChoice::ModelServer => println!("Model Server backend"),
         }
     }
 }

@@ -9,7 +9,7 @@ use leptos::prelude::*;
 
 #[component]
 pub fn Routing() -> impl IntoView {
-    let active_tab = RwSignal::new("rules".to_string());
+    let active_tab = RwSignal::new("rules");
 
     view! {
         <div class="space-y-6">

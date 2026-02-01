@@ -2137,15 +2137,13 @@ pub async fn get_download_progress(
                         let pct = ((current_bytes / expected_bytes) * 100.0).min(99.0) as i32;
                         progress_pct = Some(pct);
 
-                        if let Ok(started) =
-                            chrono::DateTime::parse_from_rfc3339(&op.started_at)
-                        {
+                        if let Ok(started) = chrono::DateTime::parse_from_rfc3339(&op.started_at) {
                             let elapsed = chrono::Utc::now()
                                 .signed_duration_since(started.with_timezone(&chrono::Utc));
                             let elapsed_secs = elapsed.num_seconds();
                             if elapsed_secs > 0 {
-                                let mbps = (current_bytes / (1024.0 * 1024.0))
-                                    / (elapsed_secs as f64);
+                                let mbps =
+                                    (current_bytes / (1024.0 * 1024.0)) / (elapsed_secs as f64);
                                 if mbps.is_finite() && mbps > 0.0 {
                                     speed_mbps = Some(mbps);
                                     if current_bytes < expected_bytes {

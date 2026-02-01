@@ -135,10 +135,8 @@ pub fn Dialog(
                         *trigger_id.borrow_mut() = Some(id);
                     } else {
                         // Generate a temporary ID for focus restoration
-                        let temp_id = format!(
-                            "dialog-trigger-{}",
-                            DIALOG_COUNTER.load(Ordering::Relaxed)
-                        );
+                        let temp_id =
+                            format!("dialog-trigger-{}", DIALOG_COUNTER.load(Ordering::Relaxed));
                         active.set_id(&temp_id);
                         *trigger_id.borrow_mut() = Some(temp_id);
                     }

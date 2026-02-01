@@ -26,6 +26,7 @@ pub mod adapter_stacks;
 pub mod adapter_utils;
 pub mod adapter_versions;
 pub mod adapteros_receipts;
+pub mod adapteros_sessions;
 pub mod adapters;
 pub mod adapters_read;
 pub mod admin;
@@ -71,6 +72,7 @@ pub mod kv_isolation;
 pub mod memory_detail;
 pub mod metrics;
 pub mod metrics_time_series;
+pub mod model_server;
 pub mod models;
 pub mod monitoring;
 pub mod node_detail;
@@ -112,6 +114,7 @@ pub mod telemetry;
 pub mod tenant_policies;
 pub mod tenants;
 pub mod testkit;
+pub mod tokenize;
 pub mod topology;
 pub mod training;
 pub mod training_datasets;
@@ -198,8 +201,12 @@ pub use adapter_health::{
 
 // Inline module to re-export adapter lifecycle functions for routes.rs (legacy compatibility)
 pub mod adapters_lifecycle {
-    pub use super::adapter_lifecycle::{__path_load_adapter, __path_unload_adapter, load_adapter, unload_adapter};
-    pub use super::{__path_delete_adapter, __path_register_adapter, delete_adapter, register_adapter};
+    pub use super::adapter_lifecycle::{
+        __path_load_adapter, __path_unload_adapter, load_adapter, unload_adapter,
+    };
+    pub use super::{
+        __path_delete_adapter, __path_register_adapter, delete_adapter, register_adapter,
+    };
 }
 
 // Re-export utils for error handling
@@ -287,9 +294,9 @@ pub use domain_adapters::*;
 // Re-export infrastructure handlers (nodes & system operations)
 pub use infrastructure::{
     __path_evict_node, __path_get_base_model_status, __path_get_node_details, __path_list_jobs,
-    __path_list_nodes, __path_mark_node_offline, __path_register_node,
-    __path_test_node_connection, evict_node, get_base_model_status, get_node_details, list_jobs,
-    list_nodes, mark_node_offline, register_node, test_node_connection, ListJobsQuery,
+    __path_list_nodes, __path_mark_node_offline, __path_register_node, __path_test_node_connection,
+    evict_node, get_base_model_status, get_node_details, list_jobs, list_nodes, mark_node_offline,
+    register_node, test_node_connection, ListJobsQuery,
 };
 
 // Re-export worker handlers
@@ -792,6 +799,8 @@ pub async fn worker_spawn(
         backend: None,
         model_id: None,
         model_hash: None,
+        tokenizer_hash_b3: None,
+        tokenizer_vocab_size: None,
         model_loaded: false,
         cache_used_mb: None,
         cache_max_mb: None,
@@ -928,6 +937,8 @@ pub async fn list_workers(
             backend: runtime.backend,
             model_id,
             model_hash,
+            tokenizer_hash_b3: runtime.tokenizer_hash_b3,
+            tokenizer_vocab_size: runtime.tokenizer_vocab_size,
             model_loaded,
             cache_used_mb: runtime.cache_used_mb,
             cache_max_mb: runtime.cache_max_mb,

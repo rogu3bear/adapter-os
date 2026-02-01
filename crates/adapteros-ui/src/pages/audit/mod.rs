@@ -6,7 +6,7 @@ mod components;
 mod tabs;
 
 use crate::api::{ApiClient, AuditLogsQuery};
-use crate::components::{Button, ButtonVariant, Spinner};
+use crate::components::{Button, ButtonVariant, Spinner, TabButton};
 use crate::hooks::use_api_resource;
 use crate::hooks::LoadingState;
 use leptos::prelude::*;
@@ -26,30 +26,6 @@ pub enum AuditTab {
     MerkleTree,
     Compliance,
     Embeddings,
-}
-
-#[component]
-fn TabButton(label: &'static str, tab: AuditTab, active_tab: RwSignal<AuditTab>) -> impl IntoView {
-    let is_active = move || active_tab.get() == tab;
-
-    view! {
-        <button
-            class=move || {
-                let base = "py-4 px-1 border-b-2 font-medium text-sm transition-colors";
-                if is_active() {
-                    format!("{} border-primary text-primary", base)
-                } else {
-                    format!(
-                        "{} border-transparent text-muted-foreground hover:text-foreground hover:border-border",
-                        base,
-                    )
-                }
-            }
-            on:click=move |_| active_tab.set(tab)
-        >
-            {label}
-        </button>
-    }
 }
 
 // ============================================================================
@@ -207,11 +183,11 @@ pub fn Audit() -> impl IntoView {
                 // Tab navigation
                 <div class="border-b border-border">
                     <nav class="-mb-px flex space-x-8">
-                        <TabButton label="Event Timeline" tab=AuditTab::Timeline active_tab=active_tab/>
-                        <TabButton label="Hash Chain" tab=AuditTab::HashChain active_tab=active_tab/>
-                        <TabButton label="Merkle Tree" tab=AuditTab::MerkleTree active_tab=active_tab/>
-                        <TabButton label="Compliance" tab=AuditTab::Compliance active_tab=active_tab/>
-                        <TabButton label="Embeddings" tab=AuditTab::Embeddings active_tab=active_tab/>
+                        <TabButton label="Event Timeline" tab=AuditTab::Timeline active=active_tab/>
+                        <TabButton label="Hash Chain" tab=AuditTab::HashChain active=active_tab/>
+                        <TabButton label="Merkle Tree" tab=AuditTab::MerkleTree active=active_tab/>
+                        <TabButton label="Compliance" tab=AuditTab::Compliance active=active_tab/>
+                        <TabButton label="Embeddings" tab=AuditTab::Embeddings active=active_tab/>
                     </nav>
                 </div>
 

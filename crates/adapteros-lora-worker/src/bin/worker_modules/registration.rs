@@ -20,6 +20,8 @@ pub struct RegistrationParams<'a> {
     pub manifest_hash: &'a str,
     pub backend: &'a str,
     pub model_hash: &'a str,
+    pub tokenizer_hash_b3: &'a str,
+    pub tokenizer_vocab_size: u32,
     pub uds_path: &'a str,
     pub capabilities: &'a [String],
     pub capabilities_detail: &'a WorkerCapabilities,
@@ -40,6 +42,8 @@ fn register_with_cp(
         "manifest_hash": params.manifest_hash,
         "backend": params.backend,
         "model_hash": params.model_hash,
+        "tokenizer_hash_b3": params.tokenizer_hash_b3,
+        "tokenizer_vocab_size": params.tokenizer_vocab_size,
         "schema_version": SCHEMA_VERSION,
         "api_version": API_VERSION,
         "pid": std::process::id() as i32,
@@ -243,6 +247,8 @@ pub fn notify_cp_status(
     backend: &str,
     model_hash: &str,
     manifest_hash: &str,
+    tokenizer_hash_b3: &str,
+    tokenizer_vocab_size: u32,
 ) {
     let notification = serde_json::json!({
         "worker_id": worker_id,
@@ -251,6 +257,8 @@ pub fn notify_cp_status(
         "backend": backend,
         "model_hash": model_hash,
         "manifest_hash": manifest_hash,
+        "tokenizer_hash_b3": tokenizer_hash_b3,
+        "tokenizer_vocab_size": tokenizer_vocab_size,
     });
 
     let url = format!("{}/v1/workers/status", cp_url);

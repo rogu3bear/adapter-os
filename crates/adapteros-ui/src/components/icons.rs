@@ -19,82 +19,99 @@
 use leptos::prelude::*;
 
 // =============================================================================
+// Core Icon Infrastructure
+// =============================================================================
+
+/// Base icon wrapper to standardize SVG boilerplate and default sizing.
+#[component]
+pub fn BaseIcon(
+    /// Optional additional CSS classes
+    #[prop(optional, into)]
+    class: String,
+    /// SVG inner content (paths, circles, etc.)
+    children: Children,
+    /// SVG viewBox (defaults to "0 0 24 24")
+    #[prop(optional, default = "0 0 24 24")]
+    view_box: &'static str,
+    /// SVG fill (defaults to "none")
+    #[prop(optional, default = "none")]
+    fill: &'static str,
+    /// SVG stroke width (defaults to 2)
+    #[prop(optional, default = 2)]
+    stroke_width: u32,
+) -> impl IntoView {
+    let class = if class.is_empty() {
+        "h-4 w-4".to_string()
+    } else {
+        class
+    };
+
+    view! {
+        <svg
+            class=class
+            xmlns="http://www.w3.org/2000/svg"
+            fill=fill
+            viewBox=view_box
+            stroke="currentColor"
+            stroke-width=stroke_width.to_string()
+        >
+            {children()}
+        </svg>
+    }
+}
+
+// =============================================================================
 // Action Icons
 // =============================================================================
 
 /// Checkmark icon - for success, completion, selection
 #[component]
 pub fn IconCheck(#[prop(optional, into)] class: String) -> impl IntoView {
-    let class = if class.is_empty() {
-        "h-4 w-4".to_string()
-    } else {
-        class
-    };
     view! {
-        <svg class=class xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <BaseIcon class=class>
             <polyline points="20 6 9 17 4 12" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
+        </BaseIcon>
     }
 }
 
 /// Checkmark in circle - for confirmed/verified states
 #[component]
 pub fn IconCheckCircle(#[prop(optional, into)] class: String) -> impl IntoView {
-    let class = if class.is_empty() {
-        "h-4 w-4".to_string()
-    } else {
-        class
-    };
     view! {
-        <svg class=class xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <BaseIcon class=class>
             <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-        </svg>
+        </BaseIcon>
     }
 }
 
 /// X/Close icon - for closing, canceling, errors
 #[component]
 pub fn IconX(#[prop(optional, into)] class: String) -> impl IntoView {
-    let class = if class.is_empty() {
-        "h-4 w-4".to_string()
-    } else {
-        class
-    };
     view! {
-        <svg class=class xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <BaseIcon class=class>
             <line x1="18" y1="6" x2="6" y2="18" stroke-linecap="round" stroke-linejoin="round"/>
             <line x1="6" y1="6" x2="18" y2="18" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
+        </BaseIcon>
     }
 }
 
 /// Plus icon - for adding, creating
 #[component]
 pub fn IconPlus(#[prop(optional, into)] class: String) -> impl IntoView {
-    let class = if class.is_empty() {
-        "h-4 w-4".to_string()
-    } else {
-        class
-    };
     view! {
-        <svg class=class xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <BaseIcon class=class>
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
-        </svg>
+        </BaseIcon>
     }
 }
 
 /// Minus icon - for removing, decreasing
 #[component]
 pub fn IconMinus(#[prop(optional, into)] class: String) -> impl IntoView {
-    let class = if class.is_empty() {
-        "h-4 w-4".to_string()
-    } else {
-        class
-    };
     view! {
-        <svg class=class xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <BaseIcon class=class>
             <path stroke-linecap="round" stroke-linejoin="round" d="M20 12H4"/>
-        </svg>
+        </BaseIcon>
     }
 }
 

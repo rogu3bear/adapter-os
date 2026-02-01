@@ -53,14 +53,14 @@ mod version_archive;
 // Lifecycle handlers
 pub use lifecycle::{
     __path_activate_adapter, __path_demote_adapter_lifecycle, __path_promote_adapter_lifecycle,
-    activate_adapter, demote_adapter_lifecycle, promote_adapter_lifecycle,
-    AdapterActivateRequest, LifecycleTransitionRequest, LifecycleTransitionResponse,
+    activate_adapter, demote_adapter_lifecycle, promote_adapter_lifecycle, AdapterActivateRequest,
+    LifecycleTransitionRequest, LifecycleTransitionResponse,
 };
 
 // Lineage handlers
 pub use lineage::{
-    __path_get_adapter_detail, __path_get_adapter_lineage, get_adapter_detail,
-    get_adapter_lineage, AdapterDetailResponse, AdapterLineageResponse, LineageNode,
+    __path_get_adapter_detail, __path_get_adapter_lineage, get_adapter_detail, get_adapter_lineage,
+    AdapterDetailResponse, AdapterLineageResponse, LineageNode,
 };
 
 // Strength handlers

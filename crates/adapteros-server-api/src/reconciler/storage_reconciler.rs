@@ -760,8 +760,8 @@ impl StorageReconciler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use adapteros_db::Db;
     use crate::test_utils;
+    use adapteros_db::Db;
 
     #[tokio::test]
     async fn reconciler_detects_missing_and_orphan_dataset_files() {

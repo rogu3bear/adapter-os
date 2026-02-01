@@ -635,9 +635,7 @@ pub fn StyleAudit() -> impl IntoView {
     }
 }
 
-fn build_metric_series(
-    metrics: &[ProcessHealthMetricResponse],
-) -> (TimeSeriesData, Vec<f64>) {
+fn build_metric_series(metrics: &[ProcessHealthMetricResponse]) -> (TimeSeriesData, Vec<f64>) {
     let mut data = TimeSeriesData::new();
     if metrics.is_empty() {
         return (data, Vec::new());
@@ -673,8 +671,7 @@ fn build_metric_series(
     if primary_points.len() > 20 {
         primary_points.drain(0..primary_points.len().saturating_sub(20));
     }
-    let mut primary_series =
-        DataSeries::new(primary_name.clone(), "var(--color-primary, #3b82f6)");
+    let mut primary_series = DataSeries::new(primary_name.clone(), "var(--color-primary, #3b82f6)");
     for point in &primary_points {
         primary_series.push(point.clone());
     }
@@ -686,8 +683,7 @@ fn build_metric_series(
         if secondary_points.len() > 20 {
             secondary_points.drain(0..secondary_points.len().saturating_sub(20));
         }
-        let mut secondary_series =
-            DataSeries::new(secondary_name, "var(--color-red-500, #ef4444)");
+        let mut secondary_series = DataSeries::new(secondary_name, "var(--color-red-500, #ef4444)");
         for point in &secondary_points {
             secondary_series.push(point.clone());
         }

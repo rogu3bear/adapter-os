@@ -335,6 +335,20 @@ impl BackendCoordinator {
                     ))
                 }
             }
+            BackendChoice::ModelServer => {
+                // ModelServer primary -> MLX (same underlying backend) or Metal fallback
+                if capabilities.has_mlx {
+                    Ok(BackendChoice::Mlx)
+                } else if capabilities.has_metal {
+                    Ok(BackendChoice::Metal)
+                } else if capabilities.has_ane {
+                    Ok(BackendChoice::CoreML)
+                } else {
+                    Err(AosError::Config(
+                        "No suitable fallback for ModelServer".to_string(),
+                    ))
+                }
+            }
         }
     }
 

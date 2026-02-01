@@ -18,7 +18,7 @@
 //! println!("EOS token ID: {}", tokens.eos_token_id);
 //! ```
 
-use crate::{AosError, Result};
+use crate::{AosError, B3Hash, Result};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -65,6 +65,16 @@ pub struct SpecialTokenMap {
     /// Source of the token IDs for debugging
     #[serde(skip)]
     pub source: TokenMapSource,
+}
+
+/// Minimal metadata returned by tokenizer validation
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TokenizerMetadata {
+    pub hash: B3Hash,
+    pub vocab_size: usize,
+    pub added_tokens: usize,
+    /// Normalizer type if present (useful for UI/debugging)
+    pub normalizer: Option<String>,
 }
 
 /// Source of token ID resolution.
@@ -258,6 +268,69 @@ impl SpecialTokenMap {
         tokenizer.token_to_id(token)
     }
 
+    /// Validate tokenizer schema and return metadata (hash, vocab size, etc.).
+    ///
+    /// Performs light-weight structural checks before the MLX backend attempts
+    /// to load the tokenizer. This prevents late runtime failures when an
+    /// incomplete tokenizer.json slips through packaging.
+    pub fn validate_tokenizer(
+        tokenizer_path: &Path,
+        expected_vocab_size: Option<usize>,
+    ) -> Result<TokenizerMetadata> {
+        let raw = std::fs::read(tokenizer_path)
+            .map_err(|e| AosError::Validation(format!("Failed to read tokenizer.json: {}", e)))?;
+
+        let json: serde_json::Value = serde_json::from_slice(&raw).map_err(|e| {
+            AosError::Validation(format!("tokenizer.json is not valid JSON: {}", e))
+        })?;
+
+        // Basic structural guards
+        let model = json
+            .get("model")
+            .and_then(|m| m.get("type").or_else(|| m.get("name")));
+        if model.is_none() {
+            return Err(AosError::Validation(
+                "tokenizer.json missing model.type/name field".to_string(),
+            ));
+        }
+
+        // Use tokenizers crate to ensure the file is fully parsable and
+        // discover the vocabulary size (includes added tokens when false).
+        let tokenizer = tokenizers::Tokenizer::from_file(tokenizer_path)
+            .map_err(|e| AosError::Validation(format!("Failed to parse tokenizer.json: {}", e)))?;
+        let vocab_size = tokenizer.get_vocab_size(false);
+
+        if let Some(expected) = expected_vocab_size {
+            if expected != vocab_size {
+                return Err(AosError::Validation(format!(
+                    "Tokenizer vocab_size {} does not match manifest/base config {}",
+                    vocab_size, expected
+                )));
+            }
+        }
+
+        let added_tokens = json
+            .get("added_tokens")
+            .and_then(|v| v.as_array())
+            .map(|arr| arr.len())
+            .unwrap_or(0);
+
+        let normalizer = json
+            .get("normalizer")
+            .and_then(|n| n.get("type").or_else(|| n.get("name")))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let hash = B3Hash::hash(&raw);
+
+        Ok(TokenizerMetadata {
+            hash,
+            vocab_size,
+            added_tokens,
+            normalizer,
+        })
+    }
+
     /// Compute BLAKE3 digest of the tokenizer file for receipts.
     pub fn compute_tokenizer_digest(tokenizer_path: &Path) -> Result<[u8; 32]> {
         let content = std::fs::read(tokenizer_path).map_err(|e| {
@@ -271,6 +344,9 @@ impl SpecialTokenMap {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::File;
+    use std::io::Write;
+    use tempfile::TempDir;
 
     #[test]
     fn test_eos_token_candidates_not_empty() {
@@ -295,5 +371,36 @@ mod tests {
         };
         let json = serde_json::to_string(&map).unwrap();
         assert!(json.contains("\"eos_token_id\":151645"));
+    }
+
+    #[test]
+    fn test_validate_tokenizer_catches_missing_model() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("tokenizer.json");
+        let mut f = File::create(&path).unwrap();
+        writeln!(f, "{{}}\n").unwrap();
+
+        let err = SpecialTokenMap::validate_tokenizer(&path, None).unwrap_err();
+        assert!(format!("{}", err).contains("missing model"));
+    }
+
+    #[test]
+    fn test_validate_tokenizer_checks_vocab_size() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("tokenizer.json");
+        // Minimal valid tokenizer: WordLevel with two tokens
+        let json = r#"{
+            "model": {"type": "WordLevel", "vocab": {"hello":0, "world":1}, "unk_token": "[UNK]"},
+            "pre_tokenizer": {"type": "Whitespace"}
+        }"#;
+        std::fs::write(&path, json).unwrap();
+
+        // Expected vocab size mismatch should error
+        let err = SpecialTokenMap::validate_tokenizer(&path, Some(3)).unwrap_err();
+        assert!(format!("{}", err).contains("vocab_size"));
+
+        // Matching vocab size succeeds
+        let meta = SpecialTokenMap::validate_tokenizer(&path, Some(2)).unwrap();
+        assert_eq!(meta.vocab_size, 2);
     }
 }

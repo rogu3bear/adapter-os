@@ -20,7 +20,8 @@ pub mod telemetry;
 // Re-export the run_envelope submodule
 pub mod run_envelope;
 pub use run_envelope::{
-    new_run_envelope, new_run_envelope_no_tick, set_policy_mask, set_router_seed, set_worker_context,
+    new_run_envelope, new_run_envelope_no_tick, set_policy_mask, set_router_seed,
+    set_worker_context,
 };
 
 // Re-export everything from submodules FIRST - these are our local definitions

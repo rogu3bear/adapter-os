@@ -1582,8 +1582,7 @@ pub async fn verify_bundle_receipt(
 
     let bytes = bundle_bytes.ok_or_else(|| ApiError::bad_request("Missing 'bundle' file field"))?;
 
-    let report =
-        verify_bundle_bytes(&bytes).map_err(|e| ApiError::bad_request(e.to_string()))?;
+    let report = verify_bundle_bytes(&bytes).map_err(|e| ApiError::bad_request(e.to_string()))?;
 
     // Tenant isolation for uploaded bundles (best-effort using bundle metadata)
     if let Some(tenant) = report.tenant_id.as_ref() {

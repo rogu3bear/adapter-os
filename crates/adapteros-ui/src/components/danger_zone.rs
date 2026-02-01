@@ -2,25 +2,58 @@
 
 use leptos::prelude::*;
 
-/// Warning banner with amber styling.
+/// Banner variants for different alert levels.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum BannerVariant {
+    /// Warning level - amber/yellow
+    Warning,
+    /// Info level - blue
+    Info,
+    /// Success level - green
+    Success,
+    /// Error level - red
+    Error,
+}
+
+impl BannerVariant {
+    fn class(&self) -> &'static str {
+        match self {
+            Self::Warning => "banner-warning",
+            Self::Info => "banner-info",
+            Self::Success => "banner-success",
+            Self::Error => "banner-error",
+        }
+    }
+}
+
+/// Generic alert banner for displaying feedback/status.
 #[component]
-pub fn WarningBanner(#[prop(into)] title: String, #[prop(into)] message: String) -> impl IntoView {
+pub fn AlertBanner(
+    #[prop(into)] title: String,
+    #[prop(into)] message: String,
+    #[prop(default = BannerVariant::Info)] variant: BannerVariant,
+) -> impl IntoView {
     view! {
-        <div class="banner banner-warning">
+        <div class=format!("banner {}", variant.class())>
             <strong>{title}</strong>
             <span>{message}</span>
         </div>
     }
 }
 
-/// Info banner with blue styling.
+/// Warning banner with amber styling (Legacy wrapper).
+#[component]
+pub fn WarningBanner(#[prop(into)] title: String, #[prop(into)] message: String) -> impl IntoView {
+    view! {
+        <AlertBanner title=title message=message variant=BannerVariant::Warning />
+    }
+}
+
+/// Info banner with blue styling (Legacy wrapper).
 #[component]
 pub fn InfoBanner(#[prop(into)] title: String, #[prop(into)] message: String) -> impl IntoView {
     view! {
-        <div class="banner banner-info">
-            <strong>{title}</strong>
-            <span>{message}</span>
-        </div>
+        <AlertBanner title=title message=message variant=BannerVariant::Info />
     }
 }
 

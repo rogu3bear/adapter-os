@@ -10,8 +10,8 @@ use crate::api::{
 };
 use crate::components::{
     AsyncBoundary, Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, Dialog,
-    EmptyState, Input, LoadingDisplay, Select, Table, TableBody, TableCell, TableHead, TableHeader,
-    TableRow,
+    EmptyState, Input, LoadingDisplay, Select, TabButton, Table, TableBody, TableCell, TableHead,
+    TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use adapteros_api_types::telemetry::{ClientErrorItem, ClientErrorStatsResponse};
@@ -26,7 +26,7 @@ const LIVE_FEED_MAX_ERRORS: usize = 100;
 #[component]
 pub fn Errors() -> impl IntoView {
     // Active tab
-    let active_tab = RwSignal::new("live".to_string());
+    let active_tab = RwSignal::new("live");
 
     view! {
         <div class="p-6 space-y-6">
@@ -41,27 +41,27 @@ pub fn Errors() -> impl IntoView {
             <div class="border-b">
                 <nav class="-mb-px flex space-x-8" role="tablist">
                     <TabButton
-                        tab="live".to_string()
+                        tab="live"
                         label="Live Feed".to_string()
                         active=active_tab
                     />
                     <TabButton
-                        tab="history".to_string()
+                        tab="history"
                         label="History".to_string()
                         active=active_tab
                     />
                     <TabButton
-                        tab="analytics".to_string()
+                        tab="analytics"
                         label="Analytics".to_string()
                         active=active_tab
                     />
                     <TabButton
-                        tab="alerts".to_string()
+                        tab="alerts"
                         label="Alerts".to_string()
                         active=active_tab
                     />
                     <TabButton
-                        tab="crashes".to_string()
+                        tab="crashes"
                         label="Crashes".to_string()
                         active=active_tab
                     />
@@ -71,7 +71,7 @@ pub fn Errors() -> impl IntoView {
             // Tab content
             <div class="py-4">
                 {move || {
-                    match active_tab.get().as_str() {
+                    match active_tab.get() {
                         "live" => view! { <LiveFeedSection/> }.into_any(),
                         "history" => view! { <HistorySection/> }.into_any(),
                         "analytics" => view! { <AnalyticsSection/> }.into_any(),
@@ -82,38 +82,6 @@ pub fn Errors() -> impl IntoView {
                 }}
             </div>
         </div>
-    }
-}
-
-/// Tab button component
-#[component]
-fn TabButton(tab: String, label: String, active: RwSignal<String>) -> impl IntoView {
-    let tab_value = tab.clone();
-    let is_active = move || active.get() == tab_value;
-
-    view! {
-        <button
-            class={
-                let is_active = is_active.clone();
-                move || {
-                    let base = "whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded-t-sm";
-                    if is_active() {
-                        format!("{} border-primary text-primary", base)
-                    } else {
-                        format!("{} border-transparent text-muted-foreground hover:text-foreground hover:border-muted", base)
-                    }
-                }
-            }
-            type="button"
-            role="tab"
-            aria-selected=is_active
-            on:click={
-                let tab = tab.clone();
-                move |_| active.set(tab.clone())
-            }
-        >
-            {label}
-        </button>
     }
 }
 

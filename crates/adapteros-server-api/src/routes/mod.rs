@@ -83,6 +83,9 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::services::start_essential_services,
         handlers::services::stop_essential_services,
         handlers::services::get_service_logs,
+        handlers::model_server::get_model_server_status,
+        handlers::model_server::warmup_model_server,
+        handlers::model_server::drain_model_server,
         handlers::openai_compat::list_models_openai,
         handlers::models::list_models_with_stats,
         handlers::models::import_model,
@@ -826,6 +829,12 @@ use utoipa_swagger_ui::SwaggerUi;
         // Service control types
         handlers::services::ServiceControlResponse,
         handlers::services::LogsQuery,
+        // Model Server types
+        handlers::model_server::ModelServerStatusResponse,
+        handlers::model_server::WarmupRequest,
+        handlers::model_server::WarmupResponse,
+        handlers::model_server::DrainRequest,
+        handlers::model_server::DrainResponse,
         // Models types
         handlers::models::ImportModelRequest,
         handlers::models::ImportModelResponse,
@@ -1098,6 +1107,10 @@ pub fn build(state: AppState) -> Router {
             "/v1/workers/status",
             post(handlers::workers::notify_worker_status),
         )
+        .route(
+            "/v1/workers/heartbeat",
+            post(handlers::workers::worker_heartbeat),
+        )
         .with_state(state.clone())
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
@@ -1166,6 +1179,19 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/services/{service_id}/logs",
             get(handlers::services::get_service_logs),
+        )
+        // Model Server routes (shared model inference)
+        .route(
+            "/v1/model-server/status",
+            get(handlers::model_server::get_model_server_status),
+        )
+        .route(
+            "/v1/model-server/warmup",
+            post(handlers::model_server::warmup_model_server),
+        )
+        .route(
+            "/v1/model-server/drain",
+            post(handlers::model_server::drain_model_server),
         )
         .route(
             "/v1/models",
@@ -1410,6 +1436,10 @@ pub fn build(state: AppState) -> Router {
             post(handlers::adapteros_receipts::adapteros_replay),
         )
         .route(
+            "/v1/adapteros/sessions/mint",
+            post(handlers::adapteros_sessions::mint_session_token),
+        )
+        .route(
             "/v1/runs/{run_id}/evidence",
             get(handlers::run_evidence::download_run_evidence),
         )
@@ -1431,6 +1461,7 @@ pub fn build(state: AppState) -> Router {
             "/v1/embeddings",
             post(handlers::openai_compat::embeddings_openai),
         )
+        .route("/v1/tokenize", post(handlers::tokenize::tokenize))
         .route("/v1/infer", post(handlers::infer))
         .route(
             "/v1/infer/stream",

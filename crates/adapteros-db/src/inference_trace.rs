@@ -75,6 +75,8 @@ pub struct TraceReceipt {
     pub receipt_parity_verified: Option<bool>,
     /// Tenant ID for multi-tenant isolation
     pub tenant_id: Option<String>,
+    /// UMA telemetry: bytes copied between CPU/GPU buffers during inference (PRD §5.5)
+    pub copy_bytes: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -119,6 +121,8 @@ pub struct TraceFinalization<'a> {
     pub cache_attestation: Option<CacheAttestation>,
     /// Worker public key for cache attestation verification (32 bytes Ed25519)
     pub worker_public_key: Option<[u8; 32]>,
+    /// UMA telemetry: bytes copied between CPU/GPU buffers during inference (PRD §5.5)
+    pub copy_bytes: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -705,8 +709,9 @@ impl TraceSink for SqlTraceSink {
                 crypto_receipt_digest_b3,
                 receipt_parity_verified,
                 tenant_id,
+                copy_bytes,
                 created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
             "#,
         )
         .bind(&self.start.trace_id)
@@ -748,6 +753,7 @@ impl TraceSink for SqlTraceSink {
         .bind(finalization.crypto_receipt_digest_b3.as_ref().map(|d| d.as_bytes().to_vec()))
         .bind(finalization.receipt_parity_verified.map(|v| if v { 1i64 } else { 0i64 }))
         .bind(&finalization.tenant_id)
+        .bind(finalization.copy_bytes.map(|v| v as i64))
         .execute(self.db.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to insert trace receipt: {e}")))?;
@@ -781,6 +787,7 @@ impl TraceSink for SqlTraceSink {
             crypto_receipt_digest_b3: finalization.crypto_receipt_digest_b3,
             receipt_parity_verified: finalization.receipt_parity_verified,
             tenant_id: finalization.tenant_id.clone(),
+            copy_bytes: finalization.copy_bytes,
         })
     }
 
@@ -1009,7 +1016,8 @@ pub async fn recompute_receipt(db: &Db, trace_id: &str) -> Result<TraceReceiptVe
                prefix_kv_key_b3,
                prefix_cache_hit,
                prefix_kv_bytes,
-               model_cache_identity_v2_digest_b3
+               model_cache_identity_v2_digest_b3,
+               copy_bytes
         FROM inference_trace_receipts
         WHERE trace_id = ?
         LIMIT 1
@@ -1049,26 +1057,21 @@ pub async fn recompute_receipt(db: &Db, trace_id: &str) -> Result<TraceReceiptVe
             .try_get::<i64, _>("tenant_kv_bytes_used")
             .unwrap_or(0)
             .max(0) as u64;
-        let kv_evictions = row
-            .try_get::<i64, _>("kv_evictions")
-            .unwrap_or(0)
-            .max(0) as u32;
+        let kv_evictions = row.try_get::<i64, _>("kv_evictions").unwrap_or(0).max(0) as u32;
         let kv_residency_policy_id: Option<String> =
             row.try_get("kv_residency_policy_id").ok().flatten();
-        let kv_quota_enforced = row
-            .try_get::<i64, _>("kv_quota_enforced")
-            .unwrap_or(0)
-            != 0;
+        let kv_quota_enforced = row.try_get::<i64, _>("kv_quota_enforced").unwrap_or(0) != 0;
         // Prefix KV cache fields
         let prefix_kv_key_hex: Option<String> = row.try_get("prefix_kv_key_b3").ok().flatten();
         let prefix_kv_key_b3 = prefix_kv_key_hex
             .as_deref()
             .and_then(|hex| B3Hash::from_hex(hex).ok());
         let prefix_cache_hit = row.try_get::<i64, _>("prefix_cache_hit").unwrap_or(0) != 0;
-        let prefix_kv_bytes = row
-            .try_get::<i64, _>("prefix_kv_bytes")
-            .unwrap_or(0)
-            .max(0) as u64;
+        let prefix_kv_bytes = row.try_get::<i64, _>("prefix_kv_bytes").unwrap_or(0).max(0) as u64;
+        let copy_bytes = row
+            .try_get::<Option<i64>, _>("copy_bytes")
+            .unwrap_or(None)
+            .map(|v| v.max(0) as u64);
         // Model cache identity v2 digest (PRD-06)
         let model_cache_identity_v2_digest_bytes: Option<Vec<u8>> = row
             .try_get("model_cache_identity_v2_digest_b3")
@@ -1135,6 +1138,7 @@ pub async fn recompute_receipt(db: &Db, trace_id: &str) -> Result<TraceReceiptVe
             crypto_receipt_digest_b3: None,
             receipt_parity_verified: None,
             tenant_id: None, // Loaded from inference_traces, not receipts
+            copy_bytes,
         };
         (stored.output_digest, Some(stored))
     } else {
@@ -1282,6 +1286,7 @@ pub async fn recompute_receipt(db: &Db, trace_id: &str) -> Result<TraceReceiptVe
         crypto_receipt_digest_b3: None,
         receipt_parity_verified: None,
         tenant_id: None, // Recomputed receipt doesn't carry tenant_id
+        copy_bytes: stored.as_ref().and_then(|s| s.copy_bytes),
     };
 
     let matches = stored

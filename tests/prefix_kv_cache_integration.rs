@@ -816,6 +816,8 @@ async fn test_prefix_kv_receipt_fields_persistence() {
             // P0-1: Cache attestation (required when prefix_cached_token_count > 0)
             cache_attestation: Some(cache_attestation),
             worker_public_key: Some(worker_public_key),
+            // UMA telemetry (PRD §5.5)
+            copy_bytes: None,
         })
         .await
         .expect("Failed to finalize trace");
@@ -949,6 +951,8 @@ async fn test_cache_attestation_required_when_cache_credits_claimed() {
             // Missing attestation - should cause failure
             cache_attestation: None,
             worker_public_key: None,
+            // UMA telemetry (PRD §5.5)
+            copy_bytes: None,
         })
         .await;
 
@@ -1028,6 +1032,8 @@ async fn test_cache_attestation_invalid_signature_rejected() {
             tenant_id: None,
             cache_attestation: Some(cache_attestation),
             worker_public_key: Some(wrong_public_key), // Wrong key!
+            // UMA telemetry (PRD §5.5)
+            copy_bytes: None,
         })
         .await;
 
@@ -1107,6 +1113,8 @@ async fn test_cache_attestation_token_count_mismatch_rejected() {
             tenant_id: None,
             cache_attestation: Some(cache_attestation),
             worker_public_key: Some(worker_public_key),
+            // UMA telemetry (PRD §5.5)
+            copy_bytes: None,
         })
         .await;
 
@@ -1185,6 +1193,8 @@ async fn test_cache_attestation_cache_key_mismatch_rejected() {
             tenant_id: None,
             cache_attestation: Some(cache_attestation),
             worker_public_key: Some(worker_public_key),
+            // UMA telemetry (PRD §5.5)
+            copy_bytes: None,
         })
         .await;
 

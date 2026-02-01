@@ -212,7 +212,10 @@ impl Db {
                 .fetch_one(self.pool())
                 .await
                 .map_err(|e| {
-                    adapteros_core::AosError::Database(format!("Failed to get progress stats: {}", e))
+                    adapteros_core::AosError::Database(format!(
+                        "Failed to get progress stats: {}",
+                        e
+                    ))
                 })?
         } else {
             // Query without tenant filter
@@ -227,7 +230,10 @@ impl Db {
                 .fetch_one(self.pool())
                 .await
                 .map_err(|e| {
-                    adapteros_core::AosError::Database(format!("Failed to get progress stats: {}", e))
+                    adapteros_core::AosError::Database(format!(
+                        "Failed to get progress stats: {}",
+                        e
+                    ))
                 })?
         };
 
@@ -237,25 +243,31 @@ impl Db {
             let avg_result: (Option<f64>,) = sqlx::query_as(
                 "SELECT AVG((julianday(updated_at) - julianday(created_at)) * 86400.0)
                  FROM progress_events
-                 WHERE tenant_id = ? AND status = 'completed'"
+                 WHERE tenant_id = ? AND status = 'completed'",
             )
             .bind(tid)
             .fetch_one(self.pool())
             .await
             .map_err(|e| {
-                adapteros_core::AosError::Database(format!("Failed to get avg completion time: {}", e))
+                adapteros_core::AosError::Database(format!(
+                    "Failed to get avg completion time: {}",
+                    e
+                ))
             })?;
             avg_result.0
         } else {
             let avg_result: (Option<f64>,) = sqlx::query_as(
                 "SELECT AVG((julianday(updated_at) - julianday(created_at)) * 86400.0)
                  FROM progress_events
-                 WHERE status = 'completed'"
+                 WHERE status = 'completed'",
             )
             .fetch_one(self.pool())
             .await
             .map_err(|e| {
-                adapteros_core::AosError::Database(format!("Failed to get avg completion time: {}", e))
+                adapteros_core::AosError::Database(format!(
+                    "Failed to get avg completion time: {}",
+                    e
+                ))
             })?;
             avg_result.0
         };
@@ -275,16 +287,18 @@ impl Db {
     /// tenant_id is properly bound to prevent SQL injection.
     pub async fn count_active_operations(&self, tenant_id: Option<&str>) -> Result<i64> {
         let count: (i64,) = if let Some(tid) = tenant_id {
-            sqlx::query_as("SELECT COUNT(*) FROM progress_events WHERE status = 'running' AND tenant_id = ?")
-                .bind(tid)
-                .fetch_one(self.pool())
-                .await
-                .map_err(|e| {
-                    adapteros_core::AosError::Database(format!(
-                        "Failed to count active operations: {}",
-                        e
-                    ))
-                })?
+            sqlx::query_as(
+                "SELECT COUNT(*) FROM progress_events WHERE status = 'running' AND tenant_id = ?",
+            )
+            .bind(tid)
+            .fetch_one(self.pool())
+            .await
+            .map_err(|e| {
+                adapteros_core::AosError::Database(format!(
+                    "Failed to count active operations: {}",
+                    e
+                ))
+            })?
         } else {
             sqlx::query_as("SELECT COUNT(*) FROM progress_events WHERE status = 'running'")
                 .fetch_one(self.pool())

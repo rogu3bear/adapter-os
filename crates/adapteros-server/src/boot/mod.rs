@@ -51,6 +51,7 @@ mod finalization;
 pub mod invariants;
 mod metrics;
 pub mod migrations;
+pub mod model_server;
 pub mod runtime;
 pub mod security;
 mod server;
@@ -81,3 +82,5 @@ pub use server::{
 pub use startup_recovery::{run_startup_recovery, StartupRecoveryReport};
 pub use tasks::{BackgroundTaskSpawner, SpawnError, SpawnResult};
 pub use timings::BootTimings;
+
+pub use model_server::{check_model_server_readiness, ModelServerContext};

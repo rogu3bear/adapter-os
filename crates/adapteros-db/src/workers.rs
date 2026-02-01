@@ -221,7 +221,7 @@ impl WorkerInsertBuilder {
 impl Db {
     pub async fn list_workers_by_tenant(&self, tenant_id: &str) -> Result<Vec<Worker>> {
         let workers = sqlx::query_as::<_, Worker>(
-            "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at, last_seen_at, manifest_hash_b3, backend, model_hash_b3, capabilities_json
+            "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at, last_seen_at, manifest_hash_b3, backend, model_hash_b3, capabilities_json, tokenizer_hash_b3, tokenizer_vocab_size
              FROM workers
              WHERE tenant_id = ?",
         )
@@ -234,7 +234,7 @@ impl Db {
 
     pub async fn list_all_workers(&self) -> Result<Vec<Worker>> {
         let workers = sqlx::query_as::<_, Worker>(
-            "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at, last_seen_at, manifest_hash_b3, backend, model_hash_b3, capabilities_json
+            "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at, last_seen_at, manifest_hash_b3, backend, model_hash_b3, capabilities_json, tokenizer_hash_b3, tokenizer_vocab_size
              FROM workers
              ORDER BY started_at DESC",
         )
@@ -246,7 +246,7 @@ impl Db {
 
     pub async fn list_workers_by_node(&self, node_id: &str) -> Result<Vec<Worker>> {
         let workers = sqlx::query_as::<_, Worker>(
-            "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at, last_seen_at, manifest_hash_b3, backend, model_hash_b3, capabilities_json
+            "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at, last_seen_at, manifest_hash_b3, backend, model_hash_b3, capabilities_json, tokenizer_hash_b3, tokenizer_vocab_size
              FROM workers
              WHERE node_id = ?
              ORDER BY started_at DESC",
@@ -271,7 +271,7 @@ impl Db {
     /// List all active workers (status = 'active')
     pub async fn list_active_workers(&self) -> Result<Vec<Worker>> {
         let workers = sqlx::query_as::<_, Worker>(
-            "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at, last_seen_at, manifest_hash_b3, backend, model_hash_b3, capabilities_json
+            "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at, last_seen_at, manifest_hash_b3, backend, model_hash_b3, capabilities_json, tokenizer_hash_b3, tokenizer_vocab_size
              FROM workers
              WHERE status = 'active'
              ORDER BY started_at DESC",
@@ -357,32 +357,32 @@ impl Db {
         Ok(())
     }
 
-    /// Update worker heartbeat and optionally status
-    pub async fn update_worker_heartbeat(&self, id: &str, status: Option<&str>) -> Result<()> {
-        if let Some(st) = status {
-            let result = sqlx::query(
-                "UPDATE workers SET status = ?, last_seen_at = datetime('now') WHERE id = ?",
-            )
-            .bind(st)
-            .bind(id)
-            .execute(self.pool())
-            .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
+    /// Update worker heartbeat and optionally status/tokenizer metadata
+    pub async fn update_worker_heartbeat(
+        &self,
+        id: &str,
+        status: Option<&str>,
+        tokenizer_hash_b3: Option<&str>,
+        tokenizer_vocab_size: Option<i64>,
+    ) -> Result<()> {
+        let result = sqlx::query(
+            "UPDATE workers SET
+                status = COALESCE(?, status),
+                tokenizer_hash_b3 = COALESCE(?, tokenizer_hash_b3),
+                tokenizer_vocab_size = COALESCE(?, tokenizer_vocab_size),
+                last_seen_at = datetime('now')
+             WHERE id = ?",
+        )
+        .bind(status)
+        .bind(tokenizer_hash_b3)
+        .bind(tokenizer_vocab_size)
+        .bind(id)
+        .execute(self.pool())
+        .await
+        .map_err(|e| AosError::Database(e.to_string()))?;
 
-            if result.rows_affected() == 0 {
-                return Err(AosError::NotFound(format!("Worker not found: {}", id)));
-            }
-        } else {
-            let result =
-                sqlx::query("UPDATE workers SET last_seen_at = datetime('now') WHERE id = ?")
-                    .bind(id)
-                    .execute(self.pool())
-                    .await
-                    .map_err(|e| AosError::Database(e.to_string()))?;
-
-            if result.rows_affected() == 0 {
-                return Err(AosError::NotFound(format!("Worker not found: {}", id)));
-            }
+        if result.rows_affected() == 0 {
+            return Err(AosError::NotFound(format!("Worker not found: {}", id)));
         }
         Ok(())
     }
@@ -390,7 +390,7 @@ impl Db {
     /// Get a worker by ID
     pub async fn get_worker(&self, worker_id: &str) -> Result<Option<Worker>> {
         let worker = sqlx::query_as::<_, Worker>(
-            "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at, last_seen_at, manifest_hash_b3, backend, model_hash_b3, capabilities_json
+            "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at, last_seen_at, manifest_hash_b3, backend, model_hash_b3, capabilities_json, tokenizer_hash_b3, tokenizer_vocab_size
              FROM workers
              WHERE id = ?",
         )
@@ -411,7 +411,7 @@ impl Db {
         worker_id: &str,
     ) -> Result<Option<Worker>> {
         let worker = sqlx::query_as::<_, Worker>(
-            "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at, last_seen_at, manifest_hash_b3, backend, model_hash_b3, capabilities_json
+            "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at, last_seen_at, manifest_hash_b3, backend, model_hash_b3, capabilities_json, tokenizer_hash_b3, tokenizer_vocab_size
              FROM workers
              WHERE id = ? AND tenant_id = ?",
         )
@@ -627,7 +627,7 @@ impl Db {
     /// List workers with health filtering
     pub async fn list_workers_by_health(&self, health_status: &str) -> Result<Vec<Worker>> {
         let workers = sqlx::query_as::<_, Worker>(
-            "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at, last_seen_at, manifest_hash_b3, backend, model_hash_b3, capabilities_json
+            "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at, last_seen_at, manifest_hash_b3, backend, model_hash_b3, capabilities_json, tokenizer_hash_b3, tokenizer_vocab_size
              FROM workers WHERE health_status = ? ORDER BY started_at DESC",
         )
         .bind(health_status)
@@ -641,7 +641,7 @@ impl Db {
     /// List healthy workers for a tenant (for routing)
     pub async fn list_healthy_workers_by_tenant(&self, tenant_id: &str) -> Result<Vec<Worker>> {
         let workers = sqlx::query_as::<_, Worker>(
-            "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at, last_seen_at, manifest_hash_b3, backend, model_hash_b3, capabilities_json
+            "SELECT id, tenant_id, node_id, plan_id, uds_path, pid, status, started_at, last_seen_at, manifest_hash_b3, backend, model_hash_b3, capabilities_json, tokenizer_hash_b3, tokenizer_vocab_size
              FROM workers
              WHERE tenant_id = ? AND health_status IN ('healthy', 'unknown')
              ORDER BY avg_latency_ms ASC NULLS LAST",
@@ -949,6 +949,8 @@ pub struct WorkerRegistrationParams {
     pub backend: Option<String>,
     pub model_hash_b3: Option<String>,
     pub capabilities_json: Option<String>,
+    pub tokenizer_hash_b3: Option<String>,
+    pub tokenizer_vocab_size: Option<i64>,
     pub schema_version: String,
     pub api_version: String,
 }
@@ -976,9 +978,10 @@ impl Db {
                 "INSERT INTO workers (
                     id, tenant_id, node_id, plan_id, uds_path, pid, status,
                     manifest_hash_b3, backend, model_hash_b3, capabilities_json,
+                    tokenizer_hash_b3, tokenizer_vocab_size,
                     schema_version, api_version,
                     started_at, registered_at
-                 ) VALUES (?, ?, ?, ?, ?, ?, 'created', ?, ?, ?, ?, ?, ?, datetime('now'), NULL)",
+                 ) VALUES (?, ?, ?, ?, ?, ?, 'created', ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), NULL)",
             )
             .bind(&params.worker_id)
             .bind(&params.tenant_id)
@@ -990,6 +993,8 @@ impl Db {
             .bind(&params.backend)
             .bind(&params.model_hash_b3)
             .bind(&params.capabilities_json)
+            .bind(&params.tokenizer_hash_b3)
+            .bind(params.tokenizer_vocab_size)
             .bind(&params.schema_version)
             .bind(&params.api_version)
             .execute(&mut *tx)
@@ -1000,6 +1005,7 @@ impl Db {
                 "UPDATE workers
                  SET tenant_id = ?, node_id = ?, plan_id = ?, uds_path = ?, pid = ?,
                      manifest_hash_b3 = ?, backend = ?, model_hash_b3 = ?, capabilities_json = ?,
+                     tokenizer_hash_b3 = ?, tokenizer_vocab_size = ?,
                      schema_version = ?, api_version = ?
                  WHERE id = ?",
             )
@@ -1012,6 +1018,8 @@ impl Db {
             .bind(&params.backend)
             .bind(&params.model_hash_b3)
             .bind(&params.capabilities_json)
+            .bind(&params.tokenizer_hash_b3)
+            .bind(params.tokenizer_vocab_size)
             .bind(&params.schema_version)
             .bind(&params.api_version)
             .bind(&params.worker_id)

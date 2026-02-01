@@ -185,6 +185,8 @@ async fn register_worker_with_caps(
         manifest_hash: manifest_hash.to_string(),
         backend: Some(backend.to_string()),
         model_hash_b3: None,
+        tokenizer_hash_b3: None,
+        tokenizer_vocab_size: None,
         capabilities_json: Some(serde_json::to_string(caps).expect("serialize capabilities")),
         schema_version: API_SCHEMA_VERSION.to_string(),
         api_version: API_SCHEMA_VERSION.to_string(),

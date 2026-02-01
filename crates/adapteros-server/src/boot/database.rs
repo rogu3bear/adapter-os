@@ -338,6 +338,7 @@ pub async fn initialize_database(
                 health_check_worker_timeout_ms: 5000,
                 health_check_models_timeout_ms: 15000,
                 skip_worker_check: false,
+                worker_heartbeat_interval_secs: 30,
             },
             db: adapteros_server_api::config::DatabaseConfig {
                 path: String::new(), // Unused

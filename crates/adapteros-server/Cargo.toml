@@ -23,6 +23,9 @@ dev-bypass = ["adapteros-server-api/dev-bypass"]
 # Embedding model support for RAG
 # Loads sentence-transformer models at startup for real embeddings
 embeddings = ["adapteros-server-api/embeddings", "dep:adapteros-ingest-docs"]
+# Model Server mode: workers connect to shared Model Server for inference
+# Enables boot phase that verifies Model Server readiness before accepting requests
+model-server = ["adapteros-lora-worker/model-server"]
 [dependencies]
 # Internal crates
 adapteros-boot = { path = "../adapteros-boot" }

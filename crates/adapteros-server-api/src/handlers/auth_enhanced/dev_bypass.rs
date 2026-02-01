@@ -600,21 +600,13 @@ async fn collect_tenant_summaries(
     let has_wildcard = admin_tenants.iter().any(|t| t == ADMIN_TENANT_WILDCARD);
 
     if has_wildcard {
-        let (db_tenants, _total) =
-            state
-                .db
-                .list_tenants_paginated(100, 0)
-                .await
-                .map_err(|e| {
-                    warn!(error = %e, "Failed to list tenants for dev bypass");
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(
-                            ErrorResponse::new("Failed to retrieve tenants")
-                                .with_code("DATABASE_ERROR"),
-                        ),
-                    )
-                })?;
+        let (db_tenants, _total) = state.db.list_tenants_paginated(100, 0).await.map_err(|e| {
+            warn!(error = %e, "Failed to list tenants for dev bypass");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("Failed to retrieve tenants").with_code("DATABASE_ERROR")),
+            )
+        })?;
 
         return Ok(db_tenants
             .into_iter()

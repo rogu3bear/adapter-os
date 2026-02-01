@@ -538,6 +538,14 @@ pub async fn register_worker(
     State(state): State<AppState>,
     Json(req): Json<WorkerRegistrationRequest>,
 ) -> ApiResult<WorkerRegistrationResponse> {
+    let heartbeat_interval_secs: u32 = state
+        .config
+        .read()
+        .map(|cfg| cfg.server.worker_heartbeat_interval_secs)
+        .unwrap_or(30)
+        .try_into()
+        .unwrap_or(30);
+
     info!(
         worker_id = %req.worker_id,
         tenant_id = %req.tenant_id,
@@ -656,7 +664,7 @@ pub async fn register_worker(
                     accepted: false,
                     worker_id: req.worker_id,
                     rejection_reason: Some(format!("Plan not found: {}", req.plan_id)),
-                    heartbeat_interval_secs: 30,
+                    heartbeat_interval_secs,
                     kv_quota_bytes: None,
                     kv_residency_policy_id: None,
                     cp_strict_mode: state.strict_mode,
@@ -691,7 +699,7 @@ pub async fn register_worker(
                 "Manifest hash mismatch: expected {}, got {}",
                 plan.manifest_hash_b3, req.manifest_hash
             )),
-            heartbeat_interval_secs: 30,
+            heartbeat_interval_secs,
             kv_quota_bytes: None,
             kv_residency_policy_id: None,
             cp_strict_mode: state.strict_mode,
@@ -713,7 +721,7 @@ pub async fn register_worker(
                 "Schema version incompatible: worker={}, control_plane={}. Major.minor must match.",
                 req.schema_version, API_SCHEMA_VERSION
             )),
-            heartbeat_interval_secs: 30,
+            heartbeat_interval_secs,
             kv_quota_bytes: None,
             kv_residency_policy_id: None,
             cp_strict_mode: state.strict_mode,
@@ -854,7 +862,7 @@ pub async fn register_worker(
         accepted: true,
         worker_id: req.worker_id,
         rejection_reason: None,
-        heartbeat_interval_secs: 30,
+        heartbeat_interval_secs,
         kv_quota_bytes,
         kv_residency_policy_id,
         cp_strict_mode: state.strict_mode,
@@ -1114,9 +1122,17 @@ pub async fn worker_heartbeat(
         entry.tokenizer_vocab_size = Some(vocab);
     }
 
+    let next_heartbeat_secs: u32 = state
+        .config
+        .read()
+        .map(|cfg| cfg.server.worker_heartbeat_interval_secs)
+        .unwrap_or(30)
+        .try_into()
+        .unwrap_or(30);
+
     Ok(Json(WorkerHeartbeatResponse {
         acknowledged: true,
-        next_heartbeat_secs: 30,
+        next_heartbeat_secs,
     }))
 }
 

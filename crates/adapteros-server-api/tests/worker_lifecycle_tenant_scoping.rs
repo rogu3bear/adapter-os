@@ -114,6 +114,8 @@ async fn register_test_worker(db: &Db, tenant_id: &str, worker_id: &str) -> Stri
         manifest_hash: "test-manifest-hash".to_string(),
         backend: Some("mlx".to_string()),
         model_hash_b3: None,
+        tokenizer_hash_b3: None,
+        tokenizer_vocab_size: None,
         capabilities_json: None,
         schema_version: API_SCHEMA_VERSION.to_string(),
         api_version: API_SCHEMA_VERSION.to_string(),
@@ -682,6 +684,8 @@ async fn worker_registration_validates_uds_path_no_tmp() {
         manifest_hash: "test-manifest-hash".to_string(),
         backend: Some("mlx".to_string()),
         model_hash_b3: None,
+        tokenizer_hash_b3: None,
+        tokenizer_vocab_size: None,
         capabilities_json: None,
         schema_version: API_SCHEMA_VERSION.to_string(),
         api_version: API_SCHEMA_VERSION.to_string(),
@@ -1385,6 +1389,8 @@ async fn test_worker_registration_api_respects_tenant_boundaries() {
         backend: None,
         model_hash: None,
         strict_mode: false,
+        tokenizer_hash_b3: None,
+        tokenizer_vocab_size: None,
     };
 
     let result = register_worker(State(state.clone()), Json(req))
@@ -1445,10 +1451,16 @@ async fn test_worker_status_notification_updates_correct_tenant() {
         worker_id: worker_a.clone(),
         status: "healthy".to_string(),
         reason: "model loaded".to_string(),
+        tokenizer_hash_b3: None,
+        tokenizer_vocab_size: None,
         cache_used_mb: None,
         cache_max_mb: None,
         cache_pinned_entries: None,
         cache_active_entries: None,
+        loaded_model_hash: None,
+        model_load_state: None,
+        cache_memory_bytes: None,
+        cache_hit_ratio: None,
     };
 
     let _ = notify_worker_status(State(state.clone()), Json(notification))

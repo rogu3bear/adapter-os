@@ -304,6 +304,8 @@ pub async fn register_test_worker(
         manifest_hash,
         backend: Some(caps.backend_kind.clone()),
         model_hash_b3: None,
+        tokenizer_hash_b3: None,
+        tokenizer_vocab_size: None,
         capabilities_json: Some(serde_json::to_string(&caps)?),
         schema_version: API_SCHEMA_VERSION.to_string(),
         api_version: API_SCHEMA_VERSION.to_string(),

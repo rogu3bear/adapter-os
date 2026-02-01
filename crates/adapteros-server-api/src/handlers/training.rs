@@ -141,27 +141,25 @@ pub async fn get_preprocessed_cache_count(
     }
 
     let tenant_root = datasets_root.join(&claims.tenant_id);
-    let canonical_root = match canonicalize_strict_in_allowed_roots(
-        &tenant_root,
-        &[datasets_root.clone()],
-    ) {
-        Ok(path) => path,
-        Err(AosError::NotFound(_)) => {
-            return Ok(Json(
-                adapteros_api_types::training::PreprocessedCacheCountResponse {
-                    schema_version: adapteros_api_types::schema_version(),
-                    count: 0,
-                    dataset_count: 0,
-                },
-            ))
-        }
-        Err(err) => {
-            return Err(ApiError::forbidden(format!(
-                "Dataset root rejected: {}",
-                err
-            )))
-        }
-    };
+    let canonical_root =
+        match canonicalize_strict_in_allowed_roots(&tenant_root, &[datasets_root.clone()]) {
+            Ok(path) => path,
+            Err(AosError::NotFound(_)) => {
+                return Ok(Json(
+                    adapteros_api_types::training::PreprocessedCacheCountResponse {
+                        schema_version: adapteros_api_types::schema_version(),
+                        count: 0,
+                        dataset_count: 0,
+                    },
+                ))
+            }
+            Err(err) => {
+                return Err(ApiError::forbidden(format!(
+                    "Dataset root rejected: {}",
+                    err
+                )))
+            }
+        };
 
     let mut total = 0u64;
     let mut datasets_with_cache = 0u64;
@@ -177,7 +175,11 @@ pub async fn get_preprocessed_cache_count(
                 },
             ))
         }
-        Err(err) => return Err(ApiError::internal(format!("Failed to read dataset root: {err}"))),
+        Err(err) => {
+            return Err(ApiError::internal(format!(
+                "Failed to read dataset root: {err}"
+            )))
+        }
     };
 
     while let Some(entry) = dataset_dirs
@@ -210,10 +212,9 @@ pub async fn get_preprocessed_cache_count(
             .await
             .map_err(|e| ApiError::internal(format!("Failed to read preprocessed entry: {e}")))?
         {
-            let preproc_meta = preproc_entry
-                .metadata()
-                .await
-                .map_err(|e| ApiError::internal(format!("Failed to stat preprocessed entry: {e}")))?;
+            let preproc_meta = preproc_entry.metadata().await.map_err(|e| {
+                ApiError::internal(format!("Failed to stat preprocessed entry: {e}"))
+            })?;
             if !preproc_meta.is_dir() {
                 continue;
             }
@@ -285,27 +286,25 @@ pub async fn list_preprocessed_cache(
     }
 
     let tenant_root = datasets_root.join(&claims.tenant_id);
-    let canonical_root = match canonicalize_strict_in_allowed_roots(
-        &tenant_root,
-        &[datasets_root.clone()],
-    ) {
-        Ok(path) => path,
-        Err(AosError::NotFound(_)) => {
-            return Ok(Json(
-                adapteros_api_types::training::PreprocessedCacheListResponse {
-                    schema_version: adapteros_api_types::schema_version(),
-                    entries: Vec::new(),
-                    total: 0,
-                },
-            ))
-        }
-        Err(err) => {
-            return Err(ApiError::forbidden(format!(
-                "Dataset root rejected: {}",
-                err
-            )))
-        }
-    };
+    let canonical_root =
+        match canonicalize_strict_in_allowed_roots(&tenant_root, &[datasets_root.clone()]) {
+            Ok(path) => path,
+            Err(AosError::NotFound(_)) => {
+                return Ok(Json(
+                    adapteros_api_types::training::PreprocessedCacheListResponse {
+                        schema_version: adapteros_api_types::schema_version(),
+                        entries: Vec::new(),
+                        total: 0,
+                    },
+                ))
+            }
+            Err(err) => {
+                return Err(ApiError::forbidden(format!(
+                    "Dataset root rejected: {}",
+                    err
+                )))
+            }
+        };
 
     let dataset_records = state
         .db
@@ -329,7 +328,11 @@ pub async fn list_preprocessed_cache(
                 },
             ))
         }
-        Err(err) => return Err(ApiError::internal(format!("Failed to read dataset root: {err}"))),
+        Err(err) => {
+            return Err(ApiError::internal(format!(
+                "Failed to read dataset root: {err}"
+            )))
+        }
     };
 
     while let Some(entry) = dataset_dirs
@@ -366,10 +369,9 @@ pub async fn list_preprocessed_cache(
             .await
             .map_err(|e| ApiError::internal(format!("Failed to read preprocessed entry: {e}")))?
         {
-            let preproc_meta = preproc_entry
-                .metadata()
-                .await
-                .map_err(|e| ApiError::internal(format!("Failed to stat preprocessed entry: {e}")))?;
+            let preproc_meta = preproc_entry.metadata().await.map_err(|e| {
+                ApiError::internal(format!("Failed to stat preprocessed entry: {e}"))
+            })?;
             if !preproc_meta.is_dir() {
                 continue;
             }

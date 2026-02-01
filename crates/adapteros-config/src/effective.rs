@@ -77,6 +77,8 @@ pub struct EffectiveConfig {
     pub uploads: UploadsSection,
     /// Circuit breaker configuration
     pub circuit_breaker: CircuitBreakerSection,
+    /// Model Server configuration (shared model inference)
+    pub model_server: ModelServerSection,
     /// Source tracking for each config key
     sources: HashMap<String, String>,
     /// Whether running in production mode
@@ -100,6 +102,8 @@ pub struct ServerSection {
     pub boot_timeout_secs: u64,
     /// Number of worker threads (default: 4)
     pub workers: u16,
+    /// Expected heartbeat interval for workers (seconds)
+    pub worker_heartbeat_interval_secs: u64,
 }
 
 /// Database section configuration
@@ -409,6 +413,33 @@ pub struct CircuitBreakerSection {
     pub health_check_interval_secs: u64,
 }
 
+/// Model Server section configuration (shared model inference)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelServerSection {
+    /// Enable Model Server mode (workers connect to shared server)
+    pub enabled: bool,
+    /// gRPC server address (e.g., "http://127.0.0.1:50051")
+    pub server_addr: String,
+    /// Maximum KV cache sessions
+    pub max_kv_cache_sessions: u32,
+    /// Hot adapter promotion threshold (0.0 to 1.0)
+    pub hot_adapter_threshold: f32,
+    /// KV cache memory limit in MB (0 = automatic)
+    pub kv_cache_limit_mb: u64,
+}
+
+impl Default for ModelServerSection {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            server_addr: "http://127.0.0.1:50051".to_string(),
+            max_kv_cache_sessions: 32,
+            hot_adapter_threshold: 0.10,
+            kv_cache_limit_mb: 0,
+        }
+    }
+}
+
 /// Source of a configuration value (for debugging/observability)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ConfigValueSource {
@@ -465,6 +496,7 @@ impl EffectiveConfig {
         let diagnostics = Self::build_diagnostics_section(&config);
         let uploads = Self::build_uploads_section(&config);
         let circuit_breaker = Self::build_circuit_breaker_section(&config);
+        let model_server = Self::build_model_server_section(&config);
 
         let effective_config = Self {
             inner: config,
@@ -485,6 +517,7 @@ impl EffectiveConfig {
             diagnostics,
             uploads,
             circuit_breaker,
+            model_server,
             sources,
             is_production,
         };
@@ -837,6 +870,10 @@ impl EffectiveConfig {
                 .get("server.workers")
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(4),
+            worker_heartbeat_interval_secs: config
+                .get("server.worker.heartbeat.interval.secs")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(30),
         })
     }
 
@@ -1274,6 +1311,41 @@ impl EffectiveConfig {
             worker_deadline_secs,
             enable_stub_fallback,
             health_check_interval_secs,
+        }
+    }
+
+    fn build_model_server_section(config: &DeterministicConfig) -> ModelServerSection {
+        let enabled = config
+            .get("model_server.enabled")
+            .map(|v| v == "true")
+            .unwrap_or(false);
+
+        let server_addr = config
+            .get("model_server.server_addr")
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "http://127.0.0.1:50051".to_string());
+
+        let max_kv_cache_sessions = config
+            .get("model_server.max_kv_cache_sessions")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(32);
+
+        let hot_adapter_threshold = config
+            .get("model_server.hot_adapter_threshold")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0.10);
+
+        let kv_cache_limit_mb = config
+            .get("model_server.kv_cache_limit_mb")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0);
+
+        ModelServerSection {
+            enabled,
+            server_addr,
+            max_kv_cache_sessions,
+            hot_adapter_threshold,
+            kv_cache_limit_mb,
         }
     }
 

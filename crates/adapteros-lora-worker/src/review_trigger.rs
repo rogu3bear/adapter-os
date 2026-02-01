@@ -476,7 +476,8 @@ mod tests {
 
         // Feed multilingual text with multi-byte UTF-8 characters
         // Chinese, Thai, Arabic, etc. are multi-byte
-        let multilingual = "批准 eBook铊 Markus桀 低声 Hương打败批评นั่ง糊争 personality الوطنية спин ができる";
+        let multilingual =
+            "批准 eBook铊 Markus桀 低声 Hương打败批评นั่ง糊争 personality الوطنية спин ができる";
         // Repeat to exceed 200 bytes
         for _ in 0..10 {
             detector.on_token(multilingual);

@@ -349,3 +349,4 @@ run_inference  # AdapterOS demo binary (479KB)
 build/
 .mcp.json
 .worktrees/
+target-codex/

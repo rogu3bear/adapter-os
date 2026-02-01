@@ -232,7 +232,8 @@ impl GlobalTickLedger {
     pub async fn record_tick(&self, task_id: TaskId, event: &ExecutorEvent) -> Result<B3Hash> {
         // Atomically fetch-and-increment tick to ensure uniqueness
         let tick = self.local_tick.fetch_add(1, Ordering::SeqCst);
-        self.record_tick_with_assigned_tick(tick, task_id, event).await
+        self.record_tick_with_assigned_tick(tick, task_id, event)
+            .await
     }
 
     /// Record a tick event at a pre-assigned tick.
@@ -244,7 +245,8 @@ impl GlobalTickLedger {
     ) -> Result<B3Hash> {
         self.local_tick
             .fetch_max(tick.saturating_add(1), Ordering::SeqCst);
-        self.record_tick_with_assigned_tick(tick, task_id, event).await
+        self.record_tick_with_assigned_tick(tick, task_id, event)
+            .await
     }
 
     async fn record_tick_with_assigned_tick(
