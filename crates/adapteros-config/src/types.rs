@@ -940,3 +940,164 @@ impl Default for DeterministicSchema {
         }
     }
 }
+
+// ============================================================================
+// Worker Safety Configuration
+// ============================================================================
+
+/// Configuration for worker safety mechanisms including timeouts and resource limits.
+///
+/// Maps to the `[worker.safety]` section in cp.toml. These values control timeout
+/// behavior for different worker operations to prevent runaway processes and enforce
+/// resource limits.
+///
+/// # Example (cp.toml)
+///
+/// ```toml
+/// [worker.safety]
+/// inference_timeout_secs = 30
+/// evidence_timeout_secs = 5
+/// router_timeout_ms = 100
+/// policy_timeout_ms = 50
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkerSafetyConfig {
+    /// Timeout for inference operations in seconds (default: 30)
+    #[serde(default = "default_inference_timeout_secs")]
+    pub inference_timeout_secs: u64,
+
+    /// Timeout for evidence collection in seconds (default: 5)
+    #[serde(default = "default_evidence_timeout_secs")]
+    pub evidence_timeout_secs: u64,
+
+    /// Timeout for router operations in milliseconds (default: 100)
+    #[serde(default = "default_router_timeout_ms")]
+    pub router_timeout_ms: u64,
+
+    /// Timeout for policy checks in milliseconds (default: 50)
+    #[serde(default = "default_policy_timeout_ms")]
+    pub policy_timeout_ms: u64,
+
+    /// Circuit breaker failure threshold (default: 5)
+    #[serde(default = "default_failure_threshold")]
+    pub circuit_breaker_threshold: u32,
+
+    /// Circuit breaker timeout in seconds (default: 60)
+    #[serde(default = "default_reset_timeout_secs")]
+    pub circuit_breaker_timeout_secs: u64,
+
+    /// Maximum concurrent requests (default: 10)
+    #[serde(default = "default_max_concurrent_requests")]
+    pub max_concurrent_requests: u32,
+
+    /// Maximum tokens per second (default: 40)
+    #[serde(default = "default_max_tokens_per_second")]
+    pub max_tokens_per_second: u32,
+
+    /// Maximum memory per request in MB (default: 50)
+    #[serde(default = "default_max_memory_per_request_mb")]
+    pub max_memory_per_request_mb: u64,
+
+    /// Maximum CPU time per request in seconds (default: 30)
+    #[serde(default = "default_max_cpu_time_per_request_secs")]
+    pub max_cpu_time_per_request_secs: u64,
+
+    /// Maximum requests per minute (default: 100)
+    #[serde(default = "default_max_requests_per_minute")]
+    pub max_requests_per_minute: u32,
+
+    /// Health check interval in seconds (default: 30)
+    #[serde(default = "default_health_check_interval_secs")]
+    pub health_check_interval_secs: u64,
+
+    /// Maximum response time in seconds (default: 60)
+    #[serde(default = "default_max_response_time_secs")]
+    pub max_response_time_secs: u64,
+
+    /// Maximum memory growth in MB (default: 100)
+    #[serde(default = "default_max_memory_growth_mb")]
+    pub max_memory_growth_mb: u64,
+
+    /// Maximum CPU time in seconds (default: 300)
+    #[serde(default = "default_max_cpu_time_secs")]
+    pub max_cpu_time_secs: u64,
+
+    /// Maximum consecutive failures (default: 3)
+    #[serde(default = "default_max_consecutive_failures")]
+    pub max_consecutive_failures: u32,
+}
+
+impl Default for WorkerSafetyConfig {
+    fn default() -> Self {
+        Self {
+            inference_timeout_secs: default_inference_timeout_secs(),
+            evidence_timeout_secs: default_evidence_timeout_secs(),
+            router_timeout_ms: default_router_timeout_ms(),
+            policy_timeout_ms: default_policy_timeout_ms(),
+            circuit_breaker_threshold: default_failure_threshold(),
+            circuit_breaker_timeout_secs: default_reset_timeout_secs(),
+            max_concurrent_requests: default_max_concurrent_requests(),
+            max_tokens_per_second: default_max_tokens_per_second(),
+            max_memory_per_request_mb: default_max_memory_per_request_mb(),
+            max_cpu_time_per_request_secs: default_max_cpu_time_per_request_secs(),
+            max_requests_per_minute: default_max_requests_per_minute(),
+            health_check_interval_secs: default_health_check_interval_secs(),
+            max_response_time_secs: default_max_response_time_secs(),
+            max_memory_growth_mb: default_max_memory_growth_mb(),
+            max_cpu_time_secs: default_max_cpu_time_secs(),
+            max_consecutive_failures: default_max_consecutive_failures(),
+        }
+    }
+}
+
+pub fn default_inference_timeout_secs() -> u64 {
+    30
+}
+
+pub fn default_evidence_timeout_secs() -> u64 {
+    5
+}
+
+pub fn default_router_timeout_ms() -> u64 {
+    100
+}
+
+pub fn default_policy_timeout_ms() -> u64 {
+    50
+}
+
+pub fn default_max_concurrent_requests() -> u32 {
+    10
+}
+
+pub fn default_max_tokens_per_second() -> u32 {
+    40
+}
+
+pub fn default_max_memory_per_request_mb() -> u64 {
+    50
+}
+
+pub fn default_max_cpu_time_per_request_secs() -> u64 {
+    30
+}
+
+pub fn default_max_requests_per_minute() -> u32 {
+    100
+}
+
+pub fn default_max_response_time_secs() -> u64 {
+    60
+}
+
+pub fn default_max_memory_growth_mb() -> u64 {
+    100
+}
+
+pub fn default_max_cpu_time_secs() -> u64 {
+    300
+}
+
+pub fn default_max_consecutive_failures() -> u32 {
+    3
+}

@@ -64,10 +64,13 @@ impl EvictionPriority {
     }
 }
 
-/// Adapter lifecycle state
+/// Adapter heat state for priority tiering
+///
+/// Tracks the "temperature" of an adapter based on usage patterns.
+/// Higher heat states get priority in routing and eviction decisions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum AdapterState {
+pub enum AdapterHeatState {
     /// Not in memory, metadata only
     Unloaded,
     /// Weights loaded, not in active rotation
@@ -90,19 +93,19 @@ pub enum AllocationTier {
     Critical,
 }
 
-impl From<AdapterState> for AllocationTier {
-    fn from(state: AdapterState) -> Self {
+impl From<AdapterHeatState> for AllocationTier {
+    fn from(state: AdapterHeatState) -> Self {
         match state {
-            AdapterState::Unloaded => AllocationTier::Extra,
-            AdapterState::Cold => AllocationTier::Extra,
-            AdapterState::Warm => AllocationTier::Extra,
-            AdapterState::Hot => AllocationTier::Critical,
-            AdapterState::Resident => AllocationTier::Critical,
+            AdapterHeatState::Unloaded => AllocationTier::Extra,
+            AdapterHeatState::Cold => AllocationTier::Extra,
+            AdapterHeatState::Warm => AllocationTier::Extra,
+            AdapterHeatState::Hot => AllocationTier::Critical,
+            AdapterHeatState::Resident => AllocationTier::Critical,
         }
     }
 }
 
-impl AdapterState {
+impl AdapterHeatState {
     /// Get the next higher state
     pub fn promote(&self) -> Option<Self> {
         match self {
@@ -129,7 +132,7 @@ impl AdapterState {
     /// Verify expected state before transition to prevent concurrent load/unload races
     ///
     /// Returns Ok(new_state) if transition succeeded, Err(current_state) if CAS failed
-    pub fn cas_promote(&self, expected: AdapterState) -> std::result::Result<Self, AdapterState> {
+    pub fn cas_promote(&self, expected: AdapterHeatState) -> std::result::Result<Self, AdapterHeatState> {
         if *self != expected {
             return Err(*self);
         }
@@ -140,7 +143,7 @@ impl AdapterState {
     /// Verify expected state before transition to prevent concurrent load/unload races
     ///
     /// Returns Ok(new_state) if transition succeeded, Err(current_state) if CAS failed
-    pub fn cas_demote(&self, expected: AdapterState) -> std::result::Result<Self, AdapterState> {
+    pub fn cas_demote(&self, expected: AdapterHeatState) -> std::result::Result<Self, AdapterHeatState> {
         if *self != expected {
             return Err(*self);
         }
@@ -242,7 +245,7 @@ impl AdapterState {
     }
 }
 
-impl std::fmt::Display for AdapterState {
+impl std::fmt::Display for AdapterHeatState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Unloaded => write!(f, "unloaded"),
@@ -254,17 +257,17 @@ impl std::fmt::Display for AdapterState {
     }
 }
 
-impl std::str::FromStr for AdapterState {
+impl std::str::FromStr for AdapterHeatState {
     type Err = String;
 
-    /// Parse adapter state from string (case-insensitive)
+    /// Parse adapter heat state from string (case-insensitive)
     ///
     /// # Examples
     /// ```
-    /// use adapteros_lora_lifecycle::AdapterState;
-    /// assert_eq!("warm".parse::<AdapterState>().unwrap(), AdapterState::Warm);
-    /// assert_eq!("WARM".parse::<AdapterState>().unwrap(), AdapterState::Warm);
-    /// assert!("invalid".parse::<AdapterState>().is_err());
+    /// use adapteros_lora_lifecycle::AdapterHeatState;
+    /// assert_eq!("warm".parse::<AdapterHeatState>().unwrap(), AdapterHeatState::Warm);
+    /// assert_eq!("WARM".parse::<AdapterHeatState>().unwrap(), AdapterHeatState::Warm);
+    /// assert!("invalid".parse::<AdapterHeatState>().is_err());
     /// ```
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
@@ -283,10 +286,10 @@ impl std::str::FromStr for AdapterState {
 
 /// Adapter state record
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AdapterStateRecord {
+pub struct AdapterHeatRecord {
     pub adapter_id: String,
     pub adapter_idx: u16,
-    pub state: AdapterState,
+    pub state: AdapterHeatState,
     pub pinned: bool,
     pub memory_bytes: usize,
     pub category: String,
@@ -316,12 +319,12 @@ pub struct AdapterStateRecord {
     pub repo_id: Option<String>,
 }
 
-impl AdapterStateRecord {
+impl AdapterHeatRecord {
     pub fn new(adapter_id: String, adapter_idx: u16) -> Self {
         Self {
             adapter_id,
             adapter_idx,
-            state: AdapterState::Unloaded,
+            state: AdapterHeatState::Unloaded,
             pinned: false,
             memory_bytes: 0,
             category: "code".to_string(),
@@ -347,7 +350,7 @@ impl AdapterStateRecord {
         Self {
             adapter_id,
             adapter_idx,
-            state: AdapterState::Unloaded,
+            state: AdapterHeatState::Unloaded,
             pinned: false,
             memory_bytes: 0,
             category,
@@ -376,7 +379,7 @@ impl AdapterStateRecord {
         Self {
             adapter_id,
             adapter_idx,
-            state: AdapterState::Unloaded,
+            state: AdapterHeatState::Unloaded,
             pinned: false,
             memory_bytes: 0,
             category,
@@ -411,8 +414,8 @@ impl AdapterStateRecord {
     /// Returns Ok(true) if promoted, Ok(false) if can't promote, Err if state changed
     pub fn cas_promote(
         &mut self,
-        expected: AdapterState,
-    ) -> std::result::Result<bool, AdapterState> {
+        expected: AdapterHeatState,
+    ) -> std::result::Result<bool, AdapterHeatState> {
         if self.state != expected {
             return Err(self.state);
         }
@@ -457,8 +460,8 @@ impl AdapterStateRecord {
     /// Returns Ok(true) if demoted, Ok(false) if can't demote, Err if state changed
     pub fn cas_demote(
         &mut self,
-        expected: AdapterState,
-    ) -> std::result::Result<bool, AdapterState> {
+        expected: AdapterHeatState,
+    ) -> std::result::Result<bool, AdapterHeatState> {
         if self.state != expected {
             return Err(self.state);
         }
@@ -488,7 +491,7 @@ impl AdapterStateRecord {
     /// Pin adapter to resident state
     pub fn pin(&mut self) {
         self.pinned = true;
-        self.state = AdapterState::Resident;
+        self.state = AdapterHeatState::Resident;
     }
 
     /// Unpin adapter
@@ -532,83 +535,83 @@ mod tests {
 
     #[test]
     fn test_state_transitions() {
-        let mut state = AdapterState::Unloaded;
+        let mut state = AdapterHeatState::Unloaded;
 
         // Test promotions
-        assert_eq!(state.promote(), Some(AdapterState::Cold));
+        assert_eq!(state.promote(), Some(AdapterHeatState::Cold));
         state = state
             .promote()
             .expect("Test state promotion should succeed");
-        assert_eq!(state, AdapterState::Cold);
+        assert_eq!(state, AdapterHeatState::Cold);
 
         state = state
             .promote()
             .expect("Test state promotion should succeed");
-        assert_eq!(state, AdapterState::Warm);
+        assert_eq!(state, AdapterHeatState::Warm);
 
         state = state
             .promote()
             .expect("Test state promotion should succeed");
-        assert_eq!(state, AdapterState::Hot);
+        assert_eq!(state, AdapterHeatState::Hot);
 
         state = state
             .promote()
             .expect("Test state promotion should succeed");
-        assert_eq!(state, AdapterState::Resident);
+        assert_eq!(state, AdapterHeatState::Resident);
 
         assert_eq!(state.promote(), None); // At top
 
         // Test demotions
         state = state.demote().expect("Test state demotion should succeed");
-        assert_eq!(state, AdapterState::Hot);
+        assert_eq!(state, AdapterHeatState::Hot);
 
         state = state.demote().expect("Test state demotion should succeed");
-        assert_eq!(state, AdapterState::Warm);
+        assert_eq!(state, AdapterHeatState::Warm);
 
         state = state.demote().expect("Test state demotion should succeed");
-        assert_eq!(state, AdapterState::Cold);
+        assert_eq!(state, AdapterHeatState::Cold);
 
         state = state.demote().expect("Test state demotion should succeed");
-        assert_eq!(state, AdapterState::Unloaded);
+        assert_eq!(state, AdapterHeatState::Unloaded);
 
         assert_eq!(state.demote(), None); // At bottom
     }
 
     #[test]
     fn test_state_properties() {
-        assert!(!AdapterState::Unloaded.is_loaded());
-        assert!(AdapterState::Cold.is_loaded());
-        assert!(AdapterState::Warm.is_loaded());
+        assert!(!AdapterHeatState::Unloaded.is_loaded());
+        assert!(AdapterHeatState::Cold.is_loaded());
+        assert!(AdapterHeatState::Warm.is_loaded());
 
-        assert!(!AdapterState::Unloaded.is_available());
-        assert!(!AdapterState::Cold.is_available());
-        assert!(AdapterState::Warm.is_available());
-        assert!(AdapterState::Hot.is_available());
-        assert!(AdapterState::Resident.is_available());
+        assert!(!AdapterHeatState::Unloaded.is_available());
+        assert!(!AdapterHeatState::Cold.is_available());
+        assert!(AdapterHeatState::Warm.is_available());
+        assert!(AdapterHeatState::Hot.is_available());
+        assert!(AdapterHeatState::Resident.is_available());
 
-        assert!(!AdapterState::Hot.is_pinned());
-        assert!(AdapterState::Resident.is_pinned());
+        assert!(!AdapterHeatState::Hot.is_pinned());
+        assert!(AdapterHeatState::Resident.is_pinned());
     }
 
     #[test]
     fn test_pinned_adapter() {
-        let mut record = AdapterStateRecord::new("test".to_string(), 0);
+        let mut record = AdapterHeatRecord::new("test".to_string(), 0);
 
         record.pin();
-        assert_eq!(record.state, AdapterState::Resident);
+        assert_eq!(record.state, AdapterHeatState::Resident);
         assert!(record.pinned);
 
         // Cannot demote pinned adapter
         assert!(!record.demote());
-        assert_eq!(record.state, AdapterState::Resident);
+        assert_eq!(record.state, AdapterHeatState::Resident);
 
         record.unpin();
         assert!(!record.pinned);
         // State remains Resident after unpinning
-        assert_eq!(record.state, AdapterState::Resident);
+        assert_eq!(record.state, AdapterHeatState::Resident);
 
         // Now can demote
         assert!(record.demote());
-        assert_eq!(record.state, AdapterState::Hot);
+        assert_eq!(record.state, AdapterHeatState::Hot);
     }
 }

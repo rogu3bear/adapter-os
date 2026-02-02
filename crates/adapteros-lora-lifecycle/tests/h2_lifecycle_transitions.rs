@@ -4,7 +4,7 @@
 //! with activation-based promotion and demotion.
 
 use adapteros_core::B3Hash;
-use adapteros_lora_lifecycle::{AdapterState, LifecycleManager};
+use adapteros_lora_lifecycle::{AdapterHeatState, LifecycleManager};
 use adapteros_model_hub::manifest::Policies;
 use std::collections::HashMap;
 use tempfile::TempDir;
@@ -38,28 +38,28 @@ async fn test_h2_manual_state_promotions() {
     let states = manager.get_all_states();
     assert_eq!(
         states.iter().find(|s| s.adapter_idx == 0).unwrap().state,
-        AdapterState::Cold
+        AdapterHeatState::Cold
     );
 
     manager.promote_adapter(0).await.unwrap(); // Cold → Warm
     let states = manager.get_all_states();
     assert_eq!(
         states.iter().find(|s| s.adapter_idx == 0).unwrap().state,
-        AdapterState::Warm
+        AdapterHeatState::Warm
     );
 
     manager.promote_adapter(0).await.unwrap(); // Warm → Hot
     let states = manager.get_all_states();
     assert_eq!(
         states.iter().find(|s| s.adapter_idx == 0).unwrap().state,
-        AdapterState::Hot
+        AdapterHeatState::Hot
     );
 
     manager.promote_adapter(0).await.unwrap(); // Hot → Resident
     let states = manager.get_all_states();
     assert_eq!(
         states.iter().find(|s| s.adapter_idx == 0).unwrap().state,
-        AdapterState::Resident
+        AdapterHeatState::Resident
     );
 }
 
@@ -90,28 +90,28 @@ async fn test_h2_manual_state_demotions() {
     let states = manager.get_all_states();
     assert_eq!(
         states.iter().find(|s| s.adapter_idx == 0).unwrap().state,
-        AdapterState::Hot
+        AdapterHeatState::Hot
     );
 
     manager.demote_adapter(0).await.unwrap(); // Hot → Warm
     let states = manager.get_all_states();
     assert_eq!(
         states.iter().find(|s| s.adapter_idx == 0).unwrap().state,
-        AdapterState::Warm
+        AdapterHeatState::Warm
     );
 
     manager.demote_adapter(0).await.unwrap(); // Warm → Cold
     let states = manager.get_all_states();
     assert_eq!(
         states.iter().find(|s| s.adapter_idx == 0).unwrap().state,
-        AdapterState::Cold
+        AdapterHeatState::Cold
     );
 
     manager.demote_adapter(0).await.unwrap(); // Cold → Unloaded
     let states = manager.get_all_states();
     assert_eq!(
         states.iter().find(|s| s.adapter_idx == 0).unwrap().state,
-        AdapterState::Unloaded
+        AdapterHeatState::Unloaded
     );
 }
 
@@ -134,11 +134,11 @@ async fn test_h2_state_machine_completeness() {
 
     // Verify all 5 states are reachable
     let states = [
-        AdapterState::Unloaded,
-        AdapterState::Cold,
-        AdapterState::Warm,
-        AdapterState::Hot,
-        AdapterState::Resident,
+        AdapterHeatState::Unloaded,
+        AdapterHeatState::Cold,
+        AdapterHeatState::Warm,
+        AdapterHeatState::Hot,
+        AdapterHeatState::Resident,
     ];
 
     for (idx, expected_state) in states.iter().enumerate() {
@@ -185,6 +185,6 @@ async fn test_h2_activation_recording() {
     let states = manager.get_all_states();
     assert_eq!(
         states.iter().find(|s| s.adapter_idx == 0).unwrap().state,
-        AdapterState::Cold
+        AdapterHeatState::Cold
     );
 }

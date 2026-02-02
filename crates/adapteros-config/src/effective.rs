@@ -79,6 +79,8 @@ pub struct EffectiveConfig {
     pub circuit_breaker: CircuitBreakerSection,
     /// Model Server configuration (shared model inference)
     pub model_server: ModelServerSection,
+    /// Worker safety configuration (timeouts and resource limits)
+    pub worker_safety: WorkerSafetySection,
     /// Source tracking for each config key
     sources: HashMap<String, String>,
     /// Whether running in production mode
@@ -440,6 +442,69 @@ impl Default for ModelServerSection {
     }
 }
 
+/// Worker safety section configuration
+///
+/// Controls timeout behavior and resource limits for worker operations.
+/// Maps to the `[worker.safety]` section in cp.toml.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkerSafetySection {
+    /// Timeout for inference operations in seconds (default: 30)
+    pub inference_timeout_secs: u64,
+    /// Timeout for evidence collection in seconds (default: 5)
+    pub evidence_timeout_secs: u64,
+    /// Timeout for router operations in milliseconds (default: 100)
+    pub router_timeout_ms: u64,
+    /// Timeout for policy checks in milliseconds (default: 50)
+    pub policy_timeout_ms: u64,
+    /// Circuit breaker failure threshold (default: 5)
+    pub circuit_breaker_threshold: u32,
+    /// Circuit breaker timeout in seconds (default: 60)
+    pub circuit_breaker_timeout_secs: u64,
+    /// Maximum concurrent requests (default: 10)
+    pub max_concurrent_requests: u32,
+    /// Maximum tokens per second (default: 40)
+    pub max_tokens_per_second: u32,
+    /// Maximum memory per request in MB (default: 50)
+    pub max_memory_per_request_mb: u64,
+    /// Maximum CPU time per request in seconds (default: 30)
+    pub max_cpu_time_per_request_secs: u64,
+    /// Maximum requests per minute (default: 100)
+    pub max_requests_per_minute: u32,
+    /// Health check interval in seconds (default: 30)
+    pub health_check_interval_secs: u64,
+    /// Maximum response time in seconds (default: 60)
+    pub max_response_time_secs: u64,
+    /// Maximum memory growth in MB (default: 100)
+    pub max_memory_growth_mb: u64,
+    /// Maximum CPU time in seconds (default: 300)
+    pub max_cpu_time_secs: u64,
+    /// Maximum consecutive failures (default: 3)
+    pub max_consecutive_failures: u32,
+}
+
+impl Default for WorkerSafetySection {
+    fn default() -> Self {
+        Self {
+            inference_timeout_secs: 30,
+            evidence_timeout_secs: 5,
+            router_timeout_ms: 100,
+            policy_timeout_ms: 50,
+            circuit_breaker_threshold: 5,
+            circuit_breaker_timeout_secs: 60,
+            max_concurrent_requests: 10,
+            max_tokens_per_second: 40,
+            max_memory_per_request_mb: 50,
+            max_cpu_time_per_request_secs: 30,
+            max_requests_per_minute: 100,
+            health_check_interval_secs: 30,
+            max_response_time_secs: 60,
+            max_memory_growth_mb: 100,
+            max_cpu_time_secs: 300,
+            max_consecutive_failures: 3,
+        }
+    }
+}
+
 /// Source of a configuration value (for debugging/observability)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ConfigValueSource {
@@ -497,6 +562,7 @@ impl EffectiveConfig {
         let uploads = Self::build_uploads_section(&config);
         let circuit_breaker = Self::build_circuit_breaker_section(&config);
         let model_server = Self::build_model_server_section(&config);
+        let worker_safety = Self::build_worker_safety_section(&config);
 
         let effective_config = Self {
             inner: config,
@@ -518,6 +584,7 @@ impl EffectiveConfig {
             uploads,
             circuit_breaker,
             model_server,
+            worker_safety,
             sources,
             is_production,
         };
@@ -1346,6 +1413,107 @@ impl EffectiveConfig {
             max_kv_cache_sessions,
             hot_adapter_threshold,
             kv_cache_limit_mb,
+        }
+    }
+
+    fn build_worker_safety_section(config: &DeterministicConfig) -> WorkerSafetySection {
+        let inference_timeout_secs = config
+            .get("worker.safety.inference_timeout_secs")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(30);
+
+        let evidence_timeout_secs = config
+            .get("worker.safety.evidence_timeout_secs")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(5);
+
+        let router_timeout_ms = config
+            .get("worker.safety.router_timeout_ms")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(100);
+
+        let policy_timeout_ms = config
+            .get("worker.safety.policy_timeout_ms")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(50);
+
+        let circuit_breaker_threshold = config
+            .get("worker.safety.circuit_breaker_threshold")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(5);
+
+        let circuit_breaker_timeout_secs = config
+            .get("worker.safety.circuit_breaker_timeout_secs")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(60);
+
+        let max_concurrent_requests = config
+            .get("worker.safety.max_concurrent_requests")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(10);
+
+        let max_tokens_per_second = config
+            .get("worker.safety.max_tokens_per_second")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(40);
+
+        let max_memory_per_request_mb = config
+            .get("worker.safety.max_memory_per_request_mb")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(50);
+
+        let max_cpu_time_per_request_secs = config
+            .get("worker.safety.max_cpu_time_per_request_secs")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(30);
+
+        let max_requests_per_minute = config
+            .get("worker.safety.max_requests_per_minute")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(100);
+
+        let health_check_interval_secs = config
+            .get("worker.safety.health_check_interval_secs")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(30);
+
+        let max_response_time_secs = config
+            .get("worker.safety.max_response_time_secs")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(60);
+
+        let max_memory_growth_mb = config
+            .get("worker.safety.max_memory_growth_mb")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(100);
+
+        let max_cpu_time_secs = config
+            .get("worker.safety.max_cpu_time_secs")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(300);
+
+        let max_consecutive_failures = config
+            .get("worker.safety.max_consecutive_failures")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(3);
+
+        WorkerSafetySection {
+            inference_timeout_secs,
+            evidence_timeout_secs,
+            router_timeout_ms,
+            policy_timeout_ms,
+            circuit_breaker_threshold,
+            circuit_breaker_timeout_secs,
+            max_concurrent_requests,
+            max_tokens_per_second,
+            max_memory_per_request_mb,
+            max_cpu_time_per_request_secs,
+            max_requests_per_minute,
+            health_check_interval_secs,
+            max_response_time_secs,
+            max_memory_growth_mb,
+            max_cpu_time_secs,
+            max_consecutive_failures,
         }
     }
 

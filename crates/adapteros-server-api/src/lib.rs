@@ -29,8 +29,6 @@
 //! 1. Request arrives at Axum router
 //! 2. Middleware stack processes request (auth, rate limit, request ID)
 //! 3. Route handler extracts parameters and validates input
-// This tool call is just a placeholder to check file content in next step
-// I realized I should view the server-api structure first.ion
 //! 4. Handler calls service layer or database directly
 //! 5. Response is serialized and returned
 //!

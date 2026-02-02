@@ -186,12 +186,13 @@ impl AdapterMetrics {
     }
 }
 
-/// Canonical adapter state for hot-swap and lifecycle tracking
+/// Canonical adapter runtime info for hot-swap and lifecycle tracking
 ///
 /// Represents the runtime state of an adapter in the system.
+/// Used for reporting adapter status to clients.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub struct AdapterState {
+pub struct AdapterRuntimeInfo {
     /// Unique adapter identifier
     pub id: String,
 
@@ -229,8 +230,8 @@ pub struct AdapterState {
     pub pinned: bool,
 }
 
-impl AdapterState {
-    /// Create new adapter state
+impl AdapterRuntimeInfo {
+    /// Create new adapter runtime info
     pub fn new(id: impl Into<String>, hash: impl Into<String>, vram_mb: u64) -> Self {
         Self {
             id: id.into(),
@@ -271,7 +272,7 @@ impl AdapterState {
     }
 }
 
-impl Default for AdapterState {
+impl Default for AdapterRuntimeInfo {
     fn default() -> Self {
         Self {
             id: String::new(),
@@ -287,3 +288,9 @@ impl Default for AdapterState {
         }
     }
 }
+
+/// Type alias for adapter state (same as AdapterRuntimeInfo)
+///
+/// This alias exists for backward compatibility with code that expects
+/// `AdapterState` as the name for adapter runtime information.
+pub type AdapterState = AdapterRuntimeInfo;

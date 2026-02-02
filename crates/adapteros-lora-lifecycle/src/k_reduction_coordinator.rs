@@ -6,7 +6,7 @@
 
 #![allow(unused_mut)]
 
-use crate::{AdapterState, AdapterStateRecord};
+use crate::{AdapterHeatRecord, AdapterHeatState};
 use adapteros_memory::{KReductionRequest, KReductionResponse};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -36,7 +36,7 @@ impl LifecycleKReductionCoordinator {
     pub fn evaluate_request(
         &self,
         request: &KReductionRequest,
-        adapter_states: &HashMap<u16, AdapterStateRecord>,
+        adapter_states: &HashMap<u16, AdapterHeatRecord>,
     ) -> KReductionResponse {
         // Validate request
         if !request.is_valid() {
@@ -118,12 +118,12 @@ impl LifecycleKReductionCoordinator {
         &self,
         target_k: usize,
         current_k: usize,
-        adapter_states: &HashMap<u16, AdapterStateRecord>,
+        adapter_states: &HashMap<u16, AdapterHeatRecord>,
     ) -> Vec<u16> {
         let num_to_unload = current_k - target_k;
 
         // Collect all adapters with their activation counts
-        let mut adapter_activations: Vec<(u16, u64, AdapterState)> = adapter_states
+        let mut adapter_activations: Vec<(u16, u64, AdapterHeatState)> = adapter_states
             .iter()
             .map(|(idx, record)| (*idx, record.activation_count, record.state))
             .collect();
@@ -148,7 +148,7 @@ impl LifecycleKReductionCoordinator {
             }
 
             // Skip adapters in critical states
-            if matches!(state, AdapterState::Resident) {
+            if matches!(state, AdapterHeatState::Resident) {
                 debug!(adapter_id = idx, "Skipping resident adapter in K reduction");
                 continue;
             }
@@ -228,10 +228,10 @@ mod tests {
 
         // Add some adapters to the states
         for i in 0..10 {
-            let mut record = AdapterStateRecord::new(format!("adapter_{}", i), i as u16);
+            let mut record = AdapterHeatRecord::new(format!("adapter_{}", i), i as u16);
             record.activation_count = i as u64; // 0, 1, 2, ...
             record.pinned = false; // Not pinned
-            record.state = AdapterState::Cold;
+            record.state = AdapterHeatState::Cold;
             states.insert(i as u16, record);
         }
 
@@ -257,10 +257,10 @@ mod tests {
 
         // Add adapters, pin the ones with lowest activation
         for i in 0..10 {
-            let mut record = AdapterStateRecord::new(format!("adapter_{}", i), i as u16);
+            let mut record = AdapterHeatRecord::new(format!("adapter_{}", i), i as u16);
             record.activation_count = i as u64;
             record.pinned = i < 2; // Pin first 2 adapters (lowest activation)
-            record.state = AdapterState::Cold;
+            record.state = AdapterHeatState::Cold;
             states.insert(i as u16, record);
         }
 

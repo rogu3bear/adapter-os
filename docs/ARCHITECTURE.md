@@ -1149,9 +1149,9 @@ let recovered = manager.recover_stale_adapters(300).await?;
 **State Check Methods:**
 
 ```rust
-use adapteros_lora_lifecycle::AdapterState;
+use adapteros_lora_lifecycle::AdapterHeatState;
 
-let state: AdapterState = adapter.current_state.parse()?;
+let state: AdapterHeatState = adapter.current_state.parse()?;
 
 // Check if adapter can serve inference
 if state.is_available() {  // warm, hot, or resident

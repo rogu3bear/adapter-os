@@ -64,7 +64,7 @@ let processed = lifecycle_manager.poll_k_reduction_events().await?;
 ## Usage
 
 ```rust
-use adapteros_lora_lifecycle::{LifecycleManager, AdapterState};
+use adapteros_lora_lifecycle::{LifecycleManager, AdapterHeatState};
 
 // Create manager
 let manager = LifecycleManager::new(

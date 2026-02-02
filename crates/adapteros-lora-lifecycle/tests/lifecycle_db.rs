@@ -15,7 +15,7 @@
 
 mod fixtures;
 
-use adapteros_lora_lifecycle::{AdapterState, LifecycleManager};
+use adapteros_lora_lifecycle::{AdapterHeatState, LifecycleManager};
 use adapteros_model_hub::manifest::Policies;
 use fixtures::{fixtures as test_fixtures, utils, TestDbFixture};
 use tempfile::TempDir;
@@ -54,7 +54,7 @@ async fn test_update_adapter_state_persists_to_db() {
 
     // Update state through lifecycle manager
     manager
-        .update_adapter_state(0, AdapterState::Warm, "test_reason")
+        .update_adapter_state(0, AdapterHeatState::Warm, "test_reason")
         .await
         .expect("Failed to update adapter state");
 

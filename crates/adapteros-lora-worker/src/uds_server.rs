@@ -201,7 +201,10 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
         worker_id: String,
     ) -> Self {
         let key_count = {
-            let ring = worker_key_ring.read().unwrap();
+            let ring = worker_key_ring.read().unwrap_or_else(|e| {
+                warn!("Worker key ring RwLock poisoned on read, recovering: {}", e);
+                e.into_inner()
+            });
             ring.key_count()
         };
         info!(
@@ -501,7 +504,10 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
         })?;
 
         // Validate the token using the key ring
-        let ring = key_ring.read().unwrap();
+        let ring = key_ring.read().unwrap_or_else(|e| {
+            warn!("Key ring RwLock poisoned on read, recovering: {}", e);
+            e.into_inner()
+        });
         ring.validate_token(token, Some(expected_worker_id))
             .map_err(|e| AosError::Worker(format!("Worker token validation failed: {}", e)))?;
 
@@ -853,7 +859,13 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                         error!(error = %e, "Failed to parse key update request");
                         let response = KeyUpdateResponse::error(
                             format!("Invalid request: {}", e),
-                            key_ring.read().unwrap().key_count(),
+                            key_ring
+                                .read()
+                                .unwrap_or_else(|e| {
+                                    warn!("Key ring RwLock poisoned on read, recovering: {}", e);
+                                    e.into_inner()
+                                })
+                                .key_count(),
                         );
                         let json_value = serde_json::to_value(&response).map_err(|e| {
                             AosError::Worker(format!("Failed to serialize response: {}", e))
@@ -878,7 +890,10 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                 }
 
                 let outcome = {
-                    let mut ring = key_ring.write().unwrap();
+                    let mut ring = key_ring.write().unwrap_or_else(|e| {
+                        warn!("Key ring RwLock poisoned on write, recovering: {}", e);
+                        e.into_inner()
+                    });
 
                     // Check for replay (nonce already seen)
                     if ring.has_seen_nonce(&update_req.nonce) {

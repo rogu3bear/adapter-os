@@ -77,7 +77,7 @@ pub struct AdapterMemoryInfo {
     pub memory_usage_mb: u64,
 
     /// Adapter state
-    pub state: AdapterState,
+    pub state: MemoryState,
 
     /// Whether adapter is pinned
     pub pinned: bool,
@@ -95,9 +95,9 @@ pub struct AdapterMemoryInfo {
     pub quality_score: f64,
 }
 
-/// Adapter states
+/// Memory state of an adapter in the unified memory system
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum AdapterState {
+pub enum MemoryState {
     /// Adapter is loaded and ready
     Loaded,
 
@@ -284,7 +284,7 @@ impl MemoryManager for UnifiedMemoryManager {
             }
 
             let memory_freed = adapter.memory_usage_bytes;
-            adapter.state = AdapterState::Evicted;
+            adapter.state = MemoryState::Evicted;
 
             // Update total allocated memory
             let mut total = self.total_allocated.lock().unwrap();
@@ -396,7 +396,7 @@ impl MemoryManager for UnifiedMemoryManager {
         });
 
         for adapter in adapters {
-            if !adapter.pinned && adapter.state != AdapterState::Evicted {
+            if !adapter.pinned && adapter.state != MemoryState::Evicted {
                 if let Ok(_) = self.evict_adapter(&adapter.adapter_id).await {
                     adapters_evicted += 1;
                     memory_freed += adapter.memory_usage_bytes;
@@ -517,7 +517,7 @@ mod tests {
                 adapter_name: "Zeta".to_string(),
                 memory_usage_bytes: 1024,
                 memory_usage_mb: 0,
-                state: AdapterState::Loaded,
+                state: MemoryState::Loaded,
                 pinned: false,
                 category: AdapterCategory::Code,
                 last_access: None,
@@ -533,7 +533,7 @@ mod tests {
                 adapter_name: "Alpha".to_string(),
                 memory_usage_bytes: 1024,
                 memory_usage_mb: 0,
-                state: AdapterState::Loaded,
+                state: MemoryState::Loaded,
                 pinned: false,
                 category: AdapterCategory::Code,
                 last_access: None,
@@ -549,7 +549,7 @@ mod tests {
                 adapter_name: "Beta".to_string(),
                 memory_usage_bytes: 1024,
                 memory_usage_mb: 0,
-                state: AdapterState::Loaded,
+                state: MemoryState::Loaded,
                 pinned: false,
                 category: AdapterCategory::Code,
                 last_access: None,

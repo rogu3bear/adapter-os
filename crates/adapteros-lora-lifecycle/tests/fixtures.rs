@@ -13,7 +13,7 @@
 #[allow(unused_imports)]
 use adapteros_db::{AdapterRegistrationBuilder, Db, ProtectedDb, WriteCapableDb};
 #[allow(unused_imports)]
-use adapteros_lora_lifecycle::AdapterState;
+use adapteros_lora_lifecycle::AdapterHeatState;
 #[allow(unused_imports)]
 use std::path::PathBuf;
 #[allow(unused_imports)]

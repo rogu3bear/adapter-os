@@ -12,7 +12,7 @@ use adapteros_db::{
     adapters::Adapter,
     query_performance::{QueryMetrics, ThresholdViolation, ViolationType},
 };
-use adapteros_lora_lifecycle::AdapterState;
+use adapteros_lora_lifecycle::AdapterHeatState;
 use adapteros_model_hub::manifest::AssuranceTier;
 use adapteros_telemetry::unified_events::{EventType, LogLevel, TelemetryEventBuilder};
 use async_trait::async_trait;
@@ -182,18 +182,18 @@ impl DefaultAdapterService {
         }
     }
 
-    /// Map state string to AdapterState enum
+    /// Map state string to AdapterHeatState enum
     #[allow(dead_code)]
-    fn state_to_enum(state: &str) -> AdapterState {
+    fn state_to_enum(state: &str) -> AdapterHeatState {
         match state {
-            "unloaded" => AdapterState::Unloaded,
-            "cold" => AdapterState::Cold,
-            "warm" => AdapterState::Warm,
-            "hot" => AdapterState::Hot,
-            "resident" => AdapterState::Resident,
+            "unloaded" => AdapterHeatState::Unloaded,
+            "cold" => AdapterHeatState::Cold,
+            "warm" => AdapterHeatState::Warm,
+            "hot" => AdapterHeatState::Hot,
+            "resident" => AdapterHeatState::Resident,
             _ => {
                 warn!(state = %state, "Unknown state, defaulting to Unloaded");
-                AdapterState::Unloaded
+                AdapterHeatState::Unloaded
             }
         }
     }
@@ -986,23 +986,23 @@ mod tests {
     fn test_state_to_enum() {
         assert!(matches!(
             DefaultAdapterService::state_to_enum("unloaded"),
-            AdapterState::Unloaded
+            AdapterHeatState::Unloaded
         ));
         assert!(matches!(
             DefaultAdapterService::state_to_enum("cold"),
-            AdapterState::Cold
+            AdapterHeatState::Cold
         ));
         assert!(matches!(
             DefaultAdapterService::state_to_enum("warm"),
-            AdapterState::Warm
+            AdapterHeatState::Warm
         ));
         assert!(matches!(
             DefaultAdapterService::state_to_enum("hot"),
-            AdapterState::Hot
+            AdapterHeatState::Hot
         ));
         assert!(matches!(
             DefaultAdapterService::state_to_enum("resident"),
-            AdapterState::Resident
+            AdapterHeatState::Resident
         ));
     }
 }

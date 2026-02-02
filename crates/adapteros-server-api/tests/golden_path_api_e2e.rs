@@ -556,6 +556,10 @@ async fn start_training_job(
         adapter_name: Some(format!("golden-adapter-{}", Uuid::new_v4().simple())),
         params: config,
         lora_tier: None,
+        template_id: None,
+        repo_id: None,
+        description: None,
+        category: None,
     };
 
     let request = request_with_optional_auth(

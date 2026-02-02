@@ -363,44 +363,8 @@ pub struct ApplyPolicyRequest {
     pub activate: Option<bool>,
 }
 
-/// Create training job request
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct CreateTrainingJobRequest {
-    pub adapter_name: String,
-    pub config: TrainingConfigRequest,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub template_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub repo_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub dataset_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub category: Option<String>,
-}
-
-/// Training config for job creation
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct TrainingConfigRequest {
-    pub rank: u32,
-    pub alpha: u32,
-    pub targets: Vec<String>,
-    pub training_contract_version: String,
-    pub pad_token_id: u32,
-    pub ignore_index: i32,
-    pub epochs: u32,
-    pub learning_rate: f32,
-    pub batch_size: u32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub warmup_steps: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_seq_length: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub gradient_accumulation_steps: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub validation_split: Option<f32>,
-}
+// CreateTrainingJobRequest and TrainingConfigRequest are now imported from adapteros_api_types::training
+pub use adapteros_api_types::training::{CreateTrainingJobRequest, TrainingConfigRequest};
 
 // WorkerMetricsResponse is now imported from adapteros_api_types::workers
 

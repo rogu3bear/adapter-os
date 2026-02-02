@@ -67,7 +67,8 @@ use adapteros_api_types::inference::{
     FusionIntervalTrace, RouterDecisionChainEntry, RouterDecisionHash, RouterModelType, RunReceipt,
 };
 use adapteros_config::{
-    resolve_index_root, ModelConfig, PlacementConfig, PlacementMode, PlacementWeights,
+    resolve_index_root, try_effective_config, ModelConfig, PlacementConfig, PlacementMode,
+    PlacementWeights,
 };
 use adapteros_core::constants::DEFAULT_ADAPTER_CACHE_SIZE;
 use adapteros_core::prefix_kv_key::compute_tokenizer_manifest_hash;
@@ -1377,14 +1378,36 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             Some(telemetry.clone()),
         ));
 
-        // Initialize safety mechanisms
-        let timeout_config = TimeoutConfig::default();
+        // Initialize safety mechanisms from config (falls back to defaults if config not loaded)
+        let timeout_config = if let Some(cfg) = try_effective_config() {
+            tracing::debug!(
+                inference_timeout_secs = cfg.worker_safety.inference_timeout_secs,
+                evidence_timeout_secs = cfg.worker_safety.evidence_timeout_secs,
+                router_timeout_ms = cfg.worker_safety.router_timeout_ms,
+                policy_timeout_ms = cfg.worker_safety.policy_timeout_ms,
+                "Loaded timeout config from cp.toml [worker.safety]"
+            );
+            TimeoutConfig::from_effective_section(&cfg.worker_safety)
+        } else {
+            tracing::debug!("Effective config not initialized, using default timeout config");
+            TimeoutConfig::default()
+        };
         let timeout_wrapper = TimeoutWrapper::new(timeout_config.clone());
+
+        // Initialize circuit breaker from config (falls back to defaults if config not loaded)
+        let (cb_failure_threshold, cb_timeout_ms) = if let Some(cfg) = try_effective_config() {
+            (
+                cfg.worker_safety.circuit_breaker_threshold,
+                cfg.worker_safety.circuit_breaker_timeout_secs * 1000,
+            )
+        } else {
+            (5, 60000)
+        };
         let circuit_breaker = StandardCircuitBreaker::new(
             "worker".to_string(),
             CircuitBreakerConfig {
-                failure_threshold: 5,
-                timeout_ms: 60000,
+                failure_threshold: cb_failure_threshold as usize,
+                timeout_ms: cb_timeout_ms,
                 ..Default::default()
             },
         );

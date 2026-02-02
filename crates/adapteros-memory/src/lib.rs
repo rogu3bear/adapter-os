@@ -98,8 +98,8 @@ pub use tiered_manager::{
     MemoryTier, MigrationStats, TieredBlock, TieredConfig, TieredMemoryManager, TieredStats,
 };
 pub use unified_interface::{
-    AdapterCategory, AdapterMemoryInfo, AdapterState, CleanupOperation, MemoryCleanupReport,
-    MemoryManager, MemoryPressureLevel, MemoryUsageStats,
+    AdapterCategory, AdapterMemoryInfo, CleanupOperation, MemoryCleanupReport, MemoryManager,
+    MemoryPressureLevel, MemoryState, MemoryUsageStats,
     UnifiedMemoryManager as UnifiedMemoryManagerInterface,
 };
 pub use unified_memory::{

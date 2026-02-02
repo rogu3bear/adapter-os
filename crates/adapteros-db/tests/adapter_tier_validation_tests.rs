@@ -335,14 +335,14 @@ async fn lifecycle_state_validation_enforces_tier_constraints() -> Result<()> {
 
 #[tokio::test]
 async fn eviction_priority_based_on_tier() -> Result<()> {
-    use adapteros_lora_lifecycle::{AdapterState, EvictionPriority};
+    use adapteros_lora_lifecycle::{AdapterHeatState, EvictionPriority};
 
     // Test eviction priorities for different tiers
     // Note: In the lifecycle state module, eviction priority is based on category,
     // but the tier affects which category adapters fall into
 
     // Ephemeral adapters have Critical eviction priority
-    let ephemeral_priority = AdapterState::Cold.eviction_priority("ephemeral");
+    let ephemeral_priority = AdapterHeatState::Cold.eviction_priority("ephemeral");
     assert_eq!(
         ephemeral_priority,
         EvictionPriority::Critical,
@@ -350,7 +350,7 @@ async fn eviction_priority_based_on_tier() -> Result<()> {
     );
 
     // Codebase adapters have High eviction priority
-    let codebase_priority = AdapterState::Cold.eviction_priority("codebase");
+    let codebase_priority = AdapterHeatState::Cold.eviction_priority("codebase");
     assert_eq!(
         codebase_priority,
         EvictionPriority::High,
@@ -358,7 +358,7 @@ async fn eviction_priority_based_on_tier() -> Result<()> {
     );
 
     // Framework adapters have Normal eviction priority
-    let framework_priority = AdapterState::Cold.eviction_priority("framework");
+    let framework_priority = AdapterHeatState::Cold.eviction_priority("framework");
     assert_eq!(
         framework_priority,
         EvictionPriority::Normal,
@@ -366,7 +366,7 @@ async fn eviction_priority_based_on_tier() -> Result<()> {
     );
 
     // Code adapters have Low eviction priority
-    let code_priority = AdapterState::Cold.eviction_priority("code");
+    let code_priority = AdapterHeatState::Cold.eviction_priority("code");
     assert_eq!(
         code_priority,
         EvictionPriority::Low,
@@ -374,7 +374,7 @@ async fn eviction_priority_based_on_tier() -> Result<()> {
     );
 
     // Resident adapters are never evicted
-    let resident_priority = AdapterState::Resident.eviction_priority("code");
+    let resident_priority = AdapterHeatState::Resident.eviction_priority("code");
     assert_eq!(
         resident_priority,
         EvictionPriority::Never,

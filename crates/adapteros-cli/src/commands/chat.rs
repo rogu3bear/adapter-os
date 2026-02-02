@@ -463,7 +463,8 @@ async fn run_single_prompt(
         return Ok(());
     }
 
-    info!(prompt = %text, stack = ?stack, "Running single prompt");
+    let prompt_hash = blake3::hash(text.as_bytes());
+    info!(prompt_hash = %prompt_hash, prompt_len = text.len(), stack = ?stack, "Running single prompt");
 
     let source_type = if owner_system {
         "owner_system"

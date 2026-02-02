@@ -342,3 +342,357 @@ fn half_to_f32(bits: u16) -> f32 {
 fn bf16_to_f32(bits: u16) -> f32 {
     f32::from_bits((bits as u32) << 16)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ============ half_to_f32 tests ============
+
+    #[test]
+    fn test_half_to_f32_positive_zero() {
+        // f16 positive zero: sign=0, exp=0, mantissa=0
+        let bits: u16 = 0x0000;
+        let result = half_to_f32(bits);
+        assert_eq!(result, 0.0_f32);
+        assert!(!result.is_sign_negative());
+    }
+
+    #[test]
+    fn test_half_to_f32_negative_zero() {
+        // f16 negative zero: sign=1, exp=0, mantissa=0
+        let bits: u16 = 0x8000;
+        let result = half_to_f32(bits);
+        assert_eq!(result, -0.0_f32);
+        assert!(result.is_sign_negative());
+    }
+
+    #[test]
+    fn test_half_to_f32_positive_one() {
+        // f16 1.0: sign=0, exp=15 (biased), mantissa=0
+        // exp=15 means unbiased exponent=0, so 1.0 * 2^0 = 1.0
+        let bits: u16 = 0x3C00;
+        let result = half_to_f32(bits);
+        assert_eq!(result, 1.0_f32);
+    }
+
+    #[test]
+    fn test_half_to_f32_negative_one() {
+        // f16 -1.0: sign=1, exp=15 (biased), mantissa=0
+        let bits: u16 = 0xBC00;
+        let result = half_to_f32(bits);
+        assert_eq!(result, -1.0_f32);
+    }
+
+    #[test]
+    fn test_half_to_f32_two() {
+        // f16 2.0: sign=0, exp=16 (biased), mantissa=0
+        // exp=16 means unbiased exponent=1, so 1.0 * 2^1 = 2.0
+        let bits: u16 = 0x4000;
+        let result = half_to_f32(bits);
+        assert_eq!(result, 2.0_f32);
+    }
+
+    #[test]
+    fn test_half_to_f32_half() {
+        // f16 0.5: sign=0, exp=14 (biased), mantissa=0
+        // exp=14 means unbiased exponent=-1, so 1.0 * 2^-1 = 0.5
+        let bits: u16 = 0x3800;
+        let result = half_to_f32(bits);
+        assert_eq!(result, 0.5_f32);
+    }
+
+    #[test]
+    fn test_half_to_f32_one_point_five() {
+        // f16 1.5: sign=0, exp=15, mantissa=0x200 (0.5 in binary)
+        // 1.5 = 1.1 in binary = (1 + 0.5) * 2^0
+        let bits: u16 = 0x3E00;
+        let result = half_to_f32(bits);
+        assert_eq!(result, 1.5_f32);
+    }
+
+    #[test]
+    fn test_half_to_f32_various_exponents() {
+        // Test various normalized numbers with different exponents
+        // f16 max normalized: exp=30, mantissa=0x3FF
+        let max_bits: u16 = 0x7BFF;
+        let max_result = half_to_f32(max_bits);
+        assert!((max_result - 65504.0_f32).abs() < 1.0); // f16 max is ~65504
+
+        // f16 smallest positive normalized: exp=1, mantissa=0
+        // 1.0 * 2^(1-15) = 2^-14 ≈ 6.1e-5
+        let min_norm_bits: u16 = 0x0400;
+        let min_norm_result = half_to_f32(min_norm_bits);
+        let expected_min = 2.0_f32.powi(-14);
+        assert!(
+            (min_norm_result - expected_min).abs() < 1e-10,
+            "min_norm: got {}, expected {}",
+            min_norm_result,
+            expected_min
+        );
+    }
+
+    #[test]
+    fn test_half_to_f32_denormalized_numbers() {
+        // Denormalized: exp=0, mantissa!=0
+        // Value = 0.mantissa * 2^-14
+
+        // Smallest denorm: mantissa=1
+        // Value = 2^-10 * 2^-14 = 2^-24 ≈ 5.96e-8
+        let smallest_denorm: u16 = 0x0001;
+        let result = half_to_f32(smallest_denorm);
+        let expected = 2.0_f32.powi(-24);
+        assert!(
+            (result - expected).abs() < 1e-12,
+            "smallest denorm: got {}, expected {}",
+            result,
+            expected
+        );
+
+        // Larger denorm: mantissa=0x200 (0.5 in 10-bit fraction)
+        // Value = 0.5 * 2^-14 = 2^-15 ≈ 3.05e-5
+        let half_denorm: u16 = 0x0200;
+        let half_result = half_to_f32(half_denorm);
+        let half_expected = 2.0_f32.powi(-15);
+        assert!(
+            (half_result - half_expected).abs() < 1e-10,
+            "half denorm: got {}, expected {}",
+            half_result,
+            half_expected
+        );
+
+        // Max denorm: mantissa=0x3FF
+        // Value = (1 - 2^-10) * 2^-14
+        let max_denorm: u16 = 0x03FF;
+        let max_result = half_to_f32(max_denorm);
+        let max_expected = (1.0_f32 - 2.0_f32.powi(-10)) * 2.0_f32.powi(-14);
+        assert!(
+            (max_result - max_expected).abs() < 1e-10,
+            "max denorm: got {}, expected {}",
+            max_result,
+            max_expected
+        );
+
+        // Negative denorm
+        let neg_denorm: u16 = 0x8001;
+        let neg_result = half_to_f32(neg_denorm);
+        assert!(neg_result.is_sign_negative());
+        assert!((neg_result.abs() - expected).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_half_to_f32_positive_infinity() {
+        // f16 +inf: sign=0, exp=31, mantissa=0
+        let bits: u16 = 0x7C00;
+        let result = half_to_f32(bits);
+        assert!(result.is_infinite());
+        assert!(result.is_sign_positive());
+    }
+
+    #[test]
+    fn test_half_to_f32_negative_infinity() {
+        // f16 -inf: sign=1, exp=31, mantissa=0
+        let bits: u16 = 0xFC00;
+        let result = half_to_f32(bits);
+        assert!(result.is_infinite());
+        assert!(result.is_sign_negative());
+    }
+
+    #[test]
+    fn test_half_to_f32_nan() {
+        // f16 NaN: exp=31, mantissa!=0
+        // Quiet NaN (mantissa MSB set)
+        let qnan: u16 = 0x7E00;
+        let qnan_result = half_to_f32(qnan);
+        assert!(qnan_result.is_nan());
+
+        // Signaling NaN (mantissa MSB clear, other bits set)
+        let snan: u16 = 0x7C01;
+        let snan_result = half_to_f32(snan);
+        assert!(snan_result.is_nan());
+
+        // Negative NaN
+        let neg_nan: u16 = 0xFE00;
+        let neg_nan_result = half_to_f32(neg_nan);
+        assert!(neg_nan_result.is_nan());
+    }
+
+    #[test]
+    fn test_half_to_f32_mantissa_preservation() {
+        // Test that mantissa bits are correctly preserved during conversion
+        // f16: 1.mantissa * 2^(exp-15)
+        // Test with mantissa = 0x155 (alternating bits pattern)
+        // exp = 15 (unbiased 0), so value = 1.010101010101 in binary
+        let bits: u16 = 0x3D55; // sign=0, exp=15, mantissa=0x155
+        let result = half_to_f32(bits);
+        // 1.0 + 0x155/0x400 = 1.0 + 341/1024 ≈ 1.333
+        let expected = 1.0 + (0x155 as f32) / (0x400 as f32);
+        assert!(
+            (result - expected).abs() < 1e-5,
+            "mantissa preservation: got {}, expected {}",
+            result,
+            expected
+        );
+    }
+
+    // ============ bf16_to_f32 tests ============
+
+    #[test]
+    fn test_bf16_to_f32_positive_zero() {
+        // bf16 positive zero: all bits 0
+        let bits: u16 = 0x0000;
+        let result = bf16_to_f32(bits);
+        assert_eq!(result, 0.0_f32);
+        assert!(!result.is_sign_negative());
+    }
+
+    #[test]
+    fn test_bf16_to_f32_negative_zero() {
+        // bf16 negative zero: sign=1, rest=0
+        let bits: u16 = 0x8000;
+        let result = bf16_to_f32(bits);
+        assert_eq!(result, -0.0_f32);
+        assert!(result.is_sign_negative());
+    }
+
+    #[test]
+    fn test_bf16_to_f32_positive_one() {
+        // bf16 1.0: same as f32 1.0 with bottom 16 bits truncated
+        // f32 1.0 = 0x3F800000, bf16 = 0x3F80
+        let bits: u16 = 0x3F80;
+        let result = bf16_to_f32(bits);
+        assert_eq!(result, 1.0_f32);
+    }
+
+    #[test]
+    fn test_bf16_to_f32_negative_one() {
+        // bf16 -1.0 = 0xBF80
+        let bits: u16 = 0xBF80;
+        let result = bf16_to_f32(bits);
+        assert_eq!(result, -1.0_f32);
+    }
+
+    #[test]
+    fn test_bf16_to_f32_two() {
+        // bf16 2.0 = 0x4000
+        let bits: u16 = 0x4000;
+        let result = bf16_to_f32(bits);
+        assert_eq!(result, 2.0_f32);
+    }
+
+    #[test]
+    fn test_bf16_to_f32_half() {
+        // bf16 0.5 = 0x3F00
+        let bits: u16 = 0x3F00;
+        let result = bf16_to_f32(bits);
+        assert_eq!(result, 0.5_f32);
+    }
+
+    #[test]
+    fn test_bf16_to_f32_various_normalized() {
+        // bf16 is truncated f32, so we can test by truncating known f32 values
+
+        // pi ≈ 3.14159... f32 = 0x40490FDB, bf16 = 0x4049
+        let pi_bits: u16 = 0x4049;
+        let pi_result = bf16_to_f32(pi_bits);
+        // Result should be close to pi but truncated
+        assert!(
+            (pi_result - std::f32::consts::PI).abs() < 0.02,
+            "pi: got {}, expected ~{}",
+            pi_result,
+            std::f32::consts::PI
+        );
+
+        // Large number: 1000.0 f32 = 0x447A0000, bf16 = 0x447A
+        let thousand_bits: u16 = 0x447A;
+        let thousand_result = bf16_to_f32(thousand_bits);
+        assert!(
+            (thousand_result - 1000.0_f32).abs() < 1.0,
+            "1000: got {}, expected ~1000",
+            thousand_result
+        );
+
+        // Small number: 0.001 f32 ≈ 0x3A83126F, bf16 = 0x3A83
+        let small_bits: u16 = 0x3A83;
+        let small_result = bf16_to_f32(small_bits);
+        assert!(
+            (small_result - 0.001_f32).abs() < 0.0001,
+            "0.001: got {}, expected ~0.001",
+            small_result
+        );
+    }
+
+    #[test]
+    fn test_bf16_to_f32_denormalized() {
+        // bf16 denormalized: exp=0, mantissa!=0
+        // Smallest denorm bf16: 0x0001
+        // This represents a very small denormalized f32
+        let smallest: u16 = 0x0001;
+        let result = bf16_to_f32(smallest);
+        // Should be 2^(-126-16) = 2^-142 (extremely small but not zero)
+        assert!(result > 0.0_f32);
+        assert!(result.is_subnormal() || result.is_normal());
+        assert!(result < 1e-38);
+
+        // Negative denorm
+        let neg_smallest: u16 = 0x8001;
+        let neg_result = bf16_to_f32(neg_smallest);
+        assert!(neg_result < 0.0_f32);
+    }
+
+    #[test]
+    fn test_bf16_to_f32_positive_infinity() {
+        // bf16 +inf: sign=0, exp=255, mantissa=0 -> 0x7F80
+        let bits: u16 = 0x7F80;
+        let result = bf16_to_f32(bits);
+        assert!(result.is_infinite());
+        assert!(result.is_sign_positive());
+    }
+
+    #[test]
+    fn test_bf16_to_f32_negative_infinity() {
+        // bf16 -inf: sign=1, exp=255, mantissa=0 -> 0xFF80
+        let bits: u16 = 0xFF80;
+        let result = bf16_to_f32(bits);
+        assert!(result.is_infinite());
+        assert!(result.is_sign_negative());
+    }
+
+    #[test]
+    fn test_bf16_to_f32_nan() {
+        // bf16 NaN: exp=255, mantissa!=0
+
+        // Quiet NaN: 0x7FC0
+        let qnan: u16 = 0x7FC0;
+        let qnan_result = bf16_to_f32(qnan);
+        assert!(qnan_result.is_nan());
+
+        // Another NaN pattern: 0x7F81
+        let nan2: u16 = 0x7F81;
+        let nan2_result = bf16_to_f32(nan2);
+        assert!(nan2_result.is_nan());
+
+        // Negative NaN: 0xFFC0
+        let neg_nan: u16 = 0xFFC0;
+        let neg_nan_result = bf16_to_f32(neg_nan);
+        assert!(neg_nan_result.is_nan());
+    }
+
+    #[test]
+    fn test_bf16_to_f32_roundtrip_truncation() {
+        // Verify bf16 conversion is consistent with f32 truncation
+        // Take an f32, truncate to bf16, convert back
+        let original: f32 = 1.234567_f32;
+        let original_bits = original.to_bits();
+        let bf16_bits = (original_bits >> 16) as u16;
+        let roundtrip = bf16_to_f32(bf16_bits);
+
+        // The roundtrip value should match truncating the original
+        let expected = f32::from_bits(original_bits & 0xFFFF0000);
+        assert_eq!(
+            roundtrip, expected,
+            "roundtrip: got {}, expected {}",
+            roundtrip, expected
+        );
+    }
+}

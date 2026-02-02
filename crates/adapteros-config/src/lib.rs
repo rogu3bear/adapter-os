@@ -56,7 +56,7 @@ pub use effective::{
     AlertingSection, AuthSection, ConfigValueSource, DatabaseSection, EffectiveConfig,
     InferenceSection, LoggingSection, MetricsSection, ModelSection, PathsSection,
     RateLimitsSection, SecuritySection, SelfHostingMode, SelfHostingSection, ServerSection,
-    UploadsSection,
+    UploadsSection, WorkerSafetySection,
 };
 pub use global::{
     config, config_or_default, init_runtime_config, is_initialized, try_config, ConfigError,

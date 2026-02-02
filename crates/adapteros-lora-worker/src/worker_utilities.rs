@@ -67,7 +67,7 @@ impl<K: FusedKernels + crate::StrictnessControl + Send + Sync + 'static> Worker<
     }
 
     /// Get current adapter states
-    pub fn get_adapter_states(&self) -> Vec<adapter_hotswap::AdapterState> {
+    pub fn get_adapter_states(&self) -> Vec<adapter_hotswap::AdapterLoadState> {
         self.hotswap.table().get_active()
     }
 

@@ -195,9 +195,9 @@ pub async fn swap_adapters(
 
         // Update new adapter state via lifecycle manager
         if let Some(new_adapter_idx) = manager.get_adapter_idx(&req.new_adapter_id) {
-            use adapteros_lora_lifecycle::AdapterState;
+            use adapteros_lora_lifecycle::AdapterHeatState;
             if let Err(e) = manager
-                .update_adapter_state(new_adapter_idx, AdapterState::Warm, "swapped_in")
+                .update_adapter_state(new_adapter_idx, AdapterHeatState::Warm, "swapped_in")
                 .await
             {
                 tracing::warn!(adapter_id = %req.new_adapter_id, error = %e, "Failed to update new adapter state via lifecycle manager");
