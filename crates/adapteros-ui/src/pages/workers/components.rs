@@ -179,7 +179,7 @@ pub fn WorkersList(
                                 <TableHead>"Cache"</TableHead>
                                 <TableHead>"Errors"</TableHead>
                                 <TableHead>"Last Seen"</TableHead>
-                                <TableHead class="text-right">"Actions"</TableHead>
+                                <TableHead class="text-right min-w-[150px]">"Actions"</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>

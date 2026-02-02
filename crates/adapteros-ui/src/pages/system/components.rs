@@ -1097,7 +1097,7 @@ fn ModelRuntimeRow(model: BaseModelStatusResponse) -> impl IntoView {
         String::new()
     };
     let error_class = if has_error {
-        "text-sm text-destructive truncate max-w-[240px]"
+        "text-sm text-destructive truncate max-w-60"
     } else {
         "text-sm text-muted-foreground"
     };

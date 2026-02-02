@@ -45,7 +45,7 @@ pub fn Datasets() -> impl IntoView {
     });
 
     view! {
-        <div class="space-y-6">
+        <div class="p-6 space-y-6">
             <PageHeader
                 title="Datasets"
                 subtitle="Manage training datasets for adapter fine-tuning"
@@ -443,7 +443,7 @@ pub fn DatasetDetail() -> impl IntoView {
                             view! {
                                 <div class="flex justify-between">
                                     <dt class="text-muted-foreground">"Current Version"</dt>
-                                    <dd class="font-mono text-xs truncate max-w-48">{version}</dd>
+                                    <dd class="font-mono text-xs truncate max-w-sm">{version}</dd>
                                 </div>
                             }
                         });
@@ -452,7 +452,7 @@ pub fn DatasetDetail() -> impl IntoView {
                             view! {
                                 <div class="flex justify-between">
                                     <dt class="text-muted-foreground">"Hash (B3)"</dt>
-                                    <dd class="font-mono text-xs truncate max-w-48">{hash}</dd>
+                                    <dd class="font-mono text-xs truncate max-w-sm">{hash}</dd>
                                 </div>
                             }
                         });

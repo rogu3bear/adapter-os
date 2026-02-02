@@ -168,7 +168,7 @@ pub fn PreferencesSection() -> impl IntoView {
             {move || {
                 if save_feedback.get() {
                     view! {
-                        <div class="flex items-center gap-2 text-sm text-green-600">
+                        <div class="flex items-center gap-2 text-sm text-status-success">
                             <IconCheck/>
                             "Changes saved automatically"
                         </div>

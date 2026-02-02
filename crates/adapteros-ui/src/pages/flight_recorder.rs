@@ -70,7 +70,7 @@ pub fn FlightRecorder() -> impl IntoView {
         if selected_run_id.get().is_some() {
             "w-1/2 space-y-6 pr-4 overflow-auto"
         } else {
-            "flex-1 space-y-6 pr-4"
+            "flex-1 space-y-6 pr-4 overflow-auto"
         }
     };
 

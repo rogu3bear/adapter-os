@@ -113,7 +113,7 @@ pub fn Policies() -> impl IntoView {
                                                     label="Policy JSON".to_string()
                                                     aria_label="Policy JSON".to_string()
                                                     rows=14
-                                                    class="font-mono text-xs bg-zinc-950 text-status-success min-h-48".to_string()
+                                                    class="font-mono text-xs bg-muted text-status-success min-h-48".to_string()
                                                 />
                                                 <PolicyActionsCard
                                                     cpid=new_cpid
@@ -350,7 +350,7 @@ fn PolicyDetailContent(policy: PolicyPackResponse, on_applied: Callback<()>) -> 
                 </div>
                 <div class="flex justify-between">
                     <span class="text-muted-foreground">"Hash (BLAKE3)"</span>
-                    <span class="font-mono text-xs truncate max-w-truncate" title=hash_b3_title>
+                    <span class="font-mono text-xs truncate max-w-60" title=hash_b3_title>
                         {hash_b3}
                     </span>
                 </div>
@@ -384,7 +384,7 @@ fn PolicyDetailContent(policy: PolicyPackResponse, on_applied: Callback<()>) -> 
                 label="Policy JSON".to_string()
                 aria_label="Policy JSON".to_string()
                 rows=16
-                class="font-mono text-xs bg-zinc-950 text-status-success min-h-56".to_string()
+                class="font-mono text-xs bg-muted text-status-success min-h-56".to_string()
             />
         </Card>
 

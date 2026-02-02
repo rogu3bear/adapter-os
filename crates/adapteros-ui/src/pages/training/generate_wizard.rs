@@ -225,7 +225,7 @@ pub fn GenerateDatasetWizard(
 
             // Modal
             <div class="fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 w-full max-w-2xl max-h-[85vh] overflow-y-auto">
-                <div class="glass-card rounded-lg border shadow-lg p-6 space-y-4">
+                <div class="card rounded-lg border shadow-lg p-6 space-y-4">
                     // Header
                     <div class="flex items-center justify-between">
                         <div>

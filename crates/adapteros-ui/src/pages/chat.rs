@@ -572,7 +572,7 @@ pub fn ChatSession() -> impl IntoView {
                         } else {
                             view! {
                                 <span
-                                    class="rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground"
+                                    class="rounded-full bg-muted px-2 py-1 text-xs font-medium text-muted-foreground"
                                     aria-label="Chat status: Ready"
                                 >
                                     "Ready"
@@ -662,7 +662,7 @@ pub fn ChatSession() -> impl IntoView {
                                                     if is_user { "justify-end" } else { "justify-start" }
                                                 )>
                                                     <div class=format!(
-                                                        "flex flex-col gap-1 chat-bubble {}",
+                                                        "flex flex-col gap-1 {}",
                                                         if is_user { "items-end" } else { "items-start" }
                                                     )>
                                                         <span class="text-2xs uppercase tracking-wide text-muted-foreground">
