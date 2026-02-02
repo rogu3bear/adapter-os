@@ -214,6 +214,7 @@ fn static_results() -> Vec<SearchResult> {
         SearchResult::page("admin", "Admin", None, "/admin", 1.0),
         SearchResult::page("audit", "Audit", None, "/audit", 1.0),
         SearchResult::page("settings", "Settings", None, "/settings", 1.0),
+        SearchResult::page("user", "User", None, "/user", 1.0),
         SearchResult::page("safe", "Safe Mode", None, "/safe", 1.0),
         SearchResult::action(
             "toggle-chat",

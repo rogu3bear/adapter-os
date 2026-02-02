@@ -28,6 +28,7 @@ pub mod stacks;
 pub mod style_audit;
 pub mod system;
 pub mod training;
+pub mod user;
 pub mod workers;
 
 pub use adapters::{AdapterDetail, Adapters};
@@ -56,4 +57,5 @@ pub use stacks::{StackDetail, Stacks};
 pub use style_audit::StyleAudit;
 pub use system::System;
 pub use training::Training;
+pub use user::User;
 pub use workers::{WorkerDetail, Workers};
