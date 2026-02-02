@@ -5,6 +5,7 @@
 pub mod action_card;
 pub mod adapter_bar;
 pub mod adapter_detail_panel;
+pub mod adapter_lifecycle_controls;
 pub mod async_state;
 pub mod auth;
 pub mod breadcrumb_trail;
@@ -28,6 +29,7 @@ pub mod icons;
 pub mod inference_guidance;
 pub mod input;
 pub mod layout;
+pub mod lifecycle_transition_dialog;
 pub mod link;
 pub mod notification_provider;
 pub mod offline_banner;
@@ -55,6 +57,7 @@ pub use adapter_bar::{
     SuggestedAdaptersBar,
 };
 pub use adapter_detail_panel::{AdapterDetailPanel, AdapterSuggestionContext};
+pub use adapter_lifecycle_controls::AdapterLifecycleControls;
 pub use async_state::{
     AsyncBoundary, AsyncBoundaryWithEmpty, AsyncBoundaryWithErrorRender, Breadcrumb, DetailRow,
     EmptyState, EmptyStateVariant, ErrorDisplay, LoadingDisplay, PageHeader, RefreshButton,
@@ -82,6 +85,7 @@ pub use glass_toggle::GlassThemeToggle;
 pub use global_search::{GlobalSearchBox, SearchTriggerButton};
 pub use input::{Input, Textarea};
 pub use layout::{Header, Shell, Sidebar, Taskbar, TopBar};
+pub use lifecycle_transition_dialog::{LifecycleTransitionDialog, LifecycleTransitionInfo};
 pub use link::{Link, LinkVariant};
 pub use offline_banner::OfflineBanner;
 pub use progress_stages::{InlineProgress, ProgressController, ProgressStage, ProgressStages};
