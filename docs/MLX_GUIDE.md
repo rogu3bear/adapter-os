@@ -50,6 +50,8 @@ The user-facing backend remains `mlx`; the implementation uses the C++ FFI backe
 | **Text Generation**   | ✅ Real when `mlx` enabled  | Temperature, top-k, top-p sampling with deterministic seeding          |
 | **Hidden States**     | ✅ Real when `mlx` enabled  | Extract intermediate layer outputs for analysis                        |
 
+**Tokenizer compatibility:** adapterOS relies on the workspace `tokenizers` crate for parsing `tokenizer.json`. Keep workspace dependencies current to support newer HF tokenizer schemas.
+
 ### Key Features
 
 - **Production Inference & Training**: GPU-accelerated workloads on Apple Silicon
