@@ -39,6 +39,15 @@ pub use adapteros_api_types::routing::{
 };
 pub use adapteros_api_types::workers::WorkerMetricsResponse;
 
+/// Response for in-flight adapters endpoint
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct InFlightAdaptersResponse {
+    /// Adapter IDs currently in use for inference
+    pub adapter_ids: Vec<String>,
+    /// Total count of in-flight inferences
+    pub inference_count: usize,
+}
+
 #[cfg(target_arch = "wasm32")]
 fn csrf_token_from_cookie() -> Option<String> {
     use wasm_bindgen::JsCast;
@@ -416,6 +425,33 @@ impl ApiClient {
     /// Get adapter details
     pub async fn get_adapter(&self, id: &str) -> ApiResult<adapteros_api_types::AdapterResponse> {
         self.get(&format!("/v1/adapters/{}", id)).await
+    }
+
+    /// Get adapter IDs currently in use for inference
+    pub async fn get_in_flight_adapters(&self) -> ApiResult<InFlightAdaptersResponse> {
+        self.get("/v1/adapters/in-flight").await
+    }
+
+    /// Transition adapter lifecycle state
+    ///
+    /// Changes an adapter's lifecycle state (e.g., draft -> active, active -> deprecated).
+    /// Requires a reason for audit trail purposes.
+    pub async fn transition_adapter_lifecycle(
+        &self,
+        adapter_id: &str,
+        new_state: &str,
+        reason: &str,
+    ) -> ApiResult<adapteros_api_types::AdapterResponse> {
+        #[derive(serde::Serialize)]
+        struct TransitionRequest<'a> {
+            new_state: &'a str,
+            reason: &'a str,
+        }
+        self.post(
+            &format!("/v1/adapters/{}/lifecycle", adapter_id),
+            &TransitionRequest { new_state, reason },
+        )
+        .await
     }
 
     // --- System ---

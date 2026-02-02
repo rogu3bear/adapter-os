@@ -36,6 +36,7 @@ mod category_policies;
 mod duplicate;
 mod export;
 mod import;
+mod in_flight;
 mod lifecycle;
 mod lineage;
 mod pinning;
@@ -79,6 +80,9 @@ pub use swap::{__path_swap_adapters, swap_adapters};
 
 // Stats handlers
 pub use stats::{__path_get_adapter_stats, get_adapter_stats};
+
+// In-flight handlers
+pub use in_flight::{get_in_flight_adapters, InFlightAdaptersResponse};
 
 // Category policies handlers
 pub use category_policies::{

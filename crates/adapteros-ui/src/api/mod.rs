@@ -49,12 +49,12 @@ pub use client::{
     ApiKeyListResponse, BaseModelStatusResponse, CanonicalRow, CreateApiKeyRequest,
     CreateApiKeyResponse, CreateRoutingRuleRequest, DatasetFileResponse, DatasetManifest,
     DatasetVersionsResponse, EmbeddingBenchmarkReport, EmbeddingBenchmarksQuery,
-    EmbeddingBenchmarksResponse, JsonlValidationDiagnostic, ListUsersResponse, ModelLoadStatus,
-    ModelStatusResponse, RegisterRepositoryRequest, RegisterRepositoryResponse,
-    RepositoryDetailResponse, RepositoryInfo, RepositoryListResponse, RevokeApiKeyResponse,
-    RoutingRuleResponse, RoutingRulesResponse, ScanJobResponse, ScanRepositoryRequest,
-    SeedModelRequest, SeedModelResponse, TenantListResponse, TenantSummary, UploadDatasetResponse,
-    UserResponse, WorkerMetricsResponse,
+    EmbeddingBenchmarksResponse, InFlightAdaptersResponse, JsonlValidationDiagnostic,
+    ListUsersResponse, ModelLoadStatus, ModelStatusResponse, RegisterRepositoryRequest,
+    RegisterRepositoryResponse, RepositoryDetailResponse, RepositoryInfo, RepositoryListResponse,
+    RevokeApiKeyResponse, RoutingRuleResponse, RoutingRulesResponse, ScanJobResponse,
+    ScanRepositoryRequest, SeedModelRequest, SeedModelResponse, TenantListResponse, TenantSummary,
+    UploadDatasetResponse, UserResponse, WorkerMetricsResponse,
 };
 
 pub use diagnostic_bundle::DiagnosticBundle;

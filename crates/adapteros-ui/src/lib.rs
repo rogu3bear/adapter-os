@@ -27,6 +27,7 @@
 pub mod api;
 pub mod components;
 pub mod constants;
+pub mod contexts;
 pub mod hooks;
 pub mod pages;
 pub mod search;
@@ -42,6 +43,7 @@ use leptos_router::components::*;
 use leptos_router::path;
 
 use crate::api::ApiClient;
+use crate::contexts::InFlightProvider;
 use components::{AuthProvider, CommandPalette, ProtectedRoute, Shell, ToastContainer};
 use signals::{
     provide_chat_context, provide_notifications_context, provide_refetch_context,
@@ -171,6 +173,7 @@ pub fn App() -> impl IntoView {
                     <SearchProvider>
                         <ChatProvider>
                             <RefetchProvider>
+                                <InFlightProvider>
                                 <Router>
                             // Toast container for app-wide notifications
                             <ToastContainer/>
@@ -221,6 +224,7 @@ pub fn App() -> impl IntoView {
                             // Global Command Palette overlay
                             <CommandPalette/>
                                 </Router>
+                                </InFlightProvider>
                             </RefetchProvider>
                         </ChatProvider>
                     </SearchProvider>

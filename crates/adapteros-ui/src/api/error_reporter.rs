@@ -87,6 +87,7 @@ pub fn report_error(error: &ApiError, page: Option<&str>, is_authenticated: bool
 /// 1. Reports the error to the server for persistent logging
 /// 2. Shows an actionable error toast with the error details
 /// 3. Includes a copyable diagnostic bundle (JSON) for debugging
+/// 4. Uses warning variant for ADAPTER_IN_FLIGHT errors (user-recoverable)
 ///
 /// Use this instead of `report_error` when you want the user to see the error.
 ///
@@ -109,10 +110,15 @@ pub fn report_error_with_toast(
         let bundle = DiagnosticBundle::from_error(error, page);
         let details = bundle.to_json_string();
 
-        // Build a user-friendly message
-        let message = build_user_message(error);
+        // Use user_message() for user-friendly display
+        let message = error.user_message();
 
-        notifications.error_with_details(title, &message, &details);
+        // Use warning variant for ADAPTER_IN_FLIGHT (user-recoverable)
+        if error.is_adapter_in_flight() {
+            notifications.warning_with_details(title, &message, &details);
+        } else {
+            notifications.error_with_details(title, &message, &details);
+        }
     } else {
         // Fallback: log to console if notification context not available
         #[cfg(target_arch = "wasm32")]
@@ -154,6 +160,7 @@ fn build_user_message(error: &ApiError) -> String {
         }
     }
 }
+
 
 /// Build a ClientErrorReport from an ApiError
 fn build_report(error: &ApiError, page: Option<&str>) -> ClientErrorReport {
