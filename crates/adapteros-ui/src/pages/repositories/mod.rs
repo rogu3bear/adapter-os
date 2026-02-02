@@ -56,14 +56,14 @@ pub fn Repositories() -> impl IntoView {
     // Dynamic class for left panel width
     let left_panel_class = move || {
         if selected_repo_id.get().is_some() {
-            "w-1/2 space-y-6 pr-4"
+            "w-1/2 space-y-6 pr-4 overflow-auto"
         } else {
-            "flex-1 space-y-6"
+            "flex-1 space-y-6 overflow-auto"
         }
     };
 
     view! {
-        <div class="flex h-full">
+        <div class="p-6 flex h-full">
             // Left panel: Repository list
             <div class=left_panel_class>
                 <div class="flex items-center justify-between">
@@ -123,7 +123,7 @@ pub fn Repositories() -> impl IntoView {
             {move || {
                 selected_repo_id.get().map(|repo_id| {
                     view! {
-                        <div class="w-1/2 border-l pl-4">
+                        <div class="w-1/2 h-full overflow-auto border-l pl-4">
                             <RepositoryDetailPanel
                                 repo_id=repo_id.clone()
                                 selected_repo_id=selected_repo_id

@@ -102,7 +102,7 @@ pub fn SpawnWorkerDialog(
             title="Spawn New Worker".to_string()
             description="Start a new inference worker on a cluster node".to_string()
         >
-            <div class="space-y-4">
+            <div class="space-y-4 max-h-[60vh] overflow-y-auto">
                 // Node selection (required)
                 <Select
                     value=node_id

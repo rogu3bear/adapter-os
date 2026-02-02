@@ -496,7 +496,7 @@ pub fn LogViewer(job_id: String) -> impl IntoView {
     });
 
     view! {
-        <div class="h-48 overflow-auto bg-zinc-950 rounded-md p-3 font-mono text-xs text-status-success">
+        <div class="h-48 overflow-auto bg-muted rounded-md p-3 font-mono text-xs text-status-success">
             {move || {
                 if loading.get() {
                     view! {

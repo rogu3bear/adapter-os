@@ -207,7 +207,7 @@ fn ModelList(
                                         </span>
                                     </TableCell>
                                     <TableCell>
-                                        <span class=if model.error_message.is_some() { "text-sm text-destructive truncate max-w-[240px]" } else { "text-sm text-muted-foreground" } title=model.error_message.clone().unwrap_or_default()>
+                                        <span class=if model.error_message.is_some() { "text-sm text-destructive truncate max-w-60" } else { "text-sm text-muted-foreground" } title=model.error_message.clone().unwrap_or_default()>
                                             {model.error_message.clone().unwrap_or_else(|| "-".to_string())}
                                         </span>
                                     </TableCell>
@@ -453,7 +453,7 @@ fn ModelDetailContent(
                     view! {
                         <div class="flex justify-between">
                             <span class="text-muted-foreground">"Path"</span>
-                            <span class="font-mono text-xs truncate max-w-truncate" title=path>{path_display}</span>
+                            <span class="font-mono text-xs truncate max-w-60" title=path>{path_display}</span>
                         </div>
                     }
                 })}
