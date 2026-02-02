@@ -918,6 +918,15 @@ python -m mlx_lm.convert \
   --mlx-path ./models/qwen2.5-7b-mlx
 ```
 
+### "Failed to load tokenizer: data did not match any variant of untagged enum ModelWrapper"
+
+**Cause:** tokenizer.json uses a newer HuggingFace Tokenizers schema not supported by older tokenizers crate builds.
+
+**Solution:**
+
+- Ensure adapterOS is built with the current workspace `tokenizers` version.
+- Rebuild the worker and retry.
+
 ### "Model loads but forward fails"
 
 **Cause:** Model path wrong or corrupted files
