@@ -83,6 +83,13 @@ pub static PAGES: &[PageDefinition] = &[
         &["config", "preferences", "options", "configure"],
     ),
     PageDefinition::new(
+        "user",
+        "User",
+        "Profile and personalization",
+        "/user",
+        &["profile", "preferences", "identity", "account"],
+    ),
+    PageDefinition::new(
         "models",
         "Models",
         "Base model management",

@@ -14,6 +14,9 @@ use leptos::prelude::*;
 use preferences::PreferencesSection;
 use profile::ProfileSection;
 use system_info::SystemInfoSection;
+pub use api_config::ApiConfigSection as SettingsApiConfigSection;
+pub use preferences::PreferencesSection as SettingsPreferencesSection;
+pub use profile::ProfileSection as SettingsProfileSection;
 
 /// Settings page
 #[component]
