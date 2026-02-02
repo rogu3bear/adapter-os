@@ -6,6 +6,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Agents should assume the code already exists; new code is only tasteful when you have proof it does not.
 
+## Quick Start
+
+```bash
+# Prerequisites: Rust (see rust-toolchain.toml), MLX (brew install ml-explore/mlx/mlx), SQLite 3.35+
+
+# Build and symlink CLI
+cargo build --release -p adapteros-cli --features tui && ln -sf target/release/aosctl ./aosctl
+
+# Initialize database
+./aosctl db migrate
+
+# Start (backend + worker)
+./start
+```
+
 ## Project Overview
 
 AdapterOS is a Rust-based deterministic ML inference platform for Apple Silicon. It provides K-sparse LoRA routing, Metal-optimized kernels, and policy enforcement for production environments. The system is designed for air-gapped deployments with zero network egress during serving.
