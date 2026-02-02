@@ -22,7 +22,7 @@ adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", optional = true, 
 adapteros-types = { path = "../adapteros-types" }
 tokenizers = { workspace = true }
 pulldown-cmark = "0.13"
-lopdf = "0.38"
+lopdf = "0.39"
 image = "0.25"
 base64 = "0.22"
 flate2 = "1.0"
