@@ -296,8 +296,12 @@ impl SpecialTokenMap {
 
         // Use tokenizers crate to ensure the file is fully parsable and
         // discover the vocabulary size (includes added tokens when false).
-        let tokenizer = tokenizers::Tokenizer::from_file(tokenizer_path)
-            .map_err(|e| AosError::Validation(format!("Failed to parse tokenizer.json: {}", e)))?;
+        let tokenizer = tokenizers::Tokenizer::from_file(tokenizer_path).map_err(|e| {
+            AosError::Validation(format!(
+                "Failed to parse tokenizer.json: {} (unsupported schema; update tokenizers crate)",
+                e
+            ))
+        })?;
         let vocab_size = tokenizer.get_vocab_size(false);
 
         if let Some(expected) = expected_vocab_size {

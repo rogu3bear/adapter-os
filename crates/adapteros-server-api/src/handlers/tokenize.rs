@@ -79,7 +79,10 @@ pub async fn tokenize(
         }
 
         let tokenizer = Tokenizer::from_file(&tokenizer_path).map_err(|e| {
-            ApiError::internal("failed to load tokenizer").with_details(e.to_string())
+            ApiError::internal("failed to load tokenizer").with_details(format!(
+                "{} (unsupported schema; update tokenizers crate)",
+                e
+            ))
         })?;
 
         let encoding = tokenizer.encode(req.text.clone(), true).map_err(|e| {

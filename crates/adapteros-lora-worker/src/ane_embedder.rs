@@ -51,7 +51,10 @@ impl TinyBertEmbedder {
         }
 
         let tokenizer = Tokenizer::from_file(tokenizer_path).map_err(|e| {
-            AosError::Validation(format!("Failed to load Tiny-BERT tokenizer: {}", e))
+            AosError::Validation(format!(
+                "Failed to load Tiny-BERT tokenizer: {} (unsupported schema; update tokenizers crate)",
+                e
+            ))
         })?;
 
         #[cfg(feature = "coreml-backend")]

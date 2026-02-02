@@ -53,8 +53,12 @@ impl QwenTokenizer {
         validate_tokenizer_config_json(&tokenizer_content)
             .map_err(|e| AosError::Worker(format!("Tokenizer config validation failed: {}", e)))?;
 
-        let tokenizer = Tokenizer::from_file(&canonical_path)
-            .map_err(|e| AosError::Worker(format!("Failed to load tokenizer: {}", e)))?;
+        let tokenizer = Tokenizer::from_file(&canonical_path).map_err(|e| {
+            AosError::Worker(format!(
+                "Failed to load tokenizer: {} (unsupported schema; update tokenizers crate)",
+                e
+            ))
+        })?;
 
         // Load special tokens from model directory (PRD-RECT-003: no hardcoded fallbacks)
         let model_dir = canonical_path.parent().ok_or_else(|| {
