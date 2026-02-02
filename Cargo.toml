@@ -255,7 +255,7 @@ hnsw_rs = "0.3"
 tantivy = { git = "https://github.com/quickwit-oss/tantivy", branch = "main" }
 # Security: Force oneshot >= 0.1.12 (CVE: Use After Free in async)
 oneshot = "0.1.13"
-tokenizers = "0.15"
+tokenizers = "0.22.2"
 safetensors = "0.4"
 
 # Python/MLX Integration - REMOVED (PyO3 cleanup)
@@ -509,4 +509,3 @@ incremental = true
 
 # Debug profile with higher optimization for faster testing
 # Note: "debug" is reserved, so we configure "dev" profile directly above
-
