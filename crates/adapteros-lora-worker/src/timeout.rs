@@ -6,6 +6,7 @@
 //! For circuit breaker functionality, use `adapteros_core::CircuitBreaker` or
 //! `adapteros_core::StandardCircuitBreaker`.
 
+use adapteros_config::{WorkerSafetyConfig, WorkerSafetySection};
 use adapteros_core::{AosError, Result};
 use std::time::Duration;
 use tokio::time::timeout;
@@ -26,6 +27,41 @@ impl Default for TimeoutConfig {
             evidence_timeout: Duration::from_secs(5),
             router_timeout: Duration::from_millis(100),
             policy_timeout: Duration::from_millis(50),
+        }
+    }
+}
+
+impl TimeoutConfig {
+    /// Create a TimeoutConfig from the worker safety configuration (types.rs).
+    ///
+    /// This reads timeout values from the `[worker.safety]` section in cp.toml:
+    /// - `inference_timeout_secs` -> inference_timeout
+    /// - `evidence_timeout_secs` -> evidence_timeout
+    /// - `router_timeout_ms` -> router_timeout
+    /// - `policy_timeout_ms` -> policy_timeout
+    pub fn from_config(config: &WorkerSafetyConfig) -> Self {
+        Self {
+            inference_timeout: Duration::from_secs(config.inference_timeout_secs),
+            evidence_timeout: Duration::from_secs(config.evidence_timeout_secs),
+            router_timeout: Duration::from_millis(config.router_timeout_ms),
+            policy_timeout: Duration::from_millis(config.policy_timeout_ms),
+        }
+    }
+
+    /// Create a TimeoutConfig from the effective config section.
+    ///
+    /// This reads timeout values from the `[worker.safety]` section in cp.toml
+    /// via the effective configuration system:
+    /// - `inference_timeout_secs` -> inference_timeout
+    /// - `evidence_timeout_secs` -> evidence_timeout
+    /// - `router_timeout_ms` -> router_timeout
+    /// - `policy_timeout_ms` -> policy_timeout
+    pub fn from_effective_section(section: &WorkerSafetySection) -> Self {
+        Self {
+            inference_timeout: Duration::from_secs(section.inference_timeout_secs),
+            evidence_timeout: Duration::from_secs(section.evidence_timeout_secs),
+            router_timeout: Duration::from_millis(section.router_timeout_ms),
+            policy_timeout: Duration::from_millis(section.policy_timeout_ms),
         }
     }
 }

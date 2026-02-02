@@ -162,7 +162,7 @@ pub use category_policies::{CategoryPolicy, CategoryPolicyManager};
 pub use k_reduction_coordinator::LifecycleKReductionCoordinator;
 pub use loader::{AdapterHandle, AdapterLoader};
 pub use policy::{EvictionOrder, LifecyclePolicy};
-pub use state::{AdapterState, AdapterStateRecord, AllocationTier, EvictionPriority};
+pub use state::{AdapterHeatRecord, AdapterHeatState, AllocationTier, EvictionPriority};
 pub use ttl_manager::{EvictionAuditEntry, TtlManager, TtlRecord};
 pub use workflow_executor::{
     AdapterExecutionBackend, AdapterExecutionResult, ExecutionStats, KernelAdapterBackend,
@@ -176,7 +176,7 @@ pub use adapteros_memory::MemoryPressureLevel;
 /// Enhanced lifecycle manager for adapters with category-aware state management
 pub struct LifecycleManager {
     /// Adapter states
-    states: Arc<RwLock<HashMap<u16, AdapterStateRecord>>>,
+    states: Arc<RwLock<HashMap<u16, AdapterHeatRecord>>>,
     /// Lifecycle policy
     policy: LifecyclePolicy,
     /// Adapter loader
@@ -223,7 +223,7 @@ impl LifecycleManager {
         for (idx, name) in adapter_names.iter().enumerate() {
             states.insert(
                 idx as u16,
-                AdapterStateRecord::new(name.clone(), idx as u16),
+                AdapterHeatRecord::new(name.clone(), idx as u16),
             );
         }
 
@@ -278,7 +278,7 @@ impl LifecycleManager {
         for (idx, name) in adapter_names.iter().enumerate() {
             states.insert(
                 idx as u16,
-                AdapterStateRecord::new(name.clone(), idx as u16),
+                AdapterHeatRecord::new(name.clone(), idx as u16),
             );
         }
 
@@ -350,7 +350,7 @@ impl LifecycleManager {
         // 3. Create state record and add to states map
         {
             let mut states = self.states.write();
-            let mut record = AdapterStateRecord::new(adapter_id.clone(), next_idx);
+            let mut record = AdapterHeatRecord::new(adapter_id.clone(), next_idx);
             record.category = category.unwrap_or_else(|| "code".to_string());
             states.insert(next_idx, record);
         }
@@ -910,13 +910,13 @@ impl LifecycleManager {
     }
 
     /// Get current state of an adapter
-    pub fn get_state(&self, adapter_id: u16) -> Option<AdapterState> {
+    pub fn get_state(&self, adapter_id: u16) -> Option<AdapterHeatState> {
         let states = self.states.read();
         states.get(&adapter_id).map(|r| r.state)
     }
 
     /// Get all adapter states
-    pub fn get_all_states(&self) -> Vec<AdapterStateRecord> {
+    pub fn get_all_states(&self) -> Vec<AdapterHeatRecord> {
         let states = self.states.read();
         states.values().cloned().collect()
     }
@@ -1032,7 +1032,7 @@ impl LifecycleManager {
                 AdapterTransitionEvent {
                     adapter_id: adapter_id_str.clone(),
                     from_state: old_state.to_string(),
-                    to_state: AdapterState::Resident.to_string(),
+                    to_state: AdapterHeatState::Resident.to_string(),
                     reason: "manual_pin".to_string(),
                 },
             )?;
@@ -1422,10 +1422,10 @@ impl LifecycleManager {
         // Try evicting cold adapters first
         for (adapter_id, metric) in candidates {
             if let Some(record) = states.get_mut(&adapter_id) {
-                if record.state == AdapterState::Cold || self.policy.should_evict(metric) {
+                if record.state == AdapterHeatState::Cold || self.policy.should_evict(metric) {
                     let old_state = record.state;
                     let memory_freed = record.memory_bytes;
-                    record.state = AdapterState::Unloaded;
+                    record.state = AdapterHeatState::Unloaded;
                     // FIX 6: Reset memory_bytes = 0 after eviction (like evict_adapter does)
                     record.memory_bytes = 0;
 
@@ -1642,7 +1642,7 @@ impl LifecycleManager {
 
         // Find record by adapter_id
         if let Some(record) = states.values_mut().find(|r| r.adapter_id == adapter_id) {
-            if record.state == AdapterState::Unloaded {
+            if record.state == AdapterHeatState::Unloaded {
                 let mut loader = self.loader.write();
                 let handle = match loader.load_adapter(record.adapter_idx, adapter_id) {
                     Ok(handle) => handle,
@@ -1652,7 +1652,7 @@ impl LifecycleManager {
                     }
                 };
 
-                record.state = AdapterState::Cold;
+                record.state = AdapterHeatState::Cold;
 
                 info!("Preloaded adapter {}", adapter_id);
             }
@@ -1676,7 +1676,7 @@ impl LifecycleManager {
 
         // Find record by adapter_id
         if let Some(record) = states.values_mut().find(|r| r.adapter_id == adapter_id) {
-            if record.state == AdapterState::Unloaded {
+            if record.state == AdapterHeatState::Unloaded {
                 let mut loader = self.loader.write();
                 let handle = match loader.load_adapter(record.adapter_idx, adapter_id) {
                     Ok(handle) => handle,
@@ -1686,7 +1686,7 @@ impl LifecycleManager {
                     }
                 };
 
-                record.state = AdapterState::Cold;
+                record.state = AdapterHeatState::Cold;
 
                 info!("Auto-reloaded adapter {}", adapter_id);
             }
@@ -1743,7 +1743,7 @@ impl LifecycleManager {
     pub async fn update_adapter_state(
         &self,
         adapter_id: u16,
-        new_state: AdapterState,
+        new_state: AdapterHeatState,
         reason: &str,
     ) -> Result<()> {
         // Step 1: Extract adapter ID and old state (read lock only)
@@ -1937,7 +1937,7 @@ impl LifecycleManager {
     }
 
     /// Get adapters by category
-    pub fn get_adapters_by_category(&self, category: &str) -> Vec<AdapterStateRecord> {
+    pub fn get_adapters_by_category(&self, category: &str) -> Vec<AdapterHeatRecord> {
         let states = self.states.read();
         states
             .values()
@@ -1947,7 +1947,7 @@ impl LifecycleManager {
     }
 
     /// Get adapters by state
-    pub fn get_adapters_by_state(&self, state: AdapterState) -> Vec<AdapterStateRecord> {
+    pub fn get_adapters_by_state(&self, state: AdapterHeatState) -> Vec<AdapterHeatRecord> {
         let states = self.states.read();
         states
             .values()
@@ -2068,7 +2068,7 @@ impl LifecycleManager {
 
                 // FIX 2: Set state to Unloaded AFTER successful loader.unload()
                 // If unload fails, state remains unchanged (error returns above)
-                record.state = AdapterState::Unloaded;
+                record.state = AdapterHeatState::Unloaded;
                 record.memory_bytes = 0;
 
                 (adapter_id_str, old_state, category, memory_freed, tenant_id)
@@ -2384,13 +2384,13 @@ impl LifecycleManager {
     ///
     /// Returns list of (adapter_id, adapter_name, state) for adapters that should
     /// have GPU buffers loaded. Used by external GPU verification code.
-    pub fn get_loaded_adapters(&self) -> Vec<(u16, String, AdapterState)> {
+    pub fn get_loaded_adapters(&self) -> Vec<(u16, String, AdapterHeatState)> {
         let states = self.states.read();
         states
             .iter()
             .filter_map(|(id, record)| {
                 // Only adapters in Cold, Warm, Hot, or Resident states have GPU buffers
-                if !matches!(record.state, AdapterState::Unloaded) {
+                if !matches!(record.state, AdapterHeatState::Unloaded) {
                     Some((*id, record.adapter_id.clone(), record.state))
                 } else {
                     None
@@ -3177,21 +3177,21 @@ mod tests {
         );
 
         // Initial state should be unloaded
-        assert_eq!(manager.get_state(0), Some(AdapterState::Unloaded));
+        assert_eq!(manager.get_state(0), Some(AdapterHeatState::Unloaded));
 
         // Promote adapter
         manager
             .promote_adapter(0)
             .await
             .expect("Test adapter promotion should succeed");
-        assert_eq!(manager.get_state(0), Some(AdapterState::Cold));
+        assert_eq!(manager.get_state(0), Some(AdapterHeatState::Cold));
 
         // Demote adapter
         manager
             .demote_adapter(0)
             .await
             .expect("Test adapter demotion should succeed");
-        assert_eq!(manager.get_state(0), Some(AdapterState::Unloaded));
+        assert_eq!(manager.get_state(0), Some(AdapterHeatState::Unloaded));
     }
 
     #[tokio::test]
@@ -3215,11 +3215,11 @@ mod tests {
             .pin_adapter(0, "test_tenant", "test_user", None, None)
             .await
             .expect("Test adapter pinning should succeed");
-        assert_eq!(manager.get_state(0), Some(AdapterState::Resident));
+        assert_eq!(manager.get_state(0), Some(AdapterHeatState::Resident));
 
         // Cannot demote pinned adapter
         assert!(manager.demote_adapter(0).await.is_err());
-        assert_eq!(manager.get_state(0), Some(AdapterState::Resident));
+        assert_eq!(manager.get_state(0), Some(AdapterHeatState::Resident));
 
         // Unpin and then demote
         manager
@@ -3230,7 +3230,7 @@ mod tests {
             .demote_adapter(0)
             .await
             .expect("Test adapter demotion should succeed");
-        assert_eq!(manager.get_state(0), Some(AdapterState::Hot));
+        assert_eq!(manager.get_state(0), Some(AdapterHeatState::Hot));
     }
 
     #[tokio::test]
@@ -3278,7 +3278,7 @@ mod tests {
         // (may be Cold or Unloaded depending on timing)
         let state0 = manager.get_state(0);
         assert!(
-            state0 == Some(AdapterState::Cold) || state0 == Some(AdapterState::Unloaded),
+            state0 == Some(AdapterHeatState::Cold) || state0 == Some(AdapterHeatState::Unloaded),
             "Adapter 0 should be demoted, got {:?}",
             state0
         );
@@ -3379,12 +3379,12 @@ mod tests {
 
         // This should not deadlock - lock is released before telemetry logging
         manager
-            .update_adapter_state(0, AdapterState::Warm, "test")
+            .update_adapter_state(0, AdapterHeatState::Warm, "test")
             .await
             .expect("update should succeed");
 
         // Verify state was updated
-        assert_eq!(manager.get_state(0), Some(AdapterState::Warm));
+        assert_eq!(manager.get_state(0), Some(AdapterHeatState::Warm));
     }
 
     /// Test concurrent record_adapter_activation doesn't deadlock
@@ -3466,7 +3466,7 @@ mod tests {
         match evict_result {
             Ok(()) => {
                 // Verify state if eviction succeeded
-                assert_eq!(manager.get_state(0), Some(AdapterState::Unloaded));
+                assert_eq!(manager.get_state(0), Some(AdapterHeatState::Unloaded));
             }
             Err(e) => {
                 // If adapter wasn't loaded, that's OK for this test

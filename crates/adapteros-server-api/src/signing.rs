@@ -134,13 +134,17 @@ pub fn sign_promotion(
 }
 
 /// Verify a promotion signature
+///
+/// Returns `Ok(())` if the signature is valid, or an error if verification fails.
+/// This is a fail-closed design: any error (invalid signature, wrong key, etc.)
+/// results in `Err`, never a successful return with `false`.
 pub fn verify_promotion_signature(
     cpid: &str,
     promoted_by: &str,
     quality_json: &str,
     signature_b64: &str,
     _key_id: &str,
-) -> Result<bool> {
+) -> Result<()> {
     use ed25519_dalek::Verifier;
 
     let key_hex = get_or_create_promotion_key()?;
@@ -166,8 +170,10 @@ pub fn verify_promotion_signature(
     // Recreate message
     let message = format!("{}:{}:{}", cpid, promoted_by, quality_json);
 
-    // Verify
-    Ok(public_key.verify(message.as_bytes(), &signature).is_ok())
+    // Verify - fail-closed: return error on verification failure
+    public_key
+        .verify(message.as_bytes(), &signature)
+        .map_err(|e| anyhow::anyhow!("Signature verification failed: {}", e))
 }
 
 #[cfg(test)]
@@ -200,11 +206,9 @@ mod tests {
         assert!(!signature.is_empty());
         assert!(key_id.starts_with("key-"));
 
-        let verified =
-            verify_promotion_signature(cpid, promoted_by, quality_json, &signature, &key_id)
-                .expect("Verification failed");
-
-        assert!(verified, "Signature verification failed");
+        // Verification should succeed (returns Ok(()))
+        verify_promotion_signature(cpid, promoted_by, quality_json, &signature, &key_id)
+            .expect("Signature verification should succeed");
     }
 
     #[test]
@@ -221,10 +225,10 @@ mod tests {
         // Tamper with data
         let tampered_json = r#"{"arr":0.50,"ecs5":0.50,"hlr":0.50,"cr":0.50}"#;
 
-        let verified =
-            verify_promotion_signature(cpid, promoted_by, tampered_json, &signature, &key_id)
-                .expect("Verification failed");
+        // Verification should fail with an error (fail-closed)
+        let result =
+            verify_promotion_signature(cpid, promoted_by, tampered_json, &signature, &key_id);
 
-        assert!(!verified, "Tampered signature should not verify");
+        assert!(result.is_err(), "Tampered signature should return Err");
     }
 }

@@ -47,8 +47,8 @@ use adapteros_types::{
     coreml::CoreMLPlacementSpec,
     training::{
         BranchClassification, DataLineageMode,
-        DatasetVersionSelection as CoreDatasetVersionSelection, LoraTier, TrainingConfig,
-        TrainingJob, TrainingTemplate,
+        DatasetVersionSelection as CoreDatasetVersionSelection, TrainingConfig, TrainingJob,
+        TrainingTemplate,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -57,7 +57,7 @@ use crate::{model_status::ModelLoadStatus, schema_version};
 
 /// Current training data contract version and backend enums (re-exported for clients).
 pub use adapteros_types::training::{
-    TrainingBackendKind, TrainingBackendPolicy, TRAINING_DATA_CONTRACT_VERSION,
+    LoraTier, TrainingBackendKind, TrainingBackendPolicy, TRAINING_DATA_CONTRACT_VERSION,
 };
 
 // ===== Deprecation Constants =====
@@ -379,8 +379,11 @@ impl std::fmt::Display for DatasetValidationStatus {
 
 // ===== Request/Response Types =====
 
-/// Training configuration request
-#[cfg(feature = "server")]
+/// Training configuration request (WASM-compatible)
+///
+/// This type is used by both UI (WASM) and server contexts. Server-only fields
+/// (e.g., `coreml_placement`, `base_model_path`, `preprocessing`) are only available
+/// with the `server` feature.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
@@ -394,53 +397,102 @@ pub struct TrainingConfigRequest {
     pub epochs: u32,
     pub learning_rate: f32,
     pub batch_size: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub warmup_steps: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_seq_length: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gradient_accumulation_steps: Option<u32>,
     /// Fraction of dataset to use for validation (0.0-0.5).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub validation_split: Option<f32>,
     /// Optional GPU backend preference (coreml, mlx, metal, cpu)
-    #[serde(default)]
-    #[schema(value_type = String)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "server", schema(value_type = Option<String>))]
     pub preferred_backend: Option<TrainingBackendKind>,
     /// Backend policy when CoreML is preferred (coreml_only/coreml_else_fallback/auto)
-    #[serde(default)]
-    #[schema(value_type = String)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "server", schema(value_type = Option<String>))]
     pub backend_policy: Option<TrainingBackendPolicy>,
     /// Explicit fallback when CoreML is requested and unavailable
-    #[serde(default)]
-    #[schema(value_type = String)]
-    pub coreml_training_fallback: Option<TrainingBackendKind>,
-    /// Optional CoreML placement spec for training/export alignment
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schema(value_type = serde_json::Value)]
+    #[cfg_attr(feature = "server", schema(value_type = Option<String>))]
+    pub coreml_training_fallback: Option<TrainingBackendKind>,
+    /// Optional CoreML placement spec for training/export alignment (server-only)
+    #[cfg(feature = "server")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<serde_json::Value>)]
     pub coreml_placement: Option<CoreMLPlacementSpec>,
     /// Opt-in CoreML export after successful training
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enable_coreml_export: Option<bool>,
     /// Require GPU acceleration (error if no GPU backend can be initialized)
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub require_gpu: Option<bool>,
     /// Maximum GPU memory in MB (best-effort, 0/unset = unlimited)
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_gpu_memory_mb: Option<u64>,
-    /// Path to base model for training. Required for correct adapter generation.
-    #[serde(default)]
+    /// Path to base model for training (server-only)
+    #[cfg(feature = "server")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schema(value_type = Option<String>)]
     pub base_model_path: Option<std::path::PathBuf>,
-    /// Optional CoreML preprocessing stage configuration.
+    /// Optional CoreML preprocessing stage configuration (server-only)
+    #[cfg(feature = "server")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preprocessing: Option<adapteros_types::training::PreprocessingConfig>,
     /// Force resume even when pipeline/checkpoint compatibility checks fail.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub force_resume: Option<bool>,
     /// Enable multi-module training (train separate weights per target module).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub multi_module_training: Option<bool>,
     /// Layer indices for LoRA injection (e.g., [0, 8, 16, 24, 31]).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lora_layer_indices: Option<Vec<usize>>,
+}
+
+/// Create training job request (WASM-compatible)
+///
+/// Unified request type for creating training jobs from both UI and API clients.
+/// Supports both field names `config` and `params` for the training configuration
+/// via serde alias.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct CreateTrainingJobRequest {
+    /// Workspace identifier used for scoping and provenance (defaults to tenant_id if empty)
+    #[serde(default)]
+    pub workspace_id: String,
+    /// Base model to tune against
+    pub base_model_id: String,
+    /// Dataset to train on (version will be resolved automatically)
+    pub dataset_id: String,
+    /// Optional dataset version override (defaults to latest)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dataset_version_id: Option<String>,
+    /// Optional explicit adapter name; autogenerated when omitted
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adapter_name: Option<String>,
+    /// Training hyperparameters (accepts both `params` and `config` field names)
+    #[serde(alias = "config")]
+    pub params: TrainingConfigRequest,
+    /// Optional LoRA tier hint (micro/standard/max)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "server", schema(value_type = Option<String>))]
+    pub lora_tier: Option<LoraTier>,
+    /// Template ID for pre-configured training settings
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub template_id: Option<String>,
+    /// Repository ID for adapter provenance
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo_id: Option<String>,
+    /// Human-readable description
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Adapter category (code, framework, codebase, docs, domain)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
 }
 
 #[cfg(feature = "server")]

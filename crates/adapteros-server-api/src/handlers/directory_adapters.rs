@@ -342,9 +342,9 @@ pub async fn upsert_directory_adapter(
                 } else {
                     // Update state (handles DB update if db is set)
                     if let Some(adapter_idx) = manager.get_adapter_idx(&adapter_id) {
-                        use adapteros_lora_lifecycle::AdapterState;
+                        use adapteros_lora_lifecycle::AdapterHeatState;
                         if let Err(e) = manager
-                            .update_adapter_state(adapter_idx, AdapterState::Cold, "loaded_via_api")
+                            .update_adapter_state(adapter_idx, AdapterHeatState::Cold, "loaded_via_api")
                             .await
                         {
                             tracing::warn!(adapter_id = %adapter_id, error = %e, "Failed to update adapter state via lifecycle manager");

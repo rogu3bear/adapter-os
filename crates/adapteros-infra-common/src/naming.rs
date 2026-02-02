@@ -4,8 +4,6 @@
 //! See docs/ADAPTER_TAXONOMY.md for the complete specification.
 
 use crate::error::{AosError, Result};
-use once_cell::sync::Lazy;
-use regex::Regex;
 use std::fmt;
 
 // Reserved tenant namespaces (note: "global" is allowed for shared adapters)
@@ -17,32 +15,109 @@ pub const RESERVED_DOMAINS: &[&str] = &["core", "internal", "deprecated"];
 // Reserved stack prefixes
 pub const RESERVED_STACKS: &[&str] = &["stack.safe-default"];
 
-// Validation regexes (compiled once)
-static TENANT_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$").unwrap());
+/// Check if a character is valid for naming components (lowercase alphanumeric)
+#[inline]
+fn is_alnum(c: char) -> bool {
+    c.is_ascii_lowercase() || c.is_ascii_digit()
+}
 
-static DOMAIN_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"^[a-z0-9][a-z0-9-]{0,46}[a-z0-9]$").unwrap());
+/// Check if a character is valid for the middle of naming components (lowercase alphanumeric or hyphen)
+#[inline]
+fn is_alnum_or_hyphen(c: char) -> bool {
+    is_alnum(c) || c == '-'
+}
 
-static PURPOSE_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"^[a-z0-9][a-z0-9-]{0,62}[a-z0-9]$").unwrap());
+/// Validates a component matches: ^[a-z0-9][a-z0-9-]{min_middle..max_middle}[a-z0-9]$
+/// where min_len = min_middle + 2, max_len = max_middle + 2
+fn is_valid_component(s: &str, min_len: usize, max_len: usize) -> bool {
+    let len = s.len();
+    if len < min_len || len > max_len {
+        return false;
+    }
 
-static REVISION_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"^r[0-9]{3,}$").unwrap());
+    let bytes = s.as_bytes();
 
-static ADAPTER_NAME_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(
-        r"^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]/[a-z0-9][a-z0-9-]{0,46}[a-z0-9]/[a-z0-9][a-z0-9-]{0,62}[a-z0-9]/r[0-9]{3,}$",
-    )
-    .unwrap()
-});
+    // First char must be alphanumeric
+    if !is_alnum(bytes[0] as char) {
+        return false;
+    }
 
-static STACK_NAME_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^stack\.([a-z0-9][a-z0-9-]{0,30}[a-z0-9])(\.[a-z0-9][a-z0-9-]{0,46}[a-z0-9])?$")
-        .unwrap()
-});
+    // Last char must be alphanumeric
+    if !is_alnum(bytes[len - 1] as char) {
+        return false;
+    }
 
-// Component validation regex to reject consecutive hyphens
-static NO_CONSECUTIVE_HYPHENS: Lazy<Regex> = Lazy::new(|| Regex::new(r"--+").unwrap());
+    // Middle chars must be alphanumeric or hyphen
+    for &b in &bytes[1..len - 1] {
+        if !is_alnum_or_hyphen(b as char) {
+            return false;
+        }
+    }
+
+    true
+}
+
+/// Validates tenant: ^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$ (2-32 chars)
+#[inline]
+fn is_valid_tenant(s: &str) -> bool {
+    is_valid_component(s, 2, 32)
+}
+
+/// Validates domain: ^[a-z0-9][a-z0-9-]{0,46}[a-z0-9]$ (2-48 chars)
+#[inline]
+fn is_valid_domain(s: &str) -> bool {
+    is_valid_component(s, 2, 48)
+}
+
+/// Validates purpose: ^[a-z0-9][a-z0-9-]{0,62}[a-z0-9]$ (2-64 chars)
+#[inline]
+fn is_valid_purpose(s: &str) -> bool {
+    is_valid_component(s, 2, 64)
+}
+
+/// Validates revision: ^r[0-9]{3,}$ (r followed by 3+ digits)
+fn is_valid_revision(s: &str) -> bool {
+    if !s.starts_with('r') {
+        return false;
+    }
+    let digits = &s[1..];
+    digits.len() >= 3 && digits.chars().all(|c| c.is_ascii_digit())
+}
+
+/// Check for consecutive hyphens
+#[inline]
+fn has_consecutive_hyphens(s: &str) -> bool {
+    s.contains("--")
+}
+
+/// Validates adapter name format: {tenant}/{domain}/{purpose}/{revision}
+fn is_valid_adapter_name_format(s: &str) -> bool {
+    let parts: Vec<&str> = s.split('/').collect();
+    if parts.len() != 4 {
+        return false;
+    }
+
+    is_valid_tenant(parts[0])
+        && is_valid_domain(parts[1])
+        && is_valid_purpose(parts[2])
+        && is_valid_revision(parts[3])
+}
+
+/// Validates stack name format: stack.{namespace}[.{identifier}]
+fn is_valid_stack_name_format(s: &str) -> bool {
+    if !s.starts_with("stack.") {
+        return false;
+    }
+
+    let rest = &s[6..]; // skip "stack."
+    let parts: Vec<&str> = rest.split('.').collect();
+
+    match parts.len() {
+        1 => is_valid_tenant(parts[0]),
+        2 => is_valid_tenant(parts[0]) && is_valid_domain(parts[1]),
+        _ => false,
+    }
+}
 
 /// Semantic adapter name: {tenant}/{domain}/{purpose}/{revision}
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -73,7 +148,7 @@ impl AdapterName {
         }
 
         // Fast path: validate overall format first
-        if !ADAPTER_NAME_REGEX.is_match(name) {
+        if !is_valid_adapter_name_format(name) {
             return Err(AosError::Validation(format!(
                 "Invalid adapter name format: '{}'. Expected: {{tenant}}/{{domain}}/{{purpose}}/{{revision}}",
                 name
@@ -131,14 +206,14 @@ impl AdapterName {
     }
 
     fn validate_tenant(&self) -> Result<()> {
-        if !TENANT_REGEX.is_match(&self.tenant) {
+        if !is_valid_tenant(&self.tenant) {
             return Err(AosError::Validation(format!(
                 "Invalid tenant component: '{}'. Must be 2-32 chars, alphanumeric + hyphens",
                 self.tenant
             )));
         }
 
-        if NO_CONSECUTIVE_HYPHENS.is_match(&self.tenant) {
+        if has_consecutive_hyphens(&self.tenant) {
             return Err(AosError::Validation(
                 "Tenant component cannot contain consecutive hyphens".to_string(),
             ));
@@ -155,14 +230,14 @@ impl AdapterName {
     }
 
     fn validate_domain(&self) -> Result<()> {
-        if !DOMAIN_REGEX.is_match(&self.domain) {
+        if !is_valid_domain(&self.domain) {
             return Err(AosError::Validation(format!(
                 "Invalid domain component: '{}'. Must be 2-48 chars, alphanumeric + hyphens",
                 self.domain
             )));
         }
 
-        if NO_CONSECUTIVE_HYPHENS.is_match(&self.domain) {
+        if has_consecutive_hyphens(&self.domain) {
             return Err(AosError::Validation(
                 "Domain component cannot contain consecutive hyphens".to_string(),
             ));
@@ -180,14 +255,14 @@ impl AdapterName {
     }
 
     fn validate_purpose(&self) -> Result<()> {
-        if !PURPOSE_REGEX.is_match(&self.purpose) {
+        if !is_valid_purpose(&self.purpose) {
             return Err(AosError::Validation(format!(
                 "Invalid purpose component: '{}'. Must be 2-64 chars, alphanumeric + hyphens",
                 self.purpose
             )));
         }
 
-        if NO_CONSECUTIVE_HYPHENS.is_match(&self.purpose) {
+        if has_consecutive_hyphens(&self.purpose) {
             return Err(AosError::Validation(
                 "Purpose component cannot contain consecutive hyphens".to_string(),
             ));
@@ -197,7 +272,7 @@ impl AdapterName {
     }
 
     fn validate_revision(&self) -> Result<()> {
-        if !REVISION_REGEX.is_match(&self.revision) {
+        if !is_valid_revision(&self.revision) {
             return Err(AosError::Validation(format!(
                 "Invalid revision component: '{}'. Must match pattern: r{{NNN}} (e.g., r001, r042)",
                 self.revision
@@ -323,7 +398,7 @@ impl StackName {
             ));
         }
 
-        if !STACK_NAME_REGEX.is_match(name) {
+        if !is_valid_stack_name_format(name) {
             return Err(AosError::Validation(format!(
                 "Invalid stack name format: '{}'. Expected: stack.{{namespace}}[.{{identifier}}]",
                 name
@@ -391,14 +466,14 @@ impl StackName {
         }
 
         // Validate namespace
-        if !TENANT_REGEX.is_match(&self.namespace) {
+        if !is_valid_tenant(&self.namespace) {
             return Err(AosError::Validation(format!(
                 "Invalid stack namespace: '{}'. Must be 2-32 chars, alphanumeric + hyphens",
                 self.namespace
             )));
         }
 
-        if NO_CONSECUTIVE_HYPHENS.is_match(&self.namespace) {
+        if has_consecutive_hyphens(&self.namespace) {
             return Err(AosError::Validation(
                 "Stack namespace cannot contain consecutive hyphens".to_string(),
             ));
@@ -406,14 +481,14 @@ impl StackName {
 
         // Validate identifier if present
         if let Some(ref id) = self.identifier {
-            if !DOMAIN_REGEX.is_match(id) {
+            if !is_valid_domain(id) {
                 return Err(AosError::Validation(format!(
                     "Invalid stack identifier: '{}'. Must be 2-48 chars, alphanumeric + hyphens",
                     id
                 )));
             }
 
-            if NO_CONSECUTIVE_HYPHENS.is_match(id) {
+            if has_consecutive_hyphens(id) {
                 return Err(AosError::Validation(
                     "Stack identifier cannot contain consecutive hyphens".to_string(),
                 ));

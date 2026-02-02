@@ -5,7 +5,7 @@
 //! inference context (prompt content, user attributes, etc.).
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 /// Identity configuration for a dataset
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -80,19 +80,19 @@ impl RuleCondition {
 pub struct RouterContext {
     /// The inference prompt
     pub prompt: String,
-    /// User attributes for matching
-    pub user_attributes: HashMap<String, String>,
+    /// User attributes for matching (BTreeMap for deterministic iteration)
+    pub user_attributes: BTreeMap<String, String>,
 }
 
 /// Identity booster for adapter routing
 pub struct IdentityBooster {
-    /// Identity configurations indexed by adapter index
-    identity_configs: HashMap<u16, IdentityConfig>,
+    /// Identity configurations indexed by adapter index (BTreeMap for deterministic iteration)
+    identity_configs: BTreeMap<u16, IdentityConfig>,
 }
 
 impl IdentityBooster {
     /// Create new identity booster with configurations
-    pub fn new(identity_configs: HashMap<u16, IdentityConfig>) -> Self {
+    pub fn new(identity_configs: BTreeMap<u16, IdentityConfig>) -> Self {
         Self { identity_configs }
     }
 
@@ -129,7 +129,7 @@ mod tests {
 
         let context = RouterContext {
             prompt: "Write documentation for this API".to_string(),
-            user_attributes: HashMap::new(),
+            user_attributes: BTreeMap::new(),
         };
 
         assert!(condition.matches(&context));
@@ -137,7 +137,7 @@ mod tests {
 
     #[test]
     fn test_identity_boost_application() {
-        let mut config_map = HashMap::new();
+        let mut config_map = BTreeMap::new();
         config_map.insert(
             0,
             IdentityConfig {
@@ -159,7 +159,7 @@ mod tests {
         let booster = IdentityBooster::new(config_map);
         let context = RouterContext {
             prompt: "Write documentation".to_string(),
-            user_attributes: HashMap::new(),
+            user_attributes: BTreeMap::new(),
         };
 
         let mut scores = vec![1.0, 1.0, 1.0];

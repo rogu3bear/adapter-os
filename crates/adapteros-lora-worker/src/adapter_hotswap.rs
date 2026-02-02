@@ -48,7 +48,7 @@ type AdapterIntegrityResult<T> = std::result::Result<T, AdapterIntegrityError>;
 #[derive(Debug, Clone)]
 pub struct Stack {
     pub generation: u64,
-    pub active: HashMap<String, AdapterState>,
+    pub active: HashMap<String, AdapterLoadState>,
 }
 
 /// Convert adapter ID string to deterministic u16 using BLAKE3 hash
@@ -130,9 +130,12 @@ pub struct AdapterCommandResult {
     pub reject_reason: Option<String>,
 }
 
-/// Adapter state in hot-swap system
+/// Adapter load state in hot-swap system
+///
+/// Tracks the in-memory state of a loaded adapter including its weights,
+/// lifecycle state, and usage metrics.
 #[derive(Debug, Clone)]
-pub struct AdapterState {
+pub struct AdapterLoadState {
     pub id: String,
     pub hash: B3Hash,
     pub expected_hash: B3Hash,
@@ -147,7 +150,7 @@ pub struct AdapterState {
     pub recent_uses: std::collections::VecDeque<Instant>,
 }
 
-impl AdapterState {
+impl AdapterLoadState {
     /// Record adapter usage for heat calculation
     pub fn record_use(&mut self) {
         let now = Instant::now();
@@ -265,9 +268,9 @@ pub struct MemoryStateEntry {
 /// they must follow this ordering.
 pub struct AdapterTable {
     /// Currently active adapters
-    active: RwLock<HashMap<String, AdapterState>>,
+    active: RwLock<HashMap<String, AdapterLoadState>>,
     /// Staged adapters being preloaded
-    staged: RwLock<HashMap<String, AdapterState>>,
+    staged: RwLock<HashMap<String, AdapterLoadState>>,
     /// Last verified state for rollback
     rollback_state: RwLock<Option<Arc<Stack>>>,
     /// In-memory checkpoint history (limited to last N checkpoints)
@@ -505,7 +508,7 @@ impl AdapterTable {
             if !staged.contains_key(&id) {
                 staged.insert(
                     id.clone(),
-                    AdapterState {
+                    AdapterLoadState {
                         id: id.clone(),
                         hash,
                         expected_hash,
@@ -913,7 +916,7 @@ impl AdapterTable {
     }
 
     /// Get current active adapters
-    pub fn get_active(&self) -> Vec<AdapterState> {
+    pub fn get_active(&self) -> Vec<AdapterLoadState> {
         self.active.read().values().cloned().collect()
     }
 
@@ -1673,7 +1676,7 @@ where
         let mut blocked = AdapterEvictionBlockCounts::default();
         let mut candidates: HashMap<String, AdapterEvictionCandidate> = HashMap::new();
 
-        let mut consider = |adapter_id: &str, state: &AdapterState| {
+        let mut consider = |adapter_id: &str, state: &AdapterLoadState| {
             if protected_ids.contains(adapter_id) {
                 return;
             }

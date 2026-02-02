@@ -423,11 +423,15 @@ pub async fn verify_replay_session(
     }
 
     // 4. Verify kernel hash if present
+    // FAIL-CLOSED: Optional field absence is treated as suspicious/invalid.
+    // This matches bundle verification semantics where missing fields trigger
+    // mismatch detection. Security-critical verification must never assume
+    // "absence is valid" as that creates a bypass vector.
     let kernel_verified = session
         .kernel_hash_b3
         .as_ref()
         .map(|h| !h.is_empty() && (h.starts_with("b3:") || h.len() == 64))
-        .unwrap_or(true); // Optional field, so absence is valid
+        .unwrap_or(false);
     if !kernel_verified {
         divergences.push(ReplayDivergence {
             divergence_type: "kernel".to_string(),

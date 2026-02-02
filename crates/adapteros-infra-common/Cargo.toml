@@ -16,9 +16,7 @@ serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 blake3.workspace = true
 hex.workspace = true
-once_cell.workspace = true
 rand.workspace = true
-regex.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 unicode-normalization = "0.1"

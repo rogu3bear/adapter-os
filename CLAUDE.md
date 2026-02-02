@@ -332,9 +332,9 @@ When `--resume` is specified:
 
 ### Configuration
 
-Checkpointing is automatically enabled when using the CLI training commands. Default settings:
-- Save frequency: Every epoch
-- Max checkpoints: 5 (oldest are deleted)
+Checkpointing is disabled by default. To enable, set in training config:
+- `checkpoint_interval`: Epochs between saves (e.g., `1` for every epoch)
+- `max_checkpoints`: Maximum checkpoints to retain (oldest are deleted)
 
 ## Determinism Rules
 

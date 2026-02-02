@@ -819,9 +819,7 @@ version = "0.13.1"
 dependencies = [
  "blake3",
  "hex",
- "once_cell",
  "rand 0.8.5",
- "regex",
  "schemars",
  "serde",
  "serde_json",
