@@ -4,9 +4,9 @@
 
 use crate::api::{ApiClient, ApiError, WorkerMetricsResponse};
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, EmptyState, EmptyStateVariant,
-    Spinner, StatusColor, StatusIndicator, Table, TableBody, TableCell, TableHead, TableHeader,
-    TableRow,
+    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, CopyableId, EmptyState,
+    EmptyStateVariant, Spinner, StatusColor, StatusIndicator, Table, TableBody, TableCell,
+    TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, use_navigate, LoadingState};
 use adapteros_api_types::WorkerResponse;
@@ -806,11 +806,14 @@ pub fn WorkerDetailPanel(
 
 #[component]
 pub fn DetailItem(label: &'static str, value: String) -> impl IntoView {
-    let value_clone = value.clone();
     view! {
         <div>
             <p class="text-xs text-muted-foreground">{label}</p>
-            <p class="text-sm font-mono truncate" title=value>{value_clone}</p>
+            {if label.contains("ID") {
+                view! { <CopyableId id=value.clone() truncate=24 /> }.into_any()
+            } else {
+                view! { <p class="text-sm font-mono truncate" title=value.clone()>{value.clone()}</p> }.into_any()
+            }}
         </div>
     }
 }

@@ -1,11 +1,47 @@
 //! Notification and toast state management.
 
 use leptos::prelude::*;
-use uuid::Uuid;
 
 const MAX_TOASTS: usize = 5;
 #[cfg(target_arch = "wasm32")]
 const DEFAULT_TOAST_DURATION_MS: u32 = 5000;
+
+fn readable_id(prefix: &str, slug_source: &str) -> String {
+    let slug = slugify(slug_source);
+    let suffix = random_suffix(6);
+    format!("{}.{}.{}", prefix, slug, suffix)
+}
+
+fn slugify(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut prev_dash = false;
+    for ch in input.chars() {
+        let lower = ch.to_ascii_lowercase();
+        if lower.is_ascii_alphanumeric() {
+            out.push(lower);
+            prev_dash = false;
+        } else if !prev_dash {
+            out.push('-');
+            prev_dash = true;
+        }
+    }
+    let trimmed = out.trim_matches('-').to_string();
+    if trimmed.is_empty() {
+        "item".to_string()
+    } else {
+        trimmed
+    }
+}
+
+fn random_suffix(len: usize) -> String {
+    const ALPHABET: &[u8; 32] = b"abcdefghijklmnopqrstuvwxyz234567";
+    let mut out = String::with_capacity(len);
+    for _ in 0..len {
+        let idx = (js_sys::Math::random() * 32.0).floor() as usize;
+        out.push(ALPHABET[idx] as char);
+    }
+    out
+}
 
 /// Severity levels for notifications.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -173,7 +209,7 @@ impl NotificationAction {
         // Error toasts with details persist longer (15s) so users can expand and copy
         self.push_toast(
             Toast {
-                id: Uuid::new_v4().to_string(),
+                id: readable_id("notif", "toast"),
                 title: title.to_string(),
                 message: message.to_string(),
                 details: Some(details.to_string()),
@@ -191,7 +227,7 @@ impl NotificationAction {
     pub fn warning_with_details(&self, title: &str, message: &str, details: &str) {
         self.push_toast(
             Toast {
-                id: Uuid::new_v4().to_string(),
+                id: readable_id("notif", "toast"),
                 title: title.to_string(),
                 message: message.to_string(),
                 details: Some(details.to_string()),
@@ -205,7 +241,7 @@ impl NotificationAction {
     fn push_simple(&self, severity: ToastSeverity, title: &str, message: &str) {
         self.push_toast(
             Toast {
-                id: Uuid::new_v4().to_string(),
+                id: readable_id("notif", "toast"),
                 title: title.to_string(),
                 message: message.to_string(),
                 details: None,

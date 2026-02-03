@@ -42,7 +42,7 @@ pub fn Chat() -> impl IntoView {
 
     // Create new session
     let create_session = move |_| {
-        let session_id = format!("session-{}", uuid::Uuid::new_v4());
+        let session_id = generate_readable_id("session", "chat");
         if let Some(window) = web_sys::window() {
             let _ = window.location().set_href(&format!("/chat/{}", session_id));
         }
@@ -53,7 +53,7 @@ pub fn Chat() -> impl IntoView {
         let action = chat_action.clone();
         Callback::new(move |_: ()| {
             let state = chat_state.get_untracked();
-            let session_id = format!("session-{}", uuid::Uuid::new_v4());
+            let session_id = generate_readable_id("session", "chat");
             let session = ChatSessionsManager::session_from_state(&session_id, &state);
             ChatSessionsManager::save_session(&session);
             // Clear dock messages after saving
@@ -264,6 +264,43 @@ fn format_relative_time(timestamp: &str) -> String {
     } else {
         dt.format("%b %d").to_string()
     }
+}
+
+fn generate_readable_id(prefix: &str, slug_source: &str) -> String {
+    let slug = slugify(slug_source);
+    let suffix = random_suffix(6);
+    format!("{}.{}.{}", prefix, slug, suffix)
+}
+
+fn slugify(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut prev_dash = false;
+    for ch in input.chars() {
+        let lower = ch.to_ascii_lowercase();
+        if lower.is_ascii_alphanumeric() {
+            out.push(lower);
+            prev_dash = false;
+        } else if !prev_dash {
+            out.push('-');
+            prev_dash = true;
+        }
+    }
+    let trimmed = out.trim_matches('-').to_string();
+    if trimmed.is_empty() {
+        "item".to_string()
+    } else {
+        trimmed
+    }
+}
+
+fn random_suffix(len: usize) -> String {
+    const ALPHABET: &[u8; 32] = b"abcdefghijklmnopqrstuvwxyz234567";
+    let mut out = String::with_capacity(len);
+    for _ in 0..len {
+        let idx = (js_sys::Math::random() * 32.0).floor() as usize;
+        out.push(ALPHABET[idx] as char);
+    }
+    out
 }
 
 /// Chat session page using global state with SSE streaming

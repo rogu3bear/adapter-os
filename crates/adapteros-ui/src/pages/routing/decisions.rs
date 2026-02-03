@@ -7,8 +7,9 @@ use crate::api::{
     RoutingDebugResponse, RoutingDecisionResponse, RoutingDecisionsQuery, RoutingDecisionsResponse,
 };
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, Checkbox, ErrorDisplay, Input,
-    Spinner, SplitPanel, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Textarea,
+    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, Checkbox, CopyableId,
+    ErrorDisplay, Input, Spinner, SplitPanel, Table, TableBody, TableCell, TableHead, TableHeader,
+    TableRow, Textarea,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use leptos::prelude::*;
@@ -467,23 +468,11 @@ fn DecisionDetailContent(decision: RoutingDecisionResponse) -> impl IntoView {
         // Overview
         <Card title="Overview".to_string()>
             <div class="grid gap-3 text-sm">
-                <div class="flex justify-between">
-                    <span class="text-muted-foreground">"Decision ID"</span>
-                    <span class="font-mono text-xs">{truncate(&decision.id, 20)}</span>
-                </div>
-                <div class="flex justify-between">
-                    <span class="text-muted-foreground">"Request ID"</span>
-                    <span class="font-mono text-xs">{truncate(&decision.request_id, 20)}</span>
-                </div>
-                <div class="flex justify-between">
-                    <span class="text-muted-foreground">"Tenant"</span>
-                    <span class="font-mono text-xs">{truncate(&decision.tenant_id, 12)}</span>
-                </div>
+                <CopyableId id=decision.id.clone() label="Decision ID".to_string() truncate=24 />
+                <CopyableId id=decision.request_id.clone() label="Request ID".to_string() truncate=24 />
+                <CopyableId id=decision.tenant_id.clone() label="Tenant".to_string() truncate=16 />
                 {decision.stack_id.clone().map(|s| view! {
-                    <div class="flex justify-between">
-                        <span class="text-muted-foreground">"Stack ID"</span>
-                        <span class="font-mono text-xs">{truncate(&s, 12)}</span>
-                    </div>
+                    <CopyableId id=s label="Stack ID".to_string() truncate=16 />
                 })}
                 <div class="flex justify-between">
                     <span class="text-muted-foreground">"Timestamp"</span>

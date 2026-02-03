@@ -19,9 +19,9 @@
 use crate::api::ApiClient;
 use crate::components::{
     AdapterDetailPanel, AsyncBoundary, AsyncBoundaryWithErrorRender, Badge, BadgeVariant,
-    BreadcrumbItem, BreadcrumbTrail, Button, ButtonVariant, Card, EmptyState, EmptyStateVariant,
-    ErrorDisplay, Link, SplitPanel, SplitRatio, Table, TableBody, TableCell, TableHead,
-    TableHeader, TableRow,
+    BreadcrumbItem, BreadcrumbTrail, Button, ButtonVariant, Card, CopyableId, EmptyState,
+    EmptyStateVariant, ErrorDisplay, Link, SplitPanel, SplitRatio, Table, TableBody, TableCell,
+    TableHead, TableHeader, TableRow,
 };
 use crate::constants::urls::docs_link;
 use crate::contexts::use_in_flight;
@@ -488,10 +488,11 @@ fn AdapterDetailContent(adapter: AdapterResponse) -> impl IntoView {
                         <p class="text-sm text-muted-foreground">"Name"</p>
                         <p class="font-medium">{adapter.name.clone()}</p>
                     </div>
-                    <div>
-                        <p class="text-sm text-muted-foreground">"Adapter ID"</p>
-                        <p class="font-mono text-sm">{adapter.adapter_id.clone()}</p>
-                    </div>
+                    <CopyableId
+                        id=adapter.adapter_id.clone()
+                        label="Adapter ID".to_string()
+                        truncate=28
+                    />
                     <div>
                         <p class="text-sm text-muted-foreground">"Hash (BLAKE3)"</p>
                         <p class="font-mono text-sm truncate">{adapter.hash_b3.clone()}</p>
