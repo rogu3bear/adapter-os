@@ -2725,9 +2725,12 @@ pub use inference_write_bundle::{
 pub mod inference_trace;
 pub use inference_trace::{
     backfill_receipt_digests, count_pending_receipt_backfill, find_trace_by_receipt_digest,
-    get_provenance_chain, get_receipt_parity_stats, recompute_receipt, BackfillResult,
-    SqlTraceSink, TraceCancellation, TraceCancellationReceipt, TraceFinalization, TraceReceipt,
-    TraceReceiptVerification, TraceSink, TraceStart, TraceTokenInput,
+    get_inference_trace_detail_for_tenant, get_provenance_chain, get_receipt_parity_stats,
+    list_inference_traces_for_tenant, recompute_receipt, BackfillResult,
+    InferenceTraceDetailRecord, InferenceTraceListRecord, InferenceTraceReceiptRecord,
+    InferenceTraceTokenRecord, SqlTraceSink, TraceCancellation, TraceCancellationReceipt,
+    TraceFinalization, TraceReceipt, TraceReceiptVerification, TraceSink, TraceStart,
+    TraceTokenInput,
 };
 pub mod batch_jobs;
 pub use batch_jobs::{
