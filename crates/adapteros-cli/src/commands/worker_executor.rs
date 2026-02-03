@@ -6,9 +6,41 @@
 use adapteros_agent_spawn::protocol::{
     FileModification, ModificationType, TaskAssignment, TaskProposal,
 };
-use adapteros_core::Result;
+use adapteros_core::{AosError, Result};
 use std::path::PathBuf;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 use tracing::{debug, info};
+
+/// Cooperative cancellation token for task execution.
+#[derive(Clone, Default, Debug)]
+pub struct CancellationToken {
+    cancelled: Arc<AtomicBool>,
+    reason: Arc<Mutex<Option<String>>>,
+}
+
+impl CancellationToken {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn cancel(&self, reason: impl Into<String>) {
+        if let Ok(mut guard) = self.reason.lock() {
+            *guard = Some(reason.into());
+        }
+        self.cancelled.store(true, Ordering::SeqCst);
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::SeqCst)
+    }
+
+    pub fn reason(&self) -> Option<String> {
+        self.reason.lock().ok().and_then(|guard| guard.clone())
+    }
+}
 
 /// Execute a task assignment and generate a proposal
 ///
@@ -24,7 +56,11 @@ use tracing::{debug, info};
 /// 3. Create file modifications with diffs
 /// 4. Calculate confidence scores
 /// 5. Detect conflicts with other agents' scopes
-pub async fn execute_task(assignment: &TaskAssignment, agent_id: &str) -> Result<TaskProposal> {
+pub async fn execute_task(
+    assignment: &TaskAssignment,
+    agent_id: &str,
+    cancel: Option<CancellationToken>,
+) -> Result<TaskProposal> {
     info!(
         agent_id = %agent_id,
         task_id = %hex::encode(assignment.task_id),
@@ -38,7 +74,8 @@ pub async fn execute_task(assignment: &TaskAssignment, agent_id: &str) -> Result
     );
 
     // Analyze files and generate modification proposals
-    let modifications = analyze_files(&assignment.scope.owned_files).await?;
+    check_cancelled(cancel.as_ref())?;
+    let modifications = analyze_files(&assignment.scope.owned_files, cancel.as_ref()).await?;
 
     // Calculate confidence based on analysis quality
     let confidence = calculate_confidence(&modifications);
@@ -82,6 +119,7 @@ pub async fn execute_task(assignment: &TaskAssignment, agent_id: &str) -> Result
         "Task execution complete"
     );
 
+    check_cancelled(cancel.as_ref())?;
     Ok(proposal)
 }
 
@@ -89,12 +127,17 @@ pub async fn execute_task(assignment: &TaskAssignment, agent_id: &str) -> Result
 ///
 /// Performs static analysis on each file to identify areas requiring attention
 /// and generates suggested modifications with diffs.
-async fn analyze_files(files: &[PathBuf]) -> Result<Vec<FileModification>> {
+async fn analyze_files(
+    files: &[PathBuf],
+    cancel: Option<&CancellationToken>,
+) -> Result<Vec<FileModification>> {
     let mut modifications = Vec::new();
 
     for file in files {
+        check_cancelled(cancel)?;
         // Read file content
         if let Ok(content) = tokio::fs::read_to_string(file).await {
+            check_cancelled(cancel)?;
             // Compute hash of original content
             let original_hash = blake3::hash(content.as_bytes());
 
@@ -103,6 +146,7 @@ async fn analyze_files(files: &[PathBuf]) -> Result<Vec<FileModification>> {
 
             // Generate modifications for each identified issue
             for issue in &analysis.issues {
+                check_cancelled(cancel)?;
                 let diff = generate_issue_diff(&content, issue);
 
                 let modification = FileModification {
@@ -298,6 +342,18 @@ fn calculate_confidence(modifications: &[FileModification]) -> f32 {
     confidence.clamp(0.1, 0.9)
 }
 
+fn check_cancelled(cancel: Option<&CancellationToken>) -> Result<()> {
+    if let Some(token) = cancel {
+        if token.is_cancelled() {
+            let reason = token
+                .reason()
+                .unwrap_or_else(|| "Task cancelled".to_string());
+            return Err(AosError::Worker(reason));
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -321,7 +377,7 @@ mod tests {
             context: serde_json::Value::Object(Default::default()),
         };
 
-        let result = execute_task(&assignment, "test-agent").await;
+        let result = execute_task(&assignment, "test-agent", None).await;
         assert!(result.is_ok());
 
         let proposal = result.unwrap();

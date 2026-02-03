@@ -112,13 +112,14 @@ orchestrator = ["dep:adapteros-orchestrator"]
 scenarios = []
 extended-tests = []
 coreml-export = ["adapteros-lora-worker/coreml-backend"]
-# CoreML backend feature - enables runtime FFI checks in doctor command
-coreml-backend = ["dep:adapteros-lora-kernel-coreml"]
+# CoreML backend feature - enables CoreML runtime support in worker backend selection
+coreml-backend = ["dep:adapteros-lora-kernel-coreml", "adapteros-lora-worker/coreml-backend"]
 # Full CLI with all optional features
 full = ["replay", "trace", "orchestrator", "codegraph", "tui"]
 # Minimal CLI without optional features
 minimal = []
 [dev-dependencies]
+ahash = { workspace = true }
 axum = { version = "0.8", features = ["macros", "json"] }
 serial_test = "3.1"
 tokenizers = { workspace = true }
