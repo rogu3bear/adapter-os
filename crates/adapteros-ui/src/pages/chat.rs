@@ -321,6 +321,7 @@ pub fn ChatSession() -> impl IntoView {
             }
 
             current_session_id.set(id.clone());
+            action.set_session_id(Some(id.clone()));
 
             // Try to load session from localStorage
             if let Some(stored) = ChatSessionsManager::load_session(&id) {
@@ -419,6 +420,7 @@ pub fn ChatSession() -> impl IntoView {
         on_cleanup(move || {
             // Always attempt to cancel to prevent stale updates after navigation
             action.cancel_stream();
+            action.set_session_id(None);
         });
     }
 
