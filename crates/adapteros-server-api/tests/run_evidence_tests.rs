@@ -80,6 +80,9 @@ async fn evidence_bundle_contains_required_files() -> anyhow::Result<()> {
         tenant_id: tenant_id.clone(),
         request_id: Some(run_id.clone()),
         context_digest: [1u8; 32],
+        stack_id: None,
+        model_id: None,
+        policy_id: None,
     };
     let db_arc = state.db.as_db_arc();
     let mut sink = SqlTraceSink::new(db_arc, trace_start, 1).await?;
