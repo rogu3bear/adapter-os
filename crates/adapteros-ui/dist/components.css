@@ -2778,6 +2778,10 @@
   background-color: hsl(210 40% 96.1% / 0.05);
 }
 
+.shell-page {
+  padding: var(--shell-page-padding);
+}
+
 /* Remove focus outline on main when jumped to via skip link */
 .shell-main:focus {
   outline: none;
