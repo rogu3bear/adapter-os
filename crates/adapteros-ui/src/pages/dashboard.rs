@@ -267,7 +267,7 @@ pub fn Dashboard() -> impl IntoView {
     };
 
     view! {
-        <div class="p-6 space-y-6">
+        <div class="shell-page space-y-6">
             <div class="flex items-center justify-between">
                 <div class="flex items-center gap-4">
                     <h1 class="text-3xl font-bold tracking-tight">"Dashboard"</h1>
