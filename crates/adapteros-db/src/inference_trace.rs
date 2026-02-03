@@ -19,6 +19,9 @@ pub struct TraceStart {
     pub tenant_id: String,
     pub request_id: Option<String>,
     pub context_digest: [u8; 32],
+    pub stack_id: Option<String>,
+    pub model_id: Option<String>,
+    pub policy_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -225,14 +228,26 @@ impl SqlTraceSink {
 
         sqlx::query(
             r#"
-            INSERT INTO inference_traces (trace_id, tenant_id, request_id, context_digest, created_at)
-            VALUES (?, ?, ?, ?, datetime('now'))
+            INSERT INTO inference_traces (
+                trace_id,
+                tenant_id,
+                request_id,
+                context_digest,
+                created_at,
+                stack_id,
+                model_id,
+                policy_id
+            )
+            VALUES (?, ?, ?, ?, datetime('now'), ?, ?, ?)
             "#,
         )
         .bind(&start.trace_id)
         .bind(&start.tenant_id)
         .bind(&start.request_id)
         .bind(&start.context_digest[..])
+        .bind(&start.stack_id)
+        .bind(&start.model_id)
+        .bind(&start.policy_id)
         .execute(db.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to insert inference_trace: {e}")))?;
@@ -1358,6 +1373,9 @@ pub struct InferenceTraceDetailRecord {
     pub trace_id: String,
     pub request_id: Option<String>,
     pub created_at: String,
+    pub stack_id: Option<String>,
+    pub model_id: Option<String>,
+    pub policy_id: Option<String>,
     pub tokens: Vec<InferenceTraceTokenRecord>,
     pub receipt: Option<InferenceTraceReceiptRecord>,
 }
@@ -1412,7 +1430,7 @@ pub async fn get_inference_trace_detail_for_tenant(
 
     let header = sqlx::query(
         r#"
-        SELECT trace_id, request_id, created_at
+        SELECT trace_id, request_id, created_at, stack_id, model_id, policy_id
         FROM inference_traces
         WHERE trace_id = ? AND tenant_id = ?
         LIMIT 1
@@ -1431,6 +1449,9 @@ pub async fn get_inference_trace_detail_for_tenant(
     let trace_id: String = header.get("trace_id");
     let request_id: Option<String> = header.get("request_id");
     let created_at: String = header.get("created_at");
+    let stack_id: Option<String> = header.get("stack_id");
+    let model_id: Option<String> = header.get("model_id");
+    let policy_id: Option<String> = header.get("policy_id");
 
     let token_rows = sqlx::query(
         r#"
@@ -1536,6 +1557,9 @@ pub async fn get_inference_trace_detail_for_tenant(
         trace_id,
         request_id,
         created_at,
+        stack_id,
+        model_id,
+        policy_id,
         tokens,
         receipt,
     }))
