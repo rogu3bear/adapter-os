@@ -14,7 +14,7 @@ use adapteros_api_types::AdapterResponse;
 use leptos::prelude::*;
 
 use crate::components::{
-    AdapterLifecycleControls, Badge, BadgeVariant, Button, ButtonVariant, Card, Spinner,
+    AdapterLifecycleControls, Badge, BadgeVariant, Button, ButtonVariant, Card, CopyableId, Spinner,
 };
 use crate::contexts::use_in_flight;
 
@@ -249,9 +249,7 @@ fn AdapterDetailContent(
             <div class="adapter-detail-header">
                 <div class="adapter-detail-header-info">
                     <h2 class="adapter-detail-title">{name}</h2>
-                    <p class="adapter-detail-subtitle font-mono text-sm text-muted-foreground">
-                        {adapter_id.clone()}
-                    </p>
+                    <CopyableId id=adapter_id.clone() truncate=28 />
                 </div>
                 <button
                     type="button"

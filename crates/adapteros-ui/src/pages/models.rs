@@ -6,8 +6,8 @@ use crate::api::{
     AllModelsStatusResponse, ApiClient, ApiError, ModelLoadStatus, ModelStatusResponse,
 };
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonVariant, Card, ErrorDisplay, Spinner, SplitPanel, Table,
-    TableBody, TableCell, TableHead, TableHeader, TableRow,
+    Badge, BadgeVariant, Button, ButtonVariant, Card, CopyableId, ErrorDisplay, Spinner,
+    SplitPanel, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use leptos::prelude::*;
@@ -440,10 +440,7 @@ fn ModelDetailContent(
         // Details
         <Card title="Details".to_string() class="mt-4".to_string()>
             <div class="grid gap-3 text-sm">
-                <div class="flex justify-between">
-                    <span class="text-muted-foreground">"Model ID"</span>
-                    <span class="font-mono text-xs">{model.model_id.clone()}</span>
-                </div>
+                <CopyableId id=model.model_id.clone() label="Model ID".to_string() truncate=24 />
                 <div class="flex justify-between">
                     <span class="text-muted-foreground">"Name"</span>
                     <span class="font-medium">{model.model_name.clone()}</span>

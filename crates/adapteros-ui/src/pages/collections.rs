@@ -14,8 +14,9 @@ use crate::api::{
 };
 use crate::components::{
     async_state::AsyncBoundary, Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card,
-    Checkbox, ConfirmationDialog, ConfirmationSeverity, Dialog, Input, Link, LinkVariant, Select,
-    Spinner, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Textarea,
+    Checkbox, ConfirmationDialog, ConfirmationSeverity, CopyableId, Dialog, Input, Link,
+    LinkVariant, Select, Spinner, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    Textarea,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use crate::signals::use_notifications;
@@ -514,10 +515,11 @@ where
                         <p class="text-sm text-muted-foreground">"Description"</p>
                         <p class="font-medium">{description}</p>
                     </div>
-                    <div>
-                        <p class="text-sm text-muted-foreground">"Collection ID"</p>
-                        <p class="font-mono text-sm">{collection_id_display}</p>
-                    </div>
+                    <CopyableId
+                        id=collection_id_display
+                        label="Collection ID".to_string()
+                        truncate=32
+                    />
                 </div>
             </Card>
 
@@ -609,7 +611,7 @@ where
                                         <TableCell>
                                             <div>
                                                 <p class="font-medium">{name}</p>
-                                                <p class="text-xs text-muted-foreground font-mono">{doc_id.clone()}</p>
+                                                <CopyableId id=doc_id.clone() truncate=24 />
                                             </div>
                                         </TableCell>
                                         <TableCell>{size}</TableCell>
@@ -870,7 +872,7 @@ fn AddDocumentsDialog(
                                                         <TableCell>
                                                             <div>
                                                                 <p class="font-medium">{doc.name.clone()}</p>
-                                                                <p class="text-xs text-muted-foreground font-mono">{doc_id.clone()}</p>
+                                                                <CopyableId id=doc_id.clone() truncate=24 />
                                                             </div>
                                                         </TableCell>
                                                         <TableCell>

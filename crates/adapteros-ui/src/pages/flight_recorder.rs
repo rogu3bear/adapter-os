@@ -12,8 +12,8 @@ use crate::api::client::InferenceTraceDetailResponse;
 use crate::api::ApiClient;
 use crate::components::{
     ActionCard, ActionCardVariant, AsyncBoundary, Badge, BadgeVariant, Button, ButtonVariant, Card,
-    DiffResults, Link, Select, Spinner, Table, TableBody, TableCell, TableHead, TableHeader,
-    TableRow, TokenDecisions, TraceViewerWithData,
+    CopyableId, DiffResults, Link, Select, Spinner, Table, TableBody, TableCell, TableHead,
+    TableHeader, TableRow, TokenDecisions, TraceViewerWithData,
 };
 use crate::hooks::{use_api_resource, use_polling, LoadingState};
 use crate::signals::{use_notifications, NotificationAction};
@@ -344,8 +344,6 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
         }
     });
 
-    let run_id_display = truncate_id(&run_id);
-
     view! {
         <div class="space-y-4">
             // Header
@@ -363,7 +361,7 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
                             </svg>
                         </a>
                     </div>
-                    <p class="text-sm text-muted-foreground font-mono">{run_id_display}</p>
+                    <CopyableId id=run_id.clone() truncate=28 />
                 </div>
                 <Button
                     variant=ButtonVariant::Outline
@@ -958,14 +956,8 @@ fn ReceiptsTab(export: DiagExportResponse) -> impl IntoView {
                 <div class="space-y-4">
                     // Run ID and Trace ID
                     <div class="grid grid-cols-2 gap-4">
-                        <div>
-                            <p class="text-sm text-muted-foreground">"Run ID"</p>
-                            <p class="font-mono text-sm break-all">{run_id}</p>
-                        </div>
-                        <div>
-                            <p class="text-sm text-muted-foreground">"Trace ID"</p>
-                            <p class="font-mono text-sm break-all">{trace_id}</p>
-                        </div>
+                        <CopyableId id=run_id.clone() label="Run ID".to_string() truncate=28 />
+                        <CopyableId id=trace_id.clone() label="Trace ID".to_string() truncate=28 />
                     </div>
 
                     // Hashes

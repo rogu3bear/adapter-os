@@ -48,6 +48,43 @@ fn evict_old_messages(messages: &mut Vec<ChatMessage>, max: usize) {
     }
 }
 
+fn readable_id(prefix: &str, slug_source: &str) -> String {
+    let slug = slugify(slug_source);
+    let suffix = random_suffix(6);
+    format!("{}.{}.{}", prefix, slug, suffix)
+}
+
+fn slugify(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut prev_dash = false;
+    for ch in input.chars() {
+        let lower = ch.to_ascii_lowercase();
+        if lower.is_ascii_alphanumeric() {
+            out.push(lower);
+            prev_dash = false;
+        } else if !prev_dash {
+            out.push('-');
+            prev_dash = true;
+        }
+    }
+    let trimmed = out.trim_matches('-').to_string();
+    if trimmed.is_empty() {
+        "item".to_string()
+    } else {
+        trimmed
+    }
+}
+
+fn random_suffix(len: usize) -> String {
+    const ALPHABET: &[u8; 32] = b"abcdefghijklmnopqrstuvwxyz234567";
+    let mut out = String::with_capacity(len);
+    for _ in 0..len {
+        let idx = (js_sys::Math::random() * 32.0).floor() as usize;
+        out.push(ALPHABET[idx] as char);
+    }
+    out
+}
+
 // ============================================================================
 // SSE Streaming Types (moved from pages/chat.rs)
 // ============================================================================
@@ -241,7 +278,7 @@ pub struct ChatMessage {
 impl ChatMessage {
     pub fn user(content: String) -> Self {
         Self {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: readable_id("msg", "chat"),
             role: "user".to_string(),
             content,
             timestamp: Utc::now(),
@@ -257,7 +294,7 @@ impl ChatMessage {
 
     pub fn assistant(content: String) -> Self {
         Self {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: readable_id("msg", "chat"),
             role: "assistant".to_string(),
             content,
             timestamp: Utc::now(),
@@ -273,7 +310,7 @@ impl ChatMessage {
 
     pub fn assistant_streaming() -> Self {
         Self {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: readable_id("msg", "chat"),
             role: "assistant".to_string(),
             content: String::new(),
             timestamp: Utc::now(),
@@ -518,7 +555,7 @@ impl ChatAction {
             return;
         }
 
-        let idempotency_key = uuid::Uuid::new_v4().to_string();
+        let idempotency_key = readable_id("idem", "chat");
         self.start_streaming_request(
             content,
             true,
@@ -645,7 +682,7 @@ impl ChatAction {
                 idempotency_key: idempotency_key.clone(),
                 user_message_id: resolved_user_message_id
                     .clone()
-                    .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+                    .unwrap_or_else(|| readable_id("msg", "chat")),
                 user_message: content.clone(),
                 assistant_message_id: assistant_message_id.clone(),
                 request_id: None,
@@ -1987,6 +2024,24 @@ impl ChatSessionsManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn streaming_infer_request_serializes_session_id_and_reasoning_mode() {
+        let req = StreamingInferRequest {
+            prompt: "Test prompt".to_string(),
+            session_id: Some("session-123".to_string()),
+            max_tokens: None,
+            temperature: None,
+            adapters: None,
+            context: None,
+            reasoning_mode: Some(true),
+            backend: None,
+        };
+
+        let json = serde_json::to_string(&req).expect("serialize");
+        assert!(json.contains("\"session_id\":\"session-123\""));
+        assert!(json.contains("\"reasoning_mode\":true"));
+    }
 
     /// Tests for is_abort_error string-based detection
     mod abort_error_detection {

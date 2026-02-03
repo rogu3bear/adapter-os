@@ -6,8 +6,8 @@ use crate::api::client::{ChunkListResponse, DocumentListParams, DocumentResponse
 use crate::api::ApiClient;
 use crate::components::{
     Badge, BadgeVariant, BreadcrumbItem, BreadcrumbTrail, Button, ButtonSize, ButtonVariant, Card,
-    ConfirmationDialog, ConfirmationSeverity, Dialog, Select, Spinner, Table, TableBody, TableCell,
-    TableHead, TableHeader, TableRow,
+    ConfirmationDialog, ConfirmationSeverity, CopyableId, Dialog, Select, Spinner, Table,
+    TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use leptos::prelude::*;
@@ -712,8 +712,11 @@ fn DocumentDetailContent(
                         <p class="font-medium">{document.name.clone()}</p>
                     </div>
                     <div>
-                        <p class="text-sm text-muted-foreground">"Document ID"</p>
-                        <p class="font-mono text-sm break-all">{document.document_id.clone()}</p>
+                        <CopyableId
+                            id=document.document_id.clone()
+                            label="Document ID".to_string()
+                            truncate=28
+                        />
                     </div>
                     <div>
                         <p class="text-sm text-muted-foreground">"Hash (BLAKE3)"</p>
