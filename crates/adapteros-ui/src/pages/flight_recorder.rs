@@ -791,9 +791,21 @@ fn OverviewTab(
                         }}
                     </div>
                 </div>
-                <p class="text-xs text-muted-foreground mt-3">
-                    "Stack, model, and policy identifiers appear when they are included in the trace payload."
-                </p>
+                {move || {
+                    match trace_detail.get() {
+                        LoadingState::Loaded(detail) => {
+                            let missing_ids = detail.stack_id.is_none()
+                                && detail.model_id.is_none()
+                                && detail.policy_id.is_none();
+                            missing_ids.then(|| view! {
+                                <p class="text-xs text-muted-foreground mt-3">
+                                    "Stack, model, and policy are not included in the trace payload."
+                                </p>
+                            })
+                        }
+                        _ => None,
+                    }
+                }}
             </Card>
 
             // Stage timeline (if available)
