@@ -123,53 +123,120 @@ fn check_mlx_backend() -> ComponentHealth {
 }
 
 /// Check CoreML backend availability
+///
+/// On macOS with coreml-backend feature, this calls actual FFI functions to verify
+/// runtime availability of CoreML, Neural Engine, and GPU capabilities.
 #[allow(unexpected_cfgs)]
 fn check_coreml_backend() -> ComponentHealth {
     let timestamp = get_timestamp();
 
-    // Check platform and feature availability at compile time
-    let is_macos = cfg!(target_os = "macos");
-    let has_coreml_feature = cfg!(feature = "coreml-backend");
+    // On macOS with coreml-backend, call actual FFI to verify runtime availability
+    #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
+    {
+        use adapteros_lora_kernel_coreml::{
+            capabilities, get_system_capabilities, has_neural_engine, is_coreml_available,
+        };
 
-    if is_macos && has_coreml_feature {
-        ComponentHealth {
+        let coreml_available = is_coreml_available();
+        let ane_available = has_neural_engine();
+        let caps = get_system_capabilities();
+        let gpu_available = caps & capabilities::GPU != 0;
+        let mltensor_available = caps & capabilities::MLTENSOR_AVAILABLE != 0;
+        let enhanced_api = caps & capabilities::ENHANCED_API != 0;
+
+        let (status, message) = if coreml_available && ane_available && gpu_available {
+            (
+                ComponentStatus::Healthy,
+                "CoreML: available, ANE: available, GPU: available".to_string(),
+            )
+        } else if coreml_available && ane_available {
+            (
+                ComponentStatus::Healthy,
+                "CoreML: available, ANE: available, GPU: unavailable".to_string(),
+            )
+        } else if coreml_available {
+            (
+                ComponentStatus::Degraded,
+                format!(
+                    "CoreML: available, ANE: unavailable, GPU: {}",
+                    if gpu_available {
+                        "available"
+                    } else {
+                        "unavailable"
+                    }
+                ),
+            )
+        } else {
+            (
+                ComponentStatus::Unhealthy,
+                "CoreML: unavailable (FFI check failed)".to_string(),
+            )
+        };
+
+        return ComponentHealth {
             component: "CoreML Backend".to_string(),
-            status: ComponentStatus::Healthy,
-            message: "CoreML backend available - ANE acceleration enabled".to_string(),
+            status,
+            message,
             details: Some(serde_json::json!({
                 "platform": "macos",
                 "feature": "coreml-backend",
-                "ane_support": true,
-                "recommendation": "CoreML ANE acceleration is available for supported operations"
+                "runtime_ffi_check": true,
+                "coreml_available": coreml_available,
+                "ane_available": ane_available,
+                "gpu_available": gpu_available,
+                "mltensor_available": mltensor_available,
+                "enhanced_api": enhanced_api,
+                "capabilities_bitmask": caps
             })),
             timestamp,
-        }
-    } else if is_macos {
-        ComponentHealth {
-            component: "CoreML Backend".to_string(),
-            status: ComponentStatus::Degraded,
-            message: "macOS detected but coreml-backend feature not enabled".to_string(),
-            details: Some(serde_json::json!({
-                "platform": "macos",
-                "feature": "coreml-backend",
-                "status": "not_compiled",
-                "recommendation": "Rebuild with --features coreml-backend for CoreML ANE support"
-            })),
-            timestamp,
-        }
-    } else {
-        ComponentHealth {
-            component: "CoreML Backend".to_string(),
-            status: ComponentStatus::Degraded,
-            message: "CoreML only available on macOS".to_string(),
-            details: Some(serde_json::json!({
-                "platform": std::env::consts::OS,
-                "feature": "coreml-backend",
-                "status": "platform_unsupported",
-                "recommendation": "Run on macOS for CoreML ANE acceleration"
-            })),
-            timestamp,
-        }
+        };
+    }
+
+    // Fallback for non-macOS or when coreml-backend feature is not enabled
+    #[cfg(not(all(target_os = "macos", feature = "coreml-backend")))]
+    {
+        let is_macos = cfg!(target_os = "macos");
+        let has_coreml_feature = cfg!(feature = "coreml-backend");
+        return if is_macos && has_coreml_feature {
+            ComponentHealth {
+                component: "CoreML Backend".to_string(),
+                status: ComponentStatus::Healthy,
+                message: "CoreML backend compiled (feature enabled)".to_string(),
+                details: Some(serde_json::json!({
+                    "platform": "macos",
+                    "feature": "coreml-backend",
+                    "runtime_ffi_check": false,
+                    "recommendation": "CoreML backend is available for supported operations"
+                })),
+                timestamp,
+            }
+        } else if is_macos {
+            ComponentHealth {
+                component: "CoreML Backend".to_string(),
+                status: ComponentStatus::Degraded,
+                message: "macOS detected but coreml-backend feature not enabled".to_string(),
+                details: Some(serde_json::json!({
+                    "platform": "macos",
+                    "feature": "coreml-backend",
+                    "status": "not_compiled",
+                    "recommendation": "Rebuild with --features coreml-backend for CoreML ANE support"
+                })),
+                timestamp,
+            }
+        } else {
+            ComponentHealth {
+                component: "CoreML Backend".to_string(),
+                status: ComponentStatus::Degraded,
+                message: "CoreML only available on macOS".to_string(),
+                details: Some(serde_json::json!({
+                    "platform": std::env::consts::OS,
+                    "feature": "coreml-backend",
+                    "status": "platform_unsupported",
+                    "recommendation": "Run on macOS for CoreML ANE acceleration"
+                })),
+                timestamp,
+            }
+        };
     }
 }
 

@@ -190,6 +190,12 @@ pub struct WorkerStatusNotification {
     /// Number of active cache entries (in-use, cannot be evicted)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_active_entries: Option<u32>,
+    /// CoreML failure stage reported by the worker (if any)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coreml_failure_stage: Option<String>,
+    /// CoreML failure reason reported by the worker (if any)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coreml_failure_reason: Option<String>,
     /// BLAKE3 hash of the currently loaded model (for routing affinity)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub loaded_model_hash: Option<String>,
@@ -316,6 +322,12 @@ pub struct WorkerHeartbeatRequest {
     /// Tokenizer vocab size loaded by this worker
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tokenizer_vocab_size: Option<u32>,
+    /// CoreML failure stage (init/config/model_path/model_integrity/runtime)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coreml_failure_stage: Option<String>,
+    /// CoreML failure reason (stage-specific)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coreml_failure_reason: Option<String>,
 }
 
 /// Worker heartbeat response

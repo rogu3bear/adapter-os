@@ -21,8 +21,9 @@ use adapteros_config::{
     resolve_worker_socket_for_worker,
 };
 use adapteros_core::{
-    constants::DEFAULT_ADAPTER_CACHE_SIZE, resolve_var_dir, tokenizer_config::SpecialTokenMap,
-    AosError, B3Hash, ExecutionProfile, Result, SeedMode, WorkerStatus,
+    constants::DEFAULT_ADAPTER_CACHE_SIZE, rebase_var_path, resolve_var_dir,
+    tokenizer_config::SpecialTokenMap, AosError, B3Hash, ExecutionProfile, Result, SeedMode,
+    WorkerStatus,
 };
 use adapteros_lora_kernel_api::MockKernels;
 use adapteros_lora_worker::{
@@ -42,6 +43,7 @@ use adapteros_lora_worker::{
 };
 use adapteros_telemetry::TelemetryWriter;
 use clap::Parser;
+use serde::Deserialize;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -50,24 +52,248 @@ use std::{fs, time::Duration};
 use tokio::signal;
 use tokio::sync::Mutex;
 use tracing::{error, info, info_span, warn};
+use tracing_appender::non_blocking::WorkerGuard;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
 use adapteros_db::{CreateCoremlFusionPairParams, Db};
 
-pub async fn run_worker() -> Result<()> {
-    // Initialize tracing
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive("aos_worker=info".parse().unwrap())
-                .add_directive("adapteros_lora_worker=info".parse().unwrap()),
-        )
+fn log_boot_phase(phase: &'static str) {
+    info!(phase, "Worker boot phase");
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct LoggingToml {
+    #[serde(default)]
+    logging: Option<LoggingTomlSection>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct LoggingTomlSection {
+    level: Option<String>,
+    log_dir: Option<String>,
+    json_format: Option<bool>,
+    rotation: Option<String>,
+}
+
+#[derive(Debug)]
+struct WorkerLoggingSettings {
+    level: String,
+    log_dir: Option<std::path::PathBuf>,
+    log_prefix: String,
+    json_format: bool,
+    rotation: tracing_appender::rolling::Rotation,
+}
+
+fn resolve_config_toml_path_for_logging() -> Result<Option<String>> {
+    if let Ok(val) = std::env::var("AOS_CONFIG_TOML") {
+        if !val.trim().is_empty() {
+            let path = std::path::Path::new(&val);
+            reject_tmp_persistent_path(path, "config-toml")?;
+            return Ok(Some(val));
+        }
+    }
+
+    let default_path = std::path::Path::new("configs/cp.toml");
+    if default_path.exists() {
+        reject_tmp_persistent_path(default_path, "config-toml")?;
+        return Ok(Some(default_path.to_string_lossy().to_string()));
+    }
+
+    Ok(None)
+}
+
+fn load_logging_toml_section() -> Result<Option<LoggingTomlSection>> {
+    let toml_path = resolve_config_toml_path_for_logging()?;
+    let Some(path) = toml_path else {
+        return Ok(None);
+    };
+
+    let raw = fs::read_to_string(&path).map_err(|e| {
+        AosError::Io(format!("Failed to read config TOML for logging at {}: {}", path, e))
+    })?;
+
+    let parsed: LoggingToml = toml::from_str(&raw).map_err(|e| {
+        AosError::Config(format!(
+            "Invalid TOML in {} while parsing [logging] section: {}",
+            path, e
+        ))
+    })?;
+
+    Ok(parsed.logging)
+}
+
+fn resolve_log_dir_from_env_or_config(
+    logging: Option<&LoggingTomlSection>,
+) -> Result<(Option<std::path::PathBuf>, Option<String>)> {
+    if let Ok(raw) = std::env::var("AOS_LOG_FILE") {
+        let trimmed = raw.trim();
+        if !trimmed.is_empty() {
+            let path = std::path::PathBuf::from(trimmed);
+            let log_prefix = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .map(|s| s.to_string());
+            let log_dir = match path.extension() {
+                Some(_) => path
+                    .parent()
+                    .unwrap_or_else(|| std::path::Path::new("."))
+                    .to_path_buf(),
+                None => path,
+            };
+            let resolved = rebase_var_path(log_dir);
+            reject_tmp_persistent_path(&resolved, "log-dir")?;
+            return Ok((Some(resolved), log_prefix));
+        }
+    }
+
+    if let Ok(raw) = std::env::var("AOS_LOG_DIR") {
+        let trimmed = raw.trim();
+        if !trimmed.is_empty() {
+            let resolved = rebase_var_path(trimmed);
+            reject_tmp_persistent_path(&resolved, "log-dir")?;
+            return Ok((Some(resolved), None));
+        }
+    }
+
+    if let Some(logging) = logging {
+        if let Some(raw) = logging.log_dir.as_ref() {
+            let trimmed = raw.trim();
+            if !trimmed.is_empty() {
+                let resolved = rebase_var_path(trimmed);
+                reject_tmp_persistent_path(&resolved, "log-dir")?;
+                return Ok((Some(resolved), None));
+            }
+        }
+    }
+
+    Ok((None, None))
+}
+
+fn resolve_worker_logging_settings() -> Result<WorkerLoggingSettings> {
+    let logging_toml = load_logging_toml_section()?;
+    let (log_dir, log_prefix_override) =
+        resolve_log_dir_from_env_or_config(logging_toml.as_ref())?;
+
+    let default_level = "aos_worker=info,adapteros_lora_worker=info".to_string();
+    let level = std::env::var("RUST_LOG")
+        .or_else(|_| std::env::var("AOS_LOG_LEVEL"))
+        .ok()
+        .or_else(|| logging_toml.as_ref().and_then(|cfg| cfg.level.clone()))
+        .unwrap_or(default_level);
+
+    let json_format = std::env::var("AOS_LOG_FORMAT")
+        .ok()
+        .map(|raw| raw.to_lowercase())
+        .and_then(|raw| match raw.as_str() {
+            "json" => Some(true),
+            "text" | "pretty" => Some(false),
+            _ => None,
+        })
+        .unwrap_or_else(|| logging_toml.as_ref().and_then(|cfg| cfg.json_format).unwrap_or(false));
+
+    let rotation_raw = logging_toml
+        .as_ref()
+        .and_then(|cfg| cfg.rotation.clone())
+        .unwrap_or_else(|| "daily".to_string());
+    let rotation = match rotation_raw.as_str() {
+        "hourly" => tracing_appender::rolling::Rotation::HOURLY,
+        "daily" => tracing_appender::rolling::Rotation::DAILY,
+        "never" => tracing_appender::rolling::Rotation::NEVER,
+        _ => tracing_appender::rolling::Rotation::DAILY,
+    };
+
+    let log_prefix = log_prefix_override.unwrap_or_else(|| "aos-worker".to_string());
+
+    Ok(WorkerLoggingSettings {
+        level,
+        log_dir,
+        log_prefix,
+        json_format,
+        rotation,
+    })
+}
+
+fn init_worker_logging() -> Result<Option<WorkerGuard>> {
+    let settings = resolve_worker_logging_settings()?;
+
+    let env_filter = EnvFilter::try_new(&settings.level).unwrap_or_else(|e| {
+        eprintln!(
+            "WARNING: Invalid log filter '{}': {}. Falling back to default worker log level.",
+            settings.level, e
+        );
+        EnvFilter::new("aos_worker=info,adapteros_lora_worker=info")
+    });
+
+    let (file_layer, guard) = if let Some(ref log_dir) = settings.log_dir {
+        std::fs::create_dir_all(log_dir).map_err(|e| {
+            AosError::Io(format!(
+                "Failed to create log directory {}: {}",
+                log_dir.display(),
+                e
+            ))
+        })?;
+
+        let file_appender = tracing_appender::rolling::RollingFileAppender::new(
+            settings.rotation,
+            log_dir,
+            &settings.log_prefix,
+        );
+        let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
+
+        let layer = if settings.json_format {
+            tracing_subscriber::fmt::layer()
+                .json()
+                .with_writer(non_blocking)
+                .with_ansi(false)
+                .boxed()
+        } else {
+            tracing_subscriber::fmt::layer()
+                .with_writer(non_blocking)
+                .with_ansi(false)
+                .with_target(true)
+                .with_thread_ids(true)
+                .with_file(true)
+                .with_line_number(true)
+                .boxed()
+        };
+
+        (Some(layer), Some(guard))
+    } else {
+        (None, None)
+    };
+
+    let console_layer = if settings.json_format {
+        tracing_subscriber::fmt::layer()
+            .json()
+            .with_ansi(false)
+            .boxed()
+    } else {
+        tracing_subscriber::fmt::layer()
+            .with_target(true)
+            .with_thread_ids(false)
+            .with_file(false)
+            .with_line_number(false)
+            .boxed()
+    };
+
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(console_layer)
+        .with(file_layer)
         .init();
 
-    let args = Args::parse();
+    Ok(guard)
+}
 
+pub async fn run_worker() -> Result<()> {
     // Load canonical .env before any environment-based resolution
     adapteros_config::model::load_dotenv();
+
+    // Initialize tracing
+    let _log_guard = init_worker_logging()?;
+
+    let args = Args::parse();
 
     // Early validation: check model cache budget BEFORE any expensive operations
     // This is a fail-fast check to avoid 100-200ms of wasted work (manifest loading,
@@ -82,11 +308,12 @@ pub async fn run_worker() -> Result<()> {
              Set AOS_MODEL_CACHE_MAX_MB=<megabytes> environment variable\n\
              or model.cache.max.mb in the config TOML file."
             );
-            // Exit immediately with config error - no point in continuing
+            // Exit before registration; no CP status notification is possible yet.
             std::process::exit(EXIT_CONFIG_ERROR);
         }
     };
     info!("Model cache budget validated successfully");
+    log_boot_phase("config-validated");
 
     let adapter_cache_bytes = match args.adapter_cache_bytes {
         Some(0) => {
@@ -329,6 +556,7 @@ pub async fn run_worker() -> Result<()> {
         k_sparse = manifest.router.k_sparse,
         "Manifest loaded and verified"
     );
+    log_boot_phase("manifest-loaded");
     let model_hash_hex = manifest.base.model_hash.to_hex();
     let tokenizer_hash_hex = manifest.base.tokenizer_hash.to_hex();
 
@@ -480,7 +708,19 @@ pub async fn run_worker() -> Result<()> {
             &model_path,
             Some(&manifest_hash),
             Some(&manifest.base.model_hash),
-        )?;
+        )
+        .map_err(|e| {
+            if backend_choice_local == BackendChoice::CoreML {
+                let class = adapteros_lora_worker::backend_factory::classify_coreml_error(&e);
+                error!(
+                    coreml_failure_stage = class.stage,
+                    coreml_failure_reason = class.reason,
+                    error = %e,
+                    "CoreML backend initialization failed"
+                );
+            }
+            e
+        })?;
         #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
         if let Some(settings) = coreml_primary_settings.as_ref() {
             log_coreml_runtime("primary", settings);
@@ -533,6 +773,18 @@ pub async fn run_worker() -> Result<()> {
                             Some(k)
                         }
                         Err(e) => {
+                            if choice == BackendChoice::CoreML {
+                                let class =
+                                    adapteros_lora_worker::backend_factory::classify_coreml_error(
+                                        &e,
+                                    );
+                                error!(
+                                    coreml_failure_stage = class.stage,
+                                    coreml_failure_reason = class.reason,
+                                    error = %e,
+                                    "CoreML fallback backend initialization failed"
+                                );
+                            }
                             warn!(error = %e, "Failed to create fallback backend, continuing without fallback");
                             None
                         }
@@ -692,7 +944,7 @@ pub async fn run_worker() -> Result<()> {
         warn!("Dev no-auth enabled; skipping control plane registration and status updates");
     }
 
-    // Register with control plane first to get quota allocation
+    // Register with control plane before UDS bind to acquire quotas and publish the socket path.
     let capabilities = detect_capabilities(backend_label);
     let capabilities_detail = if mock_backend {
         mock_capabilities_detail()
@@ -703,6 +955,7 @@ pub async fn run_worker() -> Result<()> {
 
     let manifest_hash_hex = manifest_hash.to_hex();
     if cp_enabled {
+        log_boot_phase("cp-register");
         info!(
             worker_id = %worker_id,
             tenant_id = %args.tenant_id,
@@ -745,6 +998,7 @@ pub async fn run_worker() -> Result<()> {
                     &manifest.base.tokenizer_hash.to_hex(),
                     manifest.base.vocab_size,
                 );
+                log_boot_phase("cp-registered");
                 info!(
                     heartbeat_interval = result.heartbeat_interval_secs,
                     kv_quota_bytes = ?result.kv_quota_bytes,
@@ -757,6 +1011,7 @@ pub async fn run_worker() -> Result<()> {
                 let _lifecycle = lifecycle
                     .transition_to(WorkerStatus::Error)
                     .unwrap_or(lifecycle);
+                // Registration failed after CP contact; always notify before exiting.
                 notify_cp_status(
                     &args.cp_url,
                     &worker_id,
@@ -776,10 +1031,29 @@ pub async fn run_worker() -> Result<()> {
         lifecycle = lifecycle
             .transition_to(WorkerStatus::Registered)
             .map_err(|e| AosError::Lifecycle(e.to_string()))?;
+        log_boot_phase("cp-skipped");
         RegistrationResult {
             heartbeat_interval_secs: 30,
             kv_quota_bytes: None,
             kv_residency_policy_id: None,
+        }
+    };
+
+    log_boot_phase("registered");
+
+    let notify_cp_error = |reason: &str| {
+        if cp_enabled {
+            notify_cp_status(
+                &args.cp_url,
+                &worker_id,
+                WorkerStatus::Error.as_str(),
+                reason,
+                &args.backend,
+                &model_hash_hex,
+                &manifest_hash_hex,
+                &tokenizer_hash_hex,
+                manifest.base.vocab_size,
+            );
         }
     };
 
@@ -841,7 +1115,12 @@ pub async fn run_worker() -> Result<()> {
         Some(adapter_cache_bytes),
         worker_id_u32,
     )
-    .await?;
+    .await
+    .map_err(|e| {
+        notify_cp_error("worker-init-failed");
+        e
+    })?;
+    log_boot_phase("worker-created");
 
     if let Ok(cache) = get_model_cache() {
         let pin_state = cache.base_model_pin_state();
@@ -889,14 +1168,23 @@ pub async fn run_worker() -> Result<()> {
             max_memory_growth,
             ..Default::default()
         };
-        guard.set_health_monitor(Arc::new(if let Some(t) = telemetry_for_monitor {
-            HealthMonitor::new(config)?.with_telemetry(t, args.tenant_id.clone(), worker_id.clone())
+        let monitor = if let Some(t) = telemetry_for_monitor {
+            HealthMonitor::new(config)
+                .map_err(|e| {
+                    notify_cp_error("health-monitor-init-failed");
+                    e
+                })?
+                .with_telemetry(t, args.tenant_id.clone(), worker_id.clone())
         } else {
-            HealthMonitor::new(config)?
-        }));
+            HealthMonitor::new(config).map_err(|e| {
+                notify_cp_error("health-monitor-init-failed");
+                e
+            })?
+        };
+        guard.set_health_monitor(Arc::new(monitor));
     }
 
-    // Start UDS server (bind before marking healthy)
+    // Start UDS server after registration (bind before marking healthy)
     // Try to load worker verifying key for CP->Worker authentication
     // In strict mode, we use retry with exponential backoff (worker may start before CP generates keypair).
     // In non-strict mode, we try once and fall back to no authentication if key is missing.
@@ -920,6 +1208,7 @@ pub async fn run_worker() -> Result<()> {
                     deadline_secs = KEY_LOAD_DEADLINE.as_secs(),
                     "STRICT MODE: Failed to load worker public key after retry"
                 );
+                notify_cp_error("worker-key-load-failed");
                 // Use transient error code so orchestrator will retry
                 std::process::exit(EXIT_TRANSIENT_ERROR);
             }
@@ -962,6 +1251,7 @@ pub async fn run_worker() -> Result<()> {
     };
 
     info!(uds_path = %uds_path.display(), "Starting UDS server");
+    log_boot_phase("uds-bind");
     let server = if let Some(verifying_key) = worker_verifying_key {
         let jti_cache = jti_cache.expect("JTI cache should be initialized when auth is enabled");
         UdsServer::new_with_worker_auth(
@@ -984,12 +1274,20 @@ pub async fn run_worker() -> Result<()> {
             drain_flag.clone(),
         )
     };
-    let listener = server.bind().await?;
+    let listener = match server.bind().await {
+        Ok(listener) => listener,
+        Err(e) => {
+            // Report bind failure after registration so CP will not consider this worker live.
+            notify_cp_error("uds-bind-failed");
+            return Err(e);
+        }
+    };
 
     lifecycle = lifecycle
         .transition_to(WorkerStatus::Healthy)
         .map_err(|e| AosError::Lifecycle(e.to_string()))?;
     if cp_enabled {
+        // Publish healthy after UDS bind so CP only routes to a listening socket.
         notify_cp_status(
             &args.cp_url,
             &worker_id,
@@ -1002,6 +1300,7 @@ pub async fn run_worker() -> Result<()> {
             manifest.base.vocab_size,
         );
     }
+    log_boot_phase("uds-listening");
 
     // Spawn health monitor loop with telemetry + shutdown hook
     let (health_monitor, telemetry_for_health) = {
@@ -1030,6 +1329,7 @@ pub async fn run_worker() -> Result<()> {
 
                 if matches!(tick, HealthTick::Shutdown { .. }) {
                     if cp_enabled {
+                        // Health-triggered shutdown must notify CP to stop routing work.
                         notify_cp_status(
                             &cp_url_health,
                             &worker_id_health,
@@ -1092,6 +1392,7 @@ pub async fn run_worker() -> Result<()> {
             lifecycle = lifecycle.transition_to(WorkerStatus::Draining)
                 .map_err(|e| AosError::Lifecycle(e.to_string()))?;
             if cp_enabled {
+                // Notify CP of drain so it can stop routing new requests before shutdown.
                 notify_cp_status(
                     &args.cp_url,
                     &worker_id,
@@ -1132,6 +1433,7 @@ pub async fn run_worker() -> Result<()> {
         if shutdown_signal_received {
             warn!(error = %e, "UDS server returned an error during shutdown");
         } else {
+            notify_cp_error("uds-serve-failed");
             return Err(e);
         }
     }
@@ -1141,6 +1443,7 @@ pub async fn run_worker() -> Result<()> {
         .transition_to(final_status)
         .map_err(|e| AosError::Lifecycle(e.to_string()))?;
     if cp_enabled {
+        // Final status acts as the worker unregister/terminal signal for the control plane.
         notify_cp_status(
             &args.cp_url,
             &worker_id,

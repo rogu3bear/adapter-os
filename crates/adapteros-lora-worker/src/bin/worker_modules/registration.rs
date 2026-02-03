@@ -115,14 +115,14 @@ fn register_with_cp(
 ///
 /// Worker Registration Backoff (ANCHOR, AUDIT, RECTIFY)
 ///
-/// - **ANCHOR**: Enforces max 10 attempts with exponential backoff up to 5-minute delay
+/// - **ANCHOR**: Enforces a deadline with exponential backoff up to 5-minute delay
 /// - **AUDIT**: Logs attempt number, delay, remaining budget, and consecutive failures
 /// - **RECTIFY**: Circuit breaker stops retries after `MAX_CONSECUTIVE_FAILURES`
 ///
 /// Configuration:
 /// - Base delay: 1 second, backoff factor: 2x, max delay: 5 minutes
 /// - Maximum elapsed time: 10 minutes (deadline)
-/// - Circuit breaker: stops after 5 consecutive failures to prevent infinite retry loops
+/// - Circuit breaker: stops after 10 consecutive failures to prevent infinite retry loops
 /// - Non-transient errors (validation, rejection) fail immediately without retry
 pub fn register_with_cp_with_retry(
     params: &RegistrationParams,
@@ -134,7 +134,7 @@ pub fn register_with_cp_with_retry(
     const MAX_DELAY: Duration = Duration::from_secs(300); // 5 minutes cap (plan requirement)
     const MAX_ELAPSED: Duration = Duration::from_secs(600); // 10 minute deadline
     const BACKOFF_FACTOR: f64 = 2.0;
-    const MAX_CONSECUTIVE_FAILURES: u32 = 5; // Circuit breaker threshold
+    const MAX_CONSECUTIVE_FAILURES: u32 = 10; // Circuit breaker threshold
 
     let deadline = Instant::now() + MAX_ELAPSED;
     let mut attempt: u32 = 0;

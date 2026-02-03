@@ -95,6 +95,7 @@ git2 = { workspace = true }
 parking_lot = { workspace = true }
 [target.'cfg(target_os = "macos")'.dependencies]
 # adapteros-lora-kernel-mtl = { path = "../adapteros-lora-kernel-mtl" }  # Disabled for stable compilation
+adapteros-lora-kernel-coreml = { path = "../adapteros-lora-kernel-coreml", optional = true }
 [features]
 # =============================================================================
 # CLI FEATURE FLAGS
@@ -111,6 +112,8 @@ orchestrator = ["dep:adapteros-orchestrator"]
 scenarios = []
 extended-tests = []
 coreml-export = ["adapteros-lora-worker/coreml-backend"]
+# CoreML backend feature - enables runtime FFI checks in doctor command
+coreml-backend = ["dep:adapteros-lora-kernel-coreml"]
 # Full CLI with all optional features
 full = ["replay", "trace", "orchestrator", "codegraph", "tui"]
 # Minimal CLI without optional features

@@ -336,6 +336,7 @@ dependencies = [
  "adapteros-error-registry",
  "adapteros-ingest-docs",
  "adapteros-lora-kernel-api",
+ "adapteros-lora-kernel-coreml",
  "adapteros-lora-lifecycle",
  "adapteros-lora-mlx-ffi",
  "adapteros-lora-plan",
