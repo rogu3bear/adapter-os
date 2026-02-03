@@ -2988,7 +2988,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 request_id: None,
                 context_digest,
                 stack_id: request.stack_id.clone(),
-                model_id: self.manifest.base.model_id.clone(),
+                model_id: Some(self.manifest.base.model_id.clone()),
                 policy_id: request.policy_id.clone(),
             };
 
