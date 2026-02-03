@@ -39,11 +39,27 @@ export const SidePanel = ({
       <div style={contentStyle}>
         <section style={sectionStyle}>
           <h4 style={sectionTitleStyle}>Name</h4>
-          <div style={{ fontSize: '18px', fontWeight: '600', color: 'white' }}>
+          <div
+            style={{
+              fontSize: '18px',
+              fontWeight: '600',
+              color: 'white',
+              wordBreak: 'break-word',
+              overflowWrap: 'anywhere',
+            }}
+          >
             {details.name}
           </div>
           {details.qualified_name !== details.name && (
-            <div style={{ fontSize: '14px', color: '#9ca3af', marginTop: '4px' }}>
+            <div
+              style={{
+                fontSize: '14px',
+                color: '#9ca3af',
+                marginTop: '4px',
+                wordBreak: 'break-word',
+                overflowWrap: 'anywhere',
+              }}
+            >
               {details.qualified_name}
             </div>
           )}
@@ -61,8 +77,11 @@ export const SidePanel = ({
               color: '#60a5fa',
               cursor: 'pointer',
               textDecoration: 'underline',
+              wordBreak: 'break-word',
+              overflowWrap: 'anywhere',
             }}
             onClick={() => onOpenFile(details.file_path, details.span.start_line)}
+            title={`${details.file_path}:${details.span.start_line}`}
           >
             {details.file_path}:{details.span.start_line}
           </div>
@@ -104,7 +123,15 @@ export const SidePanel = ({
         {details.docstring && (
           <section style={sectionStyle}>
             <h4 style={sectionTitleStyle}>Documentation</h4>
-            <div style={{ color: '#d1d5db', fontSize: '14px', lineHeight: '1.5' }}>
+            <div
+              style={{
+                color: '#d1d5db',
+                fontSize: '14px',
+                lineHeight: '1.5',
+                wordBreak: 'break-word',
+                overflowWrap: 'anywhere',
+              }}
+            >
               {details.docstring}
             </div>
           </section>
@@ -228,5 +255,6 @@ const listItemStyle: React.CSSProperties = {
   cursor: 'pointer',
   color: 'white',
   transition: 'background-color 0.2s',
+  wordBreak: 'break-word',
+  overflowWrap: 'anywhere',
 };
-
