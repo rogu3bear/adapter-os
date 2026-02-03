@@ -3778,6 +3778,10 @@ impl Db {
         let kv_start = std::time::Instant::now();
         let kv_delete_result = if let Some(repo) = self.get_adapter_kv_repo(&tenant_id) {
             repo.delete_adapter_kv(&adapter_id).await
+        } else if self.dual_write_requires_strict() {
+            Err(AosError::database(
+                "KV delete failed (strict mode): KV backend not available".to_string(),
+            ))
         } else {
             Ok(())
         };
