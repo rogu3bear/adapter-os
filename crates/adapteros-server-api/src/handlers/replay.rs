@@ -175,6 +175,7 @@ pub async fn get_replay_session(
     Path(session_id): Path<String>,
 ) -> ApiResult<ReplaySessionResponse> {
     require_permission(&claims, Permission::ReplayManage)?;
+    let session_id = crate::id_resolver::resolve_any_id(&state.db, &session_id).await?;
 
     let session = state
         .db
@@ -207,7 +208,7 @@ pub async fn create_replay_session(
     require_permission(&claims, Permission::ReplayManage)?;
 
     // Generate session ID
-    let session_id = uuid::Uuid::new_v4().to_string();
+    let session_id = crate::id_generator::readable_session_id("replay");
 
     let snapshot_at = req
         .snapshot_at
@@ -376,6 +377,7 @@ pub async fn verify_replay_session(
     Path(session_id): Path<String>,
 ) -> ApiResult<ReplayVerificationResponse> {
     require_permission(&claims, Permission::ReplayManage)?;
+    let session_id = crate::id_resolver::resolve_any_id(&state.db, &session_id).await?;
 
     let session = state
         .db
@@ -523,6 +525,7 @@ pub async fn execute_replay_session(
     Json(req): Json<ExecuteReplayRequest>,
 ) -> ApiResult<ExecuteReplayResponse> {
     require_permission(&claims, Permission::ReplayManage)?;
+    let session_id = crate::id_resolver::resolve_any_id(&state.db, &session_id).await?;
 
     let session = state
         .db
@@ -627,7 +630,7 @@ pub async fn execute_replay_session(
         };
 
     // Create inference request with deterministic parameters from session
-    let run_id = uuid::Uuid::new_v4().to_string();
+    let run_id = crate::id_generator::readable_run_id();
     let run_envelope = new_run_envelope_no_tick(&state, &claims, run_id.clone(), false);
 
     let inference_request = InferenceRequestInternal {

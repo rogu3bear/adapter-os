@@ -38,6 +38,9 @@ pub async fn create_message(
     Path(workspace_id): Path<String>,
     Json(req): Json<CreateMessageRequest>,
 ) -> Result<Json<MessageResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let workspace_id = crate::id_resolver::resolve_any_id(&state.db, &workspace_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
     // Check workspace access - must be member or owner
     let role = state
         .db
@@ -142,6 +145,9 @@ pub async fn list_workspace_messages(
     Path(workspace_id): Path<String>,
     Query(params): Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Vec<MessageResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    let workspace_id = crate::id_resolver::resolve_any_id(&state.db, &workspace_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
     // Check workspace access
     let role = state
         .db
@@ -209,6 +215,12 @@ pub async fn get_message_thread(
     Extension(claims): Extension<Claims>,
     Path((workspace_id, thread_id)): Path<(String, String)>,
 ) -> Result<Json<Vec<MessageResponse>>, (StatusCode, Json<ErrorResponse>)> {
+    let workspace_id = crate::id_resolver::resolve_any_id(&state.db, &workspace_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+    let thread_id = crate::id_resolver::resolve_any_id(&state.db, &thread_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
     // Check workspace access
     let role = state
         .db
@@ -270,6 +282,12 @@ pub async fn edit_message(
     Path((workspace_id, message_id)): Path<(String, String)>,
     Json(req): Json<CreateMessageRequest>,
 ) -> Result<Json<MessageResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let workspace_id = crate::id_resolver::resolve_any_id(&state.db, &workspace_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+    let message_id = crate::id_resolver::resolve_any_id(&state.db, &message_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
     // Check workspace access
     let role = state
         .db

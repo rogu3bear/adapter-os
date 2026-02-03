@@ -49,7 +49,6 @@ use bytes::Bytes;
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 use tracing::{debug, info, warn};
-use uuid::Uuid;
 
 const METRIC_CHUNKED_SESSIONS_CREATED: &str = "chunked_upload_sessions_created";
 const METRIC_CHUNKED_SESSIONS_REUSED: &str = "chunked_upload_reused";
@@ -139,10 +138,13 @@ pub async fn upload_dataset(
 ) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetUpload)?;
 
-    let dataset_id = Uuid::now_v7().to_string();
+    let dataset_id = crate::id_generator::readable_id(
+        adapteros_core::ids::IdKind::Dataset,
+        "dataset",
+    );
     let correlation_id = request_id
         .map(|r| r.0 .0)
-        .unwrap_or_else(|| Uuid::new_v4().to_string());
+        .unwrap_or_else(crate::id_generator::readable_request_id);
     let dataset_root =
         resolve_dataset_root(&state).map_err(|e| ApiError::internal(e.to_string()))?;
     let paths = DatasetPaths::new(dataset_root.clone());
@@ -633,7 +635,10 @@ pub async fn upload_dataset(
         );
 
         uploaded_files.push(DatasetFile {
-            id: Uuid::now_v7().to_string(),
+            id: crate::id_generator::readable_id(
+                adapteros_core::ids::IdKind::File,
+                "dataset-file",
+            ),
             dataset_id: dataset_id.clone(),
             file_name: pending.file_name.clone(),
             file_path: location.path.to_string_lossy().to_string(),
@@ -1467,7 +1472,10 @@ pub async fn initiate_chunked_upload(
     .await?
     .0;
 
-    let dataset_id = Uuid::now_v7().to_string();
+    let dataset_id = crate::id_generator::readable_id(
+        adapteros_core::ids::IdKind::Dataset,
+        "dataset",
+    );
     let session_record = UploadSessionRecord {
         schema_version: UPLOAD_SESSION_DB_SCHEMA_VERSION,
         session_id: session.session_id.clone(),

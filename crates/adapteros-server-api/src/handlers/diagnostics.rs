@@ -480,6 +480,9 @@ pub async fn get_diag_run(
     Path(trace_id): Path<String>,
 ) -> Result<Json<DiagRunResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
+    let trace_id = crate::id_resolver::resolve_any_id(&state.db, &trace_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     let tenant_id = &claims.tenant_id;
 
@@ -542,6 +545,9 @@ pub async fn list_diag_events(
     Query(query): Query<ListDiagEventsQuery>,
 ) -> Result<Json<ListDiagEventsResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
+    let trace_id = crate::id_resolver::resolve_any_id(&state.db, &trace_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     let tenant_id = &claims.tenant_id;
     let limit = query.limit.unwrap_or(100).min(1000);

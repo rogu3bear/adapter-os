@@ -1211,6 +1211,14 @@ pub async fn messages_stream(
     use crate::permissions::require_permission;
     use crate::permissions::Permission;
 
+    let workspace_id = match crate::id_resolver::resolve_any_id(&state.db, &workspace_id).await {
+        Ok(id) => id,
+        Err(err) => {
+            warn!(error = %err, workspace_id = %workspace_id, "Failed to resolve workspace ID");
+            workspace_id
+        }
+    };
+
     // Permission check: WorkspaceView required
     let has_permission = require_permission(&claims, Permission::WorkspaceView).is_ok();
 
@@ -1416,6 +1424,14 @@ pub async fn activity_stream(
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     use crate::permissions::require_permission;
     use crate::permissions::Permission;
+
+    let workspace_id = match crate::id_resolver::resolve_any_id(&state.db, &workspace_id).await {
+        Ok(id) => id,
+        Err(err) => {
+            warn!(error = %err, workspace_id = %workspace_id, "Failed to resolve workspace ID");
+            workspace_id
+        }
+    };
 
     // Permission check: ActivityView required
     let has_permission = require_permission(&claims, Permission::ActivityView).is_ok();

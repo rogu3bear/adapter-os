@@ -88,7 +88,7 @@ pub async fn infer(
     // Extract request_id for hook context
     let request_id_str = request_id
         .map(|r| r.0 .0.clone())
-        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        .unwrap_or_else(crate::id_generator::readable_request_id);
 
     // Role check: Operator, SRE, and Admin can execute inference (Viewer and Compliance cannot)
     crate::permissions::require_permission(&claims, Permission::InferenceExecute)?;

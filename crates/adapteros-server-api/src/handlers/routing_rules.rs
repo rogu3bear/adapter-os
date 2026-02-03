@@ -29,6 +29,8 @@ pub async fn list_rules(
     _identity: Principal,
     Path(identity_dataset_id): Path<String>,
 ) -> Result<Json<Vec<RoutingRule>>, ApiError> {
+    let identity_dataset_id =
+        crate::id_resolver::resolve_any_id(&state.db, &identity_dataset_id).await?;
     let rules = RoutingRule::list_by_identity(&state.db_pool, &identity_dataset_id)
         .await
         .map_err(ApiError::db_error)?;
@@ -84,6 +86,7 @@ pub async fn delete_rule(
     _identity: Principal,
     Path(rule_id): Path<String>,
 ) -> Result<axum::http::StatusCode, ApiError> {
+    let rule_id = crate::id_resolver::resolve_any_id(&state.db, &rule_id).await?;
     RoutingRule::delete(&state.db_pool, &rule_id)
         .await
         .map_err(ApiError::db_error)?;

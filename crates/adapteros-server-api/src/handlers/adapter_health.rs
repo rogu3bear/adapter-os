@@ -119,6 +119,7 @@ pub async fn get_adapter_activations(
     Query(query): Query<std::collections::HashMap<String, String>>,
 ) -> ApiResult<Vec<AdapterActivationResponse>> {
     require_permission(&claims, Permission::AdapterView)?;
+    let adapter_id = crate::id_resolver::resolve_any_id(&state.db, &adapter_id).await?;
 
     let _adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;
 
@@ -169,6 +170,8 @@ pub async fn get_adapter_health(
     Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
 ) -> ApiResult<AdapterHealthResponse> {
+    let adapter_id = crate::id_resolver::resolve_any_id(&state.db, &adapter_id).await?;
+
     // Fetch adapter with tenant isolation validation
     let adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;
 

@@ -58,6 +58,7 @@ pub async fn update_adapter_strength(
     Json(req): Json<UpdateAdapterStrengthRequest>,
 ) -> ApiResult<AdapterDetailResponse> {
     require_permission(&claims, Permission::AdapterRegister)?;
+    let adapter_id = crate::id_resolver::resolve_any_id(&state.db, &adapter_id).await?;
 
     if !(0.0..=2.0).contains(&req.lora_strength) {
         return Err(ApiError::bad_request("Invalid LoRA strength value").with_details(format!(

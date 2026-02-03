@@ -106,6 +106,7 @@ pub async fn archive_adapter(
 ) -> ApiResult<ArchiveAdapterResponse> {
     // Require operator or admin role
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+    let adapter_id = crate::id_resolver::resolve_any_id(&state.db, &adapter_id).await?;
 
     // Verify adapter exists and validate tenant isolation
     let adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;
@@ -214,6 +215,7 @@ pub async fn unarchive_adapter(
 ) -> ApiResult<UnarchiveAdapterResponse> {
     // Require operator or admin role
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+    let adapter_id = crate::id_resolver::resolve_any_id(&state.db, &adapter_id).await?;
 
     // Verify adapter exists and validate tenant isolation
     let adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;
@@ -323,6 +325,7 @@ pub async fn get_archive_status(
 ) -> ApiResult<ArchiveStatusResponse> {
     // Require at least viewer role
     require_any_role(&claims, &[Role::Viewer, Role::Operator, Role::Admin])?;
+    let adapter_id = crate::id_resolver::resolve_any_id(&state.db, &adapter_id).await?;
 
     // Fetch adapter and validate tenant isolation
     let adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;

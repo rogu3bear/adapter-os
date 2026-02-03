@@ -45,6 +45,7 @@ pub async fn update_session_collection(
     // Permission check
     require_permission(&claims, Permission::InferenceExecute)
         .map_err(|_e| ApiError::forbidden("Permission denied"))?;
+    let session_id = crate::id_resolver::resolve_any_id(&state.db, &session_id).await?;
 
     // Verify session exists and tenant has access
     let session = state

@@ -12,7 +12,7 @@ use crate::types::ErrorResponse;
 use adapteros_core::{AosError, B3Hash};
 use adapteros_db::adapters::AdapterRegistrationBuilder;
 use adapteros_db::models::ModelRegistrationBuilder;
-use adapteros_db::sqlx::{self, Row};
+use adapteros_db::sqlx::{self, Executor, Row};
 use adapteros_db::{
     policy_audit::AUDIT_CHAIN_DIVERGED_CODE,
     CreateRepositoryParams as CreateAdapterRepositoryParams,
@@ -117,15 +117,16 @@ pub async fn reset(
     ensure_e2e_mode()?;
 
     let pool = state.db.pool();
+    let mut conn = pool.acquire().await.map_err(map_err)?;
 
     sqlx::query("PRAGMA foreign_keys=OFF")
-        .execute(pool)
+        .execute(&mut *conn)
         .await
         .map_err(map_err)?;
 
     let tables: Vec<String> = sqlx::query("SELECT name FROM sqlite_master WHERE type='table'")
         .map(|row: sqlx::sqlite::SqliteRow| row.get::<String, _>("name"))
-        .fetch_all(pool)
+        .fetch_all(&mut *conn)
         .await
         .map_err(map_err)?;
 
@@ -150,12 +151,15 @@ pub async fn reset(
         }
         // Quote identifier to prevent SQL injection (table names from sqlite_master)
         let stmt = format!("DELETE FROM \"{}\"", table.replace('"', "\"\""));
-        sqlx::query(&stmt).execute(pool).await.map_err(map_err)?;
+        sqlx::query(&stmt)
+            .execute(&mut *conn)
+            .await
+            .map_err(map_err)?;
         cleared += 1;
     }
 
     sqlx::query("PRAGMA foreign_keys=ON")
-        .execute(pool)
+        .execute(&mut *conn)
         .await
         .map_err(map_err)?;
 

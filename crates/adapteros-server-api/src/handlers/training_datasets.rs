@@ -178,6 +178,8 @@ pub async fn get_training_dataset_manifest(
     Path(dataset_version_id): Path<String>,
 ) -> Result<Json<DatasetManifest>, ApiError> {
     require_permission(&claims, Permission::DatasetView)?;
+    let dataset_version_id =
+        crate::id_resolver::resolve_any_id(&state.db, &dataset_version_id).await?;
 
     let version = state
         .db
@@ -226,6 +228,8 @@ pub async fn stream_training_dataset_rows(
     Query(params): Query<StreamRowsQuery>,
 ) -> Result<Json<Vec<CanonicalRow>>, ApiError> {
     require_permission(&claims, Permission::DatasetView)?;
+    let dataset_version_id =
+        crate::id_resolver::resolve_any_id(&state.db, &dataset_version_id).await?;
 
     let version = state
         .db

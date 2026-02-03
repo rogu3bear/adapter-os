@@ -38,6 +38,8 @@ pub async fn list_dataset_versions(
 ) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetView)?;
 
+    let dataset_id = crate::id_resolver::resolve_any_id(&state.db, &dataset_id).await?;
+
     // Ensure dataset exists and enforce tenant isolation
     let dataset = state
         .db
@@ -109,6 +111,8 @@ pub async fn create_dataset_version(
     Json(body): Json<CreateDatasetVersionRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetValidate)?;
+
+    let dataset_id = crate::id_resolver::resolve_any_id(&state.db, &dataset_id).await?;
 
     let dataset = state
         .db
@@ -304,6 +308,8 @@ pub async fn get_dataset_version(
     Path((dataset_id, revision)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetView)?;
+    let dataset_id = crate::id_resolver::resolve_any_id(&state.db, &dataset_id).await?;
+    let revision = crate::id_resolver::resolve_any_id(&state.db, &revision).await?;
 
     // Ensure dataset exists and enforce tenant isolation
     let dataset = state

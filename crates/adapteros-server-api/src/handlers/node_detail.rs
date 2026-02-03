@@ -90,6 +90,9 @@ pub async fn get_node_detail(
 ) -> Result<Json<NodeDetailResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Permission check: NodeView required
     require_permission(&claims, Permission::NodeView)?;
+    let node_id = crate::id_resolver::resolve_any_id(&state.db, &node_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Fetch node from database
     let node = state

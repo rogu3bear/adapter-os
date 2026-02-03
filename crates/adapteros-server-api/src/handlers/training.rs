@@ -52,7 +52,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{error, info, warn};
 use utoipa::IntoParams;
-use uuid::Uuid;
 
 const METRIC_LINEAGE_REQUIRED: &str = "training_jobs_rejected_lineage_required";
 const METRIC_TRUST_BLOCKED: &str = "training_jobs_rejected_trust_blocked";
@@ -1321,7 +1320,13 @@ pub async fn create_training_job(
     let adapter_name = req
         .adapter_name
         .clone()
-        .unwrap_or_else(|| format!("ws-{}-{}", workspace_id, Uuid::now_v7()));
+        .unwrap_or_else(|| {
+            format!(
+                "ws-{}-{}",
+                workspace_id,
+                adapteros_core::ids::generate_suffix(6)
+            )
+        });
 
     let mut config = training_config_from_request(req.params.clone());
     config.base_model_path = Some(base_model_path);
@@ -1397,6 +1402,9 @@ pub async fn get_training_job(
     Path(job_id): Path<String>,
 ) -> Result<Json<TrainingJobResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::TrainingView)?;
+    let job_id = crate::id_resolver::resolve_any_id(&state.db, &job_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     let job = state.training_service.get_job(&job_id).await.map_err(|e| {
         error!(job_id = %job_id, error = %e, "Failed to get training job");
@@ -1458,6 +1466,9 @@ pub async fn export_coreml_training_job(
     Path(job_id): Path<String>,
 ) -> Result<Json<TrainingJobResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::TrainingStart)?;
+    let job_id = crate::id_resolver::resolve_any_id(&state.db, &job_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Execute export via orchestrator (per-tenant enforcement)
     let job = state
@@ -3172,6 +3183,12 @@ pub async fn promote_version(
     Query(params): Query<PromoteVersionQuery>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::TrainingStart)?;
+    let repo_id = crate::id_resolver::resolve_any_id(&state.db, &repo_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+    let version_id = crate::id_resolver::resolve_any_id(&state.db, &version_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     let version = state
         .db
@@ -3293,6 +3310,12 @@ pub async fn publish_version(
     (StatusCode, Json<ErrorResponse>),
 > {
     require_permission(&claims, Permission::TrainingStart)?;
+    let repo_id = crate::id_resolver::resolve_any_id(&state.db, &repo_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+    let version_id = crate::id_resolver::resolve_any_id(&state.db, &version_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Verify version exists and belongs to tenant/repo
     let version = state
@@ -3420,6 +3443,9 @@ pub async fn cancel_training(
     Path(job_id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::TrainingCancel)?;
+    let job_id = crate::id_resolver::resolve_any_id(&state.db, &job_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // CRITICAL: Fetch job first to validate tenant isolation before cancellation
     let job = state.training_service.get_job(&job_id).await.map_err(|e| {
@@ -3563,6 +3589,9 @@ pub async fn retry_training(
     Path(job_id): Path<String>,
 ) -> Result<(StatusCode, Json<TrainingJobResponse>), (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::TrainingStart)?;
+    let job_id = crate::id_resolver::resolve_any_id(&state.db, &job_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Get the original job
     let original_job = state.training_service.get_job(&job_id).await.map_err(|e| {
@@ -3762,6 +3791,9 @@ pub async fn get_chat_bootstrap(
     Path(job_id): Path<String>,
 ) -> Result<Json<adapteros_api_types::ChatBootstrapResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::TrainingView)?;
+    let job_id = crate::id_resolver::resolve_any_id(&state.db, &job_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Try in-memory first (for running jobs), fall back to DB (for completed jobs after restart)
     let (
@@ -4018,7 +4050,7 @@ pub async fn create_chat_from_training_job(
     let collection_id_for_response = collection_id.clone();
 
     // Create chat session
-    let session_id = format!("session-{}", Uuid::new_v4());
+    let session_id = crate::id_generator::readable_session_id("training");
     let params = adapteros_db::CreateChatSessionParams {
         id: session_id.clone(),
         tenant_id: claims.tenant_id.clone(),
@@ -4313,6 +4345,9 @@ pub async fn update_training_priority(
             ),
         )
     })?;
+    let job_id = crate::id_resolver::resolve_any_id(&state.db, &job_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Validate priority range
     if req.priority < 0 || req.priority > 100 {
@@ -4395,6 +4430,10 @@ pub async fn get_training_logs(
     Extension(claims): Extension<Claims>,
     Path(job_id): Path<String>,
 ) -> Result<Json<Vec<String>>, (StatusCode, Json<ErrorResponse>)> {
+    let job_id = crate::id_resolver::resolve_any_id(&state.db, &job_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+
     let job = state.db.get_training_job(&job_id).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -4480,6 +4519,10 @@ pub async fn get_training_metrics(
     Query(params): Query<TrainingMetricsQuery>,
 ) -> Result<Json<adapteros_api_types::TrainingMetricsListResponse>, (StatusCode, Json<ErrorResponse>)>
 {
+    let job_id = crate::id_resolver::resolve_any_id(&state.db, &job_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+
     // First verify the job exists and belongs to the caller's tenant
     let job = state
         .db
@@ -4598,6 +4641,10 @@ pub async fn get_training_report(
     Extension(claims): Extension<Claims>,
     Path(job_id): Path<String>,
 ) -> Result<Json<adapteros_api_types::TrainingReportResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let job_id = crate::id_resolver::resolve_any_id(&state.db, &job_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+
     let job = state
         .db
         .get_training_job(&job_id)
@@ -4816,6 +4863,9 @@ pub async fn stream_training_progress(
     Path(job_id): Path<String>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::TrainingView)?;
+    let job_id = crate::id_resolver::resolve_any_id(&state.db, &job_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Validate job exists and user has access
     let job = state

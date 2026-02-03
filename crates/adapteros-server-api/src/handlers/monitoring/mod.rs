@@ -22,7 +22,6 @@ use chrono::Utc;
 use serde_json::json;
 use sqlx::Row;
 use std::collections::{BTreeMap, HashMap};
-use uuid::Uuid;
 
 fn is_missing_table_error(error: &sqlx::Error) -> bool {
     error.to_string().contains("no such table")
@@ -555,6 +554,9 @@ pub async fn acknowledge_process_alert(
     Json(_req): Json<AcknowledgeProcessAlertRequest>,
 ) -> Result<Json<ProcessAlertResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+    let alert_id = crate::id_resolver::resolve_any_id(&state.db, &alert_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     let existing = fetch_process_alert_response(state.db.pool(), &alert_id).await?;
     validate_tenant_isolation(&claims, &existing.tenant_id)?;
@@ -704,6 +706,9 @@ pub async fn update_process_anomaly_status(
     Json(req): Json<UpdateProcessAnomalyStatusRequest>,
 ) -> Result<Json<ProcessAnomalyResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+    let anomaly_id = crate::id_resolver::resolve_any_id(&state.db, &anomaly_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     let status = parse_anomaly_status(req.status.as_str()).ok_or_else(|| {
         (
@@ -899,7 +904,10 @@ pub async fn create_process_monitoring_dashboard(
 ) -> Result<Json<ProcessMonitoringDashboardResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
-    let dashboard_id = Uuid::now_v7().to_string();
+    let dashboard_id = crate::id_generator::readable_id(
+        adapteros_core::ids::IdKind::Report,
+        "dashboard",
+    );
     let now = Utc::now().to_rfc3339();
     let config_json = serde_json::to_string(&req.dashboard_config).map_err(|e| {
         (
@@ -1224,7 +1232,10 @@ pub async fn create_process_monitoring_report(
         "config": req.report_config
     });
 
-    let report_id = Uuid::now_v7().to_string();
+    let report_id = crate::id_generator::readable_id(
+        adapteros_core::ids::IdKind::Report,
+        "report",
+    );
     let now = Utc::now().to_rfc3339();
     let report_data_json = serde_json::to_string(&report_data).map_err(|e| {
         (
@@ -1442,6 +1453,9 @@ pub async fn update_monitoring_rule(
     Json(req): Json<UpdateMonitoringRuleApiRequest>,
 ) -> Result<Json<MonitoringRuleResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+    let rule_id = crate::id_resolver::resolve_any_id(&state.db, &rule_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     let update_request = req.into();
 
@@ -1504,6 +1518,9 @@ pub async fn delete_monitoring_rule(
     Path(rule_id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+    let rule_id = crate::id_resolver::resolve_any_id(&state.db, &rule_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Fetch the rule first to validate tenant isolation
     let row = sqlx::query("SELECT tenant_id FROM process_monitoring_rules WHERE id = ?")
@@ -1629,6 +1646,9 @@ pub async fn acknowledge_alert(
     Json(req): Json<AcknowledgeAlertRequest>,
 ) -> Result<Json<AlertResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+    let alert_id = crate::id_resolver::resolve_any_id(&state.db, &alert_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     adapteros_system_metrics::ProcessAlert::update_status(
         state.db.pool(),
@@ -1704,6 +1724,9 @@ pub async fn resolve_alert(
     Path(alert_id): Path<String>,
 ) -> Result<Json<AlertResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+    let alert_id = crate::id_resolver::resolve_any_id(&state.db, &alert_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     adapteros_system_metrics::ProcessAlert::update_status(
         state.db.pool(),

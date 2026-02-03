@@ -103,6 +103,10 @@ pub async fn get_worker_detail(
     // Permission check: WorkerView required
     require_permission(&claims, Permission::WorkerView)?;
 
+    let worker_id = crate::id_resolver::resolve_any_id(&state.db, &worker_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+
     // Fetch worker from database
     let worker = state
         .db

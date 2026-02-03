@@ -109,6 +109,7 @@ pub async fn pin_adapter(
 ) -> ApiResult<PinAdapterResponse> {
     // Require operator or admin role
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+    let adapter_id = crate::id_resolver::resolve_any_id(&state.db, &adapter_id).await?;
 
     // Verify adapter exists and validate tenant isolation
     let adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;
@@ -256,6 +257,7 @@ pub async fn unpin_adapter(
 ) -> ApiResult<UnpinAdapterResponse> {
     // Require operator or admin role
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+    let adapter_id = crate::id_resolver::resolve_any_id(&state.db, &adapter_id).await?;
 
     // Verify adapter exists and validate tenant isolation
     let adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;
@@ -348,6 +350,7 @@ pub async fn get_pin_status(
     Path(adapter_id): Path<String>,
 ) -> ApiResult<PinStatusResponse> {
     require_permission(&claims, Permission::AdapterView)?;
+    let adapter_id = crate::id_resolver::resolve_any_id(&state.db, &adapter_id).await?;
 
     // Verify adapter exists and validate tenant isolation
     let adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;

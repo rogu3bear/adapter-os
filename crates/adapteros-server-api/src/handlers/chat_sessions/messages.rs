@@ -45,6 +45,7 @@ pub async fn add_chat_message(
     // Permission check
     require_permission(&claims, Permission::InferenceExecute)
         .map_err(|_e| ApiError::forbidden("Permission denied"))?;
+    let session_id = crate::id_resolver::resolve_any_id(&state.db, &session_id).await?;
 
     // Verify session exists and tenant has access
     let session = state
@@ -58,7 +59,7 @@ pub async fn add_chat_message(
     validate_tenant_isolation(&claims, &session.tenant_id)?;
 
     // Generate message ID
-    let message_id = format!("msg-{}", uuid::Uuid::new_v4());
+    let message_id = crate::id_generator::readable_message_id("msg");
 
     // Add message
     let params = AddMessageParams {
@@ -119,6 +120,7 @@ pub async fn get_chat_messages(
     // Permission check
     require_permission(&claims, Permission::InferenceExecute)
         .map_err(|_e| ApiError::forbidden("Permission denied"))?;
+    let session_id = crate::id_resolver::resolve_any_id(&state.db, &session_id).await?;
 
     // Verify session exists and tenant has access
     let session = state
@@ -171,6 +173,7 @@ pub async fn get_session_summary(
     // Permission check
     require_permission(&claims, Permission::InferenceExecute)
         .map_err(|_e| ApiError::forbidden("Permission denied"))?;
+    let session_id = crate::id_resolver::resolve_any_id(&state.db, &session_id).await?;
 
     // Verify session exists and tenant has access
     let session = state
@@ -216,6 +219,7 @@ pub async fn get_message_evidence(
     // Permission check
     require_permission(&claims, Permission::InferenceExecute)
         .map_err(|_e| ApiError::forbidden("Permission denied"))?;
+    let message_id = crate::id_resolver::resolve_any_id(&state.db, &message_id).await?;
 
     // Get evidence from database with tenant isolation
     let evidence = state

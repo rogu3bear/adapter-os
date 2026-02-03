@@ -15,7 +15,6 @@ use std::path::Path;
 use std::time::Duration;
 use tracing::{error, info, warn};
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
@@ -69,7 +68,10 @@ pub async fn request_shutdown(
         ));
     };
 
-    let tracking_id = Uuid::now_v7().to_string();
+    let tracking_id = crate::id_generator::readable_id(
+        adapteros_core::ids::IdKind::Request,
+        "lifecycle",
+    );
     match body.mode {
         ShutdownMode::Drain => {
             boot_state.drain().await;
@@ -125,7 +127,10 @@ pub async fn request_maintenance(
         ));
     };
 
-    let tracking_id = Uuid::now_v7().to_string();
+    let tracking_id = crate::id_generator::readable_id(
+        adapteros_core::ids::IdKind::Request,
+        "lifecycle",
+    );
     let mut worker_results: Vec<WorkerMaintenanceResult> = Vec::new();
 
     match body.scope {

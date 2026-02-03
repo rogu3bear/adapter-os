@@ -130,7 +130,7 @@ pub fn batch_receipts(tenant_id: &str, receipt_digests: &[B3Hash]) -> Result<Rec
     let merkle_root = compute_receipt_merkle_root(&sorted_digests);
 
     // Generate batch ID
-    let batch_id = uuid::Uuid::new_v4().to_string();
+    let batch_id = crate::ids::generate_id(crate::ids::IdKind::Run, "receipt");
 
     Ok(ReceiptBatch {
         batch_id,

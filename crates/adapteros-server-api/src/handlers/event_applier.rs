@@ -358,7 +358,9 @@ async fn apply_stack_created(
         .as_deref()
         .filter(|id| !id.trim().is_empty())
         .map(|id| id.to_string())
-        .unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
+        .unwrap_or_else(|| {
+            crate::id_generator::readable_id(adapteros_core::ids::IdKind::Stack, &payload.name)
+        });
 
     let mut adapter_ids = payload.adapter_ids.clone();
     adapter_ids.sort();
@@ -514,6 +516,9 @@ pub async fn apply_tenant_event(
 ) -> Result<Json<ApplyEventResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Require Admin or Operator role for event application
     require_any_role(&claims, &[Role::Admin, Role::Operator])?;
+    let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Validate tenant isolation - users can only apply events to their own tenant
     if claims.tenant_id != tenant_id {

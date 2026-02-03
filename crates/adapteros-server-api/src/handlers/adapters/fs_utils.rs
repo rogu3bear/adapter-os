@@ -5,7 +5,6 @@ use axum::Json;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use tokio::fs;
-use uuid::Uuid;
 
 use adapteros_core::adapter_repo_paths::RepoAdapterPaths;
 
@@ -52,7 +51,10 @@ pub async fn write_temp_bundle(
         .into());
     }
 
-    let temp_path = temp_dir.join(format!("{}.aos.tmp", Uuid::now_v7()));
+    let temp_path = temp_dir.join(format!(
+        "{}.aos.tmp",
+        adapteros_core::ids::generate_suffix(8)
+    ));
     let file = fs::File::create(&temp_path).await.map_err(|e| {
         ApiError::internal(format!(
             "Failed to create temp file {}: {}",

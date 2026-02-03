@@ -83,6 +83,9 @@ pub async fn test_node_connection(
     Path(node_id): Path<String>,
 ) -> Result<Json<NodePingResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator])?;
+    let node_id = crate::id_resolver::resolve_any_id(&state.db, &node_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Get node from database
     let node = state
@@ -147,6 +150,9 @@ pub async fn mark_node_offline(
     Path(node_id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator])?;
+    let node_id = crate::id_resolver::resolve_any_id(&state.db, &node_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Update node status using Db trait method
     state
@@ -179,6 +185,9 @@ pub async fn evict_node(
     Path(node_id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator])?;
+    let node_id = crate::id_resolver::resolve_any_id(&state.db, &node_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Check for running workers on this node
     let workers = state.db.list_all_workers().await.map_err(ApiError::db_error)?;
@@ -216,6 +225,9 @@ pub async fn get_node_details(
     Path(node_id): Path<String>,
 ) -> Result<Json<NodeDetailsResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator])?;
+    let node_id = crate::id_resolver::resolve_any_id(&state.db, &node_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Get node from database
     let node = state

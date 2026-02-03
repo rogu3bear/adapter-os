@@ -50,6 +50,9 @@ pub async fn share_session(
             ),
         )
     })?;
+    let session_id = crate::id_resolver::resolve_any_id(&state.db, &session_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Verify session belongs to tenant
     let session = state
@@ -164,6 +167,9 @@ pub async fn get_session_shares(
             Json(ErrorResponse::new("Permission denied").with_code("FORBIDDEN")),
         )
     })?;
+    let session_id = crate::id_resolver::resolve_any_id(&state.db, &session_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Verify session belongs to tenant
     let session = state
@@ -240,6 +246,12 @@ pub async fn revoke_session_share(
             ),
         )
     })?;
+    let session_id = crate::id_resolver::resolve_any_id(&state.db, &session_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+    let share_id = crate::id_resolver::resolve_any_id(&state.db, &share_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Verify session belongs to tenant
     let session = state

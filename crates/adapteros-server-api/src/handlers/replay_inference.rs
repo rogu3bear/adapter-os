@@ -140,6 +140,7 @@ pub async fn check_availability(
         &claims,
         crate::permissions::Permission::InferenceExecute,
     )?;
+    let inference_id = crate::id_resolver::resolve_any_id(&state.db, &inference_id).await?;
 
     info!(
         inference_id = %inference_id,
@@ -438,7 +439,7 @@ pub async fn execute_replay(
 
     // PRD-06: Enforce policies at OnRequestBeforeRouting hook (before adapter selection)
     // Security: Replay MUST go through same policy gates as normal inference
-    let request_id_str = uuid::Uuid::new_v4().to_string();
+    let request_id_str = crate::id_generator::readable_request_id();
     let routing_hook_ctx = create_hook_context(
         &claims,
         &request_id_str,
@@ -959,6 +960,7 @@ pub async fn get_replay_history(
         &claims,
         crate::permissions::Permission::InferenceExecute,
     )?;
+    let inference_id = crate::id_resolver::resolve_any_id(&state.db, &inference_id).await?;
 
     info!(
         inference_id = %inference_id,

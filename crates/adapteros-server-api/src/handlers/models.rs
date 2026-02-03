@@ -288,6 +288,7 @@ pub async fn load_model(
 
     require_any_role(&claims, &[Role::Admin, Role::Operator])
         .map_err(|_| ApiError::forbidden("access denied"))?;
+    let model_id = crate::id_resolver::resolve_any_id(&state.db, &model_id).await?;
 
     let tenant_id = &claims.tenant_id;
     let now = chrono::Utc::now().to_rfc3339();
@@ -789,6 +790,9 @@ pub async fn unload_model(
             Json(ErrorResponse::new("access denied").with_code("FORBIDDEN")),
         )
     })?;
+    let model_id = crate::id_resolver::resolve_any_id(&state.db, &model_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     let tenant_id = &claims.tenant_id;
     let now = chrono::Utc::now().to_rfc3339();
@@ -1090,6 +1094,9 @@ pub async fn get_model_status(
     use tracing::{error, warn};
 
     let tenant_id = &claims.tenant_id;
+    let model_id = crate::id_resolver::resolve_any_id(&state.db, &model_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Check if model exists in database
     let model = state
@@ -1211,6 +1218,9 @@ pub async fn validate_model(
     use tracing::{error, warn};
 
     let tenant_id = &claims.tenant_id;
+    let model_id = crate::id_resolver::resolve_any_id(&state.db, &model_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Check if model exists in database
     let model = state

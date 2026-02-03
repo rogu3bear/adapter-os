@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "signed_at": "2026-02-03T01:03:34Z",
+  "signed_at": "2026-02-03T21:20:38Z",
   "public_key": "LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUNvd0JRWURLMlZ3QXlFQUI4YzQxRktSQnNJQlVIMENRY0l0TUdUNGt3ZGxTWGhkSXg2c3d2U0dMQ0U9Ci0tLS0tRU5EIFBVQkxJQyBLRVktLS0tLQo=",
   "signatures": {
     "0001_init.sql": {"hash": "f8660473370b023cfcb2207b3ed774f8ae90069c269ae2d953e7a3d2abc6e2ed", "signature": "MSEb3f3FTSTqU4pYbRKYaLkId86TstCeVZ8yyP+8uMzk0rpMgMRSC5ZXxxJpNLNQSQ4L1n0kbPmSBzToGfGpAg==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
@@ -307,6 +307,7 @@
     "20260120085000_add_identity_datasets.sql": {"hash": "603211e9f2a30dbed13b242c9caf672b9ce501bcb02ce66cdd8e6ec1d4e10041", "signature": "Gjk6MtoYA3oagA7VqlxZVPPYG0eReJCJw0UonlEWRjjle5bGR4RTH3K02iXxfx+JPPEXY8Jfm0d8c6mWHL+DBg==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
     "20260201090000_add_worker_tokenizer_fields.sql": {"hash": "e35d3f2e5bd5e61c72c10290bef91a7f8dce033b0554260c00d8990f8da5cc5a", "signature": "hyB4XnNaf8q4BNX3PhUSLQRTv3DSLjBbAD9JkAk6eIHNfj/GuYQ7NA62ZWuG8KFTJwpdN74BmmeF63v23D2RCQ==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
     "20260201091000_receipt_copy_bytes.sql": {"hash": "082b9a6330b232db8cd7a19f6dc0a37433f5078e8f96258a2df43fb45a4bd04a", "signature": "/JqXIG3ERgS8UCfQilNDFiOMbd9YBoRD/nBQl92IvrW/nTpt+QwEXwe0oQb32VycQQunsh3CjgbscYKTmXoEBA==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
-    "20260203120000_inference_trace_config_ids.sql": {"hash": "94b0414de5263785748217ed7eb5a58137e058d4fba620d65b018bfddad92584", "signature": "xk7oaPw+ETfIGegE+xsWRaS/ul1rV5tlGRyk9rj2umFklHMoBOEvOok3umRqe8pmj/ytki/rGCmXHSzWewg8AQ==", "algorithm": "ed25519", "hash_algorithm": "blake3"}
+    "20260203120000_inference_trace_config_ids.sql": {"hash": "94b0414de5263785748217ed7eb5a58137e058d4fba620d65b018bfddad92584", "signature": "xk7oaPw+ETfIGegE+xsWRaS/ul1rV5tlGRyk9rj2umFklHMoBOEvOok3umRqe8pmj/ytki/rGCmXHSzWewg8AQ==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
+    "20260203121000_readable_ids.sql": {"hash": "39f67e4752e8b312e3bcae5edf5f38a6038e957daec613810d869659f8ef5f1e", "signature": "KepSIY84ZjgjTsS9br+wSpo4oNNQBXH/vBwjM59cL/JOL2Q9kLWrs6kA68xCVTT0VFb5G2F/G5q0usgSSLm9BA==", "algorithm": "ed25519", "hash_algorithm": "blake3"}
   }
 }

@@ -144,6 +144,9 @@ pub async fn list_tenant_policy_bindings(
 ) -> Result<Json<Vec<TenantPolicyBindingResponse>>, (StatusCode, Json<ErrorResponse>)> {
     // Require PolicyView permission
     require_permission(&claims, Permission::PolicyView)?;
+    let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Validate tenant isolation
     validate_tenant_isolation(&claims, &tenant_id)?;
@@ -204,6 +207,12 @@ pub async fn toggle_tenant_policy(
 ) -> Result<Json<TenantPolicyBindingResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Require PolicyApply permission
     require_permission(&claims, Permission::PolicyApply)?;
+    let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+    let policy_pack_id = crate::id_resolver::resolve_any_id(&state.db, &policy_pack_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Validate tenant isolation
     validate_tenant_isolation(&claims, &tenant_id)?;

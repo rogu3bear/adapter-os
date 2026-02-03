@@ -160,7 +160,10 @@ pub async fn worker_spawn(
 
     // Register worker using Db trait method
     use adapteros_db::workers::WorkerInsertBuilder;
-    let worker_id = uuid::Uuid::now_v7().to_string();
+    let worker_id = crate::id_generator::readable_id(
+        adapteros_core::ids::IdKind::Worker,
+        "worker",
+    );
     let mut builder = WorkerInsertBuilder::new()
         .id(&worker_id)
         .tenant_id(&req.tenant_id)
@@ -367,6 +370,8 @@ pub async fn stop_worker(
 ) -> ApiResult<crate::types::WorkerStopResponse> {
     // Require worker manage permission
     crate::permissions::require_permission(&claims, crate::permissions::Permission::WorkerManage)?;
+
+    let worker_id = crate::id_resolver::resolve_any_id(&state.db, &worker_id).await?;
 
     // PRD-RECT-002: Admins with admin_tenants grants can access workers across tenants.
     // Returns 404 for both missing and cross-tenant workers (for non-admins).
@@ -1179,6 +1184,8 @@ pub async fn get_worker_history(
 ) -> ApiResult<Vec<adapteros_db::workers::WorkerStatusHistoryRecord>> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
+    let worker_id = crate::id_resolver::resolve_any_id(&state.db, &worker_id).await?;
+
     // PRD-RECT-002: Use tenant-scoped query for non-admins to prevent enumeration.
     // Admins can access workers across tenants (intentional for admin operations).
     let is_admin = claims.roles.iter().any(|r| r.to_lowercase() == "admin");
@@ -1344,6 +1351,8 @@ pub async fn list_worker_incidents(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // PRD-RECT-002: Use tenant-scoped query to prevent cross-tenant worker access.
     // Returns 404 for both missing and cross-tenant workers.
+    let worker_id = crate::id_resolver::resolve_any_id(&state.db, &worker_id).await?;
+
     let _worker = state
         .db
         .get_worker_for_tenant(&claims.tenant_id, &worker_id)

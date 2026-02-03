@@ -255,6 +255,7 @@ pub async fn get_repo(
     Path(repo_id): Path<String>,
 ) -> Result<Json<RepoDetailResponse>, ApiError> {
     require_permission(&claims, Permission::AdapterList)?;
+    let repo_id = crate::id_resolver::resolve_any_id(&state.db, &repo_id).await?;
 
     let repo = state
         .db
@@ -393,6 +394,7 @@ pub async fn update_repo(
 ) -> Result<Json<RepoDetailResponse>, ApiError> {
     // Check permission
     require_permission(&claims, Permission::AdapterRegister)?;
+    let repo_id = crate::id_resolver::resolve_any_id(&state.db, &repo_id).await?;
 
     // First get the repo to verify it exists and belongs to tenant
     let repo = state
@@ -524,6 +526,7 @@ pub async fn list_versions(
     Path(repo_id): Path<String>,
 ) -> Result<Json<Vec<AdapterVersionResponse>>, ApiError> {
     require_permission(&claims, Permission::AdapterList)?;
+    let repo_id = crate::id_resolver::resolve_any_id(&state.db, &repo_id).await?;
 
     // Verify repository exists and belongs to tenant
     let _repo = state
@@ -613,6 +616,8 @@ pub async fn get_version(
     Path((repo_id, version_id)): Path<(String, String)>,
 ) -> Result<Json<AdapterVersionResponse>, ApiError> {
     require_permission(&claims, Permission::AdapterList)?;
+    let repo_id = crate::id_resolver::resolve_any_id(&state.db, &repo_id).await?;
+    let version_id = crate::id_resolver::resolve_any_id(&state.db, &version_id).await?;
 
     // Verify repository exists and belongs to tenant
     let _repo = state
@@ -719,6 +724,8 @@ pub async fn promote_version(
     Json(req): Json<PromoteVersionRequest>,
 ) -> Result<StatusCode, ApiError> {
     require_permission(&claims, Permission::AdapterRegister)?;
+    let repo_id = crate::id_resolver::resolve_any_id(&state.db, &repo_id).await?;
+    let version_id = crate::id_resolver::resolve_any_id(&state.db, &version_id).await?;
 
     // Verify repository exists and belongs to tenant
     let repo = state
@@ -810,6 +817,7 @@ pub async fn rollback_version(
     Json(req): Json<RollbackVersionRequest>,
 ) -> Result<StatusCode, ApiError> {
     require_permission(&claims, Permission::AdapterRegister)?;
+    let repo_id = crate::id_resolver::resolve_any_id(&state.db, &repo_id).await?;
 
     // Verify repository exists and belongs to tenant
     let repo = state
@@ -899,6 +907,7 @@ pub async fn get_timeline(
     Path(repo_id): Path<String>,
 ) -> Result<Json<Vec<RepoTimelineEventResponse>>, ApiError> {
     require_permission(&claims, Permission::AdapterList)?;
+    let repo_id = crate::id_resolver::resolve_any_id(&state.db, &repo_id).await?;
 
     // Verify repository exists and belongs to tenant
     let _repo = state
@@ -979,6 +988,7 @@ pub async fn list_training_jobs(
     Path(repo_id): Path<String>,
 ) -> Result<Json<Vec<RepoTrainingJobLinkResponse>>, ApiError> {
     require_permission(&claims, Permission::AdapterList)?;
+    let repo_id = crate::id_resolver::resolve_any_id(&state.db, &repo_id).await?;
 
     // Verify repository exists and belongs to tenant
     let _repo = state
@@ -1045,6 +1055,8 @@ pub async fn tag_version(
     Json(req): Json<TagVersionRequest>,
 ) -> Result<StatusCode, ApiError> {
     require_permission(&claims, Permission::AdapterRegister)?;
+    let repo_id = crate::id_resolver::resolve_any_id(&state.db, &repo_id).await?;
+    let version_id = crate::id_resolver::resolve_any_id(&state.db, &version_id).await?;
 
     // Verify repository exists and belongs to tenant
     let _repo = state
@@ -1128,6 +1140,8 @@ pub async fn start_training(
     Path((repo_id, version_id)): Path<(String, String)>,
 ) -> Result<StatusCode, ApiError> {
     require_permission(&claims, Permission::TrainingStart)?;
+    let repo_id = crate::id_resolver::resolve_any_id(&state.db, &repo_id).await?;
+    let version_id = crate::id_resolver::resolve_any_id(&state.db, &version_id).await?;
 
     // Verify repository exists and belongs to tenant
     let repo = state

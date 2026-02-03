@@ -460,7 +460,10 @@ async fn persist_synthesis_results(
     use adapteros_core::AosError;
 
     // Generate dataset ID
-    let dataset_id = uuid::Uuid::new_v4().to_string();
+    let dataset_id = crate::id_generator::readable_id(
+        adapteros_core::ids::IdKind::Dataset,
+        name,
+    );
 
     // Resolve storage path
     let config = state.config.read().map_err(|e| {
