@@ -28,6 +28,15 @@ use std::collections::HashMap;
 use tracing::{debug, info, warn};
 use utoipa::ToSchema;
 
+async fn resolve_stack_id(state: &AppState, id: &str) -> Result<String, ApiError> {
+    crate::id_resolver::resolve_id(
+        &state.db,
+        adapteros_core::ids::IdKind::Stack.prefix(),
+        id,
+    )
+    .await
+}
+
 /// Request to create a new adapter stack
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreateStackRequest {
@@ -287,7 +296,10 @@ pub async fn create_stack(
         );
     }
 
-    let id = uuid::Uuid::now_v7().to_string();
+    let id = crate::id_generator::readable_id(
+        adapteros_core::ids::IdKind::Stack,
+        &req.name,
+    );
     let now = chrono::Utc::now().to_rfc3339();
     let adapter_ids_json = serde_json::to_string(&req.adapter_ids).map_err(|e| {
         (
@@ -463,6 +475,10 @@ pub async fn get_stack(
 ) -> Result<Json<StackResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::AdapterView)?;
 
+    let id = resolve_stack_id(&state, &id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+
     let tenant_id = claims.tenant_id.clone();
 
     let row = state
@@ -559,6 +575,10 @@ pub async fn update_stack(
     Json(req): Json<UpdateStackRequest>,
 ) -> Result<Json<StackResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::AdapterRegister)?;
+
+    let id = resolve_stack_id(&state, &id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     let tenant_id = claims.tenant_id.clone();
 
@@ -701,6 +721,10 @@ pub async fn delete_stack(
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::AdapterRegister)?;
 
+    let id = resolve_stack_id(&state, &id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+
     let tenant_id = claims.tenant_id.clone();
 
     let deleted = match state.db.delete_stack(&tenant_id, &id).await {
@@ -766,6 +790,10 @@ pub async fn activate_stack(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::AdapterLoad)?;
+
+    let id = resolve_stack_id(&state, &id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     let tenant_id = claims.tenant_id.clone();
 
@@ -1139,6 +1167,10 @@ pub async fn clear_stack_adapters(
 ) -> Result<Json<ClearStackAdaptersResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::AdapterRegister)?;
 
+    let id = resolve_stack_id(&state, &id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+
     let tenant_id = claims.tenant_id.clone();
 
     // First verify the stack exists and get current adapter list
@@ -1392,6 +1424,10 @@ pub async fn get_stack_history(
 ) -> Result<Json<Vec<LifecycleHistoryResponse>>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::AdapterView)?;
 
+    let id = resolve_stack_id(&state, &id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+
     let tenant_id = claims.tenant_id.clone();
 
     // Verify stack exists and belongs to tenant
@@ -1441,6 +1477,10 @@ pub async fn get_stack_policies(
     Path(id): Path<String>,
 ) -> Result<Json<crate::types::StackPoliciesResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::PolicyView)?;
+
+    let id = resolve_stack_id(&state, &id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     let tenant_id = claims.tenant_id.clone();
 
@@ -1589,13 +1629,34 @@ pub async fn stack_policy_stream(
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> axum::response::sse::Sse<
-    impl futures_util::stream::Stream<
-        Item = Result<axum::response::sse::Event, std::convert::Infallible>,
+    axum::response::sse::KeepAliveStream<
+        std::pin::Pin<
+            Box<
+                dyn futures_util::stream::Stream<
+                        Item = Result<axum::response::sse::Event, std::convert::Infallible>,
+                    > + Send,
+            >,
+        >,
     >,
 > {
     use axum::response::sse::{Event, KeepAlive};
     use futures_util::stream;
     use std::time::Duration;
+    use std::{convert::Infallible, pin::Pin};
+
+    let id = match resolve_stack_id(&state, &id).await {
+        Ok(value) => value,
+        Err(err) => {
+            warn!(error = %err, "Failed to resolve stack ID for policy stream");
+            let stream: Pin<Box<dyn futures_util::stream::Stream<Item = Result<Event, Infallible>> + Send>> =
+                Box::pin(futures_util::stream::empty());
+            return axum::response::sse::Sse::new(stream).keep_alive(
+                KeepAlive::new()
+                    .interval(Duration::from_secs(10))
+                    .text("keep-alive"),
+            );
+        }
+    };
 
     // Permission check: PolicyView required
     let has_permission = require_permission(&claims, Permission::PolicyView).is_ok();
@@ -1685,6 +1746,9 @@ pub async fn stack_policy_stream(
             ))
         },
     );
+
+    let stream: Pin<Box<dyn futures_util::stream::Stream<Item = Result<Event, Infallible>> + Send>> =
+        Box::pin(stream);
 
     axum::response::sse::Sse::new(stream).keep_alive(
         KeepAlive::new()

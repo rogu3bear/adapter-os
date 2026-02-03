@@ -31,6 +31,9 @@ pub async fn get_tenant_settings(
     Extension(claims): Extension<Claims>,
     Path(tenant_id): Path<String>,
 ) -> Result<Json<TenantSettingsResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
     // Validate tenant isolation
     validate_tenant_isolation(&claims, &tenant_id)?;
 
@@ -109,6 +112,9 @@ pub async fn update_tenant_settings(
     Path(tenant_id): Path<String>,
     Json(req): Json<UpdateTenantSettingsRequest>,
 ) -> Result<Json<TenantSettingsResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
     // Validate tenant isolation
     validate_tenant_isolation(&claims, &tenant_id)?;
 

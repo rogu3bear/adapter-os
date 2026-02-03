@@ -211,6 +211,9 @@ pub async fn end_git_session(
     Json(request): Json<EndGitSessionRequest>,
 ) -> Result<Json<EndGitSessionResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::GitManage)?;
+    let session_id = crate::id_resolver::resolve_any_id(&state.db, &session_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     let git_subsystem = state.git_subsystem.as_ref().ok_or_else(|| {
         (

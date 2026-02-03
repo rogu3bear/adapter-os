@@ -351,6 +351,7 @@ pub async fn get_dataset_files(
     Path(dataset_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetView)?;
+    let dataset_id = crate::id_resolver::resolve_any_id(&state.db, &dataset_id).await?;
 
     // Verify dataset exists
     let dataset = state
@@ -413,6 +414,7 @@ pub async fn get_dataset_statistics(
     Path(dataset_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetView)?;
+    let dataset_id = crate::id_resolver::resolve_any_id(&state.db, &dataset_id).await?;
 
     // Verify dataset exists
     let dataset = state
@@ -485,6 +487,12 @@ pub async fn get_dataset_file_content(
     Path(path): Path<DatasetFileContentPath>,
 ) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetView)?;
+    let dataset_id = crate::id_resolver::resolve_any_id(&state.db, &path.dataset_id).await?;
+    let file_id = crate::id_resolver::resolve_any_id(&state.db, &path.file_id).await?;
+    let path = DatasetFileContentPath {
+        dataset_id,
+        file_id,
+    };
 
     // Verify dataset exists and check tenant isolation
     let dataset = state
@@ -807,6 +815,7 @@ pub async fn validate_all_dataset_files(
     Json(request): Json<ValidateFileRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetValidate)?;
+    let dataset_id = crate::id_resolver::resolve_any_id(&state.db, &dataset_id).await?;
 
     // Verify dataset exists and check tenant isolation
     let dataset = state

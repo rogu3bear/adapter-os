@@ -63,6 +63,7 @@ pub async fn export_adapter(
 ) -> Result<impl IntoResponse, ApiError> {
     // Permission check
     require_permission(&claims, Permission::AdapterView)?;
+    let adapter_id = crate::id_resolver::resolve_any_id(&state.db, &adapter_id).await?;
 
     // Reject exports during shutdown to prevent race conditions with cleanup
     if state

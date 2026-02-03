@@ -451,6 +451,10 @@ pub async fn get_client_error(
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> Result<Json<ClientErrorItem>, (StatusCode, Json<ErrorResponse>)> {
+    let id = crate::id_resolver::resolve_any_id(&state.db, &id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+
     let error = state.db.get_client_error(&id).await.map_err(|e| {
         tracing::error!(error = %e, error_id = %id, "Failed to get client error");
         (

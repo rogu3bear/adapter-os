@@ -151,6 +151,8 @@ pub async fn get_dataset(
 ) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetView)?;
 
+    let dataset_id = crate::id_resolver::resolve_any_id(&state.db, &dataset_id).await?;
+
     let dataset = state
         .db
         .get_training_dataset(&dataset_id)
@@ -240,6 +242,8 @@ pub async fn delete_dataset(
     Extension(claims): Extension<crate::auth::Claims>,
     Path(dataset_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let dataset_id = crate::id_resolver::resolve_any_id(&state.db, &dataset_id).await?;
+
     // Get dataset to find storage path
     let dataset = state
         .db

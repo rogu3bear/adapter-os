@@ -147,6 +147,7 @@ pub mod tenant_policy_bindings_kv;
 pub mod tenant_settings;
 pub mod topology;
 pub mod traits;
+pub mod readable_ids;
 
 // Lifecycle rules module
 pub mod lifecycle_rules;
@@ -1763,13 +1764,47 @@ impl Db {
         let workflow_type_str = stack.workflow_type.as_ref().map(|w| format!("{:?}", w));
 
         let mut updated = false;
+        let mut should_bump_version = false;
+        let mut new_version: Option<i64> = None;
         // SQL update if enabled
         if self.storage_mode().write_to_sql() {
             if let Some(pool) = self.pool_opt() {
+                let (current_adapter_ids_json, current_workflow_type, current_version) =
+                    if let Some(row) =
+                        sqlx::query_as::<_, (String, Option<String>, String)>(
+                        r#"
+                        SELECT adapter_ids_json, workflow_type, version
+                        FROM adapter_stacks
+                        WHERE id = ?
+                        "#,
+                    )
+                    .bind(id)
+                    .fetch_optional(pool)
+                    .await
+                    .map_err(|e| {
+                        AosError::Database(format!("Failed to fetch stack for update: {}", e))
+                    })?
+                    {
+                        row
+                    } else {
+                        return Ok(false);
+                    };
+
+                should_bump_version = current_adapter_ids_json != adapter_ids_json
+                    || current_workflow_type != workflow_type_str;
+
+                let current_version_num = current_version.parse::<i64>().unwrap_or(1);
+                let bump = if should_bump_version { 1i64 } else { 0i64 };
+                let next_version = if should_bump_version {
+                    current_version_num + 1
+                } else {
+                    current_version_num
+                };
+                new_version = Some(next_version);
                 let result = sqlx::query(
                     r#"
                     UPDATE adapter_stacks
-                    SET name = ?, description = ?, adapter_ids_json = ?, workflow_type = ?, determinism_mode = ?, routing_determinism_mode = ?, updated_at = datetime('now')
+                    SET name = ?, description = ?, adapter_ids_json = ?, workflow_type = ?, determinism_mode = ?, routing_determinism_mode = ?, version = version + ?, updated_at = datetime('now')
                     WHERE id = ?
                     "#,
                 )
@@ -1779,6 +1814,7 @@ impl Db {
                 .bind(&workflow_type_str)
                 .bind(&stack.determinism_mode)
                 .bind(&stack.routing_determinism_mode)
+                .bind(bump)
                 .bind(id)
                 .execute(pool)
                 .await
@@ -1796,6 +1832,18 @@ impl Db {
                     warn!(error = %e, stack_id = %id, "Failed to update stack in KV backend (dual-write)");
                 } else {
                     debug!(stack_id = %id, "Stack updated in both SQL and KV backends");
+                }
+                if should_bump_version {
+                    let Some(next_version) = new_version else {
+                        warn!(stack_id = %id, "Missing next stack version for KV update");
+                        return Ok(updated);
+                    };
+                    if let Err(e) = kv_backend
+                        .update_version(&stack.tenant_id, id, &next_version.to_string())
+                        .await
+                    {
+                        warn!(error = %e, stack_id = %id, "Failed to update stack version in KV backend (dual-write)");
+                    }
                 }
             }
         }
@@ -2329,7 +2377,7 @@ impl Db {
                 sqlx::query(
                     r#"
                     INSERT INTO adapter_stacks (id, tenant_id, name, description, adapter_ids_json, workflow_type, version, lifecycle_state, created_at, updated_at, determinism_mode, routing_determinism_mode)
-                    VALUES (?, ?, ?, ?, ?, ?, '1.0.0', 'active', datetime('now'), datetime('now'), ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, 1, 'active', datetime('now'), datetime('now'), ?, ?)
                     "#,
                 )
                 .bind(&id)
@@ -2963,6 +3011,13 @@ impl Db {
         .await
         .map_err(|e| AosError::Database(format!("Failed to update anomaly status: {}", e)))?;
         Ok(())
+    }
+
+    /// Backfill readable IDs across SQL tables (one-time).
+    pub async fn backfill_readable_ids(&self) -> Result<()> {
+        crate::readable_ids::backfill_readable_ids(self)
+            .await
+            .map_err(|e| AosError::Database(format!("Readable ID backfill failed: {}", e)))
     }
 
     /// Get a system setting value by key

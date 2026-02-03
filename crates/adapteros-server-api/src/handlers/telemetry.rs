@@ -432,6 +432,10 @@ pub async fn get_trace(
         )
     })?;
 
+    let trace_id = crate::id_resolver::resolve_any_id(&state.db, &trace_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+
     // Get trace from the trace buffer with tenant isolation
     let trace = state
         .trace_buffer
@@ -475,6 +479,10 @@ pub async fn get_inference_trace_detail(
             Json(ErrorResponse::new("insufficient permissions").with_code("FORBIDDEN")),
         )
     })?;
+
+    let trace_id = crate::id_resolver::resolve_any_id(&state.db, &trace_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     let record = get_inference_trace_detail_for_tenant(&state.db, &claims.tenant_id, &trace_id)
         .await

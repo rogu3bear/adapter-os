@@ -53,6 +53,7 @@ pub mod feature_guards;
 pub mod fusion_interval;
 pub mod guard_common;
 pub mod identity;
+pub mod ids;
 pub mod index_snapshot;
 pub mod io_utils;
 pub mod jitter;

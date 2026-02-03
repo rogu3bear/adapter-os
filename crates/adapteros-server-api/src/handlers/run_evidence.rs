@@ -209,6 +209,9 @@ pub async fn download_run_evidence(
     Query(params): Query<EvidenceExportParams>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::InferenceExecute)?;
+    let run_id = crate::id_resolver::resolve_any_id(&state.db, &run_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Fetch metadata by inference_id (tenant isolation enforced at DB layer)
     let metadata = state

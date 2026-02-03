@@ -98,7 +98,7 @@ pub async fn debug_infer_with_mode(
     // Extract request_id for logging
     let request_id_str = request_id
         .map(|r| r.0.as_str().to_string())
-        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        .unwrap_or_else(crate::id_generator::readable_request_id);
 
     // Check if debug override is allowed
     let global_config = GlobalDeterminismConfig::from_env().map_err(|e| {

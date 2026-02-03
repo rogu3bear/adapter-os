@@ -49,6 +49,9 @@ pub async fn list_adapter_versions(
     Query(params): Query<ListAdapterVersionsParams>,
 ) -> Result<Json<Vec<AdapterVersionResponse>>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::AdapterList)?;
+    let repo_id = crate::id_resolver::resolve_any_id(&state.db, &repo_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     let repo = state
         .db
@@ -299,6 +302,9 @@ pub async fn get_adapter_version(
     Path(version_id): Path<String>,
 ) -> Result<Json<AdapterVersionResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::AdapterList)?;
+    let version_id = crate::id_resolver::resolve_any_id(&state.db, &version_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     let version = state
         .db
@@ -431,6 +437,9 @@ pub async fn promote_adapter_version_handler(
     Json(req): Json<PromoteVersionRequest>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::AdapterRegister)?;
+    let version_id = crate::id_resolver::resolve_any_id(&state.db, &version_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Fetch version to validate tenant/repo
     let version = state
@@ -532,6 +541,9 @@ pub async fn rollback_adapter_version_handler(
     Json(req): Json<RollbackVersionRequest>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::AdapterRegister)?;
+    let repo_id = crate::id_resolver::resolve_any_id(&state.db, &repo_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Ensure repo exists
     let repo_exists = state
@@ -606,6 +618,9 @@ pub async fn tag_adapter_version_handler(
     Json(req): Json<TagVersionRequest>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::AdapterRegister)?;
+    let version_id = crate::id_resolver::resolve_any_id(&state.db, &version_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     state
         .db
@@ -650,6 +665,9 @@ pub async fn resolve_adapter_version_handler(
     Json(req): Json<ResolveVersionRequest>,
 ) -> Result<Json<ResolveVersionResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::AdapterList)?;
+    let repo_id = crate::id_resolver::resolve_any_id(&state.db, &repo_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     let resolved = state
         .db

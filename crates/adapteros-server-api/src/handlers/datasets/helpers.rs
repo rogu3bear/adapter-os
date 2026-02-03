@@ -18,6 +18,9 @@ use crate::state::AppState;
 
 use super::paths::resolve_dataset_root;
 use adapteros_storage::secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
+use regex::Regex;
+use serde_json::{Map, Value};
+use std::sync::LazyLock;
 
 /// Maximum file size (100MB)
 pub const MAX_FILE_SIZE: usize = 100 * 1024 * 1024;
@@ -41,6 +44,9 @@ pub const VALIDATION_BATCH_SIZE: usize = 10;
 pub const SAFETY_SAMPLE_LIMIT: usize = 5;
 pub const PROMPT_WARN_LEN: usize = 4096;
 pub const PROMPT_BLOCK_LEN: usize = 12000;
+pub const PII_BLOCK_THRESHOLD: usize = 10;
+pub const TOXIC_BLOCK_THRESHOLD: usize = 5;
+pub const ANOMALY_BLOCK_THRESHOLD: usize = 1;
 
 pub fn dataset_quota_limits() -> (u64, u64) {
     let hard = std::env::var("AOS_DATASET_HARD_QUOTA_BYTES")
@@ -374,6 +380,16 @@ impl SignalAccumulator {
     }
 }
 
+fn status_with_threshold(acc: &SignalAccumulator, block_threshold: usize) -> String {
+    if acc.block > 0 || acc.warn >= block_threshold {
+        "block".to_string()
+    } else if acc.warn > 0 {
+        "warn".to_string()
+    } else {
+        "clean".to_string()
+    }
+}
+
 #[derive(Default)]
 pub struct SafetyScanOutcome {
     pub pii: SignalAccumulator,
@@ -399,6 +415,24 @@ pub fn has_email_like_token(text: &str) -> bool {
             false
         }
     })
+}
+
+static PHONE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b(?:\+?\d{1,3}[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)\d{3}[-.\s]?\d{4}\b").expect("phone regex"));
+static SSN_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b\d{3}-\d{2}-\d{4}\b").expect("ssn regex"));
+static CC_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b(?:\d[ -]*?){13,16}\b").expect("cc regex"));
+
+pub fn has_phone_like_token(text: &str) -> bool {
+    PHONE_RE.is_match(text)
+}
+
+pub fn has_ssn_like_token(text: &str) -> bool {
+    SSN_RE.is_match(text)
+}
+
+pub fn has_credit_card_like_token(text: &str) -> bool {
+    CC_RE.is_match(text) && text.chars().filter(|c| c.is_ascii_digit()).count() >= 13
 }
 
 pub fn has_secret_marker(text: &str) -> bool {
@@ -450,6 +484,21 @@ pub fn classify_row(
             .pii
             .note_warn("email_like_pattern", Some(&row.row_id));
     }
+    if has_phone_like_token(&combined) {
+        outcome
+            .pii
+            .note_warn("phone_like_pattern", Some(&row.row_id));
+    }
+    if has_ssn_like_token(&combined) {
+        outcome
+            .pii
+            .note_block("ssn_like_pattern", Some(&row.row_id));
+    }
+    if has_credit_card_like_token(&combined) {
+        outcome
+            .pii
+            .note_block("credit_card_like_pattern", Some(&row.row_id));
+    }
     if has_secret_marker(&combined) {
         outcome.leak.note_block("secret_marker", Some(&row.row_id));
     }
@@ -458,6 +507,52 @@ pub fn classify_row(
             .toxicity
             .note_warn("toxic_language", Some(&row.row_id));
     }
+}
+
+fn parse_canonical_row(value: &Value) -> Option<CanonicalRow> {
+    let obj = value.as_object()?;
+    let prompt = obj.get("prompt").and_then(|v| v.as_str())?;
+    let response = obj
+        .get("response")
+        .or_else(|| obj.get("completion"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    let row_id = obj
+        .get("row_id")
+        .or_else(|| obj.get("id"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| {
+            B3Hash::hash_multi(&[prompt.as_bytes(), b"\0", response.as_bytes()]).to_hex()
+        });
+
+    let split = obj
+        .get("split")
+        .and_then(|v| v.as_str())
+        .or_else(|| {
+            obj.get("metadata")
+                .and_then(|v| v.as_object())
+                .and_then(|m| m.get("split"))
+                .and_then(|v| v.as_str())
+        })
+        .unwrap_or("train")
+        .to_string();
+
+    let metadata = obj
+        .get("metadata")
+        .and_then(|v| v.as_object())
+        .cloned()
+        .unwrap_or_else(Map::new);
+
+    Some(CanonicalRow {
+        row_id,
+        split,
+        prompt: prompt.to_string(),
+        response: response.to_string(),
+        weight: 1.0,
+        metadata,
+    })
 }
 
 pub async fn run_tier2_safety_scan(path: &str) -> Result<SafetyScanOutcome, String> {
@@ -481,8 +576,16 @@ pub async fn run_tier2_safety_scan(path: &str) -> Result<SafetyScanOutcome, Stri
         if trimmed.is_empty() {
             continue;
         }
-        match serde_json::from_str::<CanonicalRow>(trimmed) {
-            Ok(row) => classify_row(&row, &mut seen_ids, &mut outcome),
+        match serde_json::from_str::<Value>(trimmed) {
+            Ok(value) => {
+                if let Some(row) = parse_canonical_row(&value) {
+                    classify_row(&row, &mut seen_ids, &mut outcome);
+                } else {
+                    outcome
+                        .anomaly
+                        .note_warn("row_parse_error:missing_fields".to_string(), None);
+                }
+            }
             Err(e) => outcome
                 .anomaly
                 .note_warn(format!("row_parse_error:{e}"), None),
@@ -506,17 +609,26 @@ pub async fn record_safety_validation_runs(
     ];
 
     for (signal, acc) in signals {
-        let status = match acc.status().as_str() {
+        let status = match status_with_threshold(acc, match signal {
+            "pii" => PII_BLOCK_THRESHOLD,
+            "toxicity" => TOXIC_BLOCK_THRESHOLD,
+            "leak" => 1,
+            "anomaly" => ANOMALY_BLOCK_THRESHOLD,
+            _ => 1,
+        })
+        .as_str()
+        {
             "block" => "block",
             "warn" => "warn",
             "clean" => "valid",
             _ => "pending",
         };
-        let reasons_json = if acc.reasons.is_empty() {
-            None
-        } else {
-            serde_json::to_string(&acc.reasons).ok()
-        };
+        let reasons_json = serde_json::to_string(&serde_json::json!({
+            "warn_count": acc.warn,
+            "block_count": acc.block,
+            "reasons": acc.reasons.clone(),
+        }))
+        .ok();
         let samples_json = if acc.sample_row_ids.is_empty() {
             None
         } else {
@@ -628,10 +740,10 @@ pub fn spawn_tier2_safety_validation(state: AppState, dataset_version_id: String
 
         match run_tier2_safety_scan(&version.storage_path).await {
             Ok(outcome) => {
-                let pii_status = outcome.pii.status();
-                let toxicity_status = outcome.toxicity.status();
-                let leak_status = outcome.leak.status();
-                let anomaly_status = outcome.anomaly.status();
+                let pii_status = status_with_threshold(&outcome.pii, PII_BLOCK_THRESHOLD);
+                let toxicity_status = status_with_threshold(&outcome.toxicity, TOXIC_BLOCK_THRESHOLD);
+                let leak_status = status_with_threshold(&outcome.leak, 1);
+                let anomaly_status = status_with_threshold(&outcome.anomaly, ANOMALY_BLOCK_THRESHOLD);
 
                 let _ = state
                     .db

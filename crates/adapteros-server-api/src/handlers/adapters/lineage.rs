@@ -236,6 +236,7 @@ pub async fn get_adapter_lineage(
     Path(adapter_id): Path<String>,
 ) -> ApiResult<AdapterLineageResponse> {
     require_permission(&claims, Permission::AdapterView)?;
+    let adapter_id = crate::id_resolver::resolve_any_id(&state.db, &adapter_id).await?;
 
     // Verify adapter exists and validate tenant isolation
     let current_adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;
@@ -368,6 +369,7 @@ pub async fn get_adapter_detail(
     Path(adapter_id): Path<String>,
 ) -> ApiResult<AdapterDetailResponse> {
     require_permission(&claims, Permission::AdapterView)?;
+    let adapter_id = crate::id_resolver::resolve_any_id(&state.db, &adapter_id).await?;
 
     let adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;
 

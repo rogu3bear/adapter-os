@@ -5,7 +5,7 @@
 
 use crate::api::{ApiClient, DatasetListResponse, DatasetVersionsResponse};
 use crate::components::{
-    Badge, BadgeVariant, BreadcrumbItem, BreadcrumbTrail, Button, ButtonVariant, Card,
+    Badge, BadgeVariant, BreadcrumbItem, BreadcrumbTrail, Button, ButtonVariant, Card, CopyableId,
     ConfirmationDialog, ConfirmationSeverity, EmptyState, ErrorDisplay, LoadingDisplay, PageHeader,
     RefreshButton, Spinner, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
@@ -537,10 +537,7 @@ pub fn DatasetDetail() -> impl IntoView {
                                 <Card>
                                     <h3 class="text-lg font-semibold mb-4">"Overview"</h3>
                                     <dl class="space-y-3">
-                                        <div class="flex justify-between">
-                                            <dt class="text-muted-foreground">"ID"</dt>
-                                            <dd class="font-mono text-xs">{data.id.clone()}</dd>
-                                        </div>
+                                        <CopyableId id=data.id.clone() label="ID".to_string() truncate=24 />
                                         <div class="flex justify-between">
                                             <dt class="text-muted-foreground">"Type"</dt>
                                             <dd>

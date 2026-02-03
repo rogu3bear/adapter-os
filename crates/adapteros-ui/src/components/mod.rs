@@ -16,6 +16,7 @@ pub mod chat_dock;
 pub mod checkbox;
 pub mod command_palette;
 pub mod confirmation_dialog;
+pub mod copyable_id;
 pub mod danger_zone;
 pub mod data_table;
 pub mod diag_diff;
@@ -71,6 +72,7 @@ pub use command_palette::CommandPalette;
 pub use confirmation_dialog::{
     ConfirmationDialog, ConfirmationSeverity, ImpactItem, SimpleConfirmDialog,
 };
+pub use copyable_id::CopyableId;
 pub use danger_zone::{
     AlertBanner, BannerVariant, DangerZone, DangerZoneItem, InfoBanner, WarningBanner,
 };

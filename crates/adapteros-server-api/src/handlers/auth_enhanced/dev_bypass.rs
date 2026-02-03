@@ -208,7 +208,10 @@ pub async fn dev_bypass_handler(
             }
         }
         Ok(None) => {
-            let ws_id = format!("ws-dev-{}", Uuid::now_v7());
+            let ws_id = crate::id_generator::readable_id(
+                adapteros_core::ids::IdKind::Workspace,
+                "dev",
+            );
             info!(workspace_id = %ws_id, user_id = %user_id, "Creating default workspace for dev user");
             if let Err(e) = sqlx::query(
                 "INSERT INTO workspaces (id, name, description, created_by, created_at, updated_at) VALUES (?, 'Default Workspace', 'Auto-created workspace for development', ?, datetime('now'), datetime('now'))",

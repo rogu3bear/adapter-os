@@ -99,6 +99,10 @@ pub async fn get_contact(
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
+    let id = match crate::id_resolver::resolve_any_id(&state.db, &id).await {
+        Ok(id) => id,
+        Err(e) => return e.into_response(),
+    };
     match state.db.get_contact(&id).await {
         Ok(Some(contact)) => {
             // Verify tenant ownership
@@ -134,6 +138,10 @@ pub async fn delete_contact(
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
+    let id = match crate::id_resolver::resolve_any_id(&state.db, &id).await {
+        Ok(id) => id,
+        Err(e) => return e.into_response(),
+    };
     // Check existence and ownership first
     match state.db.get_contact(&id).await {
         Ok(Some(contact)) => {
@@ -179,6 +187,10 @@ pub async fn get_contact_interactions(
     Path(id): Path<String>,
     Query(params): Query<crate::types::PaginationParams>,
 ) -> impl IntoResponse {
+    let id = match crate::id_resolver::resolve_any_id(&state.db, &id).await {
+        Ok(id) => id,
+        Err(e) => return e.into_response(),
+    };
     let limit = params.limit as i64;
 
     // Verify ownership
