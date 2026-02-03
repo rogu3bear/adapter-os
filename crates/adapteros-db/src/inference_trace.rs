@@ -9,7 +9,7 @@ use adapteros_core::{
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json;
-use sqlx::Row;
+use sqlx::{QueryBuilder, Row};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -1323,6 +1323,603 @@ pub async fn recompute_receipt(db: &Db, trace_id: &str) -> Result<TraceReceiptVe
         stored,
         recomputed,
     })
+}
+
+#[derive(Debug, Clone)]
+pub struct InferenceTraceTokenRecord {
+    pub token_index: u32,
+    pub adapter_ids: Vec<String>,
+    pub gates_q15: Vec<i16>,
+    pub decision_hash: Vec<u8>,
+    pub backend_id: Option<String>,
+    pub kernel_version_id: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct InferenceTraceReceiptRecord {
+    pub receipt_digest: Vec<u8>,
+    pub run_head_hash: Vec<u8>,
+    pub output_digest: Vec<u8>,
+    pub logical_prompt_tokens: u32,
+    pub logical_output_tokens: u32,
+    pub stop_reason_code: Option<String>,
+    pub stop_reason_token_index: Option<u32>,
+    pub receipt_parity_verified: Option<bool>,
+    pub processor_id: Option<String>,
+    pub engine_version: Option<String>,
+    pub ane_version: Option<String>,
+    pub prefix_cache_hit: bool,
+    pub prefix_kv_bytes: u64,
+    pub created_at: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct InferenceTraceDetailRecord {
+    pub trace_id: String,
+    pub request_id: Option<String>,
+    pub created_at: String,
+    pub tokens: Vec<InferenceTraceTokenRecord>,
+    pub receipt: Option<InferenceTraceReceiptRecord>,
+}
+
+#[derive(Debug, Clone)]
+pub struct InferenceTraceListRecord {
+    pub trace_id: String,
+    pub request_id: Option<String>,
+    pub created_at: String,
+    pub receipt_created_at: Option<String>,
+    pub token_count: u32,
+    pub adapters_used: Vec<String>,
+    pub stop_reason_code: Option<String>,
+}
+
+fn decode_adapter_ids_flexible(bytes: &[u8]) -> Vec<String> {
+    if bytes.is_empty() {
+        return Vec::new();
+    }
+    if let Ok(parsed) = serde_json::from_slice::<Vec<String>>(bytes) {
+        return parsed;
+    }
+    SqlTraceSink::decode_adapter_ids(bytes)
+}
+
+fn decode_gates_q15_flexible(bytes: &[u8]) -> Vec<i16> {
+    if bytes.is_empty() {
+        return Vec::new();
+    }
+    if let Ok(parsed) = serde_json::from_slice::<Vec<i16>>(bytes) {
+        return parsed;
+    }
+    if let Ok(parsed) = serde_json::from_slice::<Vec<i64>>(bytes) {
+        return parsed
+            .into_iter()
+            .map(|v| v.max(i16::MIN as i64).min(i16::MAX as i64) as i16)
+            .collect();
+    }
+    SqlTraceSink::decode_gates_q15(bytes)
+}
+
+pub async fn get_inference_trace_detail_for_tenant(
+    db: &Db,
+    tenant_id: &str,
+    trace_id: &str,
+) -> Result<Option<InferenceTraceDetailRecord>> {
+    let Some(pool) = db.pool_opt() else {
+        return Err(AosError::Database(
+            "SQL backend unavailable - cannot load inference trace detail".to_string(),
+        ));
+    };
+
+    let header = sqlx::query(
+        r#"
+        SELECT trace_id, request_id, created_at
+        FROM inference_traces
+        WHERE trace_id = ? AND tenant_id = ?
+        LIMIT 1
+        "#,
+    )
+    .bind(trace_id)
+    .bind(tenant_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| AosError::Database(format!("Failed to fetch inference trace header: {e}")))?;
+
+    let Some(header) = header else {
+        return Ok(None);
+    };
+
+    let trace_id: String = header.get("trace_id");
+    let request_id: Option<String> = header.get("request_id");
+    let created_at: String = header.get("created_at");
+
+    let token_rows = sqlx::query(
+        r#"
+        SELECT token_index, selected_adapter_ids, gates_q15, decision_hash, backend_id, kernel_version_id
+        FROM inference_trace_tokens
+        WHERE trace_id = ?
+        ORDER BY token_index ASC
+        "#,
+    )
+    .bind(&trace_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| AosError::Database(format!("Failed to fetch inference trace tokens: {e}")))?;
+
+    let mut tokens = Vec::with_capacity(token_rows.len());
+    for row in token_rows {
+        let token_index: i64 = row.get("token_index");
+        let adapter_blob: Vec<u8> = match row.try_get::<Vec<u8>, _>("selected_adapter_ids") {
+            Ok(bytes) => bytes,
+            Err(_) => {
+                let text: String = row.try_get("selected_adapter_ids")?;
+                text.into_bytes()
+            }
+        };
+        let gates_blob: Vec<u8> = match row.try_get::<Vec<u8>, _>("gates_q15") {
+            Ok(bytes) => bytes,
+            Err(_) => {
+                let text: String = row.try_get("gates_q15")?;
+                text.into_bytes()
+            }
+        };
+        let decision_hash: Vec<u8> = row.get("decision_hash");
+        let backend_id: Option<String> = row.get("backend_id");
+        let kernel_version_id: Option<String> = row.get("kernel_version_id");
+
+        tokens.push(InferenceTraceTokenRecord {
+            token_index: token_index.max(0) as u32,
+            adapter_ids: decode_adapter_ids_flexible(&adapter_blob),
+            gates_q15: decode_gates_q15_flexible(&gates_blob),
+            decision_hash,
+            backend_id,
+            kernel_version_id,
+        });
+    }
+
+    let receipt_row = sqlx::query(
+        r#"
+        SELECT run_head_hash,
+               output_digest,
+               receipt_digest,
+               logical_prompt_tokens,
+               logical_output_tokens,
+               stop_reason_code,
+               stop_reason_token_index,
+               receipt_parity_verified,
+               processor_id,
+               mlx_version,
+               ane_version,
+               prefix_cache_hit,
+               prefix_kv_bytes,
+               created_at
+        FROM inference_trace_receipts
+        WHERE trace_id = ?
+        LIMIT 1
+        "#,
+    )
+    .bind(&trace_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| AosError::Database(format!("Failed to fetch inference trace receipt: {e}")))?;
+
+    let receipt = receipt_row.map(|row| {
+        let logical_prompt_tokens: i64 = row.get("logical_prompt_tokens");
+        let logical_output_tokens: i64 = row.get("logical_output_tokens");
+        let stop_reason_token_index: Option<i64> = row.try_get("stop_reason_token_index").ok();
+        let receipt_parity_verified: Option<bool> = row
+            .try_get::<Option<i64>, _>("receipt_parity_verified")
+            .ok()
+            .flatten()
+            .map(|v| v != 0);
+        let prefix_cache_hit = row.try_get::<i64, _>("prefix_cache_hit").unwrap_or(0) != 0;
+        let prefix_kv_bytes = row.try_get::<i64, _>("prefix_kv_bytes").unwrap_or(0).max(0) as u64;
+
+        InferenceTraceReceiptRecord {
+            receipt_digest: row.get("receipt_digest"),
+            run_head_hash: row.get("run_head_hash"),
+            output_digest: row.get("output_digest"),
+            logical_prompt_tokens: logical_prompt_tokens.max(0) as u32,
+            logical_output_tokens: logical_output_tokens.max(0) as u32,
+            stop_reason_code: row.get("stop_reason_code"),
+            stop_reason_token_index: stop_reason_token_index.map(|v| v.max(0) as u32),
+            receipt_parity_verified,
+            processor_id: row.get("processor_id"),
+            engine_version: row.get("mlx_version"),
+            ane_version: row.get("ane_version"),
+            prefix_cache_hit,
+            prefix_kv_bytes,
+            created_at: row.try_get("created_at").ok(),
+        }
+    });
+
+    Ok(Some(InferenceTraceDetailRecord {
+        trace_id,
+        request_id,
+        created_at,
+        tokens,
+        receipt,
+    }))
+}
+
+pub async fn list_inference_traces_for_tenant(
+    db: &Db,
+    tenant_id: &str,
+    request_id: Option<&str>,
+    limit: Option<usize>,
+) -> Result<Vec<InferenceTraceListRecord>> {
+    let Some(pool) = db.pool_opt() else {
+        return Err(AosError::Database(
+            "SQL backend unavailable - cannot list inference traces".to_string(),
+        ));
+    };
+
+    let limit = limit.unwrap_or(50).min(500) as i64;
+    let mut builder = QueryBuilder::new(
+        r#"
+        SELECT t.trace_id,
+               t.request_id,
+               t.created_at,
+               r.created_at AS receipt_created_at,
+               r.stop_reason_code
+        FROM inference_traces t
+        LEFT JOIN inference_trace_receipts r
+          ON r.trace_id = t.trace_id
+        WHERE t.tenant_id = 
+        "#,
+    );
+    builder.push_bind(tenant_id);
+    if let Some(request_id) = request_id {
+        builder.push(" AND t.request_id = ");
+        builder.push_bind(request_id);
+    }
+    builder.push(" ORDER BY t.created_at DESC, t.trace_id DESC LIMIT ");
+    builder.push_bind(limit);
+
+    let rows = builder
+        .build()
+        .fetch_all(pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to list inference traces: {e}")))?;
+
+    let mut records = Vec::with_capacity(rows.len());
+    for row in rows {
+        let trace_id: String = row.get("trace_id");
+        let request_id: Option<String> = row.get("request_id");
+        let created_at: String = row.get("created_at");
+        let receipt_created_at: Option<String> = row.get("receipt_created_at");
+        let stop_reason_code: Option<String> = row.get("stop_reason_code");
+
+        let token_rows = sqlx::query(
+            r#"
+            SELECT selected_adapter_ids
+            FROM inference_trace_tokens
+            WHERE trace_id = ?
+            ORDER BY token_index ASC
+            "#,
+        )
+        .bind(&trace_id)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| {
+            AosError::Database(format!(
+                "Failed to fetch inference trace tokens for list: {e}"
+            ))
+        })?;
+
+        let mut adapters_used = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for token_row in &token_rows {
+            let adapter_blob: Vec<u8> =
+                match token_row.try_get::<Vec<u8>, _>("selected_adapter_ids") {
+                    Ok(bytes) => bytes,
+                    Err(_) => {
+                        let text: String = token_row.try_get("selected_adapter_ids")?;
+                        text.into_bytes()
+                    }
+                };
+            for adapter in decode_adapter_ids_flexible(&adapter_blob) {
+                if seen.insert(adapter.clone()) {
+                    adapters_used.push(adapter);
+                }
+            }
+        }
+
+        records.push(InferenceTraceListRecord {
+            trace_id,
+            request_id,
+            created_at,
+            receipt_created_at,
+            token_count: token_rows.len() as u32,
+            adapters_used,
+            stop_reason_code,
+        });
+    }
+
+    Ok(records)
+}
+
+#[derive(Debug, Clone)]
+pub struct InferenceTraceTokenRecord {
+    pub token_index: u32,
+    pub adapter_ids: Vec<String>,
+    pub gates_q15: Vec<i16>,
+    pub decision_hash: Vec<u8>,
+    pub backend_id: Option<String>,
+    pub kernel_version_id: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct InferenceTraceReceiptRecord {
+    pub run_head_hash: Vec<u8>,
+    pub output_digest: Vec<u8>,
+    pub receipt_digest: Vec<u8>,
+    pub logical_prompt_tokens: u32,
+    pub logical_output_tokens: u32,
+    pub stop_reason_code: Option<String>,
+    pub stop_reason_token_index: Option<u32>,
+    pub receipt_parity_verified: Option<bool>,
+    pub processor_id: Option<String>,
+    pub engine_version: Option<String>,
+    pub ane_version: Option<String>,
+    pub prefix_cache_hit: bool,
+    pub prefix_kv_bytes: u64,
+    pub created_at: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct InferenceTraceDetailRecord {
+    pub trace_id: String,
+    pub tenant_id: String,
+    pub request_id: Option<String>,
+    pub created_at: String,
+    pub tokens: Vec<InferenceTraceTokenRecord>,
+    pub receipt: Option<InferenceTraceReceiptRecord>,
+}
+
+#[derive(Debug, Clone)]
+pub struct InferenceTraceListRecord {
+    pub trace_id: String,
+    pub request_id: Option<String>,
+    pub created_at: String,
+    pub receipt_created_at: Option<String>,
+    pub stop_reason_code: Option<String>,
+    pub token_count: u32,
+    pub adapters_used: Vec<String>,
+}
+
+pub async fn get_inference_trace_detail_for_tenant(
+    db: &Db,
+    tenant_id: &str,
+    trace_id: &str,
+) -> Result<Option<InferenceTraceDetailRecord>> {
+    let Some(pool) = db.pool_opt() else {
+        return Err(AosError::Database(
+            "SQL backend unavailable - cannot load inference trace detail".to_string(),
+        ));
+    };
+
+    let trace_row = sqlx::query(
+        r#"
+        SELECT trace_id, tenant_id, request_id, created_at
+        FROM inference_traces
+        WHERE trace_id = ? AND tenant_id = ?
+        LIMIT 1
+        "#,
+    )
+    .bind(trace_id)
+    .bind(tenant_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| AosError::Database(format!("Failed to fetch inference trace: {e}")))?;
+
+    let Some(row) = trace_row else {
+        return Ok(None);
+    };
+
+    let trace_id: String = row.get("trace_id");
+    let tenant_id: String = row.get("tenant_id");
+    let request_id: Option<String> = row.get("request_id");
+    let created_at: String = row.get("created_at");
+
+    let token_rows = sqlx::query(
+        r#"
+        SELECT token_index,
+               selected_adapter_ids,
+               gates_q15,
+               decision_hash,
+               backend_id,
+               kernel_version_id
+        FROM inference_trace_tokens
+        WHERE trace_id = ?
+        ORDER BY token_index ASC
+        "#,
+    )
+    .bind(&trace_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| AosError::Database(format!("Failed to fetch trace tokens: {e}")))?;
+
+    let mut tokens = Vec::with_capacity(token_rows.len());
+    for row in token_rows {
+        let token_index: i64 = row.get("token_index");
+        let adapter_blob: Vec<u8> = row.get("selected_adapter_ids");
+        let gates_blob: Vec<u8> = row.get("gates_q15");
+        let decision_hash: Vec<u8> = row.get("decision_hash");
+        let backend_id: Option<String> = row.get("backend_id");
+        let kernel_version_id: Option<String> = row.get("kernel_version_id");
+
+        tokens.push(InferenceTraceTokenRecord {
+            token_index: token_index as u32,
+            adapter_ids: SqlTraceSink::decode_adapter_ids(&adapter_blob),
+            gates_q15: SqlTraceSink::decode_gates_q15(&gates_blob),
+            decision_hash,
+            backend_id,
+            kernel_version_id,
+        });
+    }
+
+    let receipt_row = sqlx::query(
+        r#"
+        SELECT run_head_hash,
+               output_digest,
+               receipt_digest,
+               logical_prompt_tokens,
+               logical_output_tokens,
+               stop_reason_code,
+               stop_reason_token_index,
+               receipt_parity_verified,
+               processor_id,
+               mlx_version,
+               ane_version,
+               prefix_cache_hit,
+               prefix_kv_bytes,
+               created_at
+        FROM inference_trace_receipts
+        WHERE trace_id = ?
+        LIMIT 1
+        "#,
+    )
+    .bind(&trace_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| AosError::Database(format!("Failed to fetch trace receipt: {e}")))?;
+
+    let receipt = receipt_row.map(|row| {
+        let logical_prompt_tokens: i64 = row.get("logical_prompt_tokens");
+        let logical_output_tokens: i64 = row.get("logical_output_tokens");
+        let stop_reason_token_index: Option<i64> = row.get("stop_reason_token_index");
+        let receipt_parity_verified = row
+            .try_get::<Option<i64>, _>("receipt_parity_verified")
+            .unwrap_or(None)
+            .map(|v| v != 0);
+        let prefix_cache_hit = row
+            .try_get::<i64, _>("prefix_cache_hit")
+            .unwrap_or(0)
+            != 0;
+        let prefix_kv_bytes = row
+            .try_get::<i64, _>("prefix_kv_bytes")
+            .unwrap_or(0)
+            .max(0) as u64;
+        let created_at: Option<String> = row.try_get("created_at").ok().flatten();
+
+        InferenceTraceReceiptRecord {
+            run_head_hash: row.get("run_head_hash"),
+            output_digest: row.get("output_digest"),
+            receipt_digest: row.get("receipt_digest"),
+            logical_prompt_tokens: logical_prompt_tokens as u32,
+            logical_output_tokens: logical_output_tokens as u32,
+            stop_reason_code: row.get("stop_reason_code"),
+            stop_reason_token_index: stop_reason_token_index.map(|v| v as u32),
+            receipt_parity_verified,
+            processor_id: row.try_get("processor_id").ok().flatten(),
+            engine_version: row.try_get("mlx_version").ok().flatten(),
+            ane_version: row.try_get("ane_version").ok().flatten(),
+            prefix_cache_hit,
+            prefix_kv_bytes,
+            created_at,
+        }
+    });
+
+    Ok(Some(InferenceTraceDetailRecord {
+        trace_id,
+        tenant_id,
+        request_id,
+        created_at,
+        tokens,
+        receipt,
+    }))
+}
+
+pub async fn list_inference_traces_for_tenant(
+    db: &Db,
+    tenant_id: &str,
+    request_id: Option<&str>,
+    limit: Option<usize>,
+) -> Result<Vec<InferenceTraceListRecord>> {
+    let Some(pool) = db.pool_opt() else {
+        return Err(AosError::Database(
+            "SQL backend unavailable - cannot list inference traces".to_string(),
+        ));
+    };
+
+    let mut builder: QueryBuilder<sqlx::Sqlite> = QueryBuilder::new(
+        r#"
+        SELECT t.trace_id,
+               t.request_id,
+               t.created_at,
+               r.created_at AS receipt_created_at,
+               r.stop_reason_code
+        FROM inference_traces t
+        LEFT JOIN inference_trace_receipts r ON r.trace_id = t.trace_id
+        WHERE t.tenant_id = 
+        "#,
+    );
+
+    builder.push_bind(tenant_id);
+
+    if let Some(request_id) = request_id {
+        builder.push(" AND t.request_id = ");
+        builder.push_bind(request_id);
+    }
+
+    builder.push(" ORDER BY t.created_at DESC, t.trace_id DESC ");
+
+    let limit = limit.unwrap_or(50).min(500);
+    builder.push(" LIMIT ");
+    builder.push_bind(limit as i64);
+
+    let rows = builder
+        .build()
+        .fetch_all(pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to fetch inference traces: {e}")))?;
+
+    let mut records = Vec::with_capacity(rows.len());
+    for row in rows {
+        let trace_id: String = row.get("trace_id");
+        let request_id: Option<String> = row.get("request_id");
+        let created_at: String = row.get("created_at");
+        let receipt_created_at: Option<String> = row.try_get("receipt_created_at").ok().flatten();
+        let stop_reason_code: Option<String> = row.try_get("stop_reason_code").ok().flatten();
+
+        let token_rows = sqlx::query(
+            r#"
+            SELECT selected_adapter_ids
+            FROM inference_trace_tokens
+            WHERE trace_id = ?
+            ORDER BY token_index ASC
+            "#,
+        )
+        .bind(&trace_id)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to fetch trace tokens: {e}")))?;
+
+        let mut adapters_used = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for token_row in &token_rows {
+            let adapter_blob: Vec<u8> = token_row.get("selected_adapter_ids");
+            for adapter in SqlTraceSink::decode_adapter_ids(&adapter_blob) {
+                if seen.insert(adapter.clone()) {
+                    adapters_used.push(adapter);
+                }
+            }
+        }
+
+        let token_count = token_rows.len() as u32;
+
+        records.push(InferenceTraceListRecord {
+            trace_id,
+            request_id,
+            created_at,
+            receipt_created_at,
+            stop_reason_code,
+            token_count,
+            adapters_used,
+        });
+    }
+
+    Ok(records)
 }
 
 pub async fn find_trace_by_receipt_digest(

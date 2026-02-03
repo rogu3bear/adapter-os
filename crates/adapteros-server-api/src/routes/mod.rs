@@ -302,6 +302,8 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::diag_bundle::download_bundle,
         handlers::telemetry::search_traces,
         handlers::telemetry::get_trace,
+        handlers::telemetry::list_inference_traces,
+        handlers::telemetry::get_inference_trace_detail,
         handlers::telemetry::query_logs,
         handlers::telemetry::stream_logs,
         handlers::telemetry::get_recent_activity,
@@ -1984,6 +1986,11 @@ pub fn build(state: AppState) -> Router {
         )
         // Trace routes
         .route("/v1/traces/search", get(handlers::telemetry::search_traces))
+        .route("/v1/traces/inference", get(handlers::telemetry::list_inference_traces))
+        .route(
+            "/v1/traces/inference/{trace_id}",
+            get(handlers::telemetry::get_inference_trace_detail),
+        )
         .route("/v1/traces/{trace_id}", get(handlers::telemetry::get_trace))
         // Logs routes
         .route("/v1/logs/query", get(handlers::telemetry::query_logs))
