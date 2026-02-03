@@ -97,7 +97,7 @@ pub fn Collections() -> impl IntoView {
     };
 
     view! {
-        <div class="p-6 space-y-6">
+        <div class="shell-page space-y-6">
             // Header with title and actions
             <div class="flex items-center justify-between">
                 <div>

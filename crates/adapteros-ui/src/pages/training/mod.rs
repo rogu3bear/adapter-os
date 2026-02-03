@@ -98,7 +98,7 @@ pub fn Training() -> impl IntoView {
     let has_selection = Signal::derive(move || selected_job_id.get().is_some());
 
     view! {
-        <div class="p-6 space-y-6">
+        <div class="shell-page space-y-6">
             <BackendReadinessPanel/>
             <SplitPanel
                 has_selection=has_selection
