@@ -71,8 +71,10 @@ impl DiagRunId {
 
     /// Generate a new random DiagRunId.
     pub fn new_random() -> Self {
-        let uuid = uuid::Uuid::new_v4();
-        Self(format!("{:032x}", uuid.as_u128()))
+        Self(adapteros_core::ids::generate_id(
+            adapteros_core::ids::IdKind::Run,
+            "diag",
+        ))
     }
 }
 

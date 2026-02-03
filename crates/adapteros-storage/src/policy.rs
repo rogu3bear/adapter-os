@@ -2,10 +2,13 @@
 //!
 //! Implements storage policies and constraints for tenant storage.
 
+use crate::secure_fs::traversal::check_path_traversal;
 use crate::StorageConfig;
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
+use std::fs;
 use std::path::PathBuf;
+use std::time::{Duration, SystemTime};
 
 /// Storage policy for a tenant
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -151,12 +154,22 @@ pub enum StorageActionType {
 /// Storage policy engine
 pub struct StoragePolicyEngine {
     policy: StoragePolicy,
+    root_path: Option<PathBuf>,
 }
 
 impl StoragePolicyEngine {
     /// Create a new storage policy engine
     pub fn new(policy: StoragePolicy) -> Self {
-        Self { policy }
+        Self {
+            policy,
+            root_path: None,
+        }
+    }
+
+    /// Provide a root path for usage-based policy evaluation
+    pub fn with_root_path(mut self, root_path: PathBuf) -> Self {
+        self.root_path = Some(root_path);
+        self
     }
 
     /// Validate a file operation
@@ -186,34 +199,43 @@ impl StoragePolicyEngine {
         }
 
         // Check file extension constraints
-        if let Some(extension) = file_path.extension() {
-            let ext_str = extension.to_string_lossy().to_string();
+        match file_path.extension() {
+            Some(extension) => {
+                let ext_str = extension.to_string_lossy().to_string();
 
-            // Check blocked extensions
-            if self
-                .policy
-                .constraints
-                .blocked_extensions
-                .contains(&ext_str)
-            {
-                return Err(AosError::PolicyViolation(format!(
-                    "File extension {} is blocked by policy",
-                    ext_str
-                )));
-            }
-
-            // Check allowed extensions (if specified)
-            if !self.policy.constraints.allowed_extensions.is_empty()
-                && !self
+                // Check blocked extensions
+                if self
                     .policy
                     .constraints
-                    .allowed_extensions
+                    .blocked_extensions
                     .contains(&ext_str)
-            {
-                return Err(AosError::PolicyViolation(format!(
-                    "File extension {} is not allowed by policy",
-                    ext_str
-                )));
+                {
+                    return Err(AosError::PolicyViolation(format!(
+                        "File extension {} is blocked by policy",
+                        ext_str
+                    )));
+                }
+
+                // Check allowed extensions (if specified)
+                if !self.policy.constraints.allowed_extensions.is_empty()
+                    && !self
+                        .policy
+                        .constraints
+                        .allowed_extensions
+                        .contains(&ext_str)
+                {
+                    return Err(AosError::PolicyViolation(format!(
+                        "File extension {} is not allowed by policy",
+                        ext_str
+                    )));
+                }
+            }
+            None => {
+                if !self.policy.constraints.allowed_extensions.is_empty() {
+                    return Err(AosError::PolicyViolation(
+                        "File extension is required by policy".to_string(),
+                    ));
+                }
             }
         }
 
@@ -313,6 +335,19 @@ impl StoragePolicyEngine {
                     Ok(false)
                 }
             }
+            StorageConditionType::FileAge => {
+                let metadata = match fs::metadata(file_path) {
+                    Ok(meta) => meta,
+                    Err(_) => return Ok(false),
+                };
+                let modified = metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+                let age = SystemTime::now()
+                    .duration_since(modified)
+                    .unwrap_or(Duration::from_secs(0))
+                    .as_secs();
+                let condition_value = parse_duration_seconds(&condition.value)?;
+                Ok(self.compare_values(age, condition_value, &condition.operator))
+            }
             StorageConditionType::FilePattern => {
                 let file_path_str = file_path.to_string_lossy().to_string();
                 Ok(self.compare_strings(&file_path_str, &condition.value, &condition.operator))
@@ -328,9 +363,15 @@ impl StoragePolicyEngine {
 
                 Ok(self.compare_values(depth, condition_value, &condition.operator))
             }
-            _ => {
-                // Other condition types not implemented yet
-                Ok(true)
+            StorageConditionType::UsagePercentage => {
+                let usage_pct = self.compute_usage_percentage(file_path)?;
+                let condition_value: f32 = condition.value.parse().map_err(|e| {
+                    AosError::PolicyViolation(format!(
+                        "Invalid usage percentage condition value: {}",
+                        e
+                    ))
+                })?;
+                Ok(self.compare_values(usage_pct, condition_value, &condition.operator))
             }
         }
     }
@@ -339,13 +380,110 @@ impl StoragePolicyEngine {
     fn execute_action(
         &self,
         action: &StorageAction,
-        _file_path: &PathBuf,
+        file_path: &PathBuf,
         _operation: &FileOperation,
     ) -> Result<()> {
         match action.action_type {
+            StorageActionType::Allow => Ok(()),
             StorageActionType::Deny => Err(AosError::PolicyViolation(
                 "File operation denied by policy rule".to_string(),
             )),
+            StorageActionType::Delete => {
+                self.enforce_path_safety(file_path)?;
+                if file_path.exists() {
+                    tracing::info!(
+                        action = "delete",
+                        path = %file_path.display(),
+                        "Storage policy deleting file"
+                    );
+                    fs::remove_file(file_path).map_err(|e| {
+                        AosError::Io(format!(
+                            "Failed to delete file {}: {}",
+                            file_path.display(),
+                            e
+                        ))
+                    })?;
+                } else {
+                    tracing::warn!(
+                        action = "delete",
+                        path = %file_path.display(),
+                        "Storage policy delete skipped (file missing)"
+                    );
+                }
+                Ok(())
+            }
+            StorageActionType::Move | StorageActionType::Copy => {
+                self.enforce_path_safety(file_path)?;
+                let dest_key = if action.parameters.contains_key("destination") {
+                    "destination"
+                } else {
+                    "dest"
+                };
+                let dest = action
+                    .parameters
+                    .get(dest_key)
+                    .ok_or_else(|| {
+                        AosError::PolicyViolation(
+                            "Missing destination for move/copy action".to_string(),
+                        )
+                    })?
+                    .to_string();
+                let dest_path = PathBuf::from(dest);
+                self.enforce_path_safety(&dest_path)?;
+
+                if let Some(parent) = dest_path.parent() {
+                    fs::create_dir_all(parent).map_err(|e| {
+                        AosError::Io(format!(
+                            "Failed to create destination directory {}: {}",
+                            parent.display(),
+                            e
+                        ))
+                    })?;
+                }
+
+                match action.action_type {
+                    StorageActionType::Move => {
+                        tracing::info!(
+                            action = "move",
+                            source = %file_path.display(),
+                            destination = %dest_path.display(),
+                            "Storage policy moving file"
+                        );
+                        fs::rename(file_path, &dest_path).map_err(|e| {
+                            AosError::Io(format!(
+                                "Failed to move file {} -> {}: {}",
+                                file_path.display(),
+                                dest_path.display(),
+                                e
+                            ))
+                        })?;
+                    }
+                    StorageActionType::Copy => {
+                        tracing::info!(
+                            action = "copy",
+                            source = %file_path.display(),
+                            destination = %dest_path.display(),
+                            "Storage policy copying file"
+                        );
+                        if file_path.is_dir() {
+                            return Err(AosError::PolicyViolation(
+                                "Copy action does not support directories".to_string(),
+                            ));
+                        }
+                        fs::copy(file_path, &dest_path).map_err(|e| {
+                            AosError::Io(format!(
+                                "Failed to copy file {} -> {}: {}",
+                                file_path.display(),
+                                dest_path.display(),
+                                e
+                            ))
+                        })?;
+                    }
+                    _ => {}
+                }
+
+                Ok(())
+            }
             StorageActionType::Alert => {
                 // Log alert (in real implementation, this would send an alert)
                 tracing::warn!(
@@ -366,10 +504,6 @@ impl StoragePolicyEngine {
                         .get("message")
                         .unwrap_or(&"Unknown log".to_string())
                 );
-                Ok(())
-            }
-            _ => {
-                // Other action types not implemented yet
                 Ok(())
             }
         }
@@ -401,6 +535,122 @@ impl StoragePolicyEngine {
         }
     }
 
+    fn compute_usage_percentage(&self, file_path: &PathBuf) -> Result<f32> {
+        let root = self
+            .root_path
+            .clone()
+            .or_else(|| file_path.parent().map(|p| p.to_path_buf()))
+            .unwrap_or_else(|| file_path.clone());
+
+        let mut used_bytes = 0u64;
+
+        if root.exists() {
+            if root.is_dir() {
+                self.walk_usage(&root, &mut used_bytes)?;
+            } else if root.is_file() {
+                let metadata = fs::metadata(&root).map_err(|e| {
+                    AosError::Io(format!(
+                        "Failed to read metadata {}: {}",
+                        root.display(),
+                        e
+                    ))
+                })?;
+                used_bytes = metadata.len();
+            }
+        }
+
+        if self.policy.config.max_disk_space_bytes == 0 {
+            return Err(AosError::PolicyViolation(
+                "max_disk_space_bytes is zero".to_string(),
+            ));
+        }
+
+        Ok((used_bytes as f32 / self.policy.config.max_disk_space_bytes as f32) * 100.0)
+    }
+
+    fn walk_usage(&self, path: &PathBuf, used_bytes: &mut u64) -> Result<()> {
+        let entries = fs::read_dir(path).map_err(|e| {
+            AosError::Io(format!(
+                "Failed to read directory {}: {}",
+                path.display(),
+                e
+            ))
+        })?;
+
+        for entry in entries {
+            let entry = entry.map_err(|e| AosError::Io(format!("Failed to read entry: {}", e)))?;
+            let entry_path = entry.path();
+            if entry_path.is_dir() {
+                self.walk_usage(&entry_path, used_bytes)?;
+            } else if entry_path.is_file() {
+                let metadata = entry.metadata().map_err(|e| {
+                    AosError::Io(format!(
+                        "Failed to read metadata {}: {}",
+                        entry_path.display(),
+                        e
+                    ))
+                })?;
+                *used_bytes += metadata.len();
+            }
+        }
+
+        Ok(())
+    }
+
+    fn enforce_path_safety(&self, path: &PathBuf) -> Result<()> {
+        check_path_traversal(path)?;
+
+        if let Some(base) = &self.root_path {
+            let canonical_base = base.canonicalize().map_err(|e| {
+                AosError::Io(format!(
+                    "Failed to canonicalize base path for validation: {}",
+                    e
+                ))
+            })?;
+
+            let canonical_path = if path.exists() {
+                path.canonicalize().map_err(|e| {
+                    AosError::Io(format!(
+                        "Failed to canonicalize path for validation: {}",
+                        e
+                    ))
+                })?
+            } else if path.is_absolute() {
+                if let Some(parent) = path.parent() {
+                    if parent.exists() {
+                        let canonical_parent = parent.canonicalize().map_err(|e| {
+                            AosError::Io(format!(
+                                "Failed to canonicalize parent for validation: {}",
+                                e
+                            ))
+                        })?;
+                        if let Some(name) = path.file_name() {
+                            canonical_parent.join(name)
+                        } else {
+                            canonical_parent
+                        }
+                    } else {
+                        path.to_path_buf()
+                    }
+                } else {
+                    path.to_path_buf()
+                }
+            } else {
+                canonical_base.join(path)
+            };
+
+            if !canonical_path.starts_with(&canonical_base) {
+                return Err(AosError::PolicyViolation(format!(
+                    "Path {} is outside configured storage root {}",
+                    path.display(),
+                    base.display()
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
     /// Check if a string matches a pattern
     fn matches_pattern(text: &str, pattern: &str) -> bool {
         // Simple glob pattern matching
@@ -416,6 +666,33 @@ impl StoragePolicyEngine {
             text == pattern
         }
     }
+}
+
+fn parse_duration_seconds(value: &str) -> Result<u64> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(AosError::PolicyViolation(
+            "File age condition value is empty".to_string(),
+        ));
+    }
+
+    let (number_part, multiplier) = match trimmed.chars().last() {
+        Some('s') | Some('S') => (&trimmed[..trimmed.len() - 1], 1),
+        Some('m') | Some('M') => (&trimmed[..trimmed.len() - 1], 60),
+        Some('h') | Some('H') => (&trimmed[..trimmed.len() - 1], 60 * 60),
+        Some('d') | Some('D') => (&trimmed[..trimmed.len() - 1], 60 * 60 * 24),
+        Some(_) => (trimmed, 1),
+        None => (trimmed, 1),
+    };
+
+    let value: u64 = number_part.parse().map_err(|e| {
+        AosError::PolicyViolation(format!(
+            "Invalid duration value '{}': {}",
+            number_part, e
+        ))
+    })?;
+
+    Ok(value.saturating_mul(multiplier))
 }
 
 /// File operation type

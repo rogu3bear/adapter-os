@@ -11,15 +11,21 @@ use adapteros_types::training::{provenance_from_map, ExampleMetadataV1};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 use tokenizers::Tokenizer;
 use tracing::{debug, info, warn};
 
-fn current_unix_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+fn deterministic_created_at_unix_ms(dataset_id: &str, row_id: u64, source_hash: &str) -> u64 {
+    let row_bytes = row_id.to_le_bytes();
+    let hash = B3Hash::hash_multi(&[
+        dataset_id.as_bytes(),
+        b"\0",
+        &row_bytes,
+        b"\0",
+        source_hash.as_bytes(),
+    ]);
+    let mut buf = [0u8; 8];
+    buf.copy_from_slice(&hash.as_bytes()[0..8]);
+    u64::from_le_bytes(buf)
 }
 
 fn hash_source_text(text: &str) -> String {
@@ -152,13 +158,19 @@ fn generate_identity_example(
         );
     }
 
+    let source_hash = hash_source_text(&chunk.text);
+    let created_at_unix_ms = deterministic_created_at_unix_ms(
+        &document.source_name,
+        chunk.chunk_index as u64,
+        &source_hash,
+    );
     let metadata = ExampleMetadataV1::new(
         document.source_name.clone(),
         chunk.chunk_index as u64,
-        hash_source_text(&chunk.text),
+        source_hash,
         provenance_from_map(&provenance)
             .map_err(|e| AosError::Validation(format!("Metadata error: {e}")))?,
-        current_unix_ms(),
+        created_at_unix_ms,
     );
     let attention_mask = TrainingExample::attention_mask_from_tokens(&token_ids, pad_token_id);
 
@@ -200,7 +212,6 @@ fn generate_qa_examples(
 
     // For each sentence, create a simple Q&A pair
     let pad_token_id = resolve_pad_token_id(tokenizer)?;
-    let created_at_unix_ms = current_unix_ms();
     for (idx, sentence) in sentences.iter().take(3).enumerate() {
         let sentence = sentence.trim();
         if sentence.is_empty() {
@@ -255,10 +266,14 @@ fn generate_qa_examples(
             serde_json::Value::String(sentence.to_string()),
         );
 
+        let row_id = (chunk.chunk_index as u64) * 1000 + idx as u64;
+        let source_hash = hash_prompt_completion(&question, sentence);
+        let created_at_unix_ms =
+            deterministic_created_at_unix_ms(&document.source_name, row_id, &source_hash);
         let metadata = ExampleMetadataV1::new(
             document.source_name.clone(),
-            (chunk.chunk_index as u64) * 1000 + idx as u64,
-            hash_prompt_completion(&question, sentence),
+            row_id,
+            source_hash,
             provenance_from_map(&provenance_map)
                 .map_err(|e| AosError::Validation(format!("Metadata error: {e}")))?,
             created_at_unix_ms,
@@ -466,7 +481,7 @@ mod tests {
             .build()
             .expect("wordlevel model");
         let mut tokenizer = Tokenizer::new(model);
-        tokenizer.with_pre_tokenizer(Whitespace);
+        tokenizer.with_pre_tokenizer(Some(Whitespace));
         Arc::new(tokenizer)
     }
 }

@@ -52,6 +52,9 @@ async fn create_test_trace(
         tenant_id: tenant_id.to_string(),
         request_id: Some(format!("req-{}", trace_id)),
         context_digest,
+        stack_id: None,
+        model_id: None,
+        policy_id: None,
     };
 
     let mut sink = SqlTraceSink::new(db.clone(), start, 32).await?;

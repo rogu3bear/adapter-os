@@ -628,3 +628,173 @@ fn test_nonexistent_file_validation() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn test_file_age_condition() -> Result<()> {
+    let temp_dir = new_test_tempdir()?;
+    let test_file = temp_dir.path().join("age.txt");
+    fs::write(&test_file, "content")?;
+
+    std::thread::sleep(std::time::Duration::from_secs(1));
+
+    let condition = StorageCondition {
+        condition_type: StorageConditionType::FileAge,
+        value: "1s".to_string(),
+        operator: StorageOperator::GreaterThanOrEqual,
+    };
+
+    let deny_action = StorageAction {
+        action_type: StorageActionType::Deny,
+        parameters: HashMap::new(),
+    };
+
+    let rule = StorageRule {
+        name: "age_rule".to_string(),
+        description: "Deny old files".to_string(),
+        rule_type: StorageRuleType::Cleanup,
+        conditions: vec![condition],
+        actions: vec![deny_action],
+    };
+
+    let mut policy = create_default_policy();
+    policy.rules = vec![rule];
+
+    let engine = StoragePolicyEngine::new(policy).with_root_path(temp_dir.path().to_path_buf());
+    let result = engine.validate_file_operation(&test_file, &FileOperation::Read);
+    assert!(result.is_err(), "Should deny files past age threshold");
+
+    Ok(())
+}
+
+#[test]
+fn test_usage_percentage_condition() -> Result<()> {
+    let temp_dir = new_test_tempdir()?;
+    let test_file = temp_dir.path().join("usage.bin");
+    fs::write(&test_file, vec![0u8; 60])?;
+
+    let condition = StorageCondition {
+        condition_type: StorageConditionType::UsagePercentage,
+        value: "50".to_string(),
+        operator: StorageOperator::GreaterThan,
+    };
+
+    let deny_action = StorageAction {
+        action_type: StorageActionType::Deny,
+        parameters: HashMap::new(),
+    };
+
+    let rule = StorageRule {
+        name: "usage_rule".to_string(),
+        description: "Deny when usage exceeds threshold".to_string(),
+        rule_type: StorageRuleType::QuotaEnforcement,
+        conditions: vec![condition],
+        actions: vec![deny_action],
+    };
+
+    let mut policy = create_default_policy();
+    policy.config.max_disk_space_bytes = 100;
+    policy.rules = vec![rule];
+
+    let engine = StoragePolicyEngine::new(policy).with_root_path(temp_dir.path().to_path_buf());
+    let result = engine.validate_file_operation(&test_file, &FileOperation::Read);
+    assert!(result.is_err(), "Should deny when usage exceeds threshold");
+
+    Ok(())
+}
+
+#[test]
+fn test_action_delete() -> Result<()> {
+    let temp_dir = new_test_tempdir()?;
+    let test_file = temp_dir.path().join("delete.txt");
+    fs::write(&test_file, "content")?;
+
+    let delete_action = StorageAction {
+        action_type: StorageActionType::Delete,
+        parameters: HashMap::new(),
+    };
+
+    let rule = StorageRule {
+        name: "delete_rule".to_string(),
+        description: "Delete file".to_string(),
+        rule_type: StorageRuleType::Cleanup,
+        conditions: vec![],
+        actions: vec![delete_action],
+    };
+
+    let mut policy = create_default_policy();
+    policy.rules = vec![rule];
+
+    let engine = StoragePolicyEngine::new(policy).with_root_path(temp_dir.path().to_path_buf());
+    engine.validate_file_operation(&test_file, &FileOperation::Delete)?;
+    assert!(!test_file.exists(), "File should be deleted");
+
+    Ok(())
+}
+
+#[test]
+fn test_action_move() -> Result<()> {
+    let temp_dir = new_test_tempdir()?;
+    let source_file = temp_dir.path().join("move.txt");
+    fs::write(&source_file, "content")?;
+
+    let move_dest = temp_dir.path().join("moved.txt");
+    let mut move_params = HashMap::new();
+    move_params.insert("destination".to_string(), move_dest.to_string_lossy().to_string());
+    let move_action = StorageAction {
+        action_type: StorageActionType::Move,
+        parameters: move_params,
+    };
+
+    let rule = StorageRule {
+        name: "move_rule".to_string(),
+        description: "Move file".to_string(),
+        rule_type: StorageRuleType::Cleanup,
+        conditions: vec![],
+        actions: vec![move_action],
+    };
+
+    let mut policy = create_default_policy();
+    policy.rules = vec![rule];
+
+    let engine = StoragePolicyEngine::new(policy).with_root_path(temp_dir.path().to_path_buf());
+    engine.validate_file_operation(&source_file, &FileOperation::Move)?;
+
+    assert!(!source_file.exists(), "Source file should be moved");
+    assert!(move_dest.exists(), "Moved file should exist");
+
+    Ok(())
+}
+
+#[test]
+fn test_action_copy() -> Result<()> {
+    let temp_dir = new_test_tempdir()?;
+    let source_file = temp_dir.path().join("copy.txt");
+    fs::write(&source_file, "content")?;
+
+    let copy_dest = temp_dir.path().join("copied.txt");
+    let mut copy_params = HashMap::new();
+    copy_params.insert("destination".to_string(), copy_dest.to_string_lossy().to_string());
+    let copy_action = StorageAction {
+        action_type: StorageActionType::Copy,
+        parameters: copy_params,
+    };
+
+    let rule = StorageRule {
+        name: "copy_rule".to_string(),
+        description: "Copy file".to_string(),
+        rule_type: StorageRuleType::Cleanup,
+        conditions: vec![],
+        actions: vec![copy_action],
+    };
+
+    let mut policy = create_default_policy();
+    policy.rules = vec![rule];
+
+    let engine = StoragePolicyEngine::new(policy).with_root_path(temp_dir.path().to_path_buf());
+    engine.validate_file_operation(&source_file, &FileOperation::Copy)?;
+
+    assert!(source_file.exists(), "Source file should still exist");
+    assert!(copy_dest.exists(), "Copied file should exist");
+
+    Ok(())
+}

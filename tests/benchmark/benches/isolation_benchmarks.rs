@@ -85,78 +85,71 @@ fn bench_tenant_isolation(c: &mut Criterion) {
 /// Benchmark concurrent tenant operations
 fn bench_concurrent_tenant_operations(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
+    let tenant_count = 8;
+    let semaphore = Arc::new(Semaphore::new(4)); // Limit concurrent operations
 
-    rt.block_on(async {
-        let tenant_count = 8;
-        let semaphore = Arc::new(Semaphore::new(4)); // Limit concurrent operations
+    // Benchmark concurrent tenant requests
+    c.bench_function("concurrent_tenant_requests", |b| {
+        b.iter_custom(|iters| {
+            let start = Instant::now();
 
-        // Benchmark concurrent tenant requests
-        c.bench_function("concurrent_tenant_requests", |b| {
-            b.iter_custom(|iters| {
-                let start = Instant::now();
+            for _ in 0..iters {
+                let semaphore_clone = Arc::clone(&semaphore);
 
-                for _ in 0..iters {
-                    let semaphore_clone = Arc::clone(&semaphore);
+                async fn process_tenant_request(tenant_id: u32, semaphore: Arc<Semaphore>) -> u64 {
+                    let _permit = semaphore.acquire().await.unwrap();
 
-                    async fn process_tenant_request(
-                        tenant_id: u32,
-                        semaphore: Arc<Semaphore>,
-                    ) -> u64 {
-                        let _permit = semaphore.acquire().await.unwrap();
-
-                        // Simulate tenant-specific processing
-                        let mut result = tenant_id as u64;
-                        for i in 0..100 {
-                            result = result.wrapping_add(i);
-                            tokio::time::sleep(Duration::from_micros(10)).await;
-                        }
-
-                        result
+                    // Simulate tenant-specific processing
+                    let mut result = tenant_id as u64;
+                    for i in 0..100 {
+                        result = result.wrapping_add(i);
+                        tokio::time::sleep(Duration::from_micros(10)).await;
                     }
 
-                    let futures: Vec<_> = (0..tenant_count)
-                        .map(|tenant_id| {
-                            process_tenant_request(tenant_id as u32, Arc::clone(&semaphore_clone))
-                        })
-                        .collect();
-
-                    let _results =
-                        rt.block_on(async { futures_util::future::join_all(futures).await });
+                    result
                 }
 
-                start.elapsed()
-            })
-        });
+                let futures: Vec<_> = (0..tenant_count)
+                    .map(|tenant_id| {
+                        process_tenant_request(tenant_id as u32, Arc::clone(&semaphore_clone))
+                    })
+                    .collect();
 
-        // Benchmark tenant resource contention
-        c.bench_function("tenant_resource_contention", |b| {
-            b.iter(|| {
-                let shared_resource = Arc::new(std::sync::Mutex::new(0u64));
-                let mut handles = Vec::new();
+                let _results = rt.block_on(async { futures_util::future::join_all(futures).await });
+            }
 
-                for tenant_id in 0..tenant_count {
-                    let resource_clone = Arc::clone(&shared_resource);
+            start.elapsed()
+        })
+    });
 
-                    let handle = thread::spawn(move || {
-                        for _ in 0..100 {
-                            let mut guard = resource_clone.lock().unwrap();
-                            *guard = (*guard).wrapping_add(tenant_id as u64);
-                            // Simulate resource usage time
-                            std::thread::sleep(Duration::from_micros(50));
-                        }
-                    });
+    // Benchmark tenant resource contention
+    c.bench_function("tenant_resource_contention", |b| {
+        b.iter(|| {
+            let shared_resource = Arc::new(std::sync::Mutex::new(0u64));
+            let mut handles = Vec::new();
 
-                    handles.push(handle);
-                }
+            for tenant_id in 0..tenant_count {
+                let resource_clone = Arc::clone(&shared_resource);
 
-                for handle in handles {
-                    handle.join().unwrap();
-                }
+                let handle = thread::spawn(move || {
+                    for _ in 0..100 {
+                        let mut guard = resource_clone.lock().unwrap();
+                        *guard = (*guard).wrapping_add(tenant_id as u64);
+                        // Simulate resource usage time
+                        std::thread::sleep(Duration::from_micros(50));
+                    }
+                });
 
-                let final_value = *shared_resource.lock().unwrap();
-                black_box(final_value);
-            })
-        });
+                handles.push(handle);
+            }
+
+            for handle in handles {
+                handle.join().unwrap();
+            }
+
+            let final_value = *shared_resource.lock().unwrap();
+            black_box(final_value);
+        })
     });
 }
 
