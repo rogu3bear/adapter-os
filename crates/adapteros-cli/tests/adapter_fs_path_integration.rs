@@ -3,7 +3,7 @@ use adapteros_core::{adapter_fs_path_with_root, B3Hash};
 use adapteros_db::models::ModelRegistrationBuilder;
 use adapteros_db::AdapterRegistrationBuilder;
 use clap::Parser;
-use std::collections::HashMap;
+use ahash::AHashMap;
 use std::ffi::OsString;
 use tempfile::tempdir;
 use tokio::fs;
@@ -16,7 +16,7 @@ async fn train_docs_and_worker_path_align() {
 
     // Create minimal tokenizer to satisfy loader
     let tokenizer_path = tokenizer_dir.path().join("tokenizer.json");
-    let mut vocab = HashMap::new();
+    let mut vocab: AHashMap<String, u32> = AHashMap::new();
     vocab.insert("hello".to_string(), 0u32);
     vocab.insert("[UNK]".to_string(), 1u32);
     let model = tokenizers::models::wordlevel::WordLevel::builder()

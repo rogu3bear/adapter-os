@@ -20,10 +20,21 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use std::process::Command;
 use tempfile::TempDir;
 
 fn new_test_tempdir() -> TempDir {
     TempDir::with_prefix("aos-test-").expect("create temp dir")
+}
+
+fn run_aosctl(args: &[&str]) -> std::process::Output {
+    Command::new("cargo")
+        .args(["run", "-p", "adapteros-cli", "--bin", "aosctl", "--"])
+        .args(args)
+        .env("CARGO_INCREMENTAL", "0")
+        .env("CARGO_TERM_PROGRESS_WHEN", "never")
+        .output()
+        .expect("Failed to execute aosctl")
 }
 
 // Re-export types from verify_receipt module for testing
@@ -298,19 +309,11 @@ fn test_valid_receipt_verification() {
     let bundle_path = create_valid_bundle(&temp_dir.path().to_path_buf());
 
     // Run verification using the command module
-    use std::process::Command;
-    let output = Command::new("cargo")
-        .args([
-            "run",
-            "--bin",
-            "aosctl",
-            "--",
-            "verify-receipt",
-            "--bundle",
-            bundle_path.to_str().unwrap(),
-        ])
-        .output()
-        .expect("Failed to execute verify-receipt");
+    let output = run_aosctl(&[
+        "verify-receipt",
+        "--bundle",
+        bundle_path.to_str().unwrap(),
+    ]);
 
     assert!(
         output.status.success(),
@@ -342,19 +345,11 @@ fn test_tampered_receipt_detection() {
     fs::write(&bundle_path, tampered_json).expect("write tampered bundle");
 
     // Run verification
-    use std::process::Command;
-    let output = Command::new("cargo")
-        .args([
-            "run",
-            "--bin",
-            "aosctl",
-            "--",
-            "verify-receipt",
-            "--bundle",
-            bundle_path.to_str().unwrap(),
-        ])
-        .output()
-        .expect("Failed to execute verify-receipt");
+    let output = run_aosctl(&[
+        "verify-receipt",
+        "--bundle",
+        bundle_path.to_str().unwrap(),
+    ]);
 
     assert!(
         !output.status.success(),
@@ -386,19 +381,11 @@ fn test_adapter_id_history_tamper_is_rejected() {
     let tampered_json = serde_json::to_string_pretty(&bundle).expect("serialize tampered");
     fs::write(&bundle_path, tampered_json).expect("write tampered bundle");
 
-    use std::process::Command;
-    let output = Command::new("cargo")
-        .args([
-            "run",
-            "--bin",
-            "aosctl",
-            "--",
-            "verify-receipt",
-            "--bundle",
-            bundle_path.to_str().unwrap(),
-        ])
-        .output()
-        .expect("Failed to execute verify-receipt");
+    let output = run_aosctl(&[
+        "verify-receipt",
+        "--bundle",
+        bundle_path.to_str().unwrap(),
+    ]);
 
     assert!(
         !output.status.success(),
@@ -421,20 +408,12 @@ fn test_json_output_format() {
     let bundle_path = create_valid_bundle(&temp_dir.path().to_path_buf());
 
     // Run verification with --json flag
-    use std::process::Command;
-    let output = Command::new("cargo")
-        .args([
-            "run",
-            "--bin",
-            "aosctl",
-            "--",
-            "--json",
-            "verify-receipt",
-            "--bundle",
-            bundle_path.to_str().unwrap(),
-        ])
-        .output()
-        .expect("Failed to execute verify-receipt");
+    let output = run_aosctl(&[
+        "--json",
+        "verify-receipt",
+        "--bundle",
+        bundle_path.to_str().unwrap(),
+    ]);
 
     assert!(
         output.status.success(),
@@ -466,19 +445,11 @@ fn test_json_output_format() {
 #[test]
 fn test_missing_file_error() {
     // Try to verify a non-existent file
-    use std::process::Command;
-    let output = Command::new("cargo")
-        .args([
-            "run",
-            "--bin",
-            "aosctl",
-            "--",
-            "verify-receipt",
-            "--bundle",
-            "var/nonexistent-receipt.json",
-        ])
-        .output()
-        .expect("Failed to execute verify-receipt");
+    let output = run_aosctl(&[
+        "verify-receipt",
+        "--bundle",
+        "var/nonexistent-receipt.json",
+    ]);
 
     assert!(
         !output.status.success(),
@@ -500,19 +471,11 @@ fn test_directory_with_default_bundle_filename() {
 
     // The bundle was created at temp_dir/receipt_bundle.json
     // Now verify by passing just the directory
-    use std::process::Command;
-    let output = Command::new("cargo")
-        .args([
-            "run",
-            "--bin",
-            "aosctl",
-            "--",
-            "verify-receipt",
-            "--bundle",
-            temp_dir.path().to_str().unwrap(),
-        ])
-        .output()
-        .expect("Failed to execute verify-receipt");
+    let output = run_aosctl(&[
+        "verify-receipt",
+        "--bundle",
+        temp_dir.path().to_str().unwrap(),
+    ]);
 
     assert!(
         output.status.success(),
@@ -529,19 +492,11 @@ fn test_invalid_json_error() {
     // Write invalid JSON
     fs::write(&bundle_path, "{ this is not valid json }").expect("write invalid json");
 
-    use std::process::Command;
-    let output = Command::new("cargo")
-        .args([
-            "run",
-            "--bin",
-            "aosctl",
-            "--",
-            "verify-receipt",
-            "--bundle",
-            bundle_path.to_str().unwrap(),
-        ])
-        .output()
-        .expect("Failed to execute verify-receipt");
+    let output = run_aosctl(&[
+        "verify-receipt",
+        "--bundle",
+        bundle_path.to_str().unwrap(),
+    ]);
 
     assert!(
         !output.status.success(),
@@ -573,19 +528,11 @@ fn test_backend_mismatch_detection() {
     fs::write(&bundle_path, modified_json).expect("write modified bundle");
 
     // Run verification
-    use std::process::Command;
-    let output = Command::new("cargo")
-        .args([
-            "run",
-            "--bin",
-            "aosctl",
-            "--",
-            "verify-receipt",
-            "--bundle",
-            bundle_path.to_str().unwrap(),
-        ])
-        .output()
-        .expect("Failed to execute verify-receipt");
+    let output = run_aosctl(&[
+        "verify-receipt",
+        "--bundle",
+        bundle_path.to_str().unwrap(),
+    ]);
 
     assert!(
         !output.status.success(),
@@ -617,19 +564,11 @@ fn test_output_digest_mismatch() {
     fs::write(&bundle_path, tampered_json).expect("write tampered bundle");
 
     // Run verification
-    use std::process::Command;
-    let output = Command::new("cargo")
-        .args([
-            "run",
-            "--bin",
-            "aosctl",
-            "--",
-            "verify-receipt",
-            "--bundle",
-            bundle_path.to_str().unwrap(),
-        ])
-        .output()
-        .expect("Failed to execute verify-receipt");
+    let output = run_aosctl(&[
+        "verify-receipt",
+        "--bundle",
+        bundle_path.to_str().unwrap(),
+    ]);
 
     assert!(
         !output.status.success(),
@@ -661,19 +600,11 @@ fn test_context_digest_mismatch() {
     fs::write(&bundle_path, tampered_json).expect("write tampered bundle");
 
     // Run verification
-    use std::process::Command;
-    let output = Command::new("cargo")
-        .args([
-            "run",
-            "--bin",
-            "aosctl",
-            "--",
-            "verify-receipt",
-            "--bundle",
-            bundle_path.to_str().unwrap(),
-        ])
-        .output()
-        .expect("Failed to execute verify-receipt");
+    let output = run_aosctl(&[
+        "verify-receipt",
+        "--bundle",
+        bundle_path.to_str().unwrap(),
+    ]);
 
     assert!(
         !output.status.success(),
@@ -690,11 +621,7 @@ fn test_context_digest_mismatch() {
 
 #[test]
 fn test_verify_receipt_help() {
-    use std::process::Command;
-    let output = Command::new("cargo")
-        .args(["run", "--bin", "aosctl", "--", "verify-receipt", "--help"])
-        .output()
-        .expect("Failed to execute verify-receipt --help");
+    let output = run_aosctl(&["verify-receipt", "--help"]);
 
     assert!(output.status.success(), "Help should succeed");
 
