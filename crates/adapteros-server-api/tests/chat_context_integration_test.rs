@@ -6,10 +6,17 @@
 //! 3. Applies truncation rules
 //! 4. Computes deterministic context hashes
 
+use adapteros_core::identity::IdentityEnvelope;
 use adapteros_db::chat_sessions::{AddMessageParams, CreateChatSessionParams};
 use adapteros_db::Db;
 use adapteros_server_api::chat_context::build_chat_prompt;
+use adapteros_server_api::handlers::streaming_infer::{streaming_infer, StreamingInferRequest};
 use adapteros_server_api::state::ChatContextConfig;
+use axum::{extract::State, Extension, Json};
+use std::sync::{Arc, Mutex};
+
+mod common;
+use common::{create_test_adapter_default, register_test_worker, setup_state, test_admin_claims};
 
 /// Create an in-memory test database with chat tables
 async fn create_test_db() -> Db {
@@ -214,6 +221,142 @@ async fn test_build_chat_prompt_determinism() {
     assert_eq!(result1.context_hash, result2.context_hash);
     assert_eq!(result1.message_count, result2.message_count);
     assert_eq!(result1.truncated, result2.truncated);
+}
+
+#[tokio::test]
+async fn test_streaming_infer_builds_prompt_from_chat_history() {
+    let state = setup_state(None).await.expect("state");
+    let caps = adapteros_api_types::workers::WorkerCapabilities {
+        backend_kind: "mlx".to_string(),
+        implementation: None,
+        supports_step: true,
+        supports_bulk: false,
+        supports_logits: true,
+        supports_streaming: true,
+        gpu_backward: true,
+        multi_backend: true,
+    };
+    let worker_id = register_test_worker(&state, "tenant-1", caps)
+        .await
+        .expect("register worker");
+    let manifest_hash = format!("manifest-{}", worker_id);
+    let state = state.with_manifest_info(manifest_hash, "mlx".to_string());
+
+    let adapter_id = format!("adapter-chat-context-{}", uuid::Uuid::new_v4());
+    create_test_adapter_default(&state, &adapter_id, "tenant-1")
+        .await
+        .expect("create adapter");
+
+    let claims = test_admin_claims();
+    let identity = IdentityEnvelope::new(
+        claims.tenant_id.clone(),
+        "api".to_string(),
+        "inference".to_string(),
+        "test".to_string(),
+    );
+
+    let session_id = "streaming-session-001";
+    create_test_session(&state.db, session_id, &claims.tenant_id).await;
+    add_test_message(&state.db, session_id, "user", "Earlier message").await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+    add_test_message(&state.db, session_id, "assistant", "Earlier response").await;
+
+    let chat_config = state
+        .config
+        .read()
+        .expect("config read")
+        .chat_context
+        .clone();
+    let expected = build_chat_prompt(
+        &state.db,
+        session_id,
+        "New user message",
+        &chat_config,
+    )
+    .await
+    .expect("build chat prompt");
+    assert!(
+        expected.prompt_text.contains("Earlier message"),
+        "expected history in prompt: {}",
+        expected.prompt_text
+    );
+
+    #[derive(Clone)]
+    struct TestWriter(Arc<Mutex<Vec<u8>>>);
+
+    impl std::io::Write for TestWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            let mut guard = self.0.lock().expect("lock");
+            guard.extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let buffer = Arc::new(Mutex::new(Vec::new()));
+    let make_writer = {
+        let buffer = buffer.clone();
+        move || TestWriter(buffer.clone())
+    };
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(make_writer)
+        .with_ansi(false)
+        .with_max_level(tracing::Level::INFO)
+        .finish();
+
+    let _guard = tracing::subscriber::set_default(subscriber);
+
+    let req = StreamingInferRequest {
+        prompt: "New user message".to_string(),
+        model: None,
+        backend: None,
+        coreml_mode: None,
+        routing_determinism_mode: None,
+        stack_id: None,
+        domain: None,
+        max_tokens: 16,
+        temperature: 0.7,
+        top_p: None,
+        top_k: None,
+        stop: Vec::new(),
+        adapter_stack: None,
+        adapters: Some(vec![adapter_id]),
+        seed: None,
+        adapter_strength_overrides: None,
+        require_evidence: false,
+        reasoning_mode: false,
+        collection_id: None,
+        session_id: Some(session_id.to_string()),
+        effective_adapter_ids: None,
+        stop_policy: None,
+        context: None,
+    };
+
+    let _ = streaming_infer(
+        State(state),
+        Extension(claims),
+        Extension(identity),
+        axum::http::HeaderMap::new(),
+        None,
+        Json(req),
+    )
+    .await
+    .expect("sse response");
+
+    let logs = String::from_utf8(buffer.lock().expect("lock").clone()).expect("utf8 logs");
+    assert!(
+        logs.contains("Built multi-turn prompt from session history"),
+        "expected streaming handler to build prompt from chat history, logs: {}",
+        logs
+    );
+    assert!(
+        logs.contains(session_id),
+        "expected session_id in logs, logs: {}",
+        logs
+    );
 }
 
 #[tokio::test]

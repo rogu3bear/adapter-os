@@ -37,7 +37,6 @@ use chrono::{DateTime, Duration, Utc};
 use sqlx::{FromRow, Row};
 use std::sync::OnceLock;
 use tracing::{info, warn};
-use uuid::Uuid;
 
 const LOCKOUT_THRESHOLD: i64 = 5;
 const LOCKOUT_WINDOW_MINUTES: i64 = 15;
@@ -194,7 +193,10 @@ pub async fn log_tenant_access_attempt(
     reason: Option<&str>,
     request_path: Option<&str>,
 ) -> Result<()> {
-    let id = Uuid::now_v7().to_string();
+    let id = crate::id_generator::readable_id(
+        adapteros_core::ids::IdKind::Audit,
+        "tenant-access",
+    );
     let timestamp = Utc::now().to_rfc3339();
 
     sqlx::query(
@@ -353,7 +355,10 @@ pub async fn track_auth_attempt(
     if !db.storage_mode().read_from_sql() {
         return Ok(());
     }
-    let id = Uuid::now_v7().to_string();
+    let id = crate::id_generator::readable_id(
+        adapteros_core::ids::IdKind::Event,
+        "auth-attempt",
+    );
     let now = Utc::now();
     let attempted_at = now.to_rfc3339();
 
@@ -564,7 +569,10 @@ pub async fn track_registration_attempt(db: &Db, ip_address: &str) -> Result<()>
         return Ok(());
     }
     let marker_email = format!("{}{}", REGISTRATION_MARKER_PREFIX, ip_address);
-    let id = Uuid::now_v7().to_string();
+    let id = crate::id_generator::readable_id(
+        adapteros_core::ids::IdKind::Event,
+        "registration",
+    );
     let attempted_at = Utc::now().to_rfc3339();
 
     sqlx::query(

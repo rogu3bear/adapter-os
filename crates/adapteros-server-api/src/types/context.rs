@@ -207,7 +207,7 @@ impl InferenceRequestInternal {
     /// Create a new internal request with generated ID
     pub fn new(cpid: String, prompt: String) -> Self {
         Self {
-            request_id: uuid::Uuid::new_v4().to_string(),
+            request_id: crate::id_generator::readable_request_id(),
             cpid,
             prompt,
             run_envelope: None,

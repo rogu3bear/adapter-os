@@ -1457,6 +1457,8 @@ async fn test_worker_status_notification_updates_correct_tenant() {
         cache_max_mb: None,
         cache_pinned_entries: None,
         cache_active_entries: None,
+        coreml_failure_stage: None,
+        coreml_failure_reason: None,
         loaded_model_hash: None,
         model_load_state: None,
         cache_memory_bytes: None,

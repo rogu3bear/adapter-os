@@ -9,6 +9,8 @@
 
 #![allow(clippy::useless_vec)]
 
+use adapteros_core::BackendKind;
+use adapteros_server_api::handlers::streaming_infer::StreamingInferRequest;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -498,6 +500,7 @@ fn test_streaming_with_session_id() {
     let request = json!({
         "prompt": "Continue the conversation",
         "session_id": "chat-session-abc123",
+        "reasoning_mode": true,
         "adapters": ["conversational-adapter"]
     });
 
@@ -505,6 +508,13 @@ fn test_streaming_with_session_id() {
         request["session_id"].as_str().unwrap(),
         "chat-session-abc123"
     );
+
+    let parsed: StreamingInferRequest = serde_json::from_value(request).expect("deserialize");
+    assert_eq!(
+        parsed.session_id.as_deref(),
+        Some("chat-session-abc123")
+    );
+    assert!(parsed.reasoning_mode);
 }
 
 /// Test streaming with collection-scoped RAG
@@ -517,6 +527,20 @@ fn test_streaming_with_collection_rag() {
     });
 
     assert_eq!(request["collection_id"].as_str().unwrap(), "marketing-docs");
+}
+
+/// Test streaming with reasoning mode
+#[test]
+fn test_streaming_with_reasoning_mode() {
+    let request = json!({
+        "prompt": "Explain the tradeoffs",
+        "reasoning_mode": true,
+        "backend": "coreml"
+    });
+
+    let parsed: StreamingInferRequest = serde_json::from_value(request).expect("deserialize");
+    assert!(parsed.reasoning_mode);
+    assert_eq!(parsed.backend, Some(BackendKind::CoreML));
 }
 
 /// Test stop policy in streaming
