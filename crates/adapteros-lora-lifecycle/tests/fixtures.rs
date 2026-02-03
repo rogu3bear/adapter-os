@@ -11,7 +11,7 @@
 #![allow(clippy::module_inception)]
 
 #[allow(unused_imports)]
-use adapteros_db::{AdapterRegistrationBuilder, Db, ProtectedDb, WriteCapableDb};
+use adapteros_db::{AdapterRegistrationBuilder, Db, ProtectedDb, StorageMode, WriteCapableDb};
 #[allow(unused_imports)]
 use adapteros_lora_lifecycle::AdapterHeatState;
 #[allow(unused_imports)]
@@ -33,15 +33,28 @@ pub struct TestDbFixture {
 impl TestDbFixture {
     /// Create a new in-memory test database with migrations
     pub async fn new() -> Self {
-        let db = Db::connect(":memory:")
+        let mut db = Db::connect(":memory:")
             .await
             .expect("Failed to create test database");
 
         db.migrate().await.expect("Failed to run migrations");
 
+        // Attach a KV backend to satisfy lifecycle KV consistency checks.
+        // Use repo-local var/ to avoid forbidden system temp paths.
+        std::fs::create_dir_all("var").expect("Failed to ensure var exists for tests");
+        let kv_dir = tempfile::Builder::new()
+            .prefix("lifecycle_kv_")
+            .tempdir_in("var")
+            .expect("Failed to create KV temp dir");
+        let kv_path = kv_dir.path().join("kv.redb");
+        db.init_kv_backend(&kv_path)
+            .expect("Failed to initialize KV backend for lifecycle tests");
+        db.set_storage_mode(StorageMode::DualWrite)
+            .expect("Failed to enable KV dual-write mode for lifecycle tests");
+
         Self {
             db: ProtectedDb::new(db),
-            _temp_dir: None,
+            _temp_dir: Some(kv_dir),
         }
     }
 

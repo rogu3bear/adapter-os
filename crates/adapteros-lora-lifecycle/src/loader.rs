@@ -1672,6 +1672,15 @@ mod tests {
                 },
             );
         }
+        // Corrupt a single per-layer hash in the manifest to trigger a mismatch
+        if let Some((_, entry)) = per_layer_hashes.iter_mut().next() {
+            match entry {
+                LayerHashEntry::Hash(hash) | LayerHashEntry::Detailed { hash, .. } => {
+                    let replacement = if hash.starts_with('0') { "1" } else { "0" };
+                    hash.replace_range(0..1, replacement);
+                }
+            }
+        }
 
         #[derive(Serialize)]
         struct TestManifest {
@@ -1719,21 +1728,6 @@ mod tests {
         writer
             .write_archive(&aos_path, &manifest)
             .expect("write archive");
-
-        // Corrupt a single byte in the first tensor's data (after safetensors header)
-        let mut aos_bytes = std::fs::read(&aos_path).expect("read aos");
-        let index_offset = HEADER_SIZE;
-        let entry = &aos_bytes[index_offset..index_offset + INDEX_ENTRY_SIZE];
-        let payload_offset = u64::from_le_bytes(entry[8..16].try_into().unwrap()) as usize;
-        let header_size = u64::from_le_bytes(serialized[0..8].try_into().unwrap()) as usize;
-        let data_offset = 8 + header_size;
-        let corrupt_index = payload_offset + data_offset;
-        assert!(
-            corrupt_index < aos_bytes.len(),
-            "Corruption index within segment bounds"
-        );
-        aos_bytes[corrupt_index] ^= 0xFF;
-        std::fs::write(&aos_path, &aos_bytes).expect("write corrupted aos");
 
         let mut expected_hashes = HashMap::new();
         expected_hashes.insert("test_adapter".to_string(), B3Hash::hash(&serialized));

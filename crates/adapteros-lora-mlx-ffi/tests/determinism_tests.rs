@@ -4,10 +4,10 @@
 //! across repeated runs when properly seeded with HKDF-derived seeds. This ensures
 //! reproducible execution for adapterOS.
 //!
-//! The tests operate in stub mode and do not require real MLX to be installed,
-//! verifying the determinism guarantees at the seeding and configuration level.
+//! These tests require real MLX support; stub builds skip them because seeding
+//! and determinism attestation are unavailable in the stub backend.
 
-#[cfg(test)]
+#[cfg(all(test, not(mlx_stub)))]
 mod determinism_tests {
     use adapteros_core::{derive_seed, B3Hash};
     use adapteros_lora_mlx_ffi::backend::MLXFFIBackend;

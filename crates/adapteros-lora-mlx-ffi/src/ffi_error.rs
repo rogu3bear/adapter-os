@@ -48,6 +48,8 @@ pub fn get_and_clear_ffi_error() -> Option<String> {
 
         if error_str.is_empty() {
             None
+        } else if cfg!(mlx_stub) && error_str == "MLX not available (stub implementation)" {
+            None
         } else {
             Some(error_str)
         }

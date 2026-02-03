@@ -21,9 +21,10 @@ use fixtures::{fixtures as test_fixtures, utils, TestDbFixture};
 use tempfile::TempDir;
 
 fn new_test_adapters_dir() -> TempDir {
+    std::fs::create_dir_all("var").expect("Failed to ensure var exists for tests");
     tempfile::Builder::new()
         .prefix("lifecycle_test_")
-        .tempdir()
+        .tempdir_in("var")
         .expect("tempdir")
 }
 
@@ -138,11 +139,19 @@ async fn test_evict_adapter_updates_state_and_memory() {
     let fixture = TestDbFixture::new().await;
     let adapter_id = test_fixtures::single_cold(fixture.db()).await;
 
+    let tenant_id = fixture
+        .db()
+        .get_adapter(&adapter_id)
+        .await
+        .expect("Failed to load adapter")
+        .expect("Adapter not found")
+        .tenant_id;
+
     // Set initial memory
     fixture
         .db()
         .write_guard()
-        .update_adapter_memory("default-tenant", &adapter_id, 1024 * 1024)
+        .update_adapter_memory(&tenant_id, &adapter_id, 1024 * 1024)
         .await
         .expect("Failed to set initial memory");
 

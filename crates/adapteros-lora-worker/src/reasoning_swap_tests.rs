@@ -1,4 +1,4 @@
-use super::{ReasoningSwapGuard, MAX_REASONING_SWAPS};
+use super::{reasoning_router::ReasoningRouterConfig, ReasoningSwapGuard, MAX_REASONING_SWAPS};
 use adapteros_core::AosError;
 use adapteros_lora_router::{policy_mask::PolicyMask, AdapterInfo, Router, RouterWeights};
 
@@ -65,4 +65,24 @@ fn reasoning_router_fixture() -> (Router, Vec<AdapterInfo>, Vec<f32>, PolicyMask
     let policy_mask = PolicyMask::allow_all(&adapter_ids, None);
 
     (router, adapter_info, priors, policy_mask)
+}
+
+#[test]
+fn reasoning_span_selects_adapter_consistent_with_router() {
+    let (mut router, adapter_info, priors, policy_mask) = reasoning_router_fixture();
+    let config = ReasoningRouterConfig {
+        thinking_token: "<thinking>".to_string(),
+        ..ReasoningRouterConfig::default()
+    };
+
+    let rationale = format!(
+        "{}Switch to python for this step.",
+        config.thinking_token
+    );
+    let decision = router
+        .route_on_reasoning(&rationale, &priors, &adapter_info, &policy_mask, None)
+        .expect("router decision");
+
+    let adapter_id = adapter_info[decision.indices[0] as usize].id.clone();
+    assert_eq!(adapter_id, "python-coder");
 }
