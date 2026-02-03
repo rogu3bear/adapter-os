@@ -746,6 +746,8 @@
   vertical-align: middle;
   font-weight: 500;
   color: var(--color-muted-foreground);
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 /* Checkbox cells get reduced padding */
@@ -785,6 +787,8 @@
 .table-cell {
   padding: 1rem;
   vertical-align: middle;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 /* ===== Badge Component ===== */

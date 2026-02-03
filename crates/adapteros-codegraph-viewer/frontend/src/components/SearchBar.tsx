@@ -93,10 +93,8 @@ export const SearchBar = ({
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span style={{ fontSize: '16px' }}>{getKindIcon(result.kind)}</span>
                 <div>
-                  <div style={{ fontWeight: '500', color: 'white' }}>
-                    {result.name}
-                  </div>
-                  <div style={{ fontSize: '12px', color: '#9ca3af' }}>
+                  <div style={resultTitleStyle}>{result.name}</div>
+                  <div style={resultMetaStyle} title={`${result.kind} • ${result.file_path}`}>
                     {result.kind} • {result.file_path}
                   </div>
                 </div>
@@ -120,6 +118,7 @@ export const SearchBar = ({
 const containerStyle: React.CSSProperties = {
   position: 'relative',
   width: '400px',
+  maxWidth: 'calc(100vw - 40px)',
 };
 
 const searchBoxStyle: React.CSSProperties = {
@@ -162,3 +161,16 @@ const resultItemStyle: React.CSSProperties = {
   transition: 'background-color 0.2s',
 };
 
+const resultTitleStyle: React.CSSProperties = {
+  fontWeight: '500',
+  color: 'white',
+  wordBreak: 'break-word',
+  overflowWrap: 'anywhere',
+};
+
+const resultMetaStyle: React.CSSProperties = {
+  fontSize: '12px',
+  color: '#9ca3af',
+  wordBreak: 'break-word',
+  overflowWrap: 'anywhere',
+};
