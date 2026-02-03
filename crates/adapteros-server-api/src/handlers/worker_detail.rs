@@ -40,6 +40,8 @@ pub struct WorkerDetailResponse {
     pub k_current: Option<i32>,
     pub started_at: String,
     pub last_heartbeat_at: Option<String>,
+    pub coreml_failure_stage: Option<String>,
+    pub coreml_failure_reason: Option<String>,
 }
 
 /// Worker type
@@ -148,6 +150,17 @@ pub async fn get_worker_detail(
     )
     .unwrap_or_default();
 
+    let runtime = state.worker_runtime.get(&worker.id);
+    let (coreml_failure_stage, coreml_failure_reason) = runtime
+        .as_ref()
+        .map(|rt| {
+            (
+                rt.coreml_failure_stage.clone(),
+                rt.coreml_failure_reason.clone(),
+            )
+        })
+        .unwrap_or((None, None));
+
     Ok(Json(WorkerDetailResponse {
         schema_version: API_SCHEMA_VERSION.to_string(),
         id: worker.id,
@@ -166,6 +179,8 @@ pub async fn get_worker_detail(
         k_current: worker.k_current,
         started_at: worker.started_at,
         last_heartbeat_at: worker.last_heartbeat_at,
+        coreml_failure_stage,
+        coreml_failure_reason,
     }))
 }
 

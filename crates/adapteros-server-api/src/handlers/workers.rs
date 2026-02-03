@@ -202,6 +202,8 @@ pub async fn worker_spawn(
         cache_max_mb: None,
         cache_pinned_entries: None,
         cache_active_entries: None,
+        coreml_failure_stage: None,
+        coreml_failure_reason: None,
     }))
 }
 
@@ -320,6 +322,12 @@ pub async fn list_workers(
             cache_max_mb,
             cache_pinned_entries,
             cache_active_entries,
+            coreml_failure_stage: runtime
+                .as_ref()
+                .and_then(|rt| rt.coreml_failure_stage.clone()),
+            coreml_failure_reason: runtime
+                .as_ref()
+                .and_then(|rt| rt.coreml_failure_reason.clone()),
         });
     }
 
@@ -1120,6 +1128,12 @@ pub async fn worker_heartbeat(
     }
     if let Some(vocab) = req.tokenizer_vocab_size {
         entry.tokenizer_vocab_size = Some(vocab);
+    }
+    if let Some(stage) = req.coreml_failure_stage.clone() {
+        entry.coreml_failure_stage = Some(stage);
+    }
+    if let Some(reason) = req.coreml_failure_reason.clone() {
+        entry.coreml_failure_reason = Some(reason);
     }
 
     let next_heartbeat_secs: u32 = state

@@ -151,8 +151,11 @@ pub fn detect_capabilities() -> BackendCapabilities {
     // Detect CoreML/ANE availability
     #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
     {
-        caps.has_coreml = true;
+        caps.has_coreml = adapteros_lora_kernel_coreml::is_coreml_available();
         caps.has_ane = detect_neural_engine();
+        if !caps.has_coreml {
+            debug!("CoreML backend not available: runtime reported unavailable");
+        }
     }
 
     #[cfg(all(target_os = "macos", not(feature = "coreml-backend")))]
@@ -180,6 +183,40 @@ pub fn detect_capabilities() -> BackendCapabilities {
     );
 
     caps
+}
+
+/// Provide a concise reason when CoreML is unavailable.
+pub fn coreml_unavailable_reason(capabilities: &BackendCapabilities) -> Option<String> {
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = capabilities;
+        return Some("requires_macos".to_string());
+    }
+
+    #[cfg(all(target_os = "macos", not(feature = "coreml-backend")))]
+    {
+        let mut reasons = vec!["feature_disabled"];
+        if !capabilities.has_ane {
+            reasons.push("ane_unavailable");
+        }
+        return Some(reasons.join(","));
+    }
+
+    #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
+    {
+        let mut reasons = Vec::new();
+        if !capabilities.has_coreml {
+            reasons.push("runtime_unavailable");
+        }
+        if !capabilities.has_ane {
+            reasons.push("ane_unavailable");
+        }
+        if reasons.is_empty() {
+            None
+        } else {
+            Some(reasons.join(","))
+        }
+    }
 }
 
 /// Detect if the MLX subprocess bridge is available

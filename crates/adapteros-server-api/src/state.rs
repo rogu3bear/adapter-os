@@ -87,6 +87,10 @@ pub struct WorkerRuntimeInfo {
     pub tokenizer_hash_b3: Option<String>,
     /// Tokenizer vocabulary size reported by the worker
     pub tokenizer_vocab_size: Option<u32>,
+    /// Last CoreML failure stage reported by the worker (if any)
+    pub coreml_failure_stage: Option<String>,
+    /// Last CoreML failure reason reported by the worker (if any)
+    pub coreml_failure_reason: Option<String>,
     /// BLAKE3 hash of currently loaded model (for routing affinity)
     pub loaded_model_hash: Option<String>,
     /// Current model load state (unloaded, loading, loaded, error)

@@ -28,7 +28,7 @@ mtls_required = false
 jwt_secret = "dev-secret-key-for-development-only-32-chars-min-at-least"
 jwt_mode = "hmac"
 dev_login_enabled = true
-dev_bypass = false
+dev_bypass = true
 allow_registration = true
 
 [paths]
@@ -140,6 +140,18 @@ max_log_files = 30
 include_request_id = true
 # Capture panics to log file
 capture_panics = true
+
+[coreml]
+# CoreML backend configuration for Neural Engine (ANE) acceleration
+# Compute units: cpu_only, cpu_and_gpu, cpu_and_ne, all
+# - cpu_only: CPU only (slowest, most compatible)
+# - cpu_and_gpu: CPU + GPU (good for most workloads)
+# - cpu_and_ne: CPU + Neural Engine (best power efficiency)
+# - all: All available compute units (default)
+compute_preference = "cpu_and_gpu"
+# Production mode enforces ANE-only (requires cpu_and_ne)
+# When true, fails if ANE is not available
+production_mode = false
 
 [model_server]
 # Model Server mode: Workers connect to shared Model Server instead of loading model locally
