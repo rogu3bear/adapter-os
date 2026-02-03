@@ -258,6 +258,12 @@ pub struct WorkerResponse {
     /// Tokenizer vocab size loaded by this worker
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tokenizer_vocab_size: Option<u32>,
+    /// CoreML failure stage reported by the worker (if any)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coreml_failure_stage: Option<String>,
+    /// CoreML failure reason reported by the worker (if any)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coreml_failure_reason: Option<String>,
     /// Whether the worker is in a state that implies the base model is loaded
     #[serde(default)]
     pub model_loaded: bool,

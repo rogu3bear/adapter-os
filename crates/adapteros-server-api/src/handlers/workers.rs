@@ -826,6 +826,8 @@ pub async fn register_worker(
             cache_active_entries: None,
             tokenizer_hash_b3: req.tokenizer_hash_b3.clone(),
             tokenizer_vocab_size: req.tokenizer_vocab_size,
+            coreml_failure_stage: None,
+            coreml_failure_reason: None,
             loaded_model_hash: None,
             model_load_state: None,
             cache_stats: None,
