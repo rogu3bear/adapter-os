@@ -68,6 +68,9 @@ pub struct StreamingInferRequest {
     /// Model identifier (optional)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// Explicit backend preference (auto|coreml|mlx|metal|cpu)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend: Option<adapteros_core::BackendKind>,
     /// CoreML mode for backend selection (coreml_strict|coreml_preferred|backend_auto)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub coreml_mode: Option<CoreMLMode>,
@@ -151,7 +154,10 @@ impl From<(&StreamingInferRequest, &Claims)> for InferenceRequestInternal {
             stream: true, // Always streaming for this endpoint
             require_step: true,
             require_determinism: false,
-            allow_fallback: true,
+            allow_fallback: !matches!(
+                req.backend,
+                Some(backend) if backend != adapteros_core::BackendKind::Auto
+            ),
             batch_item_id: None,
             rag_enabled: req.collection_id.is_some(), // Enable RAG if collection_id provided
             rag_collection_id: req.collection_id.clone(),
@@ -169,7 +175,7 @@ impl From<(&StreamingInferRequest, &Claims)> for InferenceRequestInternal {
             routing_determinism_mode: req.routing_determinism_mode,
             seed_mode: None,
             request_seed: None,
-            backend_profile: None,
+            backend_profile: req.backend,
             coreml_mode: req.coreml_mode,
             max_tokens: req.max_tokens,
             temperature: req.temperature,
@@ -588,6 +594,14 @@ pub async fn streaming_infer_with_progress(
             ),
         ])?;
         let resolved = resolve_session_token_lock(&state, &claims, &token.0.lock).await?;
+        if let (Some(requested), Some(locked)) = (req.backend, resolved.backend_profile) {
+            if requested != locked {
+                return Err(ApiError::forbidden("session token backend mismatch").with_details(
+                    format!("requested {}, token {}", requested.as_str(), locked.as_str()),
+                )
+                .into());
+            }
+        }
         if let (Some(requested), Some(locked)) = (req.coreml_mode, resolved.coreml_mode) {
             if requested != locked {
                 return Err(ApiError::forbidden("session token coreml_mode mismatch")
@@ -610,6 +624,9 @@ pub async fn streaming_infer_with_progress(
         req.stack_id = lock.stack_id.clone();
         req.adapter_strength_overrides = None;
         req.effective_adapter_ids = None;
+        if let Some(backend) = lock.backend_profile {
+            req.backend = Some(backend);
+        }
         if let Some(coreml_mode) = lock.coreml_mode {
             req.coreml_mode = Some(coreml_mode);
         }
@@ -811,6 +828,14 @@ pub async fn streaming_infer(
             ),
         ])?;
         let resolved = resolve_session_token_lock(&state, &claims, &token.0.lock).await?;
+        if let (Some(requested), Some(locked)) = (req.backend, resolved.backend_profile) {
+            if requested != locked {
+                return Err(ApiError::forbidden("session token backend mismatch").with_details(
+                    format!("requested {}, token {}", requested.as_str(), locked.as_str()),
+                )
+                .into());
+            }
+        }
         if let (Some(requested), Some(locked)) = (req.coreml_mode, resolved.coreml_mode) {
             if requested != locked {
                 return Err(ApiError::forbidden("session token coreml_mode mismatch")
@@ -833,6 +858,9 @@ pub async fn streaming_infer(
         req.stack_id = lock.stack_id.clone();
         req.adapter_strength_overrides = None;
         req.effective_adapter_ids = None;
+        if let Some(backend) = lock.backend_profile {
+            req.backend = Some(backend);
+        }
         if let Some(coreml_mode) = lock.coreml_mode {
             req.coreml_mode = Some(coreml_mode);
         }
@@ -3138,6 +3166,7 @@ mod tests {
         let streaming_req = StreamingInferRequest {
             prompt: "Test prompt".to_string(),
             model: Some("test-model".to_string()),
+            backend: None,
             coreml_mode: None,
             stack_id: None,
             max_tokens: 100,
@@ -3217,6 +3246,7 @@ mod tests {
         let streaming_req = StreamingInferRequest {
             prompt: "Test".to_string(),
             model: None,
+            backend: None,
             coreml_mode: None,
             stack_id: None,
             max_tokens: default_max_tokens(),
