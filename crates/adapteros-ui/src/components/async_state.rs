@@ -754,9 +754,9 @@ pub fn DetailRow(
     };
 
     view! {
-        <div class="flex justify-between py-1">
-            <span class="text-muted-foreground">{label}</span>
-            <span class=value_class>{value}</span>
+        <div class="flex items-start justify-between gap-3 min-w-0 py-1">
+            <span class="text-muted-foreground shrink-0">{label}</span>
+            <span class=format!("{} min-w-0 text-right break-all", value_class)>{value}</span>
         </div>
     }
 }

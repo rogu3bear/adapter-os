@@ -1,7 +1,10 @@
 //! StartMenu - Module-based navigation
 //!
-//! Six-module navigation structure for the control plane:
-//! Run, Prove, Configure, Data, Operate, Govern + Tools
+//! Navigation structure for the control plane:
+//! - Core workflow: Operate, Build, Configure, Data, Verify
+//! - Organization: Org (users, roles, API keys) - admin functions
+//! - Interactive: Tools (Chat, Routing Debug, Run Diff)
+//! - Personal: Account (Profile, Preferences) - collapsed by default
 
 use leptos::prelude::*;
 
@@ -15,6 +18,12 @@ struct NavModule {
 }
 
 /// Build the navigation modules
+///
+/// Navigation philosophy:
+/// - Core workflow modules (Operate, Build, Configure, Data, Verify) are primary
+/// - Organization management (Org) handles users, roles, API keys - admin functions
+/// - Account (User, Settings) is personal - also accessible via topbar user menu
+/// - Tools contains interactive utilities (Chat, Routing Debug, Run Diff)
 fn build_modules() -> Vec<NavModule> {
     vec![
         NavModule {
@@ -68,20 +77,37 @@ fn build_modules() -> Vec<NavModule> {
             collapsed: false,
         },
         NavModule {
-            name: "Admin",
-            icon: "M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z",
-            items: &[("Admin Console", "/admin"), ("User", "/user"), ("Settings", "/settings")],
+            name: "Org",
+            // Building icon - represents organization/company management
+            icon: "M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4",
+            items: &[
+                ("Users", "/admin"),
+                ("Roles", "/admin?tab=roles"),
+                ("API Keys", "/admin?tab=keys"),
+                ("Organization", "/admin?tab=org"),
+            ],
             collapsed: false,
         },
         NavModule {
             name: "Tools",
-            icon: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z",
+            // Wrench icon - represents utilities and interactive features
+            icon: "M10.343 3.94c.09-.542.56-.94 1.11-.94h1.093c.55 0 1.02.398 1.11.94l.149.894c.07.424.384.764.78.93.398.164.855.142 1.205-.108l.737-.527a1.125 1.125 0 011.45.12l.773.774c.39.389.44 1.002.12 1.45l-.527.737c-.25.35-.272.806-.107 1.204.165.397.505.71.93.78l.893.15c.543.09.94.56.94 1.109v1.094c0 .55-.397 1.02-.94 1.11l-.893.149c-.425.07-.765.383-.93.78-.165.398-.143.854.107 1.204l.527.738c.32.447.269 1.06-.12 1.45l-.774.773a1.125 1.125 0 01-1.449.12l-.738-.527c-.35-.25-.806-.272-1.203-.107-.397.165-.71.505-.781.929l-.149.894c-.09.542-.56.94-1.11.94h-1.094c-.55 0-1.019-.398-1.11-.94l-.148-.894c-.071-.424-.384-.764-.781-.93-.398-.164-.854-.142-1.204.108l-.738.527c-.447.32-1.06.269-1.45-.12l-.773-.774a1.125 1.125 0 01-.12-1.45l.527-.737c.25-.35.273-.806.108-1.204-.165-.397-.505-.71-.93-.78l-.894-.15c-.542-.09-.94-.56-.94-1.109v-1.094c0-.55.398-1.02.94-1.11l.894-.149c.424-.07.765-.383.93-.78.165-.398.143-.854-.107-1.204l-.527-.738a1.125 1.125 0 01.12-1.45l.773-.773a1.125 1.125 0 011.45-.12l.737.527c.35.25.807.272 1.204.107.397-.165.71-.505.78-.929l.15-.894z",
             items: &[
+                ("Chat", "/chat"),
                 ("Routing Debug", "/routing"),
                 ("Run Diff", "/diff"),
-                ("Chat", "/chat"),
             ],
-            collapsed: true, // Tools collapsed by default
+            collapsed: false, // Tools now visible by default - Chat is a core feature
+        },
+        NavModule {
+            name: "Account",
+            // User circle icon - represents personal settings
+            icon: "M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z",
+            items: &[
+                ("Profile", "/user"),
+                ("Preferences", "/settings"),
+            ],
+            collapsed: true, // Personal settings collapsed - less frequently accessed
         },
     ]
 }

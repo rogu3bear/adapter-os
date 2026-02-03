@@ -8,6 +8,7 @@ use crate::components::{
     Input, Spinner, SplitPanel, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
     Textarea,
 };
+use crate::constants::urls::docs_link;
 use crate::hooks::{use_api_resource, LoadingState};
 use leptos::prelude::*;
 use std::sync::Arc;
@@ -192,7 +193,7 @@ fn PolicyList(
                     title="No policy packs found"
                     description="Policy packs define enforcement rules for inference. Create a policy pack to control model behavior."
                     secondary_label="Learn about Policies"
-                    secondary_href="/docs/policies"
+                    secondary_href=docs_link("policies")
                 />
             </Card>
         }

@@ -103,7 +103,7 @@ fn test_breadcrumb_segment_humanization() {
         ("system", "System"),
     ];
 
-    for (segment, expected) in cases {
+    for (segment, _expected) in cases {
         // Basic humanization: capitalize first letter
         let humanized = {
             let mut chars = segment.chars();

@@ -6,6 +6,7 @@ use crate::components::{
     Badge, BadgeVariant, Card, EmptyState, EmptyStateVariant, Table, TableBody, TableCell,
     TableHead, TableHeader, TableRow,
 };
+use crate::constants::urls::docs_link;
 use leptos::prelude::*;
 
 /// Repository list table
@@ -22,7 +23,7 @@ pub fn RepositoryList(
                     title="No repositories found"
                     description="Register a code repository to enable code intelligence and adapter training from your codebase."
                     secondary_label="Learn about Code Intelligence"
-                    secondary_href="/docs/code-intelligence"
+                    secondary_href=docs_link("code-intelligence")
                 />
             </Card>
         }

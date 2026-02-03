@@ -137,31 +137,6 @@ pub fn report_error_with_toast(
     }
 }
 
-/// Build a user-friendly error message from an ApiError.
-fn build_user_message(error: &ApiError) -> String {
-    match error {
-        ApiError::Aborted => "The request was cancelled.".to_string(),
-        ApiError::Network(msg) => format!("Network error: {}", msg),
-        ApiError::Http { status, message } => {
-            format!("HTTP {} error: {}", status, message)
-        }
-        ApiError::Unauthorized => "Your session has expired. Log in again.".to_string(),
-        ApiError::Forbidden(msg) => format!("Access denied: {}", msg),
-        ApiError::NotFound(msg) => format!("Not found: {}", msg),
-        ApiError::Validation(msg) => format!("Validation error: {}", msg),
-        ApiError::Server(msg) => format!("Server error: {}", msg),
-        ApiError::Serialization(msg) => format!("Data format error: {}", msg),
-        ApiError::RateLimited { retry_after } => match retry_after {
-            Some(ms) => format!("Too many requests. Retry in {} seconds.", ms / 1000),
-            None => "Too many requests. Retry later.".to_string(),
-        },
-        ApiError::Structured { error, code, .. } => {
-            format!("{} ({})", error, code)
-        }
-    }
-}
-
-
 /// Build a ClientErrorReport from an ApiError
 fn build_report(error: &ApiError, page: Option<&str>) -> ClientErrorReport {
     let (error_type, message, http_status) = match error {
@@ -189,6 +164,7 @@ fn build_report(error: &ApiError, page: Option<&str>) -> ClientErrorReport {
             error,
             code,
             failure_code,
+            hint: _,
             details,
         } => {
             return ClientErrorReport {

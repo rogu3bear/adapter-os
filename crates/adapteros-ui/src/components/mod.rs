@@ -47,7 +47,6 @@ pub mod telemetry_overlay;
 pub mod toast;
 pub mod toggle;
 pub mod trace_viewer;
-pub mod version_skew_banner;
 pub mod virtual_list;
 pub mod workspace;
 
@@ -112,7 +111,6 @@ pub use trace_viewer::{
     TokenDecisions, TraceButton, TraceDetailStandalone, TracePanel, TraceViewer,
     TraceViewerWithData,
 };
-pub use version_skew_banner::VersionSkewBanner;
 pub use workspace::{
     TwoColumnRatio, Workspace, WorkspaceColumn, WorkspaceGrid, WorkspaceHeader, WorkspacePanel,
     WorkspaceThreeColumn, WorkspaceTwoColumn,

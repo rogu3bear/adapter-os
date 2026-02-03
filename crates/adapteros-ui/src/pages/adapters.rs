@@ -23,6 +23,7 @@ use crate::components::{
     ErrorDisplay, Link, SplitPanel, SplitRatio, Table, TableBody, TableCell, TableHead,
     TableHeader, TableRow,
 };
+use crate::constants::urls::docs_link;
 use crate::contexts::use_in_flight;
 use crate::hooks::{use_api_resource, LoadingState};
 use crate::signals::refetch::{use_refetch_signal, RefetchTopic};
@@ -157,7 +158,7 @@ fn AdaptersListInteractive(
                         }
                     })
                     secondary_label="View Documentation"
-                    secondary_href="/docs/adapters"
+                    secondary_href=docs_link("adapters")
                 />
             </Card>
         }

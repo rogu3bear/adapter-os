@@ -266,7 +266,7 @@ pub fn GenerateDatasetWizard(
                             />
                         </FormField>
 
-                        <div class="grid grid-cols-3 gap-4">
+                        <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
                             <div class="space-y-2">
                                 <label class="text-sm font-medium">"Strategy"</label>
                                 <select
@@ -321,7 +321,7 @@ pub fn GenerateDatasetWizard(
                         </div>
 
                         // Volume control
-                        <div class="grid grid-cols-2 gap-4">
+                        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
                             <FormField
                                 label="Target Volume"
                                 name="target_volume"

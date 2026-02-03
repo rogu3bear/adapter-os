@@ -18,7 +18,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::components::{IconPlus, IconRefresh, IconX};
-use components::{WorkerDetailPanel, WorkerDetailView, WorkersList, WorkersSummary};
+use components::{
+    WorkerDetailPanel, WorkerDetailView, WorkerHealthSummaryPanel, WorkersList, WorkersSummary,
+};
 use dialogs::{PlanOption, SpawnWorkerDialog};
 use utils::{WorkerHealthRecord, WorkerHealthSummary};
 
@@ -123,7 +125,8 @@ pub fn Workers() -> impl IntoView {
                     LoadingState::Loaded(p) => p,
                     _ => Vec::new(),
                 };
-                let health_map: HashMap<String, WorkerHealthRecord> = match worker_health.get() {
+                let health_state = worker_health.get();
+                let health_map: HashMap<String, WorkerHealthRecord> = match &health_state {
                     LoadingState::Loaded(ref summary) => summary
                         .workers
                         .iter()
@@ -142,7 +145,7 @@ pub fn Workers() -> impl IntoView {
                         }.into_any()
                     }
                     LoadingState::Loaded(workers_data) => {
-                        let health_summary = match worker_health.get() {
+                        let health_summary = match &health_state {
                             LoadingState::Loaded(ref summary) => Some(summary.clone()),
                             _ => None,
                         };
@@ -151,6 +154,12 @@ pub fn Workers() -> impl IntoView {
                             <WorkersSummary
                                 workers=workers_data.clone()
                                 health_summary=health_summary
+                            />
+
+                            // Health summary panel
+                            <WorkerHealthSummaryPanel
+                                health_state=health_state
+                                on_retry=Callback::new(move |_| refetch_worker_health.run(()))
                             />
 
                             // Workers list
@@ -196,6 +205,7 @@ pub fn Workers() -> impl IntoView {
                                         });
                                     }
                                 })
+                                on_spawn=Callback::new(move |_| show_spawn_dialog.set(true))
                             />
 
                             // Worker detail panel
