@@ -809,6 +809,7 @@ impl<'a> InferenceCore<'a> {
             );
         }
 
+        // MLX main driver; CoreML for reasoning (inference) and optional preferred training backend.
         // 3. Create worker request with full sampling parameters
         let worker_request = WorkerInferRequest {
             cpid: request.cpid.clone(),
