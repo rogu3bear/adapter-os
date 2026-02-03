@@ -142,6 +142,9 @@ pub enum AgentResponse {
         task_id: [u8; 32],
         /// Error message
         error: String,
+        /// Optional error code (e.g., CANCELLED)
+        #[serde(default)]
+        code: Option<String>,
     },
 
     /// Status response
