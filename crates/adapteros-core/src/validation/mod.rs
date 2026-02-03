@@ -111,6 +111,10 @@ pub fn validate_adapter_id(id: &str) -> Result<(), AosError> {
         ));
     }
 
+    if crate::ids::is_readable_id(id) {
+        return Ok(());
+    }
+
     if id.starts_with(CODEBASE_ADAPTER_PREFIX) {
         return validate_codebase_adapter_id(id);
     }

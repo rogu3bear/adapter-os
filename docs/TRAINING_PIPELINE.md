@@ -17,6 +17,26 @@ The pipeline executes phases in order and persists each transition:
 Each phase has explicit inputs, outputs, a deterministic phase ID, and a receipt on disk.
 No phase is executed implicitly; transitions are guarded by the persisted state machine.
 
+## Dataset Validation Tiers
+
+Dataset validation is split into tiers:
+
+1. **Tier 1 (structural + schema + integrity)**: hard-fail for invalid data
+2. **Tier 2 (safety/PII/secrets)**: soft-fail with explicit safety statuses and thresholds
+3. **Determinism checks**: hard-fail if dataset hashes mismatch
+
+Tier 1 runs during dataset validation and updates dataset/version validation status.
+Tier 2 runs asynchronously and records safety signals + sample IDs.
+Determinism checks verify dataset hash stability and training split hashes.
+
+### Audit Suite (Mixed Tasks)
+
+Run the mixed-task evaluation suite with:
+
+```bash
+aosctl audit <cpid> --suite tests/corpora/mixed_v1.json
+```
+
 ## Receipts and Artifacts
 
 Pipeline state and receipts live under `var/training_pipeline/<job_id>/`:

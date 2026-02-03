@@ -28,7 +28,7 @@ mtls_required = false
 jwt_secret = "dev-secret-key-for-development-only-32-chars-min-at-least"
 jwt_mode = "hmac"
 dev_login_enabled = true
-dev_bypass = true
+dev_bypass = false
 allow_registration = true
 
 [paths]

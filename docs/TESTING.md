@@ -501,6 +501,33 @@ ls -lh models/
 
 ---
 
+## UI Testing
+
+Playwright suites live in `tests/playwright`.
+
+### Setup
+
+```bash
+cd tests/playwright
+npm install
+npx playwright install
+export PLAYWRIGHT_BROWSERS_PATH=var/playwright/browsers
+export PW_TEST_TMPDIR=var/playwright/tmp
+```
+
+### Run
+
+```bash
+npm run test:ui
+npm run test:codegraph
+npm run test:minimal
+```
+
+Artifacts are stored under `var/playwright/`.
+Leptos UI runs the backend with a clean Playwright DB under `var/playwright/` and `E2E_MODE=1`.
+
+---
+
 ## File Locations
 
 | Item | Path |

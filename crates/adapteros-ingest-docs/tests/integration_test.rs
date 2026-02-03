@@ -26,7 +26,7 @@ fn fixture_tokenizer() -> Arc<Tokenizer> {
         .build()
         .expect("wordlevel model");
     let mut tokenizer = Tokenizer::new(model);
-    tokenizer.with_pre_tokenizer(Whitespace);
+    tokenizer.with_pre_tokenizer(Some(Whitespace));
     Arc::new(tokenizer)
 }
 
@@ -134,6 +134,56 @@ fn test_training_data_generation() {
     assert_eq!(
         example.input_tokens, example.target_tokens,
         "For identity strategy, input should equal target"
+    );
+}
+
+#[test]
+fn test_generate_training_data_question_answer_strategy_produces_qa_pairs() {
+    let markdown_content = "AdapterOS supports deterministic routing for CoreML reasoning workloads. The system applies policy hooks before inference.";
+
+    let mut temp_file = new_temp_file();
+    temp_file
+        .write_all(markdown_content.as_bytes())
+        .expect("Failed to write markdown");
+
+    let options = default_ingest_options();
+    let ingestor = DocumentIngestor::new(options, None);
+    let document = ingestor
+        .ingest_markdown_path(temp_file.path())
+        .expect("Failed to ingest markdown");
+
+    let tokenizer = fixture_tokenizer();
+    let config = TrainingGenConfig {
+        strategy: TrainingStrategy::QuestionAnswer,
+        max_seq_length: 512,
+        add_special_tokens: true,
+    };
+
+    let training_data = generate_training_data(&document, &tokenizer, &config)
+        .expect("Failed to generate training data");
+
+    assert!(
+        !training_data.examples.is_empty(),
+        "Should have at least one Q&A example"
+    );
+
+    let example = &training_data.examples[0];
+    assert!(!example.input_tokens.is_empty());
+    assert!(!example.target_tokens.is_empty());
+    assert_ne!(
+        example.input_tokens, example.target_tokens,
+        "Q&A strategy should produce distinct input/target"
+    );
+
+    let provenance: serde_json::Value =
+        serde_json::from_str(&example.metadata.provenance).expect("provenance json");
+    assert!(
+        provenance.get("qa_question_text").is_some(),
+        "expected qa_question_text in provenance"
+    );
+    assert!(
+        provenance.get("qa_answer_text").is_some(),
+        "expected qa_answer_text in provenance"
     );
 }
 

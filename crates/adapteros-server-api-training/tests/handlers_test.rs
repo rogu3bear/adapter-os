@@ -453,6 +453,24 @@ fn plan_backend_readiness_coreml_else_fallback_falls_back() {
 }
 
 #[test]
+fn test_resolve_backend_coreml_preferred_mlx_fallback_when_coreml_unavailable() {
+    let caps = caps_mlx_only();
+    let coreml = coreml_ready(false, false);
+    let plan = plan_backend_readiness(
+        TrainingBackendKind::CoreML,
+        TrainingBackendPolicy::CoremlElseFallback,
+        Some(TrainingBackendKind::Mlx),
+        false,
+        &caps,
+        &coreml,
+    );
+
+    assert!(plan.ready);
+    assert_eq!(plan.resolved_backend, TrainingBackendKind::Mlx);
+    assert_eq!(plan.fallback_backend, Some(TrainingBackendKind::Mlx));
+}
+
+#[test]
 fn plan_backend_readiness_coreml_else_fallback_no_backend() {
     let caps = caps_none();
     let coreml = coreml_ready(false, false);
