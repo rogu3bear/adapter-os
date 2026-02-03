@@ -528,6 +528,8 @@ pub async fn workers_stream(
                     model_hash: w.model_hash_b3.clone(),
                     tokenizer_hash_b3: w.tokenizer_hash_b3.clone(),
                     tokenizer_vocab_size: w.tokenizer_vocab_size.map(|v| v as u32),
+                    coreml_failure_stage: None,
+                    coreml_failure_reason: None,
                     model_loaded: w.model_hash_b3.is_some(),
                     cache_used_mb: None,
                     cache_max_mb: None,

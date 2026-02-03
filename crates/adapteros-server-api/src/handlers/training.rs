@@ -2290,6 +2290,7 @@ pub async fn start_training(
         }
     }
 
+    // MLX main driver; CoreML for reasoning (inference) and optional preferred training backend.
     // Apply repository policy (CoreML allowances and backend preferences)
     let repo_policy = state
         .db
