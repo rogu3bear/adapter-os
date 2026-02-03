@@ -704,15 +704,54 @@ fn OverviewTab(
                 <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
                     <div>
                         <p class="text-sm text-muted-foreground">"Stack"</p>
-                        <p class="font-medium text-sm text-muted-foreground/70 italic">"Unknown"</p>
+                        {move || {
+                            match trace_detail.get() {
+                                LoadingState::Loaded(detail) => {
+                                    if let Some(stack_id) = detail.stack_id.clone() {
+                                        view! { <p class="font-medium text-sm">{stack_id}</p> }.into_any()
+                                    } else {
+                                        view! { <p class="font-medium text-sm text-muted-foreground/70 italic">"Unknown"</p> }.into_any()
+                                    }
+                                }
+                                _ => view! {
+                                    <p class="font-medium text-sm text-muted-foreground/70 italic">"Loading..."</p>
+                                }.into_any()
+                            }
+                        }}
                     </div>
                     <div>
                         <p class="text-sm text-muted-foreground">"Model"</p>
-                        <p class="font-medium text-sm text-muted-foreground/70 italic">"Unknown"</p>
+                        {move || {
+                            match trace_detail.get() {
+                                LoadingState::Loaded(detail) => {
+                                    if let Some(model_id) = detail.model_id.clone() {
+                                        view! { <p class="font-medium text-sm">{model_id}</p> }.into_any()
+                                    } else {
+                                        view! { <p class="font-medium text-sm text-muted-foreground/70 italic">"Unknown"</p> }.into_any()
+                                    }
+                                }
+                                _ => view! {
+                                    <p class="font-medium text-sm text-muted-foreground/70 italic">"Loading..."</p>
+                                }.into_any()
+                            }
+                        }}
                     </div>
                     <div>
                         <p class="text-sm text-muted-foreground">"Policy"</p>
-                        <p class="font-medium text-sm text-muted-foreground/70 italic">"Unknown"</p>
+                        {move || {
+                            match trace_detail.get() {
+                                LoadingState::Loaded(detail) => {
+                                    if let Some(policy_id) = detail.policy_id.clone() {
+                                        view! { <p class="font-medium text-sm">{policy_id}</p> }.into_any()
+                                    } else {
+                                        view! { <p class="font-medium text-sm text-muted-foreground/70 italic">"Unknown"</p> }.into_any()
+                                    }
+                                }
+                                _ => view! {
+                                    <p class="font-medium text-sm text-muted-foreground/70 italic">"Loading..."</p>
+                                }.into_any()
+                            }
+                        }}
                     </div>
                     <div>
                         <p class="text-sm text-muted-foreground">"Backend"</p>
@@ -753,7 +792,7 @@ fn OverviewTab(
                     </div>
                 </div>
                 <p class="text-xs text-muted-foreground mt-3">
-                    "Stack, model, and policy identifiers are not included in trace payloads."
+                    "Stack, model, and policy identifiers appear when they are included in the trace payload."
                 </p>
             </Card>
 
