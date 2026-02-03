@@ -12,7 +12,20 @@ use adapteros_core::{AosError, Result};
 use adapteros_db::models::{ModelRegistrationBuilder, ModelRegistrationParams};
 use adapteros_db::Db;
 use chrono::Utc;
+use std::sync::Once;
 use uuid::Uuid;
+
+fn ensure_migration_timeout() {
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        std::env::set_var("AOS_MIGRATION_TIMEOUT_SECS", "600");
+    });
+}
+
+async fn new_test_db() -> Result<Db> {
+    ensure_migration_timeout();
+    Db::new_in_memory().await
+}
 
 /// Helper to create a tenant
 async fn create_tenant(db: &Db, tenant_id: &str) -> Result<()> {
@@ -79,7 +92,7 @@ fn full_model_params(name: &str) -> ModelRegistrationParams {
 
 #[tokio::test]
 async fn register_model_with_minimal_fields() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = new_test_db().await?;
 
     let params = minimal_model_params("minimal-model");
     let model_id = db.register_model(params.clone()).await?;
@@ -101,7 +114,7 @@ async fn register_model_with_minimal_fields() -> Result<()> {
 
 #[tokio::test]
 async fn register_model_with_all_fields() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = new_test_db().await?;
 
     let params = full_model_params("full-model");
     let model_id = db.register_model(params.clone()).await?;
@@ -118,7 +131,7 @@ async fn register_model_with_all_fields() -> Result<()> {
 
 #[tokio::test]
 async fn get_nonexistent_model_returns_none() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = new_test_db().await?;
 
     let model = db.get_model("nonexistent-id").await?;
     assert!(model.is_none(), "nonexistent model should return None");
@@ -128,7 +141,7 @@ async fn get_nonexistent_model_returns_none() -> Result<()> {
 
 #[tokio::test]
 async fn get_model_by_name() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = new_test_db().await?;
 
     let params = minimal_model_params("qwen2.5-7b");
     let model_id = db.register_model(params.clone()).await?;
@@ -150,7 +163,7 @@ async fn get_model_by_name() -> Result<()> {
 
 #[tokio::test]
 async fn get_model_by_name_filters_non_available() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = new_test_db().await?;
 
     let params = minimal_model_params("importing-model");
     let model_id = db.register_model(params.clone()).await?;
@@ -182,7 +195,7 @@ async fn get_model_by_name_filters_non_available() -> Result<()> {
 
 #[tokio::test]
 async fn update_model_path_by_id() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = new_test_db().await?;
 
     let params = minimal_model_params("path-test");
     let model_id = db.register_model(params).await?;
@@ -202,7 +215,7 @@ async fn update_model_path_by_id() -> Result<()> {
 
 #[tokio::test]
 async fn update_model_path_by_name() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = new_test_db().await?;
 
     let params = minimal_model_params("path-test-by-name");
     let model_id = db.register_model(params).await?;
@@ -220,7 +233,7 @@ async fn update_model_path_by_name() -> Result<()> {
 
 #[tokio::test]
 async fn update_nonexistent_model_path_errors() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = new_test_db().await?;
 
     let result = db.update_model_path("nonexistent", "/some/path").await;
     assert!(result.is_err(), "should error for nonexistent model");
@@ -234,7 +247,7 @@ async fn update_nonexistent_model_path_errors() -> Result<()> {
 
 #[tokio::test]
 async fn list_models_returns_all_ordered_by_created_at_desc() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = new_test_db().await?;
     let tenant_id = "tenant-1";
     create_tenant(&db, tenant_id).await?;
 
@@ -268,7 +281,7 @@ async fn list_models_returns_all_ordered_by_created_at_desc() -> Result<()> {
 
 #[tokio::test]
 async fn list_models_empty_when_no_models() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = new_test_db().await?;
     let tenant_id = "tenant-1";
     create_tenant(&db, tenant_id).await?;
 
@@ -285,7 +298,7 @@ async fn list_models_empty_when_no_models() -> Result<()> {
 
 #[tokio::test]
 async fn list_models_with_stats() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = new_test_db().await?;
     let tenant_id = "tenant-1";
     create_tenant(&db, tenant_id).await?;
 
@@ -314,7 +327,7 @@ async fn list_models_with_stats() -> Result<()> {
 
 #[tokio::test]
 async fn get_model_for_tenant_allows_null_tenant_id() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = new_test_db().await?;
     create_tenant(&db, "tenant-a").await?;
 
     // Register model without tenant_id (global model)
@@ -336,7 +349,7 @@ async fn get_model_for_tenant_allows_null_tenant_id() -> Result<()> {
 
 #[tokio::test]
 async fn get_model_for_tenant_allows_matching_tenant_id() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = new_test_db().await?;
     create_tenant(&db, "tenant-a").await?;
 
     // Import model with tenant_id
@@ -363,7 +376,7 @@ async fn get_model_for_tenant_allows_matching_tenant_id() -> Result<()> {
 
 #[tokio::test]
 async fn get_model_for_tenant_denies_other_tenant() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = new_test_db().await?;
     create_tenant(&db, "tenant-a").await?;
     create_tenant(&db, "tenant-b").await?;
 
@@ -391,7 +404,7 @@ async fn get_model_for_tenant_denies_other_tenant() -> Result<()> {
 
 #[tokio::test]
 async fn get_model_by_name_for_tenant_scoping() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = new_test_db().await?;
     create_tenant(&db, "tenant-a").await?;
     create_tenant(&db, "tenant-b").await?;
 
@@ -419,7 +432,7 @@ async fn get_model_by_name_for_tenant_scoping() -> Result<()> {
 
 #[tokio::test]
 async fn get_model_by_name_for_tenant_allows_global_model() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = new_test_db().await?;
     create_tenant(&db, "tenant-a").await?;
 
     // Register global model
@@ -447,7 +460,7 @@ async fn get_model_by_name_for_tenant_allows_global_model() -> Result<()> {
 
 #[tokio::test]
 async fn import_model_from_nonexistent_path() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = new_test_db().await?;
     create_tenant(&db, "tenant-a").await?;
 
     // Import from a path that doesn't exist
@@ -474,7 +487,7 @@ async fn import_model_from_nonexistent_path() -> Result<()> {
 
 #[tokio::test]
 async fn update_model_import_status_to_available() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = new_test_db().await?;
     create_tenant(&db, "tenant-a").await?;
 
     let model_id = db
@@ -500,7 +513,7 @@ async fn update_model_import_status_to_available() -> Result<()> {
 
 #[tokio::test]
 async fn update_model_import_status_to_failed_with_error() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = new_test_db().await?;
     create_tenant(&db, "tenant-a").await?;
 
     let model_id = db
@@ -526,7 +539,7 @@ async fn update_model_import_status_to_failed_with_error() -> Result<()> {
 
 #[tokio::test]
 async fn import_model_sets_tenant_id() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = new_test_db().await?;
     create_tenant(&db, "tenant-a").await?;
 
     let model_id = db
@@ -552,7 +565,7 @@ async fn import_model_sets_tenant_id() -> Result<()> {
 
 #[tokio::test]
 async fn update_base_model_status_creates_new_record() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = new_test_db().await?;
     create_tenant(&db, "tenant-a").await?;
 
     let params = minimal_model_params("model-1");
@@ -577,7 +590,7 @@ async fn update_base_model_status_creates_new_record() -> Result<()> {
 
 #[tokio::test]
 async fn update_base_model_status_updates_existing_record() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = new_test_db().await?;
     create_tenant(&db, "tenant-a").await?;
 
     let params = minimal_model_params("model-1");
@@ -604,7 +617,7 @@ async fn update_base_model_status_updates_existing_record() -> Result<()> {
 
 #[tokio::test]
 async fn update_base_model_status_normalizes_legacy_statuses() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = new_test_db().await?;
     create_tenant(&db, "tenant-a").await?;
 
     let params = minimal_model_params("model-1");
@@ -635,7 +648,7 @@ async fn update_base_model_status_normalizes_legacy_statuses() -> Result<()> {
 
 #[tokio::test]
 async fn update_base_model_status_with_error_message() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = new_test_db().await?;
     create_tenant(&db, "tenant-a").await?;
 
     let params = minimal_model_params("model-1");
@@ -662,7 +675,7 @@ async fn update_base_model_status_with_error_message() -> Result<()> {
 
 #[tokio::test]
 async fn get_base_model_status_returns_most_recent() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = new_test_db().await?;
     create_tenant(&db, "tenant-a").await?;
 
     let params1 = minimal_model_params("model-1");
@@ -691,7 +704,7 @@ async fn get_base_model_status_returns_most_recent() -> Result<()> {
 
 #[tokio::test]
 async fn list_base_model_statuses() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = new_test_db().await?;
     create_tenant(&db, "tenant-a").await?;
     create_tenant(&db, "tenant-b").await?;
 
@@ -723,7 +736,7 @@ async fn list_base_model_statuses() -> Result<()> {
 
 #[tokio::test]
 async fn register_model_with_duplicate_name_fails() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = new_test_db().await?;
 
     let params1 = minimal_model_params("duplicate-name");
     db.register_model(params1).await?;
@@ -739,7 +752,7 @@ async fn register_model_with_duplicate_name_fails() -> Result<()> {
 
 #[tokio::test]
 async fn register_model_with_duplicate_hash_fails() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = new_test_db().await?;
 
     let same_hash = "duplicate-hash-b3";
 
@@ -837,7 +850,7 @@ async fn model_builder_requires_all_mandatory_fields() -> Result<()> {
 
 #[tokio::test]
 async fn count_adapters_for_nonexistent_model() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = new_test_db().await?;
 
     let count = db.count_adapters_for_model("nonexistent-id").await?;
     assert_eq!(count, 0);
@@ -847,7 +860,7 @@ async fn count_adapters_for_nonexistent_model() -> Result<()> {
 
 #[tokio::test]
 async fn count_training_jobs_for_nonexistent_model() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = new_test_db().await?;
 
     let count = db.count_training_jobs_for_model("nonexistent-id").await?;
     assert_eq!(count, 0);
@@ -857,7 +870,7 @@ async fn count_training_jobs_for_nonexistent_model() -> Result<()> {
 
 #[tokio::test]
 async fn get_base_model_status_for_tenant_without_status() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = new_test_db().await?;
     create_tenant(&db, "tenant-a").await?;
 
     let status = db.get_base_model_status("tenant-a").await?;
@@ -868,7 +881,7 @@ async fn get_base_model_status_for_tenant_without_status() -> Result<()> {
 
 #[tokio::test]
 async fn model_timestamps_are_set() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = new_test_db().await?;
 
     let params = minimal_model_params("timestamp-test");
     let model_id = db.register_model(params).await?;
@@ -884,7 +897,7 @@ async fn model_timestamps_are_set() -> Result<()> {
 
 #[tokio::test]
 async fn import_model_timestamps_are_set() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = new_test_db().await?;
     create_tenant(&db, "tenant-a").await?;
 
     let before = Utc::now();
@@ -916,7 +929,7 @@ async fn import_model_timestamps_are_set() -> Result<()> {
 
 #[tokio::test]
 async fn update_model_import_status_updates_timestamp() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = new_test_db().await?;
     create_tenant(&db, "tenant-a").await?;
 
     let model_id = db
@@ -953,7 +966,7 @@ async fn update_model_import_status_updates_timestamp() -> Result<()> {
 
 #[tokio::test]
 async fn model_default_values_are_set() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = new_test_db().await?;
 
     let params = minimal_model_params("defaults-test");
     let model_id = db.register_model(params).await?;
@@ -970,7 +983,7 @@ async fn model_default_values_are_set() -> Result<()> {
 
 #[tokio::test]
 async fn imported_model_has_correct_defaults() -> Result<()> {
-    let db = Db::new_in_memory().await?;
+    let db = new_test_db().await?;
     create_tenant(&db, "tenant-a").await?;
 
     let model_id = db

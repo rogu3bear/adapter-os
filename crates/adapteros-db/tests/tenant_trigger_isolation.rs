@@ -5,12 +5,41 @@
 
 use adapteros_db::Db;
 use std::collections::BTreeMap;
+use std::ops::Deref;
 
-async fn new_test_db() -> Db {
+struct TestDb {
+    db: Db,
+    _path: tempfile::TempPath,
+}
+
+impl Deref for TestDb {
+    type Target = Db;
+
+    fn deref(&self) -> &Self::Target {
+        &self.db
+    }
+}
+
+async fn new_test_db() -> TestDb {
     std::env::set_var("AOS_SKIP_MIGRATION_SIGNATURES", "1");
-    Db::new_in_memory()
+    std::fs::create_dir_all("var/tmp")
+        .expect("Failed to create var/tmp for tenant trigger isolation tests");
+    let temp_file = tempfile::Builder::new()
+        .prefix("tenant-trigger-")
+        .suffix(".sqlite3")
+        .tempfile_in("var/tmp")
+        .expect("Failed to create temp sqlite file for tenant trigger isolation tests");
+    let path = temp_file.path().to_path_buf();
+    let temp_path = temp_file.into_temp_path();
+
+    let db = Db::connect(&path.to_string_lossy())
         .await
-        .expect("Failed to create in-memory database for tenant trigger isolation test")
+        .expect("Failed to create sqlite database for tenant trigger isolation test");
+    db.migrate()
+        .await
+        .expect("Failed to migrate sqlite database for tenant trigger isolation test");
+
+    TestDb { db, _path: temp_path }
 }
 
 async fn setup_tenants(db: &Db) -> (String, String) {

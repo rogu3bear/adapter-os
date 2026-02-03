@@ -442,7 +442,7 @@ impl StackKvOps for StackKvRepository {
             tenant_id: req.tenant_id.clone(),
             name: req.name.clone(),
             description: req.description.clone(),
-            version: "1.0.0".to_string(),
+            version: "1".to_string(),
             lifecycle_state: LifecycleState::Active,
             adapter_ids: req.adapter_ids.clone(),
             workflow_type,
@@ -540,7 +540,17 @@ impl StackKvOps for StackKvRepository {
             tenant_id: req.tenant_id.clone(),
             name: req.name.clone(),
             description: req.description.clone(),
-            version: old_stack.version.clone(),
+            version: {
+                let should_bump = old_stack.adapter_ids != req.adapter_ids
+                    || old_stack.workflow_type != workflow_type;
+                let current_version = old_stack.version.parse::<u64>().unwrap_or(1);
+                let new_version = if should_bump {
+                    current_version + 1
+                } else {
+                    current_version
+                };
+                new_version.to_string()
+            },
             lifecycle_state: old_stack.lifecycle_state,
             adapter_ids: req.adapter_ids.clone(),
             workflow_type,
