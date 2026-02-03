@@ -53,7 +53,7 @@ use tokio::signal;
 use tokio::sync::Mutex;
 use tracing::{error, info, info_span, warn};
 use tracing_appender::non_blocking::WorkerGuard;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
 #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
 use adapteros_db::{CreateCoremlFusionPairParams, Db};

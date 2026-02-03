@@ -128,6 +128,7 @@ ureq = "3.0"  # PRD-09: Blocking HTTP client for panic hook
 libc = "0.2"
 clap = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-appender = "0.2"
 tonic = { version = "0.12", optional = true }
 [[bin]]
 name = "aos-worker"
