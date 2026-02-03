@@ -508,11 +508,16 @@ pub fn validate_boot_invariants(
     {
         let env_var_dir = std::env::var("AOS_VAR_DIR").ok();
         // Canonical form is "var" (not "./var"). Accept both for backwards compatibility.
+        // Also accept absolute paths ending in "/var" (e.g., "/path/to/project/var")
+        // since the boot config resolves relative paths to absolute paths.
         let override_active = env_var_dir
             .as_deref()
             .map(|val| {
                 let trimmed = val.trim();
-                !trimmed.is_empty() && trimmed != "var" && trimmed != "./var"
+                !trimmed.is_empty()
+                    && trimmed != "var"
+                    && trimmed != "./var"
+                    && !trimmed.ends_with("/var")
             })
             .unwrap_or(false);
 
