@@ -128,13 +128,13 @@ where
                 SplitMode::Desktop => {
                     // Desktop: two-column layout
                     let list_class = if selected {
-                        format!("{} pr-4", ratio.list_class())
+                        format!("{} pr-4 min-w-0 box-border", ratio.list_class())
                     } else {
-                        "flex-1 pr-4".to_string()
+                        "flex-1 pr-4 min-w-0 box-border".to_string()
                     };
 
                     view! {
-                        <div class="flex">
+                        <div class="flex min-w-0">
                             // List panel
                             <div class=list_class>
                                 {list_fn()}
@@ -142,7 +142,8 @@ where
 
                             // Detail panel (when selected)
                             {selected.then(move || {
-                                let detail_class = format!("{} border-l pl-4", ratio.detail_class());
+                                let detail_class =
+                                    format!("{} border-l px-4 min-w-0 box-border", ratio.detail_class());
                                 view! {
                                     <div class=detail_class>
                                         {detail_fn()}
@@ -156,7 +157,7 @@ where
                     // Stacked: show list OR detail with back button
                     if selected {
                         view! {
-                            <div class="space-y-4">
+                            <div class="space-y-4 min-w-0">
                                 // Back button with 44px minimum touch target for mobile accessibility
                                 <button
                                     class="split-panel-back-btn"
@@ -173,7 +174,7 @@ where
                         }.into_any()
                     } else {
                         view! {
-                            <div>
+                            <div class="min-w-0">
                                 {list_fn()}
                             </div>
                         }.into_any()

@@ -25,12 +25,30 @@ pub mod strings {
     /// Button text for refresh data (not full page)
     pub const REFRESH: &str = "Refresh";
 
-    /// Message for version skew banner title
-    pub const VERSION_AVAILABLE: &str = "A new version is available";
+}
 
-    /// Message for offline banner title
-    pub const BACKEND_OFFLINE: &str = "Backend offline";
+/// URL helpers for UI navigation.
+pub mod urls {
+    /// Default documentation base URL.
+    /// Override at build time with `AOS_DOCS_URL`.
+    pub const DEFAULT_DOCS_URL: &str = "/docs";
 
-    /// Message for offline banner description
-    pub const CACHED_DATA_AVAILABLE: &str = "You can keep viewing cached data.";
+    /// Base docs URL used for help and documentation links.
+    pub fn docs_url() -> &'static str {
+        option_env!("AOS_DOCS_URL").unwrap_or(DEFAULT_DOCS_URL)
+    }
+
+    /// Build a docs URL for a specific path segment.
+    pub fn docs_link(path: &str) -> String {
+        let base = docs_url().trim_end_matches('/');
+        let path = path.trim_start_matches('/');
+        format!("{}/{}", base, path)
+    }
+}
+
+/// External links for the UI.
+pub mod links {
+    /// Official documentation URL.
+    /// TODO: source from runtime config when available.
+    pub const DOCS_URL: &str = "https://docs.adapteros.com";
 }

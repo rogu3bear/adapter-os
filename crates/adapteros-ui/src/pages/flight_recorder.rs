@@ -753,7 +753,7 @@ fn OverviewTab(
                     </div>
                 </div>
                 <p class="text-xs text-muted-foreground mt-3">
-                    "Stack, Model, and Policy identifiers are not yet captured in diagnostic runs."
+                    "Stack, model, and policy identifiers are not included in trace payloads."
                 </p>
             </Card>
 

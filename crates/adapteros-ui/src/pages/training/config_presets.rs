@@ -299,10 +299,13 @@ pub fn TrainingConfigPresets(
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
                                 </svg>
                                 <span class="text-sm">
-                                    "Estimated training time (rough): "
+                                    "Estimated training time (approximate): "
                                     <span class="font-medium">{formatted}</span>
                                 </span>
                             </div>
+                            <p class="text-xs text-muted-foreground mt-1">
+                                "Approximate estimate; actual time varies by hardware and load."
+                            </p>
                         </div>
                     }.into_any()
                 }
@@ -313,9 +316,12 @@ pub fn TrainingConfigPresets(
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
                             </svg>
                             <span class="text-sm text-muted-foreground">
-                                "Estimated training time: unavailable (select a dataset)"
+                                "Estimated training time (approximate): unavailable (select a dataset)"
                             </span>
                         </div>
+                        <p class="text-xs text-muted-foreground mt-1">
+                            "Approximate estimate; actual time varies by hardware and load."
+                        </p>
                     </div>
                 }.into_any(),
             }}

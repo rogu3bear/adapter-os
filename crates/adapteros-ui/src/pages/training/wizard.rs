@@ -444,7 +444,7 @@ pub fn CreateJobWizard(
                 />
 
                 // Dialog
-                <div class="dialog-content dialog-scrollable">
+                <div class="dialog-content dialog-scrollable min-w-0 overflow-x-hidden">
                     // Header with step indicator
                     <div class="flex items-center justify-between mb-2">
                         <div>
@@ -473,7 +473,7 @@ pub fn CreateJobWizard(
                     })}
 
                     // Step content
-                    <div class="min-h-[300px]">
+                    <div class="min-h-[300px] min-w-0 max-h-[70vh] overflow-y-auto">
                         {match step {
                             WizardStep::Dataset => view! {
                                 <DatasetStepContent

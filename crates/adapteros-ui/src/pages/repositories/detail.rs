@@ -3,7 +3,7 @@
 use super::helpers::format_date;
 use super::list::RepoStatusBadge;
 use crate::api::{ApiClient, RepositoryDetailResponse, ScanRepositoryRequest};
-use crate::components::{Button, ButtonSize, ButtonVariant, Card, Spinner};
+use crate::components::{Button, ButtonSize, ButtonVariant, Card, DetailRow, Spinner};
 use crate::hooks::{use_api_resource, LoadingState};
 use crate::signals::use_auth;
 use leptos::prelude::*;
@@ -252,13 +252,3 @@ fn RepositoryContent(
     }
 }
 
-/// Detail row component
-#[component]
-fn DetailRow(label: &'static str, #[prop(into)] value: String) -> impl IntoView {
-    view! {
-        <div class="flex justify-between">
-            <span class="text-muted-foreground">{label}</span>
-            <span class="font-medium truncate max-w-xs">{value}</span>
-        </div>
-    }
-}

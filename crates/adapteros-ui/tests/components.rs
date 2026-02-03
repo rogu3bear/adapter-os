@@ -15,7 +15,7 @@ wasm_bindgen_test_configure!(run_in_browser);
 
 mod breadcrumb_tests {
     use super::*;
-    use adapteros_ui::components::{humanize_segment, BreadcrumbItem};
+    use adapteros_ui::components::BreadcrumbItem;
 
     #[wasm_bindgen_test]
     fn test_breadcrumb_item_link() {
@@ -45,8 +45,10 @@ mod button_tests {
         // Verify variants are constructible
         let _primary = ButtonVariant::Primary;
         let _secondary = ButtonVariant::Secondary;
+        let _outline = ButtonVariant::Outline;
         let _ghost = ButtonVariant::Ghost;
-        let _danger = ButtonVariant::Danger;
+        let _destructive = ButtonVariant::Destructive;
+        let _link = ButtonVariant::Link;
     }
 
     #[wasm_bindgen_test]
@@ -68,10 +70,11 @@ mod badge_tests {
     #[wasm_bindgen_test]
     fn test_badge_variants() {
         let _default = BadgeVariant::Default;
+        let _secondary = BadgeVariant::Secondary;
         let _success = BadgeVariant::Success;
         let _warning = BadgeVariant::Warning;
-        let _error = BadgeVariant::Error;
-        let _info = BadgeVariant::Info;
+        let _destructive = BadgeVariant::Destructive;
+        let _outline = BadgeVariant::Outline;
     }
 }
 
@@ -85,11 +88,11 @@ mod status_tests {
 
     #[wasm_bindgen_test]
     fn test_status_colors() {
-        let _success = StatusColor::Success;
-        let _warning = StatusColor::Warning;
-        let _error = StatusColor::Error;
-        let _info = StatusColor::Info;
-        let _neutral = StatusColor::Neutral;
+        let _gray = StatusColor::Gray;
+        let _green = StatusColor::Green;
+        let _yellow = StatusColor::Yellow;
+        let _red = StatusColor::Red;
+        let _blue = StatusColor::Blue;
     }
 }
 
@@ -103,9 +106,10 @@ mod empty_state_tests {
 
     #[wasm_bindgen_test]
     fn test_empty_state_variants() {
-        let _search = EmptyStateVariant::Search;
-        let _data = EmptyStateVariant::Data;
-        let _error = EmptyStateVariant::Error;
+        let _empty = EmptyStateVariant::Empty;
+        let _no_results = EmptyStateVariant::NoResults;
+        let _no_permission = EmptyStateVariant::NoPermission;
+        let _unavailable = EmptyStateVariant::Unavailable;
     }
 }
 
@@ -136,9 +140,9 @@ mod workspace_tests {
 
     #[wasm_bindgen_test]
     fn test_two_column_ratios() {
-        let _equal = TwoColumnRatio::Equal;
-        let _wide_left = TwoColumnRatio::WideLeft;
-        let _wide_right = TwoColumnRatio::WideRight;
+        let _one_two = TwoColumnRatio::OneTwo;
+        let _two_one = TwoColumnRatio::TwoOne;
+        let _one_one = TwoColumnRatio::OneOne;
     }
 }
 
@@ -152,14 +156,14 @@ mod split_panel_tests {
 
     #[wasm_bindgen_test]
     fn test_split_modes() {
-        let _horizontal = SplitMode::Horizontal;
-        let _vertical = SplitMode::Vertical;
+        let _desktop = SplitMode::Desktop;
+        let _stacked = SplitMode::Stacked;
     }
 
     #[wasm_bindgen_test]
     fn test_split_ratios() {
-        let _equal = SplitRatio::Equal;
-        let _large_left = SplitRatio::LargeLeft;
-        let _large_right = SplitRatio::LargeRight;
+        let _half = SplitRatio::Half;
+        let _third_two_thirds = SplitRatio::ThirdTwoThirds;
+        let _two_fifths_three_fifths = SplitRatio::TwoFifthsThreeFifths;
     }
 }

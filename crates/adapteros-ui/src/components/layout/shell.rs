@@ -8,7 +8,6 @@ use crate::components::chat_dock::{ChatDockPanel, MobileChatOverlay, NarrowChatD
 use crate::components::offline_banner::OfflineBanner;
 use crate::components::status_center::StatusCenterProvider;
 use crate::components::telemetry_overlay::TelemetryOverlay;
-use crate::components::version_skew_banner::VersionSkewBanner;
 use crate::components::workspace::Workspace;
 use crate::signals::{use_chat, use_search, DockState};
 use leptos::prelude::*;
@@ -89,8 +88,6 @@ pub fn Shell(children: Children) -> impl IntoView {
 
                 // PRD-UI-000: Offline banner for API connectivity status
                 <OfflineBanner/>
-                // Version drift banner prompts reload when backend/frontend versions differ
-                <VersionSkewBanner/>
                 // Streaming health indicator (SSE) could go here if needed
 
                 // Top bar
