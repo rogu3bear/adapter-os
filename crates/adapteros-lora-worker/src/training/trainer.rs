@@ -133,7 +133,7 @@ pub struct MicroLoRATrainer {
     accumulated_gradients: HashMap<String, (Vec<f32>, Vec<f32>, usize)>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct BackendAvailability {
     coreml: bool,
     mlx: bool,

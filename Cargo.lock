@@ -1189,6 +1189,7 @@ dependencies = [
  "toml 0.8.23",
  "tonic 0.12.3",
  "tracing",
+ "tracing-appender",
  "tracing-subscriber",
  "unicode-normalization",
  "ureq",
