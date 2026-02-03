@@ -114,6 +114,12 @@ pub struct InferenceTraceDetailResponse {
     pub created_at: String,
     pub latency_ms: u64,
     pub adapters_used: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stack_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub policy_id: Option<String>,
     #[serde(default)]
     pub token_decisions: Vec<TokenDecision>,
     pub timing_breakdown: TimingBreakdown,

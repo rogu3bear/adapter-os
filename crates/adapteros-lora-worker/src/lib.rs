@@ -2987,6 +2987,9 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 tenant_id: request.cpid.clone(),
                 request_id: None,
                 context_digest,
+                stack_id: request.stack_id.clone(),
+                model_id: self.manifest.base.model_id.clone(),
+                policy_id: request.policy_id.clone(),
             };
 
             trace_db.create_sink(start, self.trace_flush_every).await
