@@ -54,6 +54,7 @@ pub async fn create_training_dataset_from_upload(
     let mut file_name: Option<String> = None;
     let mut mime_type: Option<String> = None;
     let mut file_bytes: Option<Bytes> = None;
+    let mut training_strategy: Option<String> = None;
 
     while let Some(field) = multipart
         .next_field()
@@ -88,6 +89,14 @@ pub async fn create_training_dataset_from_upload(
                         .map_err(|e| ApiError::bad_request(e.to_string()))?,
                 );
             }
+            "training_strategy" => {
+                training_strategy = Some(
+                    field
+                        .text()
+                        .await
+                        .map_err(|e| ApiError::bad_request(e.to_string()))?,
+                );
+            }
             other => {
                 debug!(
                     "Ignoring unknown field in training dataset upload: {}",
@@ -110,6 +119,7 @@ pub async fn create_training_dataset_from_upload(
                 data: file_bytes,
                 name: dataset_name,
                 description,
+                training_strategy,
             },
         )
         .await
