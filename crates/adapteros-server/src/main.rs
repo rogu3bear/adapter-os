@@ -143,17 +143,41 @@ async fn main() -> Result<()> {
         // Phase 4c: Model Server Readiness (if enabled)
         // =====================================================================
         boot_state.start_phase("model_server_readiness");
-        let effective_config = adapteros_config::effective_config()?;
-        let _model_server_ctx = check_model_server_readiness(effective_config)
-            .await
-            .map_err(|e| {
-                boot_state.finish_phase_err(
-                    "model_server_readiness",
-                    failure_codes::MODEL_SERVER_FAILED,
-                    Some(e.to_string()),
+        let mut effective_config = adapteros_config::try_effective_config();
+        if effective_config.is_none() {
+            if let Err(e) = adapteros_config::init_effective_config(Some(&cli.config), vec![]) {
+                if production_mode {
+                    boot_state.finish_phase_err(
+                        "model_server_readiness",
+                        failure_codes::MODEL_SERVER_FAILED,
+                        Some(e.to_string()),
+                    );
+                    return Err(anyhow::anyhow!(
+                        "Failed to initialize effective config before model readiness: {}",
+                        e
+                    ));
+                }
+                warn!(
+                    "Failed to initialize effective config before model readiness; skipping model server readiness in dev: {}",
+                    e
                 );
-                e
-            })?;
+            }
+            effective_config = adapteros_config::try_effective_config();
+        }
+        if let Some(effective_config) = effective_config {
+            let _model_server_ctx = check_model_server_readiness(effective_config)
+                .await
+                .map_err(|e| {
+                    boot_state.finish_phase_err(
+                        "model_server_readiness",
+                        failure_codes::MODEL_SERVER_FAILED,
+                        Some(e.to_string()),
+                    );
+                    e
+                })?;
+        } else if !production_mode {
+            warn!("Effective config unavailable; skipping model server readiness in dev");
+        }
         boot_state.finish_phase_ok("model_server_readiness");
 
         // =====================================================================
