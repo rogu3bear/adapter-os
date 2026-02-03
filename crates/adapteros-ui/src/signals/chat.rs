@@ -57,6 +57,8 @@ fn evict_old_messages(messages: &mut Vec<ChatMessage>, max: usize) {
 pub struct StreamingInferRequest {
     pub prompt: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
@@ -395,6 +397,8 @@ pub struct ChatState {
     pub last_read_message_id: Option<String>,
     /// Current page context (for context toggle)
     pub page_context: Option<PageContext>,
+    /// Current chat session ID (from route when available)
+    pub session_id: Option<String>,
     /// Active adapters for visualization
     pub active_adapters: Vec<AdapterStateInfo>,
     /// Suggested adapters from router preview (based on input text)
@@ -475,6 +479,7 @@ impl Default for ChatState {
             error: None,
             last_read_message_id: None,
             page_context: None,
+            session_id: None,
             active_adapters: Vec::new(),
             suggested_adapters: Vec::new(),
             pinned_adapters: Vec::new(),
@@ -521,6 +526,13 @@ impl ChatAction {
             None,
             StreamNotice::info("Waiting for server..."),
         );
+    }
+
+    /// Set or clear the current chat session ID used for streaming requests.
+    pub fn set_session_id(&self, session_id: Option<String>) {
+        self.state.update(|s| {
+            s.session_id = session_id;
+        });
     }
 
     /// Cancel the current streaming request
@@ -654,7 +666,7 @@ impl ChatAction {
 
         // Build context request from current state (PRD-002 Phase 2)
         // Also capture pinned adapters and reasoning mode for the request
-        let (context_request, pinned_adapters, reasoning_mode) = {
+        let (context_request, pinned_adapters, reasoning_mode, session_id) = {
             let current = self.state.get_untracked();
             let context = ContextRequest {
                 include_page_context: current.context.current_page,
@@ -676,7 +688,12 @@ impl ChatAction {
             } else {
                 Some(current.pinned_adapters.clone())
             };
-            (context, pinned, current.context.reasoning_mode)
+            (
+                context,
+                pinned,
+                current.context.reasoning_mode,
+                current.session_id.clone(),
+            )
         };
 
         wasm_bindgen_futures::spawn_local(async move {
@@ -689,6 +706,7 @@ impl ChatAction {
 
             let request = StreamingInferRequest {
                 prompt,
+                session_id,
                 max_tokens: Some(DEFAULT_MAX_TOKENS),
                 temperature: Some(DEFAULT_TEMPERATURE),
                 adapters: pinned_adapters,
@@ -2035,6 +2053,7 @@ mod tests {
                 error: None,
                 last_read_message_id: None,
                 page_context: None,
+                session_id: None,
                 active_adapters: Vec::new(),
                 suggested_adapters: Vec::new(),
                 pinned_adapters: Vec::new(),

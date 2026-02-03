@@ -739,7 +739,7 @@ fn ReasoningModeToggle() -> impl IntoView {
                 }
             )
             on:click=on_click
-            title="Enable reasoning mode (routes to CoreML backend)"
+            title="Enable reasoning mode (mid-stream swaps to specialist adapters; routes to CoreML backend)"
         >
             // Brain/lightbulb icon for reasoning
             <svg
