@@ -267,7 +267,7 @@ fn metal_backend_requires_manifest_hash() {
     );
 }
 
-#[cfg(feature = "multi-backend")]
+#[cfg(feature = "mlx")]
 #[test]
 #[allow(deprecated)]
 fn mlx_backend_requires_manifest_hash() {

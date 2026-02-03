@@ -71,6 +71,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=MLX_PATH");
     println!("cargo:rerun-if-env-changed=MLX_FORCE_STUB");
     println!("cargo:rerun-if-env-changed=PKG_CONFIG_PATH");
+    println!("cargo:rustc-check-cfg=cfg(mlx_stub)");
 
     // Check if C++ MLX feature is enabled
     let real_mlx_enabled =

@@ -717,6 +717,7 @@ impl BackendCoordinator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adapteros_config::model::get_model_path_optional;
 
     // NOTE: No setup_test_env() function needed anymore!
     // The manifest verification now uses deterministic test keys that are:
@@ -730,6 +731,20 @@ mod tests {
         if metal::Device::system_default().is_none() {
             eprintln!("skipping: metal backend not available");
             return;
+        }
+        match get_model_path_optional() {
+            Some(path) if path.join("config.json").exists() => {}
+            Some(path) => {
+                eprintln!(
+                    "skipping: model path configured but missing config.json at {}",
+                    path.display()
+                );
+                return;
+            }
+            None => {
+                eprintln!("skipping: AOS_MODEL_PATH not configured");
+                return;
+            }
         }
 
         // Manifest verification uses deterministic test keys - no setup needed
@@ -748,6 +763,20 @@ mod tests {
         if metal::Device::system_default().is_none() {
             eprintln!("skipping: metal backend not available");
             return;
+        }
+        match get_model_path_optional() {
+            Some(path) if path.join("config.json").exists() => {}
+            Some(path) => {
+                eprintln!(
+                    "skipping: model path configured but missing config.json at {}",
+                    path.display()
+                );
+                return;
+            }
+            None => {
+                eprintln!("skipping: AOS_MODEL_PATH not configured");
+                return;
+            }
         }
 
         // Manifest verification uses deterministic test keys - no setup needed

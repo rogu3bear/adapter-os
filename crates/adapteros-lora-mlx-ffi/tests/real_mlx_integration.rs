@@ -1,3 +1,4 @@
+#![cfg(all(feature = "mlx", not(mlx_stub)))]
 //! Real MLX Integration Tests
 //!
 //! Comprehensive integration tests for the MLX backend using actual MLX library operations.
