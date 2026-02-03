@@ -1316,12 +1316,28 @@ crate::impl_error_from!(ZipError => Io, prefix = "Zip operation failed", chain);
 ///
 /// # Example
 /// ```
-/// use std::io;
 /// use adapteros_core::error::error_chain_string;
 ///
-/// let inner = io::Error::new(io::ErrorKind::NotFound, "file.txt");
-/// let outer = io::Error::new(io::ErrorKind::Other, inner);
-/// let chain = error_chain_string(&outer);
+/// // Single error produces its message
+/// let err = std::io::Error::new(std::io::ErrorKind::NotFound, "file.txt");
+/// let chain = error_chain_string(&err);
+/// assert!(chain.contains("file.txt"));
+///
+/// // Chained errors are joined with " -> "
+/// #[derive(Debug)]
+/// struct Outer { source: std::io::Error }
+/// impl std::fmt::Display for Outer {
+///     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+///         write!(f, "outer error")
+///     }
+/// }
+/// impl std::error::Error for Outer {
+///     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+///         Some(&self.source)
+///     }
+/// }
+/// let chained = Outer { source: std::io::Error::new(std::io::ErrorKind::NotFound, "inner") };
+/// let chain = error_chain_string(&chained);
 /// assert!(chain.contains(" -> "));
 /// ```
 pub fn error_chain_string(err: &dyn std::error::Error) -> String {

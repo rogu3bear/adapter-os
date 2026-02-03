@@ -8,18 +8,21 @@
 //!
 //! # Example
 //!
-//! ```rust
+//! ```rust,no_run
 //! use adapteros_core::io_utils::{check_disk_space, validate_path_characters, ensure_temp_dir};
 //! use std::path::Path;
 //!
-//! // Check disk space with 10% margin before large write
-//! check_disk_space(Path::new("/tmp"), 1024 * 1024 * 100)?; // 100 MB
+//! fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     // Check disk space with 10% margin before large write
+//!     check_disk_space(Path::new("/tmp"), 1024 * 1024 * 100)?; // 100 MB
 //!
-//! // Validate path has no invalid characters
-//! validate_path_characters(Path::new("/valid/path/file.txt"))?;
+//!     // Validate path has no invalid characters
+//!     validate_path_characters(Path::new("/valid/path/file.txt"))?;
 //!
-//! // Ensure temp directory exists
-//! let temp_dir = ensure_temp_dir(Path::new("/tmp/my_app"))?;
+//!     // Ensure temp directory exists
+//!     let _temp_dir = ensure_temp_dir(Path::new("/tmp/my_app"))?;
+//!     Ok(())
+//! }
 //! ```
 
 use crate::{AosError, Result};
@@ -278,12 +281,15 @@ fn get_available_space_windows(path: &Path) -> Result<u64> {
 ///
 /// # Example
 ///
-/// ```rust
+/// ```rust,no_run
 /// use adapteros_core::io_utils::check_disk_space;
 /// use std::path::Path;
 ///
-/// // Check for 100 MB of space (will actually require 110 MB with margin)
-/// check_disk_space(Path::new("/tmp"), 100 * 1024 * 1024)?;
+/// fn main() -> Result<(), Box<dyn std::error::Error>> {
+///     // Check for 100 MB of space (will actually require 110 MB with margin)
+///     check_disk_space(Path::new("/tmp"), 100 * 1024 * 1024)?;
+///     Ok(())
+/// }
 /// ```
 pub fn check_disk_space(path: &Path, required_bytes: u64) -> Result<()> {
     let required_with_margin =
@@ -348,12 +354,12 @@ const INVALID_PATH_CHARS: &[char] = &['\0'];
 /// use adapteros_core::io_utils::validate_path_characters;
 /// use std::path::Path;
 ///
-/// // Valid path
-/// validate_path_characters(Path::new("/home/user/file.txt"))?;
+/// // Valid path succeeds
+/// assert!(validate_path_characters(Path::new("/home/user/file.txt")).is_ok());
 ///
-/// // Invalid path (on Windows)
-/// let result = validate_path_characters(Path::new("/home/user/file<>.txt"));
-/// assert!(result.is_err()); // Contains < and >
+/// // Path with null character is invalid on all platforms
+/// let invalid_path = Path::new("/home/user/file\0.txt");
+/// assert!(validate_path_characters(invalid_path).is_err());
 /// ```
 pub fn validate_path_characters(path: &Path) -> Result<()> {
     // First check if the path is valid UTF-8
@@ -397,12 +403,15 @@ pub fn validate_path_characters(path: &Path) -> Result<()> {
 ///
 /// # Example
 ///
-/// ```rust
+/// ```rust,no_run
 /// use adapteros_core::io_utils::ensure_temp_dir;
 /// use std::path::Path;
 ///
-/// let temp_dir = ensure_temp_dir(Path::new("/tmp/my_app/cache"))?;
-/// // temp_dir now exists and contains the canonical path
+/// fn main() -> Result<(), Box<dyn std::error::Error>> {
+///     let temp_dir = ensure_temp_dir(Path::new("/tmp/my_app/cache"))?;
+///     // temp_dir now exists and contains the canonical path
+///     Ok(())
+/// }
 /// ```
 pub fn ensure_temp_dir(path: &Path) -> Result<PathBuf> {
     if path.exists() {
