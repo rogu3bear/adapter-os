@@ -161,7 +161,7 @@ pub async fn streaming_inference_handler<
     );
 
     // Generate unique request ID
-    let request_id = format!("chatcmpl-{}", uuid::Uuid::new_v4());
+    let request_id = crate::id_generator::readable_openai_chatcmpl_dash_id();
     let model_name = request
         .model
         .clone()
@@ -298,7 +298,7 @@ async fn generate_streaming_response<
     tx: mpsc::Sender<StreamEvent>,
 ) -> Result<()> {
     // Create Worker InferenceRequest with proper fields
-    let cpid = uuid::Uuid::new_v4().to_string();
+    let cpid = crate::id_generator::readable_request_id();
     let inference_req = adapteros_lora_worker::InferenceRequest {
         cpid: cpid.clone(),
         prompt: request.prompt.clone(),
@@ -480,7 +480,7 @@ pub async fn completion_handler<K: FusedKernels + StrictnessControl + Send + Syn
     let mut worker = state.worker.lock().await;
 
     // Create Worker InferenceRequest
-    let cpid = uuid::Uuid::new_v4().to_string();
+    let cpid = crate::id_generator::readable_request_id();
     let inference_req = adapteros_lora_worker::InferenceRequest {
         cpid: cpid.clone(),
         prompt: request.prompt.clone(),
@@ -541,7 +541,7 @@ pub async fn completion_handler<K: FusedKernels + StrictnessControl + Send + Syn
     let completion_token_count = output_text.split_whitespace().count();
 
     let response = CompletionResponse {
-        id: format!("chatcmpl-{}", uuid::Uuid::new_v4()),
+        id: crate::id_generator::readable_openai_chatcmpl_dash_id(),
         object: "chat.completion".to_string(),
         created: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

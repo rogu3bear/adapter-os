@@ -43,7 +43,6 @@ use tokio::io::AsyncWriteExt;
 use tokio::time::{sleep, Duration};
 use tracing::{info, warn};
 #[cfg(feature = "embeddings")]
-use uuid::Uuid;
 
 /// Maximum number of chunks allowed when composing JSONL datasets
 const MAX_CHUNKS: usize = 50_000;
@@ -124,6 +123,8 @@ pub trait TrainingDatasetService: Send + Sync {
 pub struct DefaultTrainingDatasetService {
     state: Arc<AppState>,
 }
+
+const MAX_CHUNKS: usize = 100;
 
 impl DefaultTrainingDatasetService {
     pub fn new(state: Arc<AppState>) -> Self {
@@ -590,7 +591,10 @@ impl DefaultTrainingDatasetService {
         let mut failed_embeddings = 0usize;
 
         for chunk in &ingested_doc.chunks {
-            let chunk_db_id = Uuid::now_v7().to_string();
+            let chunk_db_id = crate::id_generator::readable_id(
+                adapteros_core::ids::IdKind::Chunk,
+                "chunk",
+            );
             let embedding = embed_chunk_with_backoff(embedding_model, &chunk.text).await;
             let chunk_hash = B3Hash::hash(chunk.text.as_bytes()).to_hex();
             let text_preview = if chunk.text.len() > 200 {
@@ -885,7 +889,10 @@ impl TrainingDatasetService for DefaultTrainingDatasetService {
             .into());
         }
 
-        let document_id = Uuid::now_v7().to_string();
+        let document_id = crate::id_generator::readable_id(
+            adapteros_core::ids::IdKind::Document,
+            "document",
+        );
         let storage_root = match std::env::var("AOS_DOCUMENTS_DIR") {
             Ok(value) => value,
             Err(_) => {

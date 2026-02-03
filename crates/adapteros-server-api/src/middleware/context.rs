@@ -117,7 +117,7 @@ pub async fn context_middleware(req: Request<Body>, next: Next) -> Response {
         .extensions
         .get::<RequestId>()
         .map(|r| r.0.clone())
-        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        .unwrap_or_else(crate::id_generator::readable_request_id);
     let client_ip = parts
         .extensions
         .get::<ClientIp>()

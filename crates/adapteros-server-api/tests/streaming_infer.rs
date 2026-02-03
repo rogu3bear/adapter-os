@@ -13,6 +13,8 @@
 use adapteros_api_types::workers::WorkerCapabilities;
 use adapteros_core::identity::IdentityEnvelope;
 use adapteros_core::{derive_seed, B3Hash};
+use adapteros_db::chat_sessions::CreateChatSessionParams;
+use adapteros_db::traits::CreateStackRequest;
 use adapteros_server_api::handlers::streaming_infer::{streaming_infer, StreamingInferRequest};
 use axum::body::to_bytes;
 use axum::response::IntoResponse;
@@ -290,6 +292,7 @@ async fn streaming_infer_emits_structured_error_on_unavailable_resource() {
     let req = StreamingInferRequest {
         prompt: "hello".to_string(),
         model: None,
+        backend: None,
         coreml_mode: None,
         routing_determinism_mode: None,
         stack_id: None,
@@ -365,6 +368,166 @@ async fn streaming_infer_emits_structured_error_on_unavailable_resource() {
             .starts_with("chatcmpl-"),
         "expected correlation_id"
     );
+}
+
+/// Session-backed routing should resolve effective adapters from session metadata when
+/// the request omits explicit adapters.
+#[tokio::test]
+async fn streaming_infer_resolves_effective_adapters_from_session_stack() {
+    let state = setup_state(None).await.expect("state");
+    {
+        let mut config = state.config.write().expect("config write");
+        config.use_session_stack_for_routing = true;
+    }
+
+    let caps = WorkerCapabilities {
+        backend_kind: "mlx".to_string(),
+        implementation: None,
+        supports_step: true,
+        supports_bulk: false,
+        supports_logits: true,
+        supports_streaming: true,
+        gpu_backward: true,
+        multi_backend: true,
+    };
+    let worker_id = register_test_worker(&state, "tenant-1", caps)
+        .await
+        .expect("register worker");
+    let manifest_hash = format!("manifest-{}", worker_id);
+    let state = state.with_manifest_info(manifest_hash, "mlx".to_string());
+
+    let adapter_id = format!("adapter-session-stack-{}", uuid::Uuid::new_v4());
+    create_test_adapter_default(&state, &adapter_id, "tenant-1")
+        .await
+        .expect("create adapter");
+
+    let claims = test_admin_claims();
+    let identity = IdentityEnvelope::new(
+        claims.tenant_id.clone(),
+        "api".to_string(),
+        "inference".to_string(),
+        "test".to_string(),
+    );
+
+    let stack_req = CreateStackRequest {
+        tenant_id: claims.tenant_id.clone(),
+        name: format!("stack.session.{}", uuid::Uuid::new_v4().simple()),
+        description: None,
+        adapter_ids: vec![adapter_id.clone()],
+        workflow_type: Some("Parallel".to_string()),
+        determinism_mode: None,
+        routing_determinism_mode: None,
+    };
+    let stack_id = state.db.insert_stack(&stack_req).await.expect("create stack");
+
+    let session_id = format!("session-{}", uuid::Uuid::new_v4());
+    state
+        .db
+        .create_chat_session(CreateChatSessionParams {
+            id: session_id.clone(),
+            tenant_id: claims.tenant_id.clone(),
+            user_id: Some(claims.sub.clone()),
+            created_by: Some(claims.sub.clone()),
+            stack_id: Some(stack_id),
+            collection_id: None,
+            document_id: None,
+            name: "Session Stack".to_string(),
+            title: None,
+            source_type: Some("general".to_string()),
+            source_ref_id: None,
+            metadata_json: None,
+            tags_json: None,
+            pinned_adapter_ids: None,
+            codebase_adapter_id: None,
+        })
+        .await
+        .expect("create session");
+
+    let req = StreamingInferRequest {
+        prompt: "hello".to_string(),
+        model: None,
+        backend: None,
+        coreml_mode: None,
+        routing_determinism_mode: None,
+        stack_id: None,
+        domain: None,
+        max_tokens: 16,
+        temperature: 0.7,
+        top_p: None,
+        top_k: None,
+        stop: Vec::new(),
+        adapter_stack: None,
+        adapters: None,
+        seed: None,
+        adapter_strength_overrides: None,
+        require_evidence: false,
+        reasoning_mode: false,
+        collection_id: None,
+        session_id: Some(session_id),
+        effective_adapter_ids: None,
+        stop_policy: None,
+        context: None,
+    };
+
+    let sse = streaming_infer(
+        State(state),
+        Extension(claims),
+        Extension(identity),
+        axum::http::HeaderMap::new(),
+        None,
+        Json(req),
+    )
+    .await
+    .expect("sse response");
+    let response = sse.into_response();
+    let body = to_bytes(response.into_body(), 1024 * 1024)
+        .await
+        .expect("read body");
+    let body_str = String::from_utf8(body.to_vec()).expect("utf8 body");
+
+    assert!(
+        body_str.contains("data:") || body_str.contains("event:"),
+        "expected SSE response, got: {}",
+        body_str
+    );
+
+    let mut error_message: Option<String> = None;
+    for block in body_str.split("\n\n") {
+        let mut event_type = None;
+        let mut data = None;
+        for line in block.lines() {
+            if let Some(value) = line.strip_prefix("event:") {
+                event_type = Some(value.trim());
+            } else if let Some(value) = line.strip_prefix("data:") {
+                data = Some(value.trim());
+            }
+        }
+
+        if event_type == Some("error") {
+            if let Some(data) = data {
+                if let Ok(payload) = serde_json::from_str::<Value>(data) {
+                    if let Some(message) = payload.get("message").and_then(Value::as_str) {
+                        error_message = Some(message.to_string());
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(message) = error_message {
+        let lowered = message.to_lowercase();
+        assert!(
+            !lowered.contains("session not found"),
+            "unexpected session lookup failure: {}",
+            message
+        );
+        assert!(
+            !lowered.contains("must specify adapters"),
+            "unexpected adapter requirement: {}",
+            message
+        );
+    }
 }
 
 /// Run streaming generation with proper client disconnect handling

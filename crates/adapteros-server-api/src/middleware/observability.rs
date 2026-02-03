@@ -16,7 +16,6 @@ use axum::{
 use std::sync::Arc;
 use std::time::Instant;
 use tracing::{error, info};
-use uuid::Uuid;
 
 /// Wraps each HTTP request with request/response logging and enforces a
 /// consistent JSON error envelope on 4xx/5xx responses.
@@ -208,7 +207,7 @@ fn extract_request_id(req: &Request<Body>) -> String {
                 .and_then(|v| v.to_str().ok())
                 .map(|s| s.to_string())
         })
-        .unwrap_or_else(|| Uuid::new_v4().to_string())
+        .unwrap_or_else(crate::id_generator::readable_request_id)
 }
 
 fn ensure_request_id_header(response: &mut Response, request_id: &str) {
