@@ -17,8 +17,9 @@ test.describe('visual baselines', () => {
   });
 
   test('training detail', async ({ page }) => {
-    await page.goto(`/training/${seeded.trainingJobId}`, { waitUntil: 'domcontentloaded' });
+    await page.goto('/training', { waitUntil: 'domcontentloaded' });
     await waitForAppReady(page);
+    await page.getByText(seeded.adapterName, { exact: true }).click();
     await expect(
       page.getByRole('heading', { name: seeded.trainingJobId, level: 2, exact: true })
     ).toBeVisible();
