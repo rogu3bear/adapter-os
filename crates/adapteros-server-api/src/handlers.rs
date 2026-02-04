@@ -118,6 +118,7 @@ pub mod topology;
 pub mod training;
 pub mod training_datasets;
 pub mod tutorials;
+pub mod ui_config;
 pub mod utils;
 pub mod validation;
 pub mod worker_detail;

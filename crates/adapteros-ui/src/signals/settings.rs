@@ -4,6 +4,7 @@
 
 use leptos::prelude::*;
 use serde::{Deserialize, Serialize};
+use adapteros_api_types::UiProfile;
 
 #[cfg(target_arch = "wasm32")]
 const SETTINGS_KEY: &str = "adapteros_settings";
@@ -114,6 +115,9 @@ pub struct UserSettings {
     /// Show telemetry overlay in corner (off by default for clean UI)
     #[serde(default)]
     pub show_telemetry_overlay: bool,
+    /// Optional UI profile override (primary/full)
+    #[serde(default)]
+    pub ui_profile: Option<UiProfile>,
 }
 
 impl Default for UserSettings {
@@ -125,6 +129,7 @@ impl Default for UserSettings {
             default_page: DefaultPage::Dashboard,
             api_endpoint: None,
             show_telemetry_overlay: false,
+            ui_profile: None,
         }
     }
 }

@@ -9,6 +9,7 @@ pub mod notifications;
 pub mod refetch;
 pub mod search;
 pub mod settings;
+pub mod ui_profile;
 
 pub use auth::{provide_auth_context, use_auth, AuthAction, AuthContext, AuthError, AuthState};
 pub use chat::{
@@ -35,3 +36,4 @@ pub use settings::{
     provide_settings_context, update_setting, use_settings, DefaultPage, SettingsContext, Theme,
     UserSettings,
 };
+pub use ui_profile::{provide_ui_profile_context, use_ui_profile, use_ui_profile_state, UiProfileState};

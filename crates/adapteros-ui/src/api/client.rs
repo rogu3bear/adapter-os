@@ -1918,6 +1918,11 @@ impl ApiClient {
         self.get(&format!("/v1/traces/{}", trace_id)).await
     }
 
+    /// Get public UI configuration
+    pub async fn get_ui_config(&self) -> ApiResult<adapteros_api_types::UiConfigResponse> {
+        self.get("/v1/ui/config").await
+    }
+
     /// List inference traces for a request or session
     pub async fn list_inference_traces(
         &self,
