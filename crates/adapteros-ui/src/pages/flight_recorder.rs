@@ -8,7 +8,7 @@
 //! - Tokens (token accounting and cache stats)
 //! - Diff (compare with another run)
 
-use crate::api::{ApiClient, InferenceTraceDetailResponse};
+use crate::api::{ApiClient, UiInferenceTraceDetailResponse};
 use crate::components::{
     ActionCard, ActionCardVariant, AsyncBoundary, Badge, BadgeVariant, Button, ButtonVariant, Card,
     CopyableId, DiffResults, Link, Select, Spinner, Table, TableBody, TableCell, TableHead,
@@ -471,7 +471,7 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
 fn TabContent(
     export: DiagExportResponse,
     active_tab: RwSignal<RunDetailTab>,
-    trace_detail: ReadSignal<crate::hooks::LoadingState<InferenceTraceDetailResponse>>,
+    trace_detail: ReadSignal<crate::hooks::LoadingState<UiInferenceTraceDetailResponse>>,
     compare_trace: Option<String>,
     receipt_digest: WriteSignal<Option<String>>,
 ) -> impl IntoView {
@@ -676,7 +676,7 @@ fn copy_to_clipboard(
 #[component]
 fn OverviewTab(
     export: DiagExportResponse,
-    trace_detail: ReadSignal<LoadingState<InferenceTraceDetailResponse>>,
+    trace_detail: ReadSignal<LoadingState<UiInferenceTraceDetailResponse>>,
 ) -> impl IntoView {
     let timing = export.timing_summary.clone().unwrap_or_default();
     let status = export.run.status.clone();
@@ -1015,7 +1015,7 @@ fn StageRow(stage: StageTiming, pct: f64) -> impl IntoView {
 /// Trace tab - uses TraceViewerWithData to display pre-loaded trace data
 #[component]
 fn TraceTab(
-    trace_detail: ReadSignal<LoadingState<InferenceTraceDetailResponse>>,
+    trace_detail: ReadSignal<LoadingState<UiInferenceTraceDetailResponse>>,
 ) -> impl IntoView {
     view! {
         <div class="space-y-4">
@@ -1149,7 +1149,7 @@ fn HashRow(label: &'static str, hash: String, verified: Option<bool>) -> impl In
 #[component]
 fn RoutingTab(
     export: DiagExportResponse,
-    trace_detail: ReadSignal<LoadingState<InferenceTraceDetailResponse>>,
+    trace_detail: ReadSignal<LoadingState<UiInferenceTraceDetailResponse>>,
 ) -> impl IntoView {
     // Expandable state for TokenDecisions
     let expanded = RwSignal::new(true);
@@ -1175,7 +1175,7 @@ fn RoutingTab(
                 loading_message="Loading token decisions...".to_string()
                 render={
                     let routing_events = routing_events.clone();
-                    move |detail: InferenceTraceDetailResponse| {
+                    move |detail: UiInferenceTraceDetailResponse| {
                         if detail.token_decisions.is_empty() {
                             // Fall back to showing routing events
                             if routing_events.is_empty() {
@@ -1263,7 +1263,7 @@ fn RoutingEventRow(event: DiagEventResponse) -> impl IntoView {
 #[component]
 fn TokensTab(
     export: DiagExportResponse,
-    trace_detail: ReadSignal<LoadingState<InferenceTraceDetailResponse>>,
+    trace_detail: ReadSignal<LoadingState<UiInferenceTraceDetailResponse>>,
 ) -> impl IntoView {
     // Extract token-related info from events as fallback
     let events = export.events.clone().unwrap_or_default();
@@ -1283,7 +1283,7 @@ fn TokensTab(
             <AsyncBoundary
                 state=trace_detail
                 loading_message="Loading token summary...".to_string()
-                render=move |detail: InferenceTraceDetailResponse| {
+                render=move |detail: UiInferenceTraceDetailResponse| {
                     if let Some(receipt) = &detail.receipt {
                         let prompt_tokens = receipt.logical_prompt_tokens;
                         let output_tokens = receipt.logical_output_tokens;
