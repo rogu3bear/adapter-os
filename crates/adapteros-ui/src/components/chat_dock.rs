@@ -739,7 +739,7 @@ fn ReasoningModeToggle() -> impl IntoView {
                 }
             )
             on:click=on_click
-            title="Enable reasoning mode (mid-stream swaps to specialist adapters; routes to CoreML backend)"
+            title="Enable reasoning mode: semantic router swaps adapters mid-stream based on thought boundaries (not a dedicated prefill step)"
         >
             // Brain/lightbulb icon for reasoning
             <svg
