@@ -15,6 +15,7 @@ use crate::components::{
     Input, Spinner, StatusColor, StatusIndicator, Table, TableBody, TableCell, TableHead,
     TableHeader, TableRow, Textarea, Toggle, WarningBanner,
 };
+use crate::constants::pagination::TOKEN_DECISIONS_PAGE_SIZE;
 use crate::hooks::{use_api_resource, LoadingState};
 use chrono::DateTime;
 use leptos::prelude::*;
@@ -84,7 +85,14 @@ pub fn StyleAudit() -> impl IntoView {
                 if trace_id.is_empty() {
                     Ok(None)
                 } else {
-                    client.get_inference_trace_detail(&trace_id).await.map(Some)
+                    client
+                        .get_inference_trace_detail(
+                            &trace_id,
+                            Some(TOKEN_DECISIONS_PAGE_SIZE),
+                            None,
+                        )
+                        .await
+                        .map(Some)
                 }
             }
         }

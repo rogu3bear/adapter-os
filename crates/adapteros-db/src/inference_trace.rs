@@ -1355,6 +1355,9 @@ pub struct InferenceTraceReceiptRecord {
     pub receipt_digest: Vec<u8>,
     pub run_head_hash: Vec<u8>,
     pub output_digest: Vec<u8>,
+    pub input_digest_b3: Option<Vec<u8>>,
+    pub seed_lineage_hash: Option<Vec<u8>>,
+    pub backend_attestation_b3: Option<Vec<u8>>,
     pub logical_prompt_tokens: u32,
     pub logical_output_tokens: u32,
     pub stop_reason_code: Option<String>,
@@ -1377,6 +1380,8 @@ pub struct InferenceTraceDetailRecord {
     pub model_id: Option<String>,
     pub policy_id: Option<String>,
     pub tokens: Vec<InferenceTraceTokenRecord>,
+    pub token_decisions_next_cursor: Option<u32>,
+    pub token_decisions_has_more: bool,
     pub receipt: Option<InferenceTraceReceiptRecord>,
 }
 
@@ -1421,6 +1426,8 @@ pub async fn get_inference_trace_detail_for_tenant(
     db: &Db,
     tenant_id: &str,
     trace_id: &str,
+    tokens_after: Option<u32>,
+    tokens_limit: Option<u32>,
 ) -> Result<Option<InferenceTraceDetailRecord>> {
     let Some(pool) = db.pool_opt() else {
         return Err(AosError::Database(
@@ -1453,18 +1460,35 @@ pub async fn get_inference_trace_detail_for_tenant(
     let model_id: Option<String> = header.get("model_id");
     let policy_id: Option<String> = header.get("policy_id");
 
-    let token_rows = sqlx::query(
-        r#"
-        SELECT token_index, selected_adapter_ids, gates_q15, decision_hash, backend_id, kernel_version_id
-        FROM inference_trace_tokens
-        WHERE trace_id = ?
-        ORDER BY token_index ASC
-        "#,
-    )
-    .bind(&trace_id)
-    .fetch_all(pool)
-    .await
-    .map_err(|e| AosError::Database(format!("Failed to fetch inference trace tokens: {e}")))?;
+    let mut token_query = QueryBuilder::new(
+        "SELECT token_index, selected_adapter_ids, gates_q15, decision_hash, backend_id, kernel_version_id \
+         FROM inference_trace_tokens WHERE trace_id = ",
+    );
+    token_query.push_bind(&trace_id);
+    if let Some(after) = tokens_after {
+        token_query.push(" AND token_index > ");
+        token_query.push_bind(after as i64);
+    }
+    token_query.push(" ORDER BY token_index ASC");
+    let limit = tokens_limit.map(|limit| limit.min(1000) as i64);
+    if let Some(limit) = limit {
+        token_query.push(" LIMIT ");
+        token_query.push_bind(limit + 1);
+    }
+
+    let mut token_rows = token_query
+        .build()
+        .fetch_all(pool)
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to fetch inference trace tokens: {e}")))?;
+
+    let mut token_decisions_has_more = false;
+    if let Some(limit) = limit {
+        if token_rows.len() as i64 > limit {
+            token_rows.truncate(limit as usize);
+            token_decisions_has_more = true;
+        }
+    }
 
     let mut tokens = Vec::with_capacity(token_rows.len());
     for row in token_rows {
@@ -1502,6 +1526,8 @@ pub async fn get_inference_trace_detail_for_tenant(
         SELECT run_head_hash,
                output_digest,
                receipt_digest,
+               input_digest_b3,
+               attestation,
                logical_prompt_tokens,
                logical_output_tokens,
                stop_reason_code,
@@ -1539,6 +1565,13 @@ pub async fn get_inference_trace_detail_for_tenant(
             receipt_digest: row.get("receipt_digest"),
             run_head_hash: row.get("run_head_hash"),
             output_digest: row.get("output_digest"),
+            input_digest_b3: row.try_get("input_digest_b3").ok().flatten(),
+            seed_lineage_hash: None,
+            backend_attestation_b3: row
+                .try_get::<Option<Vec<u8>>, _>("attestation")
+                .ok()
+                .flatten()
+                .map(|attestation| B3Hash::hash(&attestation).as_bytes().to_vec()),
             logical_prompt_tokens: logical_prompt_tokens.max(0) as u32,
             logical_output_tokens: logical_output_tokens.max(0) as u32,
             stop_reason_code: row.get("stop_reason_code"),
@@ -1553,6 +1586,12 @@ pub async fn get_inference_trace_detail_for_tenant(
         }
     });
 
+    let token_decisions_next_cursor = if token_decisions_has_more {
+        tokens.last().map(|token| token.token_index)
+    } else {
+        None
+    };
+
     Ok(Some(InferenceTraceDetailRecord {
         trace_id,
         request_id,
@@ -1561,6 +1600,8 @@ pub async fn get_inference_trace_detail_for_tenant(
         model_id,
         policy_id,
         tokens,
+        token_decisions_next_cursor,
+        token_decisions_has_more,
         receipt,
     }))
 }

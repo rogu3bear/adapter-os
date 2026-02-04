@@ -52,3 +52,11 @@ pub mod links {
     /// TODO: source from runtime config when available.
     pub const DOCS_URL: &str = "https://docs.adapteros.com";
 }
+
+/// Pagination defaults for UI data loads.
+pub mod pagination {
+    /// Token decisions page size for trace detail views.
+    pub const TOKEN_DECISIONS_PAGE_SIZE: u32 = 100;
+    /// Max token decision rows to keep mounted in the DOM.
+    pub const TOKEN_DECISIONS_DOM_CAP: usize = 400;
+}

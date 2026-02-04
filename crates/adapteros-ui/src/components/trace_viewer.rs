@@ -5,13 +5,16 @@
 
 use leptos::prelude::*;
 
-use crate::api::client::{
-    ApiClient, InferenceTraceDetailResponse, InferenceTraceResponse, TimingBreakdown,
-    TokenDecision, TraceReceiptSummary,
+use crate::api::{
+    ApiClient, InferenceTraceDetailResponse, InferenceTraceResponse, TimingBreakdown, TokenDecision,
+    TraceReceiptSummary,
 };
 use crate::components::async_state::ErrorDisplay;
 use crate::components::Spinner;
+use crate::constants::pagination::{TOKEN_DECISIONS_DOM_CAP, TOKEN_DECISIONS_PAGE_SIZE};
 use crate::hooks::LoadingState;
+use crate::signals::try_use_notifications;
+use leptos::task::spawn_local;
 
 /// State for the trace viewer
 #[derive(Clone, Debug)]
@@ -57,7 +60,10 @@ pub fn TraceViewer(
             if let Some(tid) = selected {
                 // Load detailed trace
                 set_state.set(TraceViewState::Loading);
-                match api.get_inference_trace_detail(&tid).await {
+                match api
+                    .get_inference_trace_detail(&tid, Some(TOKEN_DECISIONS_PAGE_SIZE), None)
+                    .await
+                {
                     Ok(detail) => set_state.set(TraceViewState::Detail(Box::new(detail))),
                     Err(e) => set_state.set(TraceViewState::Error(e.to_string())),
                 }
@@ -82,7 +88,7 @@ pub fn TraceViewer(
     };
 
     view! {
-        <div class=container_class>
+        <div class=container_class data-testid="receipt-verification">
             {move || match state.get() {
                 TraceViewState::Empty => view! {
                     <div class="text-muted-foreground text-center py-8">
@@ -264,11 +270,14 @@ fn TraceDetail(
             // Adapters used
             <AdaptersList adapters=trace.adapters_used.clone() compact=compact/>
 
-            // Token decisions (expandable)
+            // Token decisions (expandable, paged)
             {if !trace.token_decisions.is_empty() {
                 Some(view! {
-                    <TokenDecisions
-                        decisions=trace.token_decisions.clone()
+                    <TokenDecisionsPaged
+                        trace_id=trace.trace_id.clone()
+                        initial_decisions=trace.token_decisions.clone()
+                        initial_next_cursor=trace.token_decisions_next_cursor
+                        initial_has_more=trace.token_decisions_has_more
                         expanded=expanded_tokens
                         set_expanded=set_expanded_tokens
                         compact=compact
@@ -417,23 +426,24 @@ fn AdaptersList(adapters: Vec<String>, #[prop(optional)] compact: bool) -> impl 
 /// Token-level routing decisions
 #[component]
 pub fn TokenDecisions(
-    decisions: Vec<TokenDecision>,
+    decisions: ReadSignal<Vec<TokenDecision>>,
     expanded: ReadSignal<bool>,
     set_expanded: WriteSignal<bool>,
     #[prop(optional)] compact: bool,
+    has_more: ReadSignal<bool>,
+    loading_more: ReadSignal<bool>,
+    on_load_more: Callback<()>,
 ) -> impl IntoView {
     let label_class = if compact { "text-xs" } else { "text-sm" };
-    let max_display = if compact { 5 } else { 10 };
-    let decision_count = decisions.len();
 
     view! {
-        <div class="border border-border rounded-lg p-3">
+        <div class="border border-border rounded-lg p-3" data-testid="token-decisions">
             <button
                 class="w-full flex items-center justify-between"
                 on:click=move |_| set_expanded.update(|e| *e = !*e)
             >
                 <h4 class={format!("{} font-medium", label_class)}>
-                    "Token Routing Decisions ("{decision_count}")"
+                    "Token Routing Decisions ("{move || decisions.get().len()}")"
                 </h4>
                 <svg
                     class={move || format!("w-4 h-4 transition-transform {}", if expanded.get() { "rotate-180" } else { "" })}
@@ -446,24 +456,53 @@ pub fn TokenDecisions(
             </button>
 
             {move || if expanded.get() {
-                let display_decisions: Vec<_> = decisions.iter().take(max_display).cloned().collect();
-                let remaining = decisions.len().saturating_sub(max_display);
-
+                let decisions = decisions.get();
+                let total = decisions.len();
+                let cap = TOKEN_DECISIONS_DOM_CAP;
+                let truncated = total > cap;
+                let visible = if truncated {
+                    decisions.into_iter().skip(total.saturating_sub(cap)).collect::<Vec<_>>()
+                } else {
+                    decisions
+                };
                 Some(view! {
-                    <div class="mt-3 space-y-2">
-                        {display_decisions.into_iter().map(|d| {
+                    <div class="mt-3 space-y-2" data-testid="token-decisions-list">
+                        {truncated.then(|| view! {
+                            <p class="text-xs text-muted-foreground">
+                                {format!("Showing last {} of {} token decisions.", cap, total)}
+                            </p>
+                        })}
+                        {visible.into_iter().map(|d| {
                             view! {
                                 <TokenDecisionRow decision=d compact=compact/>
                             }
                         }).collect::<Vec<_>>()}
-                        {if remaining > 0 {
-                            Some(view! {
-                                <div class="text-xs text-muted-foreground text-center py-2">
-                                    "... and "{remaining}" more tokens"
-                                </div>
-                            })
-                        } else {
-                            None
+                        {move || {
+                            if has_more.get() {
+                                let loading = loading_more.get();
+                                let on_load_more = on_load_more.clone();
+                                Some(view! {
+                                    <div class="flex justify-center pt-2">
+                                        <button
+                                            class=move || {
+                                                format!(
+                                                    "text-xs px-3 py-1 rounded border border-border hover:bg-muted transition-colors {}",
+                                                    if loading { "opacity-60 cursor-not-allowed" } else { "" }
+                                                )
+                                            }
+                                            disabled=move || loading
+                                            data-testid="token-decisions-show-more"
+                                            on:click=move |_| {
+                                                on_load_more.run(());
+                                            }
+                                        >
+                                            {move || if loading { "Loading..." } else { "Show more" }}
+                                        </button>
+                                    </div>
+                                })
+                            } else {
+                                None
+                            }
                         }}
                     </div>
                 })
@@ -471,6 +510,79 @@ pub fn TokenDecisions(
                 None
             }}
         </div>
+    }
+}
+
+/// Token decisions with cursor-based paging.
+#[component]
+pub fn TokenDecisionsPaged(
+    trace_id: String,
+    initial_decisions: Vec<TokenDecision>,
+    initial_next_cursor: Option<u32>,
+    initial_has_more: bool,
+    expanded: ReadSignal<bool>,
+    set_expanded: WriteSignal<bool>,
+    #[prop(optional)] compact: bool,
+) -> impl IntoView {
+    let decisions = RwSignal::new(initial_decisions);
+    let next_cursor = RwSignal::new(initial_next_cursor);
+    let has_more = RwSignal::new(initial_has_more);
+    let loading_more = RwSignal::new(false);
+    let notifications = try_use_notifications();
+
+    let on_load_more = Callback::new(move |_| {
+        if loading_more.get() || !has_more.get() {
+            return;
+        }
+        let Some(after) = next_cursor.get() else {
+            return;
+        };
+        loading_more.set(true);
+        let trace_id = trace_id.clone();
+        let notifications = notifications.clone();
+
+        spawn_local(async move {
+            let client = ApiClient::new();
+            match client
+            .get_inference_trace_detail(
+                &trace_id,
+                Some(TOKEN_DECISIONS_PAGE_SIZE),
+                Some(after),
+            )
+                .await
+            {
+                Ok(detail) => {
+                    decisions.update(|items| items.extend(detail.token_decisions));
+                    next_cursor.set(detail.token_decisions_next_cursor);
+                    has_more.set(detail.token_decisions_has_more);
+                }
+                Err(err) => {
+                    if let Some(notifications) = notifications {
+                        notifications.error(
+                            "Token decisions fetch failed",
+                            &err.to_string(),
+                        );
+                    } else {
+                        web_sys::console::warn_1(
+                            &format!("Token decisions fetch failed: {}", err).into(),
+                        );
+                    }
+                }
+            }
+            loading_more.set(false);
+        });
+    });
+
+    view! {
+        <TokenDecisions
+            decisions=decisions.read_only()
+            expanded=expanded
+            set_expanded=set_expanded
+            compact=compact
+            has_more=has_more.read_only()
+            loading_more=loading_more.read_only()
+            on_load_more=on_load_more
+        />
     }
 }
 
@@ -507,7 +619,7 @@ fn TokenDecisionRow(decision: TokenDecision, #[prop(optional)] compact: bool) ->
     let entropy_display = format!("{:.2}", decision.entropy);
 
     view! {
-        <div class=row_class>
+        <div class=row_class data-testid="token-decision-row">
             <span class="font-mono text-muted-foreground w-8">{"#"}{decision.token_index}</span>
             <div class="flex-1 flex items-center gap-2">
                 <span class="text-xs">"Adapters:"</span>
@@ -550,6 +662,11 @@ fn ReceiptVerification(
     } else {
         "Unverified"
     };
+    let verified_help = if receipt.verified {
+        "Verified: receipt digest matches recorded inputs and outputs."
+    } else {
+        "Unverified: receipt digest has not been validated for this run."
+    };
     let receipt_short = format!(
         "{}...",
         receipt.receipt_digest.chars().take(16).collect::<String>()
@@ -558,6 +675,7 @@ fn ReceiptVerification(
         "{}...",
         receipt.output_digest.chars().take(16).collect::<String>()
     );
+    let cache_hit = receipt.prefix_cache_hit;
 
     view! {
         <div class=container_class>
@@ -574,11 +692,12 @@ fn ReceiptVerification(
                     </span>
                 </div>
             </div>
+            <p class="text-xs text-muted-foreground mb-2">{verified_help}</p>
             <div class="grid grid-cols-2 gap-2 text-xs">
                 <div>
                     <span class="text-muted-foreground">"Prompt tokens: "</span>
                     <span class="font-mono">{receipt.logical_prompt_tokens}</span>
-                    {if receipt.prefix_cache_hit {
+                    {if cache_hit {
                         Some(view! { <span class="ml-1 text-[10px] text-status-success">"(Cache Hit)"</span> })
                     } else {
                         None
@@ -589,7 +708,7 @@ fn ReceiptVerification(
                     <span class="font-mono">{receipt.logical_output_tokens}</span>
                 </div>
 
-                {receipt.processor_id.as_ref().map(|id| {
+                {receipt.processor_id.as_ref().map(|id: &String| {
                     let id = id.clone();
                     view! {
                         <div class="col-span-2 flex justify-between border-t border-border/50 pt-1 mt-1">
@@ -632,13 +751,17 @@ pub fn TraceButton(
     trace_id: String,
     latency_ms: u64,
     #[prop(optional)] on_click: Option<Callback<String>>,
+    #[prop(optional, into)] data_testid: Option<String>,
 ) -> impl IntoView {
     let tid = trace_id.clone();
     let trace_id_short = trace_id.chars().take(8).collect::<String>();
 
+    let data_testid = data_testid.filter(|value| !value.is_empty());
+
     view! {
         <button
             class="inline-flex items-center gap-1.5 px-2 py-1 bg-muted/50 hover:bg-muted rounded text-xs transition-colors"
+            data-testid=move || data_testid.clone()
             on:click=move |_| {
                 if let Some(ref cb) = on_click {
                     cb.run(tid.clone());
@@ -715,7 +838,10 @@ fn TraceViewerInner(trace_id: String, #[prop(optional)] compact: bool) -> impl I
         let trace_id = tid.clone();
 
         wasm_bindgen_futures::spawn_local(async move {
-            match api.get_inference_trace_detail(&trace_id).await {
+            match api
+                .get_inference_trace_detail(&trace_id, Some(TOKEN_DECISIONS_PAGE_SIZE), None)
+                .await
+            {
                 Ok(detail) => set_state.set(TraceViewState::Detail(Box::new(detail))),
                 Err(e) => set_state.set(TraceViewState::Error(e.to_string())),
             }
@@ -805,11 +931,14 @@ pub fn TraceDetailStandalone(
             // Adapters used
             <AdaptersList adapters=trace.adapters_used.clone() compact=compact/>
 
-            // Token decisions (expandable)
+            // Token decisions (expandable, paged)
             {if !trace.token_decisions.is_empty() {
                 Some(view! {
-                    <TokenDecisions
-                        decisions=trace.token_decisions.clone()
+                    <TokenDecisionsPaged
+                        trace_id=trace.trace_id.clone()
+                        initial_decisions=trace.token_decisions.clone()
+                        initial_next_cursor=trace.token_decisions_next_cursor
+                        initial_has_more=trace.token_decisions_has_more
                         expanded=expanded_tokens
                         set_expanded=set_expanded_tokens
                         compact=compact

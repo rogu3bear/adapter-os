@@ -110,7 +110,8 @@ pub use table::{
 pub use tabs::{TabButton, TabNav, TabPanel};
 pub use toggle::{Select, Toggle};
 pub use trace_viewer::{
-    TokenDecisions, TraceButton, TraceDetailStandalone, TracePanel, TraceViewer,
+    TokenDecisions, TokenDecisionsPaged, TraceButton, TraceDetailStandalone, TracePanel,
+    TraceViewer,
     TraceViewerWithData,
 };
 pub use workspace::{
