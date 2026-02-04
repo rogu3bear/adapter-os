@@ -192,7 +192,14 @@ Decides which adapters to use for each question. The router:
 - Uses Q15 quantized gates for efficiency
 - Enforces entropy floor to prevent single-adapter collapse
 
-**See also:** [K-sparse](#k-sparse), [Router Policy](POLICIES.md#3-router)
+**See also:** [K-sparse](#k-sparse), [Router Policy](POLICIES.md#3-router), [Reasoning Router](#reasoning-router)
+
+### Reasoning Router
+A semantic routing system that monitors streaming inference output and decides when to swap adapters mid-flight based on thought boundaries. Uses TinyBERT embeddings (optionally ANE-accelerated via CoreML) to analyze thought segments. Not a dedicated prefill step or chain-of-thought engine; it enables dynamic adapter switching during generation based on detected reasoning patterns (e.g., `<thinking>` tokens, newlines).
+
+**Key distinction:** The K-sparse router selects adapters *before* inference; the reasoning router can swap adapters *during* streaming output.
+
+**See also:** [Router](#router), [REASONING_ROUTER.md](REASONING_ROUTER.md)
 
 ---
 

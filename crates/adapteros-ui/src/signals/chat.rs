@@ -106,7 +106,7 @@ pub struct StreamingInferRequest {
     /// Context toggles for additional prompt context (PRD-002 Phase 2)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context: Option<ContextRequest>,
-    /// Enable reasoning mode (routes to CoreML backend for ANE acceleration)
+    /// Enable reasoning mode: semantic router for mid-stream adapter swaps (prefers CoreML for ANE-accelerated embedder)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning_mode: Option<bool>,
     /// Explicit backend preference (auto|coreml|mlx|metal|cpu)
@@ -137,6 +137,24 @@ enum InferenceEvent {
     },
     /// Error occurred
     Error { message: String },
+    /// Inference paused for human review
+    Paused {
+        /// Unique pause ID for resume correlation
+        pause_id: String,
+        /// Inference request ID
+        inference_id: String,
+        /// Why the pause was triggered
+        trigger_kind: String,
+        /// Context for the reviewer
+        #[serde(default)]
+        context: Option<String>,
+        /// Generated text so far
+        #[serde(default)]
+        text_so_far: Option<String>,
+        /// Token count at pause point
+        #[serde(default)]
+        token_count: usize,
+    },
     /// Adapter state update for visualization
     AdapterStateUpdate { adapters: Vec<AdapterStateInfo> },
     /// Catch-all for other events (Loading, Ready, etc.)
@@ -171,6 +189,23 @@ struct Delta {
     pub content: Option<String>,
 }
 
+/// Pause information from a Paused event.
+#[derive(Debug, Clone, Default)]
+pub struct PauseInfo {
+    /// Unique pause ID for resume correlation.
+    pub pause_id: String,
+    /// Inference request ID.
+    pub inference_id: String,
+    /// Why the pause was triggered.
+    pub trigger_kind: String,
+    /// Context for the reviewer.
+    pub context: Option<String>,
+    /// Generated text so far.
+    pub text_so_far: Option<String>,
+    /// Token count at pause point.
+    pub token_count: usize,
+}
+
 /// Parsed SSE event result
 #[derive(Debug, Clone, Default)]
 struct ParsedSseEvent {
@@ -182,6 +217,7 @@ struct ParsedSseEvent {
     completion_tokens: Option<u32>,
     adapter_states: Option<Vec<AdapterStateInfo>>,
     backend_used: Option<String>,
+    pause_info: Option<PauseInfo>,
 }
 
 /// Trace info returned from stream_inference
@@ -208,6 +244,8 @@ pub enum StreamNoticeTone {
     Info,
     Warning,
     Error,
+    /// Inference is paused awaiting human review
+    Paused,
 }
 
 impl StreamNotice {
@@ -232,6 +270,15 @@ impl StreamNotice {
             message: message.into(),
             tone: StreamNoticeTone::Error,
             retryable,
+        }
+    }
+
+    /// Inference paused for human review
+    fn paused(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            tone: StreamNoticeTone::Paused,
+            retryable: false,
         }
     }
 }
@@ -361,7 +408,7 @@ pub struct ContextToggles {
     pub recent_logs: bool,
     /// Include system snapshot (health + worker counts)
     pub system_snapshot: bool,
-    /// Enable reasoning mode (routes to CoreML backend for ANE acceleration)
+    /// Enable reasoning mode: semantic router for mid-stream adapter swaps (not a dedicated prefill step)
     #[serde(default)]
     pub reasoning_mode: bool,
 }
@@ -1429,6 +1476,23 @@ fn parse_sse_payload_with_info(data: &str) -> ParsedSseEvent {
                     message
                 )));
             }
+            InferenceEvent::Paused {
+                pause_id,
+                inference_id,
+                trigger_kind,
+                context,
+                text_so_far,
+                token_count,
+            } => {
+                result.pause_info = Some(PauseInfo {
+                    pause_id,
+                    inference_id,
+                    trigger_kind,
+                    context,
+                    text_so_far,
+                    token_count,
+                });
+            }
             InferenceEvent::AdapterStateUpdate { adapters } => {
                 result.adapter_states = Some(adapters);
             }
@@ -1818,6 +1882,39 @@ async fn stream_inference_to_state(
                     // Signal disposed, bail out early
                     return Ok(trace_info);
                 }
+            }
+
+            // Handle pause events (human-in-the-loop review)
+            if let Some(pause_info) = parsed.pause_info {
+                // Build a descriptive pause message for the UI
+                let pause_message = match pause_info.trigger_kind.as_str() {
+                    "policy_violation" => "Paused: Policy review required",
+                    "uncertainty" => "Paused: Human review requested",
+                    "safety_gate" => "Paused: Safety review required",
+                    _ => "Paused: Awaiting review",
+                };
+                // Update state to show pause indicator
+                if !try_update_state(state, |s| {
+                    s.loading = false;
+                    s.streaming = false;
+                    s.stream_notice = Some(StreamNotice::paused(pause_message));
+                    // If we have text so far, update the assistant message
+                    if let Some(text) = &pause_info.text_so_far {
+                        if let Some(last) = s.messages.last_mut() {
+                            if last.role == "assistant" && last.content.is_empty() {
+                                last.content = text.clone();
+                            }
+                        }
+                    }
+                }) {
+                    return Ok(trace_info);
+                }
+                slow_timer.cancel();
+                // Log pause event for debugging
+                web_sys::console::log_1(&JsValue::from_str(&format!(
+                    "[Pause] id={}, inference={}, trigger={}",
+                    pause_info.pause_id, pause_info.inference_id, pause_info.trigger_kind
+                )));
             }
         }
     }
