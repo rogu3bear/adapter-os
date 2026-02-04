@@ -43,10 +43,10 @@ axum = { version = "0.8", features = ["macros", "multipart"] }
 dotenvy = "0.15"
 base64 = "0.22"
 bcrypt = "0.15"
-bytes = "1.6"
+bytes = "1.11"
 chrono = "0.4"
 ed25519-dalek = { version = "2.1", features = ["rand_core"] }
-git2 = "0.18"
+git2 = "0.20"
 hex = { workspace = true }
 http-body = "1.0"
 http-body-util = "0.1"

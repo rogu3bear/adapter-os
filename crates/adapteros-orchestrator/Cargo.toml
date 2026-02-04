@@ -40,7 +40,7 @@ adapteros-client = { path = "../adapteros-client" }
 adapteros-storage = { path = "../adapteros-storage" }
 blake3 = { workspace = true }
 tokenizers = { workspace = true }
-git2 = "0.18"
+git2 = "0.20"
 # Database
 sqlx = { workspace = true }
 # Async
