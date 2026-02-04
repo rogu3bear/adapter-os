@@ -14,7 +14,7 @@ Six investigation dimensions, each with a specialized agent:
 
 | Category | Agent | Focus |
 |----------|-------|-------|
-| Taste | `taste-auditor` | Unprofessional content, inappropriate language |
+| Language | `language-auditor` | Unprofessional content, inappropriate language |
 | Performance | `performance-hunter` | Hot path inefficiencies, O(n²) algorithms |
 | Error Handling | `error-handling-auditor` | Swallowed errors, missing context |
 | Testing | `testing-gap-finder` | Untested security code, missing coverage |
@@ -28,7 +28,7 @@ Six investigation dimensions, each with a specialized agent:
 Launch multiple agents simultaneously using the Task tool with `run_in_background: true`:
 
 ```
-Task(subagent_type="taste-auditor", prompt="Audit crates/src/ for unprofessional content", run_in_background=true)
+Task(subagent_type="language-auditor", prompt="Audit crates/src/ for unprofessional content", run_in_background=true)
 Task(subagent_type="performance-hunter", prompt="Find hot path issues in crates/core/", run_in_background=true)
 Task(subagent_type="error-handling-auditor", prompt="Find swallowed errors in crates/server/", run_in_background=true)
 ```
@@ -53,7 +53,7 @@ Use TodoWrite to track agent completion:
 
 ```
 todos = [
-  {content: "Taste audit - core", status: "in_progress"},
+  {content: "Language audit - core", status: "in_progress"},
   {content: "Performance - hot paths", status: "pending"},
   ...
 ]
@@ -83,7 +83,7 @@ Combine findings into executive summary:
 ```markdown
 # Codebase Health Report
 
-## The "Ew" Category (Taste)
+## The "Ew" Category (Language)
 - X findings, Y low-severity terminology items
 
 ## Opportunities Found
