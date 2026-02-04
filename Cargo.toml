@@ -247,7 +247,7 @@ reqwest = { version = "0.12", features = ["json"] }
 clap = { version = "4.4", features = ["derive", "env"] }
 comfy-table = "7.1"
 fs2 = "0.4"
-git2 = "0.18"
+git2 = "0.20"
 
 
 # ML & Search

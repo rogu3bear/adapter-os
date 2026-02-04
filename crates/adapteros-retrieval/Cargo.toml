@@ -22,7 +22,7 @@ tree-sitter-typescript = "0.23.2"
 tree-sitter-javascript = "0.25.0"
 tree-sitter-go = "0.25.0"
 bincode = { workspace = true }
-git2 = "0.18"
+git2 = "0.20"
 toml = "0.8"
 walkdir = { workspace = true }
 streaming-iterator = "0.1"

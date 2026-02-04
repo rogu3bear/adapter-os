@@ -117,7 +117,7 @@ zip = "1.1"
 flate2 = "1.0"
 tar = "0.4"
 dirs = "5.0"
-git2 = "0.18"
+git2 = "0.20"
 tempfile = { workspace = true }
 sqlx = { workspace = true, default-features = false, features = ["runtime-tokio", "sqlite"] }
 chrono = "0.4"
