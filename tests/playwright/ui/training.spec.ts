@@ -18,5 +18,7 @@ test('training detail shows job details and metrics', async ({ page }) => {
     page.getByRole('heading', { name: seeded.trainingJobId, level: 2, exact: true })
   ).toBeVisible();
   await expect(page.getByText('Job Details')).toBeVisible();
-  await expect(page.getByText(/Final Metrics|Training Metrics/)).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: /Final Metrics|Training Metrics/ })
+  ).toBeVisible();
 });

@@ -26,14 +26,15 @@ test('runs list and detail', async ({ page }) => {
     page.getByRole('heading', { name: 'Provenance', level: 3, exact: true })
   ).toBeVisible();
 
-  await page.getByRole('button', { name: 'Trace' }).click();
+  const tabNav = page.getByRole('navigation').filter({ hasText: 'Overview' });
+  await tabNav.getByRole('button', { name: 'Trace', exact: true }).click();
   await expect(
     page.getByText(
       'Full inference trace with timeline visualization, latency breakdown, and token-level routing decisions.'
     )
   ).toBeVisible();
 
-  await page.getByRole('button', { name: 'Routing' }).click();
+  await tabNav.getByRole('button', { name: 'Routing', exact: true }).click();
   await expect(
     page.getByText(
       'K-sparse routing decisions showing which adapters were selected and their gate values.'
@@ -42,13 +43,13 @@ test('runs list and detail', async ({ page }) => {
   await page
     .getByRole('button', { name: /Token Routing Decisions/ })
     .click();
-  await expect(page.getByText('Adapters:')).toBeVisible();
+  await expect(page.getByText('Adapters:').first()).toBeVisible();
   const showMore = page.getByRole('button', { name: 'Show more' });
   if (await showMore.isVisible().catch(() => false)) {
     await showMore.click();
   }
 
-  await page.getByRole('button', { name: 'Receipt' }).click();
+  await tabNav.getByRole('button', { name: 'Receipt', exact: true }).click();
   await expect(page.getByText('Receipts & Hashes')).toBeVisible();
 });
 
@@ -82,7 +83,7 @@ test('token decisions paging shows more', async ({ page }) => {
   await page
     .getByRole('button', { name: /Token Routing Decisions/ })
     .click();
-  await expect(page.getByText('Adapters:')).toBeVisible();
+  await expect(page.getByText('Adapters:').first()).toBeVisible();
   const showMore = page.getByRole('button', { name: 'Show more' });
   if (await showMore.isVisible().catch(() => false)) {
     await showMore.click();
