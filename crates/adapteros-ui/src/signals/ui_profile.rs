@@ -28,21 +28,18 @@ pub fn provide_ui_profile_context() {
     let state = RwSignal::new(UiProfileState::new());
     provide_context(state);
 
-    wasm_bindgen_futures::spawn_local({
-        let state = state;
-        async move {
-            let client = ApiClient::new();
-            match client.get_ui_config().await {
-                Ok(resp) => {
-                    state.update(|s| {
-                        s.runtime_profile = Some(resp.ui_profile);
-                        s.loaded = true;
-                    });
-                }
-                Err(err) => {
-                    boot_log("ui_profile", &format!("ui config fetch failed: {}", err));
-                    state.update(|s| s.loaded = true);
-                }
+    wasm_bindgen_futures::spawn_local(async move {
+        let client = ApiClient::new();
+        match client.get_ui_config().await {
+            Ok(resp) => {
+                state.update(|s| {
+                    s.runtime_profile = Some(resp.ui_profile);
+                    s.loaded = true;
+                });
+            }
+            Err(err) => {
+                boot_log("ui_profile", &format!("ui config fetch failed: {}", err));
+                state.update(|s| s.loaded = true);
             }
         }
     });

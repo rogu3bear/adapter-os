@@ -117,10 +117,10 @@ impl AuthError {
             ApiError::Forbidden(msg) if msg.contains("revoked") => Self::TokenRevoked,
             ApiError::Forbidden(_) => Self::TenantMismatch,
             ApiError::Network(_) => Self::ServerUnavailable,
-            ApiError::Structured { failure_code, .. } => match failure_code {
-                Some(FailureCode::TenantAccessDenied) => Self::TenantMismatch,
-                _ => Self::Other(err.to_string()),
-            },
+            ApiError::Structured {
+                failure_code: Some(FailureCode::TenantAccessDenied),
+                ..
+            } => Self::TenantMismatch,
             _ => Self::Other(err.to_string()),
         }
     }

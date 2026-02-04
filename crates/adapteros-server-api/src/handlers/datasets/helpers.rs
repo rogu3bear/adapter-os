@@ -369,6 +369,7 @@ impl SignalAccumulator {
         }
     }
 
+    #[allow(dead_code)] // Reserved for future use in safety reporting
     pub fn status(&self) -> String {
         if self.block > 0 {
             "block".to_string()

@@ -1125,18 +1125,14 @@ pub fn ChatSession() -> impl IntoView {
                                             <a href=action.href class="btn btn-outline btn-sm">
                                                 {action.label}
                                             </a>
-                                            {if let Some(ctx) = status_center {
-                                                Some(view! {
+                                            {status_center.map(|ctx| view! {
                                                     <button
                                                         class="text-xs text-muted-foreground hover:text-foreground"
                                                         on:click=move |_| ctx.open()
                                                     >
                                                         "Why?"
                                                     </button>
-                                                })
-                                            } else {
-                                                None
-                                            }}
+                                                })}
                                         </div>
                                     </div>
                                 </div>
