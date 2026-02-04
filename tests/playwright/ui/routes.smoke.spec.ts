@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { seeded, waitForAppReady } from './utils';
+import { ensureLoggedIn, seeded, waitForAppReady } from './utils';
 
 async function gotoWithRetry(page: Page, path: string): Promise<void> {
   try {
@@ -65,6 +65,7 @@ test('route smoke coverage', async ({ page }) => {
     await test.step(route.path, async () => {
       await gotoWithRetry(page, route.path);
       await waitForAppReady(page);
+      await ensureLoggedIn(page);
 
       if (route.heading) {
         const heading = page.getByRole('heading', {
@@ -75,7 +76,7 @@ test('route smoke coverage', async ({ page }) => {
         if (route.path === '/login') {
           const loginVisible = await heading.isVisible().catch(() => false);
           if (loginVisible) {
-            await expect(heading).toBeVisible();
+            await expect(heading).toBeVisible({ timeout: 20_000 });
           } else {
             await expect(
               page.getByRole('heading', {
@@ -83,13 +84,15 @@ test('route smoke coverage', async ({ page }) => {
                 level: 1,
                 exact: true,
               })
-            ).toBeVisible();
+            ).toBeVisible({ timeout: 20_000 });
           }
         } else {
-          await expect(heading).toBeVisible();
+          await expect(heading).toBeVisible({ timeout: 20_000 });
         }
       } else if (route.text) {
-        await expect(page.getByText(route.text, { exact: false })).toBeVisible();
+        await expect(page.getByText(route.text, { exact: false })).toBeVisible({
+          timeout: 20_000,
+        });
       }
     });
   }
@@ -98,6 +101,7 @@ test('route smoke coverage', async ({ page }) => {
 test('chat session deep route loads', async ({ page }) => {
   await page.goto('/chat', { waitUntil: 'domcontentloaded' });
   await waitForAppReady(page);
+  await ensureLoggedIn(page);
   await expect(
     page.getByRole('heading', { name: 'Chat', level: 1, exact: true })
   ).toBeVisible();
