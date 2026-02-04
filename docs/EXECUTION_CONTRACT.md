@@ -487,3 +487,20 @@ The following items are acknowledged gaps, not yet implemented:
 - `crates/adapteros-server-api/src/handlers/health.rs` - Ready endpoints
 - `crates/adapteros-policy/src/egress.rs` - Air-gapped security
 - `crates/adapteros-aos/src/sealed.rs` - Adapter sealing
+
+---
+
+## Appendix B: V7 Rectification (2026-02-04)
+
+**Scope:** Receipt schema V7 hardens determinism and verifiability by binding runtime identity, decoding parameters, cache proof, and retrieval/tool provenance into the digest.
+
+**Contract additions (V7):**
+- Tokenizer identity bound via `tokenizer_hash_b3`, `tokenizer_version`, `tokenizer_normalization`
+- Model/adapters provenance bound via `model_build_hash_b3`, `adapter_build_hash_b3`
+- Decoder determinism bound via `decode_algo`, `temperature_q15`, `top_p_q15`, `top_k`, `seed_digest_b3`, `sampling_backend`
+- Concurrency determinism bound via `thread_count`, `reduction_strategy`
+- Stop controller bound via `stop_eos_q15`, `stop_window_digest_b3`
+- Cache proof bound via `cache_scope`, `cached_prefix_digest_b3`, `cached_prefix_len`, `cache_key_b3`
+- Retrieval/tool binding via `retrieval_merkle_root_b3`, `retrieval_order_digest_b3`, `tool_call_inputs_digest_b3`, `tool_call_outputs_digest_b3`
+- Disclosure level bound via `disclosure_level="full"`
+- Receipt signing metadata recorded via `receipt_signing_kid`, `receipt_signed_at`

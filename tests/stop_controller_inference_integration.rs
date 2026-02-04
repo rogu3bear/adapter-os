@@ -41,6 +41,9 @@ async fn init_test_db() -> Result<Arc<Db>> {
             tenant_id TEXT NOT NULL,
             request_id TEXT,
             context_digest BLOB NOT NULL,
+            stack_id TEXT,
+            model_id TEXT,
+            policy_id TEXT,
             status TEXT NOT NULL DEFAULT 'running',
             created_at TEXT
         );
@@ -89,6 +92,11 @@ async fn init_test_db() -> Result<Arc<Db>> {
             stop_reason_code TEXT,
             stop_reason_token_index INTEGER,
             stop_policy_digest_b3 BLOB,
+            tenant_kv_quota_bytes INTEGER NOT NULL DEFAULT 0,
+            tenant_kv_bytes_used INTEGER NOT NULL DEFAULT 0,
+            kv_evictions INTEGER NOT NULL DEFAULT 0,
+            kv_residency_policy_id TEXT,
+            kv_quota_enforced INTEGER NOT NULL DEFAULT 0,
             model_cache_identity_v2_digest_b3 BLOB,
             prefix_kv_key_b3 TEXT,
             prefix_cache_hit INTEGER NOT NULL DEFAULT 0,
@@ -229,6 +237,9 @@ async fn test_stop_controller_budget_max_persisted_to_receipt() -> Result<()> {
         tenant_id: "tenant-test".to_string(),
         request_id: Some("req-budget".to_string()),
         context_digest,
+        stack_id: None,
+        model_id: None,
+        policy_id: None,
     };
 
     let mut sink = SqlTraceSink::new(db.clone(), start, 8).await?;
@@ -334,6 +345,9 @@ async fn test_stop_controller_completion_confident_persisted() -> Result<()> {
         tenant_id: "tenant-test".to_string(),
         request_id: Some("req-confident".to_string()),
         context_digest,
+        stack_id: None,
+        model_id: None,
+        policy_id: None,
     };
 
     let mut sink = SqlTraceSink::new(db.clone(), start, 8).await?;
@@ -429,6 +443,9 @@ async fn test_stop_controller_repetition_guard_persisted() -> Result<()> {
         tenant_id: "tenant-test".to_string(),
         request_id: Some("req-repetition".to_string()),
         context_digest,
+        stack_id: None,
+        model_id: None,
+        policy_id: None,
     };
 
     let mut sink = SqlTraceSink::new(db.clone(), start, 8).await?;
@@ -521,6 +538,9 @@ async fn test_stop_controller_length_eos_persisted() -> Result<()> {
         tenant_id: "tenant-test".to_string(),
         request_id: Some("req-eos".to_string()),
         context_digest,
+        stack_id: None,
+        model_id: None,
+        policy_id: None,
     };
 
     let mut sink = SqlTraceSink::new(db.clone(), start, 8).await?;
@@ -621,6 +641,9 @@ async fn test_determinism_same_policy_same_receipt_digest() -> Result<()> {
         tenant_id: "tenant-test".to_string(),
         request_id: Some("req-1".to_string()),
         context_digest,
+        stack_id: None,
+        model_id: None,
+        policy_id: None,
     };
     let mut sink1 = SqlTraceSink::new(db1.clone(), start1, 8).await?;
     for (idx, _) in tokens1.iter().enumerate() {
@@ -672,6 +695,9 @@ async fn test_determinism_same_policy_same_receipt_digest() -> Result<()> {
         tenant_id: "tenant-test".to_string(),
         request_id: Some("req-2".to_string()),
         context_digest,
+        stack_id: None,
+        model_id: None,
+        policy_id: None,
     };
     let mut sink2 = SqlTraceSink::new(db2.clone(), start2, 8).await?;
     for (idx, _) in tokens2.iter().enumerate() {
@@ -863,6 +889,9 @@ async fn test_stop_policy_digest_committed_to_merkle_bundle() -> Result<()> {
         tenant_id: "tenant-test".to_string(),
         request_id: Some("req-merkle".to_string()),
         context_digest,
+        stack_id: None,
+        model_id: None,
+        policy_id: None,
     };
 
     let mut sink = SqlTraceSink::new(db.clone(), start, 8).await?;
@@ -951,6 +980,9 @@ async fn test_stop_policy_digest_committed_to_merkle_bundle() -> Result<()> {
         tenant_id: "tenant-test".to_string(),
         request_id: Some("req-merkle-2".to_string()),
         context_digest,
+        stack_id: None,
+        model_id: None,
+        policy_id: None,
     };
 
     let mut sink2 = SqlTraceSink::new(db.clone(), start2, 8).await?;

@@ -254,7 +254,7 @@ impl NotificationService {
         &self,
         notification: &crate::alerting::NotificationRequest,
     ) -> Result<String> {
-        let id = uuid::Uuid::new_v4().to_string();
+        let id = adapteros_core::ids::generate_id(adapteros_core::ids::IdKind::Event, "metric");
 
         let notification_type_str = notification.notification_type.to_string();
         sqlx::query(

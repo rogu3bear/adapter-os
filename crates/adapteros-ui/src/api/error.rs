@@ -57,6 +57,7 @@ pub enum ApiError {
         error: String,
         code: String,
         failure_code: Option<FailureCode>,
+        hint: Option<String>,
         details: Option<serde_json::Value>,
     },
 }
@@ -72,6 +73,7 @@ impl ApiError {
                 failure_code: err
                     .failure_code
                     .or_else(|| FailureCode::parse_code(&err.code)),
+                hint: err.hint,
                 details: err.details,
             };
         }
@@ -92,15 +94,31 @@ impl ApiError {
 
     /// Check if this error indicates the user should re-authenticate
     pub fn requires_auth(&self) -> bool {
-        matches!(self, Self::Unauthorized)
+        match self {
+            Self::Unauthorized => true,
+            Self::Structured { code, .. } => matches!(
+                code.as_str(),
+                "UNAUTHORIZED"
+                    | "TOKEN_EXPIRED"
+                    | "TOKEN_REVOKED"
+                    | "INVALID_TOKEN"
+                    | "MISSING_AUTH"
+                    | "AUTHENTICATION_ERROR"
+            ),
+            _ => false,
+        }
     }
 
     /// Check if this error is retryable
     pub fn is_retryable(&self) -> bool {
-        matches!(
-            self,
-            Self::Network(_) | Self::RateLimited { .. } | Self::Server(_)
-        )
+        match self {
+            Self::Network(_) | Self::RateLimited { .. } | Self::Server(_) => true,
+            Self::Structured {
+                failure_code: Some(code),
+                ..
+            } => code.is_retryable(),
+            _ => false,
+        }
     }
 
     /// Check if this error indicates the request was aborted
@@ -130,6 +148,14 @@ impl ApiError {
         }
     }
 
+    /// Get any server-provided hint for the error.
+    pub fn hint(&self) -> Option<&str> {
+        match self {
+            Self::Structured { hint, .. } => hint.as_deref(),
+            _ => None,
+        }
+    }
+
     /// Check if this error has a specific failure code
     pub fn has_failure_code(&self, code: FailureCode) -> bool {
         self.failure_code() == Some(code)
@@ -143,14 +169,142 @@ impl ApiError {
     /// Get user-friendly message for display.
     ///
     /// Returns a context-appropriate message for specific error codes,
-    /// falling back to the standard error message for others.
+    /// falling back to the standard error message for others. This method is the
+    /// single source of truth for user-facing API error copy.
     pub fn user_message(&self) -> String {
         if self.is_adapter_in_flight() {
             "This adapter is currently in use for inference. Please wait for active requests to complete before making changes.".to_string()
         } else {
-            self.to_string()
+            match self {
+                Self::Unauthorized => "Session expired. Log in again.".to_string(),
+                Self::Forbidden(_) => {
+                    "You don't have access to this action. Contact an admin if you need access."
+                        .to_string()
+                }
+                Self::NotFound(_) => "Not found. Check the URL or try again.".to_string(),
+                Self::Validation(_) => {
+                    "Some fields are invalid. Fix the highlighted fields and retry.".to_string()
+                }
+                Self::Network(_) => {
+                    "Can't reach the server. Check your connection and retry.".to_string()
+                }
+                Self::RateLimited { retry_after } => retry_after
+                    .map(|ms| {
+                        let secs = (ms / 1000).max(1);
+                        format!("Too many requests. Retry in {}s.", secs)
+                    })
+                    .unwrap_or_else(|| "Too many requests. Retry in a moment.".to_string()),
+                Self::Server(_) => "Server error. Retry in a moment.".to_string(),
+                Self::Http { status, .. } => match status {
+                    401 => "Session expired. Log in again.".to_string(),
+                    403 => {
+                        "You don't have access to this action. Contact an admin if you need access."
+                            .to_string()
+                    }
+                    404 => "Not found. Check the URL or try again.".to_string(),
+                    502 => "Upstream service unavailable. Retry in a moment.".to_string(),
+                    503 => "Service temporarily unavailable. Retry in a moment.".to_string(),
+                    504 => "Request timed out. Retry in a moment.".to_string(),
+                    _ => self.to_string(),
+                },
+                Self::Structured {
+                    error,
+                    code,
+                    failure_code,
+                    hint,
+                    ..
+                } => {
+                    let base = user_message_for_code(code, *failure_code, error);
+                    apply_hint(base, hint.as_deref())
+                }
+                _ => self.to_string(),
+            }
         }
     }
+}
+
+fn apply_hint(mut message: String, hint: Option<&str>) -> String {
+    let Some(hint) = hint.map(str::trim).filter(|h| !h.is_empty()) else {
+        return message;
+    };
+    if !message.ends_with('.') {
+        message.push('.');
+    }
+    message.push_str(" Next: ");
+    message.push_str(hint);
+    message
+}
+
+fn user_message_for_code(code: &str, failure_code: Option<FailureCode>, error: &str) -> String {
+    let message = match code {
+        "UNAUTHORIZED" | "TOKEN_EXPIRED" | "TOKEN_REVOKED" | "INVALID_TOKEN" | "MISSING_AUTH" => {
+            "Session expired. Log in again.".to_string()
+        }
+        "FORBIDDEN" | "PERMISSION_DENIED" | "AUTHORIZATION_ERROR" | "POLICY_VIOLATION" => {
+            "You don't have access to this action. Contact an admin if you need access.".to_string()
+        }
+        "NOT_FOUND" | "ENDPOINT_NOT_FOUND" | "MODEL_NOT_FOUND" | "ADAPTER_NOT_FOUND" => {
+            "Not found. Check the URL or try again.".to_string()
+        }
+        "WORKER_NOT_RESPONDING" | "NO_COMPATIBLE_WORKER" | "WORKER_DEGRADED" => {
+            "Worker unavailable. Retry in a moment or check worker health.".to_string()
+        }
+        "MODEL_NOT_READY" | "ADAPTER_NOT_LOADED" | "ADAPTER_NOT_LOADABLE" => {
+            "Model not ready. Retry in a moment or check model loading status.".to_string()
+        }
+        "CACHE_BUDGET_EXCEEDED" => {
+            "Model cache is full. Free resources or retry later.".to_string()
+        }
+        "BACKPRESSURE" | "MEMORY_PRESSURE" | "OUT_OF_MEMORY" => {
+            "System is under memory pressure. Reduce request size or retry later.".to_string()
+        }
+        "GPU_UNAVAILABLE" => {
+            "GPU unavailable. Retry in a moment or check worker health.".to_string()
+        }
+        "SERVICE_UNAVAILABLE" | "BAD_GATEWAY" | "NETWORK_ERROR" | "CIRCUIT_BREAKER_OPEN" => {
+            "Service temporarily unavailable. Retry in a moment.".to_string()
+        }
+        "REQUEST_TIMEOUT" | "GATEWAY_TIMEOUT" | "TIMEOUT" => {
+            "Request timed out. Retry in a moment.".to_string()
+        }
+        _ => {
+            let lower = error.to_lowercase();
+            if lower.contains("inference failed") {
+                "Inference failed. Retry in a moment or check worker health.".to_string()
+            } else {
+                error.to_string()
+            }
+        }
+    };
+
+    if let Some(code) = failure_code {
+        match code {
+            FailureCode::OutOfMemory => {
+                return "System is out of memory. Reduce request size or retry later.".to_string();
+            }
+            FailureCode::WorkerOverloaded
+            | FailureCode::CpuThrottled
+            | FailureCode::ThreadPoolSaturated
+            | FailureCode::GpuUnavailable => {
+                return "Workers are at capacity. Retry in a moment or check worker health."
+                    .to_string();
+            }
+            FailureCode::TenantAccessDenied => {
+                return "You don't have access to this workspace. Contact an admin if you need access."
+                    .to_string();
+            }
+            FailureCode::ModelLoadFailed => {
+                return "Model failed to load. Retry in a moment or check worker logs.".to_string();
+            }
+            FailureCode::BackendFallback => {
+                return "No compatible worker available. Check model availability or retry later."
+                    .to_string();
+            }
+            _ => {}
+        }
+    }
+
+    message
 }
 
 impl From<gloo_net::Error> for ApiError {
@@ -276,6 +430,36 @@ mod tests {
     #[test]
     fn test_user_message_regular_error() {
         let error = ApiError::NotFound("Resource not found".to_string());
-        assert_eq!(error.user_message(), "Not found: Resource not found");
+        assert_eq!(
+            error.user_message(),
+            "Not found. Check the URL or try again."
+        );
+    }
+
+    #[test]
+    fn test_requires_auth_for_structured_unauthorized() {
+        let error = ApiError::Structured {
+            error: "unauthorized".to_string(),
+            code: "UNAUTHORIZED".to_string(),
+            failure_code: None,
+            hint: None,
+            details: None,
+        };
+        assert!(error.requires_auth());
+    }
+
+    #[test]
+    fn test_user_message_applies_hint() {
+        let error = ApiError::Structured {
+            error: "Service unavailable".to_string(),
+            code: "SERVICE_UNAVAILABLE".to_string(),
+            failure_code: None,
+            hint: Some("retry in a moment".to_string()),
+            details: None,
+        };
+        assert_eq!(
+            error.user_message(),
+            "Service temporarily unavailable. Retry in a moment. Next: retry in a moment"
+        );
     }
 }

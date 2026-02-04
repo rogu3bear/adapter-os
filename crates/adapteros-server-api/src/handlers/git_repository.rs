@@ -19,7 +19,6 @@ use std::path::Path as StdPath;
 use tokio::time::{timeout, Duration};
 use tracing::info;
 use utoipa::ToSchema;
-use uuid::Uuid;
 use walkdir::WalkDir;
 
 /// Git repository registration request
@@ -300,7 +299,7 @@ pub async fn register_git_repository(
     })?;
 
     // Store repository in database
-    let repo_id = Uuid::now_v7().to_string();
+    let repo_id = request.repo_id.clone();
     state
         .db
         .create_git_repository(
@@ -405,6 +404,9 @@ pub async fn get_repository_analysis(
     // Evidence: docs/code-intelligence/code-policies.md:45-78
     // Policy: Evidence requirements for analysis retrieval
     require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
+    let repo_id = crate::id_resolver::resolve_any_id(&state.db, &repo_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     info!("Retrieving analysis for repository: {}", repo_id);
 
@@ -477,6 +479,9 @@ pub async fn train_repository_adapter(
     // Evidence: docs/code-intelligence/code-policies.md:45-78
     // Policy: Evidence requirements for training
     require_any_role(&claims, &[Role::Admin, Role::Operator])?;
+    let repo_id = crate::id_resolver::resolve_any_id(&state.db, &repo_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     info!("Starting adapter training for repository: {}", repo_id);
 

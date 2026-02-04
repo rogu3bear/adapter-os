@@ -51,7 +51,6 @@ use chrono::NaiveDateTime;
 use serde_json::{Map, Value};
 use std::time::{Duration, SystemTime};
 use tracing::{debug, error, info, warn};
-use uuid::Uuid;
 
 const METRIC_CHUNKED_UPLOAD_COMPLETED: &str = "chunked_upload_completed";
 const METRIC_CHUNKED_UPLOAD_FAILED: &str = "chunked_upload_failed";
@@ -178,6 +177,7 @@ pub async fn upload_chunk(
 ) -> Result<impl IntoResponse, ApiError> {
     // Check permission
     require_permission(&claims, Permission::DatasetUpload)?;
+    let session_id = crate::id_resolver::resolve_any_id(&state.db, &session_id).await?;
 
     // PRD Phase 3: Early rejection for oversized chunks BEFORE any processing.
     // This catches malformed requests before we hit the session or disk.
@@ -296,6 +296,7 @@ pub async fn complete_chunked_upload(
 ) -> Result<impl IntoResponse, ApiError> {
     // Check permission
     require_permission(&claims, Permission::DatasetUpload)?;
+    let session_id = crate::id_resolver::resolve_any_id(&state.db, &session_id).await?;
 
     if !request.format.eq_ignore_ascii_case("jsonl") {
         return Err(ApiError::bad_request(
@@ -307,7 +308,7 @@ pub async fn complete_chunked_upload(
         resolve_dataset_root(&state).map_err(|e| ApiError::internal(e.to_string()))?;
     let correlation_id = request_id
         .map(|r| r.0 .0)
-        .unwrap_or_else(|| Uuid::new_v4().to_string());
+        .unwrap_or_else(crate::id_generator::readable_request_id);
     let paths = DatasetPaths::new(dataset_root.clone());
     let allowed_roots = [paths.root().to_path_buf()];
 
@@ -1387,6 +1388,9 @@ pub async fn get_upload_session_status(
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     // Check permission
     require_permission(&claims, Permission::DatasetView)?;
+    let session_id = crate::id_resolver::resolve_any_id(&state.db, &session_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     let _session_record = ensure_session_loaded(&state, &claims, &session_id).await?;
     let session = state
@@ -1448,6 +1452,7 @@ pub async fn cancel_chunked_upload(
 ) -> Result<impl IntoResponse, ApiError> {
     // Check permission
     require_permission(&claims, Permission::DatasetUpload)?;
+    let session_id = crate::id_resolver::resolve_any_id(&state.db, &session_id).await?;
 
     let session_record = ensure_session_loaded(&state, &claims, &session_id).await?;
     let session = state
@@ -1531,6 +1536,9 @@ pub async fn retry_chunk(
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     // Check permission
     require_permission(&claims, Permission::DatasetUpload)?;
+    let session_id = crate::id_resolver::resolve_any_id(&state.db, &session_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     let session_record = ensure_session_loaded(&state, &claims, &session_id).await?;
     if session_record.status == "complete" {

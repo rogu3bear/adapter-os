@@ -1,9 +1,9 @@
 //! Repository detail components
 
-use super::helpers::format_date;
+use super::helpers::format_datetime;
 use super::list::RepoStatusBadge;
 use crate::api::{ApiClient, RepositoryDetailResponse, ScanRepositoryRequest};
-use crate::components::{Button, ButtonSize, ButtonVariant, Card, Spinner};
+use crate::components::{Button, ButtonSize, ButtonVariant, Card, DetailRow, Spinner};
 use crate::hooks::{use_api_resource, LoadingState};
 use crate::signals::use_auth;
 use leptos::prelude::*;
@@ -203,14 +203,14 @@ fn RepositoryContent(
                 <DetailRow label="Repository ID" value=repo_data.repo_id.clone()/>
                 <DetailRow label="Path" value=repo_data.path.clone()/>
                 <DetailRow label="Default Branch" value=repo_data.default_branch.clone()/>
-                <DetailRow label="Created" value=format_date(&repo_data.created_at)/>
-                <DetailRow label="Updated" value=format_date(&repo_data.updated_at)/>
+                <DetailRow label="Created" value=format_datetime(&repo_data.created_at)/>
+                <DetailRow label="Updated" value=format_datetime(&repo_data.updated_at)/>
                 <DetailRow
                     label="Latest Scan"
                     value=repo_data
                         .latest_scan_at
                         .as_deref()
-                        .map(format_date)
+                        .map(format_datetime)
                         .unwrap_or_else(|| "Never".to_string())
                 />
             </div>
@@ -249,16 +249,5 @@ fn RepositoryContent(
                 />
             </div>
         </Card>
-    }
-}
-
-/// Detail row component
-#[component]
-fn DetailRow(label: &'static str, #[prop(into)] value: String) -> impl IntoView {
-    view! {
-        <div class="flex justify-between">
-            <span class="text-muted-foreground">{label}</span>
-            <span class="font-medium truncate max-w-xs">{value}</span>
-        </div>
     }
 }

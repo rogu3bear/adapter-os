@@ -7,7 +7,7 @@ use super::helpers::{lifecycle_badge_variant, workflow_type_label};
 use crate::api::{ApiClient, StackResponse};
 use crate::components::{
     Badge, BadgeVariant, BreadcrumbItem, BreadcrumbTrail, Button, ButtonSize, ButtonVariant, Card,
-    ErrorDisplay, LoadingDisplay, RefreshButton,
+    CopyableId, ErrorDisplay, LoadingDisplay, RefreshButton,
 };
 use crate::contexts::use_in_flight;
 use crate::hooks::{use_api, use_api_resource, LoadingState};
@@ -137,20 +137,14 @@ pub fn StackDetailContent(
                         <p class="text-sm text-muted-foreground">"Name"</p>
                         <p class="font-medium">{stack.name.clone()}</p>
                     </div>
-                    <div>
-                        <p class="text-sm text-muted-foreground">"Stack ID"</p>
-                        <p class="font-mono text-sm">{stack.id.clone()}</p>
-                    </div>
+                    <CopyableId id=stack.id.clone() label="Stack ID".to_string() truncate=24 />
                     {stack.description.clone().map(|desc| view! {
                         <div>
                             <p class="text-sm text-muted-foreground">"Description"</p>
                             <p class="text-sm">{desc}</p>
                         </div>
                     })}
-                    <div>
-                        <p class="text-sm text-muted-foreground">"Tenant ID"</p>
-                        <p class="font-mono text-sm">{stack.tenant_id.clone()}</p>
-                    </div>
+                    <CopyableId id=stack.tenant_id.clone() label="Tenant ID".to_string() truncate=24 />
                 </div>
             </Card>
 

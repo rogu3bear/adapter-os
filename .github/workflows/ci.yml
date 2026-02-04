@@ -920,3 +920,69 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "**Note**: FFI calls to Metal/MLX cannot be verified by MIRI." >> "$GITHUB_STEP_SUMMARY"
           echo "Those are documented with \`// SAFETY:\` comments instead." >> "$GITHUB_STEP_SUMMARY"
+
+  # ==========================================================================
+  # Loom Concurrency Tests
+  # ==========================================================================
+  loom-tests:
+    name: Loom Concurrency Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Run only on main/develop pushes, not on every PR (loom can be slow)
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    env:
+      LOOM_MAX_PREEMPTIONS: 3  # Limit state explosion
+      RUSTFLAGS: "--cfg loom"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run loom tests (adapteros-memory)
+        run: cargo test -p adapteros-memory --features loom --release -- loom_
+      - name: Run loom tests (adapteros-lora-worker)
+        run: cargo test -p adapteros-lora-worker --features loom --release -- loom_
+      - name: Summarize loom coverage
+        run: |
+          echo "## Loom Concurrency Tests" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Loom has verified the following lock-free data structures:" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`adapteros-memory\`: Lock-free memory pool (\`LockFreePool\`)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`adapteros-lora-worker\`: Adapter table RCU (\`AdapterTable\`)" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Configuration**: LOOM_MAX_PREEMPTIONS=3" >> "$GITHUB_STEP_SUMMARY"
+
+  # ==========================================================================
+  # Code Coverage (main branch only - too slow for PRs)
+  # ==========================================================================
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install tarpaulin
+        run: cargo install cargo-tarpaulin --locked
+      - name: Generate coverage report (critical crates)
+        run: |
+          cargo tarpaulin \
+            --packages adapteros-policy,adapteros-db,adapteros-lora-router,adapteros-server-api,adapteros-core \
+            --out Html --out Xml \
+            --output-dir coverage/ \
+            --timeout 600 \
+            --exclude-files "tests/*" \
+            --ignore-panics
+      - name: Upload coverage artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage/cobertura.xml
+          flags: unittests
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+          name: adapteros-coverage
+          verbose: true

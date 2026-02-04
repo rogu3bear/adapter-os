@@ -133,11 +133,12 @@ pub struct MicroLoRATrainer {
     accumulated_gradients: HashMap<String, (Vec<f32>, Vec<f32>, usize)>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct BackendAvailability {
     coreml: bool,
     mlx: bool,
     metal: bool,
+    coreml_reason: Option<String>,
 }
 
 struct SplitExamplesResult {
@@ -453,10 +454,16 @@ impl MicroLoRATrainer {
         }
 
         let caps = crate::backend_factory::detect_capabilities();
+        let coreml_reason = if caps.has_coreml && caps.has_ane {
+            None
+        } else {
+            crate::backend_factory::coreml_unavailable_reason(&caps)
+        };
         BackendAvailability {
             coreml: caps.has_coreml && caps.has_ane,
             mlx: caps.has_mlx,
             metal: caps.has_metal,
+            coreml_reason,
         }
     }
 
@@ -470,26 +477,31 @@ impl MicroLoRATrainer {
                     coreml: true,
                     mlx: false,
                     metal: false,
+                    coreml_reason: None,
                 },
                 "mlx" => BackendAvailability {
                     coreml: false,
                     mlx: true,
                     metal: false,
+                    coreml_reason: None,
                 },
                 "metal" => BackendAvailability {
                     coreml: false,
                     mlx: false,
                     metal: true,
+                    coreml_reason: None,
                 },
                 "all" => BackendAvailability {
                     coreml: true,
                     mlx: true,
                     metal: true,
+                    coreml_reason: None,
                 },
                 "none" | "cpu" => BackendAvailability {
                     coreml: false,
                     mlx: false,
                     metal: false,
+                    coreml_reason: None,
                 },
                 _ => return None,
             };
@@ -614,6 +626,26 @@ impl MicroLoRATrainer {
         }
     }
 
+    fn append_coreml_unavailable_reason(&mut self, availability: &BackendAvailability) {
+        if availability.coreml {
+            return;
+        }
+        if self
+            .backend_reason
+            .as_ref()
+            .map(|existing| existing.contains("coreml_unavailable"))
+            .unwrap_or(false)
+        {
+            return;
+        }
+        let note = availability
+            .coreml_reason
+            .as_ref()
+            .map(|reason| format!("coreml_unavailable({})", reason))
+            .unwrap_or_else(|| "coreml_unavailable".to_string());
+        self.append_backend_reason(note);
+    }
+
     /// Resolve preferred device order into concrete backends with de-duplication.
     fn resolve_device_order(&self) -> Vec<TrainingBackend> {
         let mut order: Vec<TrainingBackend> = Vec::new();
@@ -659,6 +691,11 @@ impl MicroLoRATrainer {
                         candidates.push(TrainingBackend::CoreML);
                         return Ok(candidates);
                     }
+                    self.append_coreml_unavailable_reason(availability);
+                    warn!(
+                        reason = availability.coreml_reason.as_deref().unwrap_or("unknown"),
+                        "CoreML requested (coreml_only) but unavailable"
+                    );
                     self.append_backend_reason("coreml_only_unavailable");
                     return Err(AosError::Config(
                         "CoreML backend requested (coreml_only) but unavailable".to_string(),
@@ -669,6 +706,11 @@ impl MicroLoRATrainer {
                         candidates.push(TrainingBackend::CoreML);
                         return Ok(candidates);
                     }
+                    self.append_coreml_unavailable_reason(availability);
+                    warn!(
+                        reason = availability.coreml_reason.as_deref().unwrap_or("unknown"),
+                        "CoreML requested (coreml_else_fallback) but unavailable"
+                    );
                     self.append_backend_reason("coreml_policy_fallback");
                     if let Some(fallback_backend) = self.config.coreml_fallback_backend {
                         if Self::backend_is_available(fallback_backend, availability) {
@@ -686,7 +728,11 @@ impl MicroLoRATrainer {
             if Self::backend_is_available(preferred, availability) {
                 candidates.push(preferred);
             } else if preferred == TrainingBackend::CoreML {
-                self.append_backend_reason("coreml_unavailable");
+                self.append_coreml_unavailable_reason(availability);
+                warn!(
+                    reason = availability.coreml_reason.as_deref().unwrap_or("unknown"),
+                    "CoreML requested (preferred) but unavailable"
+                );
                 if let Some(fallback_backend) = self.config.coreml_fallback_backend {
                     if self.config.require_gpu && fallback_backend == TrainingBackend::Cpu {
                         warn!(
@@ -716,7 +762,11 @@ impl MicroLoRATrainer {
             if Self::backend_is_available(backend, availability) && !candidates.contains(&backend) {
                 candidates.push(backend);
             } else if !Self::backend_is_available(backend, availability) {
-                self.append_backend_reason(format!("{}_unavailable", backend.tag()));
+                if backend == TrainingBackend::CoreML {
+                    self.append_coreml_unavailable_reason(availability);
+                } else {
+                    self.append_backend_reason(format!("{}_unavailable", backend.tag()));
+                }
             }
         }
 
@@ -1342,6 +1392,15 @@ impl MicroLoRATrainer {
                 Err(e) => {
                     errors.push(format!("{}: {}", backend.name(), e));
                     if backend == TrainingBackend::CoreML {
+                        let class = crate::backend_factory::classify_coreml_error(&e);
+                        error!(
+                            coreml_failure_stage = class.stage,
+                            coreml_failure_reason = class.reason,
+                            error = %e,
+                            "CoreML training backend initialization failed"
+                        );
+                        let reason = crate::backend_factory::format_coreml_failure_reason(&e);
+                        self.append_backend_reason(reason);
                         self.telemetry
                             .log(
                                 "training.coreml_fallback",
@@ -1440,7 +1499,8 @@ impl MicroLoRATrainer {
             #[cfg(all(target_os = "macos", not(feature = "coreml-backend")))]
             TrainingBackend::CoreML => {
                 return Err(AosError::Config(
-                    "CoreML backend requested but 'coreml-backend' feature not enabled".to_string(),
+                    "CoreML backend requested but 'coreml-backend' feature not enabled (coreml-stub is test-only)"
+                        .to_string(),
                 ));
             }
             #[cfg(not(target_os = "macos"))]

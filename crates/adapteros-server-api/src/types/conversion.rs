@@ -15,7 +15,7 @@ impl From<(&InferRequest, &Claims)> for super::context::InferenceRequestInternal
         let is_admin = claims.role.eq_ignore_ascii_case("admin")
             || claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
         Self {
-            request_id: uuid::Uuid::new_v4().to_string(),
+            request_id: crate::id_generator::readable_request_id(),
             cpid: claims.tenant_id.clone(),
             prompt: req.prompt.clone(),
             run_envelope: None,

@@ -8,9 +8,14 @@
 mod tensor_operation_tests {
     use adapteros_lora_mlx_ffi::tensor::{MLXFFITensor, TensorDtype};
 
+    fn mlx_test_guard() -> std::sync::MutexGuard<'static, ()> {
+        adapteros_lora_mlx_ffi::mlx_test_lock_guard()
+    }
+
     /// Test tensor creation from float data
     #[test]
     fn test_tensor_creation_float() {
+        let _guard = mlx_test_guard();
         let data = vec![1.0, 2.0, 3.0, 4.0];
         let shape = vec![2, 2];
 
@@ -24,6 +29,7 @@ mod tensor_operation_tests {
     /// Test tensor creation from integer data
     #[test]
     fn test_tensor_creation_int() {
+        let _guard = mlx_test_guard();
         let data = vec![1, 2, 3, 4];
         let shape = vec![4];
 
@@ -37,6 +43,7 @@ mod tensor_operation_tests {
     /// Test tensor addition
     #[test]
     fn test_tensor_add() {
+        let _guard = mlx_test_guard();
         let data1 = vec![1.0, 2.0, 3.0, 4.0];
         let data2 = vec![5.0, 6.0, 7.0, 8.0];
         let shape = vec![4];
@@ -52,6 +59,7 @@ mod tensor_operation_tests {
     /// Test tensor multiplication
     #[test]
     fn test_tensor_multiply() {
+        let _guard = mlx_test_guard();
         let data1 = vec![1.0, 2.0, 3.0, 4.0];
         let data2 = vec![2.0, 2.0, 2.0, 2.0];
         let shape = vec![4];
@@ -67,6 +75,7 @@ mod tensor_operation_tests {
     /// Test matrix multiplication
     #[test]
     fn test_tensor_matmul() {
+        let _guard = mlx_test_guard();
         let data1 = vec![1.0, 2.0, 3.0, 4.0]; // 2x2 matrix
         let data2 = vec![5.0, 6.0, 7.0, 8.0]; // 2x2 matrix
         let shape = vec![2, 2];
@@ -81,6 +90,7 @@ mod tensor_operation_tests {
     /// Test tensor reshape
     #[test]
     fn test_tensor_reshape() {
+        let _guard = mlx_test_guard();
         let data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
         let tensor = MLXFFITensor::from_data(&data, vec![6]).unwrap();
 
@@ -97,6 +107,7 @@ mod tensor_operation_tests {
     /// Test tensor reshape invalid size
     #[test]
     fn test_tensor_reshape_invalid() {
+        let _guard = mlx_test_guard();
         let data = vec![1.0, 2.0, 3.0, 4.0];
         let tensor = MLXFFITensor::from_data(&data, vec![4]).unwrap();
 
@@ -108,6 +119,7 @@ mod tensor_operation_tests {
     /// Test tensor transpose
     #[test]
     fn test_tensor_transpose() {
+        let _guard = mlx_test_guard();
         let data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
         let tensor = MLXFFITensor::from_data(&data, vec![2, 3]).unwrap();
 
@@ -119,6 +131,7 @@ mod tensor_operation_tests {
     /// Test tensor copy
     #[test]
     fn test_tensor_copy() {
+        let _guard = mlx_test_guard();
         let data = vec![1.0, 2.0, 3.0, 4.0];
         let tensor = MLXFFITensor::from_data(&data, vec![2, 2]).unwrap();
 
@@ -131,6 +144,7 @@ mod tensor_operation_tests {
     /// Test getting tensor data
     #[test]
     fn test_tensor_data_access() {
+        let _guard = mlx_test_guard();
         let data = vec![1.0, 2.0, 3.0, 4.0];
         let tensor = MLXFFITensor::from_data(&data, vec![4]).unwrap();
 
@@ -141,6 +155,7 @@ mod tensor_operation_tests {
     /// Test getting tensor data as vec
     #[test]
     fn test_tensor_to_float_vec() {
+        let _guard = mlx_test_guard();
         let data = vec![1.0, 2.0, 3.0, 4.0];
         let tensor = MLXFFITensor::from_data(&data, vec![4]).unwrap();
 
@@ -151,6 +166,7 @@ mod tensor_operation_tests {
     /// Test ndim accessor
     #[test]
     fn test_tensor_ndim() {
+        let _guard = mlx_test_guard();
         let data = vec![1.0, 2.0, 3.0, 4.0];
 
         let tensor_1d = MLXFFITensor::from_data(&data, vec![4]).unwrap();
@@ -163,6 +179,7 @@ mod tensor_operation_tests {
     /// Test MLX-side shape retrieval
     #[test]
     fn test_tensor_mlx_shape() {
+        let _guard = mlx_test_guard();
         let data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
         let tensor = MLXFFITensor::from_data(&data, vec![2, 3]).unwrap();
 
@@ -174,6 +191,7 @@ mod tensor_operation_tests {
     /// Test MLX-side ndim retrieval
     #[test]
     fn test_tensor_mlx_ndim() {
+        let _guard = mlx_test_guard();
         let data = vec![1.0, 2.0, 3.0, 4.0];
         let tensor = MLXFFITensor::from_data(&data, vec![2, 2]).unwrap();
 
@@ -184,6 +202,7 @@ mod tensor_operation_tests {
     /// Test MLX-side size retrieval
     #[test]
     fn test_tensor_mlx_size() {
+        let _guard = mlx_test_guard();
         let data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
         let tensor = MLXFFITensor::from_data(&data, vec![2, 3]).unwrap();
 
@@ -194,6 +213,7 @@ mod tensor_operation_tests {
     /// Test MLX-side dtype retrieval
     #[test]
     fn test_tensor_mlx_dtype() {
+        let _guard = mlx_test_guard();
         let float_data = vec![1.0, 2.0];
         let float_tensor = MLXFFITensor::from_data(&float_data, vec![2]).unwrap();
 
@@ -205,6 +225,7 @@ mod tensor_operation_tests {
     /// Test chained reshape operations
     #[test]
     fn test_tensor_reshape_chain() {
+        let _guard = mlx_test_guard();
         let data = vec![1.0; 24];
         let tensor = MLXFFITensor::from_data(&data, vec![24]).unwrap();
 
@@ -219,6 +240,7 @@ mod tensor_operation_tests {
     /// Test 3D tensor transpose
     #[test]
     fn test_tensor_transpose_3d() {
+        let _guard = mlx_test_guard();
         let data = vec![1.0; 24]; // 2 * 3 * 4 = 24
         let tensor = MLXFFITensor::from_data(&data, vec![2, 3, 4]).unwrap();
 
@@ -230,6 +252,7 @@ mod tensor_operation_tests {
     /// Test empty-ish tensor (single element)
     #[test]
     fn test_tensor_single_element() {
+        let _guard = mlx_test_guard();
         let data = vec![42.0];
         let tensor = MLXFFITensor::from_data(&data, vec![1]).unwrap();
 
@@ -241,6 +264,7 @@ mod tensor_operation_tests {
     /// Test large tensor operations
     #[test]
     fn test_tensor_large() {
+        let _guard = mlx_test_guard();
         // Create a 1000-element tensor
         let data: Vec<f32> = (0..1000).map(|i| i as f32).collect();
         let tensor = MLXFFITensor::from_data(&data, vec![1000]).unwrap();

@@ -80,13 +80,13 @@ pub enum AdapterHeat {
 }
 
 impl AdapterHeat {
-    /// Get CSS classes for this heat level
+    /// Get CSS classes for this heat level using semantic status tokens
     pub fn to_css_class(&self) -> &'static str {
         match self {
-            AdapterHeat::Hot => "bg-red-500 hover:bg-red-600",
-            AdapterHeat::Warm => "bg-orange-500 hover:bg-orange-600",
-            AdapterHeat::Cold => "bg-blue-500 hover:bg-blue-600",
-            AdapterHeat::Inactive => "bg-gray-500 hover:bg-gray-600",
+            AdapterHeat::Hot => "bg-status-error hover:brightness-110",
+            AdapterHeat::Warm => "bg-status-warning hover:brightness-110",
+            AdapterHeat::Cold => "bg-status-info hover:brightness-110",
+            AdapterHeat::Inactive => "bg-muted-foreground/50 hover:bg-muted-foreground/60",
         }
     }
 
@@ -194,15 +194,15 @@ pub fn AdapterBar(
             // Legend (compact)
             <div class="hidden md:flex items-center gap-3 text-2xs text-muted-foreground border-l pl-3">
                 <div class="flex items-center gap-1">
-                    <div class="w-2 h-2 rounded-full bg-red-500"></div>
+                    <div class="w-2 h-2 rounded-full bg-status-error"></div>
                     "Hot"
                 </div>
                 <div class="flex items-center gap-1">
-                    <div class="w-2 h-2 rounded-full bg-orange-500"></div>
+                    <div class="w-2 h-2 rounded-full bg-status-warning"></div>
                     "Warm"
                 </div>
                 <div class="flex items-center gap-1">
-                    <div class="w-2 h-2 rounded-full bg-blue-500"></div>
+                    <div class="w-2 h-2 rounded-full bg-status-info"></div>
                     "Cold"
                 </div>
             </div>
@@ -521,9 +521,9 @@ mod tests {
 
     #[test]
     fn test_css_classes() {
-        assert!(AdapterHeat::Hot.to_css_class().contains("red"));
-        assert!(AdapterHeat::Warm.to_css_class().contains("orange"));
-        assert!(AdapterHeat::Cold.to_css_class().contains("blue"));
+        assert!(AdapterHeat::Hot.to_css_class().contains("status-error"));
+        assert!(AdapterHeat::Warm.to_css_class().contains("status-warning"));
+        assert!(AdapterHeat::Cold.to_css_class().contains("status-info"));
     }
 
     #[test]

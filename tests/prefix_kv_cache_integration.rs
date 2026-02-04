@@ -748,6 +748,9 @@ async fn test_prefix_kv_receipt_fields_persistence() {
         tenant_id: "tenant-1".to_string(),
         request_id: Some("req-prefix-1".to_string()),
         context_digest,
+        stack_id: None,
+        model_id: None,
+        policy_id: None,
     };
 
     let mut sink = SqlTraceSink::new(db.clone(), start, 32)
@@ -881,6 +884,9 @@ async fn create_attestation_test_sink(
         tenant_id: "tenant-1".to_string(),
         request_id: Some("req-attestation-test".to_string()),
         context_digest,
+        stack_id: None,
+        model_id: None,
+        policy_id: None,
     };
 
     let mut sink = SqlTraceSink::new(db, start, 32)

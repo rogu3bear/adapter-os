@@ -1,11 +1,12 @@
 //! Repository list components
 
-use super::helpers::format_date;
+use super::helpers::format_datetime;
 use crate::api::RepositoryInfo;
 use crate::components::{
     Badge, BadgeVariant, Card, EmptyState, EmptyStateVariant, Table, TableBody, TableCell,
     TableHead, TableHeader, TableRow,
 };
+use crate::constants::urls::docs_link;
 use leptos::prelude::*;
 
 /// Repository list table
@@ -22,7 +23,7 @@ pub fn RepositoryList(
                     title="No repositories found"
                     description="Register a code repository to enable code intelligence and adapter training from your codebase."
                     secondary_label="Learn about Code Intelligence"
-                    secondary_href="/docs/code-intelligence"
+                    secondary_href=docs_link("code-intelligence")
                 />
             </Card>
         }
@@ -55,7 +56,7 @@ pub fn RepositoryList(
                             let last_scan = repo
                                 .latest_scan_at
                                 .as_deref()
-                                .map(format_date)
+                                .map(format_datetime)
                                 .unwrap_or_else(|| "Never".to_string());
 
                             view! {
@@ -85,7 +86,7 @@ pub fn RepositoryList(
                                     </TableCell>
                                     <TableCell>
                                         <span class="text-sm text-muted-foreground">
-                                            {format_date(&repo.created_at)}
+                                            {format_datetime(&repo.created_at)}
                                         </span>
                                     </TableCell>
                                 </tr>

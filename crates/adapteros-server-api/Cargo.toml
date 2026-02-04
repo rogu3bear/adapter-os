@@ -1,6 +1,6 @@
 [package]
 name = "adapteros-server-api"
-version = "0.4.0"
+version = "0.0.1"
 edition = "2021"
 
 [lib]
@@ -136,6 +136,8 @@ embeddings = ["adapteros-ingest-docs/multi-backend"]
 redis = ["dep:redis"]
 metrics = []
 dev-bypass = []
+# Model server client support (requires adapteros-model-server via lora-worker)
+model-server = ["adapteros-lora-worker/model-server"]
 # Exclude routes that are provided by spoke crates (audit, health)
 # Enable this when using adapteros-server which merges spoke routes
 exclude-spoke-routes = []

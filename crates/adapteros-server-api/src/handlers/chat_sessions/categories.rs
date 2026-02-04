@@ -126,6 +126,7 @@ pub async fn update_chat_category(
 ) -> ApiResult<ChatCategory> {
     require_permission(&claims, Permission::WorkspaceManage)
         .map_err(|_| ApiError::forbidden("Permission denied - requires WorkspaceManage"))?;
+    let category_id = crate::id_resolver::resolve_any_id(&state.db, &category_id).await?;
 
     // Verify category belongs to tenant
     let category = state
@@ -182,6 +183,7 @@ pub async fn delete_chat_category(
 ) -> Result<StatusCode, ApiError> {
     require_permission(&claims, Permission::WorkspaceManage)
         .map_err(|_| ApiError::forbidden("Permission denied - requires WorkspaceManage"))?;
+    let category_id = crate::id_resolver::resolve_any_id(&state.db, &category_id).await?;
 
     // Verify category belongs to tenant
     let category = state
@@ -235,6 +237,7 @@ pub async fn set_session_category(
 ) -> Result<StatusCode, ApiError> {
     require_permission(&claims, Permission::InferenceExecute)
         .map_err(|_| ApiError::forbidden("Permission denied"))?;
+    let session_id = crate::id_resolver::resolve_any_id(&state.db, &session_id).await?;
 
     // Verify session belongs to tenant
     let session = state

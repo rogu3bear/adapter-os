@@ -103,7 +103,14 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
+
+#[cfg(debug_assertions)]
+use once_cell::sync::Lazy;
 use tracing::{debug, info, warn};
+
+#[cfg(debug_assertions)]
+static MIGRATION_TEST_LOCK: Lazy<tokio::sync::Mutex<()>> =
+    Lazy::new(|| tokio::sync::Mutex::new(()));
 
 // Query constants for SELECT column lists
 pub mod constants;
@@ -131,6 +138,7 @@ pub mod metrics_db;
 pub mod policy_audit_kv;
 pub mod prefix_templates;
 pub mod rag;
+pub mod readable_ids;
 pub mod reembedding;
 pub mod replay_kv;
 pub mod repository_training_policies;
@@ -1079,6 +1087,9 @@ impl Db {
     pub async fn migrate(&self) -> Result<()> {
         use tracing::info;
 
+        #[cfg(debug_assertions)]
+        let _migration_guard = MIGRATION_TEST_LOCK.lock().await;
+
         // Use CARGO_MANIFEST_DIR to find migrations relative to workspace root
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
         let workspace_root = std::path::Path::new(manifest_dir)
@@ -1151,6 +1162,7 @@ impl Db {
         self.ensure_adapter_lora_strength_column().await?;
         self.ensure_adapter_recommended_for_moe_column().await?;
         self.ensure_worker_runtime_metadata_columns().await?;
+        self.ensure_inference_trace_tokens_index().await?;
 
         // Verify database version after migration
         self.verify_migration_version(&migrations_path).await?;
@@ -1265,6 +1277,24 @@ impl Db {
         .execute(pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to ensure workers index: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Ensure token paging queries can use a composite index.
+    async fn ensure_inference_trace_tokens_index(&self) -> Result<()> {
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_inference_trace_tokens_trace_token_index \
+             ON inference_trace_tokens (trace_id, token_index)",
+        )
+        .execute(self.pool())
+        .await
+        .map_err(|e| {
+            AosError::Database(format!(
+                "Failed to ensure inference_trace_tokens index: {}",
+                e
+            ))
+        })?;
 
         Ok(())
     }
@@ -1763,13 +1793,45 @@ impl Db {
         let workflow_type_str = stack.workflow_type.as_ref().map(|w| format!("{:?}", w));
 
         let mut updated = false;
+        let mut should_bump_version = false;
+        let mut new_version: Option<i64> = None;
         // SQL update if enabled
         if self.storage_mode().write_to_sql() {
             if let Some(pool) = self.pool_opt() {
+                let (current_adapter_ids_json, current_workflow_type, current_version) =
+                    if let Some(row) = sqlx::query_as::<_, (String, Option<String>, String)>(
+                        r#"
+                        SELECT adapter_ids_json, workflow_type, version
+                        FROM adapter_stacks
+                        WHERE id = ?
+                        "#,
+                    )
+                    .bind(id)
+                    .fetch_optional(pool)
+                    .await
+                    .map_err(|e| {
+                        AosError::Database(format!("Failed to fetch stack for update: {}", e))
+                    })? {
+                        row
+                    } else {
+                        return Ok(false);
+                    };
+
+                should_bump_version = current_adapter_ids_json != adapter_ids_json
+                    || current_workflow_type != workflow_type_str;
+
+                let current_version_num = current_version.parse::<i64>().unwrap_or(1);
+                let bump = if should_bump_version { 1i64 } else { 0i64 };
+                let next_version = if should_bump_version {
+                    current_version_num + 1
+                } else {
+                    current_version_num
+                };
+                new_version = Some(next_version);
                 let result = sqlx::query(
                     r#"
                     UPDATE adapter_stacks
-                    SET name = ?, description = ?, adapter_ids_json = ?, workflow_type = ?, determinism_mode = ?, routing_determinism_mode = ?, updated_at = datetime('now')
+                    SET name = ?, description = ?, adapter_ids_json = ?, workflow_type = ?, determinism_mode = ?, routing_determinism_mode = ?, version = version + ?, updated_at = datetime('now')
                     WHERE id = ?
                     "#,
                 )
@@ -1779,6 +1841,7 @@ impl Db {
                 .bind(&workflow_type_str)
                 .bind(&stack.determinism_mode)
                 .bind(&stack.routing_determinism_mode)
+                .bind(bump)
                 .bind(id)
                 .execute(pool)
                 .await
@@ -1796,6 +1859,18 @@ impl Db {
                     warn!(error = %e, stack_id = %id, "Failed to update stack in KV backend (dual-write)");
                 } else {
                     debug!(stack_id = %id, "Stack updated in both SQL and KV backends");
+                }
+                if should_bump_version {
+                    let Some(next_version) = new_version else {
+                        warn!(stack_id = %id, "Missing next stack version for KV update");
+                        return Ok(updated);
+                    };
+                    if let Err(e) = kv_backend
+                        .update_version(&stack.tenant_id, id, &next_version.to_string())
+                        .await
+                    {
+                        warn!(error = %e, stack_id = %id, "Failed to update stack version in KV backend (dual-write)");
+                    }
                 }
             }
         }
@@ -2329,7 +2404,7 @@ impl Db {
                 sqlx::query(
                     r#"
                     INSERT INTO adapter_stacks (id, tenant_id, name, description, adapter_ids_json, workflow_type, version, lifecycle_state, created_at, updated_at, determinism_mode, routing_determinism_mode)
-                    VALUES (?, ?, ?, ?, ?, ?, '1.0.0', 'active', datetime('now'), datetime('now'), ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, 1, 'active', datetime('now'), datetime('now'), ?, ?)
                     "#,
                 )
                 .bind(&id)
@@ -2725,9 +2800,12 @@ pub use inference_write_bundle::{
 pub mod inference_trace;
 pub use inference_trace::{
     backfill_receipt_digests, count_pending_receipt_backfill, find_trace_by_receipt_digest,
-    get_provenance_chain, get_receipt_parity_stats, recompute_receipt, BackfillResult,
-    SqlTraceSink, TraceCancellation, TraceCancellationReceipt, TraceFinalization, TraceReceipt,
-    TraceReceiptVerification, TraceSink, TraceStart, TraceTokenInput,
+    get_inference_trace_detail_for_tenant, get_provenance_chain, get_receipt_parity_stats,
+    list_inference_traces_for_tenant, recompute_receipt, BackfillResult,
+    InferenceTraceDetailRecord, InferenceTraceListRecord, InferenceTraceReceiptRecord,
+    InferenceTraceTokenRecord, SqlTraceSink, TraceCancellation, TraceCancellationReceipt,
+    TraceFinalization, TraceReceipt, TraceReceiptVerification, TraceSink, TraceStart,
+    TraceTokenInput,
 };
 pub mod batch_jobs;
 pub use batch_jobs::{
@@ -2960,6 +3038,13 @@ impl Db {
         .await
         .map_err(|e| AosError::Database(format!("Failed to update anomaly status: {}", e)))?;
         Ok(())
+    }
+
+    /// Backfill readable IDs across SQL tables (one-time).
+    pub async fn backfill_readable_ids(&self) -> Result<()> {
+        crate::readable_ids::backfill_readable_ids(self)
+            .await
+            .map_err(|e| AosError::Database(format!("Readable ID backfill failed: {}", e)))
     }
 
     /// Get a system setting value by key

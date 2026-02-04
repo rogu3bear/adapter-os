@@ -1,8 +1,9 @@
 //! UI Preferences section component
 
 use crate::components::IconCheck;
-use crate::components::{Card, Select, Toggle};
-use crate::signals::{update_setting, use_settings, DefaultPage, Theme};
+use crate::components::{Button, ButtonSize, ButtonVariant, Card, Select, Toggle};
+use crate::signals::{update_setting, use_settings, use_ui_profile_state, DefaultPage, Theme};
+use adapteros_api_types::UiProfile;
 use leptos::prelude::*;
 
 /// UI Preferences section
@@ -15,6 +16,16 @@ pub fn PreferencesSection() -> impl IntoView {
     let compact_mode = RwSignal::new(settings.get_untracked().compact_mode);
     let show_timestamps = RwSignal::new(settings.get_untracked().show_timestamps);
     let default_page = RwSignal::new(settings.get_untracked().default_page.as_str().to_string());
+    let ui_profile_state = use_ui_profile_state();
+    let ui_profile_value = RwSignal::new(
+        settings
+            .get_untracked()
+            .ui_profile
+            .or(ui_profile_state.get_untracked().runtime_profile)
+            .unwrap_or(UiProfile::Full)
+            .as_str()
+            .to_string(),
+    );
 
     // Save feedback
     let save_feedback = RwSignal::new(false);
@@ -52,6 +63,16 @@ pub fn PreferencesSection() -> impl IntoView {
         });
     });
 
+    // Keep UI profile selection in sync with runtime default when no override exists
+    Effect::new(move || {
+        let override_profile = settings.get().ui_profile;
+        let runtime_profile = ui_profile_state.get().runtime_profile;
+        if override_profile.is_none() {
+            let effective = runtime_profile.unwrap_or(UiProfile::Full);
+            ui_profile_value.set(effective.as_str().to_string());
+        }
+    });
+
     // Show save feedback briefly with proper cleanup
     // Use raw web_sys setTimeout/clearTimeout with atomic ID for Send+Sync compatibility
     #[cfg(target_arch = "wasm32")]
@@ -79,6 +100,7 @@ pub fn PreferencesSection() -> impl IntoView {
             let _ = compact_mode.get();
             let _ = show_timestamps.get();
             let _ = default_page.get();
+            let _ = ui_profile_value.get();
 
             save_feedback.set(true);
 
@@ -111,6 +133,7 @@ pub fn PreferencesSection() -> impl IntoView {
         let _ = compact_mode.get();
         let _ = show_timestamps.get();
         let _ = default_page.get();
+        let _ = ui_profile_value.get();
         save_feedback.set(true);
     });
 
@@ -128,6 +151,11 @@ pub fn PreferencesSection() -> impl IntoView {
         ("chat".to_string(), "Chat".to_string()),
         ("training".to_string(), "Training".to_string()),
         ("system".to_string(), "System".to_string()),
+    ];
+
+    let ui_profile_options = vec![
+        ("primary".to_string(), "Primary".to_string()),
+        ("full".to_string(), "Full".to_string()),
     ];
 
     view! {
@@ -162,6 +190,45 @@ pub fn PreferencesSection() -> impl IntoView {
                     options=page_options
                     label="Default Page After Login".to_string()
                 />
+                <div class="mt-4 space-y-2">
+                    <Select
+                        value=ui_profile_value
+                        options=ui_profile_options
+                        label="UI Profile".to_string()
+                        on_change=Callback::new(move |value: String| {
+                            let profile = UiProfile::parse(&value);
+                            update_setting(settings, |s| {
+                                s.ui_profile = Some(profile);
+                            });
+                        })
+                    />
+                    <div class="flex items-center justify-between text-xs text-muted-foreground">
+                        <span>
+                            {move || {
+                                ui_profile_state
+                                    .get()
+                                    .runtime_profile
+                                    .map(|profile| format!("Server default: {}", profile.display()))
+                                    .unwrap_or_else(|| "Server default: unavailable".to_string())
+                            }}
+                        </span>
+                        {move || {
+                            settings.get().ui_profile.is_some().then(|| view! {
+                                <Button
+                                    variant=ButtonVariant::Ghost
+                                    size=ButtonSize::Sm
+                                    on_click=Callback::new(move |_| {
+                                        update_setting(settings, |s| {
+                                            s.ui_profile = None;
+                                        });
+                                    })
+                                >
+                                    "Use server default"
+                                </Button>
+                            })
+                        }}
+                    </div>
+                </div>
             </Card>
 
             // Save indicator

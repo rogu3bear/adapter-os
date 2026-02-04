@@ -48,6 +48,8 @@ pub fn get_and_clear_ffi_error() -> Option<String> {
 
         if error_str.is_empty() {
             None
+        } else if cfg!(mlx_stub) && error_str == "MLX not available (stub implementation)" {
+            None
         } else {
             Some(error_str)
         }
@@ -130,6 +132,7 @@ pub fn clear_ffi_error() {
     // It has no return value and does not access any Rust state. This is a
     // simple state reset that is always safe to call.
     unsafe {
+        crate::mlx_test_auto_init();
         mlx_clear_error();
     }
 }

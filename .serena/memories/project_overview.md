@@ -25,7 +25,7 @@ The system is designed for **air-gapped deployments with zero network egress** d
 | ANE | CoreML acceleration |
 | ML Runtime | MLX (C++ FFI) |
 | Styling | Pure CSS (Liquid Glass design system) |
-| Build | Cargo workspaces (~70 crates) |
+| Build | Cargo workspaces (83 crates) |
 | WASM Bundler | Trunk |
 
 ## Key Constraints

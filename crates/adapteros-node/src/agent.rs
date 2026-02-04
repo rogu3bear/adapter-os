@@ -27,6 +27,7 @@ pub struct WorkerInfo {
 
 /// Model Server process information for shared model inference
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Reserved for model server supervision feature
 pub struct ModelServerInfo {
     /// Process ID of the model server
     pub pid: u32,
@@ -48,6 +49,7 @@ pub struct ModelServerInfo {
 
 /// Configuration for Model Server supervision
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Reserved for model server supervision feature
 pub struct SupervisorConfig {
     /// Interval between health checks
     pub check_interval: Duration,
@@ -79,12 +81,15 @@ impl Default for SupervisorConfig {
 pub struct NodeAgent {
     workers: Arc<RwLock<HashMap<u32, WorkerInfo>>>,
     /// Model server process (single instance per node)
+    #[allow(dead_code)] // Reserved for model server supervision feature
     model_server: Arc<RwLock<Option<ModelServerInfo>>>,
     pf_status_cache: Arc<RwLock<Option<(bool, Instant)>>>,
     pf_cache_ttl: Duration,
     /// Supervisor configuration
+    #[allow(dead_code)] // Reserved for model server supervision feature
     supervisor_config: SupervisorConfig,
     /// Flag to signal supervisor shutdown
+    #[allow(dead_code)] // Reserved for model server supervision feature
     supervisor_shutdown: Arc<RwLock<bool>>,
 }
 
@@ -390,6 +395,7 @@ impl NodeAgent {
     /// * `model_path` - Path to the model directory
     /// * `grpc_port` - Port for gRPC server (default: 50051)
     /// * `max_kv_cache_sessions` - Maximum KV cache sessions (default: 32)
+    #[allow(dead_code)] // Reserved for model server supervision feature
     pub async fn spawn_model_server(
         &self,
         model_path: &str,
@@ -514,6 +520,7 @@ impl NodeAgent {
     }
 
     /// Stop the Model Server process
+    #[allow(dead_code)] // Reserved for model server supervision feature
     pub async fn stop_model_server(&self) -> Result<()> {
         let mut ms = self.model_server.write().await;
         if let Some(info) = ms.take() {
@@ -554,6 +561,7 @@ impl NodeAgent {
     }
 
     /// Get Model Server info
+    #[allow(dead_code)] // Reserved for model server supervision feature
     pub async fn get_model_server_info(&self) -> Option<ModelServerInfo> {
         self.model_server.read().await.clone()
     }
@@ -566,6 +574,7 @@ impl NodeAgent {
     /// 3. Updates the `healthy` field in `ModelServerInfo`
     ///
     /// Returns `true` if the server is healthy, `false` otherwise.
+    #[allow(dead_code)] // Reserved for model server supervision feature
     pub async fn check_model_server_health(&self) -> bool {
         let info = {
             let ms = self.model_server.read().await;
@@ -679,6 +688,7 @@ impl NodeAgent {
     /// 3. Increments the restart counter
     ///
     /// Returns the new PID on success.
+    #[allow(dead_code)] // Reserved for model server supervision feature
     pub async fn restart_model_server(&self) -> Result<u32> {
         // Get current config before stopping
         let (model_path, grpc_port, max_kv_cache_sessions, restart_count) = {
@@ -747,6 +757,7 @@ impl NodeAgent {
     /// - `shutdown_model_server_supervisor()` is called
     /// - Maximum restart attempts are exhausted
     /// - The NodeAgent is dropped
+    #[allow(dead_code)] // Reserved for model server supervision feature
     pub async fn start_model_server_supervisor(
         self: Arc<Self>,
         check_interval: Option<Duration>,
@@ -871,6 +882,7 @@ impl NodeAgent {
     }
 
     /// Signal the Model Server supervisor to shut down
+    #[allow(dead_code)] // Reserved for model server supervision feature
     pub async fn shutdown_model_server_supervisor(&self) {
         let mut shutdown = self.supervisor_shutdown.write().await;
         *shutdown = true;

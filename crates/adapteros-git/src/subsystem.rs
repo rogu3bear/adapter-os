@@ -20,6 +20,7 @@ use tokio::time::Duration;
 use tracing::{debug, error, info, warn};
 
 use crate::branch_manager::{BranchManager, BranchManagerConfig};
+use crate::config::WatcherConfig;
 
 /// Configuration for the Git subsystem.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -195,18 +196,6 @@ impl GitWatcher {
     /// Check if the watcher is currently running
     pub fn is_running(&self) -> bool {
         self.is_running
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct WatcherConfig {
-    /// Debounce interval in milliseconds for change detection
-    pub debounce_ms: u64,
-}
-
-impl Default for WatcherConfig {
-    fn default() -> Self {
-        Self { debounce_ms: 500 }
     }
 }
 
@@ -582,8 +571,8 @@ impl GitSubsystem {
 
         info!(component = "git_polling", "Starting Git polling");
 
-        // Start watcher
-        let config = WatcherConfig { debounce_ms: 500 };
+        // Start watcher with default configuration from config module
+        let config = WatcherConfig::default();
         let (tx, mut rx) = mpsc::channel::<()>(1024);
         let mut watcher = GitWatcher::new(config, self.db.clone(), tx).await?;
         watcher.start().await?;

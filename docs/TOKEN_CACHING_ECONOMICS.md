@@ -218,6 +218,17 @@ The throughput curve shows super-linear improvement because:
 
 ---
 
+## Cache Proof Binding (V7)
+
+Receipt schema V7 binds cache reuse to verifiable proof material:
+- `cache_scope` (explicitly `global` in current policy)
+- `cached_prefix_digest_b3` and `cached_prefix_len` (prefix proof)
+- `cache_key_b3` (cache identity binding)
+
+These fields allow offline verification that cached tokens correspond to the prompt prefix and prevent silent cache credit inflation.
+
+---
+
 ## Related Documentation
 
 - [**MOE_FREE_TOKEN_EXPLORATION.md**](design/MOE_FREE_TOKEN_EXPLORATION.md) — MoE-specific "free token" optimization
@@ -226,4 +237,4 @@ The throughput curve shows super-linear improvement because:
 
 ---
 
-*Last updated: January 29, 2026*
+*Last updated: February 4, 2026*

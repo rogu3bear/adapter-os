@@ -19,11 +19,19 @@ fn fixture_root() -> PathBuf {
 }
 
 fn run_aosctl(args: &[&str]) -> std::process::Output {
-    Command::new("cargo")
-        .args(["run", "--bin", "aosctl", "--"])
+    let output = Command::new("cargo")
+        .args(["run", "-p", "adapteros-cli", "--bin", "aosctl", "--"])
         .args(args)
+        .env("CARGO_INCREMENTAL", "0")
+        .env("CARGO_TERM_PROGRESS_WHEN", "never")
         .output()
-        .expect("aosctl command should run")
+        .expect("aosctl command should run");
+    if !output.status.success() {
+        eprintln!("aosctl failed with status: {}", output.status);
+        eprintln!("stdout:\n{}", String::from_utf8_lossy(&output.stdout));
+        eprintln!("stderr:\n{}", String::from_utf8_lossy(&output.stderr));
+    }
+    output
 }
 
 #[test]

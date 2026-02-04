@@ -25,7 +25,6 @@ use chrono::Utc;
 use serde_json::json;
 use sqlx::Row;
 use std::collections::HashMap;
-use uuid::Uuid;
 
 // ===== Process Logs and Debugging Endpoints =====
 
@@ -50,6 +49,9 @@ pub async fn list_process_logs(
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<Vec<ProcessLogResponse>>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+    let worker_id = crate::id_resolver::resolve_any_id(&state.db, &worker_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     let level_filter = params.get("level");
     let limit = params
@@ -123,6 +125,9 @@ pub async fn list_process_crashes(
     Path(worker_id): Path<String>,
 ) -> Result<Json<Vec<ProcessCrashDumpResponse>>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+    let worker_id = crate::id_resolver::resolve_any_id(&state.db, &worker_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     let rows = sqlx::query(
         "SELECT * FROM process_crash_dumps WHERE worker_id = ? ORDER BY crash_timestamp DESC LIMIT 100",
@@ -178,8 +183,14 @@ pub async fn start_debug_session(
     Json(req): Json<StartDebugSessionRequest>,
 ) -> Result<Json<ProcessDebugSessionResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+    let worker_id = crate::id_resolver::resolve_any_id(&state.db, &worker_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
-    let id = Uuid::now_v7().to_string();
+    let id = crate::id_generator::readable_id(
+        adapteros_core::ids::IdKind::Run,
+        "process",
+    );
     let started_at = Utc::now().to_rfc3339();
 
     // Insert debug session into database
@@ -238,8 +249,14 @@ pub async fn run_troubleshooting_step(
     Json(req): Json<RunTroubleshootingStepRequest>,
 ) -> Result<Json<ProcessTroubleshootingStepResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+    let worker_id = crate::id_resolver::resolve_any_id(&state.db, &worker_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
-    let id = Uuid::now_v7().to_string();
+    let id = crate::id_generator::readable_id(
+        adapteros_core::ids::IdKind::Run,
+        "process",
+    );
     let started_at = Utc::now().to_rfc3339();
 
     // Insert troubleshooting step into database
@@ -505,6 +522,9 @@ pub async fn acknowledge_process_alert(
     Json(_req): Json<AcknowledgeProcessAlertRequest>,
 ) -> Result<Json<ProcessAlertResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+    let alert_id = crate::id_resolver::resolve_any_id(&state.db, &alert_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     ProcessAlert::update_status(
         state.db.pool(),
@@ -636,6 +656,9 @@ pub async fn update_process_anomaly_status(
     Json(req): Json<UpdateProcessAnomalyStatusRequest>,
 ) -> Result<Json<ProcessAnomalyResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+    let anomaly_id = crate::id_resolver::resolve_any_id(&state.db, &anomaly_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     let new_status = parse_anomaly_status(&req.status);
 
@@ -765,7 +788,10 @@ pub async fn create_process_monitoring_dashboard(
 ) -> Result<Json<ProcessMonitoringDashboardResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
-    let id = Uuid::now_v7().to_string();
+    let id = crate::id_generator::readable_id(
+        adapteros_core::ids::IdKind::Run,
+        "process",
+    );
     let now = Utc::now().to_rfc3339();
     let config_json = serde_json::to_string(&req.dashboard_config).unwrap_or("{}".to_string());
 
@@ -975,7 +1001,10 @@ pub async fn create_process_monitoring_report(
 ) -> Result<Json<ProcessMonitoringReportResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
-    let id = Uuid::now_v7().to_string();
+    let id = crate::id_generator::readable_id(
+        adapteros_core::ids::IdKind::Run,
+        "process",
+    );
     let now = Utc::now().to_rfc3339();
     let config_json = req.report_config.as_ref().map(|c| serde_json::to_string(c).unwrap_or("{}".to_string()));
 

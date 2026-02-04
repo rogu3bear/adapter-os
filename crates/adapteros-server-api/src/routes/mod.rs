@@ -18,7 +18,7 @@ use crate::middleware::policy_enforcement::policy_enforcement_middleware;
 use crate::middleware::versioning;
 use crate::middleware::{
     auth_middleware, client_ip_middleware, csrf_middleware, optional_auth_middleware,
-    tenant_route_guard_middleware,
+    tenant_route_guard_middleware, worker_uid_middleware,
 };
 use crate::middleware_security::{
     cors_layer, drain_middleware, rate_limiting_middleware, request_size_limit_middleware,
@@ -49,6 +49,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::auth_enhanced::login_handler,
         handlers::auth_enhanced::bootstrap_admin_handler,
         handlers::auth_enhanced::get_auth_config_handler,
+        handlers::ui_config::get_ui_config,
         handlers::auth_enhanced::auth_health_handler,
         handlers::auth_enhanced::refresh_token_handler,
         handlers::auth_enhanced::register_handler,
@@ -302,6 +303,8 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::diag_bundle::download_bundle,
         handlers::telemetry::search_traces,
         handlers::telemetry::get_trace,
+        handlers::telemetry::list_inference_traces,
+        handlers::telemetry::get_inference_trace_detail,
         handlers::telemetry::query_logs,
         handlers::telemetry::stream_logs,
         handlers::telemetry::get_recent_activity,
@@ -988,6 +991,7 @@ pub fn build(state: AppState) -> Router {
             "/v1/auth/config",
             get(handlers::auth_enhanced::get_auth_config_handler),
         )
+        .route("/v1/ui/config", get(handlers::ui_config::get_ui_config))
         .route(
             "/v1/auth/health",
             get(handlers::auth_enhanced::auth_health_handler),
@@ -1086,11 +1090,26 @@ pub fn build(state: AppState) -> Router {
                 )),
         );
 
-    // Internal routes (worker-to-control-plane communication, no user auth required)
-    // These endpoints are called by workers, not by users. Workers authenticate via:
-    // - UDS peer credentials (local workers)
-    // - Plan/manifest binding validation (registration)
-    // - Worker ID existence check (status updates)
+    // Internal routes (worker-to-control-plane communication)
+    //
+    // SECURITY MODEL:
+    // - These routes are NOT protected by JWT auth, CSRF, or tenant guard
+    // - Policy enforcement middleware is applied
+    // - Worker UID validation is applied when AOS_WORKER_UID is set
+    // - Authentication relies on:
+    //   1. Production mode enforces UDS-only binding (no TCP)
+    //   2. Plan/manifest hash validation during registration
+    //   3. Worker ID existence checks for status updates
+    //   4. UCred UID validation (when AOS_WORKER_UID is configured)
+    //
+    // TRUST BOUNDARY: These routes assume the caller is a trusted worker process
+    // on the same host. Defense-in-depth is provided by:
+    // - UCred validation ensures connecting process UID matches expected worker UID
+    // - A compromised process with different UID cannot access these routes
+    // - Even with correct UID, cannot perform inference or access user data
+    //   (requires protected routes with JWT)
+    //
+    // To enable UCred validation, set: AOS_WORKER_UID=<expected_uid>
     let internal_routes = Router::new()
         // Worker fatal error channel (PRD-09 Phase 4)
         .route("/v1/workers/fatal", post(handlers::receive_worker_fatal))
@@ -1112,6 +1131,8 @@ pub fn build(state: AppState) -> Router {
             post(handlers::workers::worker_heartbeat),
         )
         .with_state(state.clone())
+        // Worker UID validation (defense-in-depth, opt-in via AOS_WORKER_UID)
+        .layer(middleware::from_fn(worker_uid_middleware))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             policy_enforcement_middleware,
@@ -1984,6 +2005,18 @@ pub fn build(state: AppState) -> Router {
         )
         // Trace routes
         .route("/v1/traces/search", get(handlers::telemetry::search_traces))
+        .route(
+            "/v1/traces/inference",
+            get(handlers::telemetry::list_inference_traces),
+        )
+        .route(
+            "/v1/ui/traces/inference/{trace_id}",
+            get(handlers::telemetry::get_ui_inference_trace_detail),
+        )
+        .route(
+            "/v1/traces/inference/{trace_id}",
+            get(handlers::telemetry::get_inference_trace_detail),
+        )
         .route("/v1/traces/{trace_id}", get(handlers::telemetry::get_trace))
         // Logs routes
         .route("/v1/logs/query", get(handlers::telemetry::query_logs))

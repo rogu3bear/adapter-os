@@ -14,7 +14,7 @@ Target scope: $ARGUMENTS (defaults to entire codebase if not specified)
 
 Spawn these agents in parallel using Task tool with `run_in_background: true`:
 
-1. **taste-auditor** - Find unprofessional content, inappropriate language
+1. **language-auditor** - Find unprofessional content, inappropriate language
 2. **performance-hunter** - Find hot path inefficiencies, O(n²) algorithms
 3. **error-handling-auditor** - Find swallowed errors, missing context
 4. **testing-gap-finder** - Find untested security code, missing coverage
@@ -36,8 +36,8 @@ When all agents complete, compile findings into:
 ```markdown
 # Codebase Health Report
 
-## The "Ew" Category (Taste)
-[Summary of taste findings]
+## The "Ew" Category (Language)
+[Summary of language findings]
 
 ## Opportunities Found
 

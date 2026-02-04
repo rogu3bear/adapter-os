@@ -3,13 +3,15 @@
 //! Model management with list view and status display.
 
 use crate::api::{
-    AllModelsStatusResponse, ApiClient, ApiError, ModelLoadStatus, ModelStatusResponse,
+    report_error_with_toast, AllModelsStatusResponse, ApiClient, ApiError, ModelLoadStatus,
+    ModelStatusResponse,
 };
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonVariant, Card, ErrorDisplay, Spinner, SplitPanel, Table,
-    TableBody, TableCell, TableHead, TableHeader, TableRow,
+    Badge, BadgeVariant, Button, ButtonVariant, Card, CopyableId, ErrorDisplay, Spinner,
+    SplitPanel, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState};
+use crate::utils::format_datetime;
 use leptos::prelude::*;
 use std::sync::Arc;
 
@@ -198,12 +200,12 @@ fn ModelList(
                                     </TableCell>
                                     <TableCell>
                                         <span class="text-sm text-muted-foreground">
-                                            {model.loaded_at.clone().map(|ts| format_date(&ts)).unwrap_or_else(|| "-".to_string())}
+                                            {model.loaded_at.clone().map(|ts| format_datetime(&ts)).unwrap_or_else(|| "-".to_string())}
                                         </span>
                                     </TableCell>
                                     <TableCell>
                                         <span class="text-sm text-muted-foreground">
-                                            {format_date(&model.updated_at)}
+                                            {format_datetime(&model.updated_at)}
                                         </span>
                                     </TableCell>
                                     <TableCell>
@@ -347,7 +349,7 @@ fn ModelDetailContent(
                     on_update.run(());
                 }
                 Err(e) => {
-                    web_sys::console::error_1(&format!("Failed to load model: {:?}", e).into());
+                    report_error_with_toast(&e, "Failed to load model", Some("/models"), true);
                 }
             }
             set_loading.set(false);
@@ -366,7 +368,7 @@ fn ModelDetailContent(
                     on_update.run(());
                 }
                 Err(e) => {
-                    web_sys::console::error_1(&format!("Failed to unload model: {:?}", e).into());
+                    report_error_with_toast(&e, "Failed to unload model", Some("/models"), true);
                 }
             }
             set_loading.set(false);
@@ -440,10 +442,7 @@ fn ModelDetailContent(
         // Details
         <Card title="Details".to_string() class="mt-4".to_string()>
             <div class="grid gap-3 text-sm">
-                <div class="flex justify-between">
-                    <span class="text-muted-foreground">"Model ID"</span>
-                    <span class="font-mono text-xs">{model.model_id.clone()}</span>
-                </div>
+                <CopyableId id=model.model_id.clone() label="Model ID".to_string() truncate=24 />
                 <div class="flex justify-between">
                     <span class="text-muted-foreground">"Name"</span>
                     <span class="font-medium">{model.model_name.clone()}</span>
@@ -460,7 +459,7 @@ fn ModelDetailContent(
                 {model.loaded_at.clone().map(|ts| view! {
                     <div class="flex justify-between">
                         <span class="text-muted-foreground">"Loaded At"</span>
-                        <span>{format_date(&ts)}</span>
+                        <span>{format_datetime(&ts)}</span>
                     </div>
                 })}
             </div>
@@ -501,14 +500,5 @@ fn model_status_label(status: ModelLoadStatus) -> (BadgeVariant, &'static str) {
         ModelLoadStatus::Checking => (BadgeVariant::Default, "Checking"),
         ModelLoadStatus::Error => (BadgeVariant::Destructive, "Error"),
         ModelLoadStatus::NoModel => (BadgeVariant::Secondary, "Unloaded"),
-    }
-}
-
-/// Format a date string for display
-fn format_date(date_str: &str) -> String {
-    if date_str.len() >= 16 {
-        format!("{} {}", &date_str[0..10], &date_str[11..16])
-    } else {
-        date_str.to_string()
     }
 }

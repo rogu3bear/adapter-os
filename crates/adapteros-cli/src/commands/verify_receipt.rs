@@ -10,7 +10,8 @@ use std::path::{Path, PathBuf};
 
 use adapteros_core::receipt_digest::{
     self, ReceiptDigestInput, RECEIPT_SCHEMA_CURRENT, RECEIPT_SCHEMA_V1, RECEIPT_SCHEMA_V2,
-    RECEIPT_SCHEMA_V3, RECEIPT_SCHEMA_V4,
+    RECEIPT_SCHEMA_V3, RECEIPT_SCHEMA_V4, RECEIPT_SCHEMA_V5, RECEIPT_SCHEMA_V6,
+    RECEIPT_SCHEMA_V7,
 };
 use adapteros_core::B3Hash;
 use adapteros_crypto::signature::{PublicKey, Signature};
@@ -36,6 +37,9 @@ pub use adapteros_core::receipt_digest::{
     RECEIPT_SCHEMA_V2 as RECEIPT_SCHEMA_V2_REEXPORT,
     RECEIPT_SCHEMA_V3 as RECEIPT_SCHEMA_V3_REEXPORT,
     RECEIPT_SCHEMA_V4 as RECEIPT_SCHEMA_V4_REEXPORT,
+    RECEIPT_SCHEMA_V5 as RECEIPT_SCHEMA_V5_REEXPORT,
+    RECEIPT_SCHEMA_V6 as RECEIPT_SCHEMA_V6_REEXPORT,
+    RECEIPT_SCHEMA_V7 as RECEIPT_SCHEMA_V7_REEXPORT,
 };
 
 fn default_schema_version() -> u8 {
@@ -77,6 +81,12 @@ struct ReceiptContext {
     policy_mask_digest_hex: Option<String>,
     #[serde(default)]
     context_digest_hex: Option<String>,
+    #[serde(default)]
+    tokenizer_hash_b3_hex: Option<String>,
+    #[serde(default)]
+    tokenizer_version: Option<String>,
+    #[serde(default)]
+    tokenizer_normalization: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -174,6 +184,86 @@ struct ReceiptDigests {
     /// Model cache identity V2 digest (V4+, PRD-06)
     #[serde(default)]
     model_cache_identity_v2_digest_b3_hex: Option<String>,
+
+    // =========================================================================
+    // V5 fields: Equipment profile + citations
+    // =========================================================================
+    #[serde(default)]
+    equipment_profile_digest_b3_hex: Option<String>,
+    #[serde(default)]
+    processor_id: Option<String>,
+    #[serde(default)]
+    mlx_version: Option<String>,
+    #[serde(default)]
+    ane_version: Option<String>,
+    #[serde(default)]
+    citations_merkle_root_b3_hex: Option<String>,
+    #[serde(default)]
+    citation_count: u32,
+
+    // =========================================================================
+    // V6 fields: Cross-run lineage
+    // =========================================================================
+    #[serde(default)]
+    previous_receipt_digest_hex: Option<String>,
+    #[serde(default)]
+    session_sequence: u64,
+
+    // =========================================================================
+    // V7 fields: Determinism envelope + cache/retrieval bindings
+    // =========================================================================
+    #[serde(default)]
+    tokenizer_hash_b3_hex: Option<String>,
+    #[serde(default)]
+    tokenizer_version: Option<String>,
+    #[serde(default)]
+    tokenizer_normalization: Option<String>,
+    #[serde(default)]
+    model_build_hash_b3_hex: Option<String>,
+    #[serde(default)]
+    adapter_build_hash_b3_hex: Option<String>,
+    #[serde(default)]
+    decode_algo: Option<String>,
+    #[serde(default)]
+    temperature_q15: Option<i16>,
+    #[serde(default)]
+    top_p_q15: Option<i16>,
+    #[serde(default)]
+    top_k: Option<u32>,
+    #[serde(default)]
+    seed_digest_b3_hex: Option<String>,
+    #[serde(default)]
+    sampling_backend: Option<String>,
+    #[serde(default)]
+    thread_count: Option<u32>,
+    #[serde(default)]
+    reduction_strategy: Option<String>,
+    #[serde(default)]
+    stop_eos_q15: Option<i16>,
+    #[serde(default)]
+    stop_window_digest_b3_hex: Option<String>,
+    #[serde(default)]
+    cache_scope: Option<String>,
+    #[serde(default)]
+    cached_prefix_digest_b3_hex: Option<String>,
+    #[serde(default)]
+    cached_prefix_len: Option<u32>,
+    #[serde(default)]
+    cache_key_b3_hex: Option<String>,
+    #[serde(default)]
+    retrieval_merkle_root_b3_hex: Option<String>,
+    #[serde(default)]
+    retrieval_order_digest_b3_hex: Option<String>,
+    #[serde(default)]
+    tool_call_inputs_digest_b3_hex: Option<String>,
+    #[serde(default)]
+    tool_call_outputs_digest_b3_hex: Option<String>,
+    #[serde(default)]
+    disclosure_level: Option<String>,
+    #[serde(default)]
+    receipt_signing_kid: Option<String>,
+    #[serde(default)]
+    receipt_signed_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -322,10 +412,23 @@ fn compute_context_digest(ctx: &ReceiptContext) -> Result<B3Hash> {
     let stack_bytes =
         hex::decode(&ctx.stack_hash_hex).with_context(|| "Failed to decode stack_hash_hex")?;
     let mut buf = Vec::with_capacity(
-        ctx.tenant_namespace.len() + stack_bytes.len() + 4 + (ctx.prompt_tokens.len() * 4),
+        ctx.tenant_namespace.len() + stack_bytes.len() + 4 + (ctx.prompt_tokens.len() * 4) + 96,
     );
     buf.extend_from_slice(ctx.tenant_namespace.as_bytes());
     buf.extend_from_slice(&stack_bytes);
+    if let Some(ref hex) = ctx.tokenizer_hash_b3_hex {
+        if let Ok(bytes) = hex::decode(hex) {
+            buf.extend_from_slice(&bytes);
+        }
+        if let Some(ref version) = ctx.tokenizer_version {
+            buf.extend_from_slice(&(version.len() as u32).to_le_bytes());
+            buf.extend_from_slice(version.as_bytes());
+        }
+        if let Some(ref norm) = ctx.tokenizer_normalization {
+            buf.extend_from_slice(&(norm.len() as u32).to_le_bytes());
+            buf.extend_from_slice(norm.as_bytes());
+        }
+    }
     buf.extend_from_slice(&(ctx.prompt_tokens.len() as u32).to_le_bytes());
     for t in &ctx.prompt_tokens {
         buf.extend_from_slice(&t.to_le_bytes());
@@ -494,6 +597,9 @@ fn verify_bundle_with_options(
 /// - V2 (with backend): V1 fields + schema_version + backend_used + backend_attestation
 /// - V3 (with seed): V2 fields + seed_digest + seed_mode + has_manifest_binding
 /// - V4 (production): core + stop controller + KV quota + prefix cache + model cache
+/// - V5: equipment profile + citations
+/// - V6: cross-run lineage
+/// - V7: determinism envelope + cache/retrieval/tool bindings
 fn compute_receipt_digest_from_bundle(
     context_digest: &B3Hash,
     run_head: &B3Hash,
@@ -584,6 +690,145 @@ fn compute_receipt_digest_from_bundle(
             .and_then(|b| <[u8; 32]>::try_from(b).ok());
 
         input = input.with_model_cache_identity(model_cache_identity);
+    }
+
+    // V5 fields: Equipment profile + citations
+    if receipt.schema_version >= RECEIPT_SCHEMA_V5 {
+        let equipment_profile = receipt
+            .equipment_profile_digest_b3_hex
+            .as_ref()
+            .and_then(|h| hex::decode(h).ok())
+            .and_then(|b| <[u8; 32]>::try_from(b).ok());
+
+        input = input.with_equipment_profile(
+            equipment_profile,
+            receipt.processor_id.clone(),
+            receipt.mlx_version.clone(),
+            receipt.ane_version.clone(),
+        );
+
+        let citations_root = receipt
+            .citations_merkle_root_b3_hex
+            .as_ref()
+            .and_then(|h| hex::decode(h).ok())
+            .and_then(|b| <[u8; 32]>::try_from(b).ok());
+
+        input = input.with_citations(citations_root, receipt.citation_count);
+    }
+
+    // V6 fields: Cross-run lineage
+    if receipt.schema_version >= RECEIPT_SCHEMA_V6 {
+        let previous_receipt = receipt
+            .previous_receipt_digest_hex
+            .as_ref()
+            .and_then(|h| hex::decode(h).ok())
+            .and_then(|b| <[u8; 32]>::try_from(b).ok());
+
+        input = input.with_cross_run_lineage(previous_receipt, receipt.session_sequence);
+    }
+
+    // V7 fields: Determinism envelope + cache/retrieval bindings
+    if receipt.schema_version >= RECEIPT_SCHEMA_V7 {
+        let tokenizer_hash = receipt
+            .tokenizer_hash_b3_hex
+            .as_ref()
+            .and_then(|h| hex::decode(h).ok())
+            .and_then(|b| <[u8; 32]>::try_from(b).ok());
+
+        input = input.with_tokenizer_identity(
+            tokenizer_hash,
+            receipt.tokenizer_version.clone(),
+            receipt.tokenizer_normalization.clone(),
+        );
+
+        let model_build = receipt
+            .model_build_hash_b3_hex
+            .as_ref()
+            .and_then(|h| hex::decode(h).ok())
+            .and_then(|b| <[u8; 32]>::try_from(b).ok());
+        let adapter_build = receipt
+            .adapter_build_hash_b3_hex
+            .as_ref()
+            .and_then(|h| hex::decode(h).ok())
+            .and_then(|b| <[u8; 32]>::try_from(b).ok());
+
+        input = input.with_build_provenance(model_build, adapter_build);
+
+        let seed_digest = receipt
+            .seed_digest_b3_hex
+            .as_ref()
+            .and_then(|h| hex::decode(h).ok())
+            .and_then(|b| <[u8; 32]>::try_from(b).ok());
+
+        input = input.with_decoder_config(
+            receipt.decode_algo.clone(),
+            receipt.temperature_q15,
+            receipt.top_p_q15,
+            receipt.top_k,
+            seed_digest,
+            receipt.sampling_backend.clone(),
+        );
+
+        input = input.with_concurrency_determinism(
+            receipt.thread_count,
+            receipt.reduction_strategy.clone(),
+        );
+
+        let stop_window = receipt
+            .stop_window_digest_b3_hex
+            .as_ref()
+            .and_then(|h| hex::decode(h).ok())
+            .and_then(|b| <[u8; 32]>::try_from(b).ok());
+
+        input = input.with_stop_controller_inputs(receipt.stop_eos_q15, stop_window);
+
+        let cached_prefix_digest = receipt
+            .cached_prefix_digest_b3_hex
+            .as_ref()
+            .and_then(|h| hex::decode(h).ok())
+            .and_then(|b| <[u8; 32]>::try_from(b).ok());
+        let cache_key = receipt
+            .cache_key_b3_hex
+            .as_ref()
+            .and_then(|h| hex::decode(h).ok())
+            .and_then(|b| <[u8; 32]>::try_from(b).ok());
+
+        input = input.with_cache_proof(
+            receipt.cache_scope.clone(),
+            cached_prefix_digest,
+            receipt.cached_prefix_len,
+            cache_key,
+        );
+
+        let retrieval_merkle = receipt
+            .retrieval_merkle_root_b3_hex
+            .as_ref()
+            .and_then(|h| hex::decode(h).ok())
+            .and_then(|b| <[u8; 32]>::try_from(b).ok());
+        let retrieval_order = receipt
+            .retrieval_order_digest_b3_hex
+            .as_ref()
+            .and_then(|h| hex::decode(h).ok())
+            .and_then(|b| <[u8; 32]>::try_from(b).ok());
+        let tool_inputs = receipt
+            .tool_call_inputs_digest_b3_hex
+            .as_ref()
+            .and_then(|h| hex::decode(h).ok())
+            .and_then(|b| <[u8; 32]>::try_from(b).ok());
+        let tool_outputs = receipt
+            .tool_call_outputs_digest_b3_hex
+            .as_ref()
+            .and_then(|h| hex::decode(h).ok())
+            .and_then(|b| <[u8; 32]>::try_from(b).ok());
+
+        input = input.with_retrieval_tool_binding(
+            retrieval_merkle,
+            retrieval_order,
+            tool_inputs,
+            tool_outputs,
+        );
+
+        input = input.with_disclosure_level(receipt.disclosure_level.clone());
     }
 
     // Use the canonical implementation

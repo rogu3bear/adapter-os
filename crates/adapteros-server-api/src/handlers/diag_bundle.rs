@@ -31,7 +31,6 @@ use std::io::Write;
 use subtle::ConstantTimeEq;
 use tokio_util::io::ReaderStream;
 use tracing::{debug, info, warn};
-use uuid::Uuid;
 
 /// Perform constant-time comparison of two strings to prevent timing attacks.
 /// Returns false if lengths differ (which leaks length info, but that's acceptable
@@ -162,7 +161,7 @@ pub async fn create_bundle_export(
     let events_truncated = events.len() >= 50000;
 
     // Build bundle contents
-    let export_id = Uuid::new_v4().to_string();
+    let export_id = crate::id_generator::readable_id(adapteros_core::ids::IdKind::Export, "diag");
     let created_at = Utc::now().to_rfc3339();
 
     // Create bundle files in memory

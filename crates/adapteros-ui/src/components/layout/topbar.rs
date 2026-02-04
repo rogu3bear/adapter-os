@@ -3,22 +3,15 @@
 //! Thin top bar with branding, command palette hint, and user menu.
 //! Responsive: collapses to hamburger menu on mobile viewports.
 
+use crate::components::error_history_panel::use_error_history;
 use crate::components::glass_toggle::GlassThemeToggle;
 use crate::components::global_search::GlobalSearchBox;
+use crate::components::layout::nav_registry::build_mobile_nav_items;
 use crate::components::responsive::use_is_mobile;
 use crate::components::status::{Badge, BadgeVariant};
-use crate::signals::use_auth;
+use crate::constants::urls::docs_url;
+use crate::signals::{use_auth, use_notification_state, use_ui_profile};
 use leptos::prelude::*;
-
-/// Mobile menu navigation items
-const MOBILE_NAV_ITEMS: &[(&str, &str, &str)] = &[
-    ("Operate", "/", "M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"),
-    ("Build", "/training", "M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"),
-    ("Configure", "/adapters", "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"),
-    ("Data", "/datasets", "M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"),
-    ("Verify", "/audit", "M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"),
-    ("Admin", "/admin", "M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"),
-];
 
 /// Thin top bar with branding, command palette hint, and user menu.
 /// Responsive: collapses to hamburger + key actions on mobile.
@@ -30,6 +23,7 @@ pub fn TopBar() -> impl IntoView {
     let (user_menu_open, set_user_menu_open) = signal(false);
     let (mobile_menu_open, set_mobile_menu_open) = signal(false);
     let is_mobile = use_is_mobile();
+    let docs_url_value = docs_url();
 
     // Environment detection (dev/prod)
     let env_badge = {
@@ -55,7 +49,7 @@ pub fn TopBar() -> impl IntoView {
     };
 
     view! {
-        <header class="topbar h-10 flex items-center justify-between border-b border-border/50 bg-background/95 backdrop-blur-sm px-4 shrink-0">
+        <header class="topbar h-10 flex items-center justify-between border-b border-border/50 bg-background/95 backdrop-blur-sm shrink-0">
             // Left: Hamburger (mobile) + Product name + environment badge
             <div class="flex items-center gap-3">
                 // Hamburger menu button (mobile only)
@@ -86,6 +80,22 @@ pub fn TopBar() -> impl IntoView {
 
             // Right: Glass toggle + User menu
             <div class="topbar-actions flex items-center gap-2">
+                {(!docs_url_value.is_empty()).then(|| view! {
+                    <a
+                        class="topbar-action flex items-center gap-2 px-2 py-1 rounded-md hover:bg-muted/50 transition-colors"
+                        href=docs_url_value
+                        target="_blank"
+                        rel="noopener noreferrer"
+                    >
+                        <svg class="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 18h.01M10 8h4m-4 4h2m7 4a2 2 0 01-2 2H7a2 2 0 01-2-2V6a2 2 0 012-2h6l4 4v8z"/>
+                        </svg>
+                        <span class="text-xs text-muted-foreground">"Docs"</span>
+                    </a>
+                })}
+                // Error history button with unread badge
+                <ErrorHistoryButton />
+
                 // Glass theme toggle (PRD-UI-100) - secondary action, hidden on mobile
                 <div class="topbar-action-secondary">
                     <GlassThemeToggle/>
@@ -102,7 +112,17 @@ pub fn TopBar() -> impl IntoView {
                     >
                         {move || {
                             if let Some(user) = auth_state.get().user() {
-                                let initials = user.email.chars().next().unwrap_or('U').to_uppercase().to_string();
+                                let identity = if user.display_name.is_empty() {
+                                    user.email.clone()
+                                } else {
+                                    user.display_name.clone()
+                                };
+                                let initials = identity
+                                    .chars()
+                                    .next()
+                                    .unwrap_or('U')
+                                    .to_uppercase()
+                                    .to_string();
                                 view! {
                                     <div class="w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center text-xs font-medium">
                                         {initials}
@@ -126,21 +146,54 @@ pub fn TopBar() -> impl IntoView {
                         }}
                     </button>
 
-                    // User dropdown
+                    // User dropdown - includes personal account links (Profile, Preferences)
+                    // This is the primary way to access personal settings, separate from Org admin
                     <Show when=move || user_menu_open.get()>
                         <div class="absolute right-0 top-full mt-1 w-48 bg-background border border-border rounded-lg shadow-lg z-50">
                             {move || {
                                 let state = auth_state.get();
                                 if let Some(user) = state.user() {
                                     let email = user.email.clone();
+                                    let identity = if user.display_name.is_empty() {
+                                        email.clone()
+                                    } else {
+                                        user.display_name.clone()
+                                    };
                                     view! {
                                         <div class="p-3 border-b border-border">
                                             <p class="text-sm font-medium truncate">{email}</p>
-                                            <p class="text-xs text-muted-foreground">"Operator"</p>
+                                            <p class="text-xs text-muted-foreground">
+                                                {format!("Logged in as {}", identity)}
+                                            </p>
                                         </div>
+                                        // Account section - personal settings
+                                        <div class="p-1 border-b border-border">
+                                            <a
+                                                href="/user"
+                                                class="flex items-center gap-2 w-full text-left px-3 py-2 text-sm rounded hover:bg-muted/50 transition-colors"
+                                                on:click=move |_| set_user_menu_open.set(false)
+                                            >
+                                                <svg class="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+                                                </svg>
+                                                "Profile"
+                                            </a>
+                                            <a
+                                                href="/settings"
+                                                class="flex items-center gap-2 w-full text-left px-3 py-2 text-sm rounded hover:bg-muted/50 transition-colors"
+                                                on:click=move |_| set_user_menu_open.set(false)
+                                            >
+                                                <svg class="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                                </svg>
+                                                "Preferences"
+                                            </a>
+                                        </div>
+                                        // Session actions
                                         <div class="p-1">
                                             <button
-                                                class="w-full text-left px-3 py-2 text-sm rounded hover:bg-muted/50 transition-colors"
+                                                class="flex items-center gap-2 w-full text-left px-3 py-2 text-sm rounded hover:bg-muted/50 transition-colors text-destructive"
                                                 on:click=move |_| {
                                                     set_user_menu_open.set(false);
                                                     auth_action_signal.with_value(|action| {
@@ -151,6 +204,9 @@ pub fn TopBar() -> impl IntoView {
                                                     });
                                                 }
                                             >
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+                                                </svg>
                                                 "Log out"
                                             </button>
                                         </div>
@@ -187,8 +243,10 @@ pub fn TopBar() -> impl IntoView {
 #[component]
 fn MobileMenu(
     /// Callback to close the menu
-    on_close: impl Fn() + Copy + 'static,
+    on_close: impl Fn() + Copy + Send + 'static,
 ) -> impl IntoView {
+    let ui_profile = use_ui_profile();
+    let docs_url_value = docs_url();
     view! {
         // Backdrop - close on click
         <div
@@ -218,26 +276,92 @@ fn MobileMenu(
 
                 <div class="mobile-menu-content">
                     <div class="mobile-menu-nav">
-                        {MOBILE_NAV_ITEMS.iter().map(|(label, href, icon_path)| {
-                            let href = *href;
-                            let label = *label;
-                            let icon_path = *icon_path;
-                            view! {
-                                <a
-                                    href=href
-                                    class="mobile-menu-link"
-                                    on:click=move |_| on_close()
-                                >
-                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d=icon_path/>
-                                    </svg>
-                                    <span>{label}</span>
-                                </a>
-                            }
-                        }).collect::<Vec<_>>()}
+                        {move || {
+                            build_mobile_nav_items(ui_profile.get())
+                                .into_iter()
+                                .map(|item| {
+                                    let href = item.href;
+                                    let label = item.label;
+                                    let icon_path = item.icon;
+                                    view! {
+                                        <a
+                                            href=href
+                                            class="mobile-menu-link"
+                                            on:click=move |_| on_close()
+                                        >
+                                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d=icon_path/>
+                                            </svg>
+                                            <span>{label}</span>
+                                        </a>
+                                    }
+                                })
+                                .collect::<Vec<_>>()
+                        }}
+                        {(!docs_url_value.is_empty()).then(|| view! {
+                            <a
+                                href=docs_url_value
+                                class="mobile-menu-link"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                            >
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 18h.01M10 8h4m-4 4h2m7 4a2 2 0 01-2 2H7a2 2 0 01-2-2V6a2 2 0 012-2h6l4 4v8z"/>
+                                </svg>
+                                <span>"Documentation"</span>
+                            </a>
+                        })}
                     </div>
                 </div>
             </nav>
         </div>
+    }
+}
+
+/// Error history button with unread count badge
+#[component]
+fn ErrorHistoryButton() -> impl IntoView {
+    let notification_state = use_notification_state();
+    let error_history = use_error_history();
+
+    // Count unread errors/warnings
+    let unread_count = move || {
+        notification_state
+            .get()
+            .notifications
+            .iter()
+            .filter(|n| !n.read)
+            .count()
+    };
+
+    let on_click = move |_| {
+        if let Some(ctx) = error_history {
+            ctx.toggle();
+        }
+    };
+    let has_unread = move || unread_count() > 0;
+
+    view! {
+        <button
+            class="topbar-action relative flex items-center justify-center w-8 h-8 rounded-md hover:bg-muted/50 transition-colors"
+            on:click=on_click
+            title="Error History (Ctrl+Shift+E)"
+            aria-label="Open error history"
+        >
+            // Bell/notification icon
+            <svg class="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
+            </svg>
+
+            // Unread badge
+            <Show when=has_unread>
+                <span class="absolute -top-1 -right-1 flex items-center justify-center min-w-[18px] h-[18px] px-1 text-xs font-medium text-white bg-destructive rounded-full">
+                    {move || {
+                        let count = unread_count();
+                        if count > 99 { "99+".to_string() } else { count.to_string() }
+                    }}
+                </span>
+            </Show>
+        </button>
     }
 }

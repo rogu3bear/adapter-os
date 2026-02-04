@@ -532,4 +532,26 @@ mod tests {
             examples.len()
         );
     }
+
+    #[test]
+    fn split_hash_for_sets_is_order_stable() {
+        let train = vec![
+            make_example(vec![1, 2], vec![3], 1),
+            make_example(vec![4], vec![5, 6], 2),
+        ];
+        let validation = vec![
+            make_example(vec![7], vec![8], 3),
+            make_example(vec![9, 10], vec![11], 4),
+        ];
+
+        let mut train_shuffled = train.clone();
+        train_shuffled.reverse();
+        let mut validation_shuffled = validation.clone();
+        validation_shuffled.reverse();
+
+        let hash_a = compute_split_hash_for_sets(&train, &validation, 123, 0.2);
+        let hash_b = compute_split_hash_for_sets(&train_shuffled, &validation_shuffled, 123, 0.2);
+
+        assert_eq!(hash_a, hash_b);
+    }
 }

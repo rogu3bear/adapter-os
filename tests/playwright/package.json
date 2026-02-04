@@ -1,0 +1,29 @@
+{
+  "name": "adapteros-playwright",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:ui": "node scripts/pw-run.mjs -c playwright.ui.config.ts --",
+    "test:ui:chrome": "node scripts/pw-run.mjs -c playwright.ui.config.ts -- --project=chromium",
+    "test:ui:fast": "node scripts/pw-run.mjs -c playwright.fast.config.ts --",
+    "test:codegraph": "playwright test -c playwright.codegraph.config.ts",
+    "test:minimal": "playwright test -c playwright.minimal.config.ts",
+    "test:all": "npm run test:ui && npm run test:codegraph && npm run test:minimal",
+    "test:ci:shard1": "node scripts/pw-run.mjs -c playwright.ui.config.ts -- --shard=1/3",
+    "test:ci:shard2": "node scripts/pw-run.mjs -c playwright.ui.config.ts -- --shard=2/3",
+    "test:ci:shard3": "node scripts/pw-run.mjs -c playwright.ui.config.ts -- --shard=3/3",
+    "test:smoke": "node scripts/pw-run.mjs -c playwright.ui.config.ts -- --project=chromium --grep @smoke",
+    "test:smoke:core": "node scripts/pw-run.mjs -c playwright.ui.config.ts -- --project=chromium routes.core.smoke",
+    "test:smoke:data": "node scripts/pw-run.mjs -c playwright.ui.config.ts -- --project=chromium routes.data.smoke",
+    "test:smoke:ops": "node scripts/pw-run.mjs -c playwright.ui.config.ts -- --project=chromium routes.ops.smoke",
+    "test:detail": "node scripts/pw-run.mjs -c playwright.ui.config.ts -- --project=chromium --grep @detail",
+    "test:flow": "node scripts/pw-run.mjs -c playwright.ui.config.ts -- --project=chromium --grep @flow",
+    "test:empty": "node scripts/pw-run.mjs -c playwright.ui.config.ts -- --project=chromium --grep @empty",
+    "test:visual": "node scripts/pw-run.mjs -c playwright.ui.config.ts -- visual.spec",
+    "report": "playwright show-report var/playwright/report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.50.0",
+    "typescript": "^5.4.0"
+  }
+}

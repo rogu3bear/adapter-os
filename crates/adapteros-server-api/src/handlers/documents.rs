@@ -29,10 +29,18 @@ use tokio::io::AsyncWriteExt;
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 /// Maximum document size (100MB)
 const MAX_DOCUMENT_SIZE: usize = 100 * 1024 * 1024;
+
+async fn resolve_document_id(state: &AppState, id: &str) -> Result<String, ApiError> {
+    crate::id_resolver::resolve_id(
+        &state.db,
+        adapteros_core::ids::IdKind::Document.prefix(),
+        id,
+    )
+    .await
+}
 
 /// Query parameters for listing documents
 #[derive(Debug, Clone, Default, Deserialize, utoipa::IntoParams)]
@@ -151,7 +159,7 @@ pub async fn upload_document(
     // Validate tenant isolation
     validate_tenant_isolation(&claims, &claims.tenant_id)?;
 
-    let document_id = Uuid::now_v7().to_string();
+    let mut document_id = String::new();
     let storage_root =
         std::env::var("AOS_DOCUMENTS_DIR")
             .ok()
@@ -232,6 +240,16 @@ pub async fn upload_document(
                 debug!("Ignoring unknown field: {}", name);
             }
         }
+    }
+
+    if document_id.is_empty() {
+        let slug_source = if document_name.is_empty() {
+            "document"
+        } else {
+            &document_name
+        };
+        document_id =
+            crate::id_generator::readable_id(adapteros_core::ids::IdKind::Document, slug_source);
     }
 
     let file_data = file_data.ok_or_else(|| ApiError::bad_request("No file uploaded"))?;
@@ -432,6 +450,10 @@ pub async fn get_document(
     // Check permission
     require_permission(&claims, Permission::DatasetView)?;
 
+    let id = resolve_document_id(&state, &id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+
     // Tenant isolation enforced at DB layer - only returns document if tenant matches
     let document = state
         .db
@@ -469,6 +491,10 @@ pub async fn delete_document(
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     // Check permission
     require_permission(&claims, Permission::DatasetDelete)?;
+
+    let id = resolve_document_id(&state, &id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Get document to find storage path (tenant isolation enforced at DB layer)
     let document = state
@@ -544,6 +570,10 @@ pub async fn list_document_chunks(
     // Check permission
     require_permission(&claims, Permission::DatasetView)?;
 
+    let id = resolve_document_id(&state, &id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+
     // Verify document exists (tenant isolation enforced at DB layer)
     let document = state
         .db
@@ -617,6 +647,10 @@ pub async fn download_document(
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     // Check permission
     require_permission(&claims, Permission::DatasetView)?;
+
+    let id = resolve_document_id(&state, &id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Get document to find storage path (tenant isolation enforced at DB layer)
     let document = state
@@ -697,6 +731,10 @@ pub async fn process_document(
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     // Check permission
     require_permission(&claims, Permission::DatasetUpload)?;
+
+    let id = resolve_document_id(&state, &id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Get document (tenant isolation enforced at DB layer)
     let document = state
@@ -832,7 +870,8 @@ async fn process_document_inner(
     // Process each chunk within transaction
     for chunk in &ingested_doc.chunks {
         // Generate chunk UUID for document_chunks table
-        let chunk_db_id = Uuid::now_v7().to_string();
+        let chunk_db_id =
+            crate::id_generator::readable_id(adapteros_core::ids::IdKind::Chunk, "chunk");
 
         // Generate embedding with retry/backoff so one bad chunk does not abort the batch
         let embedding = embed_with_backoff(embedding_model, &chunk.text).await;
@@ -918,7 +957,10 @@ async fn process_document_inner(
                     e
                 ))
             })?)
-            .bind(Uuid::now_v7().to_string())
+            .bind(crate::id_generator::readable_id(
+                adapteros_core::ids::IdKind::Chunk,
+                "chunk",
+            ))
             .execute(&mut *tx)
             .await
             .map_err(|e| {
@@ -1070,6 +1112,10 @@ pub async fn retry_document(
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::DatasetUpload)?;
+
+    let id = resolve_document_id(&state, &id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Get document with tenant isolation
     let document = state

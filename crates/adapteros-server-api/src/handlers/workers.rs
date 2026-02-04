@@ -160,7 +160,7 @@ pub async fn worker_spawn(
 
     // Register worker using Db trait method
     use adapteros_db::workers::WorkerInsertBuilder;
-    let worker_id = uuid::Uuid::now_v7().to_string();
+    let worker_id = crate::id_generator::readable_id(adapteros_core::ids::IdKind::Worker, "worker");
     let mut builder = WorkerInsertBuilder::new()
         .id(&worker_id)
         .tenant_id(&req.tenant_id)
@@ -202,6 +202,8 @@ pub async fn worker_spawn(
         cache_max_mb: None,
         cache_pinned_entries: None,
         cache_active_entries: None,
+        coreml_failure_stage: None,
+        coreml_failure_reason: None,
     }))
 }
 
@@ -320,6 +322,12 @@ pub async fn list_workers(
             cache_max_mb,
             cache_pinned_entries,
             cache_active_entries,
+            coreml_failure_stage: runtime
+                .as_ref()
+                .and_then(|rt| rt.coreml_failure_stage.clone()),
+            coreml_failure_reason: runtime
+                .as_ref()
+                .and_then(|rt| rt.coreml_failure_reason.clone()),
         });
     }
 
@@ -359,6 +367,8 @@ pub async fn stop_worker(
 ) -> ApiResult<crate::types::WorkerStopResponse> {
     // Require worker manage permission
     crate::permissions::require_permission(&claims, crate::permissions::Permission::WorkerManage)?;
+
+    let worker_id = crate::id_resolver::resolve_any_id(&state.db, &worker_id).await?;
 
     // PRD-RECT-002: Admins with admin_tenants grants can access workers across tenants.
     // Returns 404 for both missing and cross-tenant workers (for non-admins).
@@ -818,6 +828,8 @@ pub async fn register_worker(
             cache_active_entries: None,
             tokenizer_hash_b3: req.tokenizer_hash_b3.clone(),
             tokenizer_vocab_size: req.tokenizer_vocab_size,
+            coreml_failure_stage: None,
+            coreml_failure_reason: None,
             loaded_model_hash: None,
             model_load_state: None,
             cache_stats: None,
@@ -1121,6 +1133,12 @@ pub async fn worker_heartbeat(
     if let Some(vocab) = req.tokenizer_vocab_size {
         entry.tokenizer_vocab_size = Some(vocab);
     }
+    if let Some(stage) = req.coreml_failure_stage.clone() {
+        entry.coreml_failure_stage = Some(stage);
+    }
+    if let Some(reason) = req.coreml_failure_reason.clone() {
+        entry.coreml_failure_reason = Some(reason);
+    }
 
     let next_heartbeat_secs: u32 = state
         .config
@@ -1162,6 +1180,8 @@ pub async fn get_worker_history(
     Query(query): Query<HistoryQuery>,
 ) -> ApiResult<Vec<adapteros_db::workers::WorkerStatusHistoryRecord>> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+
+    let worker_id = crate::id_resolver::resolve_any_id(&state.db, &worker_id).await?;
 
     // PRD-RECT-002: Use tenant-scoped query for non-admins to prevent enumeration.
     // Admins can access workers across tenants (intentional for admin operations).
@@ -1328,6 +1348,8 @@ pub async fn list_worker_incidents(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // PRD-RECT-002: Use tenant-scoped query to prevent cross-tenant worker access.
     // Returns 404 for both missing and cross-tenant workers.
+    let worker_id = crate::id_resolver::resolve_any_id(&state.db, &worker_id).await?;
+
     let _worker = state
         .db
         .get_worker_for_tenant(&claims.tenant_id, &worker_id)

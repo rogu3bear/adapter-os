@@ -22,7 +22,6 @@ use std::sync::Arc;
 use tokio::fs;
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
 use tracing::info;
-use uuid::Uuid;
 
 const CANONICAL_FILENAME: &str = "canonical.jsonl";
 const MANIFEST_FILENAME: &str = "manifest.json";
@@ -519,7 +518,8 @@ impl DatasetDomain for DatasetDomainService {
             }
         }
 
-        let version_id = Uuid::now_v7().to_string();
+        let version_id =
+            crate::id_generator::readable_id(adapteros_core::ids::IdKind::Version, "dataset");
         let version_dir =
             self.resolve_version_dir(&request.tenant_id, &request.dataset_id, &version_id)?;
         ensure_dirs([version_dir.as_path()])

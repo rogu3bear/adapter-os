@@ -17,7 +17,6 @@ use adapteros_core::Q15_GATE_DENOMINATOR;
 use chrono::Utc;
 use serde_json::json;
 use std::collections::HashMap;
-use uuid::Uuid;
 
 pub mod activity;
 pub mod adapter_health;
@@ -119,6 +118,7 @@ pub mod topology;
 pub mod training;
 pub mod training_datasets;
 pub mod tutorials;
+pub mod ui_config;
 pub mod utils;
 pub mod validation;
 pub mod worker_detail;
@@ -557,7 +557,8 @@ pub async fn cp_promote(
         })?;
 
     // 3. Insert promotion record with signature
-    let promotion_id = uuid::Uuid::now_v7().to_string();
+    let promotion_id =
+        crate::id_generator::readable_id(adapteros_core::ids::IdKind::Run, "promotion");
     let promotion_timestamp = chrono::Utc::now();
 
     sqlx::query(
@@ -752,7 +753,7 @@ pub async fn worker_spawn(
 
     // Register worker using Db trait method
     use adapteros_db::workers::WorkerInsertBuilder;
-    let worker_id = uuid::Uuid::now_v7().to_string();
+    let worker_id = crate::id_generator::readable_id(adapteros_core::ids::IdKind::Worker, "worker");
     let mut builder = WorkerInsertBuilder::new()
         .id(&worker_id)
         .tenant_id(&req.tenant_id)
@@ -801,6 +802,8 @@ pub async fn worker_spawn(
         model_hash: None,
         tokenizer_hash_b3: None,
         tokenizer_vocab_size: None,
+        coreml_failure_stage: None,
+        coreml_failure_reason: None,
         model_loaded: false,
         cache_used_mb: None,
         cache_max_mb: None,
@@ -939,6 +942,8 @@ pub async fn list_workers(
             model_hash,
             tokenizer_hash_b3: runtime.tokenizer_hash_b3,
             tokenizer_vocab_size: runtime.tokenizer_vocab_size,
+            coreml_failure_stage: runtime.coreml_failure_stage,
+            coreml_failure_reason: runtime.coreml_failure_reason,
             model_loaded,
             cache_used_mb: runtime.cache_used_mb,
             cache_max_mb: runtime.cache_max_mb,
@@ -983,6 +988,9 @@ pub async fn stop_worker(
 ) -> Result<Json<crate::types::WorkerStopResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Require worker manage permission
     crate::permissions::require_permission(&claims, crate::permissions::Permission::WorkerManage)?;
+    let worker_id = crate::id_resolver::resolve_any_id(&state.db, &worker_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Get worker from database
     let worker = state
@@ -1411,7 +1419,7 @@ pub async fn propose_patch(
                 .as_ref()
                 .map(|p| p.proposal_id.clone())
                 .unwrap_or_else(|| {
-                    uuid::Uuid::new_v7(uuid::Timestamp::now(uuid::NoContext)).to_string()
+                    crate::id_generator::readable_id(adapteros_core::ids::IdKind::Run, "promotion")
                 });
 
             let status = if worker_response.patch_proposal.is_some() {
@@ -2006,6 +2014,9 @@ pub async fn archive_adapter_repository(
     Path(repo_id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::AdapterRegister)?;
+    let repo_id = crate::id_resolver::resolve_any_id(&state.db, &repo_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     let archived = state
         .db
@@ -2054,6 +2065,9 @@ pub async fn get_adapter(
     Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
 ) -> Result<Json<AdapterResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let adapter_id = crate::id_resolver::resolve_any_id(&state.db, &adapter_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
     let adapter = state
         .db
         .get_adapter_for_tenant(&claims.tenant_id, &adapter_id)
@@ -2475,6 +2489,9 @@ pub async fn delete_adapter(
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     // Role check: Admin-only (destructive operation)
     crate::permissions::require_permission(&claims, crate::permissions::Permission::AdapterDelete)?;
+    let adapter_id = crate::id_resolver::resolve_any_id(&state.db, &adapter_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Get adapter with tenant-scoped query
     let _adapter = state
@@ -2647,7 +2664,7 @@ pub async fn get_system_metrics(
     crate::permissions::require_permission(&claims, crate::permissions::Permission::MetricsView)?;
 
     use adapteros_system_metrics::SystemMetricsCollector;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     // Collect system metrics (using stubs until adapteros-system-metrics is re-enabled)
     let mut collector = SystemMetricsCollector::new();
@@ -2656,7 +2673,7 @@ pub async fn get_system_metrics(
 
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .expect("System time before UNIX epoch")
+        .unwrap_or(Duration::ZERO)
         .as_secs();
 
     // Collect additional metrics for frontend compatibility
@@ -3434,6 +3451,9 @@ pub async fn get_promotion(
     Extension(_claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> Result<Json<PromotionRecord>, (StatusCode, Json<ErrorResponse>)> {
+    let id = crate::id_resolver::resolve_any_id(&state.db, &id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
     let promo = sqlx::query_as::<_, PromotionRecord>(
         "SELECT id, cpid, promoted_by, promoted_at, signature_b64, 
                 signer_key_id, quality_json, before_cpid 

@@ -74,6 +74,7 @@ pub fn Button(
     #[prop(optional, into)] loading: Signal<bool>,
     #[prop(optional, into)] class: String,
     #[prop(optional, into)] aria_label: String,
+    #[prop(optional, into)] data_testid: Option<String>,
     #[prop(optional)] on_click: Option<Callback<()>>,
     children: Children,
 ) -> impl IntoView {
@@ -87,11 +88,14 @@ pub fn Button(
         class
     );
 
+    let data_testid = data_testid.filter(|value| !value.is_empty());
+
     view! {
         <button
             class=full_class
             disabled=move || disabled.get() || loading.get()
             aria-label=move || (!aria_label.is_empty()).then(|| aria_label.clone())
+            data-testid=move || data_testid.clone()
             on:click=move |_| {
                 if let Some(ref cb) = on_click {
                     cb.run(());

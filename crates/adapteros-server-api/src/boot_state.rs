@@ -63,7 +63,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{debug, info, warn};
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 // Re-export BootPhase as BootState for backward compatibility.
 // This consolidates the duplicate boot state enums into a single source of truth
@@ -285,7 +284,7 @@ impl BootStateManager {
         Self {
             current: Arc::new(RwLock::new(BootState::Stopped)),
             start_time: Instant::now(),
-            boot_trace_id: Uuid::new_v4().to_string(),
+            boot_trace_id: crate::id_generator::readable_trace_id(),
             db: None,
             model_status: Arc::new(RwLock::new(ModelLoadingStatus::default())),
             failure_reason: Arc::new(RwLock::new(None)),

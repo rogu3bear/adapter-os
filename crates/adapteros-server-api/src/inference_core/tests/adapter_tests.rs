@@ -570,6 +570,56 @@ async fn test_effective_adapters_from_session_stack_when_enabled() {
 }
 
 #[tokio::test]
+async fn test_resolve_effective_adapters_explicit_adapters_override_session_pinned() {
+    let state = build_test_state(false).await;
+
+    let session_id = "session-explicit-overrides".to_string();
+    let pinned = vec![
+        "session-adapter-a".to_string(),
+        "session-adapter-b".to_string(),
+    ];
+    let session_params = CreateChatSessionParams {
+        id: session_id.clone(),
+        tenant_id: "tenant-1".to_string(),
+        user_id: None,
+        created_by: None,
+        stack_id: None,
+        collection_id: None,
+        document_id: None,
+        name: "test".to_string(),
+        title: None,
+        source_type: Some("general".to_string()),
+        source_ref_id: None,
+        metadata_json: None,
+        tags_json: None,
+        pinned_adapter_ids: Some(serde_json::to_string(&pinned).unwrap()),
+        codebase_adapter_id: None,
+    };
+    state.db.create_chat_session(session_params).await.unwrap();
+    let session = state
+        .db
+        .get_chat_session(&session_id)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let mut req = InferenceRequestInternal::new("tenant-1".to_string(), "prompt".to_string());
+    req.session_id = Some(session_id.clone());
+    req.adapters = Some(vec!["explicit-x".to_string(), "explicit-y".to_string()]);
+
+    let core = InferenceCore::new(&state);
+    core.resolve_effective_adapters(&mut req, Some(&session))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        req.effective_adapter_ids,
+        Some(vec!["explicit-x".to_string(), "explicit-y".to_string()])
+    );
+    assert!(req.stack_id.is_none());
+}
+
+#[tokio::test]
 async fn test_session_stack_ignored_when_disabled() {
     let state = build_test_state(false).await;
     let stack_req = CreateStackRequest {

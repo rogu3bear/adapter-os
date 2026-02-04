@@ -57,6 +57,10 @@ fn mock_dev_user() -> UserInfoResponse {
 /// Dev: 3 seconds, Prod: 10 seconds (allows for cold start)
 const AUTH_TIMEOUT_MS: u32 = if cfg!(debug_assertions) { 3000 } else { 10000 };
 
+/// Timeout for dev bypass config fetch (GET /v1/auth/config).
+/// If the backend doesn't respond within this window, we skip bypass and run normal auth check.
+const DEV_BYPASS_CHECK_TIMEOUT_MS: u32 = 2000;
+
 /// Classified authentication errors with user-friendly messages
 #[derive(Debug, Clone)]
 pub enum AuthError {
@@ -113,10 +117,10 @@ impl AuthError {
             ApiError::Forbidden(msg) if msg.contains("revoked") => Self::TokenRevoked,
             ApiError::Forbidden(_) => Self::TenantMismatch,
             ApiError::Network(_) => Self::ServerUnavailable,
-            ApiError::Structured { failure_code, .. } => match failure_code {
-                Some(FailureCode::TenantAccessDenied) => Self::TenantMismatch,
-                _ => Self::Other(err.to_string()),
-            },
+            ApiError::Structured {
+                failure_code: Some(FailureCode::TenantAccessDenied),
+                ..
+            } => Self::TenantMismatch,
             _ => Self::Other(err.to_string()),
         }
     }
@@ -338,7 +342,25 @@ pub fn provide_auth_context() {
             let state_timeout = state;
             let client = Arc::clone(&client);
             wasm_bindgen_futures::spawn_local(async move {
-                if is_dev_localhost() && dev_bypass_allowed(&client).await {
+                // On localhost, check dev bypass with a short timeout so we never hang
+                // if the backend is down (GET /v1/auth/config can hang otherwise).
+                let use_dev_bypass = if is_dev_localhost() {
+                    let bypass_future = dev_bypass_allowed(&client);
+                    let timeout_future =
+                        gloo_timers::future::TimeoutFuture::new(DEV_BYPASS_CHECK_TIMEOUT_MS);
+                    futures::pin_mut!(bypass_future);
+                    futures::pin_mut!(timeout_future);
+                    match futures::future::select(bypass_future, timeout_future).await {
+                        futures::future::Either::Left((allowed, _)) => allowed,
+                        futures::future::Either::Right(_) => {
+                            boot_log("auth", "dev bypass check timed out, using normal auth");
+                            false
+                        }
+                    }
+                } else {
+                    false
+                };
+                if use_dev_bypass {
                     boot_log("auth", "dev bypass active (localhost + allowed)");
                     state_timeout.set(AuthState::Authenticated(Box::new(mock_dev_user())));
                     return;

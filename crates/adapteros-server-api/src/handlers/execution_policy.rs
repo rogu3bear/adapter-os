@@ -63,6 +63,9 @@ pub async fn get_execution_policy(
     Extension(claims): Extension<Claims>,
     Path(tenant_id): Path<String>,
 ) -> Result<Json<TenantExecutionPolicy>, (StatusCode, Json<ErrorResponse>)> {
+    let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
     // Validate tenant isolation
     validate_tenant_isolation(&claims, &tenant_id)?;
 
@@ -107,6 +110,9 @@ pub async fn create_execution_policy(
     Path(tenant_id): Path<String>,
     Json(request): Json<CreateExecutionPolicyRequest>,
 ) -> Result<Json<CreatePolicyResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
     // Validate tenant isolation
     validate_tenant_isolation(&claims, &tenant_id)?;
 
@@ -160,6 +166,12 @@ pub async fn deactivate_execution_policy(
     Extension(claims): Extension<Claims>,
     Path((tenant_id, policy_id)): Path<(String, String)>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+    let policy_id = crate::id_resolver::resolve_any_id(&state.db, &policy_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
     // Validate tenant isolation
     validate_tenant_isolation(&claims, &tenant_id)?;
 
@@ -214,6 +226,9 @@ pub async fn get_execution_policy_history(
     Path(tenant_id): Path<String>,
     Query(query): Query<PolicyHistoryQuery>,
 ) -> Result<Json<PolicyHistoryResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
     // Validate tenant isolation
     validate_tenant_isolation(&claims, &tenant_id)?;
 

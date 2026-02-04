@@ -31,6 +31,9 @@ async fn trace_persistence_and_receipt_verification() -> anyhow::Result<()> {
         tenant_id: "tenant-1".to_string(),
         request_id: Some("req-1".to_string()),
         context_digest,
+        stack_id: None,
+        model_id: None,
+        policy_id: None,
     };
     let mut sink = SqlTraceSink::new(db.clone(), start, 32).await?;
 
@@ -165,6 +168,9 @@ async fn trace_persistence_and_receipt_verification() -> anyhow::Result<()> {
         tenant_id: "tenant-1".to_string(),
         request_id: Some("req-1".to_string()),
         context_digest,
+        stack_id: None,
+        model_id: None,
+        policy_id: None,
     };
     let mut sink_second = SqlTraceSink::new(db.clone(), start_second, 32).await?;
     for input in token_inputs.drain(..) {

@@ -111,12 +111,17 @@ impl CodeFeatures {
     ///
     /// Use [`extract`] in production to handle short inputs correctly.
     pub fn from_context(context: &str) -> Self {
+        // OPTIMIZATION: Compute lowercase once and reuse across all extraction functions.
+        // This avoids N allocations per routing decision where N = number of extraction calls.
+        // The pre-lowercased string is passed to functions that need case-insensitive matching.
+        let context_lower = context.to_lowercase();
+
         let mut features = Self::new();
-        features.lang_one_hot = extract_lang_one_hot(context);
-        features.framework_prior = extract_framework_prior(context);
+        features.lang_one_hot = extract_lang_one_hot_with_lower(context, &context_lower);
+        features.framework_prior = extract_framework_prior_with_lower(&context_lower);
         features.symbol_hits = count_symbol_hits(context);
         features.path_tokens = extract_path_tokens(context);
-        features.prompt_verb = classify_prompt_verb(context);
+        features.prompt_verb = classify_prompt_verb_with_lower(&context_lower);
         features
     }
 
@@ -286,11 +291,12 @@ impl Default for CodeFeatures {
     }
 }
 
-/// Extract language one-hot encoding from context
-fn extract_lang_one_hot(context: &str) -> Vec<f32> {
+/// Extract language one-hot encoding from context.
+///
+/// OPTIMIZATION: This function accepts a pre-lowercased context to avoid
+/// redundant allocations when called alongside other extraction functions.
+fn extract_lang_one_hot_with_lower(_context: &str, context_lower: &str) -> Vec<f32> {
     let mut one_hot = vec![0.0; 8];
-
-    let context_lower = context.to_lowercase();
 
     // Language detection heuristics
     let languages = [
@@ -332,11 +338,22 @@ fn extract_lang_one_hot(context: &str) -> Vec<f32> {
     one_hot
 }
 
-/// Extract framework priors from context.
-/// Returns BTreeMap for deterministic iteration order in feature vector construction.
-fn extract_framework_prior(context: &str) -> BTreeMap<String, f32> {
-    let mut priors = BTreeMap::new();
+/// Extract language one-hot encoding from context (standalone version).
+///
+/// Provided for backward compatibility and direct testing.
+#[allow(dead_code)] // Reserved for backward compatibility and direct testing
+fn extract_lang_one_hot(context: &str) -> Vec<f32> {
     let context_lower = context.to_lowercase();
+    extract_lang_one_hot_with_lower(context, &context_lower)
+}
+
+/// Extract framework priors from pre-lowercased context.
+///
+/// OPTIMIZATION: This function accepts a pre-lowercased context to avoid
+/// redundant allocations when called alongside other extraction functions.
+/// Returns BTreeMap for deterministic iteration order in feature vector construction.
+fn extract_framework_prior_with_lower(context_lower: &str) -> BTreeMap<String, f32> {
+    let mut priors = BTreeMap::new();
 
     let frameworks = [
         // Python
@@ -369,6 +386,15 @@ fn extract_framework_prior(context: &str) -> BTreeMap<String, f32> {
     }
 
     priors
+}
+
+/// Extract framework priors from context (standalone version).
+///
+/// Provided for backward compatibility and direct testing.
+#[allow(dead_code)] // Reserved for backward compatibility and direct testing
+fn extract_framework_prior(context: &str) -> BTreeMap<String, f32> {
+    let context_lower = context.to_lowercase();
+    extract_framework_prior_with_lower(&context_lower)
 }
 
 /// Count symbol hits (function names, class names, etc.)
@@ -411,10 +437,11 @@ fn extract_path_tokens(context: &str) -> Vec<String> {
     tokens
 }
 
-/// Classify prompt verb
-fn classify_prompt_verb(context: &str) -> PromptVerb {
-    let context_lower = context.to_lowercase();
-
+/// Classify prompt verb from pre-lowercased context.
+///
+/// OPTIMIZATION: This function accepts a pre-lowercased context to avoid
+/// redundant allocations when called alongside other extraction functions.
+fn classify_prompt_verb_with_lower(context_lower: &str) -> PromptVerb {
     if context_lower.contains("explain")
         || context_lower.contains("what is")
         || context_lower.contains("how does")
@@ -444,6 +471,15 @@ fn classify_prompt_verb(context: &str) -> PromptVerb {
     } else {
         PromptVerb::Unknown
     }
+}
+
+/// Classify prompt verb (standalone version).
+///
+/// Provided for backward compatibility and direct testing.
+#[allow(dead_code)] // Reserved for backward compatibility and direct testing
+fn classify_prompt_verb(context: &str) -> PromptVerb {
+    let context_lower = context.to_lowercase();
+    classify_prompt_verb_with_lower(&context_lower)
 }
 
 /// Convert prompt verb to one-hot encoding

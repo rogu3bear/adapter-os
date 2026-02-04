@@ -87,7 +87,9 @@ export const DiffControls = ({
               📂 Select Database
             </button>
             {dbPathA && (
-              <div style={pathDisplayStyle}>{getFileName(dbPathA)}</div>
+              <div style={pathDisplayStyle} title={dbPathA}>
+                {getFileName(dbPathA)}
+              </div>
             )}
           </div>
         </div>
@@ -99,7 +101,9 @@ export const DiffControls = ({
               📂 Select Database
             </button>
             {dbPathB && (
-              <div style={pathDisplayStyle}>{getFileName(dbPathB)}</div>
+              <div style={pathDisplayStyle} title={dbPathB}>
+                {getFileName(dbPathB)}
+              </div>
             )}
           </div>
         </div>
@@ -283,4 +287,3 @@ const statItemStyle: React.CSSProperties = {
   justifyContent: 'space-between',
   alignItems: 'center',
 };
-

@@ -44,6 +44,7 @@ pub async fn fork_chat_session(
 ) -> Result<(StatusCode, Json<ForkChatSessionResponse>), ApiError> {
     require_permission(&claims, Permission::InferenceExecute)
         .map_err(|_| ApiError::forbidden("Permission denied"))?;
+    let session_id = crate::id_resolver::resolve_any_id(&state.db, &session_id).await?;
 
     // First get the source session name for the response
     let source_session = state

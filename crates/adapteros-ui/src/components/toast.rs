@@ -81,6 +81,14 @@ pub fn ToastItem(
                     }}
                 </div>
                 <p class="toast-message">{toast.message.clone()}</p>
+                {toast.action.clone().map(|action| view! {
+                    <a
+                        href=action.href
+                        class="toast-action-link"
+                    >
+                        {action.label}
+                    </a>
+                })}
                 {move || {
                     if has_details && expanded.get() {
                         let details_for_copy = toast.details.clone().unwrap_or_default();

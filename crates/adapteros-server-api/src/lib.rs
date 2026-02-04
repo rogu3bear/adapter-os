@@ -187,3 +187,5 @@ pub use inference_cache::{
 
 // HTTP utilities from adapteros-api
 pub mod http;
+pub mod id_generator;
+pub mod id_resolver;

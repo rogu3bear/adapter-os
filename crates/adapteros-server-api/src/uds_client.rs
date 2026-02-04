@@ -2072,6 +2072,7 @@ mod tests {
             stop_policy: None,
             stack_id: Some("stack-42".to_string()),
             stack_version: Some(7),
+            policy_id: Some("policy-1".to_string()),
             domain_hint: Some("aerospace".to_string()),
             temperature: 0.7,
             top_k: Some(5),

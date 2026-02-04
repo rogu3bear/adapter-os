@@ -31,6 +31,9 @@ pub async fn update_tenant(
     Json(req): Json<UpdateTenantRequest>,
 ) -> Result<Json<TenantResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_role(&claims, Role::Admin)?;
+    let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Update tenant in database using Db trait methods
     if let Some(ref name) = req.name {
@@ -111,6 +114,9 @@ pub async fn pause_tenant(
     Path(tenant_id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     require_role(&claims, Role::Admin)?;
+    let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Update tenant status to 'paused' using Db trait method
     state.db.pause_tenant(&tenant_id).await.map_err(|e| {
@@ -146,6 +152,9 @@ pub async fn archive_tenant(
     Path(tenant_id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     require_role(&claims, Role::Admin)?;
+    let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Mark tenant as archived using Db trait method
     state.db.archive_tenant(&tenant_id).await.map_err(|e| {
@@ -260,6 +269,9 @@ pub async fn get_tenant_index_hashes(
     Path(tenant_id): Path<String>,
 ) -> Result<Json<IndexHashesResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::TenantView)?;
+    let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     if state
         .db
@@ -613,6 +625,9 @@ pub async fn assign_tenant_adapters(
     Json(req): Json<AssignAdaptersRequest>,
 ) -> Result<Json<AssignAdaptersResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Admin, Role::Operator])?;
+    let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Create tenant-adapter associations using Db trait method
     for adapter_id in &req.adapter_ids {

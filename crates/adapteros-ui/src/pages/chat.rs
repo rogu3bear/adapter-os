@@ -3,6 +3,20 @@
 //! This module provides the chat interface. The full chat page uses
 //! the global chat state from signals/chat.rs for unified state management
 //! with the dock panel.
+//!
+//! ## Performance Characteristics
+//!
+//! Streaming updates flow through:
+//! 1. SSE token -> `stream_inference_to_state` (signals/chat.rs)
+//! 2. Token appended via `push_str` (O(1) amortized)
+//! 3. Signal update triggers reactive subscribers
+//! 4. Message list re-renders (O(n) clone of messages Vec)
+//!
+//! The dock (`chat_dock.rs`) uses `<For>` with keyed iteration for O(1)
+//! per-message updates. The full chat page uses a simpler pattern that
+//! is acceptable for typical message counts (<100).
+//!
+//! Enable `show_telemetry_overlay` in settings for perf timing.
 
 use crate::api::ApiClient;
 use crate::components::inference_guidance::guidance_for;
@@ -16,7 +30,7 @@ use crate::hooks::{use_api_resource, LoadingState};
 use crate::signals::{use_chat, ChatSessionMeta, ChatSessionsManager, StreamNoticeTone};
 use adapteros_api_types::InferenceReadyState;
 use leptos::prelude::*;
-use leptos_router::hooks::use_params_map;
+use leptos_router::hooks::{use_navigate, use_params_map};
 use std::sync::Arc;
 
 /// Maximum prompt length for URL-embedded prompts (bytes).
@@ -31,6 +45,7 @@ const MAX_URL_PROMPT_LENGTH: usize = 2000;
 pub fn Chat() -> impl IntoView {
     let (chat_state, chat_action) = use_chat();
     let sessions = RwSignal::new(ChatSessionsManager::load_sessions());
+    let navigate = use_navigate();
 
     // Delete confirmation state
     let pending_delete_id = RwSignal::new(Option::<String>::None);
@@ -40,27 +55,29 @@ pub fn Chat() -> impl IntoView {
     let dock_has_messages = Memo::new(move |_| !chat_state.get().messages.is_empty());
     let dock_message_count = Memo::new(move |_| chat_state.get().messages.len());
 
-    // Create new session
-    let create_session = move |_| {
-        let session_id = format!("session-{}", uuid::Uuid::new_v4());
-        if let Some(window) = web_sys::window() {
-            let _ = window.location().set_href(&format!("/chat/{}", session_id));
-        }
+    // Create new session - uses client-side navigation for faster transition
+    let create_session = {
+        let navigate = navigate.clone();
+        Callback::new(move |_: ()| {
+            let session_id = generate_readable_id("session", "chat");
+            let path = format!("/chat/{}", session_id);
+            navigate(&path, Default::default());
+        })
     };
 
     // Save dock to session and navigate - wrap in Callback for reuse in reactive closures
     let save_dock_and_navigate = {
         let action = chat_action.clone();
+        let navigate = navigate.clone();
         Callback::new(move |_: ()| {
             let state = chat_state.get_untracked();
-            let session_id = format!("session-{}", uuid::Uuid::new_v4());
+            let session_id = generate_readable_id("session", "chat");
             let session = ChatSessionsManager::session_from_state(&session_id, &state);
             ChatSessionsManager::save_session(&session);
             // Clear dock messages after saving
             action.clear_messages();
-            if let Some(window) = web_sys::window() {
-                let _ = window.location().set_href(&format!("/chat/{}", session_id));
-            }
+            let path = format!("/chat/{}", session_id);
+            navigate(&path, Default::default());
         })
     };
 
@@ -91,7 +108,7 @@ pub fn Chat() -> impl IntoView {
             // Header
             <div class="flex items-center justify-between">
                 <h1 class="text-3xl font-bold tracking-tight">"Chat"</h1>
-                <Button on_click=Callback::new(create_session)>
+                <Button on_click=create_session.clone()>
                     "New Session"
                 </Button>
             </div>
@@ -126,13 +143,20 @@ pub fn Chat() -> impl IntoView {
             <Card title="Recent Sessions".to_string()>
                 {move || {
                     let session_list = sessions.get();
+                    let on_new = create_session.clone();
                     if session_list.is_empty() {
                         view! {
-                            <div class="p-4">
+                            <div class="p-6">
                                 <EmptyState
-                                    title="No chat sessions yet"
-                                    description="Start a new conversation to begin"
+                                    title="Start your first conversation"
+                                    description="Ask questions, explore ideas, and reason over your data. Each session is automatically saved so you can pick up where you left off."
                                     variant=EmptyStateVariant::Empty
+                                    // Sparkle/lightning icon for inspiration
+                                    icon="M13 10V3L4 14h7v7l9-11h-7z"
+                                    action_label="New Session"
+                                    on_action=on_new
+                                    secondary_label="Learn about adapters"
+                                    secondary_href="/adapters"
                                 />
                             </div>
                         }.into_any()
@@ -266,6 +290,43 @@ fn format_relative_time(timestamp: &str) -> String {
     }
 }
 
+fn generate_readable_id(prefix: &str, slug_source: &str) -> String {
+    let slug = slugify(slug_source);
+    let suffix = random_suffix(6);
+    format!("{}.{}.{}", prefix, slug, suffix)
+}
+
+fn slugify(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut prev_dash = false;
+    for ch in input.chars() {
+        let lower = ch.to_ascii_lowercase();
+        if lower.is_ascii_alphanumeric() {
+            out.push(lower);
+            prev_dash = false;
+        } else if !prev_dash {
+            out.push('-');
+            prev_dash = true;
+        }
+    }
+    let trimmed = out.trim_matches('-').to_string();
+    if trimmed.is_empty() {
+        "item".to_string()
+    } else {
+        trimmed
+    }
+}
+
+fn random_suffix(len: usize) -> String {
+    const ALPHABET: &[u8; 32] = b"abcdefghijklmnopqrstuvwxyz234567";
+    let mut out = String::with_capacity(len);
+    for _ in 0..len {
+        let idx = (js_sys::Math::random() * 32.0).floor() as usize;
+        out.push(ALPHABET[idx] as char);
+    }
+    out
+}
+
 /// Chat session page using global state with SSE streaming
 #[component]
 pub fn ChatSession() -> impl IntoView {
@@ -293,14 +354,11 @@ pub fn ChatSession() -> impl IntoView {
     let current_session_id = RwSignal::new(String::new());
     let session_error = RwSignal::new(Option::<String>::None);
 
-    // Load session from localStorage on mount
+    // Load session from localStorage when session ID changes
+    // Tracks session_id() reactively to handle navigation between sessions
     {
         let action = chat_action.clone();
-        Effect::new(move |_| {
-            if session_loaded.get_untracked() {
-                return;
-            }
-
+        Effect::new(move |prev_session_id: Option<String>| {
             let id = session_id();
 
             // Handle empty/invalid session ID - redirect to landing page
@@ -311,39 +369,91 @@ pub fn ChatSession() -> impl IntoView {
                 if let Some(window) = web_sys::window() {
                     let _ = window.location().set_href("/chat");
                 }
-                return;
+                return id;
+            }
+
+            // Skip if same session (effect re-ran for other reasons)
+            if prev_session_id.as_ref() == Some(&id) {
+                return id;
             }
 
             // Clear any existing messages from a different session before loading
-            let prev_session = current_session_id.get_untracked();
-            if !prev_session.is_empty() && prev_session != id {
-                action.clear_messages();
+            if let Some(ref prev) = prev_session_id {
+                if !prev.is_empty() && prev != &id {
+                    action.clear_messages();
+                }
             }
 
             current_session_id.set(id.clone());
+            action.set_session_id(Some(id.clone()));
+            session_loaded.set(false); // Reset for new session
 
             // Try to load session from localStorage
             if let Some(stored) = ChatSessionsManager::load_session(&id) {
+                let msg_count = stored.messages.len();
                 action.restore_session(stored);
                 session_error.set(None);
+                web_sys::console::log_1(
+                    &format!("[Chat] Restored session {} with {} messages", id, msg_count).into(),
+                );
             } else {
-                // Session not found - this is a new session, not an error
-                // Only show error if we expected an existing session (no prompt param)
+                // Session not found - check if this is a stale link or a new session
+                // A "new session" is one the user just created (no history expected)
+                // A "stale link" is one that references a deleted/expired session
                 if let Some(window) = web_sys::window() {
                     if let Ok(search) = window.location().search() {
-                        // If no prompt param and session doesn't exist, it's a stale link
+                        // If no prompt param, user navigated to an existing session URL
+                        // that no longer exists - show a helpful message
                         if !search.contains("prompt=") {
-                            // Check if ID looks like a real session ID (not just created)
-                            let now = js_sys::Date::now() as u64;
-                            if let Some(timestamp_str) = id.strip_prefix("session-") {
-                                if let Ok(timestamp) = timestamp_str.parse::<u64>() {
-                                    // If more than 5 seconds old, likely a stale session
-                                    if now.saturating_sub(timestamp) > 5000 {
-                                        session_error.set(Some(
-                                            "Session not found. It may have been deleted."
-                                                .to_string(),
-                                        ));
-                                    }
+                            // Check if ID looks like a stored session format (session.slug.xxxxx)
+                            // If it matches our format but doesn't exist, it was deleted
+                            if id.starts_with("session.") && id.matches('.').count() >= 2 {
+                                session_error.set(Some(
+                                    "Session not found. It may have been deleted or expired."
+                                        .to_string(),
+                                ));
+                            }
+                            // Otherwise it's a fresh session with custom ID, no error needed
+                        }
+                    }
+                }
+            }
+
+            // Check for ?prompt= and ?adapter= query parameters (only on first load)
+            if prev_session_id.is_none() {
+                if let Some(window) = web_sys::window() {
+                    if let Ok(search) = window.location().search() {
+                        if let Ok(params) = web_sys::UrlSearchParams::new_with_str(&search) {
+                            // Handle ?adapter= parameter - auto-pin the adapter
+                            if let Some(adapter_id) = params.get("adapter") {
+                                let decoded_adapter = js_sys::decode_uri_component(&adapter_id)
+                                    .map(|s| s.as_string().unwrap_or_default())
+                                    .unwrap_or(adapter_id);
+                                if !decoded_adapter.is_empty() {
+                                    // Pin the adapter for this chat session
+                                    action.toggle_pin_adapter(&decoded_adapter);
+                                }
+                            }
+
+                            // Handle ?prompt= parameter
+                            if let Some(prompt) = params.get("prompt") {
+                                let decoded = js_sys::decode_uri_component(&prompt)
+                                    .map(|s| s.as_string().unwrap_or_default())
+                                    .unwrap_or(prompt);
+                                // Defense in depth: validate decoded prompt length
+                                if decoded.len() > MAX_URL_PROMPT_LENGTH {
+                                    web_sys::console::warn_1(
+                                        &format!("Prompt parameter too long ({} bytes), rejecting for security", decoded.len()).into()
+                                    );
+                                    session_error.set(Some(format!(
+                                        "Prompt too long ({} characters). Maximum is {} characters.",
+                                        decoded.len(),
+                                        MAX_URL_PROMPT_LENGTH
+                                    )));
+                                    return id;
+                                }
+                                if !decoded.is_empty() {
+                                    action.send_message_streaming(decoded);
                                 }
                             }
                         }
@@ -351,45 +461,20 @@ pub fn ChatSession() -> impl IntoView {
                 }
             }
 
-            // Check for ?prompt= query parameter
-            if let Some(window) = web_sys::window() {
-                if let Ok(search) = window.location().search() {
-                    if let Ok(params) = web_sys::UrlSearchParams::new_with_str(&search) {
-                        if let Some(prompt) = params.get("prompt") {
-                            let decoded = js_sys::decode_uri_component(&prompt)
-                                .map(|s| s.as_string().unwrap_or_default())
-                                .unwrap_or(prompt);
-                            // Defense in depth: validate decoded prompt length
-                            if decoded.len() > MAX_URL_PROMPT_LENGTH {
-                                web_sys::console::warn_1(
-                                    &format!("Prompt parameter too long ({} bytes), rejecting for security", decoded.len()).into()
-                                );
-                                session_error.set(Some(format!(
-                                    "Prompt too long ({} characters). Maximum is {} characters.",
-                                    decoded.len(),
-                                    MAX_URL_PROMPT_LENGTH
-                                )));
-                                return;
-                            }
-                            if !decoded.is_empty() {
-                                action.send_message_streaming(decoded);
-                            }
-                        }
-                    }
-                }
-            }
-
             session_loaded.set(true);
+            id
         });
     }
 
     // Auto-save session when messages change
-    // Uses get_untracked() for state to avoid re-entrancy during streaming
+    // Uses chat_state.get() to create reactive dependency, then compares with previous state
     {
         Effect::new(move |prev_state: Option<(usize, bool)>| {
-            let state = chat_state.get_untracked();
+            // Get state reactively to trigger effect when it changes
+            let state = chat_state.get();
             let msg_count = state.messages.len();
             let is_streaming = state.streaming;
+            // Get session ID untracked since we only care about state changes, not ID changes
             let id = current_session_id.get_untracked();
 
             // Only save if:
@@ -404,6 +489,10 @@ pub fn ChatSession() -> impl IntoView {
                     if msg_count != prev_count || (was_streaming && !is_streaming) {
                         let session = ChatSessionsManager::session_from_state(&id, &state);
                         ChatSessionsManager::save_session(&session);
+                        web_sys::console::log_1(
+                            &format!("[Chat] Auto-saved session {} ({} messages)", id, msg_count)
+                                .into(),
+                        );
                     }
                 }
             }
@@ -419,21 +508,32 @@ pub fn ChatSession() -> impl IntoView {
         on_cleanup(move || {
             // Always attempt to cancel to prevent stale updates after navigation
             action.cancel_stream();
+            action.set_session_id(None);
         });
     }
 
-    // Derived signals from global state
-    let is_loading = Memo::new(move |_| chat_state.get().loading);
-    let is_streaming = Memo::new(move |_| chat_state.get().streaming);
-    let is_busy = Memo::new(move |_| {
+    // Derived signals from global state - consolidated into single snapshot to avoid redundant subscriptions
+    let chat_snapshot = Memo::new(move |_| {
         let state = chat_state.get();
-        state.loading || state.streaming
+        (
+            state.loading,
+            state.streaming,
+            state.error.clone(),
+            state.stream_recovery.is_some(),
+        )
+    });
+
+    let is_loading = Signal::derive(move || chat_snapshot.get().0);
+    let is_streaming = Signal::derive(move || chat_snapshot.get().1);
+    let is_busy = Signal::derive(move || {
+        let (loading, streaming, _, _) = chat_snapshot.get();
+        loading || streaming
     });
     let can_send = Memo::new(move |_| !message.get().trim().is_empty() && !is_busy.get());
-    let error = Memo::new(move |_| chat_state.get().error.clone());
-    let can_retry = Memo::new(move |_| {
-        let state = chat_state.get();
-        !state.loading && !state.streaming && state.stream_recovery.is_some()
+    let error = Signal::derive(move || chat_snapshot.get().2);
+    let can_retry = Signal::derive(move || {
+        let (loading, streaming, _, has_recovery) = chat_snapshot.get();
+        !loading && !streaming && has_recovery
     });
     let retry_disabled = Signal::derive(move || !can_retry.get());
 
@@ -524,6 +624,18 @@ pub fn ChatSession() -> impl IntoView {
         }
     };
 
+    // Keyboard handler for Enter-to-send (without Shift for newlines)
+    let handle_keydown = {
+        let do_send = do_send.clone();
+        Callback::new(move |ev: web_sys::KeyboardEvent| {
+            // Enter without Shift submits; Enter with Shift allows newline
+            if ev.key() == "Enter" && !ev.shift_key() && can_send.get() {
+                ev.prevent_default();
+                do_send();
+            }
+        })
+    };
+
     // Cancel handler
     let do_cancel = {
         let action = chat_action.clone();
@@ -543,12 +655,12 @@ pub fn ChatSession() -> impl IntoView {
     view! {
         <div class="p-6 flex h-full min-h-0 flex-col gap-4">
             // Header
-            <div class="flex flex-wrap items-start justify-between gap-3 border-b pb-4">
+            <div class="flex flex-wrap items-start justify-between gap-3 border-b border-border pb-4">
                 <div class="space-y-1">
-                    <h1 class="text-xl font-semibold">"Chat Session"</h1>
+                    <h1 class="text-xl font-semibold tracking-tight">"Chat Session"</h1>
                     <div class="flex items-center gap-2 text-xs text-muted-foreground">
-                        <span class="uppercase tracking-wide">"Session"</span>
-                        <span class="font-mono">{session_label}</span>
+                        <span class="uppercase tracking-wider text-2xs font-medium">"Session"</span>
+                        <span class="font-mono bg-muted/30 px-1.5 py-0.5 rounded text-2xs">{session_label}</span>
                     </div>
                 </div>
                 <div class="flex items-center gap-2">
@@ -556,64 +668,41 @@ pub fn ChatSession() -> impl IntoView {
                         let err = error.get();
                         if err.is_some() {
                             view! {
-                                <span class="rounded-full bg-status-error/10 px-2 py-1 text-xs font-medium text-status-error">
-                                    "Error"
-                                </span>
+                                <Badge variant=BadgeVariant::Destructive>"Error"</Badge>
+                            }.into_any()
+                        } else if is_loading.get() {
+                            // Waiting for first token
+                            view! {
+                                <Badge variant=BadgeVariant::Warning>"Connecting"</Badge>
                             }.into_any()
                         } else if is_streaming.get() {
+                            // Actively receiving tokens
                             view! {
-                                <span
-                                    class="rounded-full bg-status-success/10 px-2 py-1 text-xs font-medium text-status-success"
-                                    aria-label="Streaming status"
-                                >
-                                    "Streaming"
-                                </span>
+                                <Badge variant=BadgeVariant::Success>"Streaming"</Badge>
                             }.into_any()
                         } else {
                             view! {
-                                <span
-                                    class="rounded-full bg-muted px-2 py-1 text-xs font-medium text-muted-foreground"
-                                    aria-label="Chat status: Ready"
-                                >
-                                    "Ready"
-                                </span>
+                                <Badge variant=BadgeVariant::Secondary>"Ready"</Badge>
                             }.into_any()
                         }
                     }}
                 </div>
             </div>
 
-            // Stream notice (slow server, worker busy, etc.)
+            // Stream status notice (transient info like "Waiting for server...", "Retrying...")
+            // Warning/Error notices are shown in the error banner below for better UX
             {move || {
-                chat_state.get().stream_notice.clone().map(|notice| {
-                    let message = notice.message.clone();
-                    let retryable = notice.retryable;
-                    let variant = match notice.tone {
-                        StreamNoticeTone::Info => BadgeVariant::Secondary,
-                        StreamNoticeTone::Warning => BadgeVariant::Warning,
-                        StreamNoticeTone::Error => BadgeVariant::Destructive,
-                    };
-                    view! {
-                        <div class="flex items-center gap-3 text-xs">
-                            <Badge variant=variant>{message}</Badge>
-                            {move || {
-                                if retryable {
-                                    view! {
-                                        <Button
-                                            variant=ButtonVariant::Outline
-                                            size=ButtonSize::Sm
-                                            disabled=retry_disabled.clone()
-                                            on_click=do_retry.clone()
-                                        >
-                                            "Retry"
-                                        </Button>
-                                    }.into_any()
-                                } else {
-                                    view! {}.into_any()
-                                }
-                            }}
-                        </div>
+                chat_state.get().stream_notice.clone().and_then(|notice| {
+                    // Only show Info notices in header; Warning/Error go to error banner
+                    if notice.tone != StreamNoticeTone::Info {
+                        return None;
                     }
+                    let message = notice.message.clone();
+                    Some(view! {
+                        <div class="flex items-center gap-3 text-xs" data-testid="chat-stream-status">
+                            <Badge variant=BadgeVariant::Secondary>{message}</Badge>
+                        </div>
+                    })
                 })
             }}
 
@@ -628,23 +717,59 @@ pub fn ChatSession() -> impl IntoView {
 
             // Messages
             <div
-                class="flex-1 overflow-y-auto rounded-lg border bg-card"
+                class="flex-1 overflow-y-auto rounded-lg border border-border bg-card"
                 role="log"
                 aria-live="polite"
                 aria-label="Chat messages"
             >
-                <div class="p-4">
+                <div class="p-5">
                     {move || {
                         let msgs = chat_state.get().messages;
                         if msgs.is_empty() {
                             view! {
-                                <div class="flex h-full items-center justify-center">
-                                    <p class="text-muted-foreground">"No messages yet. Start the conversation!"</p>
+                                <div class="flex h-full min-h-[200px] items-center justify-center py-12">
+                                    <div class="text-center space-y-4 max-w-md px-4">
+                                        // Conversation icon with gradient background
+                                        <div class="mx-auto w-14 h-14 rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center shadow-sm">
+                                            <svg
+                                                xmlns="http://www.w3.org/2000/svg"
+                                                class="h-7 w-7 text-primary"
+                                                fill="none"
+                                                viewBox="0 0 24 24"
+                                                stroke="currentColor"
+                                                stroke-width="1.5"
+                                            >
+                                                <path
+                                                    stroke-linecap="round"
+                                                    stroke-linejoin="round"
+                                                    d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
+                                                />
+                                            </svg>
+                                        </div>
+                                        <div class="space-y-2">
+                                            <h3 class="text-lg font-medium text-foreground">"What would you like to explore?"</h3>
+                                            <p class="text-sm text-muted-foreground leading-relaxed">
+                                                "Ask a question to begin. The system will automatically route your request to the best adapters for the task."
+                                            </p>
+                                        </div>
+                                        // Suggestion chips
+                                        <div class="flex flex-wrap justify-center gap-2 pt-2">
+                                            <span class="text-xs px-3 py-1.5 rounded-full bg-muted text-muted-foreground">
+                                                "Summarize a document"
+                                            </span>
+                                            <span class="text-xs px-3 py-1.5 rounded-full bg-muted text-muted-foreground">
+                                                "Explain a concept"
+                                            </span>
+                                            <span class="text-xs px-3 py-1.5 rounded-full bg-muted text-muted-foreground">
+                                                "Review code"
+                                            </span>
+                                        </div>
+                                    </div>
                                 </div>
                             }.into_any()
                         } else {
                             view! {
-                                <div class="space-y-5">
+                                <div class="space-y-6">
                                     {msgs
                                         .into_iter()
                                         .map(|msg| {
@@ -662,26 +787,37 @@ pub fn ChatSession() -> impl IntoView {
                                                     if is_user { "justify-end" } else { "justify-start" }
                                                 )>
                                                     <div class=format!(
-                                                        "flex flex-col gap-1 {}",
+                                                        "flex flex-col gap-1.5 max-w-[80%] {}",
                                                         if is_user { "items-end" } else { "items-start" }
                                                     )>
-                                                        <span class="text-2xs uppercase tracking-wide text-muted-foreground">
+                                                        <span class="text-2xs uppercase tracking-wider font-medium text-muted-foreground px-1">
                                                             {role_label}
                                                         </span>
                                                         <div class=format!(
-                                                            "rounded-lg px-4 py-2 shadow-sm {}",
+                                                            "rounded-lg px-4 py-3 {} {}",
                                                             if is_user {
-                                                                "bg-primary text-primary-foreground"
+                                                                "bg-primary text-primary-foreground shadow-sm"
                                                             } else {
-                                                                "bg-muted"
-                                                            }
+                                                                "bg-muted/50 border border-border"
+                                                            },
+                                                            // Add min-height during streaming to prevent layout jump
+                                                            if is_streaming { "min-h-[2.5rem]" } else { "" }
                                                         )>
-                                                            <p class="text-sm whitespace-pre-wrap break-words">
+                                                            <p class="text-sm whitespace-pre-wrap break-words leading-relaxed">
                                                                 {msg.content.clone()}
                                                                 {if is_streaming && !msg.content.is_empty() {
-                                                                    view! { <span class="animate-pulse">"_"</span> }.into_any()
+                                                                    // Pulsing cursor at end of streaming content
+                                                                    view! {
+                                                                        <span class="inline-block animate-pulse text-primary/70 ml-0.5">"▍"</span>
+                                                                    }.into_any()
                                                                 } else if is_streaming {
-                                                                    view! { <Spinner/> }.into_any()
+                                                                    // Spinner while waiting for first token
+                                                                    view! {
+                                                                        <span class="inline-flex items-center gap-1.5 text-muted-foreground">
+                                                                            <Spinner/>
+                                                                            <span class="text-xs">"Thinking..."</span>
+                                                                        </span>
+                                                                    }.into_any()
                                                                 } else {
                                                                     view! { <span></span> }.into_any()
                                                                 }}
@@ -693,13 +829,14 @@ pub fn ChatSession() -> impl IntoView {
                                                             let run_overview_url = format!("/runs/{}", tid);
                                                             let run_receipt_url = format!("/runs/{}?tab=receipt", tid);
                                                             Some(view! {
-                                                                <div class="flex items-center gap-2 pl-1 flex-wrap">
+                                                                <div class="flex items-center gap-3 mt-1 px-1 flex-wrap" data-testid="chat-trace-links">
                                                                     <TraceButton
                                                                         trace_id=tid.clone()
                                                                         latency_ms=latency
                                                                         on_click=Callback::new(move |id: String| {
                                                                             active_trace.set(Some(id));
                                                                         })
+                                                                        data_testid="chat-trace-link".to_string()
                                                                     />
                                                                     // Run detail links
                                                                     <div class="flex items-center gap-1">
@@ -707,6 +844,7 @@ pub fn ChatSession() -> impl IntoView {
                                                                             href=run_overview_url
                                                                             class="text-xs text-muted-foreground hover:text-primary transition-colors px-1.5 py-0.5 rounded hover:bg-muted"
                                                                             title="View Run Detail"
+                                                                            data-testid="chat-run-link"
                                                                         >
                                                                             "Run"
                                                                         </a>
@@ -715,6 +853,7 @@ pub fn ChatSession() -> impl IntoView {
                                                                             href=run_receipt_url
                                                                             class="text-xs text-muted-foreground hover:text-primary transition-colors px-1.5 py-0.5 rounded hover:bg-muted"
                                                                             title="Verify Receipt"
+                                                                            data-testid="chat-receipt-link"
                                                                         >
                                                                             "Receipt"
                                                                         </a>
@@ -737,6 +876,97 @@ pub fn ChatSession() -> impl IntoView {
                                             }
                                         })
                                         .collect::<Vec<_>>()}
+
+                                    // Inline error indicator after messages (provides context)
+                                    {move || {
+                                        let state = chat_state.get();
+                                        let has_error = state.error.is_some();
+                                        let notice = state.stream_notice.clone();
+                                        let has_recovery = state.stream_recovery.is_some();
+
+                                        if has_error {
+                                            let display_msg = notice.as_ref()
+                                                .map(|n| n.message.clone())
+                                                .unwrap_or_else(|| "Something went wrong".to_string());
+
+                                            let retryable = notice.as_ref()
+                                                .map(|n| n.retryable)
+                                                .unwrap_or(false);
+
+                                            let is_warning = notice.as_ref()
+                                                .map(|n| n.tone == StreamNoticeTone::Warning)
+                                                .unwrap_or(false);
+
+                                            let (icon_color, bg_color) = if is_warning {
+                                                ("text-warning", "bg-warning/5 border-warning/20")
+                                            } else {
+                                                ("text-destructive", "bg-destructive/5 border-destructive/20")
+                                            };
+
+                                            // Contextual help based on error type
+                                            let help_hint = notice.as_ref().and_then(|n| {
+                                                match n.message.as_str() {
+                                                    "Server is busy" => Some("The server is processing many requests. Retrying usually helps."),
+                                                    "No workers available" => Some("All inference workers are busy. Try again in a moment."),
+                                                    "Connection lost" => Some("Check your network connection and try again."),
+                                                    "Request already in progress" => Some("Wait for the current request to finish."),
+                                                    "Session expired" => Some("You need to log in again to continue."),
+                                                    "Access denied" => Some("You don't have permission for this action."),
+                                                    "Too many requests" => Some("Slow down and try again in a moment."),
+                                                    "Service temporarily unavailable" => Some("The service is temporarily down. Retrying usually helps."),
+                                                    _ => None,
+                                                }
+                                            });
+
+                                            // Determine action hint: retryable needs recovery state to actually work
+                                            let action_hint = if retryable && has_recovery {
+                                                Some("Click Retry above to try again.")
+                                            } else if !retryable {
+                                                Some("Dismiss to send a new message.")
+                                            } else {
+                                                None
+                                            };
+
+                                            Some(view! {
+                                                <div
+                                                    class=format!("flex items-start gap-3 mt-3 p-3 rounded-lg border {}", bg_color)
+                                                    data-testid="chat-inline-error"
+                                                    role="status"
+                                                    aria-live="polite"
+                                                >
+                                                    // Error icon
+                                                    <svg
+                                                        xmlns="http://www.w3.org/2000/svg"
+                                                        class=format!("h-4 w-4 flex-shrink-0 mt-0.5 {}", icon_color)
+                                                        fill="none"
+                                                        viewBox="0 0 24 24"
+                                                        stroke="currentColor"
+                                                        stroke-width="2"
+                                                        aria-hidden="true"
+                                                    >
+                                                        <path
+                                                            stroke-linecap="round"
+                                                            stroke-linejoin="round"
+                                                            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                                                        />
+                                                    </svg>
+                                                    <div class="flex-1 min-w-0 space-y-1">
+                                                        <p class="text-sm font-medium text-foreground">
+                                                            {display_msg}
+                                                        </p>
+                                                        {help_hint.map(|hint| view! {
+                                                            <p class="text-xs text-muted-foreground">{hint}</p>
+                                                        })}
+                                                        {action_hint.map(|hint| view! {
+                                                            <p class="text-xs text-muted-foreground/70">{hint}</p>
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            })
+                                        } else {
+                                            None
+                                        }
+                                    }}
                                 </div>
                             }.into_any()
                         }
@@ -776,45 +1006,97 @@ pub fn ChatSession() -> impl IntoView {
             }}
 
             // Error display with dismiss button
+            // Uses stream_notice.message for human-readable copy, falls back to raw error
+            // Retry button only appears when error is retryable AND recovery state exists
             {move || {
                 let action = chat_action.clone();
-                error.get().map(|e| view! {
-                    <div class="mb-4 rounded-md border border-destructive bg-destructive/10 p-3 text-sm text-destructive">
-                        <div class="flex items-center justify-between gap-2">
-                            <p class="text-sm text-destructive">{e}</p>
-                            <div class="flex items-center gap-2">
-                                {move || {
-                                    let retryable = chat_state
-                                        .get()
-                                        .stream_notice
-                                        .as_ref()
-                                        .map(|n| n.retryable)
-                                        .unwrap_or(false);
-                                    if retryable {
-                                        view! {
-                                        <Button
-                                            variant=ButtonVariant::Outline
-                                            size=ButtonSize::Sm
-                                            disabled=retry_disabled.clone()
-                                            on_click=do_retry.clone()
+                let state = chat_state.get();
+                let notice = state.stream_notice.clone();
+                let raw_error = state.error.clone();
+                let has_recovery = state.stream_recovery.is_some();
+
+                // Only show if there's an error
+                raw_error.map(|raw| {
+                    // Use human-readable notice message if available, else raw error
+                    let display_msg = notice.as_ref()
+                        .map(|n| n.message.clone())
+                        .unwrap_or_else(|| raw.clone());
+
+                    let retryable = notice.as_ref()
+                        .map(|n| n.retryable)
+                        .unwrap_or(false);
+
+                    // Only show retry when both retryable flag is true AND recovery state exists
+                    // This prevents showing retry when the recovery context has been cleared
+                    let show_retry = retryable && has_recovery;
+
+                    let is_warning = notice.as_ref()
+                        .map(|n| n.tone == StreamNoticeTone::Warning)
+                        .unwrap_or(false);
+
+                    // Style based on tone: Warning = amber, Error = red
+                    let (border_class, bg_class, text_class) = if is_warning {
+                        ("border-warning", "bg-warning/10", "text-warning-foreground")
+                    } else {
+                        ("border-destructive", "bg-destructive/10", "text-destructive")
+                    };
+
+                    // Contextual help text based on error type (aligned with inline error hints)
+                    let help_text = notice.as_ref().and_then(|n| {
+                        match n.message.as_str() {
+                            "Server is busy" => Some("The server is processing many requests. Retrying usually helps."),
+                            "No workers available" => Some("All inference workers are busy. Try again in a moment."),
+                            "Connection lost" => Some("Check your network connection and try again."),
+                            "Request already in progress" => Some("Wait for the current request to finish."),
+                            "Session expired" => Some("You need to log in again to continue."),
+                            "Access denied" => Some("You don't have permission for this action."),
+                            "Too many requests" => Some("Slow down and try again in a moment."),
+                            "Service temporarily unavailable" => Some("The service is temporarily down. Retrying usually helps."),
+                            _ => None,
+                        }
+                    });
+
+                    view! {
+                        <div
+                            class=format!("mb-4 rounded-md border {} {} p-3 text-sm", border_class, bg_class)
+                            role="alert"
+                            data-testid="chat-error-banner"
+                        >
+                            <div class="flex flex-col gap-2">
+                                <div class="flex items-center justify-between gap-2">
+                                    <div class="flex flex-col gap-0.5">
+                                        <p class=format!("font-medium {}", text_class)>{display_msg}</p>
+                                        {help_text.map(|ht| view! {
+                                            <p class="text-xs text-muted-foreground">{ht}</p>
+                                        })}
+                                    </div>
+                                    <div class="flex items-center gap-2 flex-shrink-0">
+                                        {if show_retry {
+                                            view! {
+                                                <Button
+                                                    variant=ButtonVariant::Outline
+                                                    size=ButtonSize::Sm
+                                                    disabled=retry_disabled.clone()
+                                                    on_click=do_retry.clone()
+                                                >
+                                                    "Retry"
+                                                </Button>
+                                            }.into_any()
+                                        } else {
+                                            view! {}.into_any()
+                                        }}
+                                        <button
+                                            class="text-sm font-medium text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-muted transition-colors"
+                                            on:click=move |_| action.clear_error()
+                                            aria-label="Dismiss error"
                                         >
-                                            "Retry"
-                                        </Button>
-                                        }.into_any()
-                                    } else {
-                                        view! {}.into_any()
-                                    }
-                                }}
-                                <button
-                                    class="text-sm font-medium text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-muted transition-colors"
-                                    on:click=move |_| action.clear_error()
-                                    aria-label="Dismiss error"
-                                >
-                                    "Dismiss"
-                                </button>
+                                            "Dismiss"
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
                         </div>
-                    </div>
+                    }
                 })
             }}
 
@@ -843,18 +1125,14 @@ pub fn ChatSession() -> impl IntoView {
                                             <a href=action.href class="btn btn-outline btn-sm">
                                                 {action.label}
                                             </a>
-                                            {if let Some(ctx) = status_center {
-                                                Some(view! {
+                                            {status_center.map(|ctx| view! {
                                                     <button
                                                         class="text-xs text-muted-foreground hover:text-foreground"
                                                         on:click=move |_| ctx.open()
                                                     >
                                                         "Why?"
                                                     </button>
-                                                })
-                                            } else {
-                                                None
-                                            }}
+                                                })}
                                         </div>
                                     </div>
                                 </div>
@@ -866,9 +1144,9 @@ pub fn ChatSession() -> impl IntoView {
             }}
 
             // Input
-            <div class="border-t pt-4">
+            <div class="border-t border-border pt-4">
                 <form
-                    class="flex items-end gap-4"
+                    class="flex items-end gap-3"
                     on:submit=move |ev: web_sys::SubmitEvent| {
                         ev.prevent_default();
                         if can_send.get() {
@@ -882,6 +1160,8 @@ pub fn ChatSession() -> impl IntoView {
                         class="flex-1".to_string()
                         rows=2
                         aria_label="Chat message input".to_string()
+                        data_testid="chat-input".to_string()
+                        on_keydown=handle_keydown
                     />
                     {move || {
                         if is_streaming.get() {
@@ -901,6 +1181,7 @@ pub fn ChatSession() -> impl IntoView {
                                     loading=is_loading.get()
                                     disabled=disabled
                                     aria_label=if disabled { "Send message (disabled)".to_string() } else { "Send message".to_string() }
+                                    data_testid="chat-send".to_string()
                                 >
                                     "Send"
                                 </Button>

@@ -281,6 +281,9 @@ pub async fn run(cmd: PreflightCommand, output: &OutputWriter) -> Result<()> {
         results.extend(check_resources().await);
     }
 
+    // 8. Check production hardening configuration
+    results.extend(check_production_hardening().await);
+
     // Display initial results
     display_results(&results, output)?;
 
@@ -330,6 +333,9 @@ pub async fn run(cmd: PreflightCommand, output: &OutputWriter) -> Result<()> {
         if !cmd.skip_resources {
             results.extend(check_resources().await);
         }
+
+        // Re-check production hardening
+        results.extend(check_production_hardening().await);
 
         // Display updated results
         display_results(&results, output)?;
@@ -942,6 +948,98 @@ async fn check_resources() -> Vec<CheckResult> {
                 }
             }
         }
+    }
+
+    results
+}
+
+/// Check production hardening configuration
+///
+/// Verifies security-critical settings for production deployments:
+/// - `production_mode`: When enabled, enforces signature requirements and blocks dev bypasses
+/// - `dev_bypass`: When disabled, ensures full authentication is required
+///
+/// These settings control whether security features like the policy hash watcher
+/// and quarantine system are active.
+async fn check_production_hardening() -> Vec<CheckResult> {
+    let mut results = Vec::new();
+
+    // Check AOS_SERVER_PRODUCTION_MODE
+    let production_mode = std::env::var("AOS_SERVER_PRODUCTION_MODE")
+        .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false);
+
+    if production_mode {
+        results.push(CheckResult::pass(
+            "Production Mode",
+            "production_mode = true (security features enforced)",
+        ));
+    } else {
+        results.push(CheckResult::warning(
+            "Production Mode",
+            "production_mode = false (dev mode - some security features reduced)",
+            Some("export AOS_SERVER_PRODUCTION_MODE=true".to_string()),
+        ));
+    }
+
+    // Check dev_bypass via AOS_DEV_NO_AUTH env var
+    let dev_bypass = std::env::var("AOS_DEV_NO_AUTH")
+        .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false);
+
+    if dev_bypass {
+        results.push(CheckResult::warning(
+            "Dev Bypass",
+            "dev_bypass = true (authentication disabled - NOT for production)",
+            Some("unset AOS_DEV_NO_AUTH".to_string()),
+        ));
+    } else {
+        results.push(CheckResult::pass(
+            "Dev Bypass",
+            "dev_bypass = false (full authentication required)",
+        ));
+    }
+
+    // Add informational messages about security features based on mode
+    if production_mode && !dev_bypass {
+        results.push(
+            CheckResult::pass(
+                "Policy Hash Watcher",
+                "Enabled (production mode enforces policy integrity)",
+            )
+            .with_details("Policies are verified against known hashes".to_string()),
+        );
+        results.push(
+            CheckResult::pass(
+                "Quarantine System",
+                "Enabled (production mode enforces quarantine gates)",
+            )
+            .with_details("Unsafe content is quarantined for review".to_string()),
+        );
+    } else {
+        let reason = if !production_mode && dev_bypass {
+            "dev mode + dev_bypass"
+        } else if !production_mode {
+            "dev mode"
+        } else {
+            "dev_bypass enabled"
+        };
+        results.push(
+            CheckResult::warning(
+                "Policy Hash Watcher",
+                &format!("Reduced enforcement ({})", reason),
+                None,
+            )
+            .with_details("Policy hash verification may be skipped in dev mode".to_string()),
+        );
+        results.push(
+            CheckResult::warning(
+                "Quarantine System",
+                &format!("Reduced enforcement ({})", reason),
+                None,
+            )
+            .with_details("Quarantine gates may be bypassed in dev mode".to_string()),
+        );
     }
 
     results

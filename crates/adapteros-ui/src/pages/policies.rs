@@ -8,7 +8,9 @@ use crate::components::{
     Input, Spinner, SplitPanel, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
     Textarea,
 };
+use crate::constants::urls::docs_link;
 use crate::hooks::{use_api_resource, LoadingState};
+use crate::utils::format_datetime;
 use leptos::prelude::*;
 use std::sync::Arc;
 
@@ -192,7 +194,7 @@ fn PolicyList(
                     title="No policy packs found"
                     description="Policy packs define enforcement rules for inference. Create a policy pack to control model behavior."
                     secondary_label="Learn about Policies"
-                    secondary_href="/docs/policies"
+                    secondary_href=docs_link("policies")
                 />
             </Card>
         }
@@ -234,7 +236,7 @@ fn PolicyList(
                                     </TableCell>
                                     <TableCell>
                                         <span class="text-sm text-muted-foreground">
-                                            {format_date(&policy.created_at)}
+                                            {format_datetime(&policy.created_at)}
                                         </span>
                                     </TableCell>
                                 </tr>
@@ -356,7 +358,7 @@ fn PolicyDetailContent(policy: PolicyPackResponse, on_applied: Callback<()>) -> 
                 </div>
                 <div class="flex justify-between">
                     <span class="text-muted-foreground">"Created"</span>
-                    <span>{format_date(&created_at)}</span>
+                    <span>{format_datetime(&created_at)}</span>
                 </div>
             </div>
         </Card>
@@ -552,18 +554,5 @@ fn PolicyActionsCard(
                 "Validation and enforcement actions require appropriate permissions."
             </p>
         </Card>
-    }
-}
-
-// ============================================================================
-// Utility functions
-// ============================================================================
-
-/// Format a date string for display
-fn format_date(date_str: &str) -> String {
-    if date_str.len() >= 16 {
-        format!("{} {}", &date_str[0..10], &date_str[11..16])
-    } else {
-        date_str.to_string()
     }
 }

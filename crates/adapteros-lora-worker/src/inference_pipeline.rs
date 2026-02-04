@@ -2301,6 +2301,7 @@ mod tests {
             require_evidence: false,
             stack_id: None,
             stack_version: None,
+            policy_id: None,
             domain_hint: None,
             temperature: None,
             top_k: None,

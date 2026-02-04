@@ -321,6 +321,9 @@ async fn run_reasoning_trace(
             tenant_id: "tenant-reasoning".to_string(),
             request_id: Some("req-reasoning".to_string()),
             context_digest: seed,
+            stack_id: None,
+            model_id: None,
+            policy_id: None,
         },
         8,
     )

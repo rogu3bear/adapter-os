@@ -139,6 +139,18 @@ pub struct DatasetSafetyCheckResult {
     pub blocking_reasons: Vec<String>,
     /// Warnings that don't block training but should be noted.
     pub warnings: Vec<String>,
+    /// Optional signal evidence (counts + sample row ids) from latest validation runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signal_evidence: Option<HashMap<String, SafetySignalEvidence>>,
+}
+
+/// Evidence details for a specific safety signal.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Default)]
+pub struct SafetySignalEvidence {
+    pub warn_count: usize,
+    pub block_count: usize,
+    pub reasons: Vec<String>,
+    pub sample_row_ids: Vec<String>,
 }
 
 /// Individual safety signal statuses.
@@ -674,6 +686,66 @@ pub fn evaluate_dataset_safety(
         },
         blocking_reasons,
         warnings,
+        signal_evidence: None,
+    }
+}
+
+async fn load_signal_evidence(
+    state: &AppState,
+    version_id: &str,
+) -> Option<HashMap<String, SafetySignalEvidence>> {
+    let runs = state
+        .db
+        .list_dataset_version_validation_runs(version_id, 100)
+        .await
+        .ok()?;
+
+    let mut evidence: HashMap<String, SafetySignalEvidence> = HashMap::new();
+    for run in runs {
+        let Some(signal) = run.signal.as_ref() else {
+            continue;
+        };
+        if run.tier != "tier2_safety" {
+            continue;
+        }
+        if evidence.contains_key(signal) {
+            continue;
+        }
+
+        let mut entry = SafetySignalEvidence::default();
+        if let Some(ref json) = run.validation_errors_json {
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(json) {
+                if let Some(warn) = value.get("warn_count").and_then(|v| v.as_u64()) {
+                    entry.warn_count = warn as usize;
+                }
+                if let Some(block) = value.get("block_count").and_then(|v| v.as_u64()) {
+                    entry.block_count = block as usize;
+                }
+                if let Some(reasons) = value.get("reasons").and_then(|v| v.as_array()) {
+                    entry.reasons = reasons
+                        .iter()
+                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                        .collect();
+                }
+            }
+        }
+        if let Some(ref json) = run.sample_row_ids_json {
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(json) {
+                if let Some(items) = value.as_array() {
+                    entry.sample_row_ids = items
+                        .iter()
+                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                        .collect();
+                }
+            }
+        }
+        evidence.insert(signal.to_string(), entry);
+    }
+
+    if evidence.is_empty() {
+        None
+    } else {
+        Some(evidence)
     }
 }
 
@@ -698,6 +770,7 @@ pub async fn update_dataset_safety(
     Json(body): Json<UpdateDatasetSafetyRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetValidate)?;
+    let dataset_id = crate::id_resolver::resolve_any_id(&state.db, &dataset_id).await?;
 
     let normalized = normalize_safety_statuses(&body).map_err(|errors| {
         ApiError::bad_request(format!(
@@ -797,6 +870,7 @@ pub async fn override_dataset_trust(
     Json(body): Json<TrustOverrideRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetValidate)?;
+    let dataset_id = crate::id_resolver::resolve_any_id(&state.db, &dataset_id).await?;
 
     let dataset = state
         .db
@@ -877,6 +951,7 @@ pub async fn preview_dataset(
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetView)?;
+    let dataset_id = crate::id_resolver::resolve_any_id(&state.db, &dataset_id).await?;
 
     let limit = params
         .get("limit")
@@ -969,6 +1044,7 @@ pub async fn apply_dataset_trust_override(
     Json(payload): Json<DatasetTrustOverrideRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetValidate)?;
+    let dataset_id = crate::id_resolver::resolve_any_id(&state.db, &dataset_id).await?;
 
     let dataset = state
         .db
@@ -1062,6 +1138,8 @@ pub async fn apply_dataset_version_trust_override(
     Json(payload): Json<DatasetTrustOverrideRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetValidate)?;
+    let dataset_id = crate::id_resolver::resolve_any_id(&state.db, &dataset_id).await?;
+    let version_id = crate::id_resolver::resolve_any_id(&state.db, &version_id).await?;
 
     // Validate dataset exists and enforce tenant isolation
     let dataset = state
@@ -1172,6 +1250,8 @@ pub async fn update_dataset_version_safety(
     Json(body): Json<UpdateDatasetSafetyRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetValidate)?;
+    let dataset_id = crate::id_resolver::resolve_any_id(&state.db, &dataset_id).await?;
+    let version_id = crate::id_resolver::resolve_any_id(&state.db, &version_id).await?;
 
     let normalized = normalize_safety_statuses(&body).map_err(|errors| {
         ApiError::bad_request(format!(
@@ -1289,6 +1369,7 @@ pub async fn check_dataset_safety(
     Path(dataset_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetView)?;
+    let dataset_id = crate::id_resolver::resolve_any_id(&state.db, &dataset_id).await?;
 
     // Get the dataset
     let dataset = state
@@ -1330,18 +1411,23 @@ pub async fn check_dataset_safety(
         .unwrap_or_else(|| "unknown".to_string());
 
     // Evaluate safety
-    let result = evaluate_dataset_safety(
+    let mut result = evaluate_dataset_safety(
         &effective_trust_state,
         &version.pii_status,
         &version.toxicity_status,
         &version.leak_status,
         &version.anomaly_status,
     );
+    result.signal_evidence = load_signal_evidence(&state, &version_id).await;
 
     // Escalate to review if dataset is not safe
     if !result.is_safe {
         if let Some(ref pause_tracker) = state.pause_tracker {
-            let pause_id = format!("dataset-safety-{}-{}", dataset_id, uuid::Uuid::new_v4());
+            let pause_id = format!(
+                "dataset-safety-{}-{}",
+                dataset_id,
+                adapteros_core::ids::generate_suffix(6)
+            );
             let context = format!(
                 "Dataset '{}' (version {}) failed safety check. Trust state: {}. Blocking reasons: {}",
                 dataset_id,
@@ -1417,6 +1503,8 @@ pub async fn check_dataset_version_safety(
     Path((dataset_id, version_id)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetView)?;
+    let dataset_id = crate::id_resolver::resolve_any_id(&state.db, &dataset_id).await?;
+    let version_id = crate::id_resolver::resolve_any_id(&state.db, &version_id).await?;
 
     // Get the dataset
     let dataset = state
@@ -1464,13 +1552,14 @@ pub async fn check_dataset_version_safety(
         .unwrap_or_else(|| "unknown".to_string());
 
     // Evaluate safety
-    let result = evaluate_dataset_safety(
+    let mut result = evaluate_dataset_safety(
         &effective_trust_state,
         &version.pii_status,
         &version.toxicity_status,
         &version.leak_status,
         &version.anomaly_status,
     );
+    result.signal_evidence = load_signal_evidence(&state, &version_id).await;
 
     // Escalate to review if dataset version is not safe
     if !result.is_safe {
@@ -1479,7 +1568,7 @@ pub async fn check_dataset_version_safety(
                 "dataset-safety-{}-{}-{}",
                 dataset_id,
                 version_id,
-                uuid::Uuid::new_v4()
+                adapteros_core::ids::generate_suffix(6)
             );
             let context = format!(
                 "Dataset '{}' version '{}' failed safety check. Trust state: {}. Blocking reasons: {}",
@@ -1638,6 +1727,8 @@ pub async fn get_dataset_version_safety_history(
     Query(params): Query<SafetyHistoryQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetView)?;
+    let dataset_id = crate::id_resolver::resolve_any_id(&state.db, &dataset_id).await?;
+    let version_id = crate::id_resolver::resolve_any_id(&state.db, &version_id).await?;
 
     // Get the dataset
     let dataset = state
@@ -1790,6 +1881,7 @@ pub async fn get_dataset_safety_history(
     Query(params): Query<SafetyHistoryQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetView)?;
+    let dataset_id = crate::id_resolver::resolve_any_id(&state.db, &dataset_id).await?;
 
     // Get the dataset
     let dataset = state
@@ -2264,6 +2356,7 @@ mod safety_validation_tests {
             safety_signals: SafetySignals::default(),
             blocking_reasons: vec![],
             warnings: vec!["Test warning".to_string()],
+            signal_evidence: None,
         };
 
         let json = serde_json::to_string(&result).expect("Should serialize");

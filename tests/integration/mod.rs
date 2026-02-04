@@ -15,6 +15,7 @@ pub mod resource_isolation;
 pub mod test_utils;
 pub mod fixtures;
 pub mod chunked_upload_idempotency;
+pub mod dev_login_dataset_creation;
 
 // Re-export commonly used test utilities
 pub use test_utils::*;

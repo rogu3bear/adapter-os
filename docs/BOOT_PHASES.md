@@ -370,6 +370,25 @@ cargo run --bin aos-worker -- --strict
 - **Token validation required**: All requests must have valid Bearer tokens
 - **No anonymous requests**: Missing or invalid tokens are rejected (401)
 
+### Worker Boot Order And Registration Semantics
+
+The worker boot path is intentionally ordered so the control plane can reason about readiness.
+
+Order (high level):
+1. Validate config and resolve paths (including UDS path preparation).
+2. Register with the control plane (publishes `uds_path`, receives heartbeat/quota).
+3. Bind the UDS socket and start serving.
+4. Notify the control plane of `Healthy` after UDS is listening.
+
+Registration retry policy (transient failures only):
+1. Exponential backoff starting at 1s, capped at 5 minutes.
+2. Deadline of 10 minutes total elapsed time.
+3. Circuit breaker after 10 consecutive failures (stops retrying).
+
+Shutdown semantics:
+1. On drain/exit, the worker notifies `Draining` then `Stopped`.
+2. The final `Stopped`/`Error` status is the terminal signal (unregister equivalent) for the control plane.
+
 ### Verification Matrix
 
 | Feature | Non-Strict | Strict |

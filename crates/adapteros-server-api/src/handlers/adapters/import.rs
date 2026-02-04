@@ -740,7 +740,9 @@ pub async fn import_adapter(
         .get("adapter_id")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
-        .unwrap_or_else(|| format!("imported-{}", uuid::Uuid::new_v4()));
+        .unwrap_or_else(|| {
+            crate::id_generator::readable_id(adapteros_core::ids::IdKind::Adapter, "imported")
+        });
 
     let adapter_name = manifest
         .get("name")

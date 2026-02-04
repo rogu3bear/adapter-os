@@ -48,9 +48,9 @@ impl CoremlState {
         let is_fallback =
             coreml_requested && backend.as_deref() != Some(TrainingBackendKind::CoreML.as_str());
         let fallback_reason = if is_fallback {
-            job.coreml_training_fallback
+            job.backend_reason
                 .clone()
-                .or_else(|| job.backend_reason.clone())
+                .or_else(|| job.coreml_training_fallback.clone())
         } else {
             None
         };
@@ -158,7 +158,7 @@ mod tests {
         assert!(state.coreml_requested);
         assert!(state.coreml_fallback);
         assert_eq!(state.backend.as_deref(), Some("mlx"));
-        assert_eq!(state.fallback_reason.as_deref(), Some("ane_missing"));
+        assert_eq!(state.fallback_reason.as_deref(), Some("ANE unavailable"));
     }
 
     #[test]

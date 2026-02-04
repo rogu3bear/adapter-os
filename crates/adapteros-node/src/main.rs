@@ -517,7 +517,7 @@ async fn sync_create_manifest(
     }
 
     // Generate session ID with UUID v7 for time-ordering
-    let session_id = uuid::Uuid::new_v7(uuid::Timestamp::now(uuid::NoContext)).to_string();
+    let session_id = adapteros_core::ids::generate_id(adapteros_core::ids::IdKind::Session, "node");
 
     // Sign manifest with node's signing key
     let manifest_data = serde_json::to_vec(&artifacts).unwrap_or_default();

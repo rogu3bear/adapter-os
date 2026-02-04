@@ -129,7 +129,7 @@ pub fn LineChart(
     };
 
     // Build SVG ID for accessibility
-    let chart_id = format!("line-chart-{}", uuid::Uuid::new_v4());
+    let chart_id = format!("line-chart-{}", random_suffix(6));
     let title_id = format!("{}-title", chart_id);
     let title_id_for_svg = title_id.clone();
 
@@ -312,6 +312,16 @@ pub fn LineChart(
             }}
         </div>
     }
+}
+
+fn random_suffix(len: usize) -> String {
+    const ALPHABET: &[u8; 32] = b"abcdefghijklmnopqrstuvwxyz234567";
+    let mut out = String::with_capacity(len);
+    for _ in 0..len {
+        let idx = (js_sys::Math::random() * 32.0).floor() as usize;
+        out.push(ALPHABET[idx] as char);
+    }
+    out
 }
 
 /// Pre-computed data for MiniLineChart

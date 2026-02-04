@@ -52,6 +52,9 @@ pub async fn get_chat_provenance(
             Json(ErrorResponse::new("Permission denied").with_code("FORBIDDEN")),
         )
     })?;
+    let session_id = crate::id_resolver::resolve_any_id(&state.db, &session_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Get session
     let session = state

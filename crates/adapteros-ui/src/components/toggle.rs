@@ -7,24 +7,40 @@ use leptos::prelude::*;
 #[component]
 pub fn Toggle(
     #[prop(into)] checked: RwSignal<bool>,
-    #[prop(optional)] disabled: bool,
+    #[prop(optional, into)] disabled: Signal<bool>,
     #[prop(optional, into)] label: Option<String>,
     #[prop(optional, into)] description: Option<String>,
+    /// Accessible label for screen readers (used when no visible label is provided)
+    #[prop(optional, into)]
+    aria_label: Option<String>,
+    /// Optional ID for the toggle button element
+    #[prop(optional, into)]
+    id: Option<String>,
     #[prop(optional, into)] class: String,
 ) -> impl IntoView {
+    // Generate a fallback ID if not provided
+    let button_id = id.unwrap_or_else(|| format!("toggle-{}", uuid::Uuid::new_v4()));
+
     let toggle = move |_| {
-        if !disabled {
+        if !disabled.get() {
             checked.update(|v| *v = !*v);
         }
     };
 
+    // Only apply aria-label when no visible label is provided
+    let effective_aria_label = aria_label.filter(|_| label.is_none());
+    let label_for = button_id.clone();
+
     view! {
         <div class=format!("flex items-center justify-between {}", class)>
             <div class="space-y-0.5">
-                {label.map(|l| view! {
-                    <label class="label">
-                        {l}
-                    </label>
+                {label.map(|l| {
+                    let for_id = label_for.clone();
+                    view! {
+                        <label class="label" for=for_id>
+                            {l}
+                        </label>
+                    }
                 })}
                 {description.map(|d| view! {
                     <p class="text-sm text-muted-foreground">{d}</p>
@@ -32,9 +48,11 @@ pub fn Toggle(
             </div>
             <button
                 type="button"
+                id=button_id
                 role="switch"
                 aria-checked=move || checked.get().to_string()
-                disabled=disabled
+                aria-label=effective_aria_label
+                disabled=move || disabled.get()
                 class=move || {
                     let base = "toggle";
                     let state = if checked.get() { "toggle-on" } else { "toggle-off" };
@@ -66,8 +84,9 @@ pub fn Select(
     #[prop(optional, into)] label: Option<String>,
     #[prop(optional, into)] id: Option<String>,
     #[prop(optional, into)] name: Option<String>,
-    #[prop(optional)] disabled: bool,
+    #[prop(optional, into)] disabled: Signal<bool>,
     #[prop(optional, into)] class: String,
+    #[prop(optional)] on_change: Option<Callback<String>>,
 ) -> impl IntoView {
     let full_class = format!("select {}", class);
     let field_ctx = use_form_field_context();
@@ -85,11 +104,15 @@ pub fn Select(
                 id=input_id
                 name=name
                 class=full_class
-                disabled=disabled
+                disabled=move || disabled.get()
                 aria-describedby=described_by
                 prop:value=move || value.get()
                 on:change=move |ev| {
-                    value.set(event_target_value(&ev));
+                    let next = event_target_value(&ev);
+                    value.set(next.clone());
+                    if let Some(ref callback) = on_change {
+                        callback.run(next);
+                    }
                 }
             >
                 {options.into_iter().map(|(val, label)| {

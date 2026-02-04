@@ -93,6 +93,9 @@ async fn run_reasoning_loop(trace_id: &str, context_digest: [u8; 32]) -> LoopRun
         tenant_id: tenant_id.clone(),
         request_id: None,
         context_digest,
+        stack_id: None,
+        model_id: None,
+        policy_id: None,
     };
     let mut sink = SqlTraceSink::new(db.clone(), start, 1)
         .await

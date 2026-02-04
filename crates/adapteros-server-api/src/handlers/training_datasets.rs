@@ -54,6 +54,7 @@ pub async fn create_training_dataset_from_upload(
     let mut file_name: Option<String> = None;
     let mut mime_type: Option<String> = None;
     let mut file_bytes: Option<Bytes> = None;
+    let mut training_strategy: Option<String> = None;
 
     while let Some(field) = multipart
         .next_field()
@@ -88,6 +89,14 @@ pub async fn create_training_dataset_from_upload(
                         .map_err(|e| ApiError::bad_request(e.to_string()))?,
                 );
             }
+            "training_strategy" => {
+                training_strategy = Some(
+                    field
+                        .text()
+                        .await
+                        .map_err(|e| ApiError::bad_request(e.to_string()))?,
+                );
+            }
             other => {
                 debug!(
                     "Ignoring unknown field in training dataset upload: {}",
@@ -110,6 +119,7 @@ pub async fn create_training_dataset_from_upload(
                 data: file_bytes,
                 name: dataset_name,
                 description,
+                training_strategy,
             },
         )
         .await
@@ -168,6 +178,8 @@ pub async fn get_training_dataset_manifest(
     Path(dataset_version_id): Path<String>,
 ) -> Result<Json<DatasetManifest>, ApiError> {
     require_permission(&claims, Permission::DatasetView)?;
+    let dataset_version_id =
+        crate::id_resolver::resolve_any_id(&state.db, &dataset_version_id).await?;
 
     let version = state
         .db
@@ -216,6 +228,8 @@ pub async fn stream_training_dataset_rows(
     Query(params): Query<StreamRowsQuery>,
 ) -> Result<Json<Vec<CanonicalRow>>, ApiError> {
     require_permission(&claims, Permission::DatasetView)?;
+    let dataset_version_id =
+        crate::id_resolver::resolve_any_id(&state.db, &dataset_version_id).await?;
 
     let version = state
         .db

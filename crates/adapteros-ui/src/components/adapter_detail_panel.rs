@@ -14,26 +14,10 @@ use adapteros_api_types::AdapterResponse;
 use leptos::prelude::*;
 
 use crate::components::{
-    AdapterLifecycleControls, Badge, BadgeVariant, Button, ButtonVariant, Card, Spinner,
+    AdapterLifecycleControls, Badge, BadgeVariant, Button, ButtonVariant, Card, CopyableId, Spinner,
 };
 use crate::contexts::use_in_flight;
-
-/// Format bytes into human-readable string.
-fn format_bytes(bytes: i64) -> String {
-    const KB: i64 = 1024;
-    const MB: i64 = KB * 1024;
-    const GB: i64 = MB * 1024;
-
-    if bytes >= GB {
-        format!("{:.1} GB", bytes as f64 / GB as f64)
-    } else if bytes >= MB {
-        format!("{:.1} MB", bytes as f64 / MB as f64)
-    } else if bytes >= KB {
-        format!("{:.1} KB", bytes as f64 / KB as f64)
-    } else {
-        format!("{} B", bytes)
-    }
-}
+use crate::utils::format_bytes;
 
 /// Truncate a hash for display, showing first and last characters.
 fn truncate_hash(hash: &str, prefix_len: usize, suffix_len: usize) -> String {
@@ -249,9 +233,7 @@ fn AdapterDetailContent(
             <div class="adapter-detail-header">
                 <div class="adapter-detail-header-info">
                     <h2 class="adapter-detail-title">{name}</h2>
-                    <p class="adapter-detail-subtitle font-mono text-sm text-muted-foreground">
-                        {adapter_id.clone()}
-                    </p>
+                    <CopyableId id=adapter_id.clone() truncate=28 />
                 </div>
                 <button
                     type="button"

@@ -2,12 +2,13 @@
 //!
 //! LM Studio-style API key management.
 
-use crate::api::{ApiClient, ApiKeyInfo, CreateApiKeyRequest};
+use crate::api::{report_error_with_toast, ApiClient, ApiKeyInfo, CreateApiKeyRequest};
 use crate::components::{
     Badge, BadgeVariant, Button, ButtonVariant, Card, ErrorDisplay, Input, Spinner, Table,
     TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState};
+use crate::utils::format_date;
 use leptos::prelude::*;
 use std::sync::Arc;
 use wasm_bindgen_futures::spawn_local;
@@ -93,7 +94,12 @@ pub fn ApiKeysSection() -> impl IntoView {
                     refetch.run(());
                 }
                 Err(e) => {
-                    web_sys::console::error_1(&format!("Failed to revoke key: {}", e).into());
+                    report_error_with_toast(
+                        &e,
+                        "Failed to revoke API key",
+                        Some("/admin/api-keys"),
+                        true,
+                    );
                 }
             }
             revoking_id.set(None);
@@ -418,16 +424,6 @@ pub fn ApiKeysSection() -> impl IntoView {
                 }}
             </Card>
         </div>
-    }
-}
-
-/// Format ISO date to a more readable format
-fn format_date(iso: &str) -> String {
-    // Simple date formatting - just show the date part
-    if let Some(date_part) = iso.split('T').next() {
-        date_part.to_string()
-    } else {
-        iso.to_string()
     }
 }
 

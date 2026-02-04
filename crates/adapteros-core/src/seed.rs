@@ -113,8 +113,12 @@ pub const HKDF_ALGORITHM_VERSION: u32 = 2;
 pub const HKDF_OUTPUT_LENGTH: usize = 32;
 
 lazy_static::lazy_static! {
-    /// Seed registry to prevent reuse
-    static ref SEED_REGISTRY: Mutex<HashMap<(String, u64), bool>> = Mutex::new(HashMap::new());
+    /// Seed registry to prevent reuse (scoped per thread)
+    ///
+    /// The registry is partitioned by `ThreadId` so concurrent requests on
+    /// different threads do not interfere with reuse detection.
+    static ref SEED_REGISTRY: Mutex<HashMap<std::thread::ThreadId, HashMap<(String, u64), bool>>> =
+        Mutex::new(HashMap::new());
 }
 
 // =============================================================================
@@ -1300,16 +1304,18 @@ pub fn derive_adapter_seed(
 
     // Check for reuse
     let key = (label.clone(), nonce);
+    let thread_id = std::thread::current().id();
     let mut registry = SEED_REGISTRY
         .lock()
         .map_err(|e| format!("Seed registry lock poisoned: {}", e))?;
-    if registry.contains_key(&key) {
+    let thread_registry = registry.entry(thread_id).or_insert_with(HashMap::new);
+    if thread_registry.contains_key(&key) {
         return Err(format!(
             "Seed reuse detected: {} with nonce {}",
             label, nonce
         ));
     }
-    registry.insert(key, true);
+    thread_registry.insert(key, true);
 
     Ok(derive_seed(global, &label))
 }
@@ -1318,16 +1324,17 @@ pub fn derive_adapter_seed(
 ///
 /// Logs a warning if the registry lock is poisoned (indicates prior panic in seed path).
 pub fn clear_seed_registry() {
+    let thread_id = std::thread::current().id();
     match SEED_REGISTRY.lock() {
         Ok(mut registry) => {
-            registry.clear();
+            registry.remove(&thread_id);
             tracing::debug!("Cleared seed registry");
         }
         Err(e) => {
             // Lock is poisoned - a previous thread panicked while holding it.
             // Clear the poisoned mutex to recover, since seed registry is non-critical state.
             let mut registry = e.into_inner();
-            registry.clear();
+            registry.remove(&thread_id);
             tracing::warn!("Cleared poisoned seed registry (prior panic in seed derivation path)");
         }
     }
@@ -1337,8 +1344,12 @@ pub fn clear_seed_registry() {
 ///
 /// Returns `true` if empty or if the registry lock is poisoned.
 pub fn is_seed_registry_empty() -> bool {
+    let thread_id = std::thread::current().id();
     match SEED_REGISTRY.lock() {
-        Ok(registry) => registry.is_empty(),
+        Ok(registry) => registry
+            .get(&thread_id)
+            .map(|thread_registry| thread_registry.is_empty())
+            .unwrap_or(true),
         Err(e) => {
             // Lock is poisoned - treat as empty for validation purposes
             // but log a warning since this indicates a prior panic.

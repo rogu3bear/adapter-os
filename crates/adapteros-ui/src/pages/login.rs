@@ -112,6 +112,10 @@ pub fn Login() -> impl IntoView {
             wasm_bindgen_futures::spawn_local(async move {
                 match action.login(&username_val, &password_val).await {
                     Ok(_) => {
+                        // Only update signals if component is still mounted
+                        if is_mounted.load(Ordering::SeqCst) {
+                            loading.set(false);
+                        }
                         // Navigate to returnUrl if present, otherwise dashboard
                         let target = return_url
                             .get_value()

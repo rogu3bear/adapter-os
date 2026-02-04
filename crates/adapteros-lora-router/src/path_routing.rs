@@ -31,8 +31,15 @@ pub fn compute_path_scores(
     let tokens = extract_path_tokens(query);
     let lower_tokens: Vec<String> = tokens.iter().map(|t| t.to_lowercase()).collect();
 
+    // OPTIMIZATION: Compute query_lower once before the loop instead of per-context.
+    // This avoids N allocations where N = number of contexts with language hints.
+    let query_lower = query.to_lowercase();
+
     let mut scores = Vec::with_capacity(contexts.len());
     for context in contexts {
+        // Note: path_prefix.to_lowercase() is still called per-context because each
+        // context has a different prefix. To optimize further, prefixes could be
+        // pre-lowercased at DirectoryRoutingContext construction time.
         let prefix = context.path_prefix.to_lowercase();
         let mut best_score = 0.0f32;
         let mut matched_token = None;
@@ -56,7 +63,9 @@ pub fn compute_path_scores(
         }
 
         if let Some(lang) = &context.language_hint {
-            if query.to_lowercase().contains(&lang.to_lowercase()) {
+            // OPTIMIZATION: Use pre-computed query_lower and lowercase lang once per context
+            // instead of lowercasing query per context (was: query.to_lowercase()).
+            if query_lower.contains(&lang.to_lowercase()) {
                 best_score += 0.2;
             }
         }

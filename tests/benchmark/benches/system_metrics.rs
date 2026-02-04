@@ -15,76 +15,73 @@ use tokio::runtime::Runtime;
 /// Benchmark system metrics collection
 fn bench_system_metrics_collection(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
+    let mut collector = SystemMetricsCollector::new();
+    let buffer = Arc::new(MetricsBuffer::new(1000));
 
-    rt.block_on(async {
-        let mut collector = SystemMetricsCollector::new();
-        let buffer = Arc::new(MetricsBuffer::new(1000));
+    // Benchmark CPU metrics collection
+    c.bench_function("cpu_metrics_collection", |b| {
+        b.iter(|| {
+            let metrics = collector.collect_metrics();
+            black_box(metrics);
+        })
+    });
 
-        // Benchmark CPU metrics collection
-        c.bench_function("cpu_metrics_collection", |b| {
-            b.iter(|| {
+    // Benchmark memory metrics collection
+    c.bench_function("memory_metrics_collection", |b| {
+        b.iter(|| {
+            let metrics = collector.collect_metrics();
+            black_box(metrics);
+        })
+    });
+
+    // Benchmark disk I/O metrics collection
+    c.bench_function("disk_io_metrics_collection", |b| {
+        b.iter(|| {
+            let metrics = collector.collect_metrics();
+            black_box(metrics);
+        })
+    });
+
+    // Benchmark network metrics collection
+    c.bench_function("network_metrics_collection", |b| {
+        b.iter(|| {
+            let metrics = collector.collect_metrics();
+            black_box(metrics);
+        })
+    });
+
+    // Benchmark comprehensive system metrics collection
+    c.bench_function("comprehensive_system_metrics", |b| {
+        b.iter(|| {
+            let metrics = collector.collect_metrics();
+            black_box(metrics);
+        })
+    });
+
+    // Benchmark metrics buffering
+    c.bench_function("metrics_buffering_100_samples", |b| {
+        b.iter(|| {
+            for _ in 0..100 {
                 let metrics = collector.collect_metrics();
-                black_box(metrics);
-            })
-        });
+                let identity = adapteros_core::identity::IdentityEnvelope::new(
+                    "test".to_string(),
+                    "telemetry".to_string(),
+                    "benchmark".to_string(),
+                    "1.0".to_string(),
+                );
+                let event = TelemetryEventBuilder::new(
+                    EventType::SystemStart,
+                    LogLevel::Info,
+                    "benchmark".to_string(),
+                    identity,
+                )
+                .metadata(serde_json::to_value(metrics).unwrap())
+                .build()
+                .unwrap();
 
-        // Benchmark memory metrics collection
-        c.bench_function("memory_metrics_collection", |b| {
-            b.iter(|| {
-                let metrics = collector.collect_metrics();
-                black_box(metrics);
-            })
-        });
-
-        // Benchmark disk I/O metrics collection
-        c.bench_function("disk_io_metrics_collection", |b| {
-            b.iter(|| {
-                let metrics = collector.collect_metrics();
-                black_box(metrics);
-            })
-        });
-
-        // Benchmark network metrics collection
-        c.bench_function("network_metrics_collection", |b| {
-            b.iter(|| {
-                let metrics = collector.collect_metrics();
-                black_box(metrics);
-            })
-        });
-
-        // Benchmark comprehensive system metrics collection
-        c.bench_function("comprehensive_system_metrics", |b| {
-            b.iter(|| {
-                let metrics = collector.collect_metrics();
-                black_box(metrics);
-            })
-        });
-
-        // Benchmark metrics buffering
-        c.bench_function("metrics_buffering_100_samples", |b| {
-            b.iter(|| {
-                for _ in 0..100 {
-                    let metrics = collector.collect_metrics();
-                    let identity = adapteros_core::identity::IdentityEnvelope::new(
-                        "test".to_string(),
-                        "telemetry".to_string(),
-                        "benchmark".to_string(),
-                        "1.0".to_string(),
-                    );
-                    let event = TelemetryEventBuilder::new(
-                        EventType::SystemStart,
-                        LogLevel::Info,
-                        "benchmark".to_string(),
-                        identity,
-                    )
-                    .metadata(serde_json::to_value(metrics).unwrap())
-                    .build()
-                    .unwrap();
-
-                    let _ = rt.block_on(buffer.push(event));
-                }
-            })
-        });
+                let _ = rt.block_on(buffer.push(event));
+            }
+        })
     });
 }
 
@@ -162,29 +159,25 @@ fn bench_policy_evaluation(c: &mut Criterion) {
 
 /// Benchmark deterministic execution overhead
 fn bench_deterministic_execution(c: &mut Criterion) {
-    let rt = Runtime::new().unwrap();
+    let executor = Arc::new(DeterministicExecutor::new(
+        adapteros_deterministic_exec::ExecutorConfig::default(),
+    ));
 
-    rt.block_on(async {
-        let executor = Arc::new(DeterministicExecutor::new(
-            adapteros_deterministic_exec::ExecutorConfig::default(),
-        ));
-
-        // Benchmark deterministic task spawning
-        c.bench_function("deterministic_task_spawn", |b| {
-            b.iter(|| {
-                let identity = adapteros_core::identity::IdentityEnvelope::new(
-                    "test".to_string(),
-                    "telemetry".to_string(),
-                    "benchmark".to_string(),
-                    "1.0".to_string(),
-                );
-                let _task_id = executor
-                    .spawn_deterministic("benchmark_task".to_string(), async move {
-                        black_box(identity);
-                    })
-                    .unwrap();
-            })
-        });
+    // Benchmark deterministic task spawning
+    c.bench_function("deterministic_task_spawn", |b| {
+        b.iter(|| {
+            let identity = adapteros_core::identity::IdentityEnvelope::new(
+                "test".to_string(),
+                "telemetry".to_string(),
+                "benchmark".to_string(),
+                "1.0".to_string(),
+            );
+            let _task_id = executor
+                .spawn_deterministic("benchmark_task".to_string(), async move {
+                    black_box(identity);
+                })
+                .unwrap();
+        })
     });
 }
 

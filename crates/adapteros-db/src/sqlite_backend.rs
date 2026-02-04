@@ -53,7 +53,7 @@ impl DatabaseBackend for SqliteBackend {
 
         let row = sqlx::query(
             "INSERT INTO adapter_stacks (id, tenant_id, name, description, adapter_ids_json, workflow_type, version, lifecycle_state, created_at, updated_at, determinism_mode, routing_determinism_mode)
-             VALUES (?, ?, ?, ?, ?, ?, '1.0.0', 'active', datetime('now'), datetime('now'), ?, ?)
+             VALUES (?, ?, ?, ?, ?, ?, 1, 'active', datetime('now'), datetime('now'), ?, ?)
              RETURNING id"
         )
         .bind(&id)
@@ -73,7 +73,9 @@ impl DatabaseBackend for SqliteBackend {
 
     async fn get_stack(&self, tenant_id: &str, id: &str) -> Result<Option<StackRecord>> {
         let row = sqlx::query_as::<_, StackRecordRow>(
-            "SELECT tenant_id, id, name, description, adapter_ids_json, workflow_type, CAST(version AS INTEGER) AS version, lifecycle_state, created_at, updated_at, created_by, determinism_mode, routing_determinism_mode, metadata_json
+            "SELECT tenant_id, id, name, description, adapter_ids_json, workflow_type,
+                    CAST(CAST(version AS INTEGER) AS TEXT) AS version,
+                    lifecycle_state, created_at, updated_at, created_by, determinism_mode, routing_determinism_mode, metadata_json
              FROM adapter_stacks WHERE tenant_id = ? AND id = ?"
         )
         .bind(tenant_id)
@@ -88,7 +90,9 @@ impl DatabaseBackend for SqliteBackend {
     async fn list_stacks(&self) -> Result<Vec<StackRecord>> {
         let rows = sqlx::query_as::<_, StackRecordRow>(
             r#"
-            SELECT tenant_id, id, name, description, adapter_ids_json, workflow_type, CAST(version AS INTEGER) AS version, lifecycle_state, created_at, updated_at, created_by, determinism_mode, routing_determinism_mode, metadata_json
+            SELECT tenant_id, id, name, description, adapter_ids_json, workflow_type,
+                   CAST(CAST(version AS INTEGER) AS TEXT) AS version,
+                   lifecycle_state, created_at, updated_at, created_by, determinism_mode, routing_determinism_mode, metadata_json
             FROM adapter_stacks
             ORDER BY created_at DESC
             "#
@@ -119,17 +123,33 @@ impl DatabaseBackend for SqliteBackend {
     ) -> Result<bool> {
         let adapter_ids_json =
             serde_json::to_string(&stack.adapter_ids).map_err(|e| AosError::Serialization(e))?;
-        let workflow_type = stack.workflow_type.as_deref().unwrap_or("parallel");
+        let workflow_type = stack.workflow_type.as_deref().unwrap_or("Parallel");
         let description = stack.description.as_deref().unwrap_or("");
 
         let tenant_id = &stack.tenant_id;
 
-        // CRITICAL FIX: Use a single atomic UPDATE with conditional version increment
-        // This prevents race conditions where two concurrent updates could both read
-        // the same version and both increment it, resulting in lost updates.
-        //
-        // Strategy: Always do a conditional update based on comparing JSON values
-        // directly in SQL, eliminating the SELECT-then-UPDATE race window.
+        let existing = sqlx::query_as::<_, (String, String)>(
+            r#"
+            SELECT adapter_ids_json, workflow_type
+            FROM adapter_stacks
+            WHERE tenant_id = ? AND id = ?
+            "#,
+        )
+        .bind(tenant_id)
+        .bind(id)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(|e| AosError::Database(format!("Failed to fetch stack for update: {}", e)))?;
+
+        let (current_adapter_ids_json, current_workflow_type) = match existing {
+            Some(row) => row,
+            None => return Ok(false),
+        };
+
+        let should_bump =
+            current_adapter_ids_json != adapter_ids_json || current_workflow_type != workflow_type;
+        let bump = if should_bump { 1i64 } else { 0i64 };
+
         let result = sqlx::query(
             r#"
             UPDATE adapter_stacks
@@ -139,11 +159,7 @@ impl DatabaseBackend for SqliteBackend {
                 workflow_type = ?,
                 determinism_mode = ?,
                 routing_determinism_mode = ?,
-                version = CASE
-                    WHEN adapter_ids_json != ? OR workflow_type != ?
-                    THEN version + 1
-                    ELSE version
-                END,
+                version = version + ?,
                 updated_at = datetime('now')
             WHERE tenant_id = ? AND id = ?
             "#,
@@ -154,8 +170,7 @@ impl DatabaseBackend for SqliteBackend {
         .bind(workflow_type)
         .bind(&stack.determinism_mode)
         .bind(&stack.routing_determinism_mode)
-        .bind(&adapter_ids_json) // For comparison
-        .bind(workflow_type) // For comparison
+        .bind(bump)
         .bind(tenant_id)
         .bind(id)
         .execute(self.pool())
@@ -242,7 +257,8 @@ impl DatabaseBackend for SqliteBackend {
         let rows = sqlx::query_as::<_, StackRecordRow>(
             r#"
             SELECT tenant_id, id, name, description, adapter_ids_json, workflow_type,
-                   CAST(version AS INTEGER) AS version, lifecycle_state, created_at, updated_at, created_by, determinism_mode, routing_determinism_mode, metadata_json
+                   CAST(CAST(version AS INTEGER) AS TEXT) AS version,
+                   lifecycle_state, created_at, updated_at, created_by, determinism_mode, routing_determinism_mode, metadata_json
             FROM adapter_stacks
             WHERE tenant_id = ?
             ORDER BY created_at DESC
