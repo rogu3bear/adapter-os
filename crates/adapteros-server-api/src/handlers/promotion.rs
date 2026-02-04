@@ -40,23 +40,39 @@ use tracing::{error, info, warn};
 pub struct PromoteRequest {
     pub target_stage: String, // "staging" or "production"
     pub notes: Option<String>,
+    pub release: Option<ReleaseMetadata>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ReleaseMetadata {
+    pub commit_sha: Option<String>,
+    pub ci_run_id: Option<String>,
+    pub image_digest: Option<String>,
+    pub build_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct PromoteResponse {
     pub request_id: String,
+    pub release_id: String,
     pub golden_run_id: String,
     pub target_stage: String,
     pub status: String,
+    pub ci_status: String,
+    pub ci_run_id: Option<String>,
     pub created_at: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct PromotionStatusResponse {
     pub request_id: String,
+    pub release_id: String,
     pub golden_run_id: String,
     pub target_stage: String,
     pub status: String,
+    pub ci_status: String,
+    pub ci_run_id: Option<String>,
+    pub ci_checked_at: Option<String>,
     pub requester_email: String,
     pub created_at: String,
     pub updated_at: String,
@@ -100,6 +116,7 @@ pub struct ApproveResponse {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct RollbackRequest {
     pub reason: String,
+    pub target_run_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -109,6 +126,29 @@ pub struct RollbackResponse {
     pub rolled_back_from: String,
     pub reason: String,
 }
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct CiAttestationRequest {
+    pub ci_run_id: String,
+    pub status: String, // "passed" or "failed"
+    pub commit_sha: Option<String>,
+    pub image_digest: Option<String>,
+    pub build_id: Option<String>,
+    pub signature: String,
+    pub public_key: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct CiAttestationResponse {
+    pub request_id: String,
+    pub release_id: String,
+    pub ci_run_id: String,
+    pub ci_status: String,
+    pub ci_checked_at: String,
+}
+
+const PROMOTION_GATES: [&str; 3] = ["hash_validation", "policy_check", "determinism_check"];
+const MAX_ROLLBACK_HISTORY: i64 = 10;
 
 // ===== Handlers =====
 
@@ -179,18 +219,23 @@ pub async fn request_promotion(
     // Load golden run to validate
     match GoldenRunArchive::load(&golden_dir) {
         Ok(_archive) => {
-            // Generate unique request ID
+            // Generate unique request/release IDs
             let request_id =
                 crate::id_generator::readable_id(adapteros_core::ids::IdKind::Request, "promo");
+            let release_id =
+                crate::id_generator::readable_id(adapteros_core::ids::IdKind::Request, "release");
 
             // Create promotion request
             let params = adapteros_db::CreatePromotionRequestParams {
                 request_id: request_id.clone(),
+                release_id: release_id.clone(),
                 golden_run_id: run_id.clone(),
                 target_stage: req.target_stage.clone(),
                 requester_id: claims.sub.clone(),
                 requester_email: claims.email.clone(),
                 notes: req.notes.clone(),
+                ci_run_id: req.release.as_ref().and_then(|r| r.ci_run_id.clone()),
+                ci_status: "pending".to_string(),
             };
 
             let result = state.db.create_promotion_request(params).await;
@@ -201,6 +246,34 @@ pub async fn request_promotion(
                         "Promotion request created: request_id={}, golden_run_id={}, target_stage={}",
                         request_id, run_id, req.target_stage
                     );
+
+                    // Initialize gates as pending before async execution
+                    if let Err(e) = state
+                        .db
+                        .init_promotion_gates(&request_id, &PROMOTION_GATES)
+                        .await
+                    {
+                        error!("Failed to initialize promotion gates: {}", e);
+                    }
+
+                    // Create release correlation record
+                    let _ = state
+                        .db
+                        .upsert_release_correlation(adapteros_db::CreateReleaseCorrelationParams {
+                            release_id: release_id.clone(),
+                            golden_run_id: Some(run_id.clone()),
+                            promotion_request_id: Some(request_id.clone()),
+                            target_stage: Some(req.target_stage.clone()),
+                            promotion_status: Some("pending".to_string()),
+                            build_id: req.release.as_ref().and_then(|r| r.build_id.clone()),
+                            build_git_sha: req.release.as_ref().and_then(|r| r.commit_sha.clone()),
+                            ci_run_id: req.release.as_ref().and_then(|r| r.ci_run_id.clone()),
+                            ci_status: Some("pending".to_string()),
+                            image_digest: req.release.as_ref().and_then(|r| r.image_digest.clone()),
+                            bundle_hash: None,
+                            metadata_json: None,
+                        })
+                        .await;
 
                     // Start gate validation asynchronously
                     let state_clone = state.clone();
@@ -227,9 +300,12 @@ pub async fn request_promotion(
 
                     Ok(Json(PromoteResponse {
                         request_id,
+                        release_id,
                         golden_run_id: run_id,
                         target_stage: req.target_stage,
                         status: "pending".to_string(),
+                        ci_status: "pending".to_string(),
+                        ci_run_id: req.release.and_then(|r| r.ci_run_id),
                         created_at: Utc::now().to_rfc3339(),
                     }))
                 }
@@ -360,9 +436,13 @@ pub async fn get_promotion_status(
 
             Ok(Json(PromotionStatusResponse {
                 request_id: req.request_id,
+                release_id: req.release_id,
                 golden_run_id: req.golden_run_id,
                 target_stage: req.target_stage,
                 status: req.status,
+                ci_status: req.ci_status,
+                ci_run_id: req.ci_run_id,
+                ci_checked_at: req.ci_checked_at,
                 requester_email: req.requester_email,
                 created_at: req.created_at,
                 updated_at: req.updated_at,
@@ -446,8 +526,9 @@ pub async fn approve_or_reject_promotion(
         )
     })?;
 
-    let request_id = request.request_id;
-    let current_status = request.status;
+    let request_id = request.request_id.clone();
+    let current_status = request.status.clone();
+    let release_id = request.release_id.clone();
 
     // Check if already processed
     if current_status != "pending" {
@@ -459,6 +540,11 @@ pub async fn approve_or_reject_promotion(
                     .with_string_details(format!("current status: {}", current_status)),
             ),
         ));
+    }
+
+    if req.action == "approve" {
+        ensure_gates_passed(&state, &request_id).await?;
+        ensure_ci_passed(&request)?;
     }
 
     // Generate Ed25519 signature
@@ -501,9 +587,21 @@ pub async fn approve_or_reject_promotion(
                 .update_promotion_request_status(&request_id, new_status)
                 .await;
 
+            let _ = state
+                .db
+                .update_release_promotion_status(adapteros_db::UpdateReleasePromotionStatusParams {
+                    release_id: release_id.clone(),
+                    promotion_status: new_status.to_string(),
+                    approval_signature: Some(signature.clone()),
+                })
+                .await;
+
             // If approved, execute promotion
             if req.action == "approve" {
-                if let Err(e) = execute_promotion(&state, &request_id, &run_id).await {
+                if let Err(e) =
+                    execute_promotion(&state, &request_id, &run_id, &claims.email, &signature)
+                        .await
+                {
                     error!("Failed to execute promotion: {}", e);
                 }
             }
@@ -540,6 +638,151 @@ pub async fn approve_or_reject_promotion(
             ))
         }
     }
+}
+
+/// POST /v1/golden/:runId/ci-attestation - Record CI attestation for promotion
+#[utoipa::path(
+    post,
+    path = "/v1/golden/{run_id}/ci-attestation",
+    tag = "promotion",
+    request_body = CiAttestationRequest,
+    responses(
+        (status = 200, description = "CI attestation recorded", body = CiAttestationResponse),
+        (status = 400, description = "Invalid request"),
+        (status = 403, description = "Insufficient permissions"),
+        (status = 404, description = "Promotion request not found"),
+    ),
+    security(("jwt" = []))
+)]
+pub async fn record_ci_attestation(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(run_id): Path<String>,
+    Json(req): Json<CiAttestationRequest>,
+) -> Result<Json<CiAttestationResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::PromotionManage)?;
+    let run_id = crate::id_resolver::resolve_any_id(&state.db, &run_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+
+    if req.status != "passed" && req.status != "failed" {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("invalid ci status")
+                    .with_code("BAD_REQUEST")
+                    .with_string_details("status must be 'passed' or 'failed'"),
+            ),
+        ));
+    }
+
+    let request = state
+        .db
+        .get_latest_promotion_request(&run_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("database error")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    let request = request.ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(
+                ErrorResponse::new("promotion request not found")
+                    .with_code("NOT_FOUND")
+                    .with_string_details(format!("golden_run_id: {}", run_id)),
+            ),
+        )
+    })?;
+
+    if request.status == "rejected" || request.status == "promoted" {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("promotion not eligible for ci attestation")
+                    .with_code("BAD_REQUEST")
+                    .with_string_details(format!("current status: {}", request.status)),
+            ),
+        ));
+    }
+
+    let allowed_keys = {
+        let cfg = state
+            .config
+            .read()
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("config lock poisoned")
+                            .with_code("INTERNAL_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?;
+        cfg.security.ci_attestation_public_keys.clone().unwrap_or_default()
+    };
+
+    if allowed_keys.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("ci attestation not configured")
+                    .with_code("BAD_REQUEST")
+                    .with_string_details("security.ci_attestation_public_keys is empty"),
+            ),
+        ));
+    }
+
+    verify_ci_attestation(
+        &allowed_keys,
+        &request.release_id,
+        &run_id,
+        &req,
+    )?;
+
+    let _ = state
+        .db
+        .update_promotion_request_ci_status(&request.request_id, &req.status, Some(&req.ci_run_id))
+        .await;
+
+    let _ = state
+        .db
+        .update_release_ci_attestation(adapteros_db::UpdateCiAttestationParams {
+            release_id: request.release_id.clone(),
+            ci_run_id: req.ci_run_id.clone(),
+            ci_status: req.status.clone(),
+            ci_attestation_signature: req.signature.clone(),
+            ci_attestation_public_key: req.public_key.clone(),
+            build_git_sha: req.commit_sha.clone(),
+            image_digest: req.image_digest.clone(),
+            build_id: req.build_id.clone(),
+        })
+        .await;
+
+    log_success_or_warn(
+        &state.db,
+        &claims,
+        actions::PROMOTION_EXECUTE,
+        resources::PROMOTION,
+        Some(&request.request_id),
+    )
+    .await;
+
+    Ok(Json(CiAttestationResponse {
+        request_id: request.request_id,
+        release_id: request.release_id,
+        ci_run_id: req.ci_run_id,
+        ci_status: req.status,
+        ci_checked_at: Utc::now().to_rfc3339(),
+    }))
 }
 
 /// POST /v1/golden/:runId/rollback - Rollback promotion
@@ -600,26 +843,67 @@ pub async fn rollback_promotion(
     })?;
 
     let current_run_id = stage_info.active_golden_run_id;
-    let previous_run_id = stage_info.previous_golden_run_id.ok_or_else(|| {
-        (
+    let target_run_id = if let Some(target) = &req.target_run_id {
+        let history = state
+            .db
+            .list_promotion_history_for_stage(&stage, MAX_ROLLBACK_HISTORY)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("database error")
+                            .with_code("INTERNAL_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?;
+
+        let allowed = history.iter().any(|(run_id, _, _, _, _)| run_id == target);
+        if !allowed {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("rollback target not in history")
+                        .with_code("BAD_REQUEST")
+                        .with_string_details(format!("target_run_id: {}", target)),
+                ),
+            ));
+        }
+        target.clone()
+    } else {
+        stage_info.previous_golden_run_id.ok_or_else(|| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("no previous version to rollback to")
+                        .with_code("BAD_REQUEST")
+                        .with_string_details(format!("stage: {}", stage)),
+                ),
+            )
+        })?
+    };
+
+    if target_run_id == current_run_id {
+        return Err((
             StatusCode::BAD_REQUEST,
             Json(
-                ErrorResponse::new("no previous version to rollback to")
+                ErrorResponse::new("rollback target is current active run")
                     .with_code("BAD_REQUEST")
-                    .with_string_details(format!("stage: {}", stage)),
+                    .with_string_details(format!("target_run_id: {}", target_run_id)),
             ),
-        )
-    })?;
+        ));
+    }
 
     warn!(
         "Rolling back {} from {} to {} (reason: {})",
-        stage, current_run_id, previous_run_id, req.reason
+        stage, current_run_id, target_run_id, req.reason
     );
 
     // Update stage
     let _ = state
         .db
-        .rollback_golden_run_stage(&stage, &claims.email)
+        .update_golden_run_stage(&stage, &target_run_id, &current_run_id, &claims.email)
         .await;
 
     // Log rollback in history
@@ -630,11 +914,11 @@ pub async fn rollback_promotion(
         .db
         .record_rollback_history(
             &request_id,
-            &previous_run_id,
+            &target_run_id,
             &stage,
             &current_run_id,
             &claims.email,
-            &req.reason,
+            "manual",
             &metadata,
         )
         .await;
@@ -650,7 +934,7 @@ pub async fn rollback_promotion(
 
     Ok(Json(RollbackResponse {
         stage,
-        rolled_back_to: previous_run_id.clone(),
+        rolled_back_to: target_run_id.clone(),
         rolled_back_from: current_run_id,
         reason: req.reason,
     }))
@@ -808,6 +1092,7 @@ async fn record_gate_result(
     let params = adapteros_db::RecordGateParams {
         request_id: request_id.to_string(),
         gate_name: gate_name.to_string(),
+        status: if passed { "passed".to_string() } else { "failed".to_string() },
         passed,
         details: details.cloned(),
         error_message,
@@ -943,8 +1228,25 @@ async fn validate_determinism_gate(
 }
 
 /// Execute promotion
-async fn execute_promotion(state: &AppState, request_id: &str, run_id: &str) -> AosResult<()> {
+async fn execute_promotion(
+    state: &AppState,
+    request_id: &str,
+    run_id: &str,
+    approver_email: &str,
+    approval_signature: &str,
+) -> AosResult<()> {
     info!("Executing promotion for request_id={}", request_id);
+
+    let request = state
+        .db
+        .get_promotion_request_by_id(request_id)
+        .await?
+        .ok_or_else(|| AosError::NotFound("promotion request not found".to_string()))?;
+
+    check_gates_passed(state, request_id)
+        .await
+        .map_err(|e| AosError::Validation(e))?;
+    check_ci_passed(&request).map_err(|e| AosError::Validation(e))?;
 
     // Get target stage
     let target_stage = state.db.get_promotion_target_stage(request_id).await?;
@@ -955,7 +1257,7 @@ async fn execute_promotion(state: &AppState, request_id: &str, run_id: &str) -> 
     // Update stage
     state
         .db
-        .update_golden_run_stage(&target_stage, run_id, &previous_run_id, "system")
+        .update_golden_run_stage(&target_stage, run_id, &previous_run_id, approver_email)
         .await?;
 
     // Update promotion status
@@ -973,10 +1275,19 @@ async fn execute_promotion(state: &AppState, request_id: &str, run_id: &str) -> 
             "promoted",
             &target_stage,
             &previous_run_id,
-            "system",
-            "auto",
+            approver_email,
+            approval_signature,
         )
         .await?;
+
+    let _ = state
+        .db
+        .update_release_promotion_status(adapteros_db::UpdateReleasePromotionStatusParams {
+            release_id: request.release_id,
+            promotion_status: "promoted".to_string(),
+            approval_signature: Some(approval_signature.to_string()),
+        })
+        .await;
 
     info!(
         "Promotion executed: {} promoted to {}",
@@ -1026,4 +1337,226 @@ fn _verify_approval_signature(
     let signature = Signature::from_bytes(&sig_array)?;
 
     public_key.verify(message.as_bytes(), &signature)
+}
+
+async fn check_gates_passed(state: &AppState, request_id: &str) -> Result<(), String> {
+    let gates = state
+        .db
+        .get_promotion_gates(request_id)
+        .await
+        .map_err(|e| format!("failed to load gates: {}", e))?;
+
+    let mut gate_map = std::collections::HashMap::new();
+    for gate in gates {
+        gate_map.insert(gate.gate_name, gate.status);
+    }
+
+    let mut missing = Vec::new();
+    let mut not_passed = Vec::new();
+
+    for gate_name in PROMOTION_GATES.iter() {
+        match gate_map.get(*gate_name) {
+            Some(status) if status == "passed" => {}
+            Some(status) => not_passed.push(format!("{} ({})", gate_name, status)),
+            None => missing.push(gate_name.to_string()),
+        }
+    }
+
+    if !missing.is_empty() || !not_passed.is_empty() {
+        let mut parts = Vec::new();
+        if !missing.is_empty() {
+            parts.push(format!("missing gates: {}", missing.join(", ")));
+        }
+        if !not_passed.is_empty() {
+            parts.push(format!("gates not passed: {}", not_passed.join(", ")));
+        }
+        return Err(parts.join("; "));
+    }
+
+    Ok(())
+}
+
+async fn ensure_gates_passed(
+    state: &AppState,
+    request_id: &str,
+) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+    check_gates_passed(state, request_id).await.map_err(|details| {
+        (
+            StatusCode::CONFLICT,
+            Json(
+                ErrorResponse::new("promotion gates not complete or failed")
+                    .with_code("GATES_NOT_READY")
+                    .with_string_details(details),
+            ),
+        )
+    })
+}
+
+fn check_ci_passed(request: &adapteros_db::PromotionRequest) -> Result<(), String> {
+    if request.ci_status != "passed" {
+        return Err(format!(
+            "ci_status is '{}' (ci_checked_at: {:?})",
+            request.ci_status, request.ci_checked_at
+        ));
+    }
+    Ok(())
+}
+
+fn ensure_ci_passed(
+    request: &adapteros_db::PromotionRequest,
+) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+    check_ci_passed(request).map_err(|details| {
+        (
+            StatusCode::CONFLICT,
+            Json(
+                ErrorResponse::new("ci status not verified")
+                    .with_code("CI_NOT_VERIFIED")
+                    .with_string_details(details),
+            ),
+        )
+    })
+}
+
+fn build_ci_attestation_message(
+    release_id: &str,
+    run_id: &str,
+    req: &CiAttestationRequest,
+) -> String {
+    format!(
+        "ci_attestation:v1:{}:{}:{}:{}:{}:{}:{}",
+        release_id,
+        run_id,
+        req.ci_run_id,
+        req.status,
+        req.commit_sha.as_deref().unwrap_or(""),
+        req.image_digest.as_deref().unwrap_or(""),
+        req.build_id.as_deref().unwrap_or("")
+    )
+}
+
+fn parse_public_key(public_key: &str) -> Result<PublicKey, (StatusCode, Json<ErrorResponse>)> {
+    if public_key.contains("BEGIN PUBLIC KEY") {
+        return PublicKey::from_pem(public_key).map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("invalid public key")
+                        .with_code("BAD_REQUEST")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        });
+    }
+
+    let public_key_bytes = hex::decode(public_key).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("invalid public key hex")
+                    .with_code("BAD_REQUEST")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    if public_key_bytes.len() != 32 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("invalid public key length")
+                    .with_code("BAD_REQUEST")
+                    .with_string_details(format!("length: {}", public_key_bytes.len())),
+            ),
+        ));
+    }
+
+    let mut key_array = [0u8; 32];
+    key_array.copy_from_slice(&public_key_bytes);
+    PublicKey::from_bytes(&key_array).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("invalid public key")
+                    .with_code("BAD_REQUEST")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })
+}
+
+fn parse_signature(signature_hex: &str) -> Result<Signature, (StatusCode, Json<ErrorResponse>)> {
+    let signature_bytes = hex::decode(signature_hex).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("invalid signature hex")
+                    .with_code("BAD_REQUEST")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    if signature_bytes.len() != 64 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("invalid signature length")
+                    .with_code("BAD_REQUEST")
+                    .with_string_details(format!("length: {}", signature_bytes.len())),
+            ),
+        ));
+    }
+
+    let mut sig_array = [0u8; 64];
+    sig_array.copy_from_slice(&signature_bytes);
+    Signature::from_bytes(&sig_array).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("invalid signature")
+                    .with_code("BAD_REQUEST")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })
+}
+
+fn verify_ci_attestation(
+    allowed_keys: &[String],
+    release_id: &str,
+    run_id: &str,
+    req: &CiAttestationRequest,
+) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+    let public_key = parse_public_key(&req.public_key)?;
+    let signature = parse_signature(&req.signature)?;
+
+    let allowed = allowed_keys.iter().any(|key| {
+        parse_public_key(key)
+            .map(|allowed_key| allowed_key.to_bytes() == public_key.to_bytes())
+            .unwrap_or(false)
+    });
+    if !allowed {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(
+                ErrorResponse::new("public key not allowlisted")
+                    .with_code("FORBIDDEN")
+                    .with_string_details("ci attestation public key not configured"),
+            ),
+        ));
+    }
+
+    let message = build_ci_attestation_message(release_id, run_id, req);
+    public_key.verify(message.as_bytes(), &signature).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("ci attestation signature invalid")
+                    .with_code("BAD_REQUEST")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    Ok(())
 }

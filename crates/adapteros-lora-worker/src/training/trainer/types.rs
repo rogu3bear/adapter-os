@@ -521,6 +521,11 @@ pub struct TrainingConfig {
     /// When combined with multi_module_training, trains separate weights for each (layer, module) pair.
     #[serde(default)]
     pub lora_layer_indices: Vec<usize>,
+    /// MLX framework version used for training (captured at training start).
+    /// Required for training reproducibility - ensures identical software stack
+    /// can be reconstructed for deterministic replay or debugging.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mlx_version: Option<String>,
 }
 
 fn default_validation_split() -> f32 {
@@ -620,6 +625,7 @@ impl Default for TrainingConfig {
             targets: default_targets(),
             multi_module_training: false,
             lora_layer_indices: Vec::new(),
+            mlx_version: None,
         }
     }
 }
@@ -712,6 +718,13 @@ impl TrainingConfig {
         self.use_gpu_backward = enabled;
         self
     }
+
+    /// Set the MLX framework version for reproducibility tracking.
+    /// This should be captured at training start from the runtime environment.
+    pub fn with_mlx_version(mut self, version: impl Into<String>) -> Self {
+        self.mlx_version = Some(version.into());
+        self
+    }
 }
 
 /// Training result
@@ -798,6 +811,10 @@ pub struct TrainingResult {
     /// Final validation loss (if validation_split > 0)
     #[serde(default)]
     pub final_validation_loss: Option<f32>,
+    /// MLX framework version used for this training run.
+    /// Captured at training start for reproducibility verification.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mlx_version: Option<String>,
 }
 
 impl TrainingResult {

@@ -6,8 +6,8 @@ use crate::components::inference_guidance::guidance_for;
 use crate::components::status_center::use_status_center;
 use crate::components::{
     Button, ButtonVariant, Card, ChartPoint, DataSeries, EmptyState, EmptyStateVariant,
-    IconCheckCircle, IconPlay, IconServer, LineChart, SparklineMetric, Spinner, StatusColor,
-    StatusIconBox, StatusIndicator, StatusVariant, TimeSeriesData, WorkerStatusBadge,
+    IconCheckCircle, IconPlay, IconServer, LineChart, PageHeader, SparklineMetric, Spinner,
+    StatusColor, StatusIconBox, StatusIndicator, StatusVariant, TimeSeriesData, WorkerStatusBadge,
 };
 use crate::hooks::{use_api_resource, use_sse_notifications, LoadingState};
 use crate::signals::use_auth;
@@ -268,11 +268,11 @@ pub fn Dashboard() -> impl IntoView {
 
     view! {
         <div class="shell-page space-y-6">
-            <div class="flex items-center justify-between">
-                <div class="flex items-center gap-4">
-                    <h1 class="text-3xl font-bold tracking-tight">"Dashboard"</h1>
-                    <SseIndicator state=sse_status/>
-                </div>
+            <PageHeader
+                title="Dashboard"
+                subtitle="A live system overview of health, activity, and resource usage."
+            >
+                <SseIndicator state=sse_status/>
                 <Button
                     variant=ButtonVariant::Primary
                     on_click=Callback::new(move |_| refetch_all())
@@ -280,10 +280,7 @@ pub fn Dashboard() -> impl IntoView {
                 >
                     "Refresh"
                 </Button>
-            </div>
-            <p class="text-sm text-muted-foreground">
-                "A live system overview of health, activity, and resource usage."
-            </p>
+            </PageHeader>
 
             {move || {
                 match status.get() {

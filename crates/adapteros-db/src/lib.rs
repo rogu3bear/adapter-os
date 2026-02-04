@@ -2908,8 +2908,9 @@ pub mod policy_hash;
 pub mod policy_management;
 pub mod promotions;
 pub use promotions::{
-    CreatePromotionRequestParams, GoldenRunStage, PromotionApproval, PromotionGate,
-    PromotionRequest, RecordApprovalParams, RecordGateParams,
+    CreatePromotionRequestParams, CreateReleaseCorrelationParams, GoldenRunStage,
+    PromotionApproval, PromotionGate, PromotionRequest, RecordApprovalParams, RecordGateParams,
+    UpdateCiAttestationParams, UpdateReleasePromotionStatusParams,
 };
 pub mod plans_kv;
 pub mod stacks_kv;

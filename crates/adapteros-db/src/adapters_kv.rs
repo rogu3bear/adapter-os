@@ -417,6 +417,8 @@ impl From<AdapterKv> for Adapter {
             coreml_package_hash: kv.coreml_package_hash,
             // Training lineage (not stored in KV, set to None)
             training_dataset_hash_b3: None,
+            // Stable ID (not stored in KV, set to None)
+            stable_id: None,
         }
     }
 }
@@ -1430,6 +1432,7 @@ mod tests {
             versioning_threshold: None,
             coreml_package_hash: None,
             training_dataset_hash_b3: None,
+            stable_id: Some(1),
         };
 
         // Convert to KV (models::AdapterKv uses same types as SQL Adapter)
@@ -1527,6 +1530,7 @@ mod tests {
                 versioning_threshold: None,
                 coreml_package_hash: None,
                 training_dataset_hash_b3: None,
+                stable_id: Some(1),
             },
             Adapter {
                 id: "a".into(),
@@ -1599,6 +1603,7 @@ mod tests {
                 versioning_threshold: None,
                 coreml_package_hash: None,
                 training_dataset_hash_b3: None,
+                stable_id: Some(2),
             },
         ];
 

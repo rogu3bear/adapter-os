@@ -389,6 +389,11 @@ pub struct AdapterMetadata {
     /// Custom tags
     #[serde(default)]
     pub tags: Vec<String>,
+    /// MLX framework version used during training (for reproducibility).
+    /// Captures the exact framework version at training time to ensure
+    /// the same software stack can be reconstructed for replay/debugging.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mlx_version: Option<String>,
 }
 
 // =============================================================================

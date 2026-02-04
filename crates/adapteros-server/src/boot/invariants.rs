@@ -359,6 +359,21 @@ pub fn validate_boot_invariants(
 
     let production = is_production(&cfg);
     let invariants_config = &cfg.invariants;
+    let disabled_invariants = collect_disabled_invariants(invariants_config);
+
+    if production && !disabled_invariants.is_empty() && !invariants_config.i_understand_security_risk
+    {
+        report.record_violation(InvariantViolation {
+            id: "SEC-000",
+            category: InvariantCategory::Security,
+            message: format!(
+                "Invariant escape hatches are disabled without explicit break-glass acknowledgement: {}",
+                disabled_invariants.join(", ")
+            ),
+            severity: Severity::Fatal,
+            remediation: "Set invariants.i_understand_security_risk=true to acknowledge risk, or re-enable the invariants.",
+        });
+    }
 
     // =========================================================================
     // SEC-001: Dev auth bypass must not be active in production
@@ -1789,6 +1804,122 @@ pub fn enforce_invariants(report: &InvariantReport, production: bool) -> Result<
     }
 
     Ok(())
+}
+
+fn collect_disabled_invariants(cfg: &adapteros_server_api::config::InvariantsConfig) -> Vec<&'static str> {
+    let mut disabled = Vec::new();
+    if cfg.disable_sec_001_dev_bypass {
+        disabled.push("SEC-001");
+    }
+    if cfg.disable_sec_002_dual_write {
+        disabled.push("SEC-002");
+    }
+    if cfg.disable_sec_003_executor_seed {
+        disabled.push("SEC-003");
+    }
+    if cfg.disable_sec_005_cookie_security {
+        disabled.push("SEC-005");
+    }
+    if cfg.disable_sec_006_jwt_verify {
+        disabled.push("SEC-006");
+    }
+    if cfg.disable_sec_015_signature_bypass {
+        disabled.push("SEC-015");
+    }
+    if cfg.disable_sec_007_tenant_isolation {
+        disabled.push("SEC-007");
+    }
+    if cfg.disable_sec_008_rbac_config {
+        disabled.push("SEC-008");
+    }
+    if cfg.disable_sec_014_brute_force {
+        disabled.push("SEC-014");
+    }
+    if cfg.disable_dat_002_foreign_keys {
+        disabled.push("DAT-002");
+    }
+    if cfg.disable_dat_006_migration_order {
+        disabled.push("DAT-006");
+    }
+    if cfg.disable_dat_007_audit_chain {
+        disabled.push("DAT-007");
+    }
+    if cfg.disable_lif_002_executor_init {
+        disabled.push("LIF-002");
+    }
+    if cfg.disable_dat_005_storage_mode {
+        disabled.push("DAT-005");
+    }
+    if cfg.disable_cfg_002_session_ttl {
+        disabled.push("CFG-002");
+    }
+    if cfg.disable_mem_003_memory_headroom {
+        disabled.push("MEM-003");
+    }
+    if cfg.disable_lif_001_boot_ordering {
+        disabled.push("LIF-001");
+    }
+    if cfg.disable_dat_001_archive_triggers {
+        disabled.push("DAT-001");
+    }
+    if cfg.disable_lif_004_pool_drain {
+        disabled.push("LIF-004");
+    }
+    if cfg.disable_auth_001_jwt_key {
+        disabled.push("AUTH-001");
+    }
+    if cfg.disable_auth_002_hmac_secret {
+        disabled.push("AUTH-002");
+    }
+    if cfg.disable_auth_003_session_store {
+        disabled.push("AUTH-003");
+    }
+    if cfg.disable_auth_004_jwt_secret_placeholder {
+        disabled.push("AUTH-004");
+    }
+    if cfg.disable_authz_001_rbac_tables {
+        disabled.push("AUTHZ-001");
+    }
+    if cfg.disable_authz_002_admin_role {
+        disabled.push("AUTHZ-002");
+    }
+    if cfg.disable_crypto_001_worker_keypair {
+        disabled.push("CRYPTO-001");
+    }
+    if cfg.disable_crypto_002_entropy_source {
+        disabled.push("CRYPTO-002");
+    }
+    if cfg.disable_crypto_003_algo_match {
+        disabled.push("CRYPTO-003");
+    }
+    if cfg.disable_fed_001_quorum_keys {
+        disabled.push("FED-001");
+    }
+    if cfg.disable_fed_002_peer_certs {
+        disabled.push("FED-002");
+    }
+    if cfg.disable_adapt_001_bundle_sig {
+        disabled.push("ADAPT-001");
+    }
+    if cfg.disable_adapt_002_manifest_hash {
+        disabled.push("ADAPT-002");
+    }
+    if cfg.disable_pol_001_default_pack {
+        disabled.push("POL-001");
+    }
+    if cfg.disable_pol_002_enforcement_mode {
+        disabled.push("POL-002");
+    }
+    if cfg.disable_hygiene_001_no_credentials {
+        disabled.push("HYGIENE-001");
+    }
+    if cfg.disable_hygiene_002_handlers_committed {
+        disabled.push("HYGIENE-002");
+    }
+    if cfg.disable_hygiene_003_panic_density {
+        disabled.push("HYGIENE-003");
+    }
+    disabled
 }
 
 /// Validate invariants that require a live database connection.

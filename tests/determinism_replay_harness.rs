@@ -42,6 +42,8 @@ use std::path::PathBuf;
 
 /// Fixed seed bytes for all replay tests
 const REPLAY_SEED_BYTES: [u8; 32] = [42u8; 32];
+/// Expected checksum prefix for golden vector (HKDF_ALGORITHM_VERSION = 2)
+const GOLDEN_VECTOR_PREFIX: &str = "65e10205bbbf92c2";
 
 /// Fixed timestamp for deterministic replay (2025-01-01T00:00:00Z)
 fn fixed_replay_timestamp() -> DateTime<Utc> {
@@ -137,6 +139,8 @@ struct ReplayInferenceContext {
     adapter_ids: Vec<String>,
     prompt_tokens: Vec<u32>,
     seed_mode: SeedMode,
+    gate_raw_scores: Vec<f32>,
+    backend_used: String,
 }
 
 impl ReplayInferenceContext {
@@ -146,25 +150,60 @@ impl ReplayInferenceContext {
             adapter_ids: vec!["adapter-a".to_string(), "adapter-b".to_string()],
             prompt_tokens: vec![100, 101, 102, 103, 104],
             seed_mode: SeedMode::Strict,
+            gate_raw_scores: Vec::new(),
+            backend_used: "mock".to_string(),
+        }
+    }
+
+    fn from_inputs(
+        seed_bytes: [u8; 32],
+        adapter_ids: Vec<String>,
+        prompt_tokens: Vec<u32>,
+        seed_mode: SeedMode,
+        gate_raw_scores: Vec<f32>,
+        backend_used: String,
+    ) -> Self {
+        Self {
+            global_seed: B3Hash::from_bytes(seed_bytes),
+            adapter_ids,
+            prompt_tokens,
+            seed_mode,
+            gate_raw_scores,
+            backend_used,
         }
     }
 
     /// Execute deterministic inference and return results
     fn execute(&self) -> ReplayInferenceResult {
+        if !self.gate_raw_scores.is_empty()
+            && self.gate_raw_scores.len() != self.adapter_ids.len()
+        {
+            panic!(
+                "gate_raw_scores length {} does not match adapter_ids length {}",
+                self.gate_raw_scores.len(),
+                self.adapter_ids.len()
+            );
+        }
         // Derive router seed from global seed
         let router_seed = derive_seed(&self.global_seed, "router");
 
         // Simulate gate computation with Q15 quantization
         // Gate = floor(raw_score * 32767.0) - using the canonical Q15 denominator
+        let raw_scores = if self.gate_raw_scores.is_empty() {
+            self.adapter_ids
+                .iter()
+                .enumerate()
+                .map(|(i, _)| 0.8 - (i as f32 * 0.1))
+                .collect::<Vec<f32>>()
+        } else {
+            self.gate_raw_scores.clone()
+        };
+
         let gates_q15: Vec<i16> = self
             .adapter_ids
             .iter()
-            .enumerate()
-            .map(|(i, _)| {
-                // Deterministic gate values based on adapter index
-                let raw_score = 0.8 - (i as f32 * 0.1);
-                (raw_score * 32767.0).floor() as i16
-            })
+            .zip(raw_scores.iter())
+            .map(|(_, raw_score)| (raw_score * 32767.0).floor() as i16)
             .collect();
 
         // Compute decision hash
@@ -174,9 +213,14 @@ impl ReplayInferenceContext {
             &gates_q15,
         );
 
-        // Simulate output token generation (deterministic from seed)
-        let output_seed = derive_seed(&self.global_seed, "output");
-        let output_tokens: Vec<u32> = (0..10)
+        // Simulate output token generation (deterministic from seed + prompt)
+        let mut prompt_buf = Vec::with_capacity(self.prompt_tokens.len() * 4);
+        for token in &self.prompt_tokens {
+            prompt_buf.extend_from_slice(&token.to_le_bytes());
+        }
+        let prompt_hash = B3Hash::hash(&prompt_buf);
+        let output_seed = derive_seed(&self.global_seed, &format!("output:{}", prompt_hash.to_hex()));
+        let output_tokens: Vec<u32> = (0..(10 + self.prompt_tokens.len() as u32))
             .map(|i| {
                 let token_seed =
                     derive_seed(&B3Hash::from_bytes(output_seed), &format!("token:{}", i));
@@ -192,7 +236,7 @@ impl ReplayInferenceContext {
         let seed_lineage_hash = lineage.to_binding_hash();
 
         // Compute receipt digest
-        let backend_used = "mock".to_string();
+        let backend_used = self.backend_used.clone();
         let receipt_digest = ReplayInferenceResult::compute_receipt_digest(
             &decision_hash,
             &output_digest,
@@ -549,10 +593,10 @@ fn test_replay_golden_vector() {
     let checksum = B3Hash::hash(&seed);
     let checksum_prefix = &checksum.to_hex()[..16];
 
-    // This is the expected prefix for HKDF_ALGORITHM_VERSION = 2
-    // If this changes, the algorithm has drifted!
-    // Note: Update this if HKDF algorithm intentionally changes
-    println!("Golden vector checksum prefix: {}", checksum_prefix);
+    assert_eq!(
+        checksum_prefix, GOLDEN_VECTOR_PREFIX,
+        "Golden vector checksum prefix drifted"
+    );
 
     // Verify the seed is 32 bytes
     assert_eq!(seed.len(), 32, "Derived seed must be 32 bytes");
@@ -640,37 +684,103 @@ pub struct ReplayGoldenFixture {
     pub id: String,
     /// Input seed (hex)
     pub input_seed_hex: String,
+    /// Adapter IDs used in routing
+    pub adapter_ids: Vec<String>,
+    /// Prompt tokens used in output derivation
+    pub prompt_tokens: Vec<u32>,
+    /// Seed mode (e.g., "Strict")
+    pub seed_mode: String,
+    /// Raw gate scores prior to Q15 quantization
+    pub gate_raw_scores: Vec<f32>,
+    /// Backend used in receipt digest
+    pub backend_used: String,
     /// Expected decision hash (hex)
     pub expected_decision_hash: String,
+    /// Expected Q15 gate values
+    pub expected_gates_q15: Vec<i16>,
     /// Expected output digest (hex)
     pub expected_output_digest: String,
     /// Expected receipt digest (hex)
     pub expected_receipt_digest: String,
+    /// Expected seed lineage hash (hex)
+    pub expected_seed_lineage_hash: String,
     /// HKDF algorithm version this fixture was generated with
     pub hkdf_version: u32,
     /// Whether this fixture has verified digests (false = placeholder)
     pub verified: bool,
 }
 
+#[derive(Debug, Clone)]
+struct ReplayFixtureInputs {
+    seed_bytes: [u8; 32],
+    adapter_ids: Vec<String>,
+    prompt_tokens: Vec<u32>,
+    seed_mode: SeedMode,
+    gate_raw_scores: Vec<f32>,
+    backend_used: String,
+}
+
 impl ReplayGoldenFixture {
     /// Create a new fixture with computed digests
-    pub fn new(id: &str) -> Self {
+    fn new(id: &str, inputs: ReplayFixtureInputs) -> Self {
         set_thread_local_determinism_config(replay_determinism_config());
 
-        let context = ReplayInferenceContext::new();
+        let context = ReplayInferenceContext::from_inputs(
+            inputs.seed_bytes,
+            inputs.adapter_ids.clone(),
+            inputs.prompt_tokens.clone(),
+            inputs.seed_mode,
+            inputs.gate_raw_scores.clone(),
+            inputs.backend_used.clone(),
+        );
         let result = context.execute();
 
         clear_thread_local_determinism_config();
 
         Self {
             id: id.to_string(),
-            input_seed_hex: hex::encode(REPLAY_SEED_BYTES),
+            input_seed_hex: hex::encode(inputs.seed_bytes),
+            adapter_ids: inputs.adapter_ids,
+            prompt_tokens: inputs.prompt_tokens,
+            seed_mode: format!("{:?}", inputs.seed_mode),
+            gate_raw_scores: inputs.gate_raw_scores,
+            backend_used: inputs.backend_used,
             expected_decision_hash: result.decision_hash.to_hex(),
+            expected_gates_q15: result.gates_q15.clone(),
             expected_output_digest: result.output_digest.to_hex(),
             expected_receipt_digest: result.receipt_digest.to_hex(),
+            expected_seed_lineage_hash: result.seed_lineage_hash.to_hex(),
             hkdf_version: HKDF_ALGORITHM_VERSION,
             verified: true,
         }
+    }
+
+    fn context(&self) -> Result<ReplayInferenceContext, String> {
+        let seed_bytes = hex::decode(&self.input_seed_hex)
+            .map_err(|e| format!("Invalid seed hex: {}", e))?;
+        if seed_bytes.len() != 32 {
+            return Err(format!("Invalid seed length: {}", seed_bytes.len()));
+        }
+        let mut seed_array = [0u8; 32];
+        seed_array.copy_from_slice(&seed_bytes);
+
+        let seed_mode = match self.seed_mode.as_str() {
+            "Strict" => SeedMode::Strict,
+            "BestEffort" => SeedMode::BestEffort,
+            "NonDeterministic" => SeedMode::NonDeterministic,
+            other => {
+                return Err(format!("Unsupported seed mode: {}", other));
+            }
+        };
+
+        Ok(ReplayInferenceContext::from_inputs(
+            seed_array,
+            self.adapter_ids.clone(),
+            self.prompt_tokens.clone(),
+            seed_mode,
+            self.gate_raw_scores.clone(),
+            self.backend_used.clone(),
+        ))
     }
 
     /// Verify this fixture against current implementation
@@ -684,7 +794,7 @@ impl ReplayGoldenFixture {
 
         set_thread_local_determinism_config(replay_determinism_config());
 
-        let context = ReplayInferenceContext::new();
+        let context = self.context()?;
         let result = context.execute();
 
         clear_thread_local_determinism_config();
@@ -694,6 +804,13 @@ impl ReplayGoldenFixture {
                 "Decision hash mismatch: {} != {}",
                 result.decision_hash.to_hex(),
                 self.expected_decision_hash
+            ));
+        }
+
+        if result.gates_q15 != self.expected_gates_q15 {
+            return Err(format!(
+                "Gate q15 mismatch: {:?} != {:?}",
+                result.gates_q15, self.expected_gates_q15
             ));
         }
 
@@ -713,6 +830,14 @@ impl ReplayGoldenFixture {
             ));
         }
 
+        if result.seed_lineage_hash.to_hex() != self.expected_seed_lineage_hash {
+            return Err(format!(
+                "Seed lineage hash mismatch: {} != {}",
+                result.seed_lineage_hash.to_hex(),
+                self.expected_seed_lineage_hash
+            ));
+        }
+
         Ok(())
     }
 }
@@ -722,9 +847,125 @@ impl ReplayGoldenFixture {
 #[ignore = "manual fixture regeneration"]
 fn test_generate_golden_fixtures() {
     let fixtures = vec![
-        ReplayGoldenFixture::new("replay_001"),
-        ReplayGoldenFixture::new("replay_002"),
-        ReplayGoldenFixture::new("replay_003"),
+        ReplayGoldenFixture::new(
+            "replay_001_basic",
+            ReplayFixtureInputs {
+                seed_bytes: REPLAY_SEED_BYTES,
+                adapter_ids: vec!["adapter-a".to_string(), "adapter-b".to_string()],
+                prompt_tokens: vec![100, 101, 102, 103, 104],
+                seed_mode: SeedMode::Strict,
+                gate_raw_scores: vec![0.8, 0.7],
+                backend_used: "mock".to_string(),
+            },
+        ),
+        ReplayGoldenFixture::new(
+            "replay_002_diff_seed",
+            ReplayFixtureInputs {
+                seed_bytes: [43u8; 32],
+                adapter_ids: vec!["adapter-a".to_string(), "adapter-b".to_string()],
+                prompt_tokens: vec![100, 101, 102, 103, 104],
+                seed_mode: SeedMode::Strict,
+                gate_raw_scores: vec![0.8, 0.7],
+                backend_used: "mock".to_string(),
+            },
+        ),
+        ReplayGoldenFixture::new(
+            "replay_003_zero_tokens",
+            ReplayFixtureInputs {
+                seed_bytes: REPLAY_SEED_BYTES,
+                adapter_ids: vec!["adapter-a".to_string(), "adapter-b".to_string()],
+                prompt_tokens: vec![],
+                seed_mode: SeedMode::Strict,
+                gate_raw_scores: vec![0.8, 0.7],
+                backend_used: "mock".to_string(),
+            },
+        ),
+        ReplayGoldenFixture::new(
+            "replay_004_k0_routing",
+            ReplayFixtureInputs {
+                seed_bytes: REPLAY_SEED_BYTES,
+                adapter_ids: vec![],
+                prompt_tokens: vec![1, 2, 3],
+                seed_mode: SeedMode::Strict,
+                gate_raw_scores: vec![],
+                backend_used: "mock".to_string(),
+            },
+        ),
+        ReplayGoldenFixture::new(
+            "replay_005_tie_break",
+            ReplayFixtureInputs {
+                seed_bytes: REPLAY_SEED_BYTES,
+                adapter_ids: vec![
+                    "adapter-a".to_string(),
+                    "adapter-b".to_string(),
+                    "adapter-c".to_string(),
+                ],
+                prompt_tokens: vec![200, 201, 202],
+                seed_mode: SeedMode::Strict,
+                gate_raw_scores: vec![0.5, 0.5, 0.4],
+                backend_used: "mock".to_string(),
+            },
+        ),
+        ReplayGoldenFixture::new(
+            "replay_006_quant_edges",
+            ReplayFixtureInputs {
+                seed_bytes: REPLAY_SEED_BYTES,
+                adapter_ids: vec![
+                    "adapter-edge-1".to_string(),
+                    "adapter-edge-2".to_string(),
+                    "adapter-edge-3".to_string(),
+                    "adapter-edge-4".to_string(),
+                ],
+                prompt_tokens: vec![300, 301],
+                seed_mode: SeedMode::Strict,
+                gate_raw_scores: vec![1.0, 0.99999, 0.0, -0.0001],
+                backend_used: "mock".to_string(),
+            },
+        ),
+        ReplayGoldenFixture::new(
+            "replay_007_long_prompt",
+            ReplayFixtureInputs {
+                seed_bytes: REPLAY_SEED_BYTES,
+                adapter_ids: vec!["adapter-a".to_string()],
+                prompt_tokens: (0..64).collect(),
+                seed_mode: SeedMode::Strict,
+                gate_raw_scores: vec![0.9],
+                backend_used: "mock".to_string(),
+            },
+        ),
+        ReplayGoldenFixture::new(
+            "replay_008_best_effort",
+            ReplayFixtureInputs {
+                seed_bytes: REPLAY_SEED_BYTES,
+                adapter_ids: vec!["adapter-a".to_string(), "adapter-b".to_string()],
+                prompt_tokens: vec![400, 401, 402, 403],
+                seed_mode: SeedMode::BestEffort,
+                gate_raw_scores: vec![0.75, 0.25],
+                backend_used: "mock".to_string(),
+            },
+        ),
+        ReplayGoldenFixture::new(
+            "replay_009_single_adapter",
+            ReplayFixtureInputs {
+                seed_bytes: REPLAY_SEED_BYTES,
+                adapter_ids: vec!["adapter-solo".to_string()],
+                prompt_tokens: vec![500],
+                seed_mode: SeedMode::Strict,
+                gate_raw_scores: vec![0.33333334],
+                backend_used: "mock".to_string(),
+            },
+        ),
+        ReplayGoldenFixture::new(
+            "replay_010_high_tokens",
+            ReplayFixtureInputs {
+                seed_bytes: REPLAY_SEED_BYTES,
+                adapter_ids: vec!["adapter-a".to_string(), "adapter-b".to_string()],
+                prompt_tokens: vec![0x1F600, 0x1F642, 0x10FFFF],
+                seed_mode: SeedMode::Strict,
+                gate_raw_scores: vec![0.6, 0.4],
+                backend_used: "mock".to_string(),
+            },
+        ),
     ];
 
     // Verify they're all deterministic
@@ -741,6 +982,15 @@ fn test_generate_golden_fixtures() {
     if let Err(e) = fs::create_dir_all(&fixtures_dir) {
         eprintln!("Warning: Could not create fixtures dir: {}", e);
         return;
+    }
+
+    if let Ok(entries) = fs::read_dir(&fixtures_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().map(|e| e == "json").unwrap_or(false) {
+                let _ = fs::remove_file(&path);
+            }
+        }
     }
 
     for fixture in &fixtures {

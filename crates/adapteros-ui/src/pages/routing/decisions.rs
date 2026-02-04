@@ -61,7 +61,7 @@ pub fn RoutingDecisions() -> impl IntoView {
     let has_selection = Signal::derive(move || selected_decision_id.get().is_some());
 
     view! {
-        <div class="p-6 space-y-6">
+        <div class="space-y-6">
             <SplitPanel
                 has_selection=has_selection
                 on_close=Callback::new(move |_| on_close_detail())
@@ -72,7 +72,7 @@ pub fn RoutingDecisions() -> impl IntoView {
                             // Header
                             <div class="flex items-center justify-between">
                                 <div>
-                                    <h1 class="text-3xl font-bold tracking-tight">"Routing Decisions"</h1>
+                                    <h2 class="text-2xl font-semibold tracking-tight">"Routing Decisions"</h2>
                                     <p class="text-muted-foreground mt-1">
                                         "K-sparse adapter routing decisions and debugging"
                                     </p>

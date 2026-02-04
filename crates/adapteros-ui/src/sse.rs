@@ -69,6 +69,28 @@ pub enum InferenceEvent {
         /// Error message describing what went wrong.
         message: String,
     },
+    /// Inference paused for human review.
+    ///
+    /// This event indicates that the inference has been paused and requires
+    /// human review before it can continue. The UI should display a pause
+    /// indicator with relevant context.
+    Paused {
+        /// Unique pause ID for resume correlation.
+        pause_id: String,
+        /// Inference request ID.
+        inference_id: String,
+        /// Why the pause was triggered (e.g., "policy_violation", "uncertainty").
+        trigger_kind: String,
+        /// Context for the reviewer.
+        #[serde(default)]
+        context: Option<String>,
+        /// Generated text so far.
+        #[serde(default)]
+        text_so_far: Option<String>,
+        /// Token count at pause point.
+        #[serde(default)]
+        token_count: usize,
+    },
     /// Catch-all for other events (Loading, Ready, etc.).
     ///
     /// These events are typically informational and can be safely ignored
@@ -107,6 +129,23 @@ pub struct Delta {
     pub content: Option<String>,
 }
 
+/// Pause information from a Paused event.
+#[derive(Debug, Clone, Default)]
+pub struct PauseInfo {
+    /// Unique pause ID for resume correlation.
+    pub pause_id: String,
+    /// Inference request ID.
+    pub inference_id: String,
+    /// Why the pause was triggered.
+    pub trigger_kind: String,
+    /// Context for the reviewer.
+    pub context: Option<String>,
+    /// Generated text so far.
+    pub text_so_far: Option<String>,
+    /// Token count at pause point.
+    pub token_count: usize,
+}
+
 /// Result of parsing an SSE event.
 ///
 /// This struct contains all the information that can be extracted from
@@ -127,6 +166,8 @@ pub struct ParsedSseEvent {
     pub completion_tokens: Option<u32>,
     /// The finish reason from an OpenAI-format Done event, if present.
     pub finish_reason: Option<String>,
+    /// Pause information from a Paused event, if present.
+    pub pause_info: Option<PauseInfo>,
 }
 
 /// Parse an SSE event and extract token content plus trace info.
@@ -217,6 +258,23 @@ pub fn parse_sse_event_with_info(event_data: &str) -> ParsedSseEvent {
                 )));
                 #[cfg(not(target_arch = "wasm32"))]
                 let _ = &message; // Silence unused variable warning in non-wasm builds
+            }
+            InferenceEvent::Paused {
+                pause_id,
+                inference_id,
+                trigger_kind,
+                context,
+                text_so_far,
+                token_count,
+            } => {
+                result.pause_info = Some(PauseInfo {
+                    pause_id,
+                    inference_id,
+                    trigger_kind,
+                    context,
+                    text_so_far,
+                    token_count,
+                });
             }
             InferenceEvent::Other => {
                 // Ignore Loading, Ready, and other unhandled events
@@ -509,5 +567,38 @@ mod tests {
         let parsed = parse_sse_event_with_info(event);
         assert_eq!(parsed.token, Some("final".to_string()));
         assert_eq!(parsed.finish_reason, Some("length".to_string()));
+    }
+
+    #[test]
+    fn test_parse_paused_event() {
+        let event = r#"data: {"event":"Paused","pause_id":"pause-123","inference_id":"inf-456","trigger_kind":"policy_violation","context":"Potential safety concern","text_so_far":"Hello","token_count":5}"#;
+        let parsed = parse_sse_event_with_info(event);
+        assert!(parsed.token.is_none());
+        assert!(parsed.pause_info.is_some());
+        let pause_info = parsed.pause_info.unwrap();
+        assert_eq!(pause_info.pause_id, "pause-123");
+        assert_eq!(pause_info.inference_id, "inf-456");
+        assert_eq!(pause_info.trigger_kind, "policy_violation");
+        assert_eq!(
+            pause_info.context,
+            Some("Potential safety concern".to_string())
+        );
+        assert_eq!(pause_info.text_so_far, Some("Hello".to_string()));
+        assert_eq!(pause_info.token_count, 5);
+    }
+
+    #[test]
+    fn test_parse_paused_event_minimal() {
+        // Paused event with only required fields
+        let event = r#"data: {"event":"Paused","pause_id":"pause-001","inference_id":"inf-002","trigger_kind":"uncertainty"}"#;
+        let parsed = parse_sse_event_with_info(event);
+        assert!(parsed.pause_info.is_some());
+        let pause_info = parsed.pause_info.unwrap();
+        assert_eq!(pause_info.pause_id, "pause-001");
+        assert_eq!(pause_info.inference_id, "inf-002");
+        assert_eq!(pause_info.trigger_kind, "uncertainty");
+        assert!(pause_info.context.is_none());
+        assert!(pause_info.text_so_far.is_none());
+        assert_eq!(pause_info.token_count, 0);
     }
 }

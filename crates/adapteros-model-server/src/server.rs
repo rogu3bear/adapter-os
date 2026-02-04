@@ -9,7 +9,7 @@ use std::time::Instant;
 
 use tokio::sync::RwLock;
 use tonic::{Request, Response, Status};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 
 use crate::activation_tracker::ActivationTracker;
 use crate::adapter_cache::AdapterCache;

@@ -111,7 +111,7 @@ pub fn Adapters() -> impl IntoView {
     });
 
     view! {
-        <div class="p-6 space-y-6">
+        <div class="shell-page space-y-6">
             <div class="flex items-center justify-between">
                 <h1 class="text-3xl font-bold tracking-tight">"Adapters"</h1>
                 <Button
@@ -388,7 +388,7 @@ pub fn AdapterDetail() -> impl IntoView {
     let adapter_name_for_breadcrumb = Signal::derive(move || adapter_id.get());
 
     view! {
-        <div class="p-6 space-y-6">
+        <div class="shell-page space-y-6">
             // Breadcrumb navigation
             <BreadcrumbTrail items=vec![
                 BreadcrumbItem::link("Adapters", "/adapters"),

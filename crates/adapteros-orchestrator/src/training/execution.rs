@@ -231,6 +231,7 @@ pub(crate) async fn run_training_job(
             targets: vec!["q_proj".to_string(), "v_proj".to_string()],
             multi_module_training: false,
             lora_layer_indices: vec![],
+            mlx_version: None, // Will be populated during trainer initialization
         };
 
         if let Some(base_model_path) = resolve_base_model_path(

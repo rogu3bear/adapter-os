@@ -4,6 +4,7 @@
 //! - POST /v1/diag/bundle - Create a signed bundle export
 //! - GET /v1/diag/bundle/{export_id} - Get bundle export info
 //! - GET /v1/diag/bundle/{export_id}/download - Download bundle file
+//! - GET /v1/diag/bundle/{export_id}/signature - Download standalone signature file
 
 use crate::auth::Claims;
 use crate::middleware::require_any_role;
@@ -658,6 +659,134 @@ pub async fn download_bundle(
         .header("x-bundle-hash", export.bundle_hash.clone())
         .header("x-bundle-signature", export.signature.clone())
         .body(body)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to build response")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+
+    Ok(response)
+}
+
+/// Signature file response for standalone download.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+pub struct BundleSignatureFile {
+    /// Schema version for the signature format
+    pub schema_version: String,
+    /// BLAKE3 hash of the bundle
+    pub bundle_hash: String,
+    /// Merkle root of events in the bundle
+    pub merkle_root: String,
+    /// Ed25519 signature (hex-encoded)
+    pub signature: String,
+    /// Public key used for signing (hex-encoded)
+    pub public_key: String,
+    /// Key ID (kid-{hash})
+    pub key_id: String,
+    /// When the bundle was signed
+    pub signed_at: String,
+    /// Export ID this signature belongs to
+    pub export_id: String,
+    /// Trace ID of the run
+    pub trace_id: String,
+}
+
+/// GET /v1/diag/bundle/{export_id}/signature - Download standalone signature file
+#[utoipa::path(
+    get,
+    path = "/v1/diag/bundle/{export_id}/signature",
+    params(
+        ("export_id" = String, Path, description = "Export ID")
+    ),
+    responses(
+        (status = 200, description = "Signature file", content_type = "application/json"),
+        (status = 401, description = "Unauthorized"),
+        (status = 404, description = "Export not found"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "diagnostics",
+    security(("bearer_token" = []))
+)]
+pub async fn download_signature(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(export_id): Path<String>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
+
+    let tenant_id = &claims.tenant_id;
+
+    let export = get_bundle_export_by_id(state.db.pool(), tenant_id, &export_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to get export")
+                        .with_code("DATABASE_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(
+                    ErrorResponse::new("Export not found")
+                        .with_code("NOT_FOUND")
+                        .with_string_details(format!("export_id: {}", export_id)),
+                ),
+            )
+        })?;
+
+    // Build signature file
+    let signature_file = BundleSignatureFile {
+        schema_version: "1.0.0".to_string(),
+        bundle_hash: export.bundle_hash.clone(),
+        merkle_root: export.merkle_root.clone(),
+        signature: export.signature.clone(),
+        public_key: export.public_key.clone(),
+        key_id: export.key_id.clone(),
+        signed_at: export.created_at.clone(),
+        export_id: export.id.clone(),
+        trace_id: export.trace_id.clone(),
+    };
+
+    let json = serde_json::to_string_pretty(&signature_file).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(
+                ErrorResponse::new("Failed to serialize signature")
+                    .with_code("SERIALIZATION_ERROR")
+                    .with_string_details(e.to_string()),
+            ),
+        )
+    })?;
+
+    let filename = format!("{}.sig.json", export.bundle_hash);
+
+    info!(
+        export_id = %export_id,
+        bundle_hash = %export.bundle_hash,
+        "Signature file downloaded"
+    );
+
+    // Build response with download headers
+    let response = axum::response::Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(
+            header::CONTENT_DISPOSITION,
+            format!("attachment; filename=\"{}\"", filename),
+        )
+        .header(header::CONTENT_LENGTH, json.len().to_string())
+        .body(Body::from(json))
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,

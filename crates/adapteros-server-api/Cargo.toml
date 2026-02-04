@@ -136,6 +136,8 @@ embeddings = ["adapteros-ingest-docs/multi-backend"]
 redis = ["dep:redis"]
 metrics = []
 dev-bypass = []
+# Feature flag used for server-only derives in API structs.
+server = []
 # Model server client support (requires adapteros-model-server via lora-worker)
 model-server = ["adapteros-lora-worker/model-server"]
 # Exclude routes that are provided by spoke crates (audit, health)

@@ -1,0 +1,20 @@
+{
+  "id": "replay_004_k0_routing",
+  "input_seed_hex": "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a",
+  "adapter_ids": [],
+  "prompt_tokens": [
+    1,
+    2,
+    3
+  ],
+  "seed_mode": "Strict",
+  "gate_raw_scores": [],
+  "backend_used": "mock",
+  "expected_decision_hash": "43341001a72623e00d590e8bf77f90b9ef99b7b31c91e80b820d4e7062f73937",
+  "expected_gates_q15": [],
+  "expected_output_digest": "7ebb7e73b5e8ef6e78122c501669e06ed4d2f6c7db6612750567ca8fd20d67d5",
+  "expected_receipt_digest": "4f81a589a4ef2e63bdbc83cefe339af102424595e0b21ecbd29126cf10dc7c47",
+  "expected_seed_lineage_hash": "af5a093fb98de4706174d2cb223edd091844323608c3361a1a63aede1fbea758",
+  "hkdf_version": 2,
+  "verified": true
+}

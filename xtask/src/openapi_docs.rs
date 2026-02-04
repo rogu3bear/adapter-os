@@ -8,12 +8,13 @@ use anyhow::{Context, Result};
 use std::process::Command;
 
 pub fn run() -> Result<()> {
-    println!("🔍 Generating OpenAPI documentation via scripts/generate_openapi_simple.sh");
+    println!("🔍 Generating OpenAPI documentation via scripts/ci/check_openapi_drift.sh --fix");
 
     let status = Command::new("bash")
-        .arg("scripts/generate_openapi_simple.sh")
+        .arg("scripts/ci/check_openapi_drift.sh")
+        .arg("--fix")
         .status()
-        .context("failed to invoke scripts/generate_openapi_simple.sh")?;
+        .context("failed to invoke scripts/ci/check_openapi_drift.sh")?;
 
     if !status.success() {
         anyhow::bail!("OpenAPI documentation script exited with status {}", status);

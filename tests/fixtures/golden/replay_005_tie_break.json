@@ -1,0 +1,32 @@
+{
+  "id": "replay_005_tie_break",
+  "input_seed_hex": "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a",
+  "adapter_ids": [
+    "adapter-a",
+    "adapter-b",
+    "adapter-c"
+  ],
+  "prompt_tokens": [
+    200,
+    201,
+    202
+  ],
+  "seed_mode": "Strict",
+  "gate_raw_scores": [
+    0.5,
+    0.5,
+    0.4
+  ],
+  "backend_used": "mock",
+  "expected_decision_hash": "2fd23a897770398f90cdbbad7c086ea8eaea14728f40f651122f2147e04eecb7",
+  "expected_gates_q15": [
+    16383,
+    16383,
+    13106
+  ],
+  "expected_output_digest": "7ebb7e73b5e8ef6e78122c501669e06ed4d2f6c7db6612750567ca8fd20d67d5",
+  "expected_receipt_digest": "020d2c9e35d09b83dd7765235b8d3bd82aa8e6a3e817c2dd95d79bf3fd7a647a",
+  "expected_seed_lineage_hash": "af5a093fb98de4706174d2cb223edd091844323608c3361a1a63aede1fbea758",
+  "hkdf_version": 2,
+  "verified": true
+}

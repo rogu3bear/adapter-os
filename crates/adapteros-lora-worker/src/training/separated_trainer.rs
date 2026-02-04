@@ -709,6 +709,7 @@ mod tests {
             targets: Vec::new(),
             multi_module_training: false,
             lora_layer_indices: Vec::new(),
+            mlx_version: None,
         };
 
         let trainer = SeparatedLoRATrainer::new(config).unwrap();
@@ -783,6 +784,7 @@ mod tests {
             targets: Vec::new(),
             multi_module_training: false,
             lora_layer_indices: Vec::new(),
+            mlx_version: None,
         };
 
         let trainer = SeparatedLoRATrainer::new(config).unwrap();

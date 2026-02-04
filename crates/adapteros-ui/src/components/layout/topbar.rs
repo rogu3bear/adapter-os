@@ -10,8 +10,10 @@ use crate::components::layout::nav_registry::build_mobile_nav_items;
 use crate::components::responsive::use_is_mobile;
 use crate::components::status::{Badge, BadgeVariant};
 use crate::constants::urls::docs_url;
-use crate::signals::{use_auth, use_notification_state, use_ui_profile};
+use crate::signals::{use_auth, use_notification_state, use_search, use_ui_profile};
 use leptos::prelude::*;
+use wasm_bindgen::prelude::*;
+use wasm_bindgen::JsCast;
 
 /// Thin top bar with branding, command palette hint, and user menu.
 /// Responsive: collapses to hamburger + key actions on mobile.
@@ -21,8 +23,11 @@ pub fn TopBar() -> impl IntoView {
     // Store auth_action for use in closures
     let auth_action_signal = StoredValue::new(auth_action);
     let (user_menu_open, set_user_menu_open) = signal(false);
+    let user_menu_ref = NodeRef::<leptos::html::Div>::new();
+    let user_menu_button_ref = NodeRef::<leptos::html::Button>::new();
     let (mobile_menu_open, set_mobile_menu_open) = signal(false);
     let is_mobile = use_is_mobile();
+    let search = use_search();
     let docs_url_value = docs_url();
 
     // Environment detection (dev/prod)
@@ -47,6 +52,69 @@ pub fn TopBar() -> impl IntoView {
             BadgeVariant::Success
         }
     };
+
+    // Close user menu on outside click or Escape
+    let user_menu_listeners_set = StoredValue::new(false);
+    Effect::new(move || {
+        if user_menu_listeners_set.get_value() {
+            return;
+        }
+        user_menu_listeners_set.set_value(true);
+
+        let user_menu_open = user_menu_open.clone();
+        let set_user_menu_open = set_user_menu_open.clone();
+        let user_menu_ref = user_menu_ref.clone();
+        let user_menu_button_ref = user_menu_button_ref.clone();
+
+        let click_closure = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
+            if !user_menu_open.get_untracked() {
+                return;
+            }
+            let target = match event.target() {
+                Some(target) => target,
+                None => return,
+            };
+            let target_node = match target.dyn_into::<web_sys::Node>() {
+                Ok(node) => node,
+                Err(_) => return,
+            };
+            if let Some(menu) = user_menu_ref.get() {
+                if menu.contains(Some(&target_node)) {
+                    return;
+                }
+            }
+            if let Some(button) = user_menu_button_ref.get() {
+                if button.contains(Some(&target_node)) {
+                    return;
+                }
+            }
+            set_user_menu_open.set(false);
+        }) as Box<dyn FnMut(_)>);
+
+        let key_closure = Closure::wrap(Box::new(move |event: web_sys::KeyboardEvent| {
+            if !user_menu_open.get_untracked() {
+                return;
+            }
+            if event.key() == "Escape" {
+                set_user_menu_open.set(false);
+            }
+        }) as Box<dyn FnMut(_)>);
+
+        if let Some(document) = web_sys::window().and_then(|window| window.document()) {
+            let _ = document.add_event_listener_with_callback(
+                "mousedown",
+                click_closure.as_ref().unchecked_ref(),
+            );
+            let _ = document.add_event_listener_with_callback(
+                "touchstart",
+                click_closure.as_ref().unchecked_ref(),
+            );
+            let _ = document
+                .add_event_listener_with_callback("keydown", key_closure.as_ref().unchecked_ref());
+        }
+        click_closure.forget();
+        key_closure.forget();
+    });
 
     view! {
         <header class="topbar h-10 flex items-center justify-between border-b border-border/50 bg-background/95 backdrop-blur-sm shrink-0">
@@ -80,6 +148,26 @@ pub fn TopBar() -> impl IntoView {
 
             // Right: Glass toggle + User menu
             <div class="topbar-actions flex items-center gap-2">
+                // Mobile-only command palette trigger
+                <button
+                    class="topbar-action flex items-center justify-center w-8 h-8 rounded-md hover:bg-muted/50 transition-colors sm:hidden"
+                    on:click=move |_| search.open()
+                    aria-label="Open command palette"
+                    title="Open command palette"
+                >
+                    <svg
+                        class="w-4 h-4 text-muted-foreground"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                    >
+                        <circle cx="11" cy="11" r="8" />
+                        <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                    </svg>
+                </button>
                 {(!docs_url_value.is_empty()).then(|| view! {
                     <a
                         class="topbar-action flex items-center gap-2 px-2 py-1 rounded-md hover:bg-muted/50 transition-colors"
@@ -108,7 +196,11 @@ pub fn TopBar() -> impl IntoView {
                 <div class="relative">
                     <button
                         class="topbar-action flex items-center gap-2 px-2 py-1 rounded-md hover:bg-muted/50 transition-colors"
+                        node_ref=user_menu_button_ref
                         on:click=move |_| set_user_menu_open.update(|v| *v = !*v)
+                        aria-expanded=move || user_menu_open.get().to_string()
+                        aria-controls="user-menu"
+                        aria-haspopup="menu"
                     >
                         {move || {
                             if let Some(user) = auth_state.get().user() {
@@ -149,7 +241,12 @@ pub fn TopBar() -> impl IntoView {
                     // User dropdown - includes personal account links (Profile, Preferences)
                     // This is the primary way to access personal settings, separate from Org admin
                     <Show when=move || user_menu_open.get()>
-                        <div class="absolute right-0 top-full mt-1 w-48 bg-background border border-border rounded-lg shadow-lg z-50">
+                        <div
+                            class="absolute right-0 top-full mt-1 w-48 bg-background border border-border rounded-lg shadow-lg z-50"
+                            id="user-menu"
+                            role="menu"
+                            node_ref=user_menu_ref
+                        >
                             {move || {
                                 let state = auth_state.get();
                                 if let Some(user) = state.user() {

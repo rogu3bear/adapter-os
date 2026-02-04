@@ -1039,6 +1039,12 @@ pub struct Adapter {
     #[sqlx(default)]
     pub training_dataset_hash_b3: Option<String>,
 
+    /// Monotonic stable ID per tenant for deterministic tie-breaking.
+    /// Used by the router for consistent ordering when scores are equal.
+    /// (from migration 0300)
+    #[sqlx(default)]
+    pub stable_id: Option<i64>,
+
     pub created_at: String,
     pub updated_at: String,
 }
@@ -2694,6 +2700,24 @@ impl Db {
         Ok(())
     }
 
+    /// Get the next stable_id for a tenant's adapters.
+    ///
+    /// Returns a monotonically increasing ID for deterministic tie-breaking
+    /// in the router. The stable_id is unique per-tenant and assigned at
+    /// registration time in the order adapters are created.
+    async fn get_next_adapter_stable_id(&self, tenant_id: &str) -> Result<i64> {
+        let max_stable_id: Option<i64> = sqlx::query_scalar(
+            "SELECT MAX(stable_id) FROM adapters WHERE tenant_id = ?",
+        )
+        .bind(tenant_id)
+        .fetch_one(self.pool())
+        .await
+        .map_err(|e| AosError::database(format!("get max stable_id: {e}")))?;
+
+        // Start from 1 if no existing adapters
+        Ok(max_stable_id.unwrap_or(0) + 1)
+    }
+
     pub async fn register_adapter(&self, params: AdapterRegistrationParams) -> Result<String> {
         self.register_adapter_extended(params).await
     }
@@ -3146,6 +3170,9 @@ impl Db {
         }
 
         let id = Uuid::now_v7().to_string();
+        // Get next stable_id for deterministic routing tie-breaking
+        let stable_id = self.get_next_adapter_stable_id(&params.tenant_id).await?;
+
         let mut dual_write_completed = false;
         let dual_write_timer =
             if self.storage_mode().write_to_sql() && self.storage_mode().write_to_kv() {
@@ -3175,8 +3202,8 @@ impl Db {
 
                     // SQL insert within transaction (don't commit yet)
                     sqlx::query(
-                        "INSERT INTO adapters (id, tenant_id, adapter_id, name, hash_b3, rank, alpha, lora_strength, tier, targets_json, acl_json, languages_json, framework, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, expires_at, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, aos_file_path, aos_file_hash, base_model_id, recommended_for_moe, manifest_schema_version, content_hash_b3, metadata_json, provenance_json, repo_path, codebase_scope, dataset_version_id, registration_timestamp, manifest_hash, training_dataset_hash_b3, version, lifecycle_state, current_state, pinned, memory_bytes, activation_count, load_state, active)
-                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, '1.0.0', 'draft', 'unloaded', 0, 0, 0, 'cold', 1)"
+                        "INSERT INTO adapters (id, tenant_id, adapter_id, name, hash_b3, rank, alpha, lora_strength, tier, targets_json, acl_json, languages_json, framework, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, expires_at, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, aos_file_path, aos_file_hash, base_model_id, recommended_for_moe, manifest_schema_version, content_hash_b3, metadata_json, provenance_json, repo_path, codebase_scope, dataset_version_id, registration_timestamp, manifest_hash, training_dataset_hash_b3, stable_id, version, lifecycle_state, current_state, pinned, memory_bytes, activation_count, load_state, active)
+                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, '1.0.0', 'draft', 'unloaded', 0, 0, 0, 'cold', 1)"
                     )
                     .bind(&id)
                     .bind(&params.tenant_id)
@@ -3221,6 +3248,7 @@ impl Db {
                     .bind(&params.registration_timestamp)
                     .bind(&params.manifest_hash)
                     .bind(&params.training_dataset_hash_b3)
+                    .bind(stable_id)
                     .execute(&mut *tx)
                     .await
                     .map_err(|e| AosError::database(e.to_string()))?;
@@ -3298,8 +3326,8 @@ impl Db {
                 } else {
                     // Non-strict mode or SQL-only: use direct execute (auto-commit)
                     sqlx::query(
-                        "INSERT INTO adapters (id, tenant_id, adapter_id, name, hash_b3, rank, alpha, lora_strength, tier, targets_json, acl_json, languages_json, framework, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, expires_at, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, aos_file_path, aos_file_hash, base_model_id, recommended_for_moe, manifest_schema_version, content_hash_b3, metadata_json, provenance_json, repo_path, codebase_scope, dataset_version_id, registration_timestamp, manifest_hash, training_dataset_hash_b3, version, lifecycle_state, current_state, pinned, memory_bytes, activation_count, load_state, active)
-                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, '1.0.0', 'draft', 'unloaded', 0, 0, 0, 'cold', 1)"
+                        "INSERT INTO adapters (id, tenant_id, adapter_id, name, hash_b3, rank, alpha, lora_strength, tier, targets_json, acl_json, languages_json, framework, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, expires_at, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, aos_file_path, aos_file_hash, base_model_id, recommended_for_moe, manifest_schema_version, content_hash_b3, metadata_json, provenance_json, repo_path, codebase_scope, dataset_version_id, registration_timestamp, manifest_hash, training_dataset_hash_b3, stable_id, version, lifecycle_state, current_state, pinned, memory_bytes, activation_count, load_state, active)
+                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, '1.0.0', 'draft', 'unloaded', 0, 0, 0, 'cold', 1)"
                     )
                     .bind(&id)
                     .bind(&params.tenant_id)
@@ -3344,6 +3372,7 @@ impl Db {
                     .bind(&params.registration_timestamp)
                     .bind(&params.manifest_hash)
                     .bind(&params.training_dataset_hash_b3)
+                    .bind(stable_id)
                     .execute(pool)
                     .await
                     .map_err(|e| AosError::database(e.to_string()))?;

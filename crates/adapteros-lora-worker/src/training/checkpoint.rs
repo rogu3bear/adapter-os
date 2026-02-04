@@ -457,6 +457,7 @@ mod tests {
             targets: Vec::new(),
             multi_module_training: false,
             lora_layer_indices: Vec::new(),
+            mlx_version: None,
         };
 
         let weights = LoRAWeights {

@@ -150,6 +150,7 @@ pub fn build_harness_training_config(
         targets: Vec::new(),
         multi_module_training: false,
         lora_layer_indices: Vec::new(),
+        mlx_version: None, // Will be populated during trainer initialization
     };
 
     // Enforce deterministic GPU fallback policy explicitly.
@@ -318,6 +319,7 @@ mod tests {
             validation_token_count: 0,
             best_validation: None,
             final_validation_loss: None,
+            mlx_version: None,
         }
     }
 

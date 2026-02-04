@@ -255,7 +255,12 @@ impl MicroLoRATrainer {
         );
         #[cfg(feature = "multi-backend")]
         {
-            info!("MLX version: {}", adapteros_lora_mlx_ffi::mlx_version());
+            let mlx_ver = adapteros_lora_mlx_ffi::mlx_version();
+            info!("MLX version: {}", mlx_ver);
+            // Capture MLX version for training reproducibility if not already set
+            if config.mlx_version.is_none() {
+                config.mlx_version = Some(mlx_ver.to_string());
+            }
         }
 
         let config_for_metrics = config.clone();
@@ -2675,6 +2680,7 @@ Use --force-resume to override (may produce incorrect results).",
             validation_token_count: self.validation_token_count,
             best_validation: None,
             final_validation_loss: None,
+            mlx_version: self.config.mlx_version.clone(),
         })
     }
 
@@ -3255,6 +3261,7 @@ Use --force-resume to override (may produce incorrect results).",
             validation_token_count: self.validation_token_count,
             best_validation,
             final_validation_loss,
+            mlx_version: self.config.mlx_version.clone(),
         })
     }
 

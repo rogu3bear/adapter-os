@@ -745,6 +745,8 @@ pub async fn get_ui_inference_trace_detail(
         ane_version: receipt.ane_version,
         prefix_cache_hit: Some(receipt.prefix_cache_hit),
         prefix_kv_bytes: Some(receipt.prefix_kv_bytes),
+        // adapter_training_digests is not yet available in the DB record
+        adapter_training_digests: None,
     });
 
     Ok(Json(UiInferenceTraceDetailResponse {

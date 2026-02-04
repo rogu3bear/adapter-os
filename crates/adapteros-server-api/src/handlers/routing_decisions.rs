@@ -904,6 +904,7 @@ pub async fn debug_routing(
 
             AdapterInfo {
                 id: adapter.id.clone(),
+                stable_id: adapter.stable_id.unwrap_or(0) as u64,
                 framework: adapter.framework.clone(),
                 languages,
                 tier: adapter.tier.clone(),

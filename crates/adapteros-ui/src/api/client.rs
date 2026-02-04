@@ -1032,6 +1032,37 @@ impl ApiClient {
         self.post("/v1/diag/export", &request).await
     }
 
+    /// Create a bundle export for a diagnostic run
+    pub async fn create_bundle_export(
+        &self,
+        trace_id: &str,
+    ) -> ApiResult<adapteros_api_types::diagnostics::DiagBundleExportResponse> {
+        let request = adapteros_api_types::diagnostics::DiagBundleExportRequest {
+            trace_id: trace_id.to_string(),
+            format: "tar.zst".to_string(),
+            include_evidence: false,
+            evidence_auth_token: None,
+        };
+        self.post("/v1/diag/bundle", &request).await
+    }
+
+    /// Get an existing bundle export by ID
+    pub async fn get_bundle_export(
+        &self,
+        export_id: &str,
+    ) -> ApiResult<adapteros_api_types::diagnostics::DiagBundleExportResponse> {
+        self.get(&format!("/v1/diag/bundle/{}", export_id)).await
+    }
+
+    /// Get the signature download URL for a bundle export
+    pub fn signature_download_url(&self, export_id: &str) -> String {
+        format!(
+            "{}/v1/diag/bundle/{}/signature",
+            super::api_base_url(),
+            export_id
+        )
+    }
+
     // --- Search ---
 
     /// Global search across entities

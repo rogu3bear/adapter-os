@@ -403,6 +403,11 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
                     label="Export"
                     action=QuickAction::Export(run_id.clone())
                 />
+                <QuickActionButton
+                    icon="🔏"
+                    label="Download Signature"
+                    action=QuickAction::DownloadSignature(run_id.clone())
+                />
                 {move || {
                     if ui_profile.get() == UiProfile::Full {
                         Some(view! {
@@ -545,7 +550,7 @@ fn TabContent(
                     view! { <TraceTab trace_detail=trace_detail/> }.into_any()
                 }
                 RunDetailTab::Receipt => {
-                    view! { <ReceiptsTab export=export/> }.into_any()
+                    view! { <ReceiptsTab export=export trace_detail=trace_detail/> }.into_any()
                 }
                 RunDetailTab::Routing => {
                     view! { <RoutingTab export=export trace_detail=trace_detail/> }.into_any()
@@ -597,6 +602,8 @@ enum QuickAction {
     CopyReceiptHash(ReadSignal<Option<String>>),
     /// Export run data
     Export(String),
+    /// Download signature file (requires bundle creation)
+    DownloadSignature(String),
 }
 
 /// Quick action button component
@@ -632,6 +639,31 @@ fn QuickActionButton(
                         "_blank",
                     );
                 }
+            }
+            QuickAction::DownloadSignature(trace_id) => {
+                // Create bundle and download signature
+                let notifs = notifications.clone();
+                spawn_local(async move {
+                    let client = ApiClient::new();
+
+                    // Create bundle export (this generates the signature)
+                    match client.create_bundle_export(&trace_id).await {
+                        Ok(bundle) => {
+                            // Open signature download URL in new tab
+                            let sig_url = client.signature_download_url(&bundle.export_id);
+                            if let Some(window) = web_sys::window() {
+                                let _ = window.open_with_url_and_target(&sig_url, "_blank");
+                            }
+                            notifs.success("Signature ready", "Signature file download started.");
+                        }
+                        Err(e) => {
+                            notifs.error(
+                                "Signature download failed",
+                                &format!("Could not generate signature: {}", e),
+                            );
+                        }
+                    }
+                });
             }
         }
     };
@@ -928,6 +960,30 @@ fn OverviewTab(
                                             <ProvenanceField label="Seed lineage hash" value=receipt.seed_lineage_hash.clone()/>
                                             <ProvenanceField label="Backend attestation hash" value=receipt.backend_attestation_b3.clone()/>
                                         </div>
+                                        // Training digests section
+                                        {receipt.adapter_training_digests.clone().map(|digests| {
+                                            if digests.is_empty() {
+                                                None
+                                            } else {
+                                                Some(view! {
+                                                    <div class="border-t border-border pt-3 mt-3">
+                                                        <p class="text-xs text-muted-foreground mb-2">"Training Lineage"</p>
+                                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                            {digests.into_iter().enumerate().map(|(idx, digest)| {
+                                                                let label = format!("Adapter {} training digest", idx + 1);
+                                                                view! {
+                                                                    <CopyableId
+                                                                        id=digest
+                                                                        label=label
+                                                                        truncate=24
+                                                                    />
+                                                                }
+                                                            }).collect::<Vec<_>>()}
+                                                        </div>
+                                                    </div>
+                                                })
+                                            }
+                                        }).flatten()}
                                     </div>
                                 }
                                 .into_any()
@@ -1083,7 +1139,10 @@ fn TraceTab(
 
 /// Receipts tab - shows hashes and verification status
 #[component]
-fn ReceiptsTab(export: DiagExportResponse) -> impl IntoView {
+fn ReceiptsTab(
+    export: DiagExportResponse,
+    trace_detail: ReadSignal<LoadingState<UiInferenceTraceDetailResponse>>,
+) -> impl IntoView {
     let run_id = export.run.id.clone();
     let trace_id = export.run.trace_id.clone();
     let request_hash = export.run.request_hash.clone();
@@ -1173,6 +1232,61 @@ fn ReceiptsTab(export: DiagExportResponse) -> impl IntoView {
                     }}
                 </div>
             </Card>
+
+            // Training Lineage section - displays adapter training digests
+            <Card title="Training Lineage".to_string()>
+                {move || match trace_detail.get() {
+                    LoadingState::Loaded(detail) => {
+                        if let Some(receipt) = detail.receipt.clone() {
+                            if let Some(digests) = receipt.adapter_training_digests {
+                                if digests.is_empty() {
+                                    view! {
+                                        <div class="text-sm text-muted-foreground italic">
+                                            "No training digests recorded for this run."
+                                        </div>
+                                    }.into_any()
+                                } else {
+                                    view! {
+                                        <div class="space-y-3">
+                                            <p class="text-xs text-muted-foreground">
+                                                "Training dataset digests for adapters used in this inference. Each digest is a BLAKE3 hash of the training data that produced the adapter."
+                                            </p>
+                                            <div class="space-y-2">
+                                                {digests.into_iter().enumerate().map(|(idx, digest)| {
+                                                    view! {
+                                                        <TrainingDigestRow
+                                                            index=idx
+                                                            digest=digest
+                                                        />
+                                                    }
+                                                }).collect::<Vec<_>>()}
+                                            </div>
+                                        </div>
+                                    }.into_any()
+                                }
+                            } else {
+                                view! {
+                                    <div class="text-sm text-muted-foreground italic">
+                                        "Training lineage not available for this run."
+                                    </div>
+                                }.into_any()
+                            }
+                        } else {
+                            view! {
+                                <div class="text-sm text-muted-foreground italic">
+                                    "Receipt not available for this run."
+                                </div>
+                            }.into_any()
+                        }
+                    }
+                    LoadingState::Error(err) => view! {
+                        <div class="text-sm text-muted-foreground">{format!("Failed to load: {}", err)}</div>
+                    }.into_any(),
+                    _ => view! {
+                        <div class="text-sm text-muted-foreground italic">"Loading training lineage..."</div>
+                    }.into_any(),
+                }}
+            </Card>
         </div>
     }
 }
@@ -1196,6 +1310,19 @@ fn HashRow(label: &'static str, hash: String, verified: Option<bool>) -> impl In
                 {text}
             </Badge>
         </div>
+    }
+}
+
+/// Training digest row with index and copy affordance
+#[component]
+fn TrainingDigestRow(index: usize, digest: String) -> impl IntoView {
+    let label = format!("Adapter {} training digest", index + 1);
+    view! {
+        <CopyableId
+            id=digest
+            label=label
+            truncate=24
+        />
     }
 }
 

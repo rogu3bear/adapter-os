@@ -39,6 +39,10 @@ pub struct UiTraceReceiptSummary {
     pub seed_lineage_hash: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub backend_attestation_b3: Option<String>,
+    /// BLAKE3 hashes of training datasets for adapters used in this inference.
+    /// Enables verification of which training data influenced the response.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adapter_training_digests: Option<Vec<String>>,
     pub logical_prompt_tokens: u32,
     pub logical_output_tokens: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
