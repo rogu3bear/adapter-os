@@ -1952,7 +1952,7 @@ impl ApiClient {
         trace_id: &str,
         token_limit: Option<u32>,
         token_after: Option<u32>,
-    ) -> ApiResult<InferenceTraceDetailResponse> {
+    ) -> ApiResult<UiInferenceTraceDetailResponse> {
         let mut params = Vec::new();
         if let Some(limit) = token_limit {
             params.push(format!("tokens_limit={}", limit));
@@ -1962,9 +1962,13 @@ impl ApiClient {
         }
 
         let path = if params.is_empty() {
-            format!("/v1/traces/inference/{}", trace_id)
+            format!("/v1/ui/traces/inference/{}", trace_id)
         } else {
-            format!("/v1/traces/inference/{}?{}", trace_id, params.join("&"))
+            format!(
+                "/v1/ui/traces/inference/{}?{}",
+                trace_id,
+                params.join("&")
+            )
         };
 
         self.get(&path).await

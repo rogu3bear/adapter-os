@@ -6,8 +6,8 @@
 use leptos::prelude::*;
 
 use crate::api::{
-    ApiClient, InferenceTraceDetailResponse, InferenceTraceResponse, TimingBreakdown, TokenDecision,
-    TraceReceiptSummary,
+    ApiClient, UiInferenceTraceDetailResponse, InferenceTraceResponse, TimingBreakdown, TokenDecision,
+    UiTraceReceiptSummary,
 };
 use crate::components::async_state::ErrorDisplay;
 use crate::components::Spinner;
@@ -26,7 +26,7 @@ pub enum TraceViewState {
     /// Loaded trace summary list
     List(Vec<InferenceTraceResponse>),
     /// Loaded detailed trace
-    Detail(Box<InferenceTraceDetailResponse>),
+    Detail(Box<UiInferenceTraceDetailResponse>),
     /// Error loading trace
     Error(String),
 }
@@ -226,7 +226,7 @@ fn TraceListItem(
 /// Detailed trace view with timeline
 #[component]
 fn TraceDetail(
-    trace: InferenceTraceDetailResponse,
+    trace: UiInferenceTraceDetailResponse,
     expanded_tokens: ReadSignal<bool>,
     set_expanded_tokens: WriteSignal<bool>,
     on_back: impl Fn() + 'static,
@@ -642,7 +642,7 @@ fn TokenDecisionRow(decision: TokenDecision, #[prop(optional)] compact: bool) ->
 /// Receipt verification display
 #[component]
 fn ReceiptVerification(
-    receipt: TraceReceiptSummary,
+    receipt: UiTraceReceiptSummary,
     #[prop(optional)] compact: bool,
 ) -> impl IntoView {
     let container_class = if compact {
@@ -675,7 +675,7 @@ fn ReceiptVerification(
         "{}...",
         receipt.output_digest.chars().take(16).collect::<String>()
     );
-    let cache_hit = receipt.prefix_cache_hit;
+    let cache_hit = receipt.prefix_cache_hit.unwrap_or(false);
 
     view! {
         <div class=container_class>
@@ -898,7 +898,7 @@ fn TraceViewerInner(trace_id: String, #[prop(optional)] compact: bool) -> impl I
 /// Trace detail without back button (for modal use)
 #[component]
 pub fn TraceDetailStandalone(
-    trace: InferenceTraceDetailResponse,
+    trace: UiInferenceTraceDetailResponse,
     expanded_tokens: ReadSignal<bool>,
     set_expanded_tokens: WriteSignal<bool>,
     #[prop(optional)] compact: bool,
@@ -962,7 +962,7 @@ pub fn TraceDetailStandalone(
 /// to avoid duplicate API calls.
 #[component]
 pub fn TraceViewerWithData(
-    trace_detail: ReadSignal<LoadingState<InferenceTraceDetailResponse>>,
+    trace_detail: ReadSignal<LoadingState<UiInferenceTraceDetailResponse>>,
     #[prop(optional)] compact: bool,
 ) -> impl IntoView {
     let (expanded_tokens, set_expanded_tokens) = signal(false);
