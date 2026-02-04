@@ -9,7 +9,7 @@ use crate::components::offline_banner::OfflineBanner;
 use crate::components::status_center::StatusCenterProvider;
 use crate::components::telemetry_overlay::TelemetryOverlay;
 use crate::components::workspace::Workspace;
-use crate::signals::{use_chat, use_search, DockState};
+use crate::signals::{provide_ui_profile_context, use_chat, use_search, DockState};
 use leptos::prelude::*;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
@@ -18,6 +18,7 @@ use wasm_bindgen::JsCast;
 #[component]
 pub fn Shell(children: Children) -> impl IntoView {
     web_sys::console::log_1(&"[Shell] Rendering...".into());
+    provide_ui_profile_context();
     let (chat_state, _chat_action) = use_chat();
     let search = use_search();
     web_sys::console::log_1(&"[Shell] Got chat context".into());

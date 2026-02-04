@@ -49,6 +49,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::auth_enhanced::login_handler,
         handlers::auth_enhanced::bootstrap_admin_handler,
         handlers::auth_enhanced::get_auth_config_handler,
+        handlers::ui_config::get_ui_config,
         handlers::auth_enhanced::auth_health_handler,
         handlers::auth_enhanced::refresh_token_handler,
         handlers::auth_enhanced::register_handler,
@@ -990,6 +991,7 @@ pub fn build(state: AppState) -> Router {
             "/v1/auth/config",
             get(handlers::auth_enhanced::get_auth_config_handler),
         )
+        .route("/v1/ui/config", get(handlers::ui_config::get_ui_config))
         .route(
             "/v1/auth/health",
             get(handlers::auth_enhanced::auth_health_handler),

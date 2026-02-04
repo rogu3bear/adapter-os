@@ -68,6 +68,7 @@ pub fn Select(
     #[prop(optional, into)] name: Option<String>,
     #[prop(optional)] disabled: bool,
     #[prop(optional, into)] class: String,
+    #[prop(optional)] on_change: Option<Callback<String>>,
 ) -> impl IntoView {
     let full_class = format!("select {}", class);
     let field_ctx = use_form_field_context();
@@ -89,7 +90,11 @@ pub fn Select(
                 aria-describedby=described_by
                 prop:value=move || value.get()
                 on:change=move |ev| {
-                    value.set(event_target_value(&ev));
+                    let next = event_target_value(&ev);
+                    value.set(next.clone());
+                    if let Some(ref callback) = on_change {
+                        callback.run(next);
+                    }
                 }
             >
                 {options.into_iter().map(|(val, label)| {
