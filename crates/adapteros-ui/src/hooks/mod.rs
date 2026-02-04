@@ -13,6 +13,7 @@ use leptos::prelude::*;
 use std::sync::Arc;
 
 /// Get the current page path for error reporting
+#[allow(dead_code)] // Reserved for future error reporting enhancements
 fn get_current_path() -> Option<String> {
     web_sys::window().and_then(|w| w.location().pathname().ok())
 }

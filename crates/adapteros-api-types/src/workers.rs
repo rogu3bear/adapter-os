@@ -13,11 +13,12 @@ use crate::schema_version;
 ///
 /// Note: This is distinct from `ModelLoadStatus` in `model_status.rs` which is used
 /// for model management APIs. This type is specifically for worker runtime state.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum WorkerModelLoadState {
     /// No model currently loaded in memory
+    #[default]
     Unloaded,
     /// Model is actively being loaded (weights transfer in progress)
     Loading,
@@ -26,12 +27,6 @@ pub enum WorkerModelLoadState {
     /// Model load failed with an error message
     #[serde(rename = "error")]
     Error(String),
-}
-
-impl Default for WorkerModelLoadState {
-    fn default() -> Self {
-        WorkerModelLoadState::Unloaded
-    }
 }
 
 impl std::fmt::Display for WorkerModelLoadState {

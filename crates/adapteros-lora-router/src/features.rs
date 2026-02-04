@@ -341,6 +341,7 @@ fn extract_lang_one_hot_with_lower(_context: &str, context_lower: &str) -> Vec<f
 /// Extract language one-hot encoding from context (standalone version).
 ///
 /// Provided for backward compatibility and direct testing.
+#[allow(dead_code)] // Reserved for backward compatibility and direct testing
 fn extract_lang_one_hot(context: &str) -> Vec<f32> {
     let context_lower = context.to_lowercase();
     extract_lang_one_hot_with_lower(context, &context_lower)
@@ -390,6 +391,7 @@ fn extract_framework_prior_with_lower(context_lower: &str) -> BTreeMap<String, f
 /// Extract framework priors from context (standalone version).
 ///
 /// Provided for backward compatibility and direct testing.
+#[allow(dead_code)] // Reserved for backward compatibility and direct testing
 fn extract_framework_prior(context: &str) -> BTreeMap<String, f32> {
     let context_lower = context.to_lowercase();
     extract_framework_prior_with_lower(&context_lower)
@@ -474,6 +476,7 @@ fn classify_prompt_verb_with_lower(context_lower: &str) -> PromptVerb {
 /// Classify prompt verb (standalone version).
 ///
 /// Provided for backward compatibility and direct testing.
+#[allow(dead_code)] // Reserved for backward compatibility and direct testing
 fn classify_prompt_verb(context: &str) -> PromptVerb {
     let context_lower = context.to_lowercase();
     classify_prompt_verb_with_lower(&context_lower)

@@ -7,7 +7,7 @@ use crate::StorageConfig;
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 /// Storage policy for a tenant
@@ -535,12 +535,12 @@ impl StoragePolicyEngine {
         }
     }
 
-    fn compute_usage_percentage(&self, file_path: &PathBuf) -> Result<f32> {
+    fn compute_usage_percentage(&self, file_path: &Path) -> Result<f32> {
         let root = self
             .root_path
             .clone()
             .or_else(|| file_path.parent().map(|p| p.to_path_buf()))
-            .unwrap_or_else(|| file_path.clone());
+            .unwrap_or_else(|| file_path.to_path_buf());
 
         let mut used_bytes = 0u64;
 

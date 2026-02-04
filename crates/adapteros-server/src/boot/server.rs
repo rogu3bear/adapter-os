@@ -354,7 +354,6 @@ async fn serve_uds_with_peer_credentials(
 ) -> Result<(), std::io::Error> {
     use hyper::server::conn::http1;
     use hyper_util::rt::TokioIo;
-    use std::convert::Infallible;
     use tower::Service;
 
     let shutdown_signal =

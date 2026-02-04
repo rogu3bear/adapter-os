@@ -1344,7 +1344,7 @@ impl SlowNoticeTimer {
         {
             let _ = state;
             let _ = delay_ms;
-            return Self {};
+            Self {}
         }
     }
 

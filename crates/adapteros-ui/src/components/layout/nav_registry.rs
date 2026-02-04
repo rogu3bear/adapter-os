@@ -12,11 +12,10 @@ enum NavScope {
 
 impl NavScope {
     fn allows(self, profile: UiProfile) -> bool {
-        match (self, profile) {
-            (NavScope::PrimaryOnly, UiProfile::Primary) => true,
-            (NavScope::FullOnly, UiProfile::Full) => true,
-            _ => false,
-        }
+        matches!(
+            (self, profile),
+            (NavScope::PrimaryOnly, UiProfile::Primary) | (NavScope::FullOnly, UiProfile::Full)
+        )
     }
 }
 

@@ -10,10 +10,8 @@ use std::time::Instant;
 use tracing::{debug, info, warn};
 
 use adapteros_core::{AosError, Result, Q15_GATE_DENOMINATOR};
-use adapteros_lora_kernel_api::{IoBuffers, RouterRing};
-
 use crate::adapter_cache::{AdapterCache, CachedAdapter};
-use crate::kv_cache::{KvCacheEntry, KvCacheManager};
+use crate::kv_cache::KvCacheManager;
 
 #[cfg(feature = "mlx")]
 use adapteros_lora_mlx_ffi::tensor::MLXFFITensor;
@@ -482,11 +480,11 @@ fn compute_lora_delta(hidden: &[f32], lora_a: &[f32], lora_b: &[f32]) -> Vec<f32
     let rank = lora_a.len() / hidden_size.max(1);
     let mut intermediate = vec![0.0f32; rank];
 
-    for r in 0..rank {
-        for h in 0..hidden_size {
+    for (r, inter_r) in intermediate.iter_mut().enumerate().take(rank) {
+        for (h, hidden_h) in hidden.iter().enumerate().take(hidden_size) {
             let a_idx = r * hidden_size + h;
             if a_idx < lora_a.len() {
-                intermediate[r] += hidden[h] * lora_a[a_idx];
+                *inter_r += hidden_h * lora_a[a_idx];
             }
         }
     }
@@ -495,11 +493,11 @@ fn compute_lora_delta(hidden: &[f32], lora_a: &[f32], lora_b: &[f32]) -> Vec<f32
     let vocab_size = lora_b.len() / rank.max(1);
     let mut output = vec![0.0f32; vocab_size];
 
-    for v in 0..vocab_size {
-        for r in 0..rank {
+    for (v, out_v) in output.iter_mut().enumerate().take(vocab_size) {
+        for (r, inter_r) in intermediate.iter().enumerate().take(rank) {
             let b_idx = v * rank + r;
             if b_idx < lora_b.len() {
-                output[v] += intermediate[r] * lora_b[b_idx];
+                *out_v += inter_r * lora_b[b_idx];
             }
         }
     }
