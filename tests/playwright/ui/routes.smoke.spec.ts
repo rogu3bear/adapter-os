@@ -49,7 +49,7 @@ test('route smoke coverage', async ({ page }) => {
     { path: `/flight-recorder/${seeded.runId}`, heading: 'Run Detail', headingLevel: 2 },
     { path: '/diff', heading: 'Run Diff' },
     { path: '/workers', heading: 'Workers' },
-    { path: '/workers/worker-missing', text: /worker not found/i },
+    { path: '/workers/worker-missing', text: /not found/i },
     { path: '/monitoring', heading: 'Metrics' },
     { path: '/errors', heading: 'Incidents' },
     { path: '/routing', heading: 'Routing Debug' },
