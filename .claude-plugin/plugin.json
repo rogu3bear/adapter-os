@@ -1,7 +1,7 @@
 {
   "name": "codebase-health",
   "version": "0.1.0",
-  "description": "Systematic codebase auditing with parallel specialized agents for taste, performance, error handling, testing gaps, duplication, and API ergonomics",
+  "description": "Systematic codebase auditing with parallel specialized agents for style, performance, error handling, testing gaps, duplication, and API ergonomics",
   "author": {
     "name": "AdapterOS Team"
   },

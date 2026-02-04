@@ -1,0 +1,11 @@
+# Clippy configuration for AdapterOS
+# See: https://doc.rust-lang.org/clippy/configuration.html
+
+# Limit cognitive complexity for readability
+cognitive-complexity-threshold = 30
+
+# Allow slightly longer type complexity for generic ML code
+type-complexity-threshold = 350
+
+# Minimum lines for deduplication warnings
+min-ident-chars-threshold = 2

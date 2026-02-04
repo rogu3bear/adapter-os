@@ -91,6 +91,110 @@ pub struct MetricsSnapshotResponse {
     pub metrics: HashMap<String, f64>,
 }
 
+/// Inference trace summary response
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct InferenceTraceResponse {
+    pub trace_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    pub created_at: String,
+    pub latency_ms: u64,
+    pub token_count: u32,
+    pub adapters_used: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub finish_reason: Option<String>,
+}
+
+/// Detailed inference trace with token-level breakdown
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct InferenceTraceDetailResponse {
+    pub trace_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stack_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub policy_id: Option<String>,
+    pub created_at: String,
+    pub latency_ms: u64,
+    pub adapters_used: Vec<String>,
+    #[serde(default)]
+    pub token_decisions: Vec<TokenDecision>,
+    /// Cursor for next page of token decisions (if available)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_decisions_next_cursor: Option<u32>,
+    /// Whether more token decisions are available
+    #[serde(default)]
+    pub token_decisions_has_more: bool,
+    pub timing_breakdown: TimingBreakdown,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub receipt: Option<TraceReceiptSummary>,
+    /// Backend used (e.g., coreml, metal, mlx)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend_id: Option<String>,
+}
+
+/// Per-token routing decision
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct TokenDecision {
+    pub token_index: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_id: Option<u32>,
+    pub adapter_ids: Vec<String>,
+    pub gates_q15: Vec<i16>,
+    pub entropy: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub decision_hash: Option<String>,
+    /// Backend ID for this specific token (if different from trace)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend_id: Option<String>,
+    /// Kernel version ID used for this token
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kernel_version_id: Option<String>,
+}
+
+/// Timing breakdown for latency analysis
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
+pub struct TimingBreakdown {
+    pub total_ms: u64,
+    pub routing_ms: u64,
+    pub inference_ms: u64,
+    pub policy_ms: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prefill_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub decode_ms: Option<u64>,
+}
+
+/// Receipt summary for trace verification
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct TraceReceiptSummary {
+    pub receipt_digest: String,
+    pub run_head_hash: String,
+    pub output_digest: String,
+    pub logical_prompt_tokens: u32,
+    pub logical_output_tokens: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stop_reason_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stop_reason_token_index: Option<u32>,
+    pub verified: bool,
+    /// Hardware/Equipment attestation fields
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub processor_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub engine_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ane_version: Option<String>,
+    /// Cache metrics
+    #[serde(default)]
+    pub prefix_cache_hit: bool,
+    #[serde(default)]
+    pub prefix_kv_bytes: u64,
+}
+
 /// Telemetry bundle response
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct TelemetryBundleResponse {

@@ -6,33 +6,18 @@ use crate::api::client::{ChunkListResponse, DocumentListParams, DocumentResponse
 use crate::api::ApiClient;
 use crate::components::{
     Badge, BadgeVariant, BreadcrumbItem, BreadcrumbTrail, Button, ButtonSize, ButtonVariant, Card,
-    ConfirmationDialog, ConfirmationSeverity, Dialog, Select, Spinner, Table, TableBody, TableCell,
-    TableHead, TableHeader, TableRow,
+    ConfirmationDialog, ConfirmationSeverity, CopyableId, Dialog, LoadingDisplay, Select, Table,
+    TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState};
+use crate::signals::{try_use_route_context, SelectedEntity};
+use crate::utils::format_bytes;
 use leptos::prelude::*;
 use leptos_router::hooks::{use_navigate, use_params_map};
 use std::sync::Arc;
 
 #[cfg(target_arch = "wasm32")]
 use send_wrapper::SendWrapper;
-
-/// Format file size for display
-fn format_file_size(bytes: i64) -> String {
-    const KB: i64 = 1024;
-    const MB: i64 = KB * 1024;
-    const GB: i64 = MB * 1024;
-
-    if bytes >= GB {
-        format!("{:.1} GB", bytes as f64 / GB as f64)
-    } else if bytes >= MB {
-        format!("{:.1} MB", bytes as f64 / MB as f64)
-    } else if bytes >= KB {
-        format!("{:.1} KB", bytes as f64 / KB as f64)
-    } else {
-        format!("{} B", bytes)
-    }
-}
 
 /// Get badge variant based on document status
 fn status_badge_variant(status: &str) -> BadgeVariant {
@@ -83,7 +68,7 @@ pub fn Documents() -> impl IntoView {
     });
 
     view! {
-        <div class="p-6 space-y-6">
+        <div class="shell-page space-y-6">
             <div class="flex items-center justify-between">
                 <h1 class="text-3xl font-bold tracking-tight">"Documents"</h1>
                 <div class="flex items-center gap-4">
@@ -120,9 +105,7 @@ pub fn Documents() -> impl IntoView {
                 match documents.get() {
                     LoadingState::Idle | LoadingState::Loading => {
                         view! {
-                            <div class="flex items-center justify-center py-12">
-                                <Spinner/>
-                            </div>
+                            <LoadingDisplay message="Loading documents..."/>
                         }.into_any()
                     }
                     LoadingState::Loaded(data) => {
@@ -236,7 +219,7 @@ fn DocumentsList(documents: Vec<DocumentResponse>, on_upload: Callback<()>) -> i
                             let name = doc.name.clone();
                             let status = doc.status.clone();
                             let status_variant = status_badge_variant(&status);
-                            let size = format_file_size(doc.size_bytes);
+                            let size = format_bytes(doc.size_bytes);
                             let chunks = doc.chunk_count.map(|c| c.to_string()).unwrap_or_else(|| "-".to_string());
                             let mime = doc.mime_type.clone();
                             let created = doc.created_at.clone();
@@ -452,7 +435,7 @@ fn DocumentUploadDialog(open: RwSignal<bool>, on_success: Callback<String>) -> i
                         let size = selected_file_size.get().unwrap_or_default();
                         view! {
                             <div class="text-sm text-muted-foreground">
-                                {name} " · " {format_file_size(size as i64)}
+                                {name} " · " {format_bytes(size as i64)}
                             </div>
                         }
                     })}
@@ -528,6 +511,23 @@ pub fn DocumentDetail() -> impl IntoView {
     let (processing, set_processing) = signal(false);
     let (action_error, set_action_error) = signal(Option::<String>::None);
 
+    // Publish document selection to RouteContext for contextual actions in Command Palette
+    {
+        let document = document.clone();
+        Effect::new(move || {
+            if let Some(route_ctx) = try_use_route_context() {
+                if let LoadingState::Loaded(doc) = document.get() {
+                    route_ctx.set_selected(SelectedEntity::with_status(
+                        "document",
+                        doc.document_id.clone(),
+                        doc.name.clone(),
+                        doc.status.clone(),
+                    ));
+                }
+            }
+        });
+    }
+
     view! {
         <div class="space-y-6">
             // Breadcrumb navigation
@@ -562,9 +562,7 @@ pub fn DocumentDetail() -> impl IntoView {
                 match document.get() {
                     LoadingState::Idle | LoadingState::Loading => {
                         view! {
-                            <div class="flex items-center justify-center py-12">
-                                <Spinner/>
-                            </div>
+                            <LoadingDisplay message="Loading document..."/>
                         }.into_any()
                     }
                     LoadingState::Loaded(data) => {
@@ -701,6 +699,7 @@ fn DocumentDetailContent(
     };
 
     let is_failed = document.status == "failed";
+    let is_indexed = document.status == "indexed";
 
     view! {
         <div class="grid gap-6 md:grid-cols-2">
@@ -712,8 +711,11 @@ fn DocumentDetailContent(
                         <p class="font-medium">{document.name.clone()}</p>
                     </div>
                     <div>
-                        <p class="text-sm text-muted-foreground">"Document ID"</p>
-                        <p class="font-mono text-sm break-all">{document.document_id.clone()}</p>
+                        <CopyableId
+                            id=document.document_id.clone()
+                            label="Document ID".to_string()
+                            truncate=28
+                        />
                     </div>
                     <div>
                         <p class="text-sm text-muted-foreground">"Hash (BLAKE3)"</p>
@@ -780,6 +782,24 @@ fn DocumentDetailContent(
                         >
                             {move || if processing.get() { "Processing..." } else { "Reprocess" }}
                         </Button>
+                        {is_indexed.then(|| {
+                            let doc_id_for_train = doc_id.clone();
+                            view! {
+                                <Button
+                                    variant=ButtonVariant::Secondary
+                                    size=ButtonSize::Sm
+                                    on_click=Callback::new(move |_| {
+                                        if let Some(window) = web_sys::window() {
+                                            let _ = window.location().set_href(
+                                                &format!("/training?source=document&document_id={}", doc_id_for_train)
+                                            );
+                                        }
+                                    })
+                                >
+                                    "Train Adapter"
+                                </Button>
+                            }
+                        })}
                         <Button
                             variant=ButtonVariant::Destructive
                             size=ButtonSize::Sm
@@ -814,7 +834,7 @@ fn DocumentDetailContent(
             <div class="grid gap-4 md:grid-cols-4">
                 <div>
                     <p class="text-sm text-muted-foreground">"Size"</p>
-                    <p class="font-medium">{format_file_size(document.size_bytes)}</p>
+                    <p class="font-medium">{format_bytes(document.size_bytes)}</p>
                 </div>
                 <div>
                     <p class="text-sm text-muted-foreground">"MIME Type"</p>

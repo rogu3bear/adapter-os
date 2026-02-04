@@ -2,6 +2,7 @@
 //!
 //! Provides reactive settings that persist to localStorage.
 
+use adapteros_api_types::UiProfile;
 use leptos::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -114,6 +115,9 @@ pub struct UserSettings {
     /// Show telemetry overlay in corner (off by default for clean UI)
     #[serde(default)]
     pub show_telemetry_overlay: bool,
+    /// Optional UI profile override (primary/full)
+    #[serde(default)]
+    pub ui_profile: Option<UiProfile>,
 }
 
 impl Default for UserSettings {
@@ -125,6 +129,7 @@ impl Default for UserSettings {
             default_page: DefaultPage::Dashboard,
             api_endpoint: None,
             show_telemetry_overlay: false,
+            ui_profile: None,
         }
     }
 }
@@ -210,6 +215,14 @@ pub fn use_settings() -> SettingsContext {
         provide_context(settings);
         settings
     })
+}
+
+/// Whether perf logging is enabled for UI-only diagnostics.
+///
+/// This is intentionally tied to the existing telemetry overlay setting
+/// to avoid adding new configuration surfaces.
+pub fn perf_logging_enabled() -> bool {
+    UserSettings::load().show_telemetry_overlay
 }
 
 /// Update and save a single setting

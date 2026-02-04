@@ -12,7 +12,7 @@ use crate::types::ErrorResponse;
 use adapteros_core::{AosError, B3Hash};
 use adapteros_db::adapters::AdapterRegistrationBuilder;
 use adapteros_db::models::ModelRegistrationBuilder;
-use adapteros_db::sqlx::{self, Row};
+use adapteros_db::sqlx::{self, Executor, Row};
 use adapteros_db::{
     policy_audit::AUDIT_CHAIN_DIVERGED_CODE,
     CreateRepositoryParams as CreateAdapterRepositoryParams,
@@ -46,6 +46,7 @@ const E2E_USER_NAME: &str = "E2E Test User";
 const E2E_USER_PASSWORD: &str = "password";
 const POLICY_ACTOR: &str = "seed-fixtures";
 const FIXED_TS: &str = "2025-01-01T00:00:00Z";
+const FIXED_TS_MS: i64 = 1_735_689_600_000;
 
 const TRACE_ID: &str = "trace-fixture";
 const TRACE_REQUEST_ID: &str = "req-fixture";
@@ -117,15 +118,16 @@ pub async fn reset(
     ensure_e2e_mode()?;
 
     let pool = state.db.pool();
+    let mut conn = pool.acquire().await.map_err(map_err)?;
 
     sqlx::query("PRAGMA foreign_keys=OFF")
-        .execute(pool)
+        .execute(&mut *conn)
         .await
         .map_err(map_err)?;
 
     let tables: Vec<String> = sqlx::query("SELECT name FROM sqlite_master WHERE type='table'")
         .map(|row: sqlx::sqlite::SqliteRow| row.get::<String, _>("name"))
-        .fetch_all(pool)
+        .fetch_all(&mut *conn)
         .await
         .map_err(map_err)?;
 
@@ -150,12 +152,15 @@ pub async fn reset(
         }
         // Quote identifier to prevent SQL injection (table names from sqlite_master)
         let stmt = format!("DELETE FROM \"{}\"", table.replace('"', "\"\""));
-        sqlx::query(&stmt).execute(pool).await.map_err(map_err)?;
+        sqlx::query(&stmt)
+            .execute(&mut *conn)
+            .await
+            .map_err(map_err)?;
         cleared += 1;
     }
 
     sqlx::query("PRAGMA foreign_keys=ON")
-        .execute(pool)
+        .execute(&mut *conn)
         .await
         .map_err(map_err)?;
 
@@ -730,6 +735,68 @@ pub async fn create_trace_fixture(
 }
 
 #[derive(Debug, Deserialize)]
+pub struct DiagRunFixtureRequest {
+    pub run_id: Option<String>,
+    pub trace_id: Option<String>,
+    pub tenant_id: Option<String>,
+    pub status: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DiagRunFixtureResponse {
+    pub run_id: String,
+    pub trace_id: String,
+    pub tenant_id: String,
+}
+
+#[axum::debug_handler]
+pub async fn create_diag_run_fixture(
+    State(state): State<AppState>,
+    Json(req): Json<DiagRunFixtureRequest>,
+) -> Result<Json<DiagRunFixtureResponse>, (StatusCode, Json<ErrorResponse>)> {
+    ensure_e2e_mode()?;
+    let tenant_id = req.tenant_id.unwrap_or_else(|| TENANT_ID.to_string());
+    let run_id = req.run_id.unwrap_or_else(|| TRACE_ID.to_string());
+    let trace_id = req.trace_id.unwrap_or_else(|| run_id.clone());
+    let status = req.status.unwrap_or_else(|| "completed".to_string());
+    let request_hash = "b3:diag-run-request-fixture";
+
+    sqlx::query("DELETE FROM diag_runs WHERE id = ?")
+        .bind(&run_id)
+        .execute(state.db.pool())
+        .await
+        .map_err(map_err)?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO diag_runs (
+            id, tenant_id, trace_id, started_at_unix_ms, completed_at_unix_ms,
+            request_hash, manifest_hash, status, total_events_count
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        "#,
+    )
+    .bind(&run_id)
+    .bind(&tenant_id)
+    .bind(&trace_id)
+    .bind(FIXED_TS_MS)
+    .bind(FIXED_TS_MS + 1000)
+    .bind(request_hash)
+    .bind("b3:diag-run-manifest-fixture")
+    .bind(&status)
+    .bind(1_i64)
+    .execute(state.db.pool())
+    .await
+    .map_err(map_err)?;
+
+    Ok(Json(DiagRunFixtureResponse {
+        run_id,
+        trace_id,
+        tenant_id,
+    }))
+}
+
+#[derive(Debug, Deserialize)]
 pub struct EvidenceFixtureRequest {
     pub tenant_id: Option<String>,
     pub inference_id: Option<String>,
@@ -898,6 +965,8 @@ pub struct CreateRepoRequest {
     pub name: Option<String>,
     pub base_model_id: Option<String>,
     pub default_branch: Option<String>,
+    pub path: Option<String>,
+    pub languages: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -915,6 +984,8 @@ pub async fn create_repo(
     let repo_id = req.repo_id.unwrap_or_else(|| "repo-e2e".to_string());
     let name = req.name.unwrap_or_else(|| "e2e-repo".to_string());
     let default_branch = req.default_branch.as_deref().unwrap_or("main");
+    let repo_path = req.path.unwrap_or_else(|| format!("var/repos/{}", repo_id));
+    let languages = req.languages.unwrap_or_else(|| vec!["Rust".to_string()]);
 
     let created_id = state
         .db
@@ -937,6 +1008,22 @@ pub async fn create_repo(
             .await
             .map_err(map_err)?;
     }
+
+    // Ensure code repository entry exists for /v1/code/repositories list.
+    sqlx::query("DELETE FROM repositories WHERE tenant_id = ? AND repo_id = ?")
+        .bind(&tenant_id)
+        .bind(&repo_id)
+        .execute(state.db.pool())
+        .await
+        .map_err(map_err)?;
+
+    state
+        .db
+        .register_repository(&tenant_id, &repo_id, &repo_path, &languages, default_branch)
+        .await
+        .map_err(map_err)?;
+
+    // Status defaults to "registered" for newly inserted repositories.
 
     Ok(Json(CreateRepoResponse { repo_id }))
 }
@@ -1052,6 +1139,7 @@ pub struct TrainingJobStubRequest {
     pub job_id: Option<String>,
     pub repo_id: Option<String>,
     pub status: Option<String>,
+    pub tenant_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1068,6 +1156,11 @@ pub async fn create_training_job_stub(
     let job_id = req.job_id.unwrap_or_else(|| "job-stub".to_string());
     let repo_id = req.repo_id.unwrap_or_else(|| "repo-e2e".to_string());
     let status = req.status.unwrap_or_else(|| "completed".to_string());
+    let tenant_id = req.tenant_id.unwrap_or_else(|| TENANT_ID.to_string());
+    let adapter_id = ADAPTER_ID.to_string();
+    let adapter_name = ADAPTER_NAME.to_string();
+    let base_model_id = MODEL_ID.to_string();
+    let stack_id = STACK_ID.to_string();
     let progress_json = serde_json::json!({
         "progress_pct": if status == "completed" { 100.0 } else { 0.0 },
         "current_epoch": 1,
@@ -1107,16 +1200,24 @@ pub async fn create_training_job_stub(
 
     sqlx::query(
         r#"
-        INSERT INTO repository_training_jobs (id, repo_id, training_config_json, status, progress_json, created_by)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO repository_training_jobs (
+            id, repo_id, tenant_id, training_config_json, status, progress_json, created_by,
+            adapter_name, adapter_id, base_model_id, stack_id
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#,
     )
     .bind(&job_id)
     .bind(&repo_id)
+    .bind(&tenant_id)
     .bind(r#"{"rank":8,"alpha":16,"epochs":1,"learning_rate":0.0005,"batch_size":4}"#)
     .bind(&status)
     .bind(&progress_json)
     .bind(POLICY_ACTOR)
+    .bind(&adapter_name)
+    .bind(&adapter_id)
+    .bind(&base_model_id)
+    .bind(&stack_id)
     .execute(state.db.pool())
     .await
     .map_err(map_err)?;
@@ -1157,11 +1258,85 @@ pub struct RunReceipt {
     pub logical_output_tokens: u32,
     pub billed_output_tokens: u32,
     #[serde(default)]
+    pub stop_reason_code: Option<String>,
+    #[serde(default)]
+    pub stop_reason_token_index: Option<u32>,
+    #[serde(default)]
+    pub stop_policy_digest_b3: Option<String>,
+    #[serde(default)]
+    pub tenant_kv_quota_bytes: u64,
+    #[serde(default)]
+    pub tenant_kv_bytes_used: u64,
+    #[serde(default)]
+    pub kv_evictions: u32,
+    #[serde(default)]
+    pub kv_residency_policy_id: Option<String>,
+    #[serde(default)]
+    pub kv_quota_enforced: bool,
+    #[serde(default)]
     pub prefix_kv_key_b3: Option<String>,
     #[serde(default)]
     pub prefix_cache_hit: bool,
     #[serde(default)]
     pub prefix_kv_bytes: u64,
+    #[serde(default)]
+    pub model_cache_identity_v2_digest_b3: Option<String>,
+    #[serde(default)]
+    pub previous_receipt_digest: Option<String>,
+    #[serde(default)]
+    pub session_sequence: u64,
+    #[serde(default)]
+    pub tokenizer_hash_b3: Option<String>,
+    #[serde(default)]
+    pub tokenizer_version: Option<String>,
+    #[serde(default)]
+    pub tokenizer_normalization: Option<String>,
+    #[serde(default)]
+    pub model_build_hash_b3: Option<String>,
+    #[serde(default)]
+    pub adapter_build_hash_b3: Option<String>,
+    #[serde(default)]
+    pub decode_algo: Option<String>,
+    #[serde(default)]
+    pub temperature_q15: Option<i16>,
+    #[serde(default)]
+    pub top_p_q15: Option<i16>,
+    #[serde(default)]
+    pub top_k: Option<u32>,
+    #[serde(default)]
+    pub seed_digest_b3: Option<String>,
+    #[serde(default)]
+    pub sampling_backend: Option<String>,
+    #[serde(default)]
+    pub thread_count: Option<u32>,
+    #[serde(default)]
+    pub reduction_strategy: Option<String>,
+    #[serde(default)]
+    pub stop_eos_q15: Option<i16>,
+    #[serde(default)]
+    pub stop_window_digest_b3: Option<String>,
+    #[serde(default)]
+    pub cache_scope: Option<String>,
+    #[serde(default)]
+    pub cached_prefix_digest_b3: Option<String>,
+    #[serde(default)]
+    pub cached_prefix_len: Option<u32>,
+    #[serde(default)]
+    pub cache_key_b3: Option<String>,
+    #[serde(default)]
+    pub retrieval_merkle_root_b3: Option<String>,
+    #[serde(default)]
+    pub retrieval_order_digest_b3: Option<String>,
+    #[serde(default)]
+    pub tool_call_inputs_digest_b3: Option<String>,
+    #[serde(default)]
+    pub tool_call_outputs_digest_b3: Option<String>,
+    #[serde(default)]
+    pub disclosure_level: Option<String>,
+    #[serde(default)]
+    pub receipt_signing_kid: Option<String>,
+    #[serde(default)]
+    pub receipt_signed_at: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1203,9 +1378,46 @@ pub async fn inference_stub(
             billed_input_tokens: 16,
             logical_output_tokens: 8,
             billed_output_tokens: 8,
+            stop_reason_code: Some("stop".to_string()),
+            stop_reason_token_index: Some(7),
+            stop_policy_digest_b3: Some("stop-policy-digest-b3".to_string()),
+            tenant_kv_quota_bytes: 0,
+            tenant_kv_bytes_used: 0,
+            kv_evictions: 0,
+            kv_residency_policy_id: None,
+            kv_quota_enforced: false,
             prefix_kv_key_b3: None,
             prefix_cache_hit: false,
             prefix_kv_bytes: 0,
+            model_cache_identity_v2_digest_b3: None,
+            previous_receipt_digest: None,
+            session_sequence: 0,
+            tokenizer_hash_b3: None,
+            tokenizer_version: None,
+            tokenizer_normalization: None,
+            model_build_hash_b3: None,
+            adapter_build_hash_b3: None,
+            decode_algo: Some("greedy".to_string()),
+            temperature_q15: None,
+            top_p_q15: None,
+            top_k: None,
+            seed_digest_b3: None,
+            sampling_backend: Some("coreml".to_string()),
+            thread_count: None,
+            reduction_strategy: None,
+            stop_eos_q15: None,
+            stop_window_digest_b3: None,
+            cache_scope: Some("global".to_string()),
+            cached_prefix_digest_b3: None,
+            cached_prefix_len: Some(0),
+            cache_key_b3: None,
+            retrieval_merkle_root_b3: None,
+            retrieval_order_digest_b3: None,
+            tool_call_inputs_digest_b3: None,
+            tool_call_outputs_digest_b3: None,
+            disclosure_level: Some("full".to_string()),
+            receipt_signing_kid: None,
+            receipt_signed_at: None,
         },
         trace: StubTrace {
             latency_ms: 42,
@@ -1277,6 +1489,10 @@ pub fn register_routes() -> axum::Router<AppState> {
         .route("/testkit/reset", post(reset))
         .route("/testkit/seed_minimal", post(seed_minimal))
         .route("/testkit/create_trace_fixture", post(create_trace_fixture))
+        .route(
+            "/testkit/create_diag_run_fixture",
+            post(create_diag_run_fixture),
+        )
         .route(
             "/testkit/create_evidence_fixture",
             post(create_evidence_fixture),

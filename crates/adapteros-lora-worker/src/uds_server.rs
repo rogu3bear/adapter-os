@@ -790,6 +790,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                     request_type: RequestType::PatchProposal(patch_req.clone()),
                     stack_id: None,
                     stack_version: None,
+                    policy_id: None,
                     domain_hint: None,
                     // Sampling params (use defaults for patch proposal)
                     temperature: None,

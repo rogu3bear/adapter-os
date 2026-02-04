@@ -316,7 +316,11 @@ impl AgentOrchestrator {
                     );
                     proposals.push(proposal);
                 }
-                Ok(AgentResponse::TaskFailed { task_id: _, error }) => {
+                Ok(AgentResponse::TaskFailed {
+                    task_id: _,
+                    error,
+                    code: _,
+                }) => {
                     warn!(
                         agent_id = %handle.id,
                         error = %error,

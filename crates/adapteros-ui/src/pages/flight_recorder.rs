@@ -8,23 +8,26 @@
 //! - Tokens (token accounting and cache stats)
 //! - Diff (compare with another run)
 
-use crate::api::client::InferenceTraceDetailResponse;
-use crate::api::ApiClient;
+use crate::api::{ApiClient, UiInferenceTraceDetailResponse};
 use crate::components::{
-    ActionCard, ActionCardVariant, AsyncBoundary, Badge, BadgeVariant, Button, ButtonVariant, Card,
-    DiffResults, Link, Select, Spinner, Table, TableBody, TableCell, TableHead, TableHeader,
-    TableRow, TokenDecisions, TraceViewerWithData,
+    ActionCard, ActionCardVariant, AsyncBoundary, Badge, BadgeVariant, BreadcrumbItem,
+    BreadcrumbTrail, Button, ButtonVariant, Card, CopyableId, DiffResults, Link, Select, Spinner,
+    Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TokenDecisionsPaged,
+    TraceViewerWithData,
 };
+use crate::constants::pagination::TOKEN_DECISIONS_PAGE_SIZE;
 use crate::hooks::{use_api_resource, use_polling, LoadingState};
-use crate::signals::{use_notifications, NotificationAction};
+use crate::signals::{perf_logging_enabled, use_notifications, use_ui_profile, NotificationAction};
 use adapteros_api_types::diagnostics::{
     DiagDiffRequest, DiagDiffResponse, DiagEventResponse, DiagExportResponse, DiagRunResponse,
     ListDiagRunsQuery, ListDiagRunsResponse, StageTiming,
 };
+use adapteros_api_types::UiProfile;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::hooks::{use_params_map, use_query_map};
 use std::sync::Arc;
+use std::time::Instant;
 
 /// Runs list page - shows all diagnostic runs
 #[component]
@@ -136,7 +139,13 @@ pub fn FlightRecorderDetail() -> impl IntoView {
     let run_id = move || params.get().get("id").unwrap_or_default();
 
     view! {
-        <div class="p-6 h-full overflow-auto">
+        <div class="p-6 h-full overflow-auto space-y-4">
+            // Breadcrumb navigation
+            <BreadcrumbTrail items=vec![
+                BreadcrumbItem::link("Runs", "/runs"),
+                BreadcrumbItem::current(run_id()),
+            ]/>
+
             <RunDetailHub
                 run_id=run_id()
                 on_close=Callback::new(|_| {
@@ -300,10 +309,16 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
         .map(|t| RunDetailTab::from_str(&t))
         .unwrap_or_default();
     let compare_trace = query.get().get("compare");
+    let ui_profile = use_ui_profile();
 
     // Tab state
     let active_tab = RwSignal::new(initial_tab);
     let receipt_digest = RwSignal::new(None::<String>);
+    let trace_detail_cache = RwSignal::new(None::<UiInferenceTraceDetailResponse>);
+    let trace_detail_cache_id = RwSignal::new(None::<String>);
+    let trace_detail_started_at = RwSignal::new(None::<Instant>);
+    let trace_detail_ready_logged = RwSignal::new(false);
+    let perf_enabled = perf_logging_enabled();
 
     // Fetch run export (includes events and timing)
     let run_id_clone = run_id.clone();
@@ -344,8 +359,6 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
         }
     });
 
-    let run_id_display = truncate_id(&run_id);
-
     view! {
         <div class="space-y-4">
             // Header
@@ -363,7 +376,7 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
                             </svg>
                         </a>
                     </div>
-                    <p class="text-sm text-muted-foreground font-mono">{run_id_display}</p>
+                    <CopyableId id=run_id.clone() truncate=28 />
                 </div>
                 <Button
                     variant=ButtonVariant::Outline
@@ -390,13 +403,21 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
                     label="Export"
                     action=QuickAction::Export(run_id.clone())
                 />
-                <a
-                    href=format!("/runs/{}?tab=diff", run_id)
-                    class="inline-flex items-center gap-1.5 px-2 py-1 text-xs rounded border border-border hover:bg-muted transition-colors"
-                >
-                    <span>"↔"</span>
-                    <span>"Open Diff"</span>
-                </a>
+                {move || {
+                    if ui_profile.get() == UiProfile::Full {
+                        Some(view! {
+                            <a
+                                href=format!("/runs/{}?tab=diff", run_id)
+                                class="inline-flex items-center gap-1.5 px-2 py-1 text-xs rounded border border-border hover:bg-muted transition-colors"
+                            >
+                                <span>"↔"</span>
+                                <span>"Open Diff"</span>
+                            </a>
+                        })
+                    } else {
+                        None
+                    }
+                }}
             </div>
 
             // Tabs navigation
@@ -406,9 +427,17 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
                     <RunDetailTabButton tab=RunDetailTab::Trace active=active_tab label="Trace"/>
                     <RunDetailTabButton tab=RunDetailTab::Receipt active=active_tab label="Receipt"/>
                     <RunDetailTabButton tab=RunDetailTab::Routing active=active_tab label="Routing"/>
-                    <RunDetailTabButton tab=RunDetailTab::Tokens active=active_tab label="Tokens"/>
-                    <RunDetailTabButton tab=RunDetailTab::Diff active=active_tab label="Diff"/>
-                    <RunDetailTabButton tab=RunDetailTab::Events active=active_tab label="Events"/>
+                    {move || {
+                        if ui_profile.get() == UiProfile::Full {
+                            Some(view! {
+                                <RunDetailTabButton tab=RunDetailTab::Tokens active=active_tab label="Tokens"/>
+                                <RunDetailTabButton tab=RunDetailTab::Diff active=active_tab label="Diff"/>
+                                <RunDetailTabButton tab=RunDetailTab::Events active=active_tab label="Events"/>
+                            })
+                        } else {
+                            None
+                        }
+                    }}
                 </nav>
             </div>
 
@@ -418,12 +447,44 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
                 render=move |export: DiagExportResponse| {
                     let trace_id = export.run.trace_id.clone();
 
-                    // Single fetch for trace detail - shared by all tabs that need it
+                    // Single fetch for trace detail - shared by all tabs that need it.
+                    // Cache to avoid redundant fetches on tab switches or re-renders.
                     let (trace_detail, _) = use_api_resource({
                         let tid = trace_id.clone();
+                        let cache = trace_detail_cache;
+                        let cache_id = trace_detail_cache_id;
+                        let perf_enabled = perf_enabled;
                         move |client: Arc<ApiClient>| {
                             let tid = tid.clone();
-                            async move { client.get_inference_trace_detail(&tid).await }
+                            async move {
+                                if cache_id.get_untracked().as_deref() == Some(tid.as_str()) {
+                                    if let Some(cached) = cache.get_untracked() {
+                                        return Ok(cached);
+                                    }
+                                }
+                                trace_detail_started_at.set(Some(Instant::now()));
+                                let started_at = Instant::now();
+                                let detail = client
+                                    .get_inference_trace_detail(
+                                        &tid,
+                                        Some(TOKEN_DECISIONS_PAGE_SIZE),
+                                        None,
+                                    )
+                                    .await?;
+                                if perf_enabled {
+                                    let elapsed_ms = started_at.elapsed().as_millis();
+                                    web_sys::console::log_1(
+                                        &format!(
+                                            "[perf] run detail trace load: {}ms (trace_id={})",
+                                            elapsed_ms, tid
+                                        )
+                                        .into(),
+                                    );
+                                }
+                                cache_id.set(Some(tid.clone()));
+                                cache.set(Some(detail.clone()));
+                                Ok(detail)
+                            }
                         }
                     });
 
@@ -434,6 +495,9 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
                             trace_detail=trace_detail
                             compare_trace=compare_trace.clone()
                             receipt_digest=receipt_digest.write_only()
+                            trace_detail_started_at=trace_detail_started_at
+                            trace_detail_ready_logged=trace_detail_ready_logged
+                            perf_enabled=perf_enabled
                         />
                     }
                 }
@@ -447,14 +511,26 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
 fn TabContent(
     export: DiagExportResponse,
     active_tab: RwSignal<RunDetailTab>,
-    trace_detail: ReadSignal<crate::hooks::LoadingState<InferenceTraceDetailResponse>>,
+    trace_detail: ReadSignal<crate::hooks::LoadingState<UiInferenceTraceDetailResponse>>,
     compare_trace: Option<String>,
     receipt_digest: WriteSignal<Option<String>>,
+    trace_detail_started_at: RwSignal<Option<Instant>>,
+    trace_detail_ready_logged: RwSignal<bool>,
+    perf_enabled: bool,
 ) -> impl IntoView {
     Effect::new(move |_| {
         if let LoadingState::Loaded(detail) = trace_detail.get() {
             let digest = detail.receipt.map(|receipt| receipt.receipt_digest);
             receipt_digest.set(digest);
+            if perf_enabled && !trace_detail_ready_logged.get_untracked() {
+                if let Some(started_at) = trace_detail_started_at.get_untracked() {
+                    let elapsed_ms = started_at.elapsed().as_millis();
+                    web_sys::console::log_1(
+                        &format!("[perf] run detail ready: {}ms", elapsed_ms).into(),
+                    );
+                }
+                trace_detail_ready_logged.set(true);
+            }
         }
     });
 
@@ -652,7 +728,7 @@ fn copy_to_clipboard(
 #[component]
 fn OverviewTab(
     export: DiagExportResponse,
-    trace_detail: ReadSignal<LoadingState<InferenceTraceDetailResponse>>,
+    trace_detail: ReadSignal<LoadingState<UiInferenceTraceDetailResponse>>,
 ) -> impl IntoView {
     let timing = export.timing_summary.clone().unwrap_or_default();
     let status = export.run.status.clone();
@@ -664,6 +740,7 @@ fn OverviewTab(
     // Extract backend info from events (look for inference-related events)
     let events = export.events.clone().unwrap_or_default();
     let reasoning_mode = extract_reasoning_mode_from_events(&events);
+    let ui_profile = use_ui_profile();
 
     // Calculate total duration for percentage bars
     let total_us: i64 = timing.iter().filter_map(|s| s.duration_us).sum();
@@ -704,15 +781,54 @@ fn OverviewTab(
                 <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
                     <div>
                         <p class="text-sm text-muted-foreground">"Stack"</p>
-                        <p class="font-medium text-sm text-muted-foreground/70 italic">"Unknown"</p>
+                        {move || {
+                            match trace_detail.get() {
+                                LoadingState::Loaded(detail) => {
+                                    if let Some(stack_id) = detail.stack_id.clone() {
+                                        view! { <p class="font-medium text-sm">{stack_id}</p> }.into_any()
+                                    } else {
+                                        view! { <p class="font-medium text-sm text-muted-foreground/70 italic">"Unknown"</p> }.into_any()
+                                    }
+                                }
+                                _ => view! {
+                                    <p class="font-medium text-sm text-muted-foreground/70 italic">"Loading..."</p>
+                                }.into_any()
+                            }
+                        }}
                     </div>
                     <div>
                         <p class="text-sm text-muted-foreground">"Model"</p>
-                        <p class="font-medium text-sm text-muted-foreground/70 italic">"Unknown"</p>
+                        {move || {
+                            match trace_detail.get() {
+                                LoadingState::Loaded(detail) => {
+                                    if let Some(model_id) = detail.model_id.clone() {
+                                        view! { <p class="font-medium text-sm">{model_id}</p> }.into_any()
+                                    } else {
+                                        view! { <p class="font-medium text-sm text-muted-foreground/70 italic">"Unknown"</p> }.into_any()
+                                    }
+                                }
+                                _ => view! {
+                                    <p class="font-medium text-sm text-muted-foreground/70 italic">"Loading..."</p>
+                                }.into_any()
+                            }
+                        }}
                     </div>
                     <div>
                         <p class="text-sm text-muted-foreground">"Policy"</p>
-                        <p class="font-medium text-sm text-muted-foreground/70 italic">"Unknown"</p>
+                        {move || {
+                            match trace_detail.get() {
+                                LoadingState::Loaded(detail) => {
+                                    if let Some(policy_id) = detail.policy_id.clone() {
+                                        view! { <p class="font-medium text-sm">{policy_id}</p> }.into_any()
+                                    } else {
+                                        view! { <p class="font-medium text-sm text-muted-foreground/70 italic">"Unknown"</p> }.into_any()
+                                    }
+                                }
+                                _ => view! {
+                                    <p class="font-medium text-sm text-muted-foreground/70 italic">"Loading..."</p>
+                                }.into_any()
+                            }
+                        }}
                     </div>
                     <div>
                         <p class="text-sm text-muted-foreground">"Backend"</p>
@@ -752,9 +868,88 @@ fn OverviewTab(
                         }}
                     </div>
                 </div>
-                <p class="text-xs text-muted-foreground mt-3">
-                    "Stack, Model, and Policy identifiers are not yet captured in diagnostic runs."
-                </p>
+                {move || {
+                    match trace_detail.get() {
+                        LoadingState::Loaded(detail) => {
+                            let missing_ids = detail.stack_id.is_none()
+                                && detail.model_id.is_none()
+                                && detail.policy_id.is_none();
+                            missing_ids.then(|| view! {
+                                <p class="text-xs text-muted-foreground mt-3">
+                                    "Stack, model, and policy are not included in the trace payload."
+                                </p>
+                            })
+                        }
+                        _ => None,
+                    }
+                }}
+            </Card>
+
+            // Provenance summary (UI-only receipt fields)
+            <Card title="Provenance Summary".to_string()>
+                <div data-testid="run-provenance-summary">
+                    {move || match trace_detail.get() {
+                        LoadingState::Loaded(detail) => {
+                            if let Some(receipt) = detail.receipt.clone() {
+                                let verified = receipt.verified;
+                                let verified_label = if verified { "Verified" } else { "Unverified" };
+                                let verified_variant = if verified {
+                                    BadgeVariant::Success
+                                } else {
+                                    BadgeVariant::Warning
+                                };
+                                let backend_label = detail
+                                    .backend_id
+                                    .clone()
+                                    .unwrap_or_else(|| "Unknown".to_string());
+                                let verified_note = if verified {
+                                    "Server validated receipt parity."
+                                } else {
+                                    "Receipt parity was not validated."
+                                };
+                                view! {
+                                    <div class="space-y-3">
+                                        <div class="flex items-center justify-between">
+                                            <div>
+                                                <p class="text-sm text-muted-foreground">"Receipt status"</p>
+                                                <Badge variant=verified_variant>{verified_label}</Badge>
+                                            </div>
+                                            <div class="text-right">
+                                                <p class="text-sm text-muted-foreground">"Backend"</p>
+                                                <Badge variant=BadgeVariant::Secondary>{backend_label}</Badge>
+                                            </div>
+                                        </div>
+                                        <p class="text-xs text-muted-foreground">{verified_note}</p>
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                            <ProvenanceField label="Input digest" value=receipt.input_digest_b3.clone()/>
+                                            <ProvenanceField label="Output digest" value=Some(receipt.output_digest.clone())/>
+                                            <ProvenanceField label="Receipt digest" value=Some(receipt.receipt_digest.clone())/>
+                                            <ProvenanceField label="Run head hash" value=Some(receipt.run_head_hash.clone())/>
+                                            <ProvenanceField label="Seed lineage hash" value=receipt.seed_lineage_hash.clone()/>
+                                            <ProvenanceField label="Backend attestation hash" value=receipt.backend_attestation_b3.clone()/>
+                                        </div>
+                                    </div>
+                                }
+                                .into_any()
+                            } else {
+                                view! {
+                                    <div class="text-sm text-muted-foreground italic">
+                                        "Receipt details are not available for this run yet."
+                                    </div>
+                                }
+                                .into_any()
+                            }
+                        }
+                        LoadingState::Error(err) => view! {
+                            <div class="text-sm text-muted-foreground">{format!("Failed to load provenance: {}", err)}</div>
+                        }
+                        .into_any(),
+                        _ => view! {
+                            <div class="text-sm text-muted-foreground italic">"Loading provenance..."</div>
+                        }
+                        .into_any(),
+                    }}
+                </div>
             </Card>
 
             // Stage timeline (if available)
@@ -798,25 +993,50 @@ fn OverviewTab(
                         variant=ActionCardVariant::Subtle
                         centered=true
                     />
-                    <ActionCard
-                        href="?tab=routing"
-                        icon="⚡"
-                        title="Routing"
-                        description="K-sparse decisions"
-                        variant=ActionCardVariant::Subtle
-                        centered=true
-                    />
-                    <ActionCard
-                        href="?tab=diff"
-                        icon="↔"
-                        title="Diff"
-                        description="Compare runs"
-                        variant=ActionCardVariant::Subtle
-                        centered=true
-                    />
+                    {move || {
+                        if ui_profile.get() == UiProfile::Full {
+                            Some(view! {
+                                <ActionCard
+                                    href="?tab=routing"
+                                    icon="⚡"
+                                    title="Routing"
+                                    description="K-sparse decisions"
+                                    variant=ActionCardVariant::Subtle
+                                    centered=true
+                                />
+                                <ActionCard
+                                    href="?tab=diff"
+                                    icon="↔"
+                                    title="Diff"
+                                    description="Compare runs"
+                                    variant=ActionCardVariant::Subtle
+                                    centered=true
+                                />
+                            })
+                        } else {
+                            None
+                        }
+                    }}
                 </div>
             </Card>
         </div>
+    }
+}
+
+/// Provenance field with copy affordance.
+#[component]
+fn ProvenanceField(label: &'static str, value: Option<String>) -> impl IntoView {
+    match value {
+        Some(value) => {
+            view! { <CopyableId id=value label=label.to_string() truncate=24/> }.into_any()
+        }
+        None => view! {
+            <div class="flex flex-col gap-1">
+                <span class="text-xs text-muted-foreground">{label}</span>
+                <span class="text-xs text-muted-foreground italic">"Unavailable"</span>
+            </div>
+        }
+        .into_any(),
     }
 }
 
@@ -848,7 +1068,9 @@ fn StageRow(stage: StageTiming, pct: f64) -> impl IntoView {
 
 /// Trace tab - uses TraceViewerWithData to display pre-loaded trace data
 #[component]
-fn TraceTab(trace_detail: ReadSignal<LoadingState<InferenceTraceDetailResponse>>) -> impl IntoView {
+fn TraceTab(
+    trace_detail: ReadSignal<LoadingState<UiInferenceTraceDetailResponse>>,
+) -> impl IntoView {
     view! {
         <div class="space-y-4">
             <p class="text-sm text-muted-foreground">
@@ -907,14 +1129,8 @@ fn ReceiptsTab(export: DiagExportResponse) -> impl IntoView {
                 <div class="space-y-4">
                     // Run ID and Trace ID
                     <div class="grid grid-cols-2 gap-4">
-                        <div>
-                            <p class="text-sm text-muted-foreground">"Run ID"</p>
-                            <p class="font-mono text-sm break-all">{run_id}</p>
-                        </div>
-                        <div>
-                            <p class="text-sm text-muted-foreground">"Trace ID"</p>
-                            <p class="font-mono text-sm break-all">{trace_id}</p>
-                        </div>
+                        <CopyableId id=run_id.clone() label="Run ID".to_string() truncate=28 />
+                        <CopyableId id=trace_id.clone() label="Trace ID".to_string() truncate=28 />
                     </div>
 
                     // Hashes
@@ -987,10 +1203,11 @@ fn HashRow(label: &'static str, hash: String, verified: Option<bool>) -> impl In
 #[component]
 fn RoutingTab(
     export: DiagExportResponse,
-    trace_detail: ReadSignal<LoadingState<InferenceTraceDetailResponse>>,
+    trace_detail: ReadSignal<LoadingState<UiInferenceTraceDetailResponse>>,
 ) -> impl IntoView {
     // Expandable state for TokenDecisions
     let expanded = RwSignal::new(true);
+    let ui_profile = use_ui_profile();
 
     // Extract routing-related events as fallback
     let events = export.events.clone().unwrap_or_default();
@@ -1012,7 +1229,7 @@ fn RoutingTab(
                 loading_message="Loading token decisions...".to_string()
                 render={
                     let routing_events = routing_events.clone();
-                    move |detail: InferenceTraceDetailResponse| {
+                    move |detail: UiInferenceTraceDetailResponse| {
                         if detail.token_decisions.is_empty() {
                             // Fall back to showing routing events
                             if routing_events.is_empty() {
@@ -1037,10 +1254,13 @@ fn RoutingTab(
                                 }.into_any()
                             }
                         } else {
-                            // Show TokenDecisions component
+                            // Show paged TokenDecisions component
                             view! {
-                                <TokenDecisions
-                                    decisions=detail.token_decisions.clone()
+                                <TokenDecisionsPaged
+                                    trace_id=detail.trace_id.clone()
+                                    initial_decisions=detail.token_decisions.clone()
+                                    initial_next_cursor=detail.token_decisions_next_cursor
+                                    initial_has_more=detail.token_decisions_has_more
                                     expanded=expanded.read_only()
                                     set_expanded=expanded.write_only()
                                     compact=false
@@ -1052,13 +1272,21 @@ fn RoutingTab(
             />
 
             // Link to full routing debug
-            <Card>
-                <div class="text-center py-4">
-                    <Link href="/routing" class="text-sm">
-                        "Open Routing Debug Tool →"
-                    </Link>
-                </div>
-            </Card>
+            {move || {
+                if ui_profile.get() == UiProfile::Full {
+                    Some(view! {
+                        <Card>
+                            <div class="text-center py-4">
+                                <Link href="/routing" class="text-sm">
+                                    "Open Routing Debug Tool →"
+                                </Link>
+                            </div>
+                        </Card>
+                    })
+                } else {
+                    None
+                }
+            }}
         </div>
     }
 }
@@ -1089,7 +1317,7 @@ fn RoutingEventRow(event: DiagEventResponse) -> impl IntoView {
 #[component]
 fn TokensTab(
     export: DiagExportResponse,
-    trace_detail: ReadSignal<LoadingState<InferenceTraceDetailResponse>>,
+    trace_detail: ReadSignal<LoadingState<UiInferenceTraceDetailResponse>>,
 ) -> impl IntoView {
     // Extract token-related info from events as fallback
     let events = export.events.clone().unwrap_or_default();
@@ -1109,11 +1337,11 @@ fn TokensTab(
             <AsyncBoundary
                 state=trace_detail
                 loading_message="Loading token summary...".to_string()
-                render=move |detail: InferenceTraceDetailResponse| {
+                render=move |detail: UiInferenceTraceDetailResponse| {
                     if let Some(receipt) = &detail.receipt {
                         let prompt_tokens = receipt.logical_prompt_tokens;
                         let output_tokens = receipt.logical_output_tokens;
-                        let cache_hit = receipt.prefix_cache_hit;
+                        let cache_hit = receipt.prefix_cache_hit.unwrap_or(false);
                         let total_tokens = prompt_tokens + output_tokens;
 
                         view! {

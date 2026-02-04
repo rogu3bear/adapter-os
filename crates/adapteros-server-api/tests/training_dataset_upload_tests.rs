@@ -60,6 +60,7 @@ async fn dataset_upload_respects_size_limit() {
                 data: too_big,
                 name: Some("big-dataset".to_string()),
                 description: None,
+                training_strategy: None,
             },
         )
         .await;
@@ -90,6 +91,7 @@ async fn dataset_upload_enforces_tenant_isolation() {
                 data: Bytes::from_static(b"# Hello\n\nThis is a test document."),
                 name: Some("tenant1-dataset".to_string()),
                 description: None,
+                training_strategy: None,
             },
         )
         .await
@@ -138,6 +140,7 @@ async fn dataset_upload_requires_file() {
                 data: Bytes::new(),
                 name: Some("empty-dataset".to_string()),
                 description: None,
+                training_strategy: None,
             },
         )
         .await;

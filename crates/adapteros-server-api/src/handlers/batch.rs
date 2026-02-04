@@ -1161,6 +1161,9 @@ pub async fn get_batch_status(
     Path(batch_id): Path<String>,
 ) -> Result<Json<BatchStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::InferenceExecute)?;
+    let batch_id = crate::id_resolver::resolve_any_id(&state.db, &batch_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     let batch_job = state
         .db
@@ -1246,6 +1249,9 @@ pub async fn get_batch_items(
     Query(query): Query<BatchItemsQuery>,
 ) -> Result<Json<BatchItemsResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::InferenceExecute)?;
+    let batch_id = crate::id_resolver::resolve_any_id(&state.db, &batch_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Verify batch job exists and user has access
     let batch_job = state

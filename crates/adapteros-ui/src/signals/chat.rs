@@ -4,6 +4,7 @@
 //! Supports both non-streaming and SSE streaming inference.
 
 use crate::api::{api_base_url, ApiClient, ApiError, InferenceRequest};
+use crate::signals::perf_logging_enabled;
 use adapteros_api_types::inference::ContextRequest;
 use chrono::{DateTime, Utc};
 #[cfg(target_arch = "wasm32")]
@@ -14,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
+use std::time::Instant;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
@@ -48,6 +50,43 @@ fn evict_old_messages(messages: &mut Vec<ChatMessage>, max: usize) {
     }
 }
 
+fn readable_id(prefix: &str, slug_source: &str) -> String {
+    let slug = slugify(slug_source);
+    let suffix = random_suffix(6);
+    format!("{}.{}.{}", prefix, slug, suffix)
+}
+
+fn slugify(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut prev_dash = false;
+    for ch in input.chars() {
+        let lower = ch.to_ascii_lowercase();
+        if lower.is_ascii_alphanumeric() {
+            out.push(lower);
+            prev_dash = false;
+        } else if !prev_dash {
+            out.push('-');
+            prev_dash = true;
+        }
+    }
+    let trimmed = out.trim_matches('-').to_string();
+    if trimmed.is_empty() {
+        "item".to_string()
+    } else {
+        trimmed
+    }
+}
+
+fn random_suffix(len: usize) -> String {
+    const ALPHABET: &[u8; 32] = b"abcdefghijklmnopqrstuvwxyz234567";
+    let mut out = String::with_capacity(len);
+    for _ in 0..len {
+        let idx = (js_sys::Math::random() * 32.0).floor() as usize;
+        out.push(ALPHABET[idx] as char);
+    }
+    out
+}
+
 // ============================================================================
 // SSE Streaming Types (moved from pages/chat.rs)
 // ============================================================================
@@ -57,6 +96,8 @@ fn evict_old_messages(messages: &mut Vec<ChatMessage>, max: usize) {
 pub struct StreamingInferRequest {
     pub prompt: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
@@ -65,7 +106,7 @@ pub struct StreamingInferRequest {
     /// Context toggles for additional prompt context (PRD-002 Phase 2)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context: Option<ContextRequest>,
-    /// Enable reasoning mode (routes to CoreML backend for ANE acceleration)
+    /// Enable reasoning mode: semantic router for mid-stream adapter swaps (prefers CoreML for ANE-accelerated embedder)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning_mode: Option<bool>,
     /// Explicit backend preference (auto|coreml|mlx|metal|cpu)
@@ -96,6 +137,24 @@ enum InferenceEvent {
     },
     /// Error occurred
     Error { message: String },
+    /// Inference paused for human review
+    Paused {
+        /// Unique pause ID for resume correlation
+        pause_id: String,
+        /// Inference request ID
+        inference_id: String,
+        /// Why the pause was triggered
+        trigger_kind: String,
+        /// Context for the reviewer
+        #[serde(default)]
+        context: Option<String>,
+        /// Generated text so far
+        #[serde(default)]
+        text_so_far: Option<String>,
+        /// Token count at pause point
+        #[serde(default)]
+        token_count: usize,
+    },
     /// Adapter state update for visualization
     AdapterStateUpdate { adapters: Vec<AdapterStateInfo> },
     /// Catch-all for other events (Loading, Ready, etc.)
@@ -130,6 +189,23 @@ struct Delta {
     pub content: Option<String>,
 }
 
+/// Pause information from a Paused event.
+#[derive(Debug, Clone, Default)]
+pub struct PauseInfo {
+    /// Unique pause ID for resume correlation.
+    pub pause_id: String,
+    /// Inference request ID.
+    pub inference_id: String,
+    /// Why the pause was triggered.
+    pub trigger_kind: String,
+    /// Context for the reviewer.
+    pub context: Option<String>,
+    /// Generated text so far.
+    pub text_so_far: Option<String>,
+    /// Token count at pause point.
+    pub token_count: usize,
+}
+
 /// Parsed SSE event result
 #[derive(Debug, Clone, Default)]
 struct ParsedSseEvent {
@@ -141,6 +217,7 @@ struct ParsedSseEvent {
     completion_tokens: Option<u32>,
     adapter_states: Option<Vec<AdapterStateInfo>>,
     backend_used: Option<String>,
+    pause_info: Option<PauseInfo>,
 }
 
 /// Trace info returned from stream_inference
@@ -167,6 +244,8 @@ pub enum StreamNoticeTone {
     Info,
     Warning,
     Error,
+    /// Inference is paused awaiting human review
+    Paused,
 }
 
 impl StreamNotice {
@@ -191,6 +270,15 @@ impl StreamNotice {
             message: message.into(),
             tone: StreamNoticeTone::Error,
             retryable,
+        }
+    }
+
+    /// Inference paused for human review
+    fn paused(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            tone: StreamNoticeTone::Paused,
+            retryable: false,
         }
     }
 }
@@ -239,7 +327,7 @@ pub struct ChatMessage {
 impl ChatMessage {
     pub fn user(content: String) -> Self {
         Self {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: readable_id("msg", "chat"),
             role: "user".to_string(),
             content,
             timestamp: Utc::now(),
@@ -255,7 +343,7 @@ impl ChatMessage {
 
     pub fn assistant(content: String) -> Self {
         Self {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: readable_id("msg", "chat"),
             role: "assistant".to_string(),
             content,
             timestamp: Utc::now(),
@@ -271,7 +359,7 @@ impl ChatMessage {
 
     pub fn assistant_streaming() -> Self {
         Self {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: readable_id("msg", "chat"),
             role: "assistant".to_string(),
             content: String::new(),
             timestamp: Utc::now(),
@@ -320,7 +408,7 @@ pub struct ContextToggles {
     pub recent_logs: bool,
     /// Include system snapshot (health + worker counts)
     pub system_snapshot: bool,
-    /// Enable reasoning mode (routes to CoreML backend for ANE acceleration)
+    /// Enable reasoning mode: semantic router for mid-stream adapter swaps (not a dedicated prefill step)
     #[serde(default)]
     pub reasoning_mode: bool,
 }
@@ -395,6 +483,8 @@ pub struct ChatState {
     pub last_read_message_id: Option<String>,
     /// Current page context (for context toggle)
     pub page_context: Option<PageContext>,
+    /// Current chat session ID (from route when available)
+    pub session_id: Option<String>,
     /// Active adapters for visualization
     pub active_adapters: Vec<AdapterStateInfo>,
     /// Suggested adapters from router preview (based on input text)
@@ -475,6 +565,7 @@ impl Default for ChatState {
             error: None,
             last_read_message_id: None,
             page_context: None,
+            session_id: None,
             active_adapters: Vec::new(),
             suggested_adapters: Vec::new(),
             pinned_adapters: Vec::new(),
@@ -513,7 +604,7 @@ impl ChatAction {
             return;
         }
 
-        let idempotency_key = uuid::Uuid::new_v4().to_string();
+        let idempotency_key = readable_id("idem", "chat");
         self.start_streaming_request(
             content,
             true,
@@ -521,6 +612,13 @@ impl ChatAction {
             None,
             StreamNotice::info("Waiting for server..."),
         );
+    }
+
+    /// Set or clear the current chat session ID used for streaming requests.
+    pub fn set_session_id(&self, session_id: Option<String>) {
+        self.state.update(|s| {
+            s.session_id = session_id;
+        });
     }
 
     /// Cancel the current streaming request
@@ -633,7 +731,7 @@ impl ChatAction {
                 idempotency_key: idempotency_key.clone(),
                 user_message_id: resolved_user_message_id
                     .clone()
-                    .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+                    .unwrap_or_else(|| readable_id("msg", "chat")),
                 user_message: content.clone(),
                 assistant_message_id: assistant_message_id.clone(),
                 request_id: None,
@@ -654,7 +752,7 @@ impl ChatAction {
 
         // Build context request from current state (PRD-002 Phase 2)
         // Also capture pinned adapters and reasoning mode for the request
-        let (context_request, pinned_adapters, reasoning_mode) = {
+        let (context_request, pinned_adapters, reasoning_mode, session_id) = {
             let current = self.state.get_untracked();
             let context = ContextRequest {
                 include_page_context: current.context.current_page,
@@ -676,7 +774,12 @@ impl ChatAction {
             } else {
                 Some(current.pinned_adapters.clone())
             };
-            (context, pinned, current.context.reasoning_mode)
+            (
+                context,
+                pinned,
+                current.context.reasoning_mode,
+                current.session_id.clone(),
+            )
         };
 
         wasm_bindgen_futures::spawn_local(async move {
@@ -689,6 +792,7 @@ impl ChatAction {
 
             let request = StreamingInferRequest {
                 prompt,
+                session_id,
                 max_tokens: Some(DEFAULT_MAX_TOKENS),
                 temperature: Some(DEFAULT_TEMPERATURE),
                 adapters: pinned_adapters,
@@ -797,6 +901,9 @@ impl ChatAction {
             return Ok(());
         }
 
+        let perf_enabled = perf_logging_enabled();
+        let request_started_at = Instant::now();
+
         // Add user message with FIFO eviction
         self.state.update(|s| {
             s.messages.push(ChatMessage::user(content.clone()));
@@ -827,6 +934,12 @@ impl ChatAction {
                         s.mark_as_read();
                     }
                 });
+                if perf_enabled {
+                    let elapsed_ms = request_started_at.elapsed().as_millis();
+                    web_sys::console::log_1(
+                        &format!("[perf] infer non-streaming completion: {}ms", elapsed_ms).into(),
+                    );
+                }
                 Ok(())
             }
             Err(e) => {
@@ -834,6 +947,13 @@ impl ChatAction {
                     s.loading = false;
                     s.error = Some(e.to_string());
                 });
+                if perf_enabled {
+                    let elapsed_ms = request_started_at.elapsed().as_millis();
+                    web_sys::console::log_1(
+                        &format!("[perf] infer non-streaming failure after {}ms", elapsed_ms)
+                            .into(),
+                    );
+                }
                 Err(e)
             }
         }
@@ -946,11 +1066,17 @@ impl ChatAction {
         });
     }
 
-    /// Clear error
+    /// Clear error state completely
+    ///
+    /// Clears error, notice, and recovery state to reset the chat to a clean state.
+    /// The user can then send a new message without the previous error context.
     pub fn clear_error(&self) {
         self.state.update(|s| {
             s.error = None;
             s.stream_notice = None;
+            // Clear recovery state since user dismissed the error
+            // This prevents stale retry context from persisting
+            s.stream_recovery = None;
         });
     }
 
@@ -1265,7 +1391,7 @@ impl SlowNoticeTimer {
         {
             let _ = state;
             let _ = delay_ms;
-            return Self {};
+            Self {}
         }
     }
 
@@ -1350,6 +1476,23 @@ fn parse_sse_payload_with_info(data: &str) -> ParsedSseEvent {
                     message
                 )));
             }
+            InferenceEvent::Paused {
+                pause_id,
+                inference_id,
+                trigger_kind,
+                context,
+                text_so_far,
+                token_count,
+            } => {
+                result.pause_info = Some(PauseInfo {
+                    pause_id,
+                    inference_id,
+                    trigger_kind,
+                    context,
+                    text_so_far,
+                    token_count,
+                });
+            }
             InferenceEvent::AdapterStateUpdate { adapters } => {
                 result.adapter_states = Some(adapters);
             }
@@ -1380,15 +1523,21 @@ fn mark_partial_assistant(state: &mut ChatState, assistant_id: &str) {
     }
 }
 
+/// Human-readable error label with context for the user.
+///
+/// Maps error codes and messages to clear, actionable labels that help users
+/// understand what went wrong and whether they can do something about it.
 fn stream_notice_from_failure(failure: &StreamFailure) -> StreamNotice {
     let code = failure.code.as_deref().unwrap_or("");
     let message_lower = failure.message.to_lowercase();
 
+    // Map error codes to human-readable labels with context
     let label = if matches!(
         code,
         "BACKPRESSURE" | "CACHE_BUDGET_EXCEEDED" | "REQUEST_TIMEOUT" | "STREAM_IDLE_TIMEOUT"
     ) {
-        "Server slow"
+        // Transient server-side pressure - likely to resolve on retry
+        "Server is busy"
     } else if matches!(
         code,
         "WORKER_DEGRADED"
@@ -1396,31 +1545,42 @@ fn stream_notice_from_failure(failure: &StreamFailure) -> StreamNotice {
             | "NO_COMPATIBLE_WORKER"
             | "WORKER_ID_UNAVAILABLE"
     ) {
-        "Worker busy"
+        // Worker-specific issue - retry may route to different worker
+        "No workers available"
     } else if matches!(code, "SERVICE_UNAVAILABLE") {
         if message_lower.contains("worker") {
-            "Worker busy"
+            "No workers available"
         } else {
-            "Server busy"
+            "Service temporarily unavailable"
         }
     } else if matches!(
         code,
         "DUPLICATE_REQUEST" | "IDEMPOTENCY_CONFLICT" | "IDEMPOTENCY_TIMEOUT"
     ) {
+        // Idempotency conflict - user should wait, not retry immediately
         "Request already in progress"
     } else if message_lower.contains("network") || message_lower.contains("fetch failed") {
+        // Client-side network issue
         "Connection lost"
+    } else if message_lower.contains("unauthorized") || code == "UNAUTHORIZED" {
+        // Auth issue - not retryable without re-login
+        "Session expired"
+    } else if message_lower.contains("forbidden") || code == "FORBIDDEN" {
+        // Permission issue - not retryable
+        "Access denied"
+    } else if message_lower.contains("rate limit") || code == "RATE_LIMITED" {
+        // Rate limiting - retryable after delay
+        "Too many requests"
     } else {
-        "Stream error"
+        // Generic fallback
+        "Something went wrong"
     };
 
-    let notice = if failure.retryable {
+    if failure.retryable {
         StreamNotice::warning(label, true)
     } else {
         StreamNotice::error(label, false)
-    };
-
-    notice
+    }
 }
 
 /// Helper to safely update state, returning false if signal is disposed
@@ -1437,6 +1597,9 @@ async fn stream_inference_to_state(
     idempotency_key: Option<String>,
 ) -> Result<StreamTraceInfo, StreamFailure> {
     let url = format!("{}/v1/infer/stream", api_base_url());
+    let perf_enabled = perf_logging_enabled();
+    let stream_started_at = Instant::now();
+    let mut first_token_logged = false;
 
     let body = serde_json::to_string(request).map_err(|e| {
         StreamFailure::new(format!("Failed to serialize request: {}", e), None, false)
@@ -1666,6 +1829,13 @@ async fn stream_inference_to_state(
                     // Signal disposed, bail out early
                     return Ok(trace_info);
                 }
+                if perf_enabled && !first_token_logged {
+                    let elapsed_ms = stream_started_at.elapsed().as_millis();
+                    web_sys::console::log_1(
+                        &format!("[perf] stream first token: {}ms", elapsed_ms).into(),
+                    );
+                    first_token_logged = true;
+                }
                 slow_timer.cancel();
             }
 
@@ -1712,6 +1882,39 @@ async fn stream_inference_to_state(
                     // Signal disposed, bail out early
                     return Ok(trace_info);
                 }
+            }
+
+            // Handle pause events (human-in-the-loop review)
+            if let Some(pause_info) = parsed.pause_info {
+                // Build a descriptive pause message for the UI
+                let pause_message = match pause_info.trigger_kind.as_str() {
+                    "policy_violation" => "Paused: Policy review required",
+                    "uncertainty" => "Paused: Human review requested",
+                    "safety_gate" => "Paused: Safety review required",
+                    _ => "Paused: Awaiting review",
+                };
+                // Update state to show pause indicator
+                if !try_update_state(state, |s| {
+                    s.loading = false;
+                    s.streaming = false;
+                    s.stream_notice = Some(StreamNotice::paused(pause_message));
+                    // If we have text so far, update the assistant message
+                    if let Some(text) = &pause_info.text_so_far {
+                        if let Some(last) = s.messages.last_mut() {
+                            if last.role == "assistant" && last.content.is_empty() {
+                                last.content = text.clone();
+                            }
+                        }
+                    }
+                }) {
+                    return Ok(trace_info);
+                }
+                slow_timer.cancel();
+                // Log pause event for debugging
+                web_sys::console::log_1(&JsValue::from_str(&format!(
+                    "[Pause] id={}, inference={}, trigger={}",
+                    pause_info.pause_id, pause_info.inference_id, pause_info.trigger_kind
+                )));
             }
         }
     }
@@ -1821,14 +2024,7 @@ impl ChatSessionsManager {
                         preview: s
                             .messages
                             .last()
-                            .map(|m| {
-                                let content = &m.content;
-                                if content.len() > 100 {
-                                    format!("{}...", &content[..100])
-                                } else {
-                                    content.clone()
-                                }
-                            })
+                            .map(|m| truncate_string(&m.content, 100))
                             .unwrap_or_default(),
                         created_at: s.created_at,
                         updated_at: s.updated_at,
@@ -1908,20 +2104,30 @@ impl ChatSessionsManager {
     }
 
     /// Create a session from current dock state
+    ///
+    /// If an existing session is provided, its `created_at` is preserved.
     pub fn session_from_state(id: &str, state: &ChatState) -> StoredChatSession {
+        // Check if session already exists to preserve created_at
+        let existing = Self::load_session(id);
+        Self::session_from_state_with_created(
+            id,
+            state,
+            existing.as_ref().map(|s| s.created_at.as_str()),
+        )
+    }
+
+    /// Create a session from current dock state with explicit created_at
+    fn session_from_state_with_created(
+        id: &str,
+        state: &ChatState,
+        created_at: Option<&str>,
+    ) -> StoredChatSession {
         let now = chrono::Utc::now().to_rfc3339();
         let title = state
             .messages
             .iter()
             .find(|m| m.role == "user")
-            .map(|m| {
-                let content = &m.content;
-                if content.len() > 50 {
-                    format!("{}...", &content[..50])
-                } else {
-                    content.clone()
-                }
-            })
+            .map(|m| truncate_string(&m.content, 50))
             .unwrap_or_else(|| "New Chat".to_string());
 
         StoredChatSession {
@@ -1956,9 +2162,22 @@ impl ChatSessionsManager {
                     }
                 })
                 .collect(),
-            created_at: now.clone(),
+            // Preserve original created_at if updating an existing session
+            created_at: created_at.unwrap_or(&now).to_string(),
             updated_at: now,
         }
+    }
+}
+
+/// Truncate a string to a maximum number of characters, respecting UTF-8 boundaries.
+/// Appends "..." if truncated.
+fn truncate_string(s: &str, max_chars: usize) -> String {
+    let char_count = s.chars().count();
+    if char_count <= max_chars {
+        s.to_string()
+    } else {
+        let truncated: String = s.chars().take(max_chars).collect();
+        format!("{}...", truncated)
     }
 }
 
@@ -1969,6 +2188,24 @@ impl ChatSessionsManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn streaming_infer_request_serializes_session_id_and_reasoning_mode() {
+        let req = StreamingInferRequest {
+            prompt: "Test prompt".to_string(),
+            session_id: Some("session-123".to_string()),
+            max_tokens: None,
+            temperature: None,
+            adapters: None,
+            context: None,
+            reasoning_mode: Some(true),
+            backend: None,
+        };
+
+        let json = serde_json::to_string(&req).expect("serialize");
+        assert!(json.contains("\"session_id\":\"session-123\""));
+        assert!(json.contains("\"reasoning_mode\":true"));
+    }
 
     /// Tests for is_abort_error string-based detection
     mod abort_error_detection {
@@ -2035,6 +2272,7 @@ mod tests {
                 error: None,
                 last_read_message_id: None,
                 page_context: None,
+                session_id: None,
                 active_adapters: Vec::new(),
                 suggested_adapters: Vec::new(),
                 pinned_adapters: Vec::new(),
@@ -2202,6 +2440,48 @@ mod tests {
                 "Partial response content"
             );
             assert!(!state.messages.last().unwrap().is_streaming);
+        }
+    }
+
+    /// Tests for UTF-8 safe string truncation
+    mod truncate_string_tests {
+        use super::*;
+
+        #[test]
+        fn truncates_ascii_string() {
+            let input = "Hello, world!";
+            assert_eq!(truncate_string(input, 5), "Hello...");
+        }
+
+        #[test]
+        fn preserves_short_string() {
+            let input = "Hi";
+            assert_eq!(truncate_string(input, 5), "Hi");
+        }
+
+        #[test]
+        fn handles_exact_length() {
+            let input = "12345";
+            assert_eq!(truncate_string(input, 5), "12345");
+        }
+
+        #[test]
+        fn handles_multibyte_characters() {
+            // Each emoji is multiple bytes but counts as 1 char
+            let input = "Hello 👋🌍!";
+            // "Hello 👋🌍!" is 10 chars: H-e-l-l-o-space-wave-earth-!
+            assert_eq!(truncate_string(input, 7), "Hello 👋...");
+        }
+
+        #[test]
+        fn handles_cjk_characters() {
+            let input = "你好世界"; // 4 characters, each is 3 bytes
+            assert_eq!(truncate_string(input, 2), "你好...");
+        }
+
+        #[test]
+        fn handles_empty_string() {
+            assert_eq!(truncate_string("", 5), "");
         }
     }
 }

@@ -7,6 +7,7 @@
 
 use crate::api_error::{ApiError, ApiResult};
 use crate::auth::Claims;
+use crate::handlers::testkit::e2e_enabled;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::services::{DefaultTrainingService, TrainingService};
@@ -18,6 +19,7 @@ use adapteros_config::ModelConfig;
 use adapteros_core::defaults::DEFAULT_TRAINING_REPORTS_SUBDIR;
 use adapteros_core::AosError;
 use adapteros_db::adapter_repositories::AdapterRepository;
+use adapteros_db::training_jobs::TrainingJobRecord;
 use adapteros_db::CreateDraftVersionParams as CreateDraftAdapterVersionParams;
 #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
 use adapteros_lora_worker::backend_factory::resolve_coreml_backend_settings;
@@ -52,7 +54,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{error, info, warn};
 use utoipa::IntoParams;
-use uuid::Uuid;
 
 const METRIC_LINEAGE_REQUIRED: &str = "training_jobs_rejected_lineage_required";
 const METRIC_TRUST_BLOCKED: &str = "training_jobs_rejected_trust_blocked";
@@ -952,6 +953,177 @@ async fn record_training_rejection_metric(state: &AppState, series: &str) {
         .await;
 }
 
+fn record_to_training_job(record: TrainingJobRecord) -> adapteros_orchestrator::TrainingJob {
+    use adapteros_orchestrator::{TrainingJob, TrainingJobStatus};
+    use adapteros_types::training::{DataLineageMode, TrainingConfig};
+
+    let status = match record.status.to_lowercase().as_str() {
+        "pending" => TrainingJobStatus::Pending,
+        "running" => TrainingJobStatus::Running,
+        "completed" => TrainingJobStatus::Completed,
+        "failed" => TrainingJobStatus::Failed,
+        "cancelled" => TrainingJobStatus::Cancelled,
+        _ => TrainingJobStatus::Pending,
+    };
+
+    let config: TrainingConfig =
+        serde_json::from_str(&record.training_config_json).unwrap_or_else(|e| {
+            warn!(
+                job_id = %record.id,
+                error = %e,
+                "Failed to parse training_config_json, using defaults"
+            );
+            TrainingConfig::default()
+        });
+
+    let data_lineage_mode =
+        record
+            .data_lineage_mode
+            .as_deref()
+            .and_then(|s| match s.to_lowercase().as_str() {
+                "versioned" => Some(DataLineageMode::Versioned),
+                "synthetic" => Some(DataLineageMode::Synthetic),
+                "dataset_only" => Some(DataLineageMode::DatasetOnly),
+                "legacy_unpinned" => Some(DataLineageMode::LegacyUnpinned),
+                _ => None,
+            });
+
+    let dataset_version_ids = record
+        .data_spec_json
+        .as_ref()
+        .and_then(|json| serde_json::from_str(json).ok());
+
+    let progress_data: Option<serde_json::Value> = serde_json::from_str(&record.progress_json).ok();
+
+    let progress_pct = progress_data
+        .as_ref()
+        .and_then(|p| p.get("progress_pct"))
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0) as f32;
+
+    let current_epoch = progress_data
+        .as_ref()
+        .and_then(|p| p.get("current_epoch"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0) as u32;
+
+    let total_epochs = config.epochs;
+
+    let current_loss = progress_data
+        .as_ref()
+        .and_then(|p| p.get("current_loss"))
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0) as f32;
+
+    let learning_rate = config.learning_rate;
+
+    let tokens_per_second = progress_data
+        .as_ref()
+        .and_then(|p| p.get("tokens_per_second"))
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0) as f32;
+
+    let lora_tier = parse_lora_tier(record.lora_tier.as_deref());
+
+    TrainingJob {
+        id: record.id.clone(),
+        adapter_name: record.adapter_name.unwrap_or_default(),
+        config,
+        template_id: record.template_id,
+        repo_id: Some(record.repo_id),
+        repo_name: None,
+        target_branch: record.target_branch,
+        base_version_id: record.base_version_id,
+        draft_version_id: record.draft_version_id,
+        adapter_version_id: None,
+        produced_version_id: record.produced_version_id,
+        version_label: None,
+        code_commit_sha: record.code_commit_sha.clone(),
+        data_spec_json: record.data_spec_json.clone(),
+        data_spec_hash: None,
+        dataset_id: record.dataset_id,
+        correlation_id: record.correlation_id,
+        dataset_version_ids,
+        dataset_version_trust: None,
+        dataset_hash_b3: record.dataset_hash_b3,
+        synthetic_mode: record.synthetic_mode.map(|v| v != 0).unwrap_or(false),
+        data_lineage_mode,
+        base_model_id: record.base_model_id,
+        collection_id: record.collection_id,
+        build_id: record.build_id,
+        source_documents_json: record.source_documents_json,
+        config_hash_b3: record.config_hash_b3,
+        status,
+        progress_pct,
+        current_epoch,
+        total_epochs,
+        current_loss,
+        learning_rate,
+        tokens_per_second,
+        created_at: record.created_at.unwrap_or_else(|| Utc::now().to_rfc3339()),
+        started_at: Some(record.started_at),
+        completed_at: record.completed_at,
+        error_message: None,
+        error_code: None,
+        artifact_path: record.artifact_path,
+        adapter_id: record.adapter_id,
+        weights_hash_b3: record.weights_hash_b3,
+        tenant_id: record.tenant_id,
+        stack_id: record.stack_id,
+        initiated_by: Some(record.created_by),
+        initiated_by_role: None,
+        category: record.category,
+        description: record.description,
+        language: record.language,
+        symbol_targets_json: record.symbol_targets_json,
+        framework_id: record.framework_id,
+        framework_version: record.framework_version,
+        lora_tier,
+        lora_strength: record.lora_strength.map(|v| v as f32),
+        scope: record.scope,
+        api_patterns_json: record.api_patterns_json,
+        repo_scope: record.repo_scope,
+        file_patterns_json: record.file_patterns_json,
+        exclude_patterns_json: record.exclude_patterns_json,
+        post_actions_json: None,
+        retryable: record.retryable.map(|v| v != 0),
+        retry_of_job_id: record.retry_of_job_id,
+        requested_backend: None,
+        backend_policy: None,
+        coreml_training_fallback: None,
+        backend: record.backend,
+        backend_reason: record.backend_reason,
+        backend_device: record.backend_device,
+        coreml_export_requested: None,
+        coreml_export_status: None,
+        coreml_export_reason: None,
+        coreml_fused_package_hash: None,
+        coreml_package_path: None,
+        coreml_metadata_path: None,
+        coreml_base_manifest_hash: None,
+        coreml_adapter_hash_b3: None,
+        coreml_fusion_verified: None,
+        determinism_mode: None,
+        training_seed: None,
+        seed_inputs_json: None,
+        require_gpu: None,
+        max_gpu_memory_mb: None,
+        examples_processed: None,
+        tokens_processed: None,
+        training_time_ms: None,
+        throughput_examples_per_sec: None,
+        gpu_utilization_pct: None,
+        peak_gpu_memory_mb: None,
+        aos_path: None,
+        package_hash_b3: None,
+        manifest_hash_b3: None,
+        manifest_rank: None,
+        manifest_base_model: None,
+        manifest_per_layer_hashes: None,
+        signature_status: None,
+    }
+}
+
 /// List training jobs with optional filters
 #[utoipa::path(
     get,
@@ -975,7 +1147,7 @@ pub async fn list_training_jobs(
 
     let all_jobs = if is_admin {
         // Admin: fetch all jobs from in-memory training service
-        state.training_service.list_jobs().await.map_err(|e| {
+        let jobs = state.training_service.list_jobs().await.map_err(|e| {
             error!(error = %e, "Failed to list training jobs");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -984,7 +1156,28 @@ pub async fn list_training_jobs(
                         .with_code("DATABASE_ERROR"),
                 ),
             )
-        })?
+        })?;
+
+        if jobs.is_empty() && e2e_enabled() {
+            let db_jobs = state
+                .db
+                .list_training_jobs_for_tenant(user_tenant_id)
+                .await
+                .map_err(|e| {
+                    error!(error = %e, tenant_id = %user_tenant_id, "Failed to list tenant training jobs");
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(
+                            ErrorResponse::new(format!("Failed to list jobs: {}", e))
+                                .with_code("DATABASE_ERROR"),
+                        ),
+                    )
+                })?;
+
+            db_jobs.into_iter().map(record_to_training_job).collect()
+        } else {
+            jobs
+        }
     } else {
         // Non-admin: use tenant-scoped database query
         let db_jobs = state
@@ -1003,180 +1196,7 @@ pub async fn list_training_jobs(
             })?;
 
         // Convert DB records to TrainingJob domain objects
-        db_jobs
-            .into_iter()
-            .map(|record| {
-                // Map TrainingJobRecord to TrainingJob
-                use adapteros_orchestrator::{TrainingJob, TrainingJobStatus};
-                use adapteros_types::training::{DataLineageMode, TrainingConfig};
-
-                let status = match record.status.to_lowercase().as_str() {
-                    "pending" => TrainingJobStatus::Pending,
-                    "running" => TrainingJobStatus::Running,
-                    "completed" => TrainingJobStatus::Completed,
-                    "failed" => TrainingJobStatus::Failed,
-                    "cancelled" => TrainingJobStatus::Cancelled,
-                    _ => TrainingJobStatus::Pending,
-                };
-
-                let config: TrainingConfig = serde_json::from_str(&record.training_config_json)
-                    .unwrap_or_else(|e| {
-                        warn!(
-                            job_id = %record.id,
-                            error = %e,
-                            "Failed to parse training_config_json, using defaults"
-                        );
-                        TrainingConfig::default()
-                    });
-
-                let data_lineage_mode = record.data_lineage_mode.as_deref().and_then(|s| {
-                    match s.to_lowercase().as_str() {
-                        "versioned" => Some(DataLineageMode::Versioned),
-                        "synthetic" => Some(DataLineageMode::Synthetic),
-                        "dataset_only" => Some(DataLineageMode::DatasetOnly),
-                        "legacy_unpinned" => Some(DataLineageMode::LegacyUnpinned),
-                        _ => None,
-                    }
-                });
-
-                let dataset_version_ids = record
-                    .data_spec_json
-                    .as_ref()
-                    .and_then(|json| serde_json::from_str(json).ok());
-
-                // Parse progress from JSON to extract individual metrics
-                let progress_data: Option<serde_json::Value> =
-                    serde_json::from_str(&record.progress_json).ok();
-
-                let progress_pct = progress_data
-                    .as_ref()
-                    .and_then(|p| p.get("progress_pct"))
-                    .and_then(|v| v.as_f64())
-                    .unwrap_or(0.0) as f32;
-
-                let current_epoch = progress_data
-                    .as_ref()
-                    .and_then(|p| p.get("current_epoch"))
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as u32;
-
-                let total_epochs = config.epochs;
-
-                let current_loss = progress_data
-                    .as_ref()
-                    .and_then(|p| p.get("current_loss"))
-                    .and_then(|v| v.as_f64())
-                    .unwrap_or(0.0) as f32;
-
-                let learning_rate = config.learning_rate;
-
-                let tokens_per_second = progress_data
-                    .as_ref()
-                    .and_then(|p| p.get("tokens_per_second"))
-                    .and_then(|v| v.as_f64())
-                    .unwrap_or(0.0) as f32;
-
-                let lora_tier = parse_lora_tier(record.lora_tier.as_deref());
-
-                TrainingJob {
-                    id: record.id.clone(),
-                    adapter_name: record.adapter_name.unwrap_or_default(),
-                    config,
-                    template_id: record.template_id,
-                    repo_id: Some(record.repo_id),
-                    repo_name: None,
-                    target_branch: record.target_branch,
-                    base_version_id: record.base_version_id,
-                    draft_version_id: record.draft_version_id,
-                    adapter_version_id: None,
-                    produced_version_id: record.produced_version_id,
-                    version_label: None,
-                    code_commit_sha: record.code_commit_sha.clone(),
-                    data_spec_json: record.data_spec_json.clone(),
-                    data_spec_hash: None,
-                    dataset_id: record.dataset_id,
-                    correlation_id: record.correlation_id,
-                    dataset_version_ids,
-                    dataset_version_trust: None,
-                    dataset_hash_b3: record.dataset_hash_b3,
-                    synthetic_mode: record.synthetic_mode.map(|v| v != 0).unwrap_or(false),
-                    data_lineage_mode,
-                    base_model_id: record.base_model_id,
-                    collection_id: record.collection_id,
-                    build_id: record.build_id,
-                    source_documents_json: record.source_documents_json,
-                    config_hash_b3: record.config_hash_b3,
-                    status,
-                    progress_pct,
-                    current_epoch,
-                    total_epochs,
-                    current_loss,
-                    learning_rate,
-                    tokens_per_second,
-                    created_at: record.created_at.unwrap_or_else(|| Utc::now().to_rfc3339()),
-                    started_at: Some(record.started_at),
-                    completed_at: record.completed_at,
-                    error_message: None,
-                    error_code: None,
-                    artifact_path: record.artifact_path,
-                    adapter_id: record.adapter_id,
-                    weights_hash_b3: record.weights_hash_b3,
-                    tenant_id: record.tenant_id,
-                    stack_id: record.stack_id,
-                    initiated_by: Some(record.created_by),
-                    initiated_by_role: None,
-                    category: record.category,
-                    description: record.description,
-                    language: record.language,
-                    symbol_targets_json: record.symbol_targets_json,
-                    framework_id: record.framework_id,
-                    framework_version: record.framework_version,
-                    lora_tier,
-                    lora_strength: record.lora_strength.map(|v| v as f32),
-                    scope: record.scope,
-                    api_patterns_json: record.api_patterns_json,
-                    repo_scope: record.repo_scope,
-                    file_patterns_json: record.file_patterns_json,
-                    exclude_patterns_json: record.exclude_patterns_json,
-                    post_actions_json: None,
-                    retryable: record.retryable.map(|v| v != 0),
-                    retry_of_job_id: record.retry_of_job_id,
-                    requested_backend: None,
-                    backend_policy: None,
-                    coreml_training_fallback: None,
-                    backend: record.backend,
-                    backend_reason: record.backend_reason,
-                    backend_device: record.backend_device,
-                    coreml_export_requested: None,
-                    coreml_export_status: None,
-                    coreml_export_reason: None,
-                    coreml_fused_package_hash: None,
-                    coreml_package_path: None,
-                    coreml_metadata_path: None,
-                    coreml_base_manifest_hash: None,
-                    coreml_adapter_hash_b3: None,
-                    coreml_fusion_verified: None,
-                    determinism_mode: None,
-                    training_seed: None,
-                    seed_inputs_json: None,
-                    require_gpu: None,
-                    max_gpu_memory_mb: None,
-                    examples_processed: None,
-                    tokens_processed: None,
-                    training_time_ms: None,
-                    throughput_examples_per_sec: None,
-                    gpu_utilization_pct: None,
-                    peak_gpu_memory_mb: None,
-                    aos_path: None,
-                    package_hash_b3: None,
-                    manifest_hash_b3: None,
-                    manifest_rank: None,
-                    manifest_base_model: None,
-                    manifest_per_layer_hashes: None,
-                    signature_status: None,
-                }
-            })
-            .collect()
+        db_jobs.into_iter().map(record_to_training_job).collect()
     };
 
     // Apply additional filters (status, adapter_name, template_id, dataset_id)
@@ -1318,10 +1338,13 @@ pub async fn create_training_job(
             })?,
     };
 
-    let adapter_name = req
-        .adapter_name
-        .clone()
-        .unwrap_or_else(|| format!("ws-{}-{}", workspace_id, Uuid::now_v7()));
+    let adapter_name = req.adapter_name.clone().unwrap_or_else(|| {
+        format!(
+            "ws-{}-{}",
+            workspace_id,
+            adapteros_core::ids::generate_suffix(6)
+        )
+    });
 
     let mut config = training_config_from_request(req.params.clone());
     config.base_model_path = Some(base_model_path);
@@ -1397,28 +1420,72 @@ pub async fn get_training_job(
     Path(job_id): Path<String>,
 ) -> Result<Json<TrainingJobResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::TrainingView)?;
+    let job_id = crate::id_resolver::resolve_any_id(&state.db, &job_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
-    let job = state.training_service.get_job(&job_id).await.map_err(|e| {
-        error!(job_id = %job_id, error = %e, "Failed to get training job");
-        let error_str = e.to_string();
-        if error_str.contains("not found") || error_str.contains("NotFound") {
-            (
-                StatusCode::NOT_FOUND,
-                Json(
-                    ErrorResponse::new(format!("Training job not found: {}", job_id))
-                        .with_code("NOT_FOUND"),
-                ),
-            )
-        } else {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new(format!("Failed to get job: {}", e))
-                        .with_code("DATABASE_ERROR"),
-                ),
-            )
+    let job = match state.training_service.get_job(&job_id).await {
+        Ok(job) => job,
+        Err(e) => {
+            error!(job_id = %job_id, error = %e, "Failed to get training job");
+            let error_str = e.to_string();
+            let not_found = error_str.contains("not found") || error_str.contains("NotFound");
+            if not_found && e2e_enabled() {
+                match state.db.get_training_job(&job_id).await {
+                    Ok(Some(record)) => record_to_training_job(record),
+                    Ok(None) => {
+                        return Err((
+                            StatusCode::NOT_FOUND,
+                            Json(
+                                ErrorResponse::new(format!("Training job not found: {}", job_id))
+                                    .with_code("NOT_FOUND"),
+                            ),
+                        ));
+                    }
+                    Err(db_err) => {
+                        error!(job_id = %job_id, error = %db_err, "Failed to load training job from DB");
+                        let error_str = db_err.to_string();
+                        if error_str.contains("not found") || error_str.contains("NotFound") {
+                            return Err((
+                                StatusCode::NOT_FOUND,
+                                Json(
+                                    ErrorResponse::new(format!(
+                                        "Training job not found: {}",
+                                        job_id
+                                    ))
+                                    .with_code("NOT_FOUND"),
+                                ),
+                            ));
+                        }
+
+                        return Err((
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(
+                                ErrorResponse::new(format!("Failed to get job: {}", db_err))
+                                    .with_code("DATABASE_ERROR"),
+                            ),
+                        ));
+                    }
+                }
+            } else if not_found {
+                return Err((
+                    StatusCode::NOT_FOUND,
+                    Json(
+                        ErrorResponse::new(format!("Training job not found: {}", job_id))
+                            .with_code("NOT_FOUND"),
+                    ),
+                ));
+            } else {
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new(format!("Failed to get job: {}", e))
+                            .with_code("DATABASE_ERROR"),
+                    ),
+                ));
+            }
         }
-    })?;
+    };
 
     // CRITICAL: Validate tenant isolation - non-admin users can only access their own tenant's jobs
     if let Some(ref job_tenant_id) = job.tenant_id {
@@ -1458,6 +1525,9 @@ pub async fn export_coreml_training_job(
     Path(job_id): Path<String>,
 ) -> Result<Json<TrainingJobResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::TrainingStart)?;
+    let job_id = crate::id_resolver::resolve_any_id(&state.db, &job_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Execute export via orchestrator (per-tenant enforcement)
     let job = state
@@ -2290,6 +2360,7 @@ pub async fn start_training(
         }
     }
 
+    // MLX main driver; CoreML for reasoning (inference) and optional preferred training backend.
     // Apply repository policy (CoreML allowances and backend preferences)
     let repo_policy = state
         .db
@@ -3171,6 +3242,12 @@ pub async fn promote_version(
     Query(params): Query<PromoteVersionQuery>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::TrainingStart)?;
+    let repo_id = crate::id_resolver::resolve_any_id(&state.db, &repo_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+    let version_id = crate::id_resolver::resolve_any_id(&state.db, &version_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     let version = state
         .db
@@ -3292,6 +3369,12 @@ pub async fn publish_version(
     (StatusCode, Json<ErrorResponse>),
 > {
     require_permission(&claims, Permission::TrainingStart)?;
+    let repo_id = crate::id_resolver::resolve_any_id(&state.db, &repo_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+    let version_id = crate::id_resolver::resolve_any_id(&state.db, &version_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Verify version exists and belongs to tenant/repo
     let version = state
@@ -3419,6 +3502,9 @@ pub async fn cancel_training(
     Path(job_id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::TrainingCancel)?;
+    let job_id = crate::id_resolver::resolve_any_id(&state.db, &job_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // CRITICAL: Fetch job first to validate tenant isolation before cancellation
     let job = state.training_service.get_job(&job_id).await.map_err(|e| {
@@ -3562,6 +3648,9 @@ pub async fn retry_training(
     Path(job_id): Path<String>,
 ) -> Result<(StatusCode, Json<TrainingJobResponse>), (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::TrainingStart)?;
+    let job_id = crate::id_resolver::resolve_any_id(&state.db, &job_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Get the original job
     let original_job = state.training_service.get_job(&job_id).await.map_err(|e| {
@@ -3761,6 +3850,9 @@ pub async fn get_chat_bootstrap(
     Path(job_id): Path<String>,
 ) -> Result<Json<adapteros_api_types::ChatBootstrapResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::TrainingView)?;
+    let job_id = crate::id_resolver::resolve_any_id(&state.db, &job_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Try in-memory first (for running jobs), fall back to DB (for completed jobs after restart)
     let (
@@ -4017,7 +4109,7 @@ pub async fn create_chat_from_training_job(
     let collection_id_for_response = collection_id.clone();
 
     // Create chat session
-    let session_id = format!("session-{}", Uuid::new_v4());
+    let session_id = crate::id_generator::readable_session_id("training");
     let params = adapteros_db::CreateChatSessionParams {
         id: session_id.clone(),
         tenant_id: claims.tenant_id.clone(),
@@ -4312,6 +4404,9 @@ pub async fn update_training_priority(
             ),
         )
     })?;
+    let job_id = crate::id_resolver::resolve_any_id(&state.db, &job_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Validate priority range
     if req.priority < 0 || req.priority > 100 {
@@ -4394,6 +4489,10 @@ pub async fn get_training_logs(
     Extension(claims): Extension<Claims>,
     Path(job_id): Path<String>,
 ) -> Result<Json<Vec<String>>, (StatusCode, Json<ErrorResponse>)> {
+    let job_id = crate::id_resolver::resolve_any_id(&state.db, &job_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+
     let job = state.db.get_training_job(&job_id).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -4479,6 +4578,10 @@ pub async fn get_training_metrics(
     Query(params): Query<TrainingMetricsQuery>,
 ) -> Result<Json<adapteros_api_types::TrainingMetricsListResponse>, (StatusCode, Json<ErrorResponse>)>
 {
+    let job_id = crate::id_resolver::resolve_any_id(&state.db, &job_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+
     // First verify the job exists and belongs to the caller's tenant
     let job = state
         .db
@@ -4597,6 +4700,10 @@ pub async fn get_training_report(
     Extension(claims): Extension<Claims>,
     Path(job_id): Path<String>,
 ) -> Result<Json<adapteros_api_types::TrainingReportResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let job_id = crate::id_resolver::resolve_any_id(&state.db, &job_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+
     let job = state
         .db
         .get_training_job(&job_id)
@@ -4815,6 +4922,9 @@ pub async fn stream_training_progress(
     Path(job_id): Path<String>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::TrainingView)?;
+    let job_id = crate::id_resolver::resolve_any_id(&state.db, &job_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Validate job exists and user has access
     let job = state

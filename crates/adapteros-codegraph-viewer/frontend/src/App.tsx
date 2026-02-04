@@ -9,6 +9,7 @@ import { ColorLegend } from './components/ColorLegend';
 import { DiffControls } from './components/DiffControls';
 import { useGraph } from './hooks/useGraph';
 import { useTauri } from './hooks/useTauri';
+import { graphFixture, detailsFixture } from './testFixtures/graphFixture';
 import type { LayoutType, SymbolMatch, GraphNode } from './types/graph';
 
 function App() {
@@ -39,6 +40,15 @@ function App() {
   // Diff mode state
   const [diffDbPathA, setDiffDbPathA] = useState<string | null>(null);
   const [diffDbPathB, setDiffDbPathB] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (import.meta.env.VITE_CODEGRAPH_TEST_DATA !== '1') return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('testData') !== '1') return;
+    loadGraph(graphFixture, 'fixture.db');
+    selectNode(detailsFixture.id);
+    setDetails(detailsFixture);
+  }, [loadGraph, selectNode, setDetails]);
 
   // Load graph from database
   const handleLoadGraph = useCallback(
@@ -336,4 +346,3 @@ const kbdStyle: React.CSSProperties = {
 };
 
 export default App;
-

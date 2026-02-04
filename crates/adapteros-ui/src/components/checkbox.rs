@@ -20,6 +20,9 @@ pub fn Checkbox(
     /// Optional label text
     #[prop(optional, into)]
     label: Option<String>,
+    /// Accessible label for screen readers (used when no visible label is provided)
+    #[prop(optional, into)]
+    aria_label: Option<String>,
     /// Whether the checkbox is disabled
     #[prop(optional, into)]
     disabled: Signal<bool>,
@@ -35,11 +38,17 @@ pub fn Checkbox(
 
     let handle_change = move |ev: web_sys::Event| {
         if let Some(cb) = on_change {
-            let target = ev.target().unwrap();
+            // Defensive: event target may be None in edge cases (detached DOM, etc.)
+            let Some(target) = ev.target() else {
+                return;
+            };
             let input: web_sys::HtmlInputElement = target.unchecked_into();
             cb.run(input.checked());
         }
     };
+
+    // Only apply aria-label when no visible label is provided
+    let effective_aria_label = aria_label.filter(|_| label.is_none());
 
     view! {
         <label class=label_class>
@@ -48,6 +57,7 @@ pub fn Checkbox(
                 class="checkbox"
                 prop:checked=checked
                 disabled=disabled
+                aria-label=effective_aria_label
                 on:change=handle_change
             />
             {label.map(|text| view! {

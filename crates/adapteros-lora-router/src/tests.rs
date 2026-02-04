@@ -111,6 +111,86 @@ fn test_route_on_reasoning_prefers_specialty_match() {
 }
 
 #[test]
+fn test_route_on_reasoning_coreml_specialty() {
+    let mut router = Router::new_with_weights(RouterWeights::default(), 1, 1.0, 0.02);
+    let priors = vec![0.5f32, 0.5f32];
+    let adapter_info = vec![
+        AdapterInfo {
+            id: "coreml-reasoner".to_string(),
+            framework: None,
+            languages: vec![0],
+            tier: "default".to_string(),
+            reasoning_specialties: vec!["coreml".to_string(), "reasoning".to_string()],
+            ..Default::default()
+        },
+        AdapterInfo {
+            id: "general-writer".to_string(),
+            framework: None,
+            languages: vec![0],
+            tier: "default".to_string(),
+            reasoning_specialties: vec!["creative".to_string()],
+            ..Default::default()
+        },
+    ];
+    let adapter_ids: Vec<String> = adapter_info.iter().map(|a| a.id.clone()).collect();
+    let policy_mask = PolicyMask::allow_all(&adapter_ids, None);
+
+    let decision = router
+        .route_on_reasoning(
+            "Let's use the CoreML reasoning path.",
+            &priors,
+            &adapter_info,
+            &policy_mask,
+            None,
+        )
+        .expect("reasoning route");
+
+    assert_eq!(
+        decision.indices.first().copied(),
+        Some(0),
+        "coreml-reasoner should be selected when rationale mentions coreml reasoning"
+    );
+}
+
+#[test]
+fn test_route_on_reasoning_returns_single_adapter_index() {
+    let mut router = Router::new_with_weights(RouterWeights::default(), 1, 1.0, 0.02);
+    let priors = vec![0.55f32, 0.55f32];
+    let adapter_info = vec![
+        AdapterInfo {
+            id: "creative-writer".to_string(),
+            framework: None,
+            languages: vec![0],
+            tier: "default".to_string(),
+            reasoning_specialties: vec!["creative".to_string()],
+            ..Default::default()
+        },
+        AdapterInfo {
+            id: "python-coder".to_string(),
+            framework: None,
+            languages: vec![0],
+            tier: "default".to_string(),
+            reasoning_specialties: vec!["python".to_string()],
+            ..Default::default()
+        },
+    ];
+    let adapter_ids: Vec<String> = adapter_info.iter().map(|a| a.id.clone()).collect();
+    let policy_mask = PolicyMask::allow_all(&adapter_ids, None);
+
+    let decision = router
+        .route_on_reasoning(
+            "Now implement the python solution.",
+            &priors,
+            &adapter_info,
+            &policy_mask,
+            None,
+        )
+        .expect("reasoning route");
+
+    assert_eq!(decision.indices.len(), 1);
+}
+
+#[test]
 fn test_reasoning_swap_flow() {
     let mut router = Router::new_with_weights(RouterWeights::default(), 1, 1.0, 0.02);
     let priors = vec![0.6f32, 0.6f32];

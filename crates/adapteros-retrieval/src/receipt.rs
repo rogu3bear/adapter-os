@@ -5,6 +5,7 @@
 //! signed for tamper-evident logging.
 
 use crate::corpus::ChunkingConfig;
+use adapteros_core::receipt_digest::canonical_json_string;
 use adapteros_core::B3Hash;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -110,8 +111,8 @@ impl RetrievalReceipt {
             timestamp: &self.timestamp,
         };
         let canonical =
-            serde_json::to_vec(&signable).expect("Receipt serialization should not fail");
-        B3Hash::hash(&canonical)
+            canonical_json_string(&signable).expect("Receipt serialization should not fail");
+        B3Hash::hash(canonical.as_bytes())
     }
 
     /// Total latency for the retrieval operation (embedding + search).

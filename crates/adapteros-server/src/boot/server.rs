@@ -36,13 +36,14 @@
 use crate::shutdown::{shutdown_signal_with_drain, ShutdownCoordinator, ShutdownError};
 use adapteros_boot::EXIT_CONFIG_ERROR;
 use adapteros_server_api::boot_state::BootStateManager;
+use adapteros_server_api::middleware::UdsPeerCredentials;
 use axum::Router;
 use std::net::{SocketAddr, TcpListener};
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::broadcast;
-use tracing::{error, info, instrument, warn};
+use tracing::{debug, error, info, instrument, warn};
 
 /// Server binding mode.
 #[derive(Debug, Clone)]
@@ -305,14 +306,16 @@ async fn serve_and_shutdown(
                 .await?;
         }
         ServeListener::Uds(l) => {
-            axum::serve(l, app)
-                .with_graceful_shutdown(shutdown_signal_with_drain(
-                    boot_state.clone(),
-                    Arc::clone(&in_flight_requests),
-                    drain_timeout,
-                    shutdown_rx,
-                ))
-                .await?;
+            // Use custom UDS serve with peer credential injection
+            serve_uds_with_peer_credentials(
+                l,
+                app,
+                boot_state.clone(),
+                in_flight_requests,
+                drain_timeout,
+                shutdown_rx,
+            )
+            .await?;
         }
     }
 
@@ -325,6 +328,113 @@ async fn serve_and_shutdown(
     {
         adapteros_lora_worker::mlx_runtime_shutdown();
         tracing::info!("MLX runtime shut down");
+    }
+
+    Ok(())
+}
+
+/// Serve UDS connections with peer credential injection.
+///
+/// This custom serve loop:
+/// 1. Accepts each UDS connection
+/// 2. Extracts peer credentials (UID/GID/PID) from the socket
+/// 3. Wraps the service to inject credentials into each request's extensions
+/// 4. Handles graceful shutdown
+///
+/// This enables the `worker_uid_middleware` to validate that connecting
+/// processes are running as the expected worker UID.
+#[cfg(unix)]
+async fn serve_uds_with_peer_credentials(
+    listener: tokio::net::UnixListener,
+    app: Router,
+    boot_state: BootStateManager,
+    in_flight_requests: Arc<AtomicUsize>,
+    drain_timeout: Duration,
+    shutdown_rx: broadcast::Receiver<()>,
+) -> Result<(), std::io::Error> {
+    use hyper::server::conn::http1;
+    use hyper_util::rt::TokioIo;
+    use tower::Service;
+
+    let shutdown_signal =
+        shutdown_signal_with_drain(boot_state, in_flight_requests, drain_timeout, shutdown_rx);
+    tokio::pin!(shutdown_signal);
+
+    loop {
+        tokio::select! {
+            biased;
+
+            _ = &mut shutdown_signal => {
+                info!("UDS server shutting down");
+                break;
+            }
+
+            accept_result = listener.accept() => {
+                match accept_result {
+                    Ok((stream, _addr)) => {
+                        // Extract peer credentials from the Unix socket
+                        let peer_creds = UdsPeerCredentials::from_unix_stream(&stream);
+
+                        if let Some(ref creds) = peer_creds {
+                            debug!(
+                                peer_uid = creds.uid,
+                                peer_gid = creds.gid,
+                                peer_pid = ?creds.pid,
+                                "UDS connection accepted with peer credentials"
+                            );
+                        } else {
+                            warn!("UDS connection accepted but peer credentials unavailable");
+                        }
+
+                        let app = app.clone();
+                        let io = TokioIo::new(stream);
+
+                        // Spawn a task to handle this connection
+                        tokio::spawn(async move {
+                            // Create a service that injects peer credentials into requests
+                            let service = hyper::service::service_fn(move |mut req: hyper::Request<hyper::body::Incoming>| {
+                                // Inject peer credentials into request extensions
+                                if let Some(ref creds) = peer_creds {
+                                    req.extensions_mut().insert(creds.clone());
+                                }
+
+                                // Clone app for this request
+                                let mut app = app.clone();
+
+                                async move {
+                                    // Call the axum router
+                                    let response = app.call(req).await.map_err(|e| {
+                                        // This shouldn't happen as Router's error type is Infallible
+                                        error!("Router error: {}", e);
+                                        std::io::Error::other("router error")
+                                    })?;
+
+                                    Ok::<_, std::io::Error>(response)
+                                }
+                            });
+
+                            // Serve the connection
+                            if let Err(e) = http1::Builder::new()
+                                .serve_connection(io, service)
+                                .await
+                            {
+                                // Don't log normal connection closes
+                                if !e.to_string().contains("connection closed") {
+                                    debug!(error = %e, "UDS connection error");
+                                }
+                            }
+                        });
+                    }
+                    Err(e) => {
+                        error!(error = %e, "UDS accept error");
+                        // Don't break on transient errors
+                        if e.kind() != std::io::ErrorKind::WouldBlock {
+                            tokio::time::sleep(Duration::from_millis(100)).await;
+                        }
+                    }
+                }
+            }
+        }
     }
 
     Ok(())

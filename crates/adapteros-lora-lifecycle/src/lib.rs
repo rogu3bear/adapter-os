@@ -221,10 +221,7 @@ impl LifecycleManager {
     ) -> Self {
         let mut states = HashMap::new();
         for (idx, name) in adapter_names.iter().enumerate() {
-            states.insert(
-                idx as u16,
-                AdapterHeatRecord::new(name.clone(), idx as u16),
-            );
+            states.insert(idx as u16, AdapterHeatRecord::new(name.clone(), idx as u16));
         }
 
         // Create download progress channel with capacity for 100 events
@@ -276,10 +273,7 @@ impl LifecycleManager {
     ) -> Self {
         let mut states = HashMap::new();
         for (idx, name) in adapter_names.iter().enumerate() {
-            states.insert(
-                idx as u16,
-                AdapterHeatRecord::new(name.clone(), idx as u16),
-            );
+            states.insert(idx as u16, AdapterHeatRecord::new(name.clone(), idx as u16));
         }
 
         // Create download progress channel with capacity for 100 events
@@ -2031,7 +2025,7 @@ impl LifecycleManager {
     pub async fn evict_adapter(&self, adapter_id: u16) -> Result<()> {
         // FIX 1: Hold lock during ENTIRE operation to prevent race between pin check and eviction
         // Extract required data and perform state updates AND loader unload while holding lock
-        let (adapter_id_str, old_state, category, memory_freed, tenant_id) = {
+        let (adapter_id_str, old_state, category, memory_freed) = {
             let mut states = self.states.write();
 
             if let Some(record) = states.get_mut(&adapter_id) {
@@ -2047,8 +2041,6 @@ impl LifecycleManager {
                 let memory_freed = record.memory_bytes;
                 let adapter_id_str = record.adapter_id.clone();
                 let category = record.category.clone();
-                let tenant_id = record.scope.clone();
-
                 // FIX 1: Unload from loader BEFORE changing state, while still holding states lock
                 // This prevents race where adapter could be pinned after check but before unload
                 {
@@ -2071,7 +2063,7 @@ impl LifecycleManager {
                 record.state = AdapterHeatState::Unloaded;
                 record.memory_bytes = 0;
 
-                (adapter_id_str, old_state, category, memory_freed, tenant_id)
+                (adapter_id_str, old_state, category, memory_freed)
             } else {
                 return Ok(());
             }
@@ -2083,8 +2075,9 @@ impl LifecycleManager {
             let adapter_id_clone = adapter_id_str.clone();
 
             // Persist eviction immediately (fallback when deterministic executor isn't running)
-            if let Err(e) = db_clone
-                .update_adapter_state(&tenant_id, &adapter_id_clone, "unloaded", "eviction")
+            let db_write = db_clone.write(db_clone.lifecycle_token());
+            if let Err(e) = db_write
+                .update_adapter_state_tx(&adapter_id_clone, "unloaded", "eviction")
                 .await
             {
                 warn!(
@@ -2093,8 +2086,8 @@ impl LifecycleManager {
                 );
             }
 
-            if let Err(e) = db_clone
-                .update_adapter_memory(&tenant_id, &adapter_id_clone, 0)
+            if let Err(e) = db_write
+                .update_adapter_memory_tx(&adapter_id_clone, 0)
                 .await
             {
                 warn!(

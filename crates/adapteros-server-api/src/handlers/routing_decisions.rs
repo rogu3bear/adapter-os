@@ -29,7 +29,6 @@ use serde_json::Value;
 use std::collections::HashMap;
 use tracing::{debug, warn};
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 const LANGUAGE_ORDER: [&str; 8] = [
     "python",
@@ -296,7 +295,7 @@ pub async fn ingest_router_decision(
     };
 
     let decision = DbRoutingDecision {
-        id: Uuid::new_v4().to_string(),
+        id: crate::id_generator::readable_id(adapteros_core::ids::IdKind::Decision, "routing"),
         tenant_id: request.tenant_id.clone(),
         timestamp: chrono::Utc::now().to_rfc3339(),
         request_id: request.request_id.clone(),
@@ -546,6 +545,10 @@ pub async fn get_routing_decision_by_id(
 ) -> Result<Json<RoutingDecisionResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
 
+    let id = crate::id_resolver::resolve_any_id(&state.db, &id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+
     let decision = state.db.get_routing_decision(&id).await.map_err(|e| {
         (
             StatusCode::NOT_FOUND,
@@ -620,6 +623,7 @@ pub async fn get_adapter_usage(
     Path(adapter_id): Path<String>,
 ) -> ApiResult<AdapterUsageResponse> {
     require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
+    let adapter_id = crate::id_resolver::resolve_any_id(&state.db, &adapter_id).await?;
 
     debug!(adapter_id = %adapter_id, "Querying adapter usage statistics");
 
@@ -665,6 +669,9 @@ pub async fn get_session_router_view(
     Path(request_id): Path<String>,
 ) -> Result<Json<SessionRouterViewResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
+    let request_id = crate::id_resolver::resolve_any_id(&state.db, &request_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     debug!(request_id = %request_id, "Querying session router view");
 

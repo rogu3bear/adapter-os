@@ -104,7 +104,13 @@ fn totp_raw_custom_time(secret: &[u8], digits: usize, step: u64, timestamp: u64)
 }
 
 fn hotp(secret: &[u8], counter: u64, digits: usize) -> u32 {
-    let mut mac = HmacSha1::new_from_slice(secret).expect("HMAC can take key of any size for SHA1");
+    let mut mac = match HmacSha1::new_from_slice(secret) {
+        Ok(m) => m,
+        Err(_) => {
+            tracing::error!("HMAC-SHA1 key creation failed for TOTP - this should never happen");
+            return 0; // Return invalid code that won't match
+        }
+    };
     mac.update(&counter.to_be_bytes());
     let result = mac.finalize().into_bytes();
 

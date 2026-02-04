@@ -50,6 +50,7 @@ pub async fn get_adapter_stats(
 ) -> ApiResult<AdapterStatsResponse> {
     // Require view permission
     require_permission(&claims, Permission::AdapterView)?;
+    let adapter_id = crate::id_resolver::resolve_any_id(&state.db, &adapter_id).await?;
 
     // Get adapter from database with tenant isolation
     let adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;

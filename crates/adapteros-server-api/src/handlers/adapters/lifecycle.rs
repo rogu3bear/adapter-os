@@ -130,6 +130,9 @@ pub async fn activate_adapter(
     (StatusCode, Json<ErrorResponse>),
 > {
     require_permission(&claims, Permission::AdapterLoad)?;
+    let adapter_id = crate::id_resolver::resolve_any_id(&state.db, &adapter_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     let workspace_id = req
         .workspace_id
@@ -420,6 +423,9 @@ pub async fn promote_adapter_lifecycle(
 ) -> Result<Json<LifecycleTransitionResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Require AdapterLoad permission (Operator and Admin roles have this)
     require_permission(&claims, Permission::AdapterLoad)?;
+    let adapter_id = crate::id_resolver::resolve_any_id(&state.db, &adapter_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Guard: prevent modification of in-flight adapters
     check_adapter_not_in_flight(&state, &adapter_id)?;
@@ -529,6 +535,9 @@ pub async fn demote_adapter_lifecycle(
 ) -> Result<Json<LifecycleTransitionResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Require AdapterUnload permission (Operator and Admin roles have this)
     require_permission(&claims, Permission::AdapterUnload)?;
+    let adapter_id = crate::id_resolver::resolve_any_id(&state.db, &adapter_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Guard: prevent modification of in-flight adapters
     check_adapter_not_in_flight(&state, &adapter_id)?;

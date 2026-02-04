@@ -219,6 +219,8 @@ fn test_heartbeat_request_serialization() {
         cache_active_entries: Some(1),
         tokenizer_hash_b3: None,
         tokenizer_vocab_size: None,
+        coreml_failure_stage: Some("model_path".to_string()),
+        coreml_failure_reason: Some("read_failed".to_string()),
     };
 
     let json = serde_json::to_string(&req).expect("Should serialize");
@@ -234,6 +236,8 @@ fn test_heartbeat_request_serialization() {
     assert!(json.contains("cache_max_mb"));
     assert!(json.contains("cache_pinned_entries"));
     assert!(json.contains("cache_active_entries"));
+    assert!(json.contains("coreml_failure_stage"));
+    assert!(json.contains("coreml_failure_reason"));
 }
 
 #[test]
@@ -252,6 +256,8 @@ fn test_heartbeat_request_optional_fields() {
         cache_active_entries: None,
         tokenizer_hash_b3: None,
         tokenizer_vocab_size: None,
+        coreml_failure_stage: None,
+        coreml_failure_reason: None,
     };
 
     let json = serde_json::to_string(&req).expect("Should serialize");
@@ -279,6 +285,14 @@ fn test_heartbeat_request_optional_fields() {
     );
     assert!(
         !json.contains("cache_active_entries"),
+        "None fields should be skipped"
+    );
+    assert!(
+        !json.contains("coreml_failure_stage"),
+        "None fields should be skipped"
+    );
+    assert!(
+        !json.contains("coreml_failure_reason"),
         "None fields should be skipped"
     );
 }

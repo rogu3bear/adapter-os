@@ -9,6 +9,8 @@ use adapteros_lora_lifecycle::LifecycleManager;
 use adapteros_lora_worker::memory::UmaPressureMonitor;
 use adapteros_lora_worker::signal::Signal;
 use adapteros_lora_worker::Worker;
+#[cfg(feature = "model-server")]
+use adapteros_lora_worker::{ModelServerClient, ModelServerClientConfig};
 use adapteros_orchestrator::{CodeJobManager, FederationDaemon, TrainingService};
 use adapteros_policy::{PolicyHashWatcher, PolicyPackManager};
 use adapteros_retrieval::rag::EmbeddingModel;
@@ -87,6 +89,10 @@ pub struct WorkerRuntimeInfo {
     pub tokenizer_hash_b3: Option<String>,
     /// Tokenizer vocabulary size reported by the worker
     pub tokenizer_vocab_size: Option<u32>,
+    /// Last CoreML failure stage reported by the worker (if any)
+    pub coreml_failure_stage: Option<String>,
+    /// Last CoreML failure reason reported by the worker (if any)
+    pub coreml_failure_reason: Option<String>,
     /// BLAKE3 hash of currently loaded model (for routing affinity)
     pub loaded_model_hash: Option<String>,
     /// Current model load state (unloaded, loading, loaded, error)
@@ -1791,49 +1797,100 @@ impl AppState {
     }
 
     /// Warmup model server KV cache for a session
+    #[cfg(feature = "model-server")]
     pub async fn warmup_model_server(
         &self,
         request: &crate::handlers::model_server::WarmupRequest,
     ) -> Result<crate::handlers::model_server::WarmupResponse, String> {
-        let state = self
-            .model_server_state
-            .read()
-            .map_err(|e| format!("Failed to read model server state: {}", e))?;
+        let (enabled, server_addr) = {
+            let state = self
+                .model_server_state
+                .read()
+                .map_err(|e| format!("Failed to read model server state: {}", e))?;
+            (state.enabled, state.server_addr.clone())
+        };
 
-        if !state.enabled || !state.connected {
-            return Err("Model server not available".to_string());
+        if !enabled {
+            return Err("Model server not enabled".to_string());
         }
 
-        // TODO: Implement actual warmup via gRPC client when model server integration is complete
-        // For now, return a placeholder response
+        let server_addr =
+            server_addr.ok_or_else(|| "Model server address not configured".to_string())?;
+        let client = ModelServerClient::new(ModelServerClientConfig::with_addr(server_addr));
+
+        let max_seq_len = request
+            .max_seq_len
+            .unwrap_or(request.input_ids.len() as u32);
+        let start = std::time::Instant::now();
+
+        let response = client
+            .warmup(
+                request.session_id.clone(),
+                request.input_ids.clone(),
+                max_seq_len,
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+
         Ok(crate::handlers::model_server::WarmupResponse {
-            success: true,
-            cached_tokens: request.input_ids.len() as u32,
-            latency_ms: 0.0,
+            success: response.success,
+            cached_tokens: response.cached_tokens,
+            latency_ms: start.elapsed().as_secs_f32() * 1000.0,
         })
     }
 
+    #[cfg(not(feature = "model-server"))]
+    pub async fn warmup_model_server(
+        &self,
+        _request: &crate::handlers::model_server::WarmupRequest,
+    ) -> Result<crate::handlers::model_server::WarmupResponse, String> {
+        Err("Model server not available".to_string())
+    }
+
     /// Initiate model server drain for graceful shutdown
+    #[cfg(feature = "model-server")]
     pub async fn drain_model_server(
         &self,
         grace_period_secs: u32,
     ) -> Result<crate::handlers::model_server::DrainResponse, String> {
-        let state = self
-            .model_server_state
-            .read()
-            .map_err(|e| format!("Failed to read model server state: {}", e))?;
+        let (enabled, server_addr, active_sessions) = {
+            let state = self
+                .model_server_state
+                .read()
+                .map_err(|e| format!("Failed to read model server state: {}", e))?;
+            (
+                state.enabled,
+                state.server_addr.clone(),
+                state.active_sessions,
+            )
+        };
 
-        if !state.enabled || !state.connected {
-            return Err("Model server not available".to_string());
+        if !enabled {
+            return Err("Model server not enabled".to_string());
         }
 
-        // TODO: Implement actual drain via gRPC client when model server integration is complete
-        // For now, return a placeholder response
+        let server_addr =
+            server_addr.ok_or_else(|| "Model server address not configured".to_string())?;
+        let client = ModelServerClient::new(ModelServerClientConfig::with_addr(server_addr));
+
+        client
+            .drain(grace_period_secs)
+            .await
+            .map_err(|e| e.to_string())?;
+
         Ok(crate::handlers::model_server::DrainResponse {
             initiated: true,
-            draining_sessions: state.active_sessions,
+            draining_sessions: active_sessions,
             estimated_completion_secs: grace_period_secs,
         })
+    }
+
+    #[cfg(not(feature = "model-server"))]
+    pub async fn drain_model_server(
+        &self,
+        _grace_period_secs: u32,
+    ) -> Result<crate::handlers::model_server::DrainResponse, String> {
+        Err("Model server not available".to_string())
     }
 
     /// Configure model server state (called during boot when model server is enabled)

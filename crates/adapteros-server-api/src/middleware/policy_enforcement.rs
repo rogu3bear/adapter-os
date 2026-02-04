@@ -102,7 +102,7 @@ pub async fn policy_enforcement_middleware(
         .extensions()
         .get::<RequestId>()
         .map(|id| id.0.clone())
-        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        .unwrap_or_else(crate::id_generator::readable_request_id);
 
     let claims = req.extensions().get::<Claims>().cloned();
 

@@ -23,7 +23,6 @@ use tokio::fs::{self, File};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
-use uuid::Uuid;
 use zip::ZipArchive;
 
 const KEEP_PARTIALS_ENV: &str = "AOS_KEEP_CHUNKED_UPLOAD_PARTS";
@@ -251,7 +250,8 @@ impl UploadSessionManager {
         temp_base_dir: &Path,
         workspace_id: Option<String>,
     ) -> Result<UploadSession> {
-        let session_id = Uuid::now_v7().to_string();
+        let session_id =
+            crate::id_generator::readable_id(adapteros_core::ids::IdKind::Upload, "upload");
 
         // Check if workspace_id is missing/empty
         let workspace_is_default = workspace_id

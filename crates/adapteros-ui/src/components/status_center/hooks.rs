@@ -5,6 +5,7 @@
 use crate::api::{ApiClient, ApiError};
 use adapteros_api_types::{SystemStateResponse, SystemStatusResponse};
 use leptos::prelude::*;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
@@ -18,10 +19,31 @@ use wasm_bindgen::JsCast;
 ///
 /// # Returns
 /// A read signal that increments each time the shortcut is pressed
+///
+/// # Implementation Note
+/// Uses an atomic flag to disable the handler on component unmount.
+/// The closure is leaked (WASM limitation), but becomes a no-op after cleanup.
 pub fn use_keyboard_shortcut(key: &'static str, ctrl: bool, shift: bool) -> ReadSignal<u32> {
     let (count, set_count) = signal(0u32);
 
+    // Track if the component is still mounted (Send+Sync for on_cleanup)
+    let is_active = Arc::new(AtomicBool::new(true));
+    let is_active_for_cleanup = Arc::clone(&is_active);
+
+    // Track if we've already registered the listener
+    let registered = Arc::new(AtomicBool::new(false));
+
+    // Register cleanup to disable the handler on unmount
+    on_cleanup(move || {
+        is_active_for_cleanup.store(false, Ordering::SeqCst);
+    });
+
     Effect::new(move || {
+        // Only register once - prevent re-registration on Effect re-run
+        if registered.swap(true, Ordering::SeqCst) {
+            return;
+        }
+
         let Some(window) = web_sys::window() else {
             tracing::error!("use_keyboard_shortcut: no window object");
             return;
@@ -31,8 +53,14 @@ pub fn use_keyboard_shortcut(key: &'static str, ctrl: bool, shift: bool) -> Read
             return;
         };
 
+        let is_active = Arc::clone(&is_active);
         let closure =
             Closure::<dyn Fn(web_sys::KeyboardEvent)>::new(move |event: web_sys::KeyboardEvent| {
+                // Check if component is still mounted before handling
+                if !is_active.load(Ordering::SeqCst) {
+                    return;
+                }
+
                 let key_matches = event.key().to_lowercase() == key.to_lowercase();
                 let ctrl_matches = !ctrl || event.ctrl_key() || event.meta_key();
                 let shift_matches = !shift || event.shift_key();
@@ -53,7 +81,7 @@ pub fn use_keyboard_shortcut(key: &'static str, ctrl: bool, shift: bool) -> Read
             return;
         }
 
-        // Store closure to prevent it from being dropped
+        // Closure must be leaked (WASM limitation), but handler becomes no-op after cleanup
         closure.forget();
     });
 

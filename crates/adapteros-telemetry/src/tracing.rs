@@ -17,7 +17,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use uuid::Uuid;
 
 /// Trace context following W3C Trace Context specification
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -390,16 +389,18 @@ pub struct TraceBufferStats {
     pub max_traces: usize,
 }
 
-/// Generate a 128-bit trace ID
+/// Generate a 128-bit trace ID as 32-char hex (W3C Trace Context compliant)
 fn generate_trace_id() -> String {
-    let uuid = Uuid::new_v4();
-    format!("{:032x}", uuid.as_u128())
+    let mut bytes = [0u8; 16];
+    rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut bytes);
+    hex::encode(bytes)
 }
 
-/// Generate a 64-bit span ID
+/// Generate a 64-bit span ID as 16-char hex (W3C Trace Context compliant)
 fn generate_span_id() -> String {
-    let uuid = Uuid::new_v4();
-    format!("{:016x}", uuid.as_u128() & 0xFFFFFFFFFFFFFFFF)
+    let mut bytes = [0u8; 8];
+    rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut bytes);
+    hex::encode(bytes)
 }
 
 /// Get current time in nanoseconds

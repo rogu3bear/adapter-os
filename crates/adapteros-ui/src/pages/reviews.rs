@@ -70,7 +70,7 @@ pub fn Reviews() -> impl IntoView {
     });
 
     view! {
-        <div class="space-y-6">
+        <div class="shell-page space-y-6">
             <PageHeader
                 title="Human Review"
                 subtitle="Human-in-the-loop review management"

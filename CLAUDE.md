@@ -2,9 +2,9 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Tasteful Default: Existing Code First
+## Default: Existing Code First
 
-Agents should assume the code already exists; new code is only tasteful when you have proof it does not.
+Agents should assume the code already exists; new code is only appropriate when you have proof it does not.
 
 ## Quick Start
 
@@ -211,6 +211,13 @@ This section is a **verified snapshot** of backend behavior. **Update it only af
 - Ordered: auth -> tenant guard -> CSRF -> context -> policy -> audit.
 - Global layers: error-code enforcement, idempotency, rate limiting, request size limits, security headers, caching, versioning, trace context, request ID, seed isolation, lifecycle/drain gates, observability, compression.
 
+### Middleware Ordering (Compile-Time Enforced)
+The middleware chain uses a **type-state pattern** that enforces correct ordering at compile time:
+`NeedsAuth → NeedsTenantGuard → NeedsCsrf → NeedsContext → NeedsPolicy → NeedsAudit → Complete`
+
+You cannot call `.build()` until all states are traversed - incorrect ordering is a compile error, not a runtime bug.
+See `crates/adapteros-server-api/src/middleware/chain_builder.rs`.
+
 ### Determinism & Replay
 - Seed isolation middleware + determinism context; strict mode rejects missing seeds.
 - Global tick ledger in control plane boot; determinism checks gate promotions/replay.
@@ -274,7 +281,7 @@ See `dist/glass.css` header for full spec. Key rules:
 - **adapteros-cli**: Command-line tool (`aosctl`)
 
 ### Supporting Crates
-- **adapteros-policy**: 25+ canonical policy packs
+- **adapteros-policy**: 31 canonical policy packs
 - **adapteros-telemetry**: Event logging with Merkle trees
 - **adapteros-crypto**: Ed25519 signing, BLAKE3 hashing
 - **adapteros-config**: Deterministic configuration with precedence
@@ -288,7 +295,7 @@ See `dist/glass.css` header for full spec. Key rules:
 
 The architecture's scale is deliberate, not accidental:
 
-- **~70 crates**: Fine-grained modularity enables selective compilation for air-gapped deployments where only specific capabilities ship. Each crate has a single responsibility with explicit dependencies.
+- **83 crates**: Fine-grained modularity enables selective compilation for air-gapped deployments where only specific capabilities ship. Each crate has a single responsibility with explicit dependencies.
 - **15+ feature flags**: Required to target different hardware backends (CoreML/Metal/MLX), deployment modes (production/development), and testing scenarios (loom/hardware-residency) without runtime overhead.
 - **Dual-write patterns**: The database layer uses atomic dual-write (see `adapteros-db`) to maintain consistency guarantees required for deterministic replay and audit trails.
 
@@ -392,6 +399,13 @@ cargo fmt --all --check   # Check formatting
 cargo clippy --workspace -- -D warnings
 ```
 
+## PR Review Checklist
+
+Before merging, verify:
+- [ ] No `let _ =` on `Result` types without explicit comment explaining why
+- [ ] Errors in UI call `report_error_with_toast()`, not just `console::error_1()`
+- [ ] New error conditions have corresponding error codes in `error_codes.rs`
+
 ## API Endpoints
 
 - Liveness: `/healthz`
@@ -401,7 +415,7 @@ cargo clippy --workspace -- -D warnings
 
 ## Key Directories
 
-- `crates/`: All Rust workspace crates (~70 crates)
+- `crates/`: All Rust workspace crates (83 crates)
   - `crates/adapteros-ui/`: Leptos WASM frontend
   - `crates/adapteros-api-types/`: Shared API types (server + WASM)
   - `crates/adapteros-server/`: Control plane server (serves UI from `static/`)
@@ -479,3 +493,14 @@ Key entry points:
 - **Review types**: `crates/adapteros-api-types/src/review.rs`
 - **Promotion workflow**: `crates/adapteros-db/src/promotions.rs`
 - **Quarantine system**: `crates/adapteros-policy/src/quarantine.rs`
+
+## Multi-Agent Build Coordination
+
+When multiple agents are working, use the locked build script to prevent contention:
+
+```bash
+# Instead of: cargo check -p adapteros-ui --target wasm32-unknown-unknown
+./scripts/ui-check.sh
+```
+
+This uses flock to ensure only one UI check runs at a time. Others will queue automatically.

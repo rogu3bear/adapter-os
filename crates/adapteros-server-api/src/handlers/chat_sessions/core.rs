@@ -167,7 +167,12 @@ pub async fn create_chat_session(
     };
 
     // Generate session ID
-    let session_id = format!("session-{}", uuid::Uuid::new_v4());
+    let session_slug = if req.name.trim().is_empty() {
+        "chat"
+    } else {
+        req.name.as_str()
+    };
+    let session_id = crate::id_generator::readable_session_id(session_slug);
 
     // Create session parameters
     let params = CreateChatSessionParams {
@@ -269,6 +274,7 @@ pub async fn update_chat_session(
 ) -> ApiResult<ChatSession> {
     require_permission(&claims, Permission::InferenceExecute)
         .map_err(|_| ApiError::forbidden("Permission denied"))?;
+    let session_id = crate::id_resolver::resolve_any_id(&state.db, &session_id).await?;
 
     // Verify session exists and tenant matches
     let session = state
@@ -471,6 +477,7 @@ pub async fn get_chat_session(
     // Permission check
     require_permission(&claims, Permission::InferenceExecute)
         .map_err(|_e| ApiError::forbidden("Permission denied"))?;
+    let session_id = crate::id_resolver::resolve_any_id(&state.db, &session_id).await?;
 
     // Get session
     let session = state
@@ -510,6 +517,7 @@ pub async fn delete_chat_session(
     // Permission check
     require_permission(&claims, Permission::InferenceExecute)
         .map_err(|_e| ApiError::forbidden("Permission denied"))?;
+    let session_id = crate::id_resolver::resolve_any_id(&state.db, &session_id).await?;
 
     // Verify session exists and tenant has access
     let session = state

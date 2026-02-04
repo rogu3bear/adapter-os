@@ -154,9 +154,17 @@ mod tests {
     use super::*;
     use crate::seed::derive_adapter_seed;
     use crate::B3Hash;
+    use std::sync::Mutex;
+
+    static SEED_GUARD_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    fn seed_guard_test_lock() -> std::sync::MutexGuard<'static, ()> {
+        SEED_GUARD_TEST_LOCK.lock().unwrap()
+    }
 
     #[test]
     fn test_guard_clears_registry_on_drop() {
+        let _lock = seed_guard_test_lock();
         // Use unique params to avoid collision with other parallel tests
         let unique_adapter_id = 1000;
         let unique_nonce = 999999;
@@ -187,6 +195,7 @@ mod tests {
 
     #[test]
     fn test_guard_disarm_prevents_cleanup() {
+        let _lock = seed_guard_test_lock();
         // Use unique IDs to avoid collision with parallel tests
         let unique_adapter_id = 2000;
         let unique_nonce = 888888;
@@ -220,6 +229,7 @@ mod tests {
 
     #[test]
     fn test_guard_detects_prior_entries() {
+        let _lock = seed_guard_test_lock();
         // Use unique IDs to avoid collision with parallel tests
         let unique_adapter_id = 3000;
         let unique_nonce = 777777;
@@ -240,6 +250,7 @@ mod tests {
 
     #[test]
     fn test_guard_no_prior_entries() {
+        let _lock = seed_guard_test_lock();
         clear_seed_registry();
 
         // Create a guard on clean registry
@@ -251,6 +262,7 @@ mod tests {
 
     #[test]
     fn test_multiple_guards_sequential() {
+        let _lock = seed_guard_test_lock();
         // Use unique IDs to avoid collision with parallel tests
         let base_adapter_id: usize = 4000;
         let base_nonce: u64 = 666666;
@@ -273,6 +285,7 @@ mod tests {
 
     #[test]
     fn test_guard_for_inference() {
+        let _lock = seed_guard_test_lock();
         clear_seed_registry();
 
         {
@@ -290,6 +303,7 @@ mod tests {
 
     #[test]
     fn test_guard_for_training() {
+        let _lock = seed_guard_test_lock();
         clear_seed_registry();
 
         {

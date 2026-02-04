@@ -152,6 +152,32 @@ fn trace_receipt_to_ref(receipt: &TraceReceipt) -> InferenceReceiptRef {
         // Defaults to None/0 for legacy traces.
         previous_receipt_digest: None,
         session_sequence: 0,
+        tokenizer_hash_b3: receipt.tokenizer_hash_b3,
+        tokenizer_version: receipt.tokenizer_version.clone(),
+        tokenizer_normalization: receipt.tokenizer_normalization.clone(),
+        model_build_hash_b3: receipt.model_build_hash_b3,
+        adapter_build_hash_b3: receipt.adapter_build_hash_b3,
+        decode_algo: receipt.decode_algo.clone(),
+        temperature_q15: receipt.temperature_q15,
+        top_p_q15: receipt.top_p_q15,
+        top_k: receipt.top_k,
+        seed_digest_b3: receipt.seed_digest_b3,
+        sampling_backend: receipt.sampling_backend.clone(),
+        thread_count: receipt.thread_count,
+        reduction_strategy: receipt.reduction_strategy.clone(),
+        stop_eos_q15: receipt.stop_eos_q15,
+        stop_window_digest_b3: receipt.stop_window_digest_b3,
+        cache_scope: receipt.cache_scope.clone(),
+        cached_prefix_digest_b3: receipt.cached_prefix_digest_b3,
+        cached_prefix_len: receipt.cached_prefix_len,
+        cache_key_b3: receipt.cache_key_b3,
+        retrieval_merkle_root_b3: receipt.retrieval_merkle_root_b3,
+        retrieval_order_digest_b3: receipt.retrieval_order_digest_b3,
+        tool_call_inputs_digest_b3: receipt.tool_call_inputs_digest_b3,
+        tool_call_outputs_digest_b3: receipt.tool_call_outputs_digest_b3,
+        disclosure_level: receipt.disclosure_level.clone(),
+        receipt_signing_kid: receipt.receipt_signing_kid.clone(),
+        receipt_signed_at: receipt.receipt_signed_at.clone(),
     }
 }
 
@@ -209,6 +235,9 @@ pub async fn download_run_evidence(
     Query(params): Query<EvidenceExportParams>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::InferenceExecute)?;
+    let run_id = crate::id_resolver::resolve_any_id(&state.db, &run_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Fetch metadata by inference_id (tenant isolation enforced at DB layer)
     let metadata = state

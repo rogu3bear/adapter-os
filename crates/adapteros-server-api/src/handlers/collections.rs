@@ -20,6 +20,15 @@ use serde::{Deserialize, Serialize};
 use tracing::info;
 use utoipa::ToSchema;
 
+async fn resolve_collection_id(state: &AppState, id: &str) -> Result<String, ApiError> {
+    crate::id_resolver::resolve_id(
+        &state.db,
+        adapteros_core::ids::IdKind::Collection.prefix(),
+        id,
+    )
+    .await
+}
+
 /// Collection response
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CollectionResponse {
@@ -214,6 +223,10 @@ pub async fn get_collection(
     // Check permission
     require_permission(&claims, Permission::DatasetView)?;
 
+    let id = resolve_collection_id(&state, &id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+
     let collection = state
         .db
         .get_collection(&claims.tenant_id, &id)
@@ -278,6 +291,10 @@ pub async fn delete_collection(
     // Check permission
     require_permission(&claims, Permission::DatasetDelete)?;
 
+    let id = resolve_collection_id(&state, &id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+
     // Get collection to validate tenant
     let collection = state
         .db
@@ -334,6 +351,12 @@ pub async fn add_document_to_collection(
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     // Check permission
     require_permission(&claims, Permission::DatasetUpload)?;
+    let id = crate::id_resolver::resolve_any_id(&state.db, &id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+    let document_id = crate::id_resolver::resolve_any_id(&state.db, &req.document_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Verify collection exists and tenant isolation
     let collection = state
@@ -347,7 +370,7 @@ pub async fn add_document_to_collection(
     // Verify document exists and belongs to same tenant
     let document = state
         .db
-        .get_document(&claims.tenant_id, &req.document_id)
+        .get_document(&claims.tenant_id, &document_id)
         .await
         .map_err(ApiError::db_error)?;
 
@@ -356,7 +379,7 @@ pub async fn add_document_to_collection(
     // Add document to collection
     state
         .db
-        .add_document_to_collection(&claims.tenant_id, &id, &req.document_id)
+        .add_document_to_collection(&claims.tenant_id, &id, &document_id)
         .await
         .map_err(|e| -> (StatusCode, Json<ErrorResponse>) {
             let error_str = e.to_string();
@@ -367,7 +390,7 @@ pub async fn add_document_to_collection(
             }
         })?;
 
-    info!("Added document {} to collection {}", req.document_id, id);
+    info!("Added document {} to collection {}", document_id, id);
 
     // Audit log: document added to collection
     log_success_or_warn(
@@ -405,6 +428,12 @@ pub async fn remove_document_from_collection(
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     // Check permission
     require_permission(&claims, Permission::DatasetDelete)?;
+    let id = crate::id_resolver::resolve_any_id(&state.db, &id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+    let doc_id = crate::id_resolver::resolve_any_id(&state.db, &doc_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Verify collection exists and tenant isolation
     let collection = state

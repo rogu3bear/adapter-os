@@ -27,6 +27,9 @@ use axum::{
 use futures_util::stream::{self, Stream};
 use futures_util::StreamExt as FuturesStreamExt;
 use serde::Deserialize;
+use serde_json::json;
+use sqlx::Row;
+use std::collections::HashMap;
 use std::convert::Infallible;
 use std::sync::Arc;
 use std::time::Duration;
@@ -35,6 +38,194 @@ use tokio_stream::wrappers::BroadcastStream;
 /// Boxed SSE stream type for unified returns with keep-alive
 type BoxedSseStream = std::pin::Pin<Box<dyn Stream<Item = Result<Event, Infallible>> + Send>>;
 type SseResponse = Sse<KeepAliveStream<BoxedSseStream>>;
+
+const DEFAULT_DASHBOARD_CONFIG_JSON: &str = r#"{
+    "widgets": [
+        {
+            "id": "cpu_usage",
+            "type": "time_series",
+            "metric": "cpu_usage",
+            "aggregation": "avg",
+            "window": "1h"
+        },
+        {
+            "id": "gpu_utilization",
+            "type": "gauge",
+            "metric": "gpu_utilization",
+            "threshold_warning": 80,
+            "threshold_critical": 95
+        },
+        {
+            "id": "active_alerts",
+            "type": "alert_list",
+            "severities": ["critical", "error"],
+            "limit": 10
+        }
+    ],
+    "refresh_interval": 30,
+    "time_range": "24h"
+}"#;
+
+fn default_dashboard_config() -> serde_json::Value {
+    serde_json::from_str(DEFAULT_DASHBOARD_CONFIG_JSON).unwrap_or_else(|_| {
+        json!({
+            "widgets": [],
+            "refresh_interval": 30,
+            "time_range": "24h"
+        })
+    })
+}
+
+fn extract_widgets(config: &serde_json::Value) -> Vec<serde_json::Value> {
+    config
+        .get("widgets")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default()
+}
+
+fn parse_refresh_interval(config: &serde_json::Value, fallback: u64) -> u64 {
+    config
+        .get("refresh_interval")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(fallback)
+}
+
+fn widget_type_label(value: &str) -> String {
+    let normalized = value
+        .trim()
+        .to_lowercase()
+        .replace(' ', "_")
+        .replace('-', "_");
+
+    match normalized.as_str() {
+        "timeseries" => "time_series".to_string(),
+        "alertlist" => "alert_list".to_string(),
+        "anomalyheatmap" => "anomaly_heatmap".to_string(),
+        "metriccard" => "metric_card".to_string(),
+        "statusindicator" => "status_indicator".to_string(),
+        other => other.to_string(),
+    }
+}
+
+fn widget_type_from_value(widget: &serde_json::Value) -> String {
+    widget
+        .get("type")
+        .and_then(|v| v.as_str())
+        .or_else(|| widget.get("widget_type").and_then(|v| v.as_str()))
+        .map(widget_type_label)
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+fn widget_id_from_value(widget: &serde_json::Value) -> String {
+    widget
+        .get("id")
+        .and_then(|v| v.as_str())
+        .or_else(|| widget.get("widget_id").and_then(|v| v.as_str()))
+        .map(|id| id.to_string())
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+fn widget_config_from_value<'a>(widget: &'a serde_json::Value) -> &'a serde_json::Value {
+    widget.get("config").unwrap_or(widget)
+}
+
+async fn resolve_dashboard_config(
+    state: &AppState,
+    dashboard_id: &str,
+    tenant_id: &str,
+    user_id: &str,
+) -> (serde_json::Value, u64) {
+    let default_config = default_dashboard_config();
+    let default_refresh = parse_refresh_interval(&default_config, 30);
+
+    // Try process_custom_dashboards first (tenant-scoped)
+    let config_row = sqlx::query(
+        "SELECT dashboard_config_json, dashboard_refresh_interval_seconds \
+         FROM process_custom_dashboards WHERE id = ? AND tenant_id = ?",
+    )
+    .bind(dashboard_id)
+    .bind(tenant_id)
+    .fetch_optional(state.db.pool())
+    .await;
+
+    match config_row {
+        Ok(Some(row)) => {
+            let config_raw: String = row.get("dashboard_config_json");
+            let refresh_db: i64 = row.get("dashboard_refresh_interval_seconds");
+            let mut config =
+                serde_json::from_str(&config_raw).unwrap_or_else(|_| default_config.clone());
+            if !config.is_object() {
+                config = default_config.clone();
+            }
+            if extract_widgets(&config).is_empty() {
+                config["widgets"] = default_config["widgets"].clone();
+            }
+            let refresh = if refresh_db > 0 {
+                refresh_db as u64
+            } else {
+                parse_refresh_interval(&config, default_refresh)
+            };
+            config["refresh_interval"] = json!(refresh);
+            return (config, refresh);
+        }
+        Ok(None) => {}
+        Err(e) => {
+            if !e.to_string().contains("no such table") {
+                tracing::warn!(error = %e, "Failed to load process dashboard config");
+            }
+        }
+    }
+
+    // Fall back to per-user dashboard configuration
+    let user_widgets = match state.db.get_dashboard_config(user_id).await {
+        Ok(configs) => configs,
+        Err(e) => {
+            if !e.to_string().contains("no such table") {
+                tracing::warn!(error = %e, "Failed to load user dashboard config");
+            }
+            Vec::new()
+        }
+    };
+
+    if !user_widgets.is_empty() {
+        let catalog = extract_widgets(&default_config);
+        let mut catalog_map: HashMap<String, serde_json::Value> = HashMap::new();
+        for widget in catalog {
+            let widget_id = widget_id_from_value(&widget);
+            if widget_id != "unknown" {
+                catalog_map.insert(widget_id, widget);
+            }
+        }
+
+        let mut selected = Vec::new();
+        for widget in user_widgets {
+            if !widget.enabled {
+                continue;
+            }
+            if let Some(definition) = catalog_map.get(&widget.widget_id) {
+                selected.push(definition.clone());
+            } else {
+                tracing::warn!(
+                    widget_id = %widget.widget_id,
+                    "Dashboard widget not found in default catalog"
+                );
+            }
+        }
+
+        if !selected.is_empty() {
+            let mut config = default_config.clone();
+            config["widgets"] = serde_json::Value::Array(selected);
+            let refresh = parse_refresh_interval(&config, default_refresh);
+            config["refresh_interval"] = json!(refresh);
+            return (config, refresh);
+        }
+    }
+
+    let mut config = default_config.clone();
+    config["refresh_interval"] = json!(default_refresh);
+    (config, default_refresh)
+}
 
 /// Helper to create SSE response from any stream with keep-alive
 fn sse_response<S>(stream: S) -> SseResponse
@@ -528,6 +719,8 @@ pub async fn workers_stream(
                     model_hash: w.model_hash_b3.clone(),
                     tokenizer_hash_b3: w.tokenizer_hash_b3.clone(),
                     tokenizer_vocab_size: w.tokenizer_vocab_size.map(|v| v as u32),
+                    coreml_failure_stage: None,
+                    coreml_failure_reason: None,
                     model_loaded: w.model_hash_b3.is_some(),
                     cache_used_mb: None,
                     cache_max_mb: None,
@@ -857,7 +1050,7 @@ pub async fn anomalies_stream(
 /// Pushes metrics tailored for dashboard widgets with replay support
 pub async fn dashboard_metrics_stream(
     State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
     Path(dashboard_id): Path<String>,
     headers: HeaderMap,
 ) -> SseResponse {
@@ -878,44 +1071,28 @@ pub async fn dashboard_metrics_stream(
     // Create replay stream
     let replay_stream = create_replay_stream(replay_events);
 
+    let tenant_id = claims.tenant_id.clone();
+    let user_id = claims.sub.clone();
+
     let live_stream = stream::unfold(
-        (state.clone(), dashboard_id),
-        move |(state, dashboard_id)| async move {
+        (state.clone(), dashboard_id, tenant_id, user_id),
+        move |(state, dashboard_id, tenant_id, user_id)| async move {
             let mgr = state.sse_manager.clone();
 
             tokio::time::sleep(Duration::from_secs(5)).await;
 
-            // Get dashboard configuration (placeholder for now)
-            let dashboard_config = serde_json::json!({
-                "widgets": [
-                    {
-                        "type": "time_series",
-                        "metric": "cpu_usage",
-                        "aggregation": "avg",
-                        "window": "1h"
-                    },
-                    {
-                        "type": "gauge",
-                        "metric": "gpu_utilization",
-                        "threshold_warning": 80,
-                        "threshold_critical": 95
-                    },
-                    {
-                        "type": "alert_list",
-                        "severities": ["critical", "error"],
-                        "limit": 10
-                    }
-                ],
-                "refresh_interval": 30,
-                "time_range": "24h"
-            });
+            let (dashboard_config, refresh_interval) =
+                resolve_dashboard_config(&state, &dashboard_id, &tenant_id, &user_id).await;
 
             // Fetch metrics for each widget
             let mut widget_data = Vec::new();
+            let widget_config = extract_widgets(&dashboard_config);
 
-            for widget in dashboard_config["widgets"].as_array().unwrap_or(&vec![]) {
-                let widget_type = widget["type"].as_str().unwrap_or("unknown");
-                let metric_name = widget["metric"].as_str().unwrap_or("");
+            for widget in &widget_config {
+                let widget_type = widget_type_from_value(widget);
+                let widget_id = widget_id_from_value(widget);
+                let config = widget_config_from_value(widget);
+                let metric_name = config.get("metric").and_then(|v| v.as_str()).unwrap_or("");
 
                 let filters = adapteros_system_metrics::MetricFilters {
                     worker_id: None,
@@ -939,7 +1116,7 @@ pub async fn dashboard_metrics_stream(
                     }
                 };
 
-                let widget_result = match widget_type {
+                let widget_result = match widget_type.as_str() {
                     "time_series" => {
                         let points: Vec<serde_json::Value> = metrics
                             .iter()
@@ -953,24 +1130,30 @@ pub async fn dashboard_metrics_stream(
                             .collect();
 
                         serde_json::json!({
-                            "widget_id": "time_series_1",
+                            "widget_id": widget_id,
                             "widget_type": "time_series",
                             "data": {
                                 "metric": metric_name,
                                 "points": points,
-                                "aggregation": widget["aggregation"],
-                                "window": widget["window"]
+                                "aggregation": config.get("aggregation").cloned().unwrap_or_else(|| json!("avg")),
+                                "window": config.get("window").cloned().unwrap_or_else(|| json!("1h"))
                             }
                         })
                     }
                     "gauge" => {
                         let current_value = metrics.last().map(|m| m.metric_value).unwrap_or(0.0);
                         let status = if current_value
-                            >= widget["threshold_critical"].as_f64().unwrap_or(95.0)
+                            >= config
+                                .get("threshold_critical")
+                                .and_then(|v| v.as_f64())
+                                .unwrap_or(95.0)
                         {
                             "critical"
                         } else if current_value
-                            >= widget["threshold_warning"].as_f64().unwrap_or(80.0)
+                            >= config
+                                .get("threshold_warning")
+                                .and_then(|v| v.as_f64())
+                                .unwrap_or(80.0)
                         {
                             "warning"
                         } else {
@@ -978,13 +1161,13 @@ pub async fn dashboard_metrics_stream(
                         };
 
                         serde_json::json!({
-                            "widget_id": "gauge_1",
+                            "widget_id": widget_id,
                             "widget_type": "gauge",
                             "data": {
                                 "metric": metric_name,
                                 "current_value": current_value,
-                                "threshold_warning": widget["threshold_warning"],
-                                "threshold_critical": widget["threshold_critical"],
+                                "threshold_warning": config.get("threshold_warning").cloned().unwrap_or_else(|| json!(80)),
+                                "threshold_critical": config.get("threshold_critical").cloned().unwrap_or_else(|| json!(95)),
                                 "status": status
                             }
                         })
@@ -997,7 +1180,7 @@ pub async fn dashboard_metrics_stream(
                             severity: None,
                             start_time: None,
                             end_time: None,
-                            limit: Some(widget["limit"].as_i64().unwrap_or(10)),
+                            limit: Some(config.get("limit").and_then(|v| v.as_i64()).unwrap_or(10)),
                             offset: None,
                         };
 
@@ -1030,7 +1213,7 @@ pub async fn dashboard_metrics_stream(
                             .collect();
 
                         serde_json::json!({
-                            "widget_id": "alert_list_1",
+                            "widget_id": widget_id,
                             "widget_type": "alert_list",
                             "data": {
                                 "alerts": alert_summaries,
@@ -1041,7 +1224,7 @@ pub async fn dashboard_metrics_stream(
                     }
                     _ => {
                         serde_json::json!({
-                            "widget_id": "unknown_1",
+                            "widget_id": widget_id,
                             "widget_type": widget_type,
                             "data": {},
                             "error": "Unknown widget type"
@@ -1053,10 +1236,11 @@ pub async fn dashboard_metrics_stream(
             }
 
             let dashboard_data = serde_json::json!({
-                "dashboard_id": dashboard_id,
+                "dashboard_id": dashboard_id.clone(),
                 "widgets": widget_data,
+                "widget_config": widget_config,
                 "timestamp": chrono::Utc::now().to_rfc3339(),
-                "refresh_interval": dashboard_config["refresh_interval"]
+                "refresh_interval": refresh_interval
             });
 
             let event = mgr
@@ -1069,7 +1253,7 @@ pub async fn dashboard_metrics_stream(
 
             Some((
                 Ok(SseEventManager::to_axum_event(&event)),
-                (state, dashboard_id),
+                (state, dashboard_id, tenant_id, user_id),
             ))
         },
     );

@@ -541,10 +541,10 @@ fn MessageItem(msg_id: String) -> impl IntoView {
                                     if !user {
                                         backend_used.get().map(|backend| {
                                             let (label, class) = match backend.as_str() {
-                                                "coreml" => ("CoreML".to_string(), "bg-amber-500/20 text-amber-600 dark:text-amber-400"),
-                                                "mlx" => ("MLX".to_string(), "bg-blue-500/20 text-blue-600 dark:text-blue-400"),
-                                                "metal" => ("Metal".to_string(), "bg-purple-500/20 text-purple-600 dark:text-purple-400"),
-                                                _ => (backend.clone(), "bg-gray-500/20 text-gray-600 dark:text-gray-400"),
+                                                "coreml" => ("CoreML".to_string(), "bg-status-warning/20 text-status-warning"),
+                                                "mlx" => ("MLX".to_string(), "bg-status-info/20 text-status-info"),
+                                                "metal" => ("Metal".to_string(), "bg-primary/20 text-primary"),
+                                                _ => (backend.clone(), "bg-muted text-muted-foreground"),
                                             };
                                             view! {
                                                 <span class=format!("px-1 py-0.5 rounded text-2xs font-medium {}", class)>
@@ -739,7 +739,7 @@ fn ReasoningModeToggle() -> impl IntoView {
                 }
             )
             on:click=on_click
-            title="Enable reasoning mode (routes to CoreML backend)"
+            title="Enable reasoning mode: semantic router swaps adapters mid-stream based on thought boundaries (not a dedicated prefill step)"
         >
             // Brain/lightbulb icon for reasoning
             <svg
@@ -925,18 +925,14 @@ fn ChatInput() -> impl IntoView {
                                                 <a href=action.href class="btn btn-outline btn-sm">
                                                     {action.label}
                                                 </a>
-                                                {if let Some(ctx) = status_center {
-                                                    Some(view! {
+                                                {status_center.map(|ctx| view! {
                                                         <button
                                                             class="text-xs text-muted-foreground hover:text-foreground"
                                                             on:click=move |_| ctx.open()
                                                         >
                                                             "Why?"
                                                         </button>
-                                                    })
-                                                } else {
-                                                    None
-                                                }}
+                                                    })}
                                             </div>
                                         </div>
                                     </div>

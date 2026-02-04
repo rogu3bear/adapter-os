@@ -194,6 +194,7 @@ pub mod request_id;
 pub mod seed_isolation;
 pub mod trace_context;
 pub mod versioning;
+pub mod worker_uid;
 
 pub use caching::{caching_middleware, CacheControl};
 pub use canonicalization::{
@@ -211,6 +212,7 @@ pub use policy_enforcement::policy_enforcement_middleware;
 pub use request_id::request_id_middleware;
 pub use trace_context::{trace_context_middleware, TraceContextExtension};
 pub use versioning::{versioning_middleware, ApiVersion, DeprecationInfo};
+pub use worker_uid::{is_worker_uid_validation_enabled, worker_uid_middleware, UdsPeerCredentials};
 
 /// Result of authentication resolution.
 ///

@@ -84,6 +84,7 @@ pub struct ActivationTracker {
     demotion_cooldown_secs: f64,
 
     /// Window size for rate calculation
+    #[allow(dead_code)] // Reserved for rate-based hot adapter promotion
     rate_window: Duration,
 
     /// Stats update timestamp

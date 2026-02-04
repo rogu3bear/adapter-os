@@ -54,7 +54,7 @@ rand = { workspace = true }
 criterion = "0.5"
 tempfile = "3.8"
 [features]
-default = ["schemars-support"]
+default = ["schemars-support", "rand"]
 test-utils = ["rand"]
 schemars-support = ["schemars", "adapteros-infra-common/jsonschema"]
 sqlx = ["dep:sqlx"]

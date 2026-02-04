@@ -119,6 +119,7 @@ pub async fn update_chat_tag(
 ) -> ApiResult<ChatTag> {
     require_permission(&claims, Permission::WorkspaceManage)
         .map_err(|_| ApiError::forbidden("Permission denied - requires WorkspaceManage"))?;
+    let tag_id = crate::id_resolver::resolve_any_id(&state.db, &tag_id).await?;
 
     // Verify tag belongs to tenant
     let tag = state
@@ -175,6 +176,7 @@ pub async fn delete_chat_tag(
 ) -> Result<StatusCode, ApiError> {
     require_permission(&claims, Permission::WorkspaceManage)
         .map_err(|_| ApiError::forbidden("Permission denied - requires WorkspaceManage"))?;
+    let tag_id = crate::id_resolver::resolve_any_id(&state.db, &tag_id).await?;
 
     // Verify tag belongs to tenant
     let tag = state
@@ -221,6 +223,7 @@ pub async fn assign_tags_to_session(
 ) -> ApiResult<Vec<ChatTag>> {
     require_permission(&claims, Permission::InferenceExecute)
         .map_err(|_| ApiError::forbidden("Permission denied"))?;
+    let session_id = crate::id_resolver::resolve_any_id(&state.db, &session_id).await?;
 
     // Verify session belongs to tenant
     let session = state
@@ -271,6 +274,7 @@ pub async fn get_session_tags(
 ) -> ApiResult<Vec<ChatTag>> {
     require_permission(&claims, Permission::InferenceExecute)
         .map_err(|_| ApiError::forbidden("Permission denied"))?;
+    let session_id = crate::id_resolver::resolve_any_id(&state.db, &session_id).await?;
 
     // Verify session belongs to tenant
     let session = state
@@ -316,6 +320,8 @@ pub async fn remove_tag_from_session(
 ) -> Result<StatusCode, ApiError> {
     require_permission(&claims, Permission::InferenceExecute)
         .map_err(|_| ApiError::forbidden("Permission denied"))?;
+    let session_id = crate::id_resolver::resolve_any_id(&state.db, &session_id).await?;
+    let tag_id = crate::id_resolver::resolve_any_id(&state.db, &tag_id).await?;
 
     // Verify session belongs to tenant
     let session = state

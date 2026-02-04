@@ -68,6 +68,9 @@ pub struct StreamingInferRequest {
     /// Model identifier (optional)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// Explicit backend preference (auto|coreml|mlx|metal|cpu)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend: Option<adapteros_core::BackendKind>,
     /// CoreML mode for backend selection (coreml_strict|coreml_preferred|backend_auto)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub coreml_mode: Option<CoreMLMode>,
@@ -142,7 +145,7 @@ impl From<(&StreamingInferRequest, &Claims)> for InferenceRequestInternal {
         let is_admin = claims.role.eq_ignore_ascii_case("admin")
             || claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
         Self {
-            request_id: uuid::Uuid::new_v4().to_string(),
+            request_id: crate::id_generator::readable_request_id(),
             cpid: claims.tenant_id.clone(),
             prompt: req.prompt.clone(),
             run_envelope: None,
@@ -151,7 +154,10 @@ impl From<(&StreamingInferRequest, &Claims)> for InferenceRequestInternal {
             stream: true, // Always streaming for this endpoint
             require_step: true,
             require_determinism: false,
-            allow_fallback: true,
+            allow_fallback: !matches!(
+                req.backend,
+                Some(backend) if backend != adapteros_core::BackendKind::Auto
+            ),
             batch_item_id: None,
             rag_enabled: req.collection_id.is_some(), // Enable RAG if collection_id provided
             rag_collection_id: req.collection_id.clone(),
@@ -169,7 +175,7 @@ impl From<(&StreamingInferRequest, &Claims)> for InferenceRequestInternal {
             routing_determinism_mode: req.routing_determinism_mode,
             seed_mode: None,
             request_seed: None,
-            backend_profile: None,
+            backend_profile: req.backend,
             coreml_mode: req.coreml_mode,
             max_tokens: req.max_tokens,
             temperature: req.temperature,
@@ -588,6 +594,17 @@ pub async fn streaming_infer_with_progress(
             ),
         ])?;
         let resolved = resolve_session_token_lock(&state, &claims, &token.0.lock).await?;
+        if let (Some(requested), Some(locked)) = (req.backend, resolved.backend_profile) {
+            if requested != locked {
+                return Err(ApiError::forbidden("session token backend mismatch")
+                    .with_details(format!(
+                        "requested {}, token {}",
+                        requested.as_str(),
+                        locked.as_str()
+                    ))
+                    .into());
+            }
+        }
         if let (Some(requested), Some(locked)) = (req.coreml_mode, resolved.coreml_mode) {
             if requested != locked {
                 return Err(ApiError::forbidden("session token coreml_mode mismatch")
@@ -610,6 +627,9 @@ pub async fn streaming_infer_with_progress(
         req.stack_id = lock.stack_id.clone();
         req.adapter_strength_overrides = None;
         req.effective_adapter_ids = None;
+        if let Some(backend) = lock.backend_profile {
+            req.backend = Some(backend);
+        }
         if let Some(coreml_mode) = lock.coreml_mode {
             req.coreml_mode = Some(coreml_mode);
         }
@@ -641,7 +661,7 @@ pub async fn streaming_infer_with_progress(
     check_uma_backpressure(&state)?;
 
     // Generate request ID for hook contexts
-    let request_id = uuid::Uuid::new_v4().to_string();
+    let request_id = crate::id_generator::readable_request_id();
 
     // P2 HARDENING: Collect ALL policy decisions BEFORE creating envelope
     // This ensures policy_mask_digest is a true pre-flight commitment, not post-hoc proof
@@ -811,6 +831,17 @@ pub async fn streaming_infer(
             ),
         ])?;
         let resolved = resolve_session_token_lock(&state, &claims, &token.0.lock).await?;
+        if let (Some(requested), Some(locked)) = (req.backend, resolved.backend_profile) {
+            if requested != locked {
+                return Err(ApiError::forbidden("session token backend mismatch")
+                    .with_details(format!(
+                        "requested {}, token {}",
+                        requested.as_str(),
+                        locked.as_str()
+                    ))
+                    .into());
+            }
+        }
         if let (Some(requested), Some(locked)) = (req.coreml_mode, resolved.coreml_mode) {
             if requested != locked {
                 return Err(ApiError::forbidden("session token coreml_mode mismatch")
@@ -833,6 +864,9 @@ pub async fn streaming_infer(
         req.stack_id = lock.stack_id.clone();
         req.adapter_strength_overrides = None;
         req.effective_adapter_ids = None;
+        if let Some(backend) = lock.backend_profile {
+            req.backend = Some(backend);
+        }
         if let Some(coreml_mode) = lock.coreml_mode {
             req.coreml_mode = Some(coreml_mode);
         }
@@ -848,7 +882,7 @@ pub async fn streaming_infer(
         .map(|s| s.to_string());
 
     // Generate request ID
-    let request_id = format!("chatcmpl-{}", uuid::Uuid::new_v4());
+    let request_id = crate::id_generator::readable_openai_chatcmpl_dash_id();
     // NOTE: Envelope creation is deferred until AFTER policy enforcement (P2 hardening)
     let model_name = req.model.clone().unwrap_or_else(|| "adapteros".to_string());
 
@@ -3138,6 +3172,7 @@ mod tests {
         let streaming_req = StreamingInferRequest {
             prompt: "Test prompt".to_string(),
             model: Some("test-model".to_string()),
+            backend: None,
             coreml_mode: None,
             stack_id: None,
             max_tokens: 100,
@@ -3210,6 +3245,62 @@ mod tests {
     }
 
     #[test]
+    fn test_streaming_request_to_internal_with_session_and_reasoning() {
+        use crate::auth::Claims;
+
+        let streaming_req = StreamingInferRequest {
+            prompt: "Reason it out".to_string(),
+            model: None,
+            backend: None,
+            coreml_mode: None,
+            stack_id: None,
+            max_tokens: default_max_tokens(),
+            temperature: default_temperature(),
+            top_p: None,
+            top_k: None,
+            stop: vec![],
+            adapter_stack: None,
+            adapters: None,
+            seed: None,
+            adapter_strength_overrides: None,
+            require_evidence: false,
+            collection_id: None,
+            domain: None,
+            routing_determinism_mode: None,
+            session_id: Some("sess-1".to_string()),
+            effective_adapter_ids: None,
+            reasoning_mode: true,
+            stop_policy: None,
+            context: None,
+        };
+
+        let claims = Claims {
+            sub: "user".to_string(),
+            email: String::new(),
+            tenant_id: "tenant".to_string(),
+            role: "operator".to_string(),
+            roles: Vec::new(),
+            admin_tenants: Vec::new(),
+            device_id: None,
+            session_id: None,
+            mfa_level: None,
+            rot_id: None,
+            exp: 0,
+            iat: 0,
+            jti: uuid::Uuid::new_v4().to_string(),
+            nbf: 0,
+            iss: JWT_ISSUER.to_string(),
+            auth_mode: AuthMode::BearerToken,
+            principal_type: Some(PrincipalType::User),
+        };
+
+        let internal: InferenceRequestInternal = (&streaming_req, &claims).into();
+
+        assert_eq!(internal.session_id, Some("sess-1".to_string()));
+        assert!(internal.reasoning_mode);
+    }
+
+    #[test]
     fn test_streaming_request_to_internal_no_collection() {
         use crate::auth::Claims;
 
@@ -3217,6 +3308,7 @@ mod tests {
         let streaming_req = StreamingInferRequest {
             prompt: "Test".to_string(),
             model: None,
+            backend: None,
             coreml_mode: None,
             stack_id: None,
             max_tokens: default_max_tokens(),

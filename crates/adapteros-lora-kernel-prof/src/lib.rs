@@ -321,6 +321,8 @@ mod tests {
         // Create a dummy command buffer
         let queue = device.new_command_queue();
         let command_buffer = queue.new_command_buffer();
+        // Ensure the buffer is committed before profiling to avoid blocking forever.
+        command_buffer.commit();
 
         let profile = profiler
             .profile_dispatch("test_kernel", command_buffer)

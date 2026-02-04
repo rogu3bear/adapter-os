@@ -17,7 +17,14 @@ use crate::state::AppState;
 use crate::storage_usage::compute_tenant_storage_usage;
 use crate::types::{DatasetResponse, ErrorResponse};
 #[cfg(feature = "embeddings")]
+use adapteros_config::resolve_tokenizer_path;
+#[cfg(feature = "embeddings")]
 use adapteros_core::reject_forbidden_tmp_path;
+#[cfg(feature = "embeddings")]
+use adapteros_ingest_docs::{
+    default_ingest_options, generate_training_data_from_documents, load_tokenizer,
+    DocumentIngestor, TrainingGenConfig, TrainingStrategy,
+};
 use adapteros_storage::secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
 use async_trait::async_trait;
 use axum::body::Bytes;
@@ -36,7 +43,6 @@ use tokio::io::AsyncWriteExt;
 use tokio::time::{sleep, Duration};
 use tracing::{info, warn};
 #[cfg(feature = "embeddings")]
-use uuid::Uuid;
 
 /// Maximum number of chunks allowed when composing JSONL datasets
 const MAX_CHUNKS: usize = 50_000;
@@ -79,6 +85,7 @@ pub struct DatasetFromUploadParams {
     pub data: Bytes,
     pub name: Option<String>,
     pub description: Option<String>,
+    pub training_strategy: Option<String>,
 }
 
 /// Maximum document size (100MB) to keep parity with document upload handler
@@ -116,6 +123,8 @@ pub trait TrainingDatasetService: Send + Sync {
 pub struct DefaultTrainingDatasetService {
     state: Arc<AppState>,
 }
+
+const MAX_CHUNKS: usize = 100;
 
 impl DefaultTrainingDatasetService {
     pub fn new(state: Arc<AppState>) -> Self {
@@ -168,6 +177,28 @@ impl DefaultTrainingDatasetService {
                 "No non-empty text chunks found in the selected documents",
             )
             .into());
+        }
+
+        self.build_dataset_from_jsonl_lines(
+            claims,
+            dataset_name,
+            description,
+            jsonl_lines,
+            "document-derived",
+        )
+        .await
+    }
+
+    async fn build_dataset_from_jsonl_lines(
+        &self,
+        claims: &crate::auth::Claims,
+        dataset_name: String,
+        description: Option<String>,
+        jsonl_lines: Vec<String>,
+        source_label: &str,
+    ) -> Result<DatasetResponse, (StatusCode, Json<ErrorResponse>)> {
+        if jsonl_lines.is_empty() {
+            return Err(ApiError::bad_request("No training rows generated").into());
         }
 
         let jsonl_content = jsonl_lines.join("\n");
@@ -355,17 +386,18 @@ impl DefaultTrainingDatasetService {
             warn!(
                 dataset_id = %dataset_id,
                 error = %e,
-                "Failed to build dataset citation index (document-derived)"
+                "Failed to build dataset citation index ({})",
+                source_label
             );
         }
 
         info!(
             dataset_id = %dataset_id,
             name = %dataset_name,
-            chunks = chunks.len(),
             lines = jsonl_lines.len(),
             size_bytes = file_size,
-            "Created dataset from documents"
+            source = source_label,
+            "Created dataset from jsonl rows"
         );
 
         Ok(DatasetResponse {
@@ -391,6 +423,114 @@ impl DefaultTrainingDatasetService {
             updated_at: now,
             dataset_type: Some("standard".to_string()), // Defaulting to standard
         })
+    }
+
+    #[cfg(feature = "embeddings")]
+    async fn build_dataset_from_qa_bytes(
+        &self,
+        claims: &crate::auth::Claims,
+        data: &[u8],
+        source_name: &str,
+        mime_type: &str,
+        name: Option<String>,
+        description: Option<String>,
+    ) -> Result<DatasetResponse, (StatusCode, Json<ErrorResponse>)> {
+        let tokenizer_path =
+            resolve_tokenizer_path(None).map_err(|e| ApiError::bad_request(e.to_string()))?;
+        let tokenizer =
+            load_tokenizer(&tokenizer_path).map_err(|e| ApiError::bad_request(e.to_string()))?;
+
+        let ingestor = DocumentIngestor::new(default_ingest_options(), Some(tokenizer.clone()));
+        let ingested_doc = if mime_type.contains("pdf") {
+            ingestor.ingest_pdf_bytes(data, source_name)
+        } else if mime_type.contains("markdown")
+            || mime_type.contains("text/")
+            || source_name.ends_with(".md")
+        {
+            ingestor.ingest_markdown_bytes(data, source_name)
+        } else {
+            return Err(ApiError::bad_request(format!(
+                "Unsupported document type for QA generation: {}",
+                mime_type
+            ))
+            .into());
+        }
+        .map_err(|e| ApiError::bad_request(format!("Failed to parse document: {}", e)))?;
+
+        let gen_config = TrainingGenConfig {
+            strategy: TrainingStrategy::QuestionAnswer,
+            max_seq_length: 512,
+            add_special_tokens: true,
+        };
+        let training_data = generate_training_data_from_documents(
+            std::slice::from_ref(&ingested_doc),
+            &tokenizer,
+            &gen_config,
+        )
+        .map_err(|e| ApiError::bad_request(format!("Failed to generate QA data: {}", e)))?;
+
+        let max_examples = MAX_CHUNKS.saturating_mul(3);
+        let mut jsonl_lines = Vec::new();
+        let mut skipped = 0usize;
+
+        for example in training_data.examples {
+            let provenance: serde_json::Value =
+                match serde_json::from_str(&example.metadata.provenance) {
+                    Ok(value) => value,
+                    Err(_) => {
+                        skipped += 1;
+                        continue;
+                    }
+                };
+            let question = provenance
+                .get("qa_question_text")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty());
+            let answer = provenance
+                .get("qa_answer_text")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty());
+
+            let (Some(question), Some(answer)) = (question, answer) else {
+                skipped += 1;
+                continue;
+            };
+
+            jsonl_lines.push(
+                serde_json::json!({
+                    "prompt": question,
+                    "completion": answer,
+                })
+                .to_string(),
+            );
+
+            if jsonl_lines.len() >= max_examples {
+                break;
+            }
+        }
+
+        if jsonl_lines.is_empty() {
+            return Err(
+                ApiError::bad_request("No Q/A pairs generated from document content").into(),
+            );
+        }
+
+        if skipped > 0 {
+            warn!(skipped, "Skipped training examples without Q/A provenance");
+        }
+
+        let dataset_name = name.unwrap_or_else(|| format!("Q/A from document: {}", source_name));
+
+        self.build_dataset_from_jsonl_lines(
+            claims,
+            dataset_name,
+            description,
+            jsonl_lines,
+            "qa-generated",
+        )
+        .await
     }
 
     async fn cleanup_dataset(&self, dataset_id: &str, dataset_path: &Path) {
@@ -446,7 +586,8 @@ impl DefaultTrainingDatasetService {
         let mut failed_embeddings = 0usize;
 
         for chunk in &ingested_doc.chunks {
-            let chunk_db_id = Uuid::now_v7().to_string();
+            let chunk_db_id =
+                crate::id_generator::readable_id(adapteros_core::ids::IdKind::Chunk, "chunk");
             let embedding = embed_chunk_with_backoff(embedding_model, &chunk.text).await;
             let chunk_hash = B3Hash::hash(chunk.text.as_bytes()).to_hex();
             let text_preview = if chunk.text.len() > 200 {
@@ -719,6 +860,16 @@ impl TrainingDatasetService for DefaultTrainingDatasetService {
         claims: &crate::auth::Claims,
         params: DatasetFromUploadParams,
     ) -> Result<DatasetResponse, (StatusCode, Json<ErrorResponse>)> {
+        let training_strategy = params
+            .training_strategy
+            .as_deref()
+            .unwrap_or("text")
+            .to_lowercase();
+        let generate_qa = matches!(
+            training_strategy.as_str(),
+            "qa" | "question-answer" | "question_answer"
+        );
+
         if params.data.is_empty() {
             return Err(ApiError::bad_request("No file uploaded").into());
         }
@@ -731,7 +882,8 @@ impl TrainingDatasetService for DefaultTrainingDatasetService {
             .into());
         }
 
-        let document_id = Uuid::now_v7().to_string();
+        let document_id =
+            crate::id_generator::readable_id(adapteros_core::ids::IdKind::Document, "document");
         let storage_root = match std::env::var("AOS_DOCUMENTS_DIR") {
             Ok(value) => value,
             Err(_) => {
@@ -801,6 +953,19 @@ impl TrainingDatasetService for DefaultTrainingDatasetService {
                     &file_bytes,
                 )
                 .await?;
+            }
+
+            if generate_qa {
+                return self
+                    .build_dataset_from_qa_bytes(
+                        claims,
+                        &params.data,
+                        &existing_doc.name,
+                        &mime_type,
+                        params.name,
+                        params.description,
+                    )
+                    .await;
             }
 
             return self
@@ -878,6 +1043,19 @@ impl TrainingDatasetService for DefaultTrainingDatasetService {
             &params.data,
         )
         .await?;
+
+        if generate_qa {
+            return self
+                .build_dataset_from_qa_bytes(
+                    claims,
+                    &params.data,
+                    &document_name,
+                    &mime_type,
+                    params.name,
+                    params.description,
+                )
+                .await;
+        }
 
         self.create_from_document_ids(
             claims,

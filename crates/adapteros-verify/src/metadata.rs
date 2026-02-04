@@ -6,7 +6,9 @@
 use adapteros_core::{AosError, B3Hash, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::process::Command;
+use tracing::warn;
 
 /// Toolchain metadata for reproducibility
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -31,17 +33,51 @@ impl ToolchainMetadata {
 
     /// Detect Metal version from system
     fn detect_metal_version() -> String {
-        // In a real implementation, would query the system
-        // For now, return a placeholder
-        "3.1".to_string()
+        #[cfg(target_os = "macos")]
+        {
+            let output = Command::new("xcrun").args(["metal", "-v"]).output();
+            match output {
+                Ok(out) => {
+                    let stdout = String::from_utf8_lossy(&out.stdout);
+                    let stderr = String::from_utf8_lossy(&out.stderr);
+                    let combined = format!("{}\n{}", stdout, stderr);
+
+                    if let Some(version) = extract_version_token(&combined) {
+                        return version;
+                    }
+
+                    warn!(
+                        status = ?out.status.code(),
+                        "Failed to parse Metal version from xcrun output"
+                    );
+                }
+                Err(e) => {
+                    warn!(error = %e, "Failed to invoke xcrun metal");
+                }
+            }
+        }
+
+        "unknown".to_string()
     }
 
     /// Compute hash of Metal kernels
     fn compute_kernel_hash() -> B3Hash {
-        // In a real implementation, would hash the .metallib files
-        // For now, return a placeholder
-        B3Hash::from_hex("0000000000000000000000000000000000000000000000000000000000000000")
-            .unwrap()
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let kernel_path =
+            manifest_dir.join("../adapteros-lora-kernel-mtl/shaders/aos_kernels.metallib");
+
+        match std::fs::read(&kernel_path) {
+            Ok(bytes) => B3Hash::hash(&bytes),
+            Err(e) => {
+                warn!(
+                    path = %kernel_path.display(),
+                    error = %e,
+                    "Failed to read Metal kernel library for hashing"
+                );
+                B3Hash::from_hex("0000000000000000000000000000000000000000000000000000000000000000")
+                    .unwrap()
+            }
+        }
     }
 
     /// Check if this toolchain matches another
@@ -60,6 +96,27 @@ impl ToolchainMetadata {
             &self.kernel_hash.to_string()[..16]
         )
     }
+}
+
+fn extract_version_token(text: &str) -> Option<String> {
+    let mut candidate = None;
+
+    for token in text.split_whitespace() {
+        let trimmed = token.trim_matches(|c: char| !c.is_ascii_digit() && c != '.');
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        if trimmed.contains('.') {
+            return Some(trimmed.to_string());
+        }
+
+        if candidate.is_none() && trimmed.chars().all(|c| c.is_ascii_digit()) {
+            candidate = Some(trimmed.to_string());
+        }
+    }
+
+    candidate
 }
 
 /// Device fingerprint for environment tracking

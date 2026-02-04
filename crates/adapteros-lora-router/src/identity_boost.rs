@@ -56,16 +56,58 @@ pub enum RuleCondition {
 
 impl RuleCondition {
     /// Check if this condition matches the given context
+    ///
+    /// OPTIMIZATION: Uses the cached lowercase prompt from `RouterContext` to avoid
+    /// repeated allocations. For keywords, the lowercase conversion happens once per
+    /// keyword rather than once per match attempt - consider using `matches_with_cached_keywords`
+    /// in hot loops where the same rules are evaluated repeatedly.
     pub fn matches(&self, context: &RouterContext) -> bool {
         match self {
             RuleCondition::PromptContains { text } => {
-                context.prompt.to_lowercase().contains(&text.to_lowercase())
+                // OPTIMIZATION: Use cached lowercase prompt, only lowercase the rule text once
+                context.prompt_lower().contains(&text.to_lowercase())
             }
             RuleCondition::PromptKeywords { keywords } => {
-                let prompt_lower = context.prompt.to_lowercase();
+                // OPTIMIZATION: Use cached lowercase prompt from context
+                let prompt_lower = context.prompt_lower();
                 keywords
                     .iter()
                     .any(|kw| prompt_lower.contains(&kw.to_lowercase()))
+            }
+            RuleCondition::UserAttribute { key, value } => {
+                context.user_attributes.get(key) == Some(value)
+            }
+            RuleCondition::Always => true,
+        }
+    }
+
+    /// Check if this condition matches using pre-lowercased keywords.
+    ///
+    /// OPTIMIZATION: For hot paths where the same rules are evaluated repeatedly,
+    /// pre-lowercase the keywords once and pass them here to avoid per-match allocations.
+    pub fn matches_with_cached_keywords(
+        &self,
+        context: &RouterContext,
+        text_lower: Option<&str>,
+        keywords_lower: Option<&[String]>,
+    ) -> bool {
+        match self {
+            RuleCondition::PromptContains { text: _ } => {
+                if let Some(text_l) = text_lower {
+                    context.prompt_lower().contains(text_l)
+                } else {
+                    // Fallback to default behavior if no cached value provided
+                    self.matches(context)
+                }
+            }
+            RuleCondition::PromptKeywords { keywords: _ } => {
+                if let Some(kws_l) = keywords_lower {
+                    let prompt_lower = context.prompt_lower();
+                    kws_l.iter().any(|kw| prompt_lower.contains(kw.as_str()))
+                } else {
+                    // Fallback to default behavior if no cached value provided
+                    self.matches(context)
+                }
             }
             RuleCondition::UserAttribute { key, value } => {
                 context.user_attributes.get(key) == Some(value)
@@ -82,6 +124,30 @@ pub struct RouterContext {
     pub prompt: String,
     /// User attributes for matching (BTreeMap for deterministic iteration)
     pub user_attributes: BTreeMap<String, String>,
+    /// OPTIMIZATION: Cached lowercase version of prompt to avoid repeated allocations.
+    /// This is computed once when the context is created and reused across all rule evaluations.
+    prompt_lower: String,
+}
+
+impl RouterContext {
+    /// Create a new router context with the given prompt and user attributes.
+    ///
+    /// OPTIMIZATION: The lowercase version of the prompt is computed once during
+    /// construction and cached for reuse across all rule evaluations.
+    pub fn new(prompt: String, user_attributes: BTreeMap<String, String>) -> Self {
+        let prompt_lower = prompt.to_lowercase();
+        Self {
+            prompt,
+            user_attributes,
+            prompt_lower,
+        }
+    }
+
+    /// Get the cached lowercase version of the prompt.
+    #[inline]
+    pub fn prompt_lower(&self) -> &str {
+        &self.prompt_lower
+    }
 }
 
 /// Identity booster for adapter routing
@@ -127,10 +193,10 @@ mod tests {
             text: "documentation".to_string(),
         };
 
-        let context = RouterContext {
-            prompt: "Write documentation for this API".to_string(),
-            user_attributes: BTreeMap::new(),
-        };
+        let context = RouterContext::new(
+            "Write documentation for this API".to_string(),
+            BTreeMap::new(),
+        );
 
         assert!(condition.matches(&context));
     }
@@ -157,10 +223,7 @@ mod tests {
         );
 
         let booster = IdentityBooster::new(config_map);
-        let context = RouterContext {
-            prompt: "Write documentation".to_string(),
-            user_attributes: BTreeMap::new(),
-        };
+        let context = RouterContext::new("Write documentation".to_string(), BTreeMap::new());
 
         let mut scores = vec![1.0, 1.0, 1.0];
         booster.apply_boosts(&context, &mut scores);

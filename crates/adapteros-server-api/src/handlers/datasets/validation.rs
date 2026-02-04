@@ -19,14 +19,14 @@
 //! - **Deep validation**: Comprehensive checks including full file parsing, hash verification,
 //!   and semantic validation
 
+use super::hashing::{hash_dataset_manifest, DatasetHashInput};
 use super::helpers::{
     map_validation_status, spawn_tier2_safety_validation, validate_file_hash_streaming,
-    STREAM_BUFFER_SIZE,
+    PROMPT_BLOCK_LEN, PROMPT_WARN_LEN, STREAM_BUFFER_SIZE,
 };
 use super::progress::emit_progress;
 use crate::api_error::ApiError;
 use crate::auth::Claims;
-use crate::handlers::chunked_upload::FileValidator;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
@@ -41,7 +41,7 @@ use axum::{
 };
 // StatusCode is still needed for validation_error_response return type
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path as StdPath;
 use tokio::fs;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
@@ -155,6 +155,30 @@ pub struct FieldTypeMismatch {
     pub field: String,
     pub expected: String,
     pub actual: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct AssetMeta {
+    pub file_name: String,
+    pub file_path: String,
+    pub size_bytes: u64,
+    pub hash_b3: String,
+    pub mime_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct AssetIndex {
+    by_key: HashMap<String, AssetMeta>,
+}
+
+impl AssetIndex {
+    pub fn insert(&mut self, key: impl Into<String>, meta: AssetMeta) {
+        self.by_key.entry(key.into()).or_insert(meta);
+    }
+
+    pub fn get(&self, key: &str) -> Option<&AssetMeta> {
+        self.by_key.get(key)
+    }
 }
 
 impl ValidationError {
@@ -430,6 +454,26 @@ pub struct ValidationConfig {
     pub validate_hashes: bool,
     /// Buffer size for streaming operations
     pub stream_buffer_size: usize,
+    /// Maximum prompt length before hard-fail
+    pub max_prompt_chars: usize,
+    /// Maximum response length before hard-fail
+    pub max_response_chars: usize,
+    /// Warning threshold for prompt length
+    pub warn_prompt_chars: usize,
+    /// Warning threshold for response length
+    pub warn_response_chars: usize,
+    /// Enable exact duplicate detection in JSONL
+    pub enable_exact_dedup: bool,
+    /// Enable near-duplicate detection in JSONL
+    pub enable_near_dedup: bool,
+    /// Maximum entries to consider for near-duplicate detection
+    pub near_duplicate_max_entries: usize,
+    /// Maximum Hamming distance to flag near-duplicates
+    pub near_duplicate_max_distance: u32,
+    /// Enable cross-split leakage detection
+    pub enable_split_leakage: bool,
+    /// Optional asset index for validating asset references
+    pub asset_index: Option<AssetIndex>,
 }
 
 impl Default for ValidationConfig {
@@ -449,6 +493,16 @@ impl Default for ValidationConfig {
             expected_format: "jsonl".to_string(),
             validate_hashes: true,
             stream_buffer_size: STREAM_BUFFER_SIZE,
+            max_prompt_chars: PROMPT_BLOCK_LEN,
+            max_response_chars: PROMPT_BLOCK_LEN,
+            warn_prompt_chars: PROMPT_WARN_LEN,
+            warn_response_chars: PROMPT_WARN_LEN,
+            enable_exact_dedup: true,
+            enable_near_dedup: true,
+            near_duplicate_max_entries: 5000,
+            near_duplicate_max_distance: 3,
+            enable_split_leakage: true,
+            asset_index: None,
         }
     }
 }
@@ -729,15 +783,17 @@ impl ValidationRule for EncodingRule {
 /// Validates JSONL format and structure
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TrainingJsonlSchema {
-    Supervised,
+    LegacySupervised,
     RawText,
+    Canonical,
 }
 
 impl TrainingJsonlSchema {
     fn as_str(&self) -> &'static str {
         match self {
-            TrainingJsonlSchema::Supervised => "supervised",
+            TrainingJsonlSchema::LegacySupervised => "legacy_supervised",
             TrainingJsonlSchema::RawText => "raw_text",
+            TrainingJsonlSchema::Canonical => "canonical",
         }
     }
 }
@@ -779,6 +835,10 @@ impl ValidationRule for JsonlFormatRule {
         let mut line_number = 0;
         let mut entry_count = 0;
         let mut schema_mode: Option<TrainingJsonlSchema> = None;
+        let mut seen_row_ids: HashSet<String> = HashSet::new();
+        let mut seen_content_hashes: HashSet<String> = HashSet::new();
+        let mut split_content_hashes: HashMap<String, String> = HashMap::new();
+        let mut simhashes: Vec<(u64, String)> = Vec::new();
         let contract_version =
             adapteros_api_types::training::TRAINING_DATA_CONTRACT_VERSION.to_string();
 
@@ -876,43 +936,98 @@ impl ValidationRule for JsonlFormatRule {
             };
 
             let keys: HashSet<&str> = obj.keys().map(|k| k.as_str()).collect();
-            let is_supervised = !keys.is_empty()
-                && keys
-                    .iter()
-                    .all(|key| *key == "prompt" || *key == "completion");
-            let is_raw = keys.len() == 1 && keys.contains("text");
-            let line_schema = if is_supervised {
-                Some(TrainingJsonlSchema::Supervised)
-            } else if is_raw {
+            let has_prompt = obj.contains_key("prompt");
+            let has_completion = obj.contains_key("completion");
+            let has_response = obj.contains_key("response");
+            let has_text = obj.contains_key("text");
+            let has_metadata = obj.contains_key("metadata");
+            let has_id = obj.contains_key("id") || obj.contains_key("row_id");
+
+            let is_raw = keys.len() == 1 && has_text;
+            let is_legacy = keys.len() == 2 && has_prompt && has_completion;
+            let is_canonical =
+                has_prompt && (has_response || has_completion) && has_id && has_metadata;
+
+            let line_schema = if is_raw {
                 Some(TrainingJsonlSchema::RawText)
+            } else if is_legacy {
+                Some(TrainingJsonlSchema::LegacySupervised)
+            } else if is_canonical {
+                Some(TrainingJsonlSchema::Canonical)
             } else {
                 None
             };
 
+            let has_any_schema_field =
+                has_prompt || has_completion || has_response || has_text || has_metadata || has_id;
+
             let Some(line_schema) = line_schema else {
-                let keys_list = if keys.is_empty() {
-                    "<none>".to_string()
+                if has_any_schema_field {
+                    let mut missing_fields = Vec::new();
+                    let wants_canonical =
+                        has_id || has_metadata || has_response || (has_prompt && has_response);
+
+                    if wants_canonical {
+                        if !has_id {
+                            missing_fields.push("id".to_string());
+                        }
+                        if !has_prompt {
+                            missing_fields.push("prompt".to_string());
+                        }
+                        if !(has_response || has_completion) {
+                            missing_fields.push("response".to_string());
+                        }
+                        if !has_metadata {
+                            missing_fields.push("metadata".to_string());
+                        }
+                    } else {
+                        if !has_prompt {
+                            missing_fields.push("prompt".to_string());
+                        }
+                        if !has_completion {
+                            missing_fields.push("completion".to_string());
+                        }
+                    }
+
+                    errors.push(
+                        ValidationError::new(
+                            ValidationSeverity::Error,
+                            ValidationCategory::Schema,
+                            "JSONL entry has missing or invalid fields",
+                            "JSONL_SCHEMA_ERROR",
+                        )
+                        .with_file(&path_str)
+                        .with_line(line_number)
+                        .with_raw_snippet(raw_snippet.clone())
+                        .with_missing_fields(missing_fields)
+                        .with_contract_version(contract_version.clone())
+                        .with_suggestion("Ensure required fields are present with correct types"),
+                    );
                 } else {
-                    keys.iter().copied().collect::<Vec<_>>().join(", ")
-                };
-                errors.push(
-                    ValidationError::new(
-                        ValidationSeverity::Error,
-                        ValidationCategory::Schema,
-                        format!(
-                            "Unsupported JSONL schema (fields: {}). Expected {{\"prompt\",\"completion\"}} or {{\"text\"}} only",
-                            keys_list
+                    let keys_list = if keys.is_empty() {
+                        "<none>".to_string()
+                    } else {
+                        keys.iter().copied().collect::<Vec<_>>().join(", ")
+                    };
+                    errors.push(
+                        ValidationError::new(
+                            ValidationSeverity::Error,
+                            ValidationCategory::Schema,
+                            format!(
+                                "Unsupported JSONL schema (fields: {}). Expected canonical {{id,prompt,response,metadata}} or legacy {{prompt,completion}}/{{text}}",
+                                keys_list
+                            ),
+                            "JSONL_SCHEMA_UNSUPPORTED",
+                        )
+                        .with_file(&path_str)
+                        .with_line(line_number)
+                        .with_raw_snippet(raw_snippet.clone())
+                        .with_contract_version(contract_version.clone())
+                        .with_suggestion(
+                            "Use {id,prompt,response,metadata} (assets optional) or legacy {prompt,completion} / {text}",
                         ),
-                        "JSONL_SCHEMA_UNSUPPORTED",
-                    )
-                    .with_file(&path_str)
-                    .with_line(line_number)
-                    .with_raw_snippet(raw_snippet.clone())
-                    .with_contract_version(contract_version.clone())
-                    .with_suggestion(
-                        "Use {\"prompt\": \"...\", \"completion\": \"...\"} or {\"text\": \"...\"} with no extra fields",
-                    ),
-                );
+                    );
+                }
                 continue;
             };
 
@@ -943,16 +1058,22 @@ impl ValidationRule for JsonlFormatRule {
 
             let mut missing_fields = Vec::new();
             let mut invalid_field_types = Vec::new();
+            let mut row_id_for_dupes: Option<String> = None;
+            let mut prompt_text: Option<String> = None;
+            let mut response_text: Option<String> = None;
+            let mut split_value: Option<String> = None;
 
             match line_schema {
-                TrainingJsonlSchema::Supervised => {
+                TrainingJsonlSchema::LegacySupervised => {
                     let prompt_value = obj.get("prompt");
                     match prompt_value {
                         Some(value) => match value.as_str() {
                             Some(text) if text.trim().is_empty() => {
                                 missing_fields.push("prompt".to_string());
                             }
-                            Some(_) => {}
+                            Some(text) => {
+                                prompt_text = Some(text.to_string());
+                            }
                             None => invalid_field_types.push(FieldTypeMismatch {
                                 field: "prompt".to_string(),
                                 expected: "string".to_string(),
@@ -968,7 +1089,9 @@ impl ValidationRule for JsonlFormatRule {
                             Some(text) if text.trim().is_empty() => {
                                 missing_fields.push("completion".to_string());
                             }
-                            Some(_) => {}
+                            Some(text) => {
+                                response_text = Some(text.to_string());
+                            }
                             None => invalid_field_types.push(FieldTypeMismatch {
                                 field: "completion".to_string(),
                                 expected: "string".to_string(),
@@ -985,7 +1108,10 @@ impl ValidationRule for JsonlFormatRule {
                             Some(text) if text.trim().is_empty() => {
                                 missing_fields.push("text".to_string());
                             }
-                            Some(_) => {}
+                            Some(text) => {
+                                prompt_text = Some(text.to_string());
+                                response_text = Some(String::new());
+                            }
                             None => invalid_field_types.push(FieldTypeMismatch {
                                 field: "text".to_string(),
                                 expected: "string".to_string(),
@@ -993,6 +1119,124 @@ impl ValidationRule for JsonlFormatRule {
                             }),
                         },
                         None => missing_fields.push("text".to_string()),
+                    }
+                }
+                TrainingJsonlSchema::Canonical => {
+                    let id_value = obj.get("id").or_else(|| obj.get("row_id"));
+                    match id_value {
+                        Some(value) => match value.as_str() {
+                            Some(text) if text.trim().is_empty() => {
+                                missing_fields.push("id".to_string());
+                            }
+                            Some(text) => {
+                                row_id_for_dupes = Some(text.to_string());
+                            }
+                            None => invalid_field_types.push(FieldTypeMismatch {
+                                field: "id".to_string(),
+                                expected: "string".to_string(),
+                                actual: json_type_name(value).to_string(),
+                            }),
+                        },
+                        None => missing_fields.push("id".to_string()),
+                    }
+
+                    let prompt_value = obj.get("prompt");
+                    match prompt_value {
+                        Some(value) => match value.as_str() {
+                            Some(text) if text.trim().is_empty() => {
+                                missing_fields.push("prompt".to_string());
+                            }
+                            Some(text) => {
+                                prompt_text = Some(text.to_string());
+                            }
+                            None => invalid_field_types.push(FieldTypeMismatch {
+                                field: "prompt".to_string(),
+                                expected: "string".to_string(),
+                                actual: json_type_name(value).to_string(),
+                            }),
+                        },
+                        None => missing_fields.push("prompt".to_string()),
+                    }
+
+                    let response_value = obj.get("response").or_else(|| obj.get("completion"));
+                    match response_value {
+                        Some(value) => match value.as_str() {
+                            Some(text) if text.trim().is_empty() => {
+                                missing_fields.push("response".to_string());
+                            }
+                            Some(text) => {
+                                response_text = Some(text.to_string());
+                            }
+                            None => invalid_field_types.push(FieldTypeMismatch {
+                                field: "response".to_string(),
+                                expected: "string".to_string(),
+                                actual: json_type_name(value).to_string(),
+                            }),
+                        },
+                        None => missing_fields.push("response".to_string()),
+                    }
+
+                    let metadata_value = obj.get("metadata");
+                    match metadata_value {
+                        Some(value) => match value.as_object() {
+                            Some(map) => {
+                                if let Some(split) = map.get("split").and_then(|v| v.as_str()) {
+                                    split_value = Some(split.to_string());
+                                }
+                                if let Some(tool_calls) = map.get("tool_calls") {
+                                    if let Err(err) = validate_tool_calls(tool_calls) {
+                                        errors.push(
+                                            ValidationError::new(
+                                                ValidationSeverity::Error,
+                                                ValidationCategory::Schema,
+                                                err,
+                                                "INVALID_TOOL_CALLS",
+                                            )
+                                            .with_file(&path_str)
+                                            .with_line(line_number)
+                                            .with_raw_snippet(raw_snippet.clone()),
+                                        );
+                                    }
+                                }
+                            }
+                            None => invalid_field_types.push(FieldTypeMismatch {
+                                field: "metadata".to_string(),
+                                expected: "object".to_string(),
+                                actual: json_type_name(value).to_string(),
+                            }),
+                        },
+                        None => missing_fields.push("metadata".to_string()),
+                    }
+
+                    if let Some(split) = obj.get("split").and_then(|v| v.as_str()) {
+                        split_value = Some(split.to_string());
+                    }
+
+                    if let Some(weight_value) = obj.get("weight") {
+                        if !weight_value.is_number() {
+                            invalid_field_types.push(FieldTypeMismatch {
+                                field: "weight".to_string(),
+                                expected: "number".to_string(),
+                                actual: json_type_name(weight_value).to_string(),
+                            });
+                        }
+                    }
+
+                    if let Some(assets_value) = obj.get("assets") {
+                        if let Err(err) = validate_assets(assets_value, config.asset_index.as_ref())
+                        {
+                            errors.push(
+                                ValidationError::new(
+                                    ValidationSeverity::Error,
+                                    ValidationCategory::Schema,
+                                    err,
+                                    "INVALID_ASSETS",
+                                )
+                                .with_file(&path_str)
+                                .with_line(line_number)
+                                .with_raw_snippet(raw_snippet.clone()),
+                            );
+                        }
                     }
                 }
             }
@@ -1011,10 +1255,167 @@ impl ValidationRule for JsonlFormatRule {
                     .with_missing_fields(missing_fields)
                     .with_invalid_field_types(invalid_field_types)
                     .with_contract_version(contract_version.clone())
-                    .with_suggestion(
-                        "Expected non-empty strings for {prompt, completion} or {text}",
-                    ),
+                    .with_suggestion("Ensure required fields are present with correct types"),
                 );
+            }
+
+            if let Some(prompt) = prompt_text.as_ref() {
+                if prompt.len() > config.max_prompt_chars {
+                    errors.push(
+                        ValidationError::new(
+                            ValidationSeverity::Error,
+                            ValidationCategory::Content,
+                            format!(
+                                "Prompt exceeds maximum length: {} chars (max: {})",
+                                prompt.len(),
+                                config.max_prompt_chars
+                            ),
+                            "PROMPT_TOO_LONG",
+                        )
+                        .with_file(&path_str)
+                        .with_line(line_number),
+                    );
+                } else if prompt.len() > config.warn_prompt_chars {
+                    errors.push(
+                        ValidationError::new(
+                            ValidationSeverity::Warning,
+                            ValidationCategory::Content,
+                            format!(
+                                "Prompt is long: {} chars (warn: {})",
+                                prompt.len(),
+                                config.warn_prompt_chars
+                            ),
+                            "PROMPT_LONG",
+                        )
+                        .with_file(&path_str)
+                        .with_line(line_number),
+                    );
+                }
+            }
+
+            if let Some(response) = response_text.as_ref() {
+                if response.len() > config.max_response_chars {
+                    errors.push(
+                        ValidationError::new(
+                            ValidationSeverity::Error,
+                            ValidationCategory::Content,
+                            format!(
+                                "Response exceeds maximum length: {} chars (max: {})",
+                                response.len(),
+                                config.max_response_chars
+                            ),
+                            "RESPONSE_TOO_LONG",
+                        )
+                        .with_file(&path_str)
+                        .with_line(line_number),
+                    );
+                } else if response.len() > config.warn_response_chars {
+                    errors.push(
+                        ValidationError::new(
+                            ValidationSeverity::Warning,
+                            ValidationCategory::Content,
+                            format!(
+                                "Response is long: {} chars (warn: {})",
+                                response.len(),
+                                config.warn_response_chars
+                            ),
+                            "RESPONSE_LONG",
+                        )
+                        .with_file(&path_str)
+                        .with_line(line_number),
+                    );
+                }
+            }
+
+            if config.enable_exact_dedup {
+                if let (Some(prompt), Some(response)) =
+                    (prompt_text.as_ref(), response_text.as_ref())
+                {
+                    let content_hash =
+                        B3Hash::hash_multi(&[prompt.as_bytes(), b"\0", response.as_bytes()])
+                            .to_hex();
+                    if !seen_content_hashes.insert(content_hash.clone()) {
+                        errors.push(
+                            ValidationError::new(
+                                ValidationSeverity::Error,
+                                ValidationCategory::Integrity,
+                                "Duplicate row content detected",
+                                "DUPLICATE_ROW_CONTENT",
+                            )
+                            .with_file(&path_str)
+                            .with_line(line_number),
+                        );
+                    }
+
+                    if config.enable_split_leakage {
+                        if let Some(split) = split_value.as_ref() {
+                            if let Some(existing) = split_content_hashes.get(&content_hash).cloned()
+                            {
+                                if existing != *split {
+                                    errors.push(
+                                        ValidationError::new(
+                                            ValidationSeverity::Error,
+                                            ValidationCategory::Content,
+                                            format!(
+                                                "Cross-split leakage: content appears in '{}' and '{}'",
+                                                existing, split
+                                            ),
+                                            "CROSS_SPLIT_DUPLICATE",
+                                        )
+                                        .with_file(&path_str)
+                                        .with_line(line_number),
+                                    );
+                                }
+                            } else {
+                                split_content_hashes.insert(content_hash.clone(), split.clone());
+                            }
+                        }
+                    }
+
+                    if config.enable_near_dedup
+                        && simhashes.len() < config.near_duplicate_max_entries
+                    {
+                        let hash = simhash64(prompt, response);
+                        let row_id = row_id_for_dupes
+                            .clone()
+                            .unwrap_or_else(|| format!("line-{}", line_number));
+                        for (existing_hash, existing_id) in &simhashes {
+                            let distance = hamming_distance(*existing_hash, hash);
+                            if distance <= config.near_duplicate_max_distance {
+                                errors.push(
+                                    ValidationError::new(
+                                        ValidationSeverity::Warning,
+                                        ValidationCategory::Content,
+                                        format!(
+                                            "Near-duplicate content detected ({} vs {})",
+                                            existing_id, row_id
+                                        ),
+                                        "NEAR_DUPLICATE",
+                                    )
+                                    .with_file(&path_str)
+                                    .with_line(line_number),
+                                );
+                                break;
+                            }
+                        }
+                        simhashes.push((hash, row_id));
+                    }
+                }
+            }
+
+            if let Some(row_id) = row_id_for_dupes {
+                if !seen_row_ids.insert(row_id.clone()) {
+                    errors.push(
+                        ValidationError::new(
+                            ValidationSeverity::Error,
+                            ValidationCategory::Integrity,
+                            format!("Duplicate row id: {}", row_id),
+                            "DUPLICATE_ROW_ID",
+                        )
+                        .with_file(&path_str)
+                        .with_line(line_number),
+                    );
+                }
             }
 
             if entry_count >= config.max_entry_count {
@@ -1072,6 +1473,123 @@ fn json_type_name(value: &serde_json::Value) -> &'static str {
         serde_json::Value::Array(_) => "array",
         serde_json::Value::Object(_) => "object",
     }
+}
+
+fn normalize_asset_key(value: &str) -> String {
+    value.trim().to_ascii_lowercase()
+}
+
+fn validate_tool_calls(value: &serde_json::Value) -> Result<(), String> {
+    let Some(items) = value.as_array() else {
+        return Err("metadata.tool_calls must be an array".to_string());
+    };
+
+    for item in items {
+        let Some(obj) = item.as_object() else {
+            return Err("metadata.tool_calls entries must be objects".to_string());
+        };
+        let Some(name) = obj.get("name") else {
+            return Err("metadata.tool_calls entry missing name".to_string());
+        };
+        if name.as_str().is_none() {
+            return Err("metadata.tool_calls.name must be a string".to_string());
+        }
+        if let Some(args) = obj.get("arguments") {
+            if !(args.is_object() || args.is_string()) {
+                return Err("metadata.tool_calls.arguments must be object or string".to_string());
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_assets(value: &serde_json::Value, index: Option<&AssetIndex>) -> Result<(), String> {
+    let Some(items) = value.as_array() else {
+        return Err("assets must be an array".to_string());
+    };
+
+    for item in items {
+        let Some(obj) = item.as_object() else {
+            return Err("assets entries must be objects".to_string());
+        };
+
+        let file_key = obj
+            .get("file_name")
+            .and_then(|v| v.as_str())
+            .or_else(|| obj.get("path").and_then(|v| v.as_str()))
+            .ok_or_else(|| "asset missing file_name or path".to_string())?;
+
+        let normalized_key = normalize_asset_key(file_key);
+        if let Some(index) = index {
+            let meta = index
+                .get(&normalized_key)
+                .or_else(|| index.get(file_key))
+                .ok_or_else(|| format!("asset reference not found: {}", file_key))?;
+
+            if let Some(hash) = obj.get("hash_b3").and_then(|v| v.as_str()) {
+                if hash != meta.hash_b3 {
+                    return Err(format!(
+                        "asset hash mismatch for {} (expected {})",
+                        file_key, meta.hash_b3
+                    ));
+                }
+            }
+
+            if let Some(size) = obj.get("size_bytes").and_then(|v| v.as_u64()) {
+                if size != meta.size_bytes {
+                    return Err(format!(
+                        "asset size mismatch for {} (expected {})",
+                        file_key, meta.size_bytes
+                    ));
+                }
+            }
+
+            if let Some(mime) = obj.get("mime_type").and_then(|v| v.as_str()) {
+                if let Some(expected) = meta.mime_type.as_ref() {
+                    if mime != expected {
+                        return Err(format!(
+                            "asset mime_type mismatch for {} (expected {})",
+                            file_key, expected
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn simhash64(prompt: &str, response: &str) -> u64 {
+    let text = format!("{} {}", prompt, response);
+    let mut buckets = [0i32; 64];
+    for token in text.split_whitespace() {
+        let hash = blake3::hash(token.as_bytes());
+        let bytes = hash.as_bytes();
+        let mut value: u64 = 0;
+        for i in 0..8 {
+            value |= (bytes[i] as u64) << (i * 8);
+        }
+        for bit in 0..64 {
+            if (value >> bit) & 1 == 1 {
+                buckets[bit] += 1;
+            } else {
+                buckets[bit] -= 1;
+            }
+        }
+    }
+    let mut fingerprint = 0u64;
+    for bit in 0..64 {
+        if buckets[bit] >= 0 {
+            fingerprint |= 1u64 << bit;
+        }
+    }
+    fingerprint
+}
+
+fn hamming_distance(a: u64, b: u64) -> u32 {
+    (a ^ b).count_ones()
 }
 
 /// Validates JSON format
@@ -1458,6 +1976,7 @@ pub async fn validate_dataset(
     Json(request): Json<ValidateDatasetRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetValidate)?;
+    let dataset_id = crate::id_resolver::resolve_any_id(&state.db, &dataset_id).await?;
 
     let dataset = state
         .db
@@ -1506,6 +2025,28 @@ pub async fn validate_dataset(
     let mut is_valid = true;
     let total_files = files.len() as f32;
     let mut processed_files = 0;
+
+    let mut asset_index = AssetIndex::default();
+    for file in &files {
+        let meta = AssetMeta {
+            file_name: file.file_name.clone(),
+            file_path: file.file_path.clone(),
+            size_bytes: file.size_bytes as u64,
+            hash_b3: file.hash_b3.clone(),
+            mime_type: file.mime_type.clone(),
+        };
+        asset_index.insert(normalize_asset_key(&file.file_name), meta.clone());
+        asset_index.insert(normalize_asset_key(&file.file_path), meta.clone());
+        asset_index.insert(file.file_path.clone(), meta);
+    }
+
+    let mut deep_config = match dataset.format.as_str() {
+        "json" => ValidationConfig::for_json(),
+        "jsonl" | "ndjson" => ValidationConfig::for_training_jsonl(),
+        _ => ValidationConfig::default(),
+    };
+    deep_config.asset_index = Some(asset_index);
+    let deep_validator = CompositeValidator::deep_validator(deep_config);
 
     // Validate each file
     for file in &files {
@@ -1578,26 +2119,15 @@ pub async fn validate_dataset(
             }
         }
 
-        // Format-specific validation with quick checks
+        // Format-specific validation with deep checks
         if request.check_format.unwrap_or(true) {
-            if let Err(e) = FileValidator::quick_validate(
-                std::path::Path::new(&file.file_path),
-                &dataset.format,
-                STREAM_BUFFER_SIZE,
-            )
-            .await
-            {
-                validation_errors.push(
-                    ValidationError::new(
-                        ValidationSeverity::Error,
-                        ValidationCategory::Format,
-                        format!("File {} format validation failed: {}", file.file_name, e),
-                        "FORMAT_ERROR",
-                    )
-                    .with_file(&file.file_name),
-                );
+            let file_result = deep_validator
+                .validate_file(std::path::Path::new(&file.file_path))
+                .await;
+            if !file_result.is_valid {
                 is_valid = false;
             }
+            validation_errors.extend(file_result.errors);
         }
 
         processed_files += 1;
@@ -1617,6 +2147,42 @@ pub async fn validate_dataset(
             Some(files.len() as i32),
             Some(processed_files),
         );
+    }
+
+    if !files.is_empty() {
+        let manifest_inputs: Vec<DatasetHashInput> = files
+            .iter()
+            .map(|file| DatasetHashInput {
+                file_name: file.file_name.clone(),
+                size_bytes: file.size_bytes as u64,
+                file_hash_b3: file.hash_b3.clone(),
+            })
+            .collect();
+        let computed_hash = hash_dataset_manifest(&manifest_inputs);
+        if !dataset.hash_b3.is_empty() && dataset.hash_b3 != computed_hash {
+            validation_errors.push(
+                ValidationError::new(
+                    ValidationSeverity::Error,
+                    ValidationCategory::Integrity,
+                    "Dataset manifest hash mismatch",
+                    "DATASET_HASH_MISMATCH",
+                )
+                .with_suggestion("Re-upload dataset or verify dataset_files hashes"),
+            );
+            is_valid = false;
+        }
+        if !dataset.dataset_hash_b3.is_empty() && dataset.dataset_hash_b3 != computed_hash {
+            validation_errors.push(
+                ValidationError::new(
+                    ValidationSeverity::Error,
+                    ValidationCategory::Integrity,
+                    "Dataset content hash mismatch",
+                    "DATASET_CONTENT_HASH_MISMATCH",
+                )
+                .with_suggestion("Re-upload dataset or verify dataset_files hashes"),
+            );
+            is_valid = false;
+        }
     }
 
     // Update validation status in database - set to "invalid" if validation failed
@@ -1864,6 +2430,60 @@ mod validation_tests {
 
         let errors = rule.validate_file(&path, &config).await;
         assert!(errors.is_empty(), "Expected no errors, got: {:?}", errors);
+    }
+
+    #[tokio::test]
+    async fn test_jsonl_format_rule_valid_canonical() {
+        let dir = test_utils::tempdir();
+        let content =
+            r#"{"id":"row-1","prompt":"Hello","response":"World","metadata":{"split":"train"}}"#;
+        let path = create_test_file(dir.path(), "test.jsonl", content).await;
+
+        let rule = JsonlFormatRule;
+        let config = ValidationConfig::for_training_jsonl();
+
+        let errors = rule.validate_file(&path, &config).await;
+        assert!(errors.is_empty(), "Expected no errors, got: {:?}", errors);
+    }
+
+    #[tokio::test]
+    async fn test_jsonl_format_rule_canonical_missing_metadata() {
+        let dir = test_utils::tempdir();
+        let content = r#"{"id":"row-1","prompt":"Hello","response":"World"}"#;
+        let path = create_test_file(dir.path(), "test.jsonl", content).await;
+
+        let rule = JsonlFormatRule;
+        let config = ValidationConfig::for_training_jsonl();
+
+        let errors = rule.validate_file(&path, &config).await;
+        assert!(!errors.is_empty());
+        assert!(errors.iter().any(|e| e.code == "JSONL_SCHEMA_ERROR"));
+    }
+
+    #[tokio::test]
+    async fn test_jsonl_format_rule_assets_require_reference() {
+        let dir = test_utils::tempdir();
+        let content = r#"{"id":"row-1","prompt":"Hello","response":"World","metadata":{},"assets":[{"file_name":"image.png","hash_b3":"b3:abc"}]}"#;
+        let path = create_test_file(dir.path(), "test.jsonl", content).await;
+
+        let mut index = AssetIndex::default();
+        index.insert(
+            "image.png",
+            AssetMeta {
+                file_name: "image.png".to_string(),
+                file_path: "/var/datasets/files/image.png".to_string(),
+                size_bytes: 10,
+                hash_b3: "b3:def".to_string(),
+                mime_type: Some("image/png".to_string()),
+            },
+        );
+        let mut config = ValidationConfig::for_training_jsonl();
+        config.asset_index = Some(index);
+
+        let rule = JsonlFormatRule;
+        let errors = rule.validate_file(&path, &config).await;
+        assert!(!errors.is_empty());
+        assert!(errors.iter().any(|e| e.code == "INVALID_ASSETS"));
     }
 
     #[tokio::test]

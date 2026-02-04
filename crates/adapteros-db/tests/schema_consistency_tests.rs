@@ -12,6 +12,7 @@ use adapteros_db::{adapters::AdapterRegistrationBuilder, Db};
 use anyhow::Result;
 use sqlx::Row;
 use std::collections::HashSet;
+use std::path::PathBuf;
 use tempfile::NamedTempFile;
 
 /// Helper to create an in-memory test database with all migrations applied
@@ -185,7 +186,16 @@ async fn test_adapter_insert_statement_valid() -> Result<()> {
     let stored_aos_path: Option<String> = row.get("aos_file_path");
     let adapter_name: Option<String> = row.get("adapter_name");
 
-    assert_eq!(stored_aos_path, Some(aos_path_str.clone()));
+    let normalize_path = |value: &str| {
+        std::fs::canonicalize(value)
+            .unwrap_or_else(|_| PathBuf::from(value))
+            .to_string_lossy()
+            .to_string()
+    };
+    let expected_path = normalize_path(&aos_path_str);
+    let actual_path = stored_aos_path.as_deref().map(normalize_path);
+
+    assert_eq!(actual_path, Some(expected_path));
     assert_eq!(adapter_name, Some("test/code/review/r001".to_string()));
 
     println!("✓ INSERT statement successfully populates all schema columns");
@@ -308,7 +318,16 @@ async fn test_aos_file_metadata_storage() -> Result<()> {
     let stored_aos_path: Option<String> = row.get("aos_file_path");
     let aos_hash: Option<String> = row.get("aos_file_hash");
 
-    assert_eq!(stored_aos_path, Some(aos_path_str.clone()));
+    let normalize_path = |value: &str| {
+        std::fs::canonicalize(value)
+            .unwrap_or_else(|_| PathBuf::from(value))
+            .to_string_lossy()
+            .to_string()
+    };
+    let expected_path = normalize_path(&aos_path_str);
+    let actual_path = stored_aos_path.as_deref().map(normalize_path);
+
+    assert_eq!(actual_path, Some(expected_path));
     assert_eq!(aos_hash, Some("b3:aosfilehash123".to_string()));
 
     println!("✓ .aos file metadata stored correctly");

@@ -109,6 +109,7 @@ base64 = { version = "0.21" }
 async-trait = "0.1"
 anyhow = { workspace = true }
 serde_yaml = "0.9"
+toml = { workspace = true }
 blake3 = { workspace = true }
 csv = "1.3"
 unicode-normalization = "0.1"
@@ -121,12 +122,13 @@ tempfile = { workspace = true }
 sqlx = { workspace = true, default-features = false, features = ["runtime-tokio", "sqlite"] }
 chrono = "0.4"
 smallvec = "1.13"
-sysinfo = { version = "0.30", optional = true }  # Telemetry + residency harness
+sysinfo = { workspace = true, optional = true }  # Telemetry + residency harness
 reqwest = { version = "0.12", features = ["json"], optional = true }
 ureq = "3.0"  # PRD-09: Blocking HTTP client for panic hook
 libc = "0.2"
 clap = { workspace = true }
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-appender = "0.2"
 tonic = { version = "0.12", optional = true }
 [[bin]]
 name = "aos-worker"
@@ -141,7 +143,7 @@ loom = { version = "0.7", features = ["futures"] }
 criterion = { version = "0.5", features = ["html_reports"] }
 proptest = "1.0"
 serial_test = "3.0"
-sysinfo = { version = "0.30" }
+sysinfo = { workspace = true }
 adapteros-lora-mlx-ffi = { path = "../adapteros-lora-mlx-ffi", features = ["mlx"] }
 [[bench]]
 name = "hotswap"

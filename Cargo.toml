@@ -1,6 +1,6 @@
 [package]
 name = "adapter-os"
-version = "0.13.1"
+version = "0.0.1"
 edition = "2021"
 authors = ["James KC Auchterlonie <vats-springs0m@icloud.com>"]
 license = "MIT OR Apache-2.0"
@@ -97,7 +97,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.13.1"
+version = "0.0.1"
 edition = "2021"
 authors = ["James KC Auchterlonie <vats-springs0m@icloud.com>"]
 license = "MIT OR Apache-2.0"
@@ -149,7 +149,7 @@ mlx = []                             # MLX C++ FFI (primary backend)
 mlx-bridge = ["adapteros-lora-worker/mlx-bridge", "adapteros-core/mlx-bridge"]  # MLX Python subprocess bridge
 
 # Combined feature sets
-multi-backend = ["mlx"]  # MLX primary backend
+multi-backend = ["adapteros-lora-worker/mlx"]  # MLX primary backend via FFI
 full = ["telemetry", "metrics", "replay"]
 no-metal = []  # Explicitly disable Metal (for Linux/CI)
 # Production-oriented profiles (macOS Apple Silicon)
@@ -193,6 +193,7 @@ adapteros-lora-kernel-mtl = { path = "crates/adapteros-lora-kernel-mtl" }  # Re-
 [workspace.dependencies]
 # Core
 anyhow = "1.0"
+ahash = "0.8"
 thiserror = "2.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

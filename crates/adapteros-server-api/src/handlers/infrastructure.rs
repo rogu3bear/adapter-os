@@ -139,6 +139,9 @@ pub async fn test_node_connection(
     Path(node_id): Path<String>,
 ) -> Result<Json<NodePingResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator])?;
+    let node_id = crate::id_resolver::resolve_any_id(&state.db, &node_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Get node from database
     let node = state
@@ -242,6 +245,9 @@ pub async fn mark_node_offline(
     Path(node_id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator])?;
+    let node_id = crate::id_resolver::resolve_any_id(&state.db, &node_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Update node status using Db trait method
     state
@@ -292,6 +298,9 @@ pub async fn evict_node(
     Path(node_id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator])?;
+    let node_id = crate::id_resolver::resolve_any_id(&state.db, &node_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Check for running workers on this node
     let workers = state.db.list_all_workers().await.map_err(|e| {
@@ -363,6 +372,9 @@ pub async fn get_node_details(
     Path(node_id): Path<String>,
 ) -> Result<Json<NodeDetailsResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator])?;
+    let node_id = crate::id_resolver::resolve_any_id(&state.db, &node_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Get node from database
     let node = state
@@ -830,7 +842,7 @@ pub async fn worker_spawn(
 
     // Register worker using Db trait method
     use adapteros_db::workers::WorkerInsertBuilder;
-    let worker_id = uuid::Uuid::now_v7().to_string();
+    let worker_id = crate::id_generator::readable_id(adapteros_core::ids::IdKind::Worker, "worker");
     let mut builder = WorkerInsertBuilder::new()
         .id(&worker_id)
         .tenant_id(&req.tenant_id)
@@ -879,6 +891,8 @@ pub async fn worker_spawn(
         model_hash: None,
         tokenizer_hash_b3: None,
         tokenizer_vocab_size: None,
+        coreml_failure_stage: None,
+        coreml_failure_reason: None,
         model_loaded: false,
         cache_used_mb: None,
         cache_max_mb: None,
@@ -1049,6 +1063,8 @@ pub async fn list_workers(
             model_hash,
             tokenizer_hash_b3,
             tokenizer_vocab_size,
+            coreml_failure_stage: runtime.coreml_failure_stage.clone(),
+            coreml_failure_reason: runtime.coreml_failure_reason.clone(),
             model_loaded,
             cache_used_mb: runtime.cache_used_mb,
             cache_max_mb: runtime.cache_max_mb,
@@ -1080,6 +1096,9 @@ pub async fn stop_worker(
     Path(worker_id): Path<String>,
 ) -> Result<Json<crate::types::WorkerStopResponse>, (StatusCode, Json<ErrorResponse>)> {
     crate::permissions::require_permission(&claims, crate::permissions::Permission::WorkerManage)?;
+    let worker_id = crate::id_resolver::resolve_any_id(&state.db, &worker_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     let worker = state
         .db
@@ -1280,6 +1299,10 @@ pub async fn list_worker_incidents(
     Path(worker_id): Path<String>,
     Query(params): Query<ListIncidentsParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    let worker_id = crate::id_resolver::resolve_any_id(&state.db, &worker_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+
     let _worker = state
         .db
         .get_worker_for_tenant(&claims.tenant_id, &worker_id)

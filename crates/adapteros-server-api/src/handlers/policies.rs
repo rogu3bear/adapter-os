@@ -32,6 +32,9 @@ pub async fn assign_tenant_policies(
     Json(req): Json<AssignPoliciesRequest>,
 ) -> Result<Json<AssignPoliciesResponse>, (StatusCode, Json<ErrorResponse>)> {
     crate::middleware::require_any_role(&claims, &[Role::Admin])?;
+    let tenant_id = crate::id_resolver::resolve_any_id(&state.db, &tenant_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Create tenant-policy associations using Db trait method
     for policy_id in &req.policy_ids {
@@ -130,6 +133,9 @@ pub async fn get_policy(
 ) -> Result<Json<PolicyPackResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Role check: All roles can view policies
     crate::permissions::require_permission(&claims, crate::permissions::Permission::PolicyView)?;
+    let cpid = crate::id_resolver::resolve_any_id(&state.db, &cpid)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Query database for policy pack
     let pack = state
@@ -582,6 +588,9 @@ pub async fn sign_policy(
 ) -> Result<Json<SignPolicyResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Role check: Admin-only (signing policies is a critical operation)
     crate::permissions::require_permission(&claims, crate::permissions::Permission::PolicySign)?;
+    let cpid = crate::id_resolver::resolve_any_id(&state.db, &cpid)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Use the server's configured Ed25519 signing key (PRD-SEC-01: no ad-hoc key generation)
     let signing_key = &state.ed25519_keypair;
@@ -639,6 +648,9 @@ pub async fn verify_policy_signature(
 ) -> Result<Json<VerifyPolicyResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Role check: Any authenticated user can verify signatures
     crate::permissions::require_permission(&claims, crate::permissions::Permission::PolicyView)?;
+    let cpid = crate::id_resolver::resolve_any_id(&state.db, &cpid)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Fetch the policy pack to get its signature
     let policy_pack = state
@@ -897,6 +909,9 @@ pub async fn export_policy(
     Extension(_claims): Extension<Claims>,
     Path(cpid): Path<String>,
 ) -> Result<Json<ExportPolicyResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let cpid = crate::id_resolver::resolve_any_id(&state.db, &cpid)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
     // Fetch policy pack from database
     let pack = state
         .db

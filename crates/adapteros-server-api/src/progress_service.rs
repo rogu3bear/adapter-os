@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tracing::{info, warn};
-use uuid::Uuid;
 
 /// Progress event emitted via broadcast channel for SSE streaming
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -727,7 +726,10 @@ impl ProgressService {
         };
 
         let event = ProgressEvent {
-            event_id: Uuid::new_v4().to_string(),
+            event_id: crate::id_generator::readable_id(
+                adapteros_core::ids::IdKind::Event,
+                "progress",
+            ),
             operation_id,
             tenant_id,
             event_type,

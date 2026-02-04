@@ -20,7 +20,6 @@ use chrono::Utc;
 use std::collections::HashMap;
 use std::time::Instant;
 use tracing::{error, info, warn};
-use uuid::Uuid;
 
 /// Convert database Adapter to DomainAdapterResponse
 fn adapter_to_domain_response(adapter: Adapter) -> DomainAdapterResponse {
@@ -120,6 +119,7 @@ pub async fn get_domain_adapter(
     Path(adapter_id): Path<String>,
 ) -> ApiResult<DomainAdapterResponse> {
     require_permission(&claims, Permission::AdapterView)?;
+    let adapter_id = crate::id_resolver::resolve_any_id(&state.db, &adapter_id).await?;
 
     let adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;
 
@@ -164,7 +164,8 @@ pub async fn create_domain_adapter(
     }
 
     // Generate adapter ID
-    let adapter_id = Uuid::new_v7(uuid::Timestamp::now(uuid::NoContext)).to_string();
+    let adapter_id =
+        crate::id_generator::readable_id(adapteros_core::ids::IdKind::Adapter, req.name.as_str());
 
     // Build registration parameters
     let params = AdapterRegistrationBuilder::new()
@@ -294,6 +295,7 @@ pub async fn load_domain_adapter(
     Json(_req): Json<LoadDomainAdapterRequest>,
 ) -> ApiResult<DomainAdapterResponse> {
     require_permission(&claims, Permission::AdapterLoad)?;
+    let adapter_id = crate::id_resolver::resolve_any_id(&state.db, &adapter_id).await?;
 
     // Get adapter from database with tenant isolation validation
     let adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;
@@ -408,6 +410,7 @@ pub async fn unload_domain_adapter(
     Path(adapter_id): Path<String>,
 ) -> ApiResult<DomainAdapterResponse> {
     require_permission(&claims, Permission::AdapterLoad)?;
+    let adapter_id = crate::id_resolver::resolve_any_id(&state.db, &adapter_id).await?;
 
     // Get adapter from database with tenant isolation validation
     let adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;
@@ -478,6 +481,7 @@ pub async fn test_domain_adapter(
     Json(req): Json<TestDomainAdapterRequest>,
 ) -> ApiResult<TestDomainAdapterResponse> {
     require_permission(&claims, Permission::AdapterView)?;
+    let adapter_id = crate::id_resolver::resolve_any_id(&state.db, &adapter_id).await?;
 
     let start_time = Instant::now();
     let iterations = req.iterations.unwrap_or(1);
@@ -577,7 +581,7 @@ pub async fn test_domain_adapter(
 
     let test_result = TestDomainAdapterResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-        test_id: Uuid::new_v7(uuid::Timestamp::now(uuid::NoContext)).to_string(),
+        test_id: crate::id_generator::readable_id(adapteros_core::ids::IdKind::Run, "adapter-test"),
         adapter_id: adapter_id.clone(),
         input_data: req.input_data,
         actual_output,
@@ -610,6 +614,7 @@ pub async fn get_domain_adapter_manifest(
     Path(adapter_id): Path<String>,
 ) -> ApiResult<DomainAdapterManifestResponse> {
     require_permission(&claims, Permission::AdapterView)?;
+    let adapter_id = crate::id_resolver::resolve_any_id(&state.db, &adapter_id).await?;
 
     // Get adapter from database with tenant isolation validation
     let adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;
@@ -674,6 +679,7 @@ pub async fn execute_domain_adapter(
     Json(input_data): Json<serde_json::Value>,
 ) -> ApiResult<DomainAdapterExecutionResponse> {
     require_permission(&claims, Permission::InferenceExecute)?;
+    let adapter_id = crate::id_resolver::resolve_any_id(&state.db, &adapter_id).await?;
 
     let start_time = Instant::now();
 
@@ -752,7 +758,10 @@ pub async fn execute_domain_adapter(
 
     let execution = DomainAdapterExecutionResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-        execution_id: Uuid::new_v7(uuid::Timestamp::now(uuid::NoContext)).to_string(),
+        execution_id: crate::id_generator::readable_id(
+            adapteros_core::ids::IdKind::Run,
+            "adapter-exec",
+        ),
         adapter_id: adapter_id.clone(),
         input_hash,
         output_hash,
@@ -783,6 +792,7 @@ pub async fn delete_domain_adapter(
     Path(adapter_id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
     require_permission(&claims, Permission::AdapterRegister)?;
+    let adapter_id = crate::id_resolver::resolve_any_id(&state.db, &adapter_id).await?;
 
     // Get adapter to verify it exists and is a domain adapter (with tenant isolation)
     let adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;

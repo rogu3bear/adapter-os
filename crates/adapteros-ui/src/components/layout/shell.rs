@@ -5,13 +5,17 @@
 use super::taskbar::Taskbar;
 use super::topbar::TopBar;
 use crate::components::chat_dock::{ChatDockPanel, MobileChatOverlay, NarrowChatDock};
+use crate::components::error_history_panel::ErrorHistory;
 use crate::components::offline_banner::OfflineBanner;
 use crate::components::status_center::StatusCenterProvider;
 use crate::components::telemetry_overlay::TelemetryOverlay;
-use crate::components::version_skew_banner::VersionSkewBanner;
 use crate::components::workspace::Workspace;
-use crate::signals::{use_chat, use_search, DockState};
+use crate::signals::{
+    provide_route_context, provide_ui_profile_context, use_chat, use_route_context, use_search,
+    DockState,
+};
 use leptos::prelude::*;
+use leptos_router::hooks::use_location;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 
@@ -19,9 +23,21 @@ use wasm_bindgen::JsCast;
 #[component]
 pub fn Shell(children: Children) -> impl IntoView {
     web_sys::console::log_1(&"[Shell] Rendering...".into());
+    provide_ui_profile_context();
+    provide_route_context();
     let (chat_state, _chat_action) = use_chat();
     let search = use_search();
+    let route_context = use_route_context();
     web_sys::console::log_1(&"[Shell] Got chat context".into());
+
+    // Track route changes for contextual actions in Command Palette
+    let location = use_location();
+    Effect::new(move || {
+        let pathname = location.pathname.get();
+        route_context.set_route(&pathname);
+        // Clear selection when route changes
+        route_context.clear_selected();
+    });
 
     // Global keyboard handler for Command Palette
     let keyboard_handler_set = StoredValue::new(false);
@@ -89,8 +105,6 @@ pub fn Shell(children: Children) -> impl IntoView {
 
                 // PRD-UI-000: Offline banner for API connectivity status
                 <OfflineBanner/>
-                // Version drift banner prompts reload when backend/frontend versions differ
-                <VersionSkewBanner/>
                 // Streaming health indicator (SSE) could go here if needed
 
                 // Top bar
@@ -123,6 +137,9 @@ pub fn Shell(children: Children) -> impl IntoView {
 
                 // Telemetry overlay (Ctrl+Shift+T toggle, off by default)
                 <TelemetryOverlay/>
+
+                // Error history panel (Ctrl+Shift+E toggle)
+                <ErrorHistory/>
             </div>
         </StatusCenterProvider>
     }

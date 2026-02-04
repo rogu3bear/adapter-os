@@ -3,34 +3,11 @@
 //! Reports UI errors to the server for persistent logging.
 //! Also provides toast-based error surfacing with diagnostic bundles.
 
-use super::{api_base_url, ApiError, DiagnosticBundle};
+use super::{api_base_url, csrf_token_from_cookie, ApiError, DiagnosticBundle};
 use crate::redact_sensitive_info;
 use crate::signals::notifications::try_use_notifications;
 use gloo_net::http::Request;
 use serde::Serialize;
-
-#[cfg(target_arch = "wasm32")]
-fn csrf_token_from_cookie() -> Option<String> {
-    use wasm_bindgen::JsCast;
-    web_sys::window()
-        .and_then(|w| w.document())
-        .and_then(|d| d.dyn_into::<web_sys::HtmlDocument>().ok())
-        .and_then(|d| d.cookie().ok())
-        .and_then(|cookies| {
-            for cookie in cookies.split(';') {
-                let cookie = cookie.trim();
-                if let Some(token) = cookie.strip_prefix("csrf_token=") {
-                    return Some(token.to_string());
-                }
-            }
-            None
-        })
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn csrf_token_from_cookie() -> Option<String> {
-    None
-}
 
 /// Client error report payload (matches server's ClientErrorReport)
 #[derive(Debug, Clone, Serialize)]
@@ -137,31 +114,6 @@ pub fn report_error_with_toast(
     }
 }
 
-/// Build a user-friendly error message from an ApiError.
-fn build_user_message(error: &ApiError) -> String {
-    match error {
-        ApiError::Aborted => "The request was cancelled.".to_string(),
-        ApiError::Network(msg) => format!("Network error: {}", msg),
-        ApiError::Http { status, message } => {
-            format!("HTTP {} error: {}", status, message)
-        }
-        ApiError::Unauthorized => "Your session has expired. Log in again.".to_string(),
-        ApiError::Forbidden(msg) => format!("Access denied: {}", msg),
-        ApiError::NotFound(msg) => format!("Not found: {}", msg),
-        ApiError::Validation(msg) => format!("Validation error: {}", msg),
-        ApiError::Server(msg) => format!("Server error: {}", msg),
-        ApiError::Serialization(msg) => format!("Data format error: {}", msg),
-        ApiError::RateLimited { retry_after } => match retry_after {
-            Some(ms) => format!("Too many requests. Retry in {} seconds.", ms / 1000),
-            None => "Too many requests. Retry later.".to_string(),
-        },
-        ApiError::Structured { error, code, .. } => {
-            format!("{} ({})", error, code)
-        }
-    }
-}
-
-
 /// Build a ClientErrorReport from an ApiError
 fn build_report(error: &ApiError, page: Option<&str>) -> ClientErrorReport {
     let (error_type, message, http_status) = match error {
@@ -189,6 +141,7 @@ fn build_report(error: &ApiError, page: Option<&str>) -> ClientErrorReport {
             error,
             code,
             failure_code,
+            hint: _,
             details,
         } => {
             return ClientErrorReport {

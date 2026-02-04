@@ -20,8 +20,8 @@ pub use cache::{
     validate_model_cache_budget, BaseModelPinConfig,
 };
 pub use capabilities::{
-    auto_select_backend, describe_available_backends, detect_capabilities,
-    resolve_reasoning_aware_backend, select_backend_from_execution_profile,
+    auto_select_backend, coreml_unavailable_reason, describe_available_backends,
+    detect_capabilities, resolve_reasoning_aware_backend, select_backend_from_execution_profile,
     should_use_reasoning_backend, BackendCapabilities, BackendSelection, BackendStrategy,
     ReasoningBackendHint, SelectionContext,
 };
@@ -75,6 +75,122 @@ pub type KernelBox = Box<dyn FusedKernels + Send + Sync>;
 /// This is an alias of `BackendKind` to keep public signatures stable while
 /// consolidating backend parsing and display logic in a single place.
 pub type BackendChoice = adapteros_core::backend::BackendKind;
+
+#[derive(Debug, Clone, Copy)]
+pub struct CoremlFailureClassification {
+    pub stage: &'static str,
+    pub reason: &'static str,
+}
+
+pub fn classify_coreml_error(err: &AosError) -> CoremlFailureClassification {
+    let message = err.to_string();
+    let lowered = message.to_ascii_lowercase();
+    match err {
+        AosError::Config(_) => {
+            if lowered.contains("coreml-backend") {
+                return CoremlFailureClassification {
+                    stage: "config",
+                    reason: "feature_disabled",
+                };
+            }
+            if lowered.contains("requires macos") {
+                return CoremlFailureClassification {
+                    stage: "config",
+                    reason: "requires_macos",
+                };
+            }
+            if lowered.contains("production mode requires deterministic ane-only") {
+                return CoremlFailureClassification {
+                    stage: "config",
+                    reason: "production_requires_ane",
+                };
+            }
+            if lowered.contains("not valid utf-8") {
+                return CoremlFailureClassification {
+                    stage: "model_path",
+                    reason: "invalid_utf8",
+                };
+            }
+            if lowered.contains("model path rejected") {
+                return CoremlFailureClassification {
+                    stage: "model_path",
+                    reason: "rejected",
+                };
+            }
+            if lowered.contains("config.json") {
+                return CoremlFailureClassification {
+                    stage: "model_path",
+                    reason: "config_missing_or_invalid",
+                };
+            }
+            CoremlFailureClassification {
+                stage: "config",
+                reason: "config_error",
+            }
+        }
+        AosError::Kernel(_) => {
+            if lowered.contains("coreml not available") {
+                return CoremlFailureClassification {
+                    stage: "init",
+                    reason: "unavailable",
+                };
+            }
+            if lowered.contains("failed to load coreml model")
+                || lowered.contains("failed to load model")
+            {
+                return CoremlFailureClassification {
+                    stage: "runtime",
+                    reason: "load_failed",
+                };
+            }
+            CoremlFailureClassification {
+                stage: "runtime",
+                reason: "kernel_error",
+            }
+        }
+        AosError::CoreML(_) => CoremlFailureClassification {
+            stage: "runtime",
+            reason: "coreml_error",
+        },
+        AosError::Io(_) => {
+            if lowered.contains("failed to read model") || lowered.contains("manifest") {
+                return CoremlFailureClassification {
+                    stage: "model_path",
+                    reason: "read_failed",
+                };
+            }
+            CoremlFailureClassification {
+                stage: "model_path",
+                reason: "io_error",
+            }
+        }
+        AosError::Validation(_) => {
+            if lowered.contains("manifest") {
+                return CoremlFailureClassification {
+                    stage: "model_path",
+                    reason: "missing_manifest",
+                };
+            }
+            CoremlFailureClassification {
+                stage: "model_path",
+                reason: "validation_error",
+            }
+        }
+        AosError::CacheCorruption { .. } => CoremlFailureClassification {
+            stage: "model_integrity",
+            reason: "hash_mismatch",
+        },
+        _ => CoremlFailureClassification {
+            stage: "runtime",
+            reason: "unknown",
+        },
+    }
+}
+
+pub fn format_coreml_failure_reason(err: &AosError) -> String {
+    let class = classify_coreml_error(err);
+    format!("coreml_{}_{}", class.stage, class.reason)
+}
 
 /// Create a kernel backend from unified ModelConfig
 ///
@@ -319,7 +435,7 @@ pub fn create_backend_with_model(choice: BackendChoice, model_path: &Path) -> Re
             {
                 let _ = model_path;
                 Err(AosError::Config(
-                    "CoreML backend requires 'coreml-backend' feature to be enabled. \
+                    "CoreML backend requires 'coreml-backend' feature to be enabled (coreml-stub is test-only). \
                      Build with: cargo build --features coreml-backend"
                         .to_string(),
                 ))
@@ -534,6 +650,12 @@ fn create_mlx_ffi_backend(
 
     #[cfg(feature = "mlx")]
     {
+        let manifest_hash = manifest_hash.ok_or_else(|| {
+            AosError::Config(
+                "Manifest hash is required for MLX backend identity; pass manifest hash to backend factory"
+                    .to_string(),
+            )
+        })?;
         let model_path = validate_mlx_model_dir(model_path)?;
         let model_path_str = model_path.to_string_lossy();
 
@@ -544,17 +666,10 @@ fn create_mlx_ffi_backend(
 
         info!(
             model_path = %model_path_str,
-            has_manifest_hash = manifest_hash.is_some(),
+            has_manifest_hash = true,
             has_model_weights_hash = model_weights_hash.is_some(),
             "Creating MLX FFI kernel backend"
         );
-
-        let manifest_hash = manifest_hash.ok_or_else(|| {
-            AosError::Config(
-                "Manifest hash is required for MLX backend identity; pass manifest hash to backend factory"
-                    .to_string(),
-            )
-        })?;
 
         // Verify model integrity before loading (using model weights hash, not manifest hash)
         verify_model_integrity(&model_path, model_weights_hash, "MLX")?;
@@ -1059,7 +1174,7 @@ fn create_coreml_backend(
     _model_weights_hash: Option<&B3Hash>,
 ) -> Result<KernelBox> {
     Err(AosError::Config(
-        "CoreML backend requires 'coreml-backend' feature to be enabled. \
+        "CoreML backend requires 'coreml-backend' feature to be enabled (coreml-stub is test-only). \
          Build with: cargo build --features coreml-backend"
             .to_string(),
     ))

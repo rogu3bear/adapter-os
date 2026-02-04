@@ -7,7 +7,7 @@ use crate::commands::session::{generate_session_id, global_session_store, AgentS
 use crate::commands::worker_executor;
 use crate::output::OutputWriter;
 use adapteros_agent_spawn::protocol::{
-    AgentRequest, AgentResponse, HandshakeRequest, HandshakeResponse,
+    AgentRequest, AgentResponse, AgentState, AgentStatus, TaskProgress,
 };
 use adapteros_agent_spawn::{
     AgentOrchestrator, AgentSpawnConfig, DistributionStrategy, PlanningTask,
@@ -16,9 +16,10 @@ use adapteros_core::Result;
 use clap::Subcommand;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::{UnixListener, UnixStream};
+use tokio::net::{unix::OwnedWriteHalf, UnixListener, UnixStream};
+use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
 /// Agent commands for multi-agent code modification
@@ -456,6 +457,45 @@ async fn handle_cancel(session_id: String, force: bool, output: &OutputWriter) -
     }
 }
 
+#[derive(Debug)]
+struct AgentRuntimeState {
+    current_task: Option<[u8; 32]>,
+    current_cancel: Option<worker_executor::CancellationToken>,
+    tasks_completed: u32,
+    start_time: Instant,
+    last_activity: chrono::DateTime<chrono::Utc>,
+}
+
+impl AgentRuntimeState {
+    fn new() -> Self {
+        Self {
+            current_task: None,
+            current_cancel: None,
+            tasks_completed: 0,
+            start_time: Instant::now(),
+            last_activity: chrono::Utc::now(),
+        }
+    }
+
+    fn status(&self, agent_id: &str) -> AgentStatus {
+        let state = if self.current_task.is_some() {
+            AgentState::Working
+        } else {
+            AgentState::Ready
+        };
+
+        AgentStatus {
+            agent_id: agent_id.to_string(),
+            state,
+            current_task: self.current_task,
+            tasks_completed: self.tasks_completed,
+            uptime_secs: self.start_time.elapsed().as_secs(),
+            memory_bytes: None,
+            last_activity: self.last_activity,
+        }
+    }
+}
+
 /// Handle worker command (internal - spawned by orchestrator)
 async fn handle_worker(
     agent_id: String,
@@ -509,12 +549,13 @@ async fn handle_worker(
     info!("Orchestrator connected");
 
     // Complete handshake
-    let mut stream = complete_worker_handshake(stream, &agent_id).await?;
+    let stream = complete_worker_handshake(stream, &agent_id).await?;
 
     info!("Handshake complete, entering main loop");
 
     // Main message loop
-    worker_message_loop(&mut stream, &agent_id).await?;
+    let runtime_state = Arc::new(Mutex::new(AgentRuntimeState::new()));
+    worker_message_loop(stream, &agent_id, runtime_state).await?;
 
     // Cleanup socket
     let _ = tokio::fs::remove_file(&socket).await;
@@ -532,8 +573,13 @@ async fn complete_worker_handshake(stream: UnixStream, agent_id: &str) -> Result
 }
 
 /// Main worker message loop
-async fn worker_message_loop(stream: &mut UnixStream, agent_id: &str) -> Result<()> {
-    let (read_half, mut write_half) = stream.split();
+async fn worker_message_loop(
+    stream: UnixStream,
+    agent_id: &str,
+    runtime_state: Arc<Mutex<AgentRuntimeState>>,
+) -> Result<()> {
+    let (read_half, write_half) = stream.into_split();
+    let writer = Arc::new(Mutex::new(write_half));
     let mut reader = BufReader::new(read_half);
     let mut line = String::new();
 
@@ -550,70 +596,135 @@ async fn worker_message_loop(stream: &mut UnixStream, agent_id: &str) -> Result<
             break;
         }
 
-        // Parse request
         let request: AgentRequest = serde_json::from_str(line.trim())
             .map_err(|e| adapteros_core::AosError::Io(format!("Invalid request: {}", e)))?;
 
-        debug!(agent_id = %agent_id, request_type = ?std::mem::discriminant(&request), "Received request");
+        debug!(
+            agent_id = %agent_id,
+            request_type = ?std::mem::discriminant(&request),
+            "Received request"
+        );
 
-        // Handle request
-        let response = match request {
+        match request {
             AgentRequest::AssignTask(assignment) => {
                 info!(task_id = %hex::encode(&assignment.task_id), "Received task assignment");
 
-                // Send acceptance immediately
+                let cancel_token = worker_executor::CancellationToken::new();
+                let should_accept = {
+                    let mut state = runtime_state.lock().await;
+                    if state.current_task.is_some() {
+                        false
+                    } else {
+                        state.current_task = Some(assignment.task_id);
+                        state.current_cancel = Some(cancel_token.clone());
+                        state.last_activity = chrono::Utc::now();
+                        true
+                    }
+                };
+
+                if !should_accept {
+                    let response = AgentResponse::Error {
+                        message: "Agent already working on a task".to_string(),
+                        code: Some("BUSY".to_string()),
+                    };
+                    send_response_locked(&writer, &response).await?;
+                    continue;
+                }
+
                 let accept_response = AgentResponse::TaskAccepted {
                     task_id: assignment.task_id,
                 };
-                send_response(&mut write_half, &accept_response).await?;
+                send_response_locked(&writer, &accept_response).await?;
 
-                // Execute task
-                match worker_executor::execute_task(&assignment, agent_id).await {
-                    Ok(proposal) => {
-                        info!("Task complete, sending proposal");
-                        AgentResponse::TaskComplete(proposal)
-                    }
-                    Err(e) => {
-                        error!(error = %e, "Task execution failed");
-                        AgentResponse::TaskFailed {
-                            task_id: assignment.task_id,
-                            error: e.to_string(),
+                let writer_clone = writer.clone();
+                let state_clone = runtime_state.clone();
+                let agent_id = agent_id.to_string();
+                tokio::spawn(async move {
+                    let task_id = assignment.task_id;
+                    let result = worker_executor::execute_task(
+                        &assignment,
+                        &agent_id,
+                        Some(cancel_token.clone()),
+                    )
+                    .await;
+
+                    let mut state = state_clone.lock().await;
+                    let code = if cancel_token.is_cancelled() {
+                        Some("CANCELLED".to_string())
+                    } else {
+                        None
+                    };
+
+                    let response = match result {
+                        Ok(proposal) => {
+                            state.tasks_completed = state.tasks_completed.saturating_add(1);
+                            AgentResponse::TaskComplete(proposal)
                         }
-                    }
-                }
+                        Err(e) => {
+                            error!(error = %e, "Task execution failed");
+                            AgentResponse::TaskFailed {
+                                task_id,
+                                error: e.to_string(),
+                                code,
+                            }
+                        }
+                    };
+
+                    state.current_task = None;
+                    state.current_cancel = None;
+                    state.last_activity = chrono::Utc::now();
+                    drop(state);
+
+                    let _ = send_response_locked(&writer_clone, &response).await;
+                });
             }
             AgentRequest::SyncBarrier { tick, barrier_id } => {
                 debug!(tick = tick, barrier_id = %barrier_id, "Barrier sync");
-                AgentResponse::BarrierReached { tick, barrier_id }
+                let response = AgentResponse::BarrierReached { tick, barrier_id };
+                send_response_locked(&writer, &response).await?;
             }
             AgentRequest::Shutdown { drain_timeout_ms } => {
                 info!(drain_ms = drain_timeout_ms, "Shutdown requested");
-                send_response(&mut write_half, &AgentResponse::ShuttingDown).await?;
+                send_response_locked(&writer, &AgentResponse::ShuttingDown).await?;
                 break;
             }
-            AgentRequest::Ping { sequence } => AgentResponse::Pong { sequence },
+            AgentRequest::Ping { sequence } => {
+                let response = AgentResponse::Pong { sequence };
+                send_response_locked(&writer, &response).await?;
+            }
             AgentRequest::StatusQuery => {
-                AgentResponse::Status(adapteros_agent_spawn::protocol::AgentStatus {
-                    agent_id: agent_id.to_string(),
-                    state: adapteros_agent_spawn::protocol::AgentState::Ready,
-                    current_task: None,
-                    tasks_completed: 0,
-                    uptime_secs: 0,
-                    memory_bytes: None,
-                    last_activity: chrono::Utc::now(),
-                })
+                let status = {
+                    let state = runtime_state.lock().await;
+                    state.status(agent_id)
+                };
+                send_response_locked(&writer, &AgentResponse::Status(status)).await?;
             }
             AgentRequest::CancelTask { reason } => {
-                warn!(reason = %reason, "Task cancellation requested");
-                AgentResponse::Error {
-                    message: "Task cancellation not implemented".to_string(),
-                    code: Some("NOT_IMPLEMENTED".to_string()),
+                let (token, task_id) = {
+                    let state = runtime_state.lock().await;
+                    (state.current_cancel.clone(), state.current_task)
+                };
+
+                if let Some(token) = token {
+                    warn!(reason = %reason, "Task cancellation requested");
+                    token.cancel(reason.clone());
+                    let progress = TaskProgress {
+                        task_id: task_id.unwrap_or([0u8; 32]),
+                        percent: 0,
+                        stage: "cancelling".to_string(),
+                        message: Some(reason),
+                        current_files: vec![],
+                    };
+                    send_response_locked(&writer, &AgentResponse::Progress(progress)).await?;
+                } else {
+                    let response = AgentResponse::Error {
+                        message: "No active task to cancel".to_string(),
+                        code: Some("NO_ACTIVE_TASK".to_string()),
+                    };
+                    send_response_locked(&writer, &response).await?;
                 }
             }
-        };
-
-        // Send response
-        send_response(&mut write_half, &response).await?;
+        }
     }
 
     Ok(())
@@ -639,4 +750,12 @@ async fn send_response<W: tokio::io::AsyncWrite + Unpin>(
         .map_err(|e| adapteros_core::AosError::Io(e.to_string()))?;
 
     Ok(())
+}
+
+async fn send_response_locked(
+    writer: &Arc<Mutex<OwnedWriteHalf>>,
+    response: &AgentResponse,
+) -> Result<()> {
+    let mut guard = writer.lock().await;
+    send_response(&mut *guard, response).await
 }

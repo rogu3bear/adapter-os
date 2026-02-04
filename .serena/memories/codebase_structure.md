@@ -4,7 +4,7 @@
 
 ```
 adapter-os/
-├── crates/              # ~70 Rust workspace crates
+├── crates/              # 83 Rust workspace crates
 ├── migrations/          # SQLite migrations + signatures.json
 ├── metal/               # Metal shader sources
 ├── configs/             # Runtime configuration (cp.toml)
@@ -38,7 +38,7 @@ adapter-os/
 
 | Crate | Purpose |
 |-------|---------|
-| `adapteros-policy` | 25+ canonical policy packs |
+| `adapteros-policy` | 31 canonical policy packs |
 | `adapteros-telemetry` | Event logging with Merkle trees |
 | `adapteros-crypto` | Ed25519 signing, BLAKE3 hashing |
 | `adapteros-config` | Deterministic configuration with precedence |
@@ -76,7 +76,7 @@ var/
 2. **CoreML** (ANE layer): Provides ANE-accelerated ops that MLX calls into
 3. **Metal** (kernels): Low-level GPU compute primitives used by MLX
 
-## Why ~70 Crates?
+## Why 83 Crates?
 
 Fine-grained modularity enables:
 - Selective compilation for air-gapped deployments

@@ -155,7 +155,10 @@ pub async fn register_handler(
     }
 
     // Generate IDs
-    let tenant_id = format!("tenant-{}", Uuid::now_v7());
+    let tenant_id = crate::id_generator::readable_id(
+        adapteros_core::ids::IdKind::Tenant,
+        req.display_name.as_deref().unwrap_or("tenant"),
+    );
     let display_name = req
         .display_name
         .unwrap_or_else(|| email.split('@').next().unwrap_or("User").to_string());
@@ -216,7 +219,7 @@ pub async fn register_handler(
     info!(user_id = %user_id, email = %email, tenant_id = %tenant_id, "User created successfully");
 
     // Create default workspace for user
-    let ws_id = format!("ws-{}", Uuid::now_v7());
+    let ws_id = crate::id_generator::readable_id(adapteros_core::ids::IdKind::Workspace, "default");
     if let Err(e) = sqlx::query(
         "INSERT INTO workspaces (id, name, description, created_by, created_at, updated_at) VALUES (?, 'Default Workspace', 'Auto-created workspace', ?, datetime('now'), datetime('now'))",
     )

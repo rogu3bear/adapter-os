@@ -146,6 +146,9 @@ async fn init_in_memory_db() -> Result<Arc<Db>> {
             tenant_id TEXT NOT NULL,
             request_id TEXT,
             context_digest BLOB NOT NULL,
+            stack_id TEXT,
+            model_id TEXT,
+            policy_id TEXT,
             status TEXT NOT NULL DEFAULT 'running',
             created_at TEXT
         );
@@ -232,6 +235,9 @@ async fn run_trace_once(
         tenant_id: "tenant-smoke".to_string(),
         request_id: Some(trace_label.to_string()),
         context_digest,
+        stack_id: None,
+        model_id: None,
+        policy_id: None,
     };
 
     let mut sink = SqlTraceSink::new(db.clone(), start, 8).await?;

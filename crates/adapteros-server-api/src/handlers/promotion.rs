@@ -134,6 +134,9 @@ pub async fn request_promotion(
 ) -> Result<Json<PromoteResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Check permission
     require_permission(&claims, Permission::PromotionManage)?;
+    let run_id = crate::id_resolver::resolve_any_id(&state.db, &run_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Validate target stage
     if req.target_stage != "staging" && req.target_stage != "production" {
@@ -177,7 +180,8 @@ pub async fn request_promotion(
     match GoldenRunArchive::load(&golden_dir) {
         Ok(_archive) => {
             // Generate unique request ID
-            let request_id = format!("promo-{}-{}", run_id, uuid::Uuid::new_v4());
+            let request_id =
+                crate::id_generator::readable_id(adapteros_core::ids::IdKind::Request, "promo");
 
             // Create promotion request
             let params = adapteros_db::CreatePromotionRequestParams {
@@ -273,6 +277,9 @@ pub async fn get_promotion_status(
     Path(run_id): Path<String>,
 ) -> Result<Json<PromotionStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::PromotionManage)?;
+    let run_id = crate::id_resolver::resolve_any_id(&state.db, &run_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Get latest promotion request for this golden run
     let request = state
@@ -396,6 +403,9 @@ pub async fn approve_or_reject_promotion(
     Json(req): Json<ApproveRequest>,
 ) -> Result<Json<ApproveResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::PromotionManage)?;
+    let run_id = crate::id_resolver::resolve_any_id(&state.db, &run_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Validate action
     if req.action != "approve" && req.action != "reject" {
@@ -613,7 +623,8 @@ pub async fn rollback_promotion(
         .await;
 
     // Log rollback in history
-    let request_id = format!("rollback-{}-{}", stage, uuid::Uuid::new_v4());
+    let request_id =
+        crate::id_generator::readable_id(adapteros_core::ids::IdKind::Request, "rollback");
     let metadata = serde_json::json!({"reason": &req.reason}).to_string();
     let _ = state
         .db
@@ -662,6 +673,9 @@ pub async fn get_gate_status(
     Path(run_id): Path<String>,
 ) -> Result<Json<Vec<GateStatus>>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::PromotionManage)?;
+    let run_id = crate::id_resolver::resolve_any_id(&state.db, &run_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Get latest promotion request
     let request = state

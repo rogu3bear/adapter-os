@@ -67,6 +67,10 @@ pub async fn get_inference_state(
     State(state): State<AppState>,
     Path(inference_id): Path<String>,
 ) -> Result<Json<InferenceStateResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let inference_id = crate::id_resolver::resolve_any_id(&state.db, &inference_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+
     let tracker = get_pause_tracker(&state)?;
 
     // Check if this inference is paused
@@ -134,6 +138,10 @@ pub async fn submit_review(
     Path(inference_id): Path<String>,
     Json(request): Json<SubmitReviewRequest>,
 ) -> Result<Json<SubmitReviewResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let inference_id = crate::id_resolver::resolve_any_id(&state.db, &inference_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+
     let tracker = get_pause_tracker(&state)?;
 
     info!(
@@ -254,6 +262,10 @@ pub async fn get_pause_details(
     State(state): State<AppState>,
     Path(pause_id): Path<String>,
 ) -> Result<Json<InferenceStateResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let pause_id = crate::id_resolver::resolve_any_id(&state.db, &pause_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+
     let tracker = get_pause_tracker(&state)?;
 
     if let Some(info) = tracker.get_state_by_pause_id(&pause_id) {
@@ -303,6 +315,10 @@ pub async fn export_review_context(
     State(state): State<AppState>,
     Path(pause_id): Path<String>,
 ) -> Result<Json<ReviewContextExport>, (StatusCode, Json<ErrorResponse>)> {
+    let pause_id = crate::id_resolver::resolve_any_id(&state.db, &pause_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+
     let tracker = get_pause_tracker(&state)?;
 
     if let Some(info) = tracker.get_state_by_pause_id(&pause_id) {

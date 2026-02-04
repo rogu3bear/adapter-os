@@ -3,13 +3,14 @@
 //! Real-time process monitoring with alerts, anomalies, and health metrics.
 
 use crate::api::{
-    ApiClient, ComponentStatus, ProcessAlertResponse, ProcessAnomalyResponse,
-    ProcessHealthMetricResponse, ReadyzCheck, ReadyzChecks, ReadyzResponse, SystemHealthResponse,
-    SystemReadyResponse,
+    report_error_with_toast, ApiClient, ComponentStatus, ProcessAlertResponse,
+    ProcessAnomalyResponse, ProcessHealthMetricResponse, ReadyzCheck, ReadyzChecks, ReadyzResponse,
+    SystemHealthResponse, SystemReadyResponse,
 };
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ErrorDisplay, Spinner, TabButton,
-    Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, EmptyState, EmptyStateVariant,
+    ErrorDisplay, LoadingDisplay, Spinner, TabButton, Table, TableBody, TableCell, TableHead,
+    TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, use_polling, LoadingState};
 use adapteros_api_types::HealthResponse;
@@ -88,7 +89,7 @@ pub fn Monitoring() -> impl IntoView {
     });
 
     view! {
-        <div class="p-6 space-y-6">
+        <div class="shell-page space-y-6">
             // Header
             <div class="flex items-center justify-between">
                 <div>
@@ -178,9 +179,7 @@ pub fn Monitoring() -> impl IntoView {
                             match alerts.get() {
                                 LoadingState::Idle | LoadingState::Loading => {
                                     view! {
-                                        <div class="flex items-center justify-center py-12">
-                                            <Spinner/>
-                                        </div>
+                                        <LoadingDisplay message="Loading alerts..."/>
                                     }.into_any()
                                 }
                                 LoadingState::Loaded(data) => {
@@ -190,7 +189,8 @@ pub fn Monitoring() -> impl IntoView {
                                             <EmptyState
                                                 title="No Alerts"
                                                 description="No process alerts have been triggered. Your system is running smoothly."
-                                                icon="bell"
+                                                variant=EmptyStateVariant::Empty
+                                                icon="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0"
                                             />
                                         }.into_any()
                                     } else {
@@ -240,7 +240,7 @@ pub fn Monitoring() -> impl IntoView {
                                                                                             refetch_alerts.run(());
                                                                                         }
                                                                                         Err(e) => {
-                                                                                            web_sys::console::error_1(&format!("Failed to acknowledge alert: {}", e).into());
+                                                                                            report_error_with_toast(&e, "Failed to acknowledge alert", Some("/monitoring"), true);
                                                                                         }
                                                                                     }
                                                                                     acknowledging.set(false);
@@ -273,9 +273,7 @@ pub fn Monitoring() -> impl IntoView {
                             match anomalies.get() {
                                 LoadingState::Idle | LoadingState::Loading => {
                                     view! {
-                                        <div class="flex items-center justify-center py-12">
-                                            <Spinner/>
-                                        </div>
+                                        <LoadingDisplay message="Loading anomalies..."/>
                                     }.into_any()
                                 }
                                 LoadingState::Loaded(data) => {
@@ -285,7 +283,8 @@ pub fn Monitoring() -> impl IntoView {
                                             <EmptyState
                                                 title="No Anomalies"
                                                 description="No anomalies have been detected in your processes."
-                                                icon="shield"
+                                                variant=EmptyStateVariant::Empty
+                                                icon="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"
                                             />
                                         }.into_any()
                                     } else {
@@ -346,9 +345,7 @@ pub fn Monitoring() -> impl IntoView {
                             match health_metrics.get() {
                                 LoadingState::Idle | LoadingState::Loading => {
                                     view! {
-                                        <div class="flex items-center justify-center py-12">
-                                            <Spinner/>
-                                        </div>
+                                        <LoadingDisplay message="Loading health metrics..."/>
                                     }.into_any()
                                 }
                                 LoadingState::Loaded(data) => {
@@ -358,7 +355,8 @@ pub fn Monitoring() -> impl IntoView {
                                             <EmptyState
                                                 title="No Health Metrics"
                                                 description="No health metrics are being collected. Start some workers to see metrics."
-                                                icon="activity"
+                                                variant=EmptyStateVariant::Empty
+                                                icon="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"
                                             />
                                         }.into_any()
                                     } else {
@@ -664,37 +662,5 @@ fn WorkerHealthCard(worker_id: String, metrics: Vec<ProcessHealthMetricResponse>
                 </div>
             </div>
         </Card>
-    }
-}
-
-/// Empty state component
-#[component]
-fn EmptyState(title: &'static str, description: &'static str, icon: &'static str) -> impl IntoView {
-    let icon_svg = match icon {
-        "bell" => view! {
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-muted-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0"/>
-            </svg>
-        }.into_any(),
-        "shield" => view! {
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-muted-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"/>
-            </svg>
-        }.into_any(),
-        _ => view! {
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-muted-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/>
-            </svg>
-        }.into_any(),
-    };
-
-    view! {
-        <div class="flex flex-col items-center justify-center py-12 text-center">
-            <div class="rounded-full bg-muted p-4 mb-4">
-                {icon_svg}
-            </div>
-            <h3 class="text-lg font-medium mb-2">{title}</h3>
-            <p class="text-muted-foreground max-w-md">{description}</p>
-        </div>
     }
 }

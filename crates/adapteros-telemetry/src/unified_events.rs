@@ -310,7 +310,10 @@ impl TelemetryEventBuilder {
     ) -> Self {
         Self {
             event: TelemetryEvent {
-                id: uuid::Uuid::new_v7(uuid::Timestamp::now(uuid::NoContext)).to_string(),
+                id: adapteros_core::ids::generate_id(
+                    adapteros_core::ids::IdKind::Event,
+                    "telemetry",
+                ),
                 timestamp: Utc::now(),
                 event_type: event_type.as_str().to_string(),
                 level,

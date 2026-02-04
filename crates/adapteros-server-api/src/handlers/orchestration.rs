@@ -20,7 +20,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tracing::{info, warn};
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 const ORCHESTRATION_CONFIG_KEY_PREFIX: &str = "orchestration.config";
 
@@ -426,7 +425,7 @@ pub async fn analyze_orchestration_prompt(
             .map(|s| s.to_string());
     }
 
-    let analysis_id = format!("orch-{}", Uuid::now_v7());
+    let analysis_id = crate::id_generator::readable_id(adapteros_core::ids::IdKind::Job, "orch");
 
     Ok(Json(serde_json::json!({
         "analysis_id": analysis_id,

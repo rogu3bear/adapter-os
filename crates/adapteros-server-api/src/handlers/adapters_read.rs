@@ -300,6 +300,9 @@ pub async fn get_adapter_repository(
     Path(repo_id): Path<String>,
 ) -> Result<Json<AdapterRepositoryResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::AdapterList)?;
+    let repo_id = crate::id_resolver::resolve_any_id(&state.db, &repo_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     let repo = state
         .db
@@ -401,6 +404,9 @@ pub async fn upsert_adapter_repository_policy(
     Json(req): Json<AdapterRepositoryPolicyRequest>,
 ) -> Result<Json<AdapterRepositoryPolicyResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::AdapterRegister)?;
+    let repo_id = crate::id_resolver::resolve_any_id(&state.db, &repo_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     let repo = state
         .db
@@ -513,6 +519,9 @@ pub async fn get_adapter_repository_policy(
     Path(repo_id): Path<String>,
 ) -> Result<Json<AdapterRepositoryPolicyResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::AdapterList)?;
+    let repo_id = crate::id_resolver::resolve_any_id(&state.db, &repo_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     let repo = state
         .db
@@ -592,6 +601,9 @@ pub async fn archive_adapter_repository(
     Path(repo_id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::AdapterRegister)?;
+    let repo_id = crate::id_resolver::resolve_any_id(&state.db, &repo_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     let archived = state
         .db
@@ -819,6 +831,9 @@ pub async fn list_adapter_versions(
     Query(params): Query<ListAdapterVersionsParams>,
 ) -> Result<Json<Vec<AdapterVersionResponse>>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::AdapterList)?;
+    let repo_id = crate::id_resolver::resolve_any_id(&state.db, &repo_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     let repo = state
         .db
@@ -1077,6 +1092,9 @@ pub async fn get_adapter_version(
     Path(version_id): Path<String>,
 ) -> Result<Json<AdapterVersionResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::AdapterList)?;
+    let version_id = crate::id_resolver::resolve_any_id(&state.db, &version_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     let version = state
         .db
@@ -1221,6 +1239,7 @@ pub async fn promote_adapter_version_handler(
     Extension(claims): Extension<Claims>,
     Path(adapter_id): Path<String>,
 ) -> ApiResult<AdapterResponse> {
+    let adapter_id = crate::id_resolver::resolve_any_id(&state.db, &adapter_id).await?;
     let adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;
 
     let (total, selected, avg_gate) = state

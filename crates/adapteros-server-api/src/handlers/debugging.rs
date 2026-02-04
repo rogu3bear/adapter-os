@@ -15,7 +15,6 @@ use axum::{
 use chrono::Utc;
 use sqlx::Row;
 use std::collections::HashMap;
-use uuid::Uuid;
 
 fn is_missing_table_error(error: &sqlx::Error) -> bool {
     error.to_string().contains("no such table")
@@ -82,6 +81,9 @@ pub async fn list_process_logs(
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<Vec<ProcessLogResponse>>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+    let worker_id = crate::id_resolver::resolve_any_id(&state.db, &worker_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
     ensure_worker_access(&state, &claims, &worker_id).await?;
 
     let level_filter = match params.get("level") {
@@ -172,6 +174,9 @@ pub async fn list_process_crashes(
     Path(worker_id): Path<String>,
 ) -> Result<Json<Vec<ProcessCrashDumpResponse>>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+    let worker_id = crate::id_resolver::resolve_any_id(&state.db, &worker_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
     ensure_worker_access(&state, &claims, &worker_id).await?;
 
     let rows = match sqlx::query(
@@ -237,8 +242,14 @@ pub async fn start_debug_session(
     Json(req): Json<StartDebugSessionRequest>,
 ) -> Result<Json<ProcessDebugSessionResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+    let worker_id = crate::id_resolver::resolve_any_id(&state.db, &worker_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+    let request_worker_id = crate::id_resolver::resolve_any_id(&state.db, &req.worker_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
-    if req.worker_id != worker_id {
+    if request_worker_id != worker_id {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(
@@ -265,7 +276,8 @@ pub async fn start_debug_session(
 
     ensure_worker_access(&state, &claims, &worker_id).await?;
 
-    let session_id = Uuid::now_v7().to_string();
+    let session_id =
+        crate::id_generator::readable_id(adapteros_core::ids::IdKind::Session, "debug");
     let now = Utc::now().to_rfc3339();
 
     sqlx::query(
@@ -334,8 +346,14 @@ pub async fn run_troubleshooting_step(
     Json(req): Json<RunTroubleshootingStepRequest>,
 ) -> Result<Json<ProcessTroubleshootingStepResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
+    let worker_id = crate::id_resolver::resolve_any_id(&state.db, &worker_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+    let request_worker_id = crate::id_resolver::resolve_any_id(&state.db, &req.worker_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
-    if req.worker_id != worker_id {
+    if request_worker_id != worker_id {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(
@@ -362,7 +380,7 @@ pub async fn run_troubleshooting_step(
 
     ensure_worker_access(&state, &claims, &worker_id).await?;
 
-    let step_id = Uuid::now_v7().to_string();
+    let step_id = crate::id_generator::readable_id(adapteros_core::ids::IdKind::Run, "step");
     let now = Utc::now().to_rfc3339();
 
     sqlx::query(

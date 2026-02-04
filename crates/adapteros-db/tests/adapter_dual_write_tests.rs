@@ -8,6 +8,7 @@ use adapteros_db::adapters::{Adapter, AdapterRegistrationBuilder};
 use adapteros_db::{Db, ProtectedDb, StorageMode, WriteCapableDb};
 use adapteros_storage::repos::adapter::AdapterRepository;
 use tempfile::TempDir;
+use tokio::sync::watch;
 
 fn new_test_tempdir() -> TempDir {
     TempDir::with_prefix("aos-test-")
@@ -31,6 +32,9 @@ async fn create_dual_write_db() -> (ProtectedDb, TempDir, TempDir) {
 
     // Initialize KV backend
     db.init_kv_backend(&kv_path).unwrap();
+
+    // Tests in this module assume best-effort dual-write unless explicitly set to strict.
+    db.set_atomic_dual_write_config(adapteros_db::adapters::AtomicDualWriteConfig::best_effort());
 
     // Set to DualWrite mode
     db.set_storage_mode(StorageMode::DualWrite).unwrap();
@@ -396,6 +400,7 @@ async fn test_delete_race_condition_no_stale_kv_data() {
     assert!(adapter_exists_in_kv(&db, "default-tenant", "race-delete-test").await);
 
     // Spawn concurrent reads while delete is in progress
+    let (delete_tx, mut delete_rx) = watch::channel(false);
     let db_clone = db.clone();
     let read_handle = tokio::spawn(async move {
         // Read multiple times during delete operation
@@ -405,6 +410,10 @@ async fn test_delete_race_condition_no_stale_kv_data() {
             reads.push(adapter.is_some());
             tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
         }
+        // Ensure we capture a read after delete completes.
+        let _ = delete_rx.changed().await;
+        let adapter = db_clone.get_adapter("race-delete-test").await.unwrap();
+        reads.push(adapter.is_some());
         reads
     });
 
@@ -414,6 +423,7 @@ async fn test_delete_race_condition_no_stale_kv_data() {
     // Delete adapter (KV first, then SQL - fixed order)
     let write_db = write_db(&db);
     write_db.delete_adapter(&adapter_uuid).await.unwrap();
+    let _ = delete_tx.send(true);
 
     // Wait for reads to complete
     let read_results = read_handle.await.unwrap();
@@ -476,6 +486,9 @@ async fn test_delete_strict_mode_aborts_on_kv_failure() {
 
     // Detach KV backend to simulate KV failure
     db.detach_kv_backend().unwrap();
+    // Restore strict mode to simulate KV failure during KV-primary operation.
+    db.set_storage_mode(adapteros_db::StorageMode::KvPrimary)
+        .unwrap();
 
     // Attempt delete - should fail in strict mode
     let write_db = write_db(&db);
@@ -526,6 +539,9 @@ async fn test_delete_non_strict_mode_continues_on_kv_failure() {
 
     // Detach KV backend to simulate KV failure
     db.detach_kv_backend().unwrap();
+    // Restore dual-write mode to simulate KV failure during dual-write operation.
+    db.set_storage_mode(adapteros_db::StorageMode::DualWrite)
+        .unwrap();
 
     // Delete should succeed in non-strict mode (SQL delete continues)
     let write_db = write_db(&db);

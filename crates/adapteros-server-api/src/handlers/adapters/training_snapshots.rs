@@ -48,6 +48,7 @@ pub async fn get_adapter_training_snapshot(
 ) -> ApiResult<AdapterTrainingSnapshot> {
     // Permission check
     require_permission(&claims, Permission::AdapterView)?;
+    let adapter_id = crate::id_resolver::resolve_any_id(&state.db, &adapter_id).await?;
 
     // CRITICAL: Fetch adapter with tenant isolation validation to prevent cross-tenant access
     let _adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;
@@ -103,6 +104,7 @@ pub async fn export_training_provenance(
 
     // Permission check
     require_permission(&claims, Permission::AdapterView)?;
+    let adapter_id = crate::id_resolver::resolve_any_id(&state.db, &adapter_id).await?;
 
     // Get adapter details with tenant isolation validation
     let adapter = fetch_adapter_for_tenant(&state.db, &claims, &adapter_id).await?;

@@ -6,7 +6,6 @@ use adapteros_db::Db;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
-use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct IpAccessRule {
@@ -150,7 +149,7 @@ pub async fn add_ip_rule(
     reason: Option<&str>,
     expires_at: Option<&str>,
 ) -> Result<String> {
-    let id = Uuid::now_v7().to_string();
+    let id = crate::id_generator::readable_id(adapteros_core::ids::IdKind::Policy, "ip");
     let created_at = Utc::now().to_rfc3339();
 
     if list_type != "allow" && list_type != "deny" {

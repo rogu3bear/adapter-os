@@ -249,7 +249,7 @@ fn test_model_cache_dir_default() {
 
     assert_eq!(
         cache_dir,
-        std::path::PathBuf::from(DEFAULT_MODEL_CACHE_ROOT),
+        adapteros_core::rebase_var_path(DEFAULT_MODEL_CACHE_ROOT),
         "Model cache dir should match canonical default"
     );
 }

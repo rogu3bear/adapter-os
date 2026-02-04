@@ -203,6 +203,9 @@ pub async fn mark_notification_read(
     Path(notification_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::NotificationManage)?;
+    let notification_id = crate::id_resolver::resolve_any_id(&state.db, &notification_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Verify notification belongs to user
     let notification = state

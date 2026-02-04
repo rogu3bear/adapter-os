@@ -1,8 +1,6 @@
 //! Request types for API endpoints.
 
-use adapteros_api_types::{
-    CreateTrainingJobRequest, InferRequest, TrainingConfigRequest,
-};
+use adapteros_api_types::{CreateTrainingJobRequest, InferRequest, TrainingConfigRequest};
 use adapteros_core::{determinism::DeterminismContext, BackendKind, SeedMode};
 use adapteros_types::adapters::metadata::RoutingDeterminismMode;
 use serde::{Deserialize, Serialize};
@@ -276,6 +274,9 @@ pub struct WorkerInferRequest {
     /// Stack version for telemetry correlation
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stack_version: Option<i64>,
+    /// Execution policy ID for audit/trace binding
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_id: Option<String>,
     /// Domain hint used for routing/package selection
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub domain_hint: Option<String>,

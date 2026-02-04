@@ -1674,6 +1674,20 @@ impl MlxImplementation {
 
 static MLX_IMPLEMENTATION: OnceLock<Mutex<Option<MlxImplementation>>> = OnceLock::new();
 static MLX_INITIALIZED: AtomicBool = AtomicBool::new(false);
+static MLX_INIT_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+
+static MLX_TEST_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+
+pub(crate) fn mlx_test_lock() -> std::sync::MutexGuard<'static, ()> {
+    MLX_TEST_LOCK
+        .get_or_init(|| std::sync::Mutex::new(()))
+        .lock()
+        .expect("MLX test lock poisoned")
+}
+
+pub fn mlx_test_lock_guard() -> std::sync::MutexGuard<'static, ()> {
+    mlx_test_lock()
+}
 
 fn mlx_impl_slot() -> &'static Mutex<Option<MlxImplementation>> {
     MLX_IMPLEMENTATION.get_or_init(|| Mutex::new(None))
@@ -1702,6 +1716,64 @@ fn mlx_impl_override() -> Result<Option<MlxImplementation>> {
             "Invalid AOS_MLX_IMPL '{}'; expected 'auto' or 'ffi'",
             value
         ))),
+    }
+}
+
+fn mlx_test_device_override() -> Option<MlxDeviceType> {
+    let raw = match std::env::var("AOS_MLX_TEST_DEVICE") {
+        Ok(value) => value,
+        Err(std::env::VarError::NotPresent) => return None,
+        Err(err) => {
+            tracing::warn!("Failed to read AOS_MLX_TEST_DEVICE: {}", err);
+            return None;
+        }
+    };
+
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "cpu" => Some(MlxDeviceType::Cpu),
+        "gpu" => Some(MlxDeviceType::Gpu),
+        "ane" => Some(MlxDeviceType::Ane),
+        "auto" => Some(MlxDeviceType::Auto),
+        "" => None,
+        other => {
+            tracing::warn!(
+                "Ignoring invalid AOS_MLX_TEST_DEVICE '{}'; expected cpu|gpu|ane|auto",
+                other
+            );
+            None
+        }
+    }
+}
+
+fn resolve_mlx_runtime_device(device: Option<MlxDeviceType>) -> Option<MlxDeviceType> {
+    if device.is_some() {
+        return device;
+    }
+
+    if let Some(override_device) = mlx_test_device_override() {
+        return Some(override_device);
+    }
+
+    if cfg!(test) {
+        return Some(MlxDeviceType::Cpu);
+    }
+
+    None
+}
+
+pub(crate) fn mlx_test_auto_init() {
+    if MLX_INITIALIZED.load(Ordering::SeqCst) || MLX_INIT_IN_PROGRESS.load(Ordering::SeqCst) {
+        return;
+    }
+
+    let override_device = match mlx_test_device_override() {
+        Some(device) => Some(device),
+        None if cfg!(test) => Some(MlxDeviceType::Cpu),
+        None => None,
+    };
+
+    if let Some(device) = override_device {
+        let _ = mlx_runtime_init_internal_ffi(Some(device));
     }
 }
 
@@ -1865,8 +1937,20 @@ fn mlx_runtime_init_internal_ffi(device: Option<MlxDeviceType>) -> Result<()> {
         return Ok(());
     }
 
+    struct InitGuard;
+    impl Drop for InitGuard {
+        fn drop(&mut self) {
+            MLX_INIT_IN_PROGRESS.store(false, Ordering::SeqCst);
+        }
+    }
+
+    MLX_INIT_IN_PROGRESS.store(true, Ordering::SeqCst);
+    let _guard = InitGuard;
+
     // Clear FFI error state before initialization
     ffi_error::clear_ffi_error();
+
+    let device = resolve_mlx_runtime_device(device);
 
     // Call appropriate initialization function
     let result = unsafe {
@@ -1879,6 +1963,12 @@ fn mlx_runtime_init_internal_ffi(device: Option<MlxDeviceType>) -> Result<()> {
     // Check result and handle errors using ffi_error helpers
     if result == 0 {
         MLX_INITIALIZED.store(true, Ordering::SeqCst);
+        if let Some(dev) = device {
+            let set_result = unsafe { mlx_set_device(dev as i32) };
+            if set_result != 0 {
+                tracing::warn!(?dev, "MLX set device returned error after init");
+            }
+        }
         match device {
             None => tracing::info!("MLX runtime initialized successfully"),
             Some(dev) => tracing::info!(?dev, "MLX runtime initialized with specific device"),

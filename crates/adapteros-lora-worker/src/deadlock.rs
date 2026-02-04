@@ -5,6 +5,7 @@
 
 use adapteros_core::Result;
 use std::collections::HashMap;
+use std::process::Command;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
@@ -141,10 +142,7 @@ impl DeadlockDetector {
             *recovery = true;
         }
 
-        error!(
-            lock_id = %lock_id,
-            "Deadlock detected - automatic recovery not implemented"
-        );
+        error!(lock_id = %lock_id, "Deadlock detected - initiating recovery");
 
         // Increment deadlock count for metrics
         {
@@ -152,28 +150,16 @@ impl DeadlockDetector {
             *count += 1;
         }
 
-        // Mark recovery as complete (detection succeeded, but recovery failed)
-        {
-            let mut recovery = self.recovery_in_progress.lock().await;
-            *recovery = false;
+        if let Some(url) = supervisor_base_url() {
+            if let Err(e) = trigger_supervisor_restart(&url).await {
+                warn!(error = %e, "Supervisor restart attempt failed");
+            }
+        } else {
+            warn!("Supervisor not configured (SUPERVISOR_API_URL/AOS_PANEL_PORT missing)");
         }
 
-        // Real deadlock recovery would require:
-        // 1. Force release the problematic lock (unsafe - requires FFI or OS APIs)
-        // 2. Restart the affected component (requires process management)
-        // 3. Validate system state after recovery
-        // 4. Log incident for analysis with full stack traces
-        //
-        // Without these capabilities, deadlocks must be prevented via:
-        // - Lock ordering protocols
-        // - Timeout-based lock acquisition
-        // - Avoiding nested locks
-
-        Err(adapteros_core::AosError::Kernel(format!(
-            "Deadlock detected on lock '{}' but automatic recovery is not implemented. \
-             Manual intervention required - restart the affected worker process.",
-            lock_id
-        )))
+        warn!("Exiting worker to allow supervisor restart");
+        std::process::exit(1);
     }
 
     pub async fn record_lock_acquisition(&self, lock_id: String, thread_id: u64) {
@@ -211,6 +197,72 @@ impl DeadlockDetector {
     }
 }
 
+fn supervisor_base_url() -> Option<String> {
+    std::env::var("SUPERVISOR_API_URL").ok().or_else(|| {
+        std::env::var("AOS_PANEL_PORT")
+            .ok()
+            .map(|port| format!("http://127.0.0.1:{}", port))
+    })
+}
+
+fn supervisor_service_id() -> Option<String> {
+    std::env::var("AOS_SUPERVISOR_SERVICE_ID")
+        .ok()
+        .or_else(|| std::env::var("WORKER_ID").ok())
+}
+
+fn supervisor_token() -> Option<String> {
+    std::env::var("SUPERVISOR_API_TOKEN")
+        .ok()
+        .or_else(|| std::env::var("AOS_PANEL_TOKEN").ok())
+}
+
+async fn trigger_supervisor_restart(base_url: &str) -> Result<()> {
+    let Some(service_id) = supervisor_service_id() else {
+        return Err(adapteros_core::AosError::Config(
+            "Supervisor service ID not configured (AOS_SUPERVISOR_SERVICE_ID/WORKER_ID)"
+                .to_string(),
+        ));
+    };
+
+    let token = supervisor_token().ok_or_else(|| {
+        adapteros_core::AosError::Config(
+            "Supervisor API token not configured (SUPERVISOR_API_TOKEN/AOS_PANEL_TOKEN)"
+                .to_string(),
+        )
+    })?;
+
+    let url = format!("{}/v1/services/restart", base_url);
+    let payload = format!("{{\"service_id\":\"{}\"}}", service_id);
+
+    let status = tokio::task::spawn_blocking(move || {
+        Command::new("curl")
+            .arg("-s")
+            .arg("-X")
+            .arg("POST")
+            .arg(&url)
+            .arg("-H")
+            .arg(format!("Authorization: Bearer {}", token))
+            .arg("-H")
+            .arg("Content-Type: application/json")
+            .arg("-d")
+            .arg(payload)
+            .status()
+    })
+    .await
+    .map_err(|e| adapteros_core::AosError::Io(format!("Failed to run curl: {}", e)))?
+    .map_err(|e| adapteros_core::AosError::Io(format!("curl failed: {}", e)))?;
+
+    if !status.success() {
+        return Err(adapteros_core::AosError::Network(format!(
+            "Supervisor restart failed with status {}",
+            status
+        )));
+    }
+
+    Ok(())
+}
+
 /// Deadlock event for telemetry
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct DeadlockEvent {
@@ -238,7 +290,7 @@ impl DeadlockEvent {
             total_deadlocks,
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .expect("System time before UNIX epoch")
+                .unwrap_or(std::time::Duration::ZERO)
                 .as_secs(),
         }
     }

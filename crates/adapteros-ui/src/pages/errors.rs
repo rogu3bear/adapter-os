@@ -4,9 +4,9 @@
 //! Uses SSE for real-time error streaming via `/v1/stream/client-errors`.
 
 use crate::api::{
-    use_sse_json, ApiClient, CreateErrorAlertRuleRequest, ErrorAlertHistoryListResponse,
-    ErrorAlertHistoryResponse, ErrorAlertRuleResponse, ProcessCrashDumpResponse, SseState,
-    UpdateErrorAlertRuleRequest,
+    report_error_with_toast, use_sse_json, ApiClient, CreateErrorAlertRuleRequest,
+    ErrorAlertHistoryListResponse, ErrorAlertHistoryResponse, ErrorAlertRuleResponse,
+    ProcessCrashDumpResponse, SseState, UpdateErrorAlertRuleRequest,
 };
 use crate::components::{
     AsyncBoundary, Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, Dialog,
@@ -1046,7 +1046,12 @@ fn AlertRuleRow(rule: ErrorAlertRuleResponse, on_update: Callback<()>) -> impl I
             match client.update_error_alert_rule(&id, &request).await {
                 Ok(_) => on_update.run(()),
                 Err(e) => {
-                    web_sys::console::error_1(&format!("Failed to toggle rule: {}", e).into());
+                    report_error_with_toast(
+                        &e,
+                        "Failed to toggle alert rule",
+                        Some("/errors"),
+                        true,
+                    );
                 }
             }
             set_toggling.set(false);
@@ -1062,7 +1067,12 @@ fn AlertRuleRow(rule: ErrorAlertRuleResponse, on_update: Callback<()>) -> impl I
             match client.delete_error_alert_rule(&id).await {
                 Ok(_) => on_update.run(()),
                 Err(e) => {
-                    web_sys::console::error_1(&format!("Failed to delete rule: {}", e).into());
+                    report_error_with_toast(
+                        &e,
+                        "Failed to delete alert rule",
+                        Some("/errors"),
+                        true,
+                    );
                 }
             }
             set_deleting.set(false);

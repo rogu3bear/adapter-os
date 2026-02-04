@@ -20,6 +20,7 @@ use crate::lifecycle_state::LifecycleState;
 use adapteros_core::{
     adapter_fs_path_with_root,
     adapter_store::{AdapterCacheKey, AdapterRecord, AdapterStore},
+    compute_stack_hash,
     constants::BYTES_PER_MB,
     identity::IdentityEnvelope,
     AosError, B3Hash, RepoAdapterPaths, Result,
@@ -1344,12 +1345,10 @@ impl AdapterTable {
 
     pub fn current_stack_hash(&self) -> B3Hash {
         let active = self.active.read();
-        let mut data = Vec::new();
-        for (id, state) in active.iter() {
-            data.extend_from_slice(id.as_bytes());
-            data.extend_from_slice(&state.hash.to_bytes());
-        }
-        B3Hash::hash(&data)
+        let adapters = active
+            .iter()
+            .map(|(id, state)| (id.clone(), state.hash.clone()));
+        compute_stack_hash(adapters)
     }
 
     pub fn get_current_stack_generation(&self) -> usize {

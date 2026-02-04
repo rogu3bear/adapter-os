@@ -48,7 +48,7 @@ jobs:
           cargo build -p adapteros-db --bin migrate 2>/dev/null || true
           mkdir -p var
 
-      - name: Run integration tests (Team 1: Backend Infrastructure)
+      - name: "Run integration tests (Team 1: Backend Infrastructure)"
         run: |
           cargo test --test team_1_backend_infrastructure \
             --release \
@@ -57,7 +57,7 @@ jobs:
             -- --test-threads=2 --nocapture
         continue-on-error: false
 
-      - name: Run integration tests (Team 2: API Integration)
+      - name: "Run integration tests (Team 2: API Integration)"
         run: |
           cargo test --test team_2_api_integration \
             --release \
@@ -66,7 +66,7 @@ jobs:
             -- --test-threads=2 --nocapture
         continue-on-error: false
 
-      - name: Run integration tests (Team 3: Inference Pipeline)
+      - name: "Run integration tests (Team 3: Inference Pipeline)"
         run: |
           cargo test --test team_3_inference_pipeline \
             --release \
@@ -75,7 +75,7 @@ jobs:
             -- --test-threads=2 --nocapture
         continue-on-error: true
 
-      - name: Run integration tests (Team 4: Training & ML)
+      - name: "Run integration tests (Team 4: Training & ML)"
         run: |
           cargo test --test team_4_training_ml \
             --release \
@@ -84,7 +84,7 @@ jobs:
             -- --test-threads=2 --nocapture
         continue-on-error: true
 
-      - name: Run integration tests (Team 5: Security & Compliance)
+      - name: "Run integration tests (Team 5: Security & Compliance)"
         run: |
           cargo test --test team_5_security_compliance \
             --release \
@@ -100,91 +100,9 @@ jobs:
             -- --test-threads=2 --nocapture
         continue-on-error: false
 
-  coverage:
-    name: Code Coverage
-    runs-on: macos-latest
-    timeout-minutes: 60
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
-
-      - name: Install tarpaulin
-        run: cargo install cargo-tarpaulin
-
-      - name: Install Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Generate coverage report
-        run: |
-          cargo tarpaulin \
-            --test \
-            --out Html \
-            --out Cobertura \
-            --output-dir coverage \
-            --timeout 600 \
-            --exclude-files tests/* \
-            --ignore-panics \
-            --ignore-timeouts
-        continue-on-error: true
-
-      - name: Generate coverage JSON and check thresholds
-        run: |
-          # Generate JSON to stdout and save to file
-          cargo tarpaulin \
-            --test \
-            --out stdout \
-            --format json \
-            --timeout 600 \
-            --exclude-files tests/* \
-            --ignore-panics \
-            --ignore-timeouts > coverage.json 2>&1 || true
-          
-          # Check if coverage.json was created and has content
-          if [ ! -f coverage.json ] || [ ! -s coverage.json ]; then
-            echo "Warning: Coverage JSON generation failed or produced empty file"
-            echo "Skipping threshold check"
-            exit 0
-          fi
-          
-          # Validate JSON format
-          if ! python3 -m json.tool coverage.json > /dev/null 2>&1; then
-            echo "Error: Invalid JSON in coverage.json"
-            cat coverage.json
-            exit 1
-          fi
-          
-          # Check coverage thresholds
-          python3 scripts/check_coverage.py --report coverage.json --output coverage-report.md
-        continue-on-error: false
-
-      - name: Upload coverage artifacts
-        uses: actions/upload-artifact@v3
-        with:
-          name: coverage-report
-          path: |
-            coverage/
-            coverage.json
-            coverage-report.md
-        if: always()
-
-      - name: Upload to Codecov
-        uses: codecov/codecov-action@v4
-        with:
-          files: ./coverage/cobertura.xml
-          flags: unittests
-          fail_ci_if_error: false
-          token: ${{ secrets.CODECOV_TOKEN }}
-          name: adapteros-coverage
-          verbose: true
-        if: always() && (success() || failure())
+  # NOTE: Coverage job moved to ci.yml (runs on main push only)
+  # The integration-tests.yml path filters caused coverage to rarely run.
+  # See ci.yml for the new coverage job targeting critical crates.
 
   lint:
     name: Linting & Formatting
@@ -261,7 +179,7 @@ jobs:
   summary:
     name: Test Summary
     runs-on: macos-latest
-    needs: [integration-tests, coverage, lint, database-schema]
+    needs: [integration-tests, lint, database-schema]
     if: always()
 
     steps:
@@ -283,14 +201,14 @@ jobs:
         run: |
           echo "## Integration Test Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✓ Team 1: Backend Infrastructure" >> $GITHUB_STEP_SUMMARY
-          echo "✓ Team 2: API Integration" >> $GITHUB_STEP_SUMMARY
-          echo "✓ Database Schema Validation" >> $GITHUB_STEP_SUMMARY
-          echo "✓ Code Linting & Formatting" >> $GITHUB_STEP_SUMMARY
+          echo "Team 1: Backend Infrastructure" >> $GITHUB_STEP_SUMMARY
+          echo "Team 2: API Integration" >> $GITHUB_STEP_SUMMARY
+          echo "Database Schema Validation" >> $GITHUB_STEP_SUMMARY
+          echo "Code Linting & Formatting" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "📊 Coverage reports available in artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "Note: Coverage reports are generated in ci.yml (main branch only)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          
+
           # Append test metrics if available
           if [ -f var/test-metrics.md ]; then
             echo "## Test Metrics" >> $GITHUB_STEP_SUMMARY

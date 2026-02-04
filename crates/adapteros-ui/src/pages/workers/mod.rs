@@ -9,7 +9,7 @@ mod utils;
 
 use crate::api::ApiClient;
 use crate::components::{
-    BreadcrumbItem, BreadcrumbTrail, Button, ButtonVariant, ErrorDisplay, Spinner,
+    BreadcrumbItem, BreadcrumbTrail, Button, ButtonVariant, ErrorDisplay, LoadingDisplay,
 };
 use crate::hooks::{use_api_resource, use_polling, LoadingState};
 use adapteros_api_types::SpawnWorkerRequest;
@@ -18,7 +18,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::components::{IconPlus, IconRefresh, IconX};
-use components::{WorkerDetailPanel, WorkerDetailView, WorkersList, WorkersSummary};
+use components::{
+    WorkerDetailPanel, WorkerDetailView, WorkerHealthSummaryPanel, WorkersList, WorkersSummary,
+};
 use dialogs::{PlanOption, SpawnWorkerDialog};
 use utils::{WorkerHealthRecord, WorkerHealthSummary};
 
@@ -67,7 +69,7 @@ pub fn Workers() -> impl IntoView {
     });
 
     view! {
-        <div class="p-6 space-y-6">
+        <div class="shell-page space-y-6">
             // Header with title and actions
             <div class="flex items-center justify-between">
                 <div>
@@ -123,7 +125,8 @@ pub fn Workers() -> impl IntoView {
                     LoadingState::Loaded(p) => p,
                     _ => Vec::new(),
                 };
-                let health_map: HashMap<String, WorkerHealthRecord> = match worker_health.get() {
+                let health_state = worker_health.get();
+                let health_map: HashMap<String, WorkerHealthRecord> = match &health_state {
                     LoadingState::Loaded(ref summary) => summary
                         .workers
                         .iter()
@@ -136,13 +139,11 @@ pub fn Workers() -> impl IntoView {
                 match workers_state {
                     LoadingState::Idle | LoadingState::Loading => {
                         view! {
-                            <div class="flex items-center justify-center py-12">
-                                <Spinner/>
-                            </div>
+                            <LoadingDisplay message="Loading workers..."/>
                         }.into_any()
                     }
                     LoadingState::Loaded(workers_data) => {
-                        let health_summary = match worker_health.get() {
+                        let health_summary = match &health_state {
                             LoadingState::Loaded(ref summary) => Some(summary.clone()),
                             _ => None,
                         };
@@ -151,6 +152,12 @@ pub fn Workers() -> impl IntoView {
                             <WorkersSummary
                                 workers=workers_data.clone()
                                 health_summary=health_summary
+                            />
+
+                            // Health summary panel
+                            <WorkerHealthSummaryPanel
+                                health_state=health_state
+                                on_retry=Callback::new(move |_| refetch_worker_health.run(()))
                             />
 
                             // Workers list
@@ -196,6 +203,7 @@ pub fn Workers() -> impl IntoView {
                                         });
                                     }
                                 })
+                                on_spawn=Callback::new(move |_| show_spawn_dialog.set(true))
                             />
 
                             // Worker detail panel
@@ -277,12 +285,9 @@ pub fn WorkerDetail() -> impl IntoView {
         }
     });
 
-    // Set up polling for metrics
-    Effect::new(move |_| {
-        let interval_handle = gloo_timers::callback::Interval::new(3_000, move || {
-            refetch_metrics.run(());
-        });
-        std::mem::forget(interval_handle);
+    // Set up polling for metrics with proper cleanup
+    let _ = use_polling(3_000, move || async move {
+        refetch_metrics.run(());
     });
 
     view! {
@@ -300,9 +305,7 @@ pub fn WorkerDetail() -> impl IntoView {
                 match worker_state {
                     LoadingState::Idle | LoadingState::Loading => {
                         view! {
-                            <div class="flex items-center justify-center py-12">
-                                <Spinner/>
-                            </div>
+                            <LoadingDisplay message="Loading worker details..."/>
                         }.into_any()
                     }
                     LoadingState::Loaded(w) => {

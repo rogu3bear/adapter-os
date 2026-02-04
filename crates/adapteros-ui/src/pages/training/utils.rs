@@ -4,16 +4,8 @@
 
 use adapteros_api_types::TrainingBackendKind;
 
-/// Format a date string for display
-pub fn format_date(date_str: &str) -> String {
-    // Simple formatting - just show date and time
-    // In a real app, use a proper date library
-    if date_str.len() >= 16 {
-        format!("{} {}", &date_str[0..10], &date_str[11..16])
-    } else {
-        date_str.to_string()
-    }
-}
+// Re-export from canonical utils for backward compatibility
+pub use crate::utils::format_datetime as format_date;
 
 /// Format a large number with commas
 pub fn format_number(n: u64) -> String {

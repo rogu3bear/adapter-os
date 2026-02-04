@@ -152,6 +152,62 @@ pub static PAGES: &[PageDefinition] = &[
         "/repositories",
         &["git", "code", "codebase", "repo"],
     ),
+    PageDefinition::new(
+        "runs",
+        "Runs",
+        "Run provenance and trace viewer",
+        "/runs",
+        &["flight", "recorder", "traces", "provenance", "receipts"],
+    ),
+    PageDefinition::new(
+        "reviews",
+        "Reviews",
+        "Human-in-the-loop review queue",
+        "/reviews",
+        &["hitl", "approval", "pause", "queue", "moderation"],
+    ),
+    PageDefinition::new(
+        "routing",
+        "Routing",
+        "Adapter routing debug",
+        "/routing",
+        &["rules", "decisions", "k-sparse", "gates"],
+    ),
+    PageDefinition::new(
+        "diff",
+        "Diff",
+        "Compare diagnostic runs",
+        "/diff",
+        &["compare", "divergence", "determinism", "anchor"],
+    ),
+    PageDefinition::new(
+        "agents",
+        "Agents",
+        "Agent orchestration sessions",
+        "/agents",
+        &["orchestration", "multi-agent", "executor", "sessions"],
+    ),
+    PageDefinition::new(
+        "datasets",
+        "Datasets",
+        "Training dataset management",
+        "/datasets",
+        &["data", "training", "upload", "versions"],
+    ),
+    PageDefinition::new(
+        "monitoring",
+        "Monitoring",
+        "Process health and alerts",
+        "/monitoring",
+        &["alerts", "anomalies", "health", "metrics", "observability"],
+    ),
+    PageDefinition::new(
+        "errors",
+        "Errors",
+        "Real-time error monitoring",
+        "/errors",
+        &["incidents", "crashes", "live", "analysis", "alerts"],
+    ),
 ];
 
 /// Searchable action/command

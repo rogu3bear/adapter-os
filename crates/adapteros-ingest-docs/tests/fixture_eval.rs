@@ -6,7 +6,7 @@ use adapteros_ingest_docs::{
     TrainingStrategy,
 };
 use adapteros_retrieval::rag::{DocMetadata, TenantIndex};
-use std::collections::HashMap;
+use ahash::AHashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -121,7 +121,7 @@ struct FixtureRun {
 }
 
 fn tokenizer_from_fixtures(fixture_paths: &[PathBuf]) -> Result<Arc<Tokenizer>> {
-    let mut vocab: HashMap<String, u32> =
+    let mut vocab: AHashMap<String, u32> =
         [("[UNK]".to_string(), 0u32), ("[PAD]".to_string(), 1u32)]
             .into_iter()
             .collect();
@@ -154,7 +154,7 @@ fn tokenizer_from_fixtures(fixture_paths: &[PathBuf]) -> Result<Arc<Tokenizer>> 
         .map_err(|e| AosError::Validation(format!("Failed to build tokenizer: {e}")))?;
 
     let mut tokenizer = Tokenizer::new(model);
-    tokenizer.with_pre_tokenizer(Whitespace);
+    tokenizer.with_pre_tokenizer(Some(Whitespace));
     Ok(Arc::new(tokenizer))
 }
 
@@ -377,6 +377,10 @@ fn assert_training_data_equal(first: &TrainingData, second: &TrainingData) {
     for (a, b) in first.examples.iter().zip(second.examples.iter()) {
         assert_eq!(a.input_tokens, b.input_tokens);
         assert_eq!(a.target_tokens, b.target_tokens);
-        assert_eq!(a.metadata, b.metadata);
+        let mut left = a.metadata.clone();
+        let mut right = b.metadata.clone();
+        left.created_at_unix_ms = 0;
+        right.created_at_unix_ms = 0;
+        assert_eq!(left, right);
     }
 }

@@ -97,7 +97,10 @@ fn sample_delay_ms(cfg: &ChaosConfig) -> u64 {
 
     let seed = derived_seed_bytes(cfg);
     let rng = seeded_rng(seed);
-    let mut guard = rng.lock().expect("chaos rng poisoned");
+    let mut guard = rng.lock().unwrap_or_else(|poisoned| {
+        debug!("chaos rng mutex was poisoned, recovering inner value");
+        poisoned.into_inner()
+    });
     guard.gen_range(cfg.min_delay_ms..=cfg.max_delay_ms)
 }
 

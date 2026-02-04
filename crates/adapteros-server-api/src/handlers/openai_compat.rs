@@ -532,7 +532,7 @@ async fn chat_completions_non_streaming(
     let request_id_for_cache = request_id
         .as_ref()
         .map(|r| r.0 .0.clone())
-        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        .unwrap_or_else(crate::id_generator::readable_request_id);
 
     let infer_resp = match handlers::inference::infer(
         State(state.clone()),
@@ -978,7 +978,7 @@ async fn chat_completions_streaming(
     };
 
     // Generate request ID
-    let request_id = format!("chatcmpl_{}", uuid::Uuid::new_v4());
+    let request_id = crate::id_generator::readable_openai_chatcmpl_id();
     let model_name = req.model.clone().unwrap_or_else(|| "adapteros".to_string());
     let created = Utc::now().timestamp() as u64;
 

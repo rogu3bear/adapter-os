@@ -350,3 +350,7 @@ build/
 .mcp.json
 .worktrees/
 target-codex/
+
+# Accidental output files (from mistyped CLI flags)
+--output
+--*

@@ -127,12 +127,14 @@ fn write_adapter(dir: &Path, name: &str, base_id: &str, base_hash: B3Hash) -> B3
 
 /// Get current process RSS in bytes using sysinfo
 fn get_rss_bytes() -> u64 {
-    use sysinfo::{Pid, ProcessRefreshKind};
+    use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate};
 
     let mut sys = System::new();
     let pid = Pid::from_u32(std::process::id());
-    // sysinfo 0.30 API: refresh_processes_specifics takes ProcessRefreshKind
-    sys.refresh_processes_specifics(ProcessRefreshKind::new().with_memory());
+    sys.refresh_processes_specifics(
+        ProcessesToUpdate::Some(&[pid]),
+        ProcessRefreshKind::new().with_memory(),
+    );
 
     // Get current process memory (in bytes)
     sys.process(pid).map(|p| p.memory()).unwrap_or(0)

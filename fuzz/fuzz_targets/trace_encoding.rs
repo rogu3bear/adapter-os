@@ -38,6 +38,9 @@ fuzz_target!(|data: &[u8]| {
             tenant_id: "tenant-fuzz".to_string(),
             request_id: None,
             context_digest,
+            stack_id: None,
+            model_id: None,
+            policy_id: None,
         };
 
         let mut sink = SqlTraceSink::new(db.clone(), start, 8).await?;

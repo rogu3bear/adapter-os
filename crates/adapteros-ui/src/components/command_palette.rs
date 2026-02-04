@@ -109,6 +109,9 @@ pub fn CommandPalette() -> impl IntoView {
             <div
                 class="fixed left-1/2 top-1/4 -translate-x-1/2 z-50 w-full max-w-xl"
                 style="animation: slideDown 150ms ease-out"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Command palette"
             >
                 <div
                     class="mx-4 rounded-lg border bg-popover text-popover-foreground shadow-2xl overflow-hidden"
@@ -183,6 +186,7 @@ pub fn CommandPalette() -> impl IntoView {
                             type="text"
                             class="flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground"
                             placeholder="Search pages, adapters, actions..."
+                            aria-label="Search pages, adapters, and actions"
                             prop:value={
                                 let search = search_for_value.clone();
                                 move || search.query.get()
@@ -211,6 +215,7 @@ pub fn CommandPalette() -> impl IntoView {
                                 Some(view! {
                                     <button
                                         class="p-1 rounded hover:bg-muted text-muted-foreground"
+                                        aria-label="Clear search"
                                         on:click=move |_| {
                                             search.query.set(String::new());
                                             search.results.set(Vec::new());
@@ -223,6 +228,7 @@ pub fn CommandPalette() -> impl IntoView {
                                             viewBox="0 0 24 24"
                                             stroke="currentColor"
                                             stroke-width="2"
+                                            aria-hidden="true"
                                         >
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
                                         </svg>
@@ -325,9 +331,12 @@ fn RecentItemsList(
                 {items.into_iter().map(|item| {
                     let on_select = on_select.clone();
                     let item_clone = item.clone();
+                    let item_label = item.label.clone();
                     view! {
-                        <div
-                            class="flex items-center gap-3 px-3 py-2 mx-1 rounded-md hover:bg-muted/50 cursor-pointer"
+                        <button
+                            type="button"
+                            class="flex w-full items-center gap-3 px-3 py-2 mx-1 rounded-md hover:bg-muted/50 cursor-pointer text-left"
+                            aria-label={format!("Go to {}", item_label)}
                             on:click=move |_| {
                                 // Convert recent item to search result for selection
                                 let result = crate::search::SearchResult {
@@ -368,7 +377,7 @@ fn RecentItemsList(
                                     }
                                 })}
                             </div>
-                        </div>
+                        </button>
                     }
                 }).collect::<Vec<_>>()}
             </div>

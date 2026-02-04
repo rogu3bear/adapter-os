@@ -2,9 +2,9 @@
 
 Minimal guidance for deterministic builds and tests in AdapterOS.
 
-## Tasteful Default: Existing Code First
+## Default: Existing Code First
 
-Agents should assume the code already exists; new code is only tasteful when you have proof it does not.
+Agents should assume the code already exists; new code is only appropriate when you have proof it does not.
 
 ## Build And Test Commands
 

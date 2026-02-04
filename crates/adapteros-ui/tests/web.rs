@@ -6,6 +6,10 @@
 
 use adapteros_ui::api::{api_base_url, ApiClient, ApiError};
 use adapteros_ui::sse::parse_sse_event_with_info;
+use leptos::mount::mount_to;
+use leptos::prelude::IntoView;
+use leptos::{leptos_dom::helpers::document, view};
+use wasm_bindgen::JsCast;
 use wasm_bindgen_test::*;
 
 wasm_bindgen_test_configure!(run_in_browser);
@@ -172,14 +176,14 @@ fn test_api_error_display() {
 // Route/page smoke mounts
 // ============================================================================
 
-fn mount_component(id: &str, view: impl FnOnce() -> leptos::View + 'static) {
-    use leptos::leptos_dom::helpers::document;
-    let doc = document().expect("document");
+fn mount_component<V: IntoView + 'static>(id: &str, view_fn: impl FnOnce() -> V + 'static) {
+    let doc = document();
     let body = doc.body().expect("body");
     let container = doc.create_element("div").expect("create div");
     container.set_id(id);
+    let container: web_sys::HtmlElement = container.unchecked_into();
     body.append_child(&container).expect("append");
-    leptos::mount_to(&format!("#{id}"), move || view());
+    let _ = mount_to(container, move || view_fn());
 }
 
 #[wasm_bindgen_test]

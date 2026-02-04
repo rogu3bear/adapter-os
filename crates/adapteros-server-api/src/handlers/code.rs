@@ -206,6 +206,9 @@ pub async fn get_scan_status(
     Path(job_id): Path<String>,
 ) -> Result<Json<ScanJobStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::CodeView)?;
+    let job_id = crate::id_resolver::resolve_any_id(&state.db, &job_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     let job = state
         .db
@@ -376,6 +379,9 @@ pub async fn get_repository(
     Path(repo_id): Path<String>,
 ) -> Result<Json<RepositoryDetailResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::CodeView)?;
+    let repo_id = crate::id_resolver::resolve_any_id(&state.db, &repo_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     let tenant_id = claims.tenant_id.as_str();
 
@@ -452,7 +458,7 @@ pub async fn create_commit_delta(
         })?;
 
     // Create job ID
-    let job_id = uuid::Uuid::new_v4().to_string();
+    let job_id = crate::id_generator::readable_id(adapteros_core::ids::IdKind::Job, "code");
 
     // Spawn background task
     if let Some(ref code_job_manager) = state.code_job_manager {
@@ -562,7 +568,7 @@ pub async fn propose_patch(
                 .as_ref()
                 .map(|p| p.proposal_id.clone())
                 .unwrap_or_else(|| {
-                    uuid::Uuid::new_v7(uuid::Timestamp::now(uuid::NoContext)).to_string()
+                    crate::id_generator::readable_id(adapteros_core::ids::IdKind::Job, "code")
                 });
 
             let status = if worker_response.patch_proposal.is_some() {

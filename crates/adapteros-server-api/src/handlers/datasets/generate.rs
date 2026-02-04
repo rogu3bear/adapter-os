@@ -28,7 +28,6 @@ use axum::{
     Extension, Json,
 };
 use tracing::{debug, info, warn};
-use uuid::Uuid;
 
 use super::fs_utils::ensure_dirs;
 use super::hashing::{hash_dataset_manifest, hash_file, DatasetHashInput};
@@ -411,7 +410,15 @@ pub async fn generate_dataset_from_file(
     }
 
     // Write JSONL file
-    let dataset_id = Uuid::now_v7().to_string();
+    let dataset_slug = if !name.is_empty() {
+        name.as_str()
+    } else if !file_name.is_empty() {
+        file_name.as_str()
+    } else {
+        "generated"
+    };
+    let dataset_id =
+        crate::id_generator::readable_id(adapteros_core::ids::IdKind::Dataset, dataset_slug);
     let dataset_root =
         resolve_dataset_root(&state).map_err(|e| ApiError::internal(e.to_string()))?;
     let paths = DatasetPaths::new(dataset_root);

@@ -18,10 +18,46 @@ use adapteros_api_types::TRAINING_DATA_CONTRACT_VERSION;
 use gloo_file::futures::read_as_text;
 #[cfg(target_arch = "wasm32")]
 use gloo_file::Blob;
+
+fn readable_id(prefix: &str, slug_source: &str) -> String {
+    let slug = slugify(slug_source);
+    let suffix = random_suffix(6);
+    format!("{}.{}.{}", prefix, slug, suffix)
+}
+
+fn slugify(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut prev_dash = false;
+    for ch in input.chars() {
+        let lower = ch.to_ascii_lowercase();
+        if lower.is_ascii_alphanumeric() {
+            out.push(lower);
+            prev_dash = false;
+        } else if !prev_dash {
+            out.push('-');
+            prev_dash = true;
+        }
+    }
+    let trimmed = out.trim_matches('-').to_string();
+    if trimmed.is_empty() {
+        "item".to_string()
+    } else {
+        trimmed
+    }
+}
+
+fn random_suffix(len: usize) -> String {
+    const ALPHABET: &[u8; 32] = b"abcdefghijklmnopqrstuvwxyz234567";
+    let mut out = String::with_capacity(len);
+    for _ in 0..len {
+        let idx = (js_sys::Math::random() * 32.0).floor() as usize;
+        out.push(ALPHABET[idx] as char);
+    }
+    out
+}
 use leptos::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use send_wrapper::SendWrapper;
-use uuid::Uuid;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsCast;
 #[cfg(target_arch = "wasm32")]
@@ -542,7 +578,6 @@ pub fn DatasetUploadWizard(
         let manifest_preview = manifest_preview.clone();
         let parse_errors = parse_errors.clone();
         let refresh_preview = refresh_preview.clone();
-        let upload_limits = upload_limits;
         move |ev: web_sys::Event| {
             if let Some(input) = ev
                 .target()
@@ -592,7 +627,6 @@ pub fn DatasetUploadWizard(
         let parse_errors = parse_errors.clone();
         let refresh_preview = refresh_preview.clone();
         let mode = mode.clone();
-        let upload_limits = upload_limits;
         move |ev: web_sys::Event| {
             if let Some(input) = ev
                 .target()
@@ -793,7 +827,7 @@ pub fn DatasetUploadWizard(
     };
 
     let generate_idempotency_key = Callback::new(move |_| {
-        idempotency_key.set(Uuid::new_v4().to_string());
+        idempotency_key.set(readable_id("idem", "dataset"));
     });
 
     let dialog = move || -> AnyView {

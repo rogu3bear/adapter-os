@@ -82,6 +82,10 @@ pub async fn export_telemetry_bundle(
     Extension(claims): Extension<Claims>,
     Path(bundle_id): Path<String>,
 ) -> Result<Json<ExportTelemetryBundleResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let bundle_id = crate::id_resolver::resolve_any_id(&state.db, &bundle_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+
     let bundle = state
         .db
         .get_telemetry_bundle(&claims.tenant_id, &bundle_id)

@@ -45,6 +45,7 @@ pub async fn archive_session(
 ) -> Result<StatusCode, ApiError> {
     require_permission(&claims, Permission::InferenceExecute)
         .map_err(|_| ApiError::forbidden("Permission denied"))?;
+    let session_id = crate::id_resolver::resolve_any_id(&state.db, &session_id).await?;
 
     // Verify session belongs to tenant
     let session = state
@@ -90,6 +91,7 @@ pub async fn restore_session(
     // Admin-only: requires WorkspaceManage
     require_permission(&claims, Permission::WorkspaceManage)
         .map_err(|_| ApiError::forbidden("Permission denied - restore requires WorkspaceManage"))?;
+    let session_id = crate::id_resolver::resolve_any_id(&state.db, &session_id).await?;
 
     // Verify session belongs to tenant
     let session = state
@@ -136,6 +138,7 @@ pub async fn hard_delete_session(
     // Admin-only
     require_permission(&claims, Permission::WorkspaceManage)
         .map_err(|_| ApiError::forbidden("Permission denied - requires WorkspaceManage"))?;
+    let session_id = crate::id_resolver::resolve_any_id(&state.db, &session_id).await?;
 
     // Verify session belongs to tenant
     let session = state

@@ -6,9 +6,9 @@
 //! - Request ID pattern: Standard HTTP tracing practices
 //! - UUID generation: RFC 4122
 
+use crate::id_generator::readable_request_id;
 use axum::{extract::Request, http::HeaderValue, middleware::Next, response::Response};
 use tracing::{debug, Span};
-use uuid::Uuid;
 
 /// Request ID header name
 pub const REQUEST_ID_HEADER: &str = "X-Request-ID";
@@ -46,10 +46,7 @@ pub async fn request_id_middleware(mut request: Request, next: Next) -> Response
         .get(REQUEST_ID_HEADER)
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string())
-        .unwrap_or_else(|| {
-            // Generate new UUID
-            Uuid::new_v4().to_string()
-        });
+        .unwrap_or_else(readable_request_id);
 
     // Store in thread-local for handlers to access
     set_request_id(request_id.clone());
@@ -109,10 +106,10 @@ mod tests {
     }
 
     #[test]
-    fn test_uuid_generation() {
-        let id1 = Uuid::new_v4().to_string();
-        let id2 = Uuid::new_v4().to_string();
+    fn test_request_id_generation() {
+        let id1 = readable_request_id();
+        let id2 = readable_request_id();
         assert_ne!(id1, id2);
-        assert_eq!(id1.len(), 36); // UUID v4 format
+        assert!(id1.starts_with("req."));
     }
 }

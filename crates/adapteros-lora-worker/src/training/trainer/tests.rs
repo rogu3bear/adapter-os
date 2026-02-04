@@ -156,6 +156,7 @@ fn test_backend_candidates_priority_order_includes_coreml_first() {
         coreml: true,
         mlx: true,
         metal: true,
+        coreml_reason: None,
     };
 
     let candidates = trainer.build_backend_candidates(&availability).unwrap();
@@ -177,6 +178,7 @@ fn test_backend_candidates_preferred_fallback() {
         coreml: false,
         mlx: true,
         metal: false,
+        coreml_reason: None,
     };
 
     let candidates = trainer.build_backend_candidates(&availability).unwrap();
@@ -195,6 +197,7 @@ fn test_backend_policy_coreml_only_fails_without_coreml() {
         coreml: false,
         mlx: true,
         metal: true,
+        coreml_reason: None,
     };
 
     let result = trainer.build_backend_candidates(&availability);
@@ -213,6 +216,7 @@ fn test_backend_policy_coreml_else_fallback_uses_fallback() {
         coreml: false,
         mlx: true,
         metal: false,
+        coreml_reason: None,
     };
 
     let candidates = trainer.build_backend_candidates(&availability).unwrap();
@@ -231,6 +235,7 @@ fn test_coreml_preference_uses_coreml_when_available() {
         coreml: true,
         mlx: true,
         metal: true,
+        coreml_reason: None,
     };
 
     let candidates = trainer.build_backend_candidates(&availability).unwrap();
@@ -256,6 +261,7 @@ fn test_coreml_preference_falls_back_when_unavailable_and_fallback_provided() {
         coreml: false,
         mlx: true,
         metal: true,
+        coreml_reason: None,
     };
 
     let candidates = trainer.build_backend_candidates(&availability).unwrap();
@@ -283,6 +289,7 @@ fn test_backend_candidates_require_gpu_error_when_none() {
         coreml: false,
         mlx: false,
         metal: false,
+        coreml_reason: None,
     };
 
     assert!(trainer.build_backend_candidates(&availability).is_err());
@@ -579,6 +586,7 @@ fn test_backend_selection_priority() {
         coreml: false,
         mlx: false,
         metal: true,
+        coreml_reason: None,
     };
     let candidates = trainer.build_backend_candidates(&availability).unwrap();
     assert_eq!(candidates[0], TrainingBackend::Metal);
@@ -592,6 +600,7 @@ fn test_device_policy_prefers_coreml_first() {
         coreml: true,
         mlx: true,
         metal: true,
+        coreml_reason: None,
     };
 
     let candidates = trainer.build_backend_candidates(&availability).unwrap();

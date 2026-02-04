@@ -74,6 +74,48 @@ fn get_tenant_credentials(tenant: &str) -> Result<(u32, u32)> {
 use crate::output::OutputWriter;
 use crate::BackendType;
 
+#[cfg(all(target_os = "macos", feature = "coreml-backend"))]
+fn coreml_runtime_telemetry() -> adapteros_lora_worker::CoremlRuntimeTelemetry {
+    use adapteros_lora_kernel_coreml::ComputeUnits;
+
+    let settings = adapteros_lora_worker::backend_factory::resolve_coreml_backend_settings();
+    let effective_units = if settings.production_mode {
+        ComputeUnits::CpuAndNeuralEngine
+    } else {
+        settings.compute_units
+    };
+
+    let compute_units = match effective_units {
+        ComputeUnits::CpuOnly => "cpu_only",
+        ComputeUnits::CpuAndGpu => "cpu_and_gpu",
+        ComputeUnits::CpuAndNeuralEngine => "cpu_and_neural_engine",
+        ComputeUnits::All => "all",
+    };
+
+    let gpu_used = settings.gpu_available
+        && matches!(effective_units, ComputeUnits::CpuAndGpu | ComputeUnits::All);
+    let ane_used = settings.ane_available
+        && matches!(
+            effective_units,
+            ComputeUnits::CpuAndNeuralEngine | ComputeUnits::All
+        );
+
+    adapteros_lora_worker::CoremlRuntimeTelemetry {
+        compute_preference: Some(settings.preference.to_string()),
+        compute_units: Some(compute_units.to_string()),
+        gpu_available: Some(settings.gpu_available),
+        ane_available: Some(settings.ane_available),
+        gpu_used: Some(gpu_used),
+        ane_used: Some(ane_used),
+        production_mode: Some(settings.production_mode),
+    }
+}
+
+#[cfg(not(all(target_os = "macos", feature = "coreml-backend")))]
+fn coreml_runtime_telemetry() -> adapteros_lora_worker::CoremlRuntimeTelemetry {
+    adapteros_lora_worker::CoremlRuntimeTelemetry::default()
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn run(
     tenant: &str,
@@ -339,21 +381,27 @@ pub async fn run(
         BackendType::CoreML => {
             output.verbose("Using CoreML backend (macOS Neural Engine)");
 
-            #[cfg(not(feature = "multi-backend"))]
+            #[cfg(target_os = "macos")]
             {
-                output.error("CoreML backend requires --features multi-backend");
-                output.info("Rebuild with: cargo build --features multi-backend");
-                return Err(anyhow::anyhow!(
-                    "CoreML backend not available in deterministic-only build"
-                ));
+                #[cfg(not(feature = "coreml-backend"))]
+                {
+                    output.error("CoreML backend requires --features coreml-backend");
+                    output.info("Rebuild with: cargo build --features coreml-backend");
+                    return Err(anyhow::anyhow!(
+                        "CoreML backend not available (coreml-backend feature disabled)"
+                    ));
+                }
+
+                #[cfg(feature = "coreml-backend")]
+                {
+                    adapteros_lora_worker::BackendChoice::CoreML
+                }
             }
 
-            #[cfg(feature = "multi-backend")]
+            #[cfg(not(target_os = "macos"))]
             {
-                // CoreML backend not yet implemented
-                output.error("CoreML backend not yet implemented");
-                output.info("Please use Metal or MLX backend instead");
-                return Err(anyhow::anyhow!("CoreML backend not implemented"));
+                output.error("CoreML backend requires macOS");
+                return Err(anyhow::anyhow!("CoreML backend requires macOS"));
             }
         }
     };
@@ -436,10 +484,16 @@ pub async fn run(
         BackendType::CoreML => adapteros_core::BackendKind::CoreML,
     };
 
+    let coreml_primary = if matches!(backend, BackendType::CoreML) {
+        Some(coreml_runtime_telemetry())
+    } else {
+        None
+    };
+
     let available_backends = adapteros_lora_worker::AvailableBackends {
         primary: backend_kind,
         fallback: None,
-        coreml_primary: None,
+        coreml_primary,
         coreml_fallback: None,
     };
 

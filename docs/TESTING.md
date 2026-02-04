@@ -33,6 +33,17 @@ adapterOS has a comprehensive test suite covering multiple layers:
 | `crates/*/tests/` | Crate-specific integration tests |
 | `crates/*/src/lib.rs` | Inline unit tests (via `#[cfg(test)]` modules) |
 
+### Test Coverage Scale
+
+| Metric | Count |
+|--------|-------|
+| Total `#[test]` functions | ~9,700+ |
+| Workspace-level test lines | 76,299 |
+| Determinism test files | 9 dedicated files (~75KB) |
+| Middleware tests | 116 tests across 15 files |
+| Dual-write failure tests | Uses `FailingKvBackend` mock for injection |
+| Chaos/soak tests | Network partition, packet loss, circuit breaker |
+
 ---
 
 ## Test Commands
@@ -498,6 +509,59 @@ set +a
 # Verify model files exist
 ls -lh models/
 ```
+
+---
+
+## UI Testing
+
+Playwright suites live in `tests/playwright`.
+
+### Setup
+
+```bash
+cd tests/playwright
+npm install
+npx playwright install
+export PLAYWRIGHT_BROWSERS_PATH=var/playwright/browsers
+export PW_TEST_TMPDIR=var/playwright/tmp
+```
+
+### Run
+
+```bash
+npm run test:ui
+npm run test:codegraph
+npm run test:minimal
+```
+
+Artifacts are stored under `var/playwright/`.
+Leptos UI runs the backend with a clean Playwright DB under `var/playwright/` and `E2E_MODE=1`.
+
+---
+
+## Primary Lane Perf Notes
+
+- **Streaming time to first token**: measured client-side when the first token arrives in SSE.
+- **Non-streaming completion**: measured client-side from request start to final response.
+- **Run detail load**: measured client-side when the initial trace detail call completes.
+- **Token decisions paging**: measured client-side per page fetch.
+- **Token decisions render cap**: UI only renders the last `TOKEN_DECISIONS_DOM_CAP` entries.
+- **Trace token paging**: UI trace detail applies a default page size; public trace detail is uncapped unless `tokens_limit` is provided.
+- **Token paging index**: runtime index check ensures `(trace_id, token_index)` is indexed for paging.
+
+These measurements are gated by the existing telemetry overlay setting to avoid noisy defaults.
+
+---
+
+## Hang Audit
+
+- **Migration lock timeouts in integration tests**: caused by concurrent migrations in debug builds.
+  - **Fix**: serialize migrations in debug builds via a shared migration lock to prevent contention.
+- **In-memory DB tests hanging**: caused by double-locking the migration mutex during `new_in_memory` -> `migrate`.
+  - **Fix**: lock only in `migrate` to avoid re-entrant deadlock.
+- **Playwright boot readiness waits**: moved to explicit boot progress and readiness checks to avoid indefinite waits.
+- **MLX FFI Metal command buffer abort in unit tests**: default GPU device caused `commit an already committed command buffer` under parallel tests.
+  - **Fix**: auto-init MLX tests on CPU and initialize CPU explicitly in MLX integration tests.
 
 ---
 

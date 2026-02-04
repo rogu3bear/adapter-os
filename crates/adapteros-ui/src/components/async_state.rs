@@ -118,7 +118,7 @@ fn is_copyable_error(error: &ApiError) -> bool {
                 status: 500..=599,
                 ..
             }
-    ) || matches!(error, ApiError::Structured { .. } if error.code().map_or(false, |c| c.starts_with("5") || c.contains("SERVER") || c.contains("INTERNAL")))
+    ) || matches!(error, ApiError::Structured { .. } if error.code().is_some_and(|c| c.starts_with("5") || c.contains("SERVER") || c.contains("INTERNAL")))
 }
 
 /// Build a sanitized error payload for clipboard copy
@@ -136,11 +136,9 @@ fn build_error_payload(error: &ApiError) -> String {
         payload.push_str(&format!("Failure Code: {}\n", fc.as_str()));
     }
 
-    if let ApiError::Structured { details, .. } = error {
-        if let Some(d) = details {
-            if let Ok(json) = serde_json::to_string_pretty(d) {
-                payload.push_str(&format!("\nDetails:\n{}\n", json));
-            }
+    if let ApiError::Structured { details: Some(d), .. } = error {
+        if let Ok(json) = serde_json::to_string_pretty(d) {
+            payload.push_str(&format!("\nDetails:\n{}\n", json));
         }
     }
 
@@ -754,9 +752,9 @@ pub fn DetailRow(
     };
 
     view! {
-        <div class="flex justify-between py-1">
-            <span class="text-muted-foreground">{label}</span>
-            <span class=value_class>{value}</span>
+        <div class="flex items-start justify-between gap-3 min-w-0 py-1">
+            <span class="text-muted-foreground shrink-0">{label}</span>
+            <span class=format!("{} min-w-0 text-right break-all", value_class)>{value}</span>
         </div>
     }
 }

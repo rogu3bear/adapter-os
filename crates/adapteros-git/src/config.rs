@@ -49,7 +49,11 @@ fn default_author_email() -> String {
     "adapteros@localhost".to_string()
 }
 
-/// Configuration for file system watcher
+/// Configuration for file system watcher.
+///
+/// This is the canonical watcher configuration used throughout the Git subsystem,
+/// including [`GitWatcher`](crate::subsystem::GitWatcher) in `subsystem.rs` and
+/// the notify-based watcher in `watcher.rs`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WatcherConfig {
     /// Debounce interval in milliseconds for change detection
