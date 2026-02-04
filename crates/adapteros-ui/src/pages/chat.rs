@@ -732,13 +732,14 @@ pub fn ChatSession() -> impl IntoView {
                                                             let run_overview_url = format!("/runs/{}", tid);
                                                             let run_receipt_url = format!("/runs/{}?tab=receipt", tid);
                                                             Some(view! {
-                                                                <div class="flex items-center gap-2 pl-1 flex-wrap">
+                                                                <div class="flex items-center gap-2 pl-1 flex-wrap" data-testid="chat-trace-links">
                                                                     <TraceButton
                                                                         trace_id=tid.clone()
                                                                         latency_ms=latency
                                                                         on_click=Callback::new(move |id: String| {
                                                                             active_trace.set(Some(id));
                                                                         })
+                                                                        data_testid="chat-trace-link".to_string()
                                                                     />
                                                                     // Run detail links
                                                                     <div class="flex items-center gap-1">
@@ -921,6 +922,7 @@ pub fn ChatSession() -> impl IntoView {
                         class="flex-1".to_string()
                         rows=2
                         aria_label="Chat message input".to_string()
+                        data_testid="chat-input".to_string()
                     />
                     {move || {
                         if is_streaming.get() {
@@ -940,6 +942,7 @@ pub fn ChatSession() -> impl IntoView {
                                     loading=is_loading.get()
                                     disabled=disabled
                                     aria_label=if disabled { "Send message (disabled)".to_string() } else { "Send message".to_string() }
+                                    data_testid="chat-send".to_string()
                                 >
                                     "Send"
                                 </Button>

@@ -168,6 +168,7 @@ pub fn Textarea(
     #[prop(optional)] rows: Option<u32>,
     #[prop(optional, into)] class: String,
     #[prop(optional, into)] aria_label: String,
+    #[prop(optional, into)] data_testid: Option<String>,
     /// Mark field as required (shows * indicator)
     #[prop(optional)]
     required: bool,
@@ -213,6 +214,8 @@ pub fn Textarea(
         (None, None) => None,
     };
 
+    let data_testid = data_testid.filter(|value| !value.is_empty());
+
     view! {
         <div class="grid w-full gap-1.5">
             {label.map(|l| view! {
@@ -234,6 +237,7 @@ pub fn Textarea(
                 aria-label=effective_aria_label
                 aria-describedby=full_described_by
                 aria-invalid=error.is_some().to_string()
+                data-testid=move || data_testid.clone()
                 prop:value=move || value.get()
                 on:input=move |ev| {
                     value.set(event_target_value(&ev));
