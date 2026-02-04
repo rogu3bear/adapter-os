@@ -1,0 +1,16 @@
+{
+  "name": "adapteros-playwright",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:ui": "playwright test -c playwright.ui.config.ts",
+    "test:codegraph": "playwright test -c playwright.codegraph.config.ts",
+    "test:minimal": "playwright test -c playwright.minimal.config.ts",
+    "test:all": "npm run test:ui && npm run test:codegraph && npm run test:minimal",
+    "report": "playwright show-report var/playwright/report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.50.0",
+    "typescript": "^5.4.0"
+  }
+}
