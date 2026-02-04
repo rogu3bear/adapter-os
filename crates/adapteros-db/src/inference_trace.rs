@@ -2,7 +2,9 @@ use crate::Db;
 use adapteros_core::{
     cache_attestation::CacheAttestation,
     compute_input_digest_v2, compute_output_digest, emit_observability_event, hash_token_decision,
-    receipt_digest::{compute_receipt_digest, ReceiptDigestInput, RECEIPT_SCHEMA_V4},
+    receipt_digest::{
+        canonical_json_string, compute_receipt_digest, ReceiptDigestInput, RECEIPT_SCHEMA_V7,
+    },
     receipt_mismatch_event, update_run_head, AosError, B3Hash, EquipmentProfile, Result,
     CRYPTO_RECEIPT_SCHEMA_VERSION,
 };
@@ -80,6 +82,50 @@ pub struct TraceReceipt {
     pub tenant_id: Option<String>,
     /// UMA telemetry: bytes copied between CPU/GPU buffers during inference (PRD §5.5)
     pub copy_bytes: Option<u64>,
+
+    // V7: Tokenizer identity
+    pub tokenizer_hash_b3: Option<B3Hash>,
+    pub tokenizer_version: Option<String>,
+    pub tokenizer_normalization: Option<String>,
+
+    // V7: Model/build provenance
+    pub model_build_hash_b3: Option<B3Hash>,
+    pub adapter_build_hash_b3: Option<B3Hash>,
+
+    // V7: Decoder config
+    pub decode_algo: Option<String>,
+    pub temperature_q15: Option<i16>,
+    pub top_p_q15: Option<i16>,
+    pub top_k: Option<u32>,
+    pub seed_digest_b3: Option<B3Hash>,
+    pub sampling_backend: Option<String>,
+
+    // V7: Concurrency determinism
+    pub thread_count: Option<u32>,
+    pub reduction_strategy: Option<String>,
+
+    // V7: Stop controller inputs
+    pub stop_eos_q15: Option<i16>,
+    pub stop_window_digest_b3: Option<B3Hash>,
+
+    // V7: Cache proof
+    pub cache_scope: Option<String>,
+    pub cached_prefix_digest_b3: Option<B3Hash>,
+    pub cached_prefix_len: Option<u32>,
+    pub cache_key_b3: Option<B3Hash>,
+
+    // V7: Retrieval/tool binding
+    pub retrieval_merkle_root_b3: Option<B3Hash>,
+    pub retrieval_order_digest_b3: Option<B3Hash>,
+    pub tool_call_inputs_digest_b3: Option<B3Hash>,
+    pub tool_call_outputs_digest_b3: Option<B3Hash>,
+
+    // V7: Disclosure level
+    pub disclosure_level: Option<String>,
+
+    // V7: Receipt signing metadata
+    pub receipt_signing_kid: Option<String>,
+    pub receipt_signed_at: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -126,6 +172,50 @@ pub struct TraceFinalization<'a> {
     pub worker_public_key: Option<[u8; 32]>,
     /// UMA telemetry: bytes copied between CPU/GPU buffers during inference (PRD §5.5)
     pub copy_bytes: Option<u64>,
+
+    // V7: Tokenizer identity
+    pub tokenizer_hash_b3: Option<B3Hash>,
+    pub tokenizer_version: Option<String>,
+    pub tokenizer_normalization: Option<String>,
+
+    // V7: Model/build provenance
+    pub model_build_hash_b3: Option<B3Hash>,
+    pub adapter_build_hash_b3: Option<B3Hash>,
+
+    // V7: Decoder config
+    pub decode_algo: Option<String>,
+    pub temperature_q15: Option<i16>,
+    pub top_p_q15: Option<i16>,
+    pub top_k: Option<u32>,
+    pub seed_digest_b3: Option<B3Hash>,
+    pub sampling_backend: Option<String>,
+
+    // V7: Concurrency determinism
+    pub thread_count: Option<u32>,
+    pub reduction_strategy: Option<String>,
+
+    // V7: Stop controller inputs
+    pub stop_eos_q15: Option<i16>,
+    pub stop_window_digest_b3: Option<B3Hash>,
+
+    // V7: Cache proof
+    pub cache_scope: Option<String>,
+    pub cached_prefix_digest_b3: Option<B3Hash>,
+    pub cached_prefix_len: Option<u32>,
+    pub cache_key_b3: Option<B3Hash>,
+
+    // V7: Retrieval/tool binding
+    pub retrieval_merkle_root_b3: Option<B3Hash>,
+    pub retrieval_order_digest_b3: Option<B3Hash>,
+    pub tool_call_inputs_digest_b3: Option<B3Hash>,
+    pub tool_call_outputs_digest_b3: Option<B3Hash>,
+
+    // V7: Disclosure level
+    pub disclosure_level: Option<String>,
+
+    // V7: Receipt signing metadata
+    pub receipt_signing_kid: Option<String>,
+    pub receipt_signed_at: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -379,7 +469,7 @@ impl SqlTraceSink {
     ) -> Result<Option<String>> {
         overrides
             .as_ref()
-            .map(|o| serde_json::to_string(o).map_err(|e| AosError::InvalidHash(e.to_string())))
+            .map(|o| canonical_json_string(o).map_err(|e| AosError::InvalidHash(e.to_string())))
             .transpose()
     }
 
@@ -652,10 +742,48 @@ impl TraceSink for SqlTraceSink {
             finalization
                 .model_cache_identity_v2_digest_b3
                 .map(|h| *h.as_bytes()),
-        );
+        )
+        .with_tokenizer_identity(
+            finalization.tokenizer_hash_b3.map(|h| *h.as_bytes()),
+            finalization.tokenizer_version.clone(),
+            finalization.tokenizer_normalization.clone(),
+        )
+        .with_build_provenance(
+            finalization.model_build_hash_b3.map(|h| *h.as_bytes()),
+            finalization.adapter_build_hash_b3.map(|h| *h.as_bytes()),
+        )
+        .with_decoder_config(
+            finalization.decode_algo.clone(),
+            finalization.temperature_q15,
+            finalization.top_p_q15,
+            finalization.top_k,
+            finalization.seed_digest_b3.map(|h| *h.as_bytes()),
+            finalization.sampling_backend.clone(),
+        )
+        .with_concurrency_determinism(
+            finalization.thread_count,
+            finalization.reduction_strategy.clone(),
+        )
+        .with_stop_controller_inputs(
+            finalization.stop_eos_q15,
+            finalization.stop_window_digest_b3.map(|h| *h.as_bytes()),
+        )
+        .with_cache_proof(
+            finalization.cache_scope.clone(),
+            finalization.cached_prefix_digest_b3.map(|h| *h.as_bytes()),
+            finalization.cached_prefix_len,
+            finalization.cache_key_b3.map(|h| *h.as_bytes()),
+        )
+        .with_retrieval_tool_binding(
+            finalization.retrieval_merkle_root_b3.map(|h| *h.as_bytes()),
+            finalization.retrieval_order_digest_b3.map(|h| *h.as_bytes()),
+            finalization.tool_call_inputs_digest_b3.map(|h| *h.as_bytes()),
+            finalization.tool_call_outputs_digest_b3.map(|h| *h.as_bytes()),
+        )
+        .with_disclosure_level(finalization.disclosure_level.clone());
 
-        let receipt_digest = compute_receipt_digest(&receipt_input, RECEIPT_SCHEMA_V4)
-            .expect("V4 schema is always supported");
+        let receipt_digest = compute_receipt_digest(&receipt_input, RECEIPT_SCHEMA_V7)
+            .expect("V7 schema is always supported");
 
         // Serialize stop_policy_digest_b3 to bytes for storage
         let stop_policy_digest_bytes = finalization
@@ -689,6 +817,51 @@ impl TraceSink for SqlTraceSink {
             .equipment_profile
             .as_ref()
             .and_then(|ep| ep.ane_version.clone());
+
+        let tokenizer_hash_bytes = finalization
+            .tokenizer_hash_b3
+            .as_ref()
+            .map(|h| h.as_bytes().to_vec());
+        let model_build_hash_bytes = finalization
+            .model_build_hash_b3
+            .as_ref()
+            .map(|h| h.as_bytes().to_vec());
+        let adapter_build_hash_bytes = finalization
+            .adapter_build_hash_b3
+            .as_ref()
+            .map(|h| h.as_bytes().to_vec());
+        let seed_digest_bytes = finalization
+            .seed_digest_b3
+            .as_ref()
+            .map(|h| h.as_bytes().to_vec());
+        let stop_window_digest_bytes = finalization
+            .stop_window_digest_b3
+            .as_ref()
+            .map(|h| h.as_bytes().to_vec());
+        let cached_prefix_digest_bytes = finalization
+            .cached_prefix_digest_b3
+            .as_ref()
+            .map(|h| h.as_bytes().to_vec());
+        let cache_key_bytes = finalization
+            .cache_key_b3
+            .as_ref()
+            .map(|h| h.as_bytes().to_vec());
+        let retrieval_merkle_bytes = finalization
+            .retrieval_merkle_root_b3
+            .as_ref()
+            .map(|h| h.as_bytes().to_vec());
+        let retrieval_order_bytes = finalization
+            .retrieval_order_digest_b3
+            .as_ref()
+            .map(|h| h.as_bytes().to_vec());
+        let tool_inputs_bytes = finalization
+            .tool_call_inputs_digest_b3
+            .as_ref()
+            .map(|h| h.as_bytes().to_vec());
+        let tool_outputs_bytes = finalization
+            .tool_call_outputs_digest_b3
+            .as_ref()
+            .map(|h| h.as_bytes().to_vec());
 
         sqlx::query(
             r#"
@@ -725,8 +898,34 @@ impl TraceSink for SqlTraceSink {
                 receipt_parity_verified,
                 tenant_id,
                 copy_bytes,
+                tokenizer_hash_b3,
+                tokenizer_version,
+                tokenizer_normalization,
+                model_build_hash_b3,
+                adapter_build_hash_b3,
+                decode_algo,
+                temperature_q15,
+                top_p_q15,
+                top_k,
+                seed_digest_b3,
+                sampling_backend,
+                thread_count,
+                reduction_strategy,
+                stop_eos_q15,
+                stop_window_digest_b3,
+                cache_scope,
+                cached_prefix_digest_b3,
+                cached_prefix_len,
+                cache_key_b3,
+                retrieval_merkle_root_b3,
+                retrieval_order_digest_b3,
+                tool_call_inputs_digest_b3,
+                tool_call_outputs_digest_b3,
+                disclosure_level,
+                receipt_signing_kid,
+                receipt_signed_at,
                 created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
             "#,
         )
         .bind(&self.start.trace_id)
@@ -769,6 +968,32 @@ impl TraceSink for SqlTraceSink {
         .bind(finalization.receipt_parity_verified.map(|v| if v { 1i64 } else { 0i64 }))
         .bind(&finalization.tenant_id)
         .bind(finalization.copy_bytes.map(|v| v as i64))
+        .bind(tokenizer_hash_bytes.as_ref().map(|b| &b[..]))
+        .bind(&finalization.tokenizer_version)
+        .bind(&finalization.tokenizer_normalization)
+        .bind(model_build_hash_bytes.as_ref().map(|b| &b[..]))
+        .bind(adapter_build_hash_bytes.as_ref().map(|b| &b[..]))
+        .bind(&finalization.decode_algo)
+        .bind(finalization.temperature_q15.map(|v| v as i64))
+        .bind(finalization.top_p_q15.map(|v| v as i64))
+        .bind(finalization.top_k.map(|v| v as i64))
+        .bind(seed_digest_bytes.as_ref().map(|b| &b[..]))
+        .bind(&finalization.sampling_backend)
+        .bind(finalization.thread_count.map(|v| v as i64))
+        .bind(&finalization.reduction_strategy)
+        .bind(finalization.stop_eos_q15.map(|v| v as i64))
+        .bind(stop_window_digest_bytes.as_ref().map(|b| &b[..]))
+        .bind(&finalization.cache_scope)
+        .bind(cached_prefix_digest_bytes.as_ref().map(|b| &b[..]))
+        .bind(finalization.cached_prefix_len.map(|v| v as i64))
+        .bind(cache_key_bytes.as_ref().map(|b| &b[..]))
+        .bind(retrieval_merkle_bytes.as_ref().map(|b| &b[..]))
+        .bind(retrieval_order_bytes.as_ref().map(|b| &b[..]))
+        .bind(tool_inputs_bytes.as_ref().map(|b| &b[..]))
+        .bind(tool_outputs_bytes.as_ref().map(|b| &b[..]))
+        .bind(&finalization.disclosure_level)
+        .bind(&finalization.receipt_signing_kid)
+        .bind(&finalization.receipt_signed_at)
         .execute(self.db.pool())
         .await
         .map_err(|e| AosError::Database(format!("Failed to insert trace receipt: {e}")))?;
@@ -803,6 +1028,32 @@ impl TraceSink for SqlTraceSink {
             receipt_parity_verified: finalization.receipt_parity_verified,
             tenant_id: finalization.tenant_id.clone(),
             copy_bytes: finalization.copy_bytes,
+            tokenizer_hash_b3: finalization.tokenizer_hash_b3,
+            tokenizer_version: finalization.tokenizer_version.clone(),
+            tokenizer_normalization: finalization.tokenizer_normalization.clone(),
+            model_build_hash_b3: finalization.model_build_hash_b3,
+            adapter_build_hash_b3: finalization.adapter_build_hash_b3,
+            decode_algo: finalization.decode_algo.clone(),
+            temperature_q15: finalization.temperature_q15,
+            top_p_q15: finalization.top_p_q15,
+            top_k: finalization.top_k,
+            seed_digest_b3: finalization.seed_digest_b3,
+            sampling_backend: finalization.sampling_backend.clone(),
+            thread_count: finalization.thread_count,
+            reduction_strategy: finalization.reduction_strategy.clone(),
+            stop_eos_q15: finalization.stop_eos_q15,
+            stop_window_digest_b3: finalization.stop_window_digest_b3,
+            cache_scope: finalization.cache_scope.clone(),
+            cached_prefix_digest_b3: finalization.cached_prefix_digest_b3,
+            cached_prefix_len: finalization.cached_prefix_len,
+            cache_key_b3: finalization.cache_key_b3,
+            retrieval_merkle_root_b3: finalization.retrieval_merkle_root_b3,
+            retrieval_order_digest_b3: finalization.retrieval_order_digest_b3,
+            tool_call_inputs_digest_b3: finalization.tool_call_inputs_digest_b3,
+            tool_call_outputs_digest_b3: finalization.tool_call_outputs_digest_b3,
+            disclosure_level: finalization.disclosure_level.clone(),
+            receipt_signing_kid: finalization.receipt_signing_kid.clone(),
+            receipt_signed_at: finalization.receipt_signed_at.clone(),
         })
     }
 
@@ -993,7 +1244,7 @@ pub async fn recompute_receipt(db: &Db, trace_id: &str) -> Result<TraceReceiptVe
                 .as_deref(),
             policy_overrides_applied
                 .as_ref()
-                .map(|o| serde_json::to_string(o).unwrap_or_default())
+                .map(|o| canonical_json_string(o).unwrap_or_default())
                 .as_deref(),
             backend_id.as_deref(),
             kernel_version_id.as_deref(),
@@ -1032,7 +1283,33 @@ pub async fn recompute_receipt(db: &Db, trace_id: &str) -> Result<TraceReceiptVe
                prefix_cache_hit,
                prefix_kv_bytes,
                model_cache_identity_v2_digest_b3,
-               copy_bytes
+               copy_bytes,
+               tokenizer_hash_b3,
+               tokenizer_version,
+               tokenizer_normalization,
+               model_build_hash_b3,
+               adapter_build_hash_b3,
+               decode_algo,
+               temperature_q15,
+               top_p_q15,
+               top_k,
+               seed_digest_b3,
+               sampling_backend,
+               thread_count,
+               reduction_strategy,
+               stop_eos_q15,
+               stop_window_digest_b3,
+               cache_scope,
+               cached_prefix_digest_b3,
+               cached_prefix_len,
+               cache_key_b3,
+               retrieval_merkle_root_b3,
+               retrieval_order_digest_b3,
+               tool_call_inputs_digest_b3,
+               tool_call_outputs_digest_b3,
+               disclosure_level,
+               receipt_signing_kid,
+               receipt_signed_at
         FROM inference_trace_receipts
         WHERE trace_id = ?
         LIMIT 1
@@ -1099,6 +1376,117 @@ pub async fn recompute_receipt(db: &Db, trace_id: &str) -> Result<TraceReceiptVe
             _ => None,
         };
 
+        let tokenizer_hash_bytes: Option<Vec<u8>> = row.try_get("tokenizer_hash_b3").ok().flatten();
+        let tokenizer_hash_b3 = match tokenizer_hash_bytes {
+            Some(bytes) if bytes.len() == 32 => {
+                Some(B3Hash::from_bytes(SqlTraceSink::to_digest(bytes)?))
+            }
+            _ => None,
+        };
+        let tokenizer_version: Option<String> = row.try_get("tokenizer_version").ok().flatten();
+        let tokenizer_normalization: Option<String> =
+            row.try_get("tokenizer_normalization").ok().flatten();
+
+        let model_build_hash_bytes: Option<Vec<u8>> =
+            row.try_get("model_build_hash_b3").ok().flatten();
+        let model_build_hash_b3 = match model_build_hash_bytes {
+            Some(bytes) if bytes.len() == 32 => {
+                Some(B3Hash::from_bytes(SqlTraceSink::to_digest(bytes)?))
+            }
+            _ => None,
+        };
+        let adapter_build_hash_bytes: Option<Vec<u8>> =
+            row.try_get("adapter_build_hash_b3").ok().flatten();
+        let adapter_build_hash_b3 = match adapter_build_hash_bytes {
+            Some(bytes) if bytes.len() == 32 => {
+                Some(B3Hash::from_bytes(SqlTraceSink::to_digest(bytes)?))
+            }
+            _ => None,
+        };
+
+        let decode_algo: Option<String> = row.try_get("decode_algo").ok().flatten();
+        let temperature_q15: Option<i64> = row.try_get("temperature_q15").ok().flatten();
+        let top_p_q15: Option<i64> = row.try_get("top_p_q15").ok().flatten();
+        let top_k: Option<i64> = row.try_get("top_k").ok().flatten();
+        let seed_digest_bytes: Option<Vec<u8>> = row.try_get("seed_digest_b3").ok().flatten();
+        let seed_digest_b3 = match seed_digest_bytes {
+            Some(bytes) if bytes.len() == 32 => {
+                Some(B3Hash::from_bytes(SqlTraceSink::to_digest(bytes)?))
+            }
+            _ => None,
+        };
+        let sampling_backend: Option<String> = row.try_get("sampling_backend").ok().flatten();
+
+        let thread_count: Option<i64> = row.try_get("thread_count").ok().flatten();
+        let reduction_strategy: Option<String> = row.try_get("reduction_strategy").ok().flatten();
+
+        let stop_eos_q15: Option<i64> = row.try_get("stop_eos_q15").ok().flatten();
+        let stop_window_digest_bytes: Option<Vec<u8>> =
+            row.try_get("stop_window_digest_b3").ok().flatten();
+        let stop_window_digest_b3 = match stop_window_digest_bytes {
+            Some(bytes) if bytes.len() == 32 => {
+                Some(B3Hash::from_bytes(SqlTraceSink::to_digest(bytes)?))
+            }
+            _ => None,
+        };
+
+        let cache_scope: Option<String> = row.try_get("cache_scope").ok().flatten();
+        let cached_prefix_digest_bytes: Option<Vec<u8>> =
+            row.try_get("cached_prefix_digest_b3").ok().flatten();
+        let cached_prefix_digest_b3 = match cached_prefix_digest_bytes {
+            Some(bytes) if bytes.len() == 32 => {
+                Some(B3Hash::from_bytes(SqlTraceSink::to_digest(bytes)?))
+            }
+            _ => None,
+        };
+        let cached_prefix_len: Option<i64> = row.try_get("cached_prefix_len").ok().flatten();
+        let cache_key_bytes: Option<Vec<u8>> = row.try_get("cache_key_b3").ok().flatten();
+        let cache_key_b3 = match cache_key_bytes {
+            Some(bytes) if bytes.len() == 32 => {
+                Some(B3Hash::from_bytes(SqlTraceSink::to_digest(bytes)?))
+            }
+            _ => None,
+        };
+
+        let retrieval_merkle_bytes: Option<Vec<u8>> =
+            row.try_get("retrieval_merkle_root_b3").ok().flatten();
+        let retrieval_merkle_root_b3 = match retrieval_merkle_bytes {
+            Some(bytes) if bytes.len() == 32 => {
+                Some(B3Hash::from_bytes(SqlTraceSink::to_digest(bytes)?))
+            }
+            _ => None,
+        };
+        let retrieval_order_bytes: Option<Vec<u8>> =
+            row.try_get("retrieval_order_digest_b3").ok().flatten();
+        let retrieval_order_digest_b3 = match retrieval_order_bytes {
+            Some(bytes) if bytes.len() == 32 => {
+                Some(B3Hash::from_bytes(SqlTraceSink::to_digest(bytes)?))
+            }
+            _ => None,
+        };
+        let tool_inputs_bytes: Option<Vec<u8>> =
+            row.try_get("tool_call_inputs_digest_b3").ok().flatten();
+        let tool_call_inputs_digest_b3 = match tool_inputs_bytes {
+            Some(bytes) if bytes.len() == 32 => {
+                Some(B3Hash::from_bytes(SqlTraceSink::to_digest(bytes)?))
+            }
+            _ => None,
+        };
+        let tool_outputs_bytes: Option<Vec<u8>> =
+            row.try_get("tool_call_outputs_digest_b3").ok().flatten();
+        let tool_call_outputs_digest_b3 = match tool_outputs_bytes {
+            Some(bytes) if bytes.len() == 32 => {
+                Some(B3Hash::from_bytes(SqlTraceSink::to_digest(bytes)?))
+            }
+            _ => None,
+        };
+
+        let disclosure_level: Option<String> = row.try_get("disclosure_level").ok().flatten();
+        let receipt_signing_kid: Option<String> =
+            row.try_get("receipt_signing_kid").ok().flatten();
+        let receipt_signed_at: Option<String> =
+            row.try_get("receipt_signed_at").ok().flatten();
+
         // Extract input digest and equipment profile from stored receipt
         let input_digest_bytes: Option<Vec<u8>> = row.try_get("input_digest_b3").ok().flatten();
         let input_digest_b3 = match input_digest_bytes {
@@ -1154,6 +1542,32 @@ pub async fn recompute_receipt(db: &Db, trace_id: &str) -> Result<TraceReceiptVe
             receipt_parity_verified: None,
             tenant_id: None, // Loaded from inference_traces, not receipts
             copy_bytes,
+            tokenizer_hash_b3,
+            tokenizer_version,
+            tokenizer_normalization,
+            model_build_hash_b3,
+            adapter_build_hash_b3,
+            decode_algo,
+            temperature_q15: temperature_q15.map(|v| v as i16),
+            top_p_q15: top_p_q15.map(|v| v as i16),
+            top_k: top_k.map(|v| v.max(0) as u32),
+            seed_digest_b3,
+            sampling_backend,
+            thread_count: thread_count.map(|v| v.max(0) as u32),
+            reduction_strategy,
+            stop_eos_q15: stop_eos_q15.map(|v| v as i16),
+            stop_window_digest_b3,
+            cache_scope,
+            cached_prefix_digest_b3,
+            cached_prefix_len: cached_prefix_len.map(|v| v.max(0) as u32),
+            cache_key_b3,
+            retrieval_merkle_root_b3,
+            retrieval_order_digest_b3,
+            tool_call_inputs_digest_b3,
+            tool_call_outputs_digest_b3,
+            disclosure_level,
+            receipt_signing_kid,
+            receipt_signed_at,
         };
         (stored.output_digest, Some(stored))
     } else {
@@ -1260,10 +1674,64 @@ pub async fn recompute_receipt(db: &Db, trace_id: &str) -> Result<TraceReceiptVe
         prefix_cache_hit,
         prefix_kv_bytes,
     )
-    .with_model_cache_identity(model_cache_identity_v2_digest_b3.map(|h| *h.as_bytes()));
+    .with_model_cache_identity(model_cache_identity_v2_digest_b3.map(|h| *h.as_bytes()))
+    .with_tokenizer_identity(
+        stored.as_ref().and_then(|s| s.tokenizer_hash_b3.map(|h| *h.as_bytes())),
+        stored.as_ref().and_then(|s| s.tokenizer_version.clone()),
+        stored
+            .as_ref()
+            .and_then(|s| s.tokenizer_normalization.clone()),
+    )
+    .with_build_provenance(
+        stored.as_ref().and_then(|s| s.model_build_hash_b3.map(|h| *h.as_bytes())),
+        stored
+            .as_ref()
+            .and_then(|s| s.adapter_build_hash_b3.map(|h| *h.as_bytes())),
+    )
+    .with_decoder_config(
+        stored.as_ref().and_then(|s| s.decode_algo.clone()),
+        stored.as_ref().and_then(|s| s.temperature_q15),
+        stored.as_ref().and_then(|s| s.top_p_q15),
+        stored.as_ref().and_then(|s| s.top_k),
+        stored.as_ref().and_then(|s| s.seed_digest_b3.map(|h| *h.as_bytes())),
+        stored.as_ref().and_then(|s| s.sampling_backend.clone()),
+    )
+    .with_concurrency_determinism(
+        stored.as_ref().and_then(|s| s.thread_count),
+        stored.as_ref().and_then(|s| s.reduction_strategy.clone()),
+    )
+    .with_stop_controller_inputs(
+        stored.as_ref().and_then(|s| s.stop_eos_q15),
+        stored
+            .as_ref()
+            .and_then(|s| s.stop_window_digest_b3.map(|h| *h.as_bytes())),
+    )
+    .with_cache_proof(
+        stored.as_ref().and_then(|s| s.cache_scope.clone()),
+        stored
+            .as_ref()
+            .and_then(|s| s.cached_prefix_digest_b3.map(|h| *h.as_bytes())),
+        stored.as_ref().and_then(|s| s.cached_prefix_len),
+        stored.as_ref().and_then(|s| s.cache_key_b3.map(|h| *h.as_bytes())),
+    )
+    .with_retrieval_tool_binding(
+        stored
+            .as_ref()
+            .and_then(|s| s.retrieval_merkle_root_b3.map(|h| *h.as_bytes())),
+        stored
+            .as_ref()
+            .and_then(|s| s.retrieval_order_digest_b3.map(|h| *h.as_bytes())),
+        stored
+            .as_ref()
+            .and_then(|s| s.tool_call_inputs_digest_b3.map(|h| *h.as_bytes())),
+        stored
+            .as_ref()
+            .and_then(|s| s.tool_call_outputs_digest_b3.map(|h| *h.as_bytes())),
+    )
+    .with_disclosure_level(stored.as_ref().and_then(|s| s.disclosure_level.clone()));
 
-    let recomputed_receipt_digest = compute_receipt_digest(&receipt_input, RECEIPT_SCHEMA_V4)
-        .expect("V4 schema is always supported");
+    let recomputed_receipt_digest = compute_receipt_digest(&receipt_input, RECEIPT_SCHEMA_V7)
+        .expect("V7 schema is always supported");
 
     // For recomputation, carry over input_digest and equipment_profile from stored receipt
     let (recomputed_input_digest_b3, recomputed_equipment_profile) = if let Some(stored) = &stored {
@@ -1302,6 +1770,34 @@ pub async fn recompute_receipt(db: &Db, trace_id: &str) -> Result<TraceReceiptVe
         receipt_parity_verified: None,
         tenant_id: None, // Recomputed receipt doesn't carry tenant_id
         copy_bytes: stored.as_ref().and_then(|s| s.copy_bytes),
+        tokenizer_hash_b3: stored.as_ref().and_then(|s| s.tokenizer_hash_b3),
+        tokenizer_version: stored.as_ref().and_then(|s| s.tokenizer_version.clone()),
+        tokenizer_normalization: stored
+            .as_ref()
+            .and_then(|s| s.tokenizer_normalization.clone()),
+        model_build_hash_b3: stored.as_ref().and_then(|s| s.model_build_hash_b3),
+        adapter_build_hash_b3: stored.as_ref().and_then(|s| s.adapter_build_hash_b3),
+        decode_algo: stored.as_ref().and_then(|s| s.decode_algo.clone()),
+        temperature_q15: stored.as_ref().and_then(|s| s.temperature_q15),
+        top_p_q15: stored.as_ref().and_then(|s| s.top_p_q15),
+        top_k: stored.as_ref().and_then(|s| s.top_k),
+        seed_digest_b3: stored.as_ref().and_then(|s| s.seed_digest_b3),
+        sampling_backend: stored.as_ref().and_then(|s| s.sampling_backend.clone()),
+        thread_count: stored.as_ref().and_then(|s| s.thread_count),
+        reduction_strategy: stored.as_ref().and_then(|s| s.reduction_strategy.clone()),
+        stop_eos_q15: stored.as_ref().and_then(|s| s.stop_eos_q15),
+        stop_window_digest_b3: stored.as_ref().and_then(|s| s.stop_window_digest_b3),
+        cache_scope: stored.as_ref().and_then(|s| s.cache_scope.clone()),
+        cached_prefix_digest_b3: stored.as_ref().and_then(|s| s.cached_prefix_digest_b3),
+        cached_prefix_len: stored.as_ref().and_then(|s| s.cached_prefix_len),
+        cache_key_b3: stored.as_ref().and_then(|s| s.cache_key_b3),
+        retrieval_merkle_root_b3: stored.as_ref().and_then(|s| s.retrieval_merkle_root_b3),
+        retrieval_order_digest_b3: stored.as_ref().and_then(|s| s.retrieval_order_digest_b3),
+        tool_call_inputs_digest_b3: stored.as_ref().and_then(|s| s.tool_call_inputs_digest_b3),
+        tool_call_outputs_digest_b3: stored.as_ref().and_then(|s| s.tool_call_outputs_digest_b3),
+        disclosure_level: stored.as_ref().and_then(|s| s.disclosure_level.clone()),
+        receipt_signing_kid: stored.as_ref().and_then(|s| s.receipt_signing_kid.clone()),
+        receipt_signed_at: stored.as_ref().and_then(|s| s.receipt_signed_at.clone()),
     };
 
     let matches = stored

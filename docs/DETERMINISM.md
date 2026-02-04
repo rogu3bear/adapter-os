@@ -1023,6 +1023,21 @@ clear_thread_seed_context(); // May never run!
 
 ---
 
+## V7 Determinism Envelope (2026-02-04)
+
+Receipt schema V7 binds the determinism envelope explicitly:
+- Tokenizer identity: `tokenizer_hash_b3`, `tokenizer_version`, `tokenizer_normalization`
+- Decoder parameters: `decode_algo`, `temperature_q15`, `top_p_q15`, `top_k`, `seed_digest_b3`, `sampling_backend`
+- Concurrency determinism: `thread_count`, `reduction_strategy`
+- Stop controller inputs: `stop_eos_q15`, `stop_window_digest_b3`
+- Cache proof: `cache_scope`, `cached_prefix_digest_b3`, `cached_prefix_len`, `cache_key_b3`
+- Retrieval/tool binding: `retrieval_merkle_root_b3`, `retrieval_order_digest_b3`, `tool_call_inputs_digest_b3`, `tool_call_outputs_digest_b3`
+- Disclosure level: `disclosure_level="full"`
+
+Verification mode must pin backend and thread settings to reproduce V7 receipts byte-for-byte.
+
+---
+
 ## Related Documentation
 
 - **[AGENTS.md](../AGENTS.md)** - Developer quick reference, determinism invariants

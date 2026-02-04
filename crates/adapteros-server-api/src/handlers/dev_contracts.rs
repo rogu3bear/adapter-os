@@ -45,6 +45,86 @@ struct UiRunReceipt {
     logical_output_tokens: u32,
     #[serde(default)]
     billed_output_tokens: u32,
+    #[serde(default)]
+    stop_reason_code: Option<String>,
+    #[serde(default)]
+    stop_reason_token_index: Option<u32>,
+    #[serde(default)]
+    stop_policy_digest_b3: Option<String>,
+    #[serde(default)]
+    tenant_kv_quota_bytes: u64,
+    #[serde(default)]
+    tenant_kv_bytes_used: u64,
+    #[serde(default)]
+    kv_evictions: u32,
+    #[serde(default)]
+    kv_residency_policy_id: Option<String>,
+    #[serde(default)]
+    kv_quota_enforced: bool,
+    #[serde(default)]
+    prefix_kv_key_b3: Option<String>,
+    #[serde(default)]
+    prefix_cache_hit: bool,
+    #[serde(default)]
+    prefix_kv_bytes: u64,
+    #[serde(default)]
+    model_cache_identity_v2_digest_b3: Option<String>,
+    #[serde(default)]
+    previous_receipt_digest: Option<String>,
+    #[serde(default)]
+    session_sequence: u64,
+    #[serde(default)]
+    tokenizer_hash_b3: Option<String>,
+    #[serde(default)]
+    tokenizer_version: Option<String>,
+    #[serde(default)]
+    tokenizer_normalization: Option<String>,
+    #[serde(default)]
+    model_build_hash_b3: Option<String>,
+    #[serde(default)]
+    adapter_build_hash_b3: Option<String>,
+    #[serde(default)]
+    decode_algo: Option<String>,
+    #[serde(default)]
+    temperature_q15: Option<i16>,
+    #[serde(default)]
+    top_p_q15: Option<i16>,
+    #[serde(default)]
+    top_k: Option<u32>,
+    #[serde(default)]
+    seed_digest_b3: Option<String>,
+    #[serde(default)]
+    sampling_backend: Option<String>,
+    #[serde(default)]
+    thread_count: Option<u32>,
+    #[serde(default)]
+    reduction_strategy: Option<String>,
+    #[serde(default)]
+    stop_eos_q15: Option<i16>,
+    #[serde(default)]
+    stop_window_digest_b3: Option<String>,
+    #[serde(default)]
+    cache_scope: Option<String>,
+    #[serde(default)]
+    cached_prefix_digest_b3: Option<String>,
+    #[serde(default)]
+    cached_prefix_len: Option<u32>,
+    #[serde(default)]
+    cache_key_b3: Option<String>,
+    #[serde(default)]
+    retrieval_merkle_root_b3: Option<String>,
+    #[serde(default)]
+    retrieval_order_digest_b3: Option<String>,
+    #[serde(default)]
+    tool_call_inputs_digest_b3: Option<String>,
+    #[serde(default)]
+    tool_call_outputs_digest_b3: Option<String>,
+    #[serde(default)]
+    disclosure_level: Option<String>,
+    #[serde(default)]
+    receipt_signing_kid: Option<String>,
+    #[serde(default)]
+    receipt_signed_at: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

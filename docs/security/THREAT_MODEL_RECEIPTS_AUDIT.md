@@ -212,22 +212,13 @@
 
 | Artifact | Produced | Stored | Validated | Gap |
 |----------|----------|--------|-----------|-----|
-| `receipt_digest_hex` | `compute_receipt_digest()` | `ReceiptDigests.receipt_digest_hex` | `verify_receipt` recomputes | **CRITICAL GAP** - see below |
+| `receipt_digest_hex` | `compute_receipt_digest()` | `ReceiptDigests.receipt_digest_hex` | `verify_receipt` recomputes | **Closed** (V7 parity) |
 | `signature_b64` | Ed25519 signing | `ReceiptDigests.signature_b64` | `verify_signature()` | **Gap**: Signing location unclear |
-| `public_key_hex` | Key generation | `ReceiptDigests.public_key_hex` | Signature verification | **Gap**: No key rotation audit |
-| Schema version (V1/V2/V3) | Receipt creation | `ReceiptDigests.schema_version` | Version-aware digest computation | **None** |
+| `public_key_hex` | Key generation | `ReceiptDigests.public_key_hex` | Signature verification | **Closed**: `receipt_signing_kid` + `receipt_signed_at` enable rotation audit (V7) |
+| Schema version (V1–V7) | Receipt creation | `ReceiptDigests.schema_version` | Version-aware digest computation | **None** |
 
-**CRITICAL GAP in `verify_receipt.rs`:**
-The CLI verification (`verify_receipt.rs` lines 435-544) computes receipt digests WITHOUT the following fields that `inference_trace.rs` (lines 270-342) INCLUDES:
-- `stop_reason_code`, `stop_reason_token_index`, `stop_policy_digest_b3`
-- `tenant_kv_quota_bytes`, `tenant_kv_bytes_used`, `kv_evictions`
-- `kv_residency_policy_id`, `kv_quota_enforced`
-- `prefix_kv_key_b3`, `prefix_cache_hit`, `prefix_kv_bytes`
-- `model_cache_identity_v2_digest_b3`
-
-**Result:** Offline CLI verification will FAIL for production receipts.
-
-**Source:** `crates/adapteros-cli/src/commands/verify_receipt.rs`, `crates/adapteros-db/src/inference_trace.rs`
+**CRITICAL GAP (Closed in V7):**
+The CLI verification now includes V4–V7 receipt fields (stop controller, KV quota, prefix cache, model cache, equipment profile, cross-run lineage, and V7 bindings), restoring parity with production receipts.
 
 ---
 
@@ -865,11 +856,11 @@ bundle_lookback_hours = 24
 **Impact:** Different Metal shader versions could produce different results.
 **Mitigation:** Include `metallib_hash_b3_hex` in V4 receipt schema (PR 4)
 
-### 8. Ed25519 Key Management (UNKNOWN RISK)
+### 8. Ed25519 Key Management (MITIGATED)
 **Status:** Needs audit
-**Description:** How signing keys are generated, stored, rotated, and protected is unclear.
+**Description:** Signing key lifecycle details are operationally sensitive.
 **Impact:** Key compromise would allow receipt forgery.
-**Mitigation:** Security audit of key management (out of scope for this plan)
+**Mitigation:** Receipts now record signing key ID and signing timestamp (`receipt_signing_kid`, `receipt_signed_at`) to enable rotation audit and incident scoping. A full operational key management audit remains out of scope.
 
 ---
 

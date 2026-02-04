@@ -243,6 +243,76 @@ pub struct InferenceReceiptRef {
     /// inference ordering without access to the full trace.
     #[serde(default)]
     pub session_sequence: u64,
+
+    // --- V7: Tokenizer identity ---
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tokenizer_hash_b3: Option<B3Hash>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tokenizer_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tokenizer_normalization: Option<String>,
+
+    // --- V7: Model/build provenance ---
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_build_hash_b3: Option<B3Hash>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adapter_build_hash_b3: Option<B3Hash>,
+
+    // --- V7: Decoder config ---
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decode_algo: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temperature_q15: Option<i16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub top_p_q15: Option<i16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub top_k: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed_digest_b3: Option<B3Hash>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sampling_backend: Option<String>,
+
+    // --- V7: Concurrency determinism ---
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_count: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reduction_strategy: Option<String>,
+
+    // --- V7: Stop controller inputs ---
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_eos_q15: Option<i16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_window_digest_b3: Option<B3Hash>,
+
+    // --- V7: Cache proof ---
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_scope: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cached_prefix_digest_b3: Option<B3Hash>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cached_prefix_len: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_key_b3: Option<B3Hash>,
+
+    // --- V7: Retrieval/tool binding ---
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retrieval_merkle_root_b3: Option<B3Hash>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retrieval_order_digest_b3: Option<B3Hash>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_inputs_digest_b3: Option<B3Hash>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_outputs_digest_b3: Option<B3Hash>,
+
+    // --- V7: Disclosure level ---
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disclosure_level: Option<String>,
+
+    // --- V7: Receipt signing metadata ---
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub receipt_signing_kid: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub receipt_signed_at: Option<String>,
 }
 
 /// Unified evidence envelope with cryptographic chain linking
@@ -517,6 +587,83 @@ impl EvidenceEnvelope {
                         }
                     }
                     encode_u64(bytes, r.session_sequence);
+
+                    // V7: Tokenizer identity
+                    match &r.tokenizer_hash_b3 {
+                        Some(h) => bytes.extend_from_slice(h.as_bytes()),
+                        None => bytes.extend_from_slice(&[0u8; 32]),
+                    }
+                    encode_str(bytes, r.tokenizer_version.as_deref().unwrap_or(""));
+                    encode_str(bytes, r.tokenizer_normalization.as_deref().unwrap_or(""));
+
+                    // V7: Model/build provenance
+                    match &r.model_build_hash_b3 {
+                        Some(h) => bytes.extend_from_slice(h.as_bytes()),
+                        None => bytes.extend_from_slice(&[0u8; 32]),
+                    }
+                    match &r.adapter_build_hash_b3 {
+                        Some(h) => bytes.extend_from_slice(h.as_bytes()),
+                        None => bytes.extend_from_slice(&[0u8; 32]),
+                    }
+
+                    // V7: Decoder config
+                    encode_str(bytes, r.decode_algo.as_deref().unwrap_or(""));
+                    bytes.extend_from_slice(&r.temperature_q15.unwrap_or(i16::MIN).to_be_bytes());
+                    bytes.extend_from_slice(&r.top_p_q15.unwrap_or(i16::MIN).to_be_bytes());
+                    encode_u32(bytes, r.top_k.unwrap_or(u32::MAX));
+                    match &r.seed_digest_b3 {
+                        Some(h) => bytes.extend_from_slice(h.as_bytes()),
+                        None => bytes.extend_from_slice(&[0u8; 32]),
+                    }
+                    encode_str(bytes, r.sampling_backend.as_deref().unwrap_or(""));
+
+                    // V7: Concurrency determinism
+                    encode_u32(bytes, r.thread_count.unwrap_or(u32::MAX));
+                    encode_str(bytes, r.reduction_strategy.as_deref().unwrap_or(""));
+
+                    // V7: Stop controller inputs
+                    bytes.extend_from_slice(&r.stop_eos_q15.unwrap_or(i16::MIN).to_be_bytes());
+                    match &r.stop_window_digest_b3 {
+                        Some(h) => bytes.extend_from_slice(h.as_bytes()),
+                        None => bytes.extend_from_slice(&[0u8; 32]),
+                    }
+
+                    // V7: Cache proof
+                    encode_str(bytes, r.cache_scope.as_deref().unwrap_or(""));
+                    match &r.cached_prefix_digest_b3 {
+                        Some(h) => bytes.extend_from_slice(h.as_bytes()),
+                        None => bytes.extend_from_slice(&[0u8; 32]),
+                    }
+                    encode_u32(bytes, r.cached_prefix_len.unwrap_or(u32::MAX));
+                    match &r.cache_key_b3 {
+                        Some(h) => bytes.extend_from_slice(h.as_bytes()),
+                        None => bytes.extend_from_slice(&[0u8; 32]),
+                    }
+
+                    // V7: Retrieval/tool binding
+                    match &r.retrieval_merkle_root_b3 {
+                        Some(h) => bytes.extend_from_slice(h.as_bytes()),
+                        None => bytes.extend_from_slice(&[0u8; 32]),
+                    }
+                    match &r.retrieval_order_digest_b3 {
+                        Some(h) => bytes.extend_from_slice(h.as_bytes()),
+                        None => bytes.extend_from_slice(&[0u8; 32]),
+                    }
+                    match &r.tool_call_inputs_digest_b3 {
+                        Some(h) => bytes.extend_from_slice(h.as_bytes()),
+                        None => bytes.extend_from_slice(&[0u8; 32]),
+                    }
+                    match &r.tool_call_outputs_digest_b3 {
+                        Some(h) => bytes.extend_from_slice(h.as_bytes()),
+                        None => bytes.extend_from_slice(&[0u8; 32]),
+                    }
+
+                    // V7: Disclosure level
+                    encode_str(bytes, r.disclosure_level.as_deref().unwrap_or(""));
+
+                    // V7: Receipt signing metadata
+                    encode_str(bytes, r.receipt_signing_kid.as_deref().unwrap_or(""));
+                    encode_str(bytes, r.receipt_signed_at.as_deref().unwrap_or(""));
                 }
             }
         }

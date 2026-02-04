@@ -992,6 +992,31 @@ impl CryptographicReceipt {
             // V6 cross-run lineage (not tracked in CryptographicReceipt)
             previous_receipt_digest: None,
             session_sequence: 0,
+            // V7 fields (not tracked in CryptographicReceipt)
+            tokenizer_hash_b3: None,
+            tokenizer_version: None,
+            tokenizer_normalization: None,
+            model_build_hash_b3: None,
+            adapter_build_hash_b3: None,
+            decode_algo: None,
+            temperature_q15: None,
+            top_p_q15: None,
+            top_k: None,
+            seed_digest_b3: None,
+            sampling_backend: None,
+            thread_count: None,
+            reduction_strategy: None,
+            stop_eos_q15: None,
+            stop_window_digest_b3: None,
+            cache_scope: None,
+            cached_prefix_digest_b3: None,
+            cached_prefix_len: None,
+            cache_key_b3: None,
+            retrieval_merkle_root_b3: None,
+            retrieval_order_digest_b3: None,
+            tool_call_inputs_digest_b3: None,
+            tool_call_outputs_digest_b3: None,
+            disclosure_level: None,
         }
     }
 }

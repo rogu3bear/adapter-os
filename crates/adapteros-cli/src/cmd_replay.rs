@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use adapteros_core::receipt_digest::canonical_json_string;
 use adapteros_core::B3Hash;
 use anyhow::{anyhow, bail, Context, Result};
 use blake3::Hasher;
@@ -45,6 +46,12 @@ pub struct ContextManifest {
     pub backend_used: Option<String>,
     #[serde(default)]
     pub kernel_version_id: Option<String>,
+    #[serde(default)]
+    pub tokenizer_hash_b3: Option<String>,
+    #[serde(default)]
+    pub tokenizer_version: Option<String>,
+    #[serde(default)]
+    pub tokenizer_normalization: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -140,10 +147,12 @@ pub fn compute_context_digest(manifest: &ContextManifest) -> Result<B3Hash> {
         "worker_id": worker_component,
         "backend_used": manifest.backend_used.as_deref().unwrap_or(""),
         "kernel_version_id": manifest.kernel_version_id.as_deref().unwrap_or(""),
+        "tokenizer_hash_b3": manifest.tokenizer_hash_b3.as_deref().unwrap_or(""),
+        "tokenizer_version": manifest.tokenizer_version.as_deref().unwrap_or(""),
+        "tokenizer_normalization": manifest.tokenizer_normalization.as_deref().unwrap_or(""),
     });
-
-    let serialized = serde_json::to_vec(&digest_payload)?;
-    Ok(B3Hash::hash(&serialized))
+    let serialized = canonical_json_string(&digest_payload)?;
+    Ok(B3Hash::hash(serialized.as_bytes()))
 }
 
 pub fn compute_receipt(
