@@ -174,12 +174,6 @@ pub struct TraceReceiptSummary {
     pub receipt_digest: String,
     pub run_head_hash: String,
     pub output_digest: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub input_digest_b3: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub seed_lineage_hash: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub backend_attestation_b3: Option<String>,
     pub logical_prompt_tokens: u32,
     pub logical_output_tokens: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
