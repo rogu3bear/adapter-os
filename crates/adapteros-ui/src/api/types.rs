@@ -658,6 +658,34 @@ pub struct InferenceTraceDetailResponse {
     pub backend_id: Option<String>,
 }
 
+/// UI-only inference trace detail response with extended receipt fields.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct UiInferenceTraceDetailResponse {
+    pub trace_id: String,
+    pub request_id: Option<String>,
+    pub created_at: String,
+    pub latency_ms: u64,
+    pub adapters_used: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stack_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub policy_id: Option<String>,
+    #[serde(default)]
+    pub token_decisions: Vec<TokenDecision>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_decisions_next_cursor: Option<u32>,
+    #[serde(default)]
+    pub token_decisions_has_more: bool,
+    pub timing_breakdown: TimingBreakdown,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub receipt: Option<UiTraceReceiptSummary>,
+    /// Backend used (e.g., coreml, metal, mlx)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend_id: Option<String>,
+}
+
 /// Per-token routing decision
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TokenDecision {
@@ -696,6 +724,33 @@ pub struct TraceReceiptSummary {
     pub receipt_digest: String,
     pub run_head_hash: String,
     pub output_digest: String,
+    pub logical_prompt_tokens: u32,
+    pub logical_output_tokens: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stop_reason_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stop_reason_token_index: Option<u32>,
+    pub verified: bool,
+    /// Hardware/Equipment attestation fields
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub processor_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub engine_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ane_version: Option<String>,
+    /// Cache metrics
+    #[serde(default)]
+    pub prefix_cache_hit: bool,
+    #[serde(default)]
+    pub prefix_kv_bytes: u64,
+}
+
+/// UI-only receipt summary with extended provenance fields.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct UiTraceReceiptSummary {
+    pub receipt_digest: String,
+    pub run_head_hash: String,
+    pub output_digest: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub input_digest_b3: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -717,10 +772,10 @@ pub struct TraceReceiptSummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ane_version: Option<String>,
     /// Cache metrics
-    #[serde(default)]
-    pub prefix_cache_hit: bool,
-    #[serde(default)]
-    pub prefix_kv_bytes: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prefix_cache_hit: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prefix_kv_bytes: Option<u64>,
 }
 
 // ============================================================================
