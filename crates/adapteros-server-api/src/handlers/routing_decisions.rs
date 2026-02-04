@@ -295,10 +295,7 @@ pub async fn ingest_router_decision(
     };
 
     let decision = DbRoutingDecision {
-        id: crate::id_generator::readable_id(
-            adapteros_core::ids::IdKind::Decision,
-            "routing",
-        ),
+        id: crate::id_generator::readable_id(adapteros_core::ids::IdKind::Decision, "routing"),
         tenant_id: request.tenant_id.clone(),
         timestamp: chrono::Utc::now().to_rfc3339(),
         request_id: request.request_id.clone(),

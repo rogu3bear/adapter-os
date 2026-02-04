@@ -20,10 +20,10 @@ pub use cache::{
     validate_model_cache_budget, BaseModelPinConfig,
 };
 pub use capabilities::{
-    auto_select_backend, describe_available_backends, detect_capabilities,
-    coreml_unavailable_reason, resolve_reasoning_aware_backend,
-    select_backend_from_execution_profile, should_use_reasoning_backend, BackendCapabilities,
-    BackendSelection, BackendStrategy, ReasoningBackendHint, SelectionContext,
+    auto_select_backend, coreml_unavailable_reason, describe_available_backends,
+    detect_capabilities, resolve_reasoning_aware_backend, select_backend_from_execution_profile,
+    should_use_reasoning_backend, BackendCapabilities, BackendSelection, BackendStrategy,
+    ReasoningBackendHint, SelectionContext,
 };
 pub use model_config::{resolve_base_model_pin_budget_bytes, resolve_base_model_pin_enabled};
 pub use model_io::load_model_bytes_verified;
@@ -650,6 +650,12 @@ fn create_mlx_ffi_backend(
 
     #[cfg(feature = "mlx")]
     {
+        let manifest_hash = manifest_hash.ok_or_else(|| {
+            AosError::Config(
+                "Manifest hash is required for MLX backend identity; pass manifest hash to backend factory"
+                    .to_string(),
+            )
+        })?;
         let model_path = validate_mlx_model_dir(model_path)?;
         let model_path_str = model_path.to_string_lossy();
 
@@ -660,17 +666,10 @@ fn create_mlx_ffi_backend(
 
         info!(
             model_path = %model_path_str,
-            has_manifest_hash = manifest_hash.is_some(),
+            has_manifest_hash = true,
             has_model_weights_hash = model_weights_hash.is_some(),
             "Creating MLX FFI kernel backend"
         );
-
-        let manifest_hash = manifest_hash.ok_or_else(|| {
-            AosError::Config(
-                "Manifest hash is required for MLX backend identity; pass manifest hash to backend factory"
-                    .to_string(),
-            )
-        })?;
 
         // Verify model integrity before loading (using model weights hash, not manifest hash)
         verify_model_integrity(&model_path, model_weights_hash, "MLX")?;

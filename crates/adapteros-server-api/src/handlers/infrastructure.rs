@@ -842,10 +842,7 @@ pub async fn worker_spawn(
 
     // Register worker using Db trait method
     use adapteros_db::workers::WorkerInsertBuilder;
-    let worker_id = crate::id_generator::readable_id(
-        adapteros_core::ids::IdKind::Worker,
-        "worker",
-    );
+    let worker_id = crate::id_generator::readable_id(adapteros_core::ids::IdKind::Worker, "worker");
     let mut builder = WorkerInsertBuilder::new()
         .id(&worker_id)
         .tenant_id(&req.tenant_id)

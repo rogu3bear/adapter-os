@@ -418,7 +418,11 @@ async fn streaming_infer_resolves_effective_adapters_from_session_stack() {
         determinism_mode: None,
         routing_determinism_mode: None,
     };
-    let stack_id = state.db.insert_stack(&stack_req).await.expect("create stack");
+    let stack_id = state
+        .db
+        .insert_stack(&stack_req)
+        .await
+        .expect("create stack");
 
     let session_id = format!("session-{}", uuid::Uuid::new_v4());
     state

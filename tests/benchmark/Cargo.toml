@@ -52,7 +52,7 @@ smallvec = "1.11"
 bytemuck = { version = "1.14", features = ["derive"] }
 
 # System monitoring
-sysinfo = "0.30"
+sysinfo = { workspace = true }
 
 # File operations for benchmarks
 tempfile = { workspace = true }

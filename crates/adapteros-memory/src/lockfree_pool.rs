@@ -452,3 +452,220 @@ mod tests {
         assert!(block2.is_ok());
     }
 }
+
+/// Loom-based concurrency tests for lock-free CAS operations
+///
+/// These tests verify correctness of the lock-free free list under
+/// all possible thread interleavings. Run with:
+/// `cargo test -p adapteros-memory --features loom --release -- loom`
+#[cfg(all(test, feature = "loom"))]
+mod loom_tests {
+    use loom::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
+    use loom::sync::Arc;
+    use loom::thread;
+    use std::ptr;
+
+    /// Minimal free list node for loom testing
+    /// Uses a simple counter instead of actual memory allocation
+    #[repr(C)]
+    struct LoomFreeNode {
+        next: *mut LoomFreeNode,
+        id: usize,
+    }
+
+    /// Minimal lock-free stack for testing CAS operations
+    struct LoomFreeList {
+        head: AtomicPtr<LoomFreeNode>,
+        pop_count: AtomicUsize,
+        push_count: AtomicUsize,
+    }
+
+    impl LoomFreeList {
+        fn new() -> Self {
+            Self {
+                head: AtomicPtr::new(ptr::null_mut()),
+                pop_count: AtomicUsize::new(0),
+                push_count: AtomicUsize::new(0),
+            }
+        }
+
+        /// Push a node - mirrors production push_free CAS loop
+        fn push(&self, node: *mut LoomFreeNode) {
+            loop {
+                let current = self.head.load(Ordering::Acquire);
+                unsafe {
+                    (*node).next = current;
+                }
+                match self.head.compare_exchange_weak(
+                    current,
+                    node,
+                    Ordering::Release,
+                    Ordering::Relaxed,
+                ) {
+                    Ok(_) => {
+                        self.push_count.fetch_add(1, Ordering::Relaxed);
+                        return;
+                    }
+                    Err(_) => continue,
+                }
+            }
+        }
+
+        /// Pop a node - mirrors production try_pop_free CAS loop
+        fn pop(&self) -> Option<*mut LoomFreeNode> {
+            loop {
+                let current = self.head.load(Ordering::Acquire);
+                if current.is_null() {
+                    return None;
+                }
+                let next = unsafe { (*current).next };
+                match self.head.compare_exchange_weak(
+                    current,
+                    next,
+                    Ordering::Release,
+                    Ordering::Relaxed,
+                ) {
+                    Ok(_) => {
+                        self.pop_count.fetch_add(1, Ordering::Relaxed);
+                        return Some(current);
+                    }
+                    Err(_) => continue,
+                }
+            }
+        }
+
+        /// Count nodes in the list (for verification)
+        fn count(&self) -> usize {
+            let mut count = 0;
+            let mut current = self.head.load(Ordering::Acquire);
+            while !current.is_null() {
+                count += 1;
+                current = unsafe { (*current).next };
+            }
+            count
+        }
+    }
+
+    /// Test concurrent push operations
+    /// Verifies that all pushed nodes end up in the list
+    #[test]
+    fn loom_concurrent_push() {
+        loom::model(|| {
+            let list = Arc::new(LoomFreeList::new());
+
+            // Pre-allocate nodes using loom's allocator
+            let node1 = Box::into_raw(Box::new(LoomFreeNode {
+                next: ptr::null_mut(),
+                id: 1,
+            }));
+            let node2 = Box::into_raw(Box::new(LoomFreeNode {
+                next: ptr::null_mut(),
+                id: 2,
+            }));
+
+            let list1 = Arc::clone(&list);
+            let list2 = Arc::clone(&list);
+
+            let t1 = thread::spawn(move || {
+                list1.push(node1);
+            });
+
+            let t2 = thread::spawn(move || {
+                list2.push(node2);
+            });
+
+            t1.join().unwrap();
+            t2.join().unwrap();
+
+            // Both nodes must be in the list
+            assert_eq!(list.count(), 2);
+            assert_eq!(list.push_count.load(Ordering::Relaxed), 2);
+
+            // Clean up - pop both nodes and free them
+            let _ = list.pop();
+            let _ = list.pop();
+            unsafe {
+                drop(Box::from_raw(node1));
+                drop(Box::from_raw(node2));
+            }
+        });
+    }
+
+    /// Test concurrent push and pop (ABA scenario)
+    /// This is the most critical test - verifies no corruption when
+    /// one thread pushes while another pops
+    #[test]
+    fn loom_concurrent_push_pop() {
+        loom::model(|| {
+            let list = Arc::new(LoomFreeList::new());
+
+            // Start with one node in the list
+            let node1 = Box::into_raw(Box::new(LoomFreeNode {
+                next: ptr::null_mut(),
+                id: 1,
+            }));
+            list.push(node1);
+
+            let node2 = Box::into_raw(Box::new(LoomFreeNode {
+                next: ptr::null_mut(),
+                id: 2,
+            }));
+
+            let list1 = Arc::clone(&list);
+            let list2 = Arc::clone(&list);
+
+            // Thread 1: pop the existing node
+            let t1 = thread::spawn(move || list1.pop());
+
+            // Thread 2: push a new node
+            let t2 = thread::spawn(move || {
+                list2.push(node2);
+            });
+
+            let popped = t1.join().unwrap();
+            t2.join().unwrap();
+
+            // Verify invariants:
+            // - The popped node must be either node1 or node2 (LIFO order)
+            // - Final count depends on timing: 1 if pop succeeded, 2 if push before pop saw it
+            let final_count = list.count();
+            assert!(final_count >= 1 && final_count <= 2);
+
+            // Track which node was popped for cleanup
+            let mut popped_node1 = false;
+            let mut popped_node2 = false;
+
+            if let Some(p) = popped {
+                let id = unsafe { (*p).id };
+                // Must be a valid node we created
+                assert!(id == 1 || id == 2);
+                if id == 1 {
+                    popped_node1 = true;
+                } else {
+                    popped_node2 = true;
+                }
+            }
+
+            // Clean up remaining nodes in the list
+            while let Some(n) = list.pop() {
+                let id = unsafe { (*n).id };
+                if id == 1 {
+                    popped_node1 = true;
+                } else if id == 2 {
+                    popped_node2 = true;
+                }
+            }
+
+            // Free all nodes - both must have been either popped or remain in list
+            // We always allocated both, so free both
+            unsafe {
+                drop(Box::from_raw(node1));
+                drop(Box::from_raw(node2));
+            }
+
+            // Invariant: both nodes must have been accounted for
+            assert!(popped_node1, "node1 was lost");
+            assert!(popped_node2, "node2 was lost");
+        });
+    }
+}

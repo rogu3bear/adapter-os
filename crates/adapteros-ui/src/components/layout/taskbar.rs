@@ -13,7 +13,6 @@ use crate::signals::{use_chat, use_ui_profile, DockState};
 use leptos::prelude::*;
 use leptos_router::hooks::use_location;
 
-
 /// Bottom taskbar with start button, module shortcuts, and system tray.
 /// Touch targets meet minimum 44x44px on touch-capable viewports.
 #[component]

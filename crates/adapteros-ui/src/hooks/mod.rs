@@ -2,8 +2,10 @@
 //!
 //! Leptos-style hooks for data fetching, state management, etc.
 
+pub mod use_delete_dialog;
 pub mod use_sse_notifications;
 
+pub use use_delete_dialog::{use_delete_dialog, DeleteDialogState};
 pub use use_sse_notifications::use_sse_notifications;
 
 use crate::api::{report_error, ApiClient, ApiError, ApiResult};
@@ -54,6 +56,7 @@ impl<T> LoadingState<T> {
 /// Create a resource that fetches data from the API
 ///
 /// Automatically reports API errors to the server for persistent logging.
+/// Uses a version counter to invalidate stale requests on component unmount.
 pub fn use_api_resource<T, F, Fut>(fetch: F) -> (ReadSignal<LoadingState<T>>, Callback<()>)
 where
     T: Clone + Send + Sync + 'static,
@@ -64,6 +67,14 @@ where
     let client = Arc::new(ApiClient::new());
     let is_authenticated = client.is_authenticated();
     let fetch_version = Arc::new(std::sync::atomic::AtomicU64::new(0));
+
+    // Increment version to invalidate any in-flight requests on cleanup
+    // This is Send+Sync safe and prevents stale updates after unmount
+    let fetch_version_for_cleanup = Arc::clone(&fetch_version);
+    on_cleanup(move || {
+        // Bump the version so any in-flight requests know they're stale
+        fetch_version_for_cleanup.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    });
 
     let fetch_clone = fetch.clone();
     let client_clone = Arc::clone(&client);
@@ -82,6 +93,10 @@ where
             let set_state_loading = set_state.clone();
             let set_state_result = set_state.clone();
             let fetch_version_check = Arc::clone(&fetch_version);
+
+            // The timeout callback is a one-shot operation that runs immediately (0ms delay).
+            // While the Timeout handle is forgotten (WASM limitation), the version counter
+            // ensures stale responses are discarded after component unmount.
             gloo_timers::callback::Timeout::new(0, move || {
                 let _ = set_state_loading.try_set(LoadingState::Loading);
 
@@ -111,28 +126,18 @@ where
             })
             .forget();
         }
+        // Non-WASM branch is intentionally empty; this hook only runs in browsers.
+        // The cfg gate exists to satisfy cargo check on native targets during CI.
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let _ = set_state.try_set(LoadingState::Loading);
-            wasm_bindgen_futures::spawn_local(async move {
-                match fetch(client).await {
-                    Ok(data) => {
-                        if fetch_version.load(std::sync::atomic::Ordering::SeqCst) == version {
-                            let _ = set_state.try_set(LoadingState::Loaded(data));
-                        }
-                    }
-                    Err(e) => {
-                        if e.is_aborted() {
-                            return;
-                        }
-                        if fetch_version.load(std::sync::atomic::Ordering::SeqCst) == version {
-                            let page = get_current_path();
-                            report_error(&e, page.as_deref(), is_authenticated);
-                            let _ = set_state.try_set(LoadingState::Error(e));
-                        }
-                    }
-                }
-            });
+            let _ = (
+                &set_state,
+                &fetch,
+                &client,
+                &fetch_version,
+                version,
+                is_authenticated,
+            );
         }
     };
 
@@ -158,15 +163,14 @@ where
 ///
 /// # Implementation Note
 /// Uses raw `setInterval`/`clearInterval` via web_sys to enable proper cleanup.
-/// The JS closure is leaked (unavoidable with WASM), but the interval itself
-/// is cleared on unmount, preventing continued execution.
+/// The interval ID is stored atomically for Send+Sync cleanup compatibility.
+/// The closure is leaked (WASM limitation), but the interval is properly cleared.
 pub fn use_polling<F, Fut>(interval_ms: u32, fetch: F) -> impl Fn()
 where
     F: Fn() -> Fut + Clone + 'static,
     Fut: std::future::Future<Output = ()> + 'static,
 {
-    use std::sync::atomic::{AtomicI32, Ordering};
-    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
     use wasm_bindgen::prelude::*;
     use wasm_bindgen::JsCast;
 
@@ -175,9 +179,12 @@ where
     let interval_id_for_cleanup = Arc::clone(&interval_id);
     let interval_id_for_cancel = Arc::clone(&interval_id);
 
+    // Track if we've already initialized (prevent re-initialization on Effect re-run)
+    let initialized = Arc::new(AtomicBool::new(false));
+
     // Register cleanup to clear interval on unmount
     on_cleanup(move || {
-        let id = interval_id_for_cleanup.load(Ordering::SeqCst);
+        let id = interval_id_for_cleanup.swap(-1, Ordering::SeqCst);
         if id >= 0 {
             if let Some(window) = web_sys::window() {
                 window.clear_interval_with_handle(id);
@@ -186,6 +193,12 @@ where
     });
 
     Effect::new(move || {
+        // Only initialize once - Effects can re-run but we don't want duplicate intervals
+        // or leaked closures
+        if initialized.swap(true, Ordering::SeqCst) {
+            return;
+        }
+
         let fetch = fetch.clone();
         let interval_id = Arc::clone(&interval_id);
 
@@ -246,6 +259,13 @@ where
 /// only when there are actually running jobs to poll.
 ///
 /// Returns a cancel function that permanently stops the polling.
+///
+/// # Implementation Note
+/// Each time should_poll transitions to true, a new closure is created and leaked.
+/// This is acceptable because:
+/// 1. The interval is properly cleared when should_poll becomes false
+/// 2. The transition should happen infrequently (not on every render)
+/// 3. In WASM, closures cannot be dropped without cooperation from JS
 pub fn use_conditional_polling<F, Fut>(
     interval_ms: u32,
     should_poll: Signal<bool>,
@@ -255,8 +275,7 @@ where
     F: Fn() -> Fut + Clone + 'static,
     Fut: std::future::Future<Output = ()> + 'static,
 {
-    use std::sync::atomic::{AtomicI32, Ordering};
-    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
     use wasm_bindgen::prelude::*;
     use wasm_bindgen::JsCast;
 
@@ -265,9 +284,14 @@ where
     let interval_id_for_cleanup = Arc::clone(&interval_id);
     let interval_id_for_cancel = Arc::clone(&interval_id);
 
+    // Track if permanently cancelled
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let cancelled_for_effect = Arc::clone(&cancelled);
+    let cancelled_for_cancel = Arc::clone(&cancelled);
+
     // Register cleanup to clear interval on unmount
     on_cleanup(move || {
-        let id = interval_id_for_cleanup.load(Ordering::SeqCst);
+        let id = interval_id_for_cleanup.swap(-1, Ordering::SeqCst);
         if id >= 0 {
             if let Some(window) = web_sys::window() {
                 window.clear_interval_with_handle(id);
@@ -279,6 +303,12 @@ where
         let fetch = fetch.clone();
         let interval_id = Arc::clone(&interval_id);
         let is_polling = should_poll.get();
+        let cancelled = Arc::clone(&cancelled_for_effect);
+
+        // If permanently cancelled, do nothing
+        if cancelled.load(Ordering::SeqCst) {
+            return;
+        }
 
         // Clear any existing interval first
         let old_id = interval_id.swap(-1, Ordering::SeqCst);
@@ -333,6 +363,8 @@ where
 
     // Return cancel function
     move || {
+        // Mark as permanently cancelled
+        cancelled_for_cancel.store(true, Ordering::SeqCst);
         let id = interval_id_for_cancel.swap(-1, Ordering::SeqCst);
         if id >= 0 {
             if let Some(window) = web_sys::window() {

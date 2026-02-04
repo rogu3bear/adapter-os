@@ -1,3 +1,10 @@
+//! Routing debug pages for inspecting adapter routing behavior.
+//!
+//! Provides two views:
+//! - **Rules (Management)**: View and manage routing rules that determine
+//!   how requests are distributed across adapters.
+//! - **Decisions**: Inspect recent routing decisions and their outcomes.
+
 pub mod decisions;
 pub mod rules;
 

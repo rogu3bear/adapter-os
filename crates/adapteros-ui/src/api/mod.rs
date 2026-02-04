@@ -11,8 +11,8 @@ pub mod reviews;
 pub mod sse;
 pub mod types;
 
-// Re-export ApiClient from client module
-pub use client::ApiClient;
+// Re-export ApiClient and CSRF helper from client module
+pub use client::{csrf_token_from_cookie, ApiClient};
 
 // Re-export types from types module
 pub use types::{

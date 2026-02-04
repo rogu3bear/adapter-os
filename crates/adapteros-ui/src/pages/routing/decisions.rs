@@ -12,6 +12,7 @@ use crate::components::{
     TableRow, Textarea,
 };
 use crate::hooks::{use_api_resource, LoadingState};
+use crate::utils::format_datetime;
 use leptos::prelude::*;
 use std::sync::Arc;
 
@@ -476,7 +477,7 @@ fn DecisionDetailContent(decision: RoutingDecisionResponse) -> impl IntoView {
                 })}
                 <div class="flex justify-between">
                     <span class="text-muted-foreground">"Timestamp"</span>
-                    <span>{format_date(&decision.timestamp)}</span>
+                    <span>{format_datetime(&decision.timestamp)}</span>
                 </div>
             </div>
         </Card>
@@ -820,15 +821,6 @@ fn format_timestamp(ts: &str) -> String {
         ts[11..19].to_string()
     } else {
         ts.to_string()
-    }
-}
-
-/// Format a date string for display
-fn format_date(date_str: &str) -> String {
-    if date_str.len() >= 16 {
-        format!("{} {}", &date_str[0..10], &date_str[11..16])
-    } else {
-        date_str.to_string()
     }
 }
 

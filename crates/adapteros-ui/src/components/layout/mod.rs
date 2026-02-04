@@ -3,8 +3,8 @@
 //! Global shell layout with top bar, bottom taskbar, and main workspace.
 //! Designed like a Windows taskbar + modern control plane aesthetic.
 
-mod shell;
 mod nav_registry;
+mod shell;
 mod start_menu;
 mod system_tray;
 mod taskbar;

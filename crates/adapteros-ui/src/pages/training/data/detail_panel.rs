@@ -5,6 +5,7 @@
 use super::state::{DataSource, DatasetStatus, DocumentStatus, PreprocessStatus};
 use crate::api::{DatasetResponse, DocumentResponse, PreprocessedCacheEntry};
 use crate::components::{Badge, BadgeVariant, Button, ButtonVariant, Card, Spinner};
+use crate::utils::format_bytes;
 use leptos::prelude::*;
 
 /// Dataset version summary (used in detail panel).
@@ -14,23 +15,6 @@ pub struct DatasetVersionSummary {
     pub version_number: i64,
     pub version_label: Option<String>,
     pub created_at: String,
-}
-
-/// Format bytes into human-readable string.
-fn format_bytes(bytes: i64) -> String {
-    const KB: i64 = 1024;
-    const MB: i64 = KB * 1024;
-    const GB: i64 = MB * 1024;
-
-    if bytes >= GB {
-        format!("{:.1} GB", bytes as f64 / GB as f64)
-    } else if bytes >= MB {
-        format!("{:.1} MB", bytes as f64 / MB as f64)
-    } else if bytes >= KB {
-        format!("{:.1} KB", bytes as f64 / KB as f64)
-    } else {
-        format!("{} B", bytes)
-    }
 }
 
 /// Right panel showing details of the selected item.

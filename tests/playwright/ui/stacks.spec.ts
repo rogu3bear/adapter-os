@@ -1,9 +1,10 @@
 import { test, expect } from '@playwright/test';
-import { seeded, waitForAppReady } from './utils';
+import { ensureLoggedIn, seeded, waitForAppReady } from './utils';
 
-test('stacks list and detail', async ({ page }) => {
+test('stacks list and detail', { tag: ['@smoke', '@detail'] }, async ({ page }) => {
   await page.goto('/stacks', { waitUntil: 'domcontentloaded' });
   await waitForAppReady(page);
+  await ensureLoggedIn(page);
   await expect(
     page.getByRole('heading', { name: 'Runtime Stacks', level: 1, exact: true })
   ).toBeVisible();
@@ -11,6 +12,7 @@ test('stacks list and detail', async ({ page }) => {
 
   await page.goto(`/stacks/${seeded.stackId}`, { waitUntil: 'domcontentloaded' });
   await waitForAppReady(page);
+  await ensureLoggedIn(page);
   await expect(
     page.getByRole('heading', { name: 'Stack Details', level: 1, exact: true })
   ).toBeVisible();

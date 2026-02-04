@@ -55,8 +55,8 @@ pub mod verifier;
 pub mod writer;
 
 pub use alerting::{
-    AlertComparator, AlertRecord, AlertRule, AlertSeverity, AlertingEngine, EscalationPolicy,
-    NotificationChannel,
+    AlertComparator, AlertDispatchError, AlertDispatcher, AlertRecord, AlertRule, AlertSeverity,
+    AlertingEngine, EscalationPolicy, NotificationChannel,
 };
 pub use bundle::BundleWriter;
 pub use bundle_parser::{

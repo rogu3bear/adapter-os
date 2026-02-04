@@ -21,7 +21,7 @@ anyhow = { workspace = true }
 axum = { workspace = true }
 # Crypto
 blake3 = { workspace = true }
-jsonwebtoken = "9.3"
+jsonwebtoken = { workspace = true }
 # Time
 chrono = { version = "0.4", features = ["serde"] }
 # Logging

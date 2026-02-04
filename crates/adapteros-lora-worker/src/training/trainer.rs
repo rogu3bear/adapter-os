@@ -1399,8 +1399,7 @@ impl MicroLoRATrainer {
                             error = %e,
                             "CoreML training backend initialization failed"
                         );
-                        let reason =
-                            crate::backend_factory::format_coreml_failure_reason(&e);
+                        let reason = crate::backend_factory::format_coreml_failure_reason(&e);
                         self.append_backend_reason(reason);
                         self.telemetry
                             .log(

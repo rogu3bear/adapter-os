@@ -1,6 +1,6 @@
 [package]
 name = "adapteros-api-types"
-version = "0.2.2"
+version = "0.0.1"
 edition = "2021"
 description = "Shared API types for adapterOS - works in both server and WASM contexts"
 

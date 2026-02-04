@@ -557,10 +557,8 @@ pub async fn cp_promote(
         })?;
 
     // 3. Insert promotion record with signature
-    let promotion_id = crate::id_generator::readable_id(
-        adapteros_core::ids::IdKind::Run,
-        "promotion",
-    );
+    let promotion_id =
+        crate::id_generator::readable_id(adapteros_core::ids::IdKind::Run, "promotion");
     let promotion_timestamp = chrono::Utc::now();
 
     sqlx::query(
@@ -755,10 +753,7 @@ pub async fn worker_spawn(
 
     // Register worker using Db trait method
     use adapteros_db::workers::WorkerInsertBuilder;
-    let worker_id = crate::id_generator::readable_id(
-        adapteros_core::ids::IdKind::Worker,
-        "worker",
-    );
+    let worker_id = crate::id_generator::readable_id(adapteros_core::ids::IdKind::Worker, "worker");
     let mut builder = WorkerInsertBuilder::new()
         .id(&worker_id)
         .tenant_id(&req.tenant_id)
@@ -1424,10 +1419,7 @@ pub async fn propose_patch(
                 .as_ref()
                 .map(|p| p.proposal_id.clone())
                 .unwrap_or_else(|| {
-                    crate::id_generator::readable_id(
-                        adapteros_core::ids::IdKind::Run,
-                        "promotion",
-                    )
+                    crate::id_generator::readable_id(adapteros_core::ids::IdKind::Run, "promotion")
                 });
 
             let status = if worker_response.patch_proposal.is_some() {
@@ -2672,7 +2664,7 @@ pub async fn get_system_metrics(
     crate::permissions::require_permission(&claims, crate::permissions::Permission::MetricsView)?;
 
     use adapteros_system_metrics::SystemMetricsCollector;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     // Collect system metrics (using stubs until adapteros-system-metrics is re-enabled)
     let mut collector = SystemMetricsCollector::new();
@@ -2681,7 +2673,7 @@ pub async fn get_system_metrics(
 
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .expect("System time before UNIX epoch")
+        .unwrap_or(Duration::ZERO)
         .as_secs();
 
     // Collect additional metrics for frontend compatibility

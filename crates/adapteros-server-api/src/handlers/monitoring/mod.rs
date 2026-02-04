@@ -904,10 +904,8 @@ pub async fn create_process_monitoring_dashboard(
 ) -> Result<Json<ProcessMonitoringDashboardResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
-    let dashboard_id = crate::id_generator::readable_id(
-        adapteros_core::ids::IdKind::Report,
-        "dashboard",
-    );
+    let dashboard_id =
+        crate::id_generator::readable_id(adapteros_core::ids::IdKind::Report, "dashboard");
     let now = Utc::now().to_rfc3339();
     let config_json = serde_json::to_string(&req.dashboard_config).map_err(|e| {
         (
@@ -1232,10 +1230,7 @@ pub async fn create_process_monitoring_report(
         "config": req.report_config
     });
 
-    let report_id = crate::id_generator::readable_id(
-        adapteros_core::ids::IdKind::Report,
-        "report",
-    );
+    let report_id = crate::id_generator::readable_id(adapteros_core::ids::IdKind::Report, "report");
     let now = Utc::now().to_rfc3339();
     let report_data_json = serde_json::to_string(&report_data).map_err(|e| {
         (

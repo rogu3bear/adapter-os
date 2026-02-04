@@ -151,6 +151,8 @@ pub fn generate_proof<T: Serialize>(events: &[T], index: usize) -> Result<Merkle
 
     let mut siblings = Vec::new();
     collect_siblings(&tree, index, events.len(), &mut siblings);
+    // Reverse siblings: collect_siblings adds top-to-bottom, verify_proof expects bottom-to-top
+    siblings.reverse();
 
     Ok(MerkleProof {
         index,

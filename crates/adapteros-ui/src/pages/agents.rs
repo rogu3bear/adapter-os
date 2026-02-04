@@ -76,7 +76,7 @@ pub fn Agents() -> impl IntoView {
     };
 
     view! {
-        <div class="space-y-6">
+        <div class="shell-page space-y-6">
             <PageHeader
                 title="Agent Orchestration"
                 subtitle="Manage multi-agent sessions and worker executors"

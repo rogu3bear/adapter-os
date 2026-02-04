@@ -18,14 +18,7 @@ use std::sync::Arc;
 
 // Re-export helpers for sub-modules
 pub(crate) mod helpers {
-    /// Format a date string for display
-    pub fn format_date(date_str: &str) -> String {
-        if date_str.len() >= 16 {
-            format!("{} {}", &date_str[0..10], &date_str[11..16])
-        } else {
-            date_str.to_string()
-        }
-    }
+    pub use crate::utils::format_datetime;
 }
 
 /// Repositories list page

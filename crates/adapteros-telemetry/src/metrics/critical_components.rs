@@ -2343,9 +2343,10 @@ mod tests {
     fn test_hotswap_timer() {
         let metrics = Arc::new(CriticalComponentMetrics::new().expect("Failed to create metrics"));
         {
-            let _timer = HotSwapTimer::new("swap", 2, metrics.clone());
+            let timer = HotSwapTimer::new("swap", 2, metrics.clone());
             std::thread::sleep(std::time::Duration::from_millis(10));
-        } // Timer records on drop
+            timer.record("ok"); // Explicitly record before drop
+        }
         let export = metrics.export().expect("Failed to export");
         assert!(export.contains("hotswap_latency_ms"));
     }
@@ -2363,7 +2364,9 @@ mod tests {
         let metrics = Arc::new(CriticalComponentMetrics::new().expect("Failed to create metrics"));
         metrics.set_gpu_memory_pressure("gpu-0", 0.85);
         let export = metrics.export().expect("Failed to export");
-        assert!(export.contains("gpu_memory_pressure 0.85"));
+        // Prometheus format includes labels: gpu_memory_pressure{device_id="gpu-0"} 0.85
+        assert!(export.contains("gpu_memory_pressure{"));
+        assert!(export.contains("0.85"));
     }
 
     #[test]

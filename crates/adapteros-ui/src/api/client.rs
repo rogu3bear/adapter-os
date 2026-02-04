@@ -48,8 +48,12 @@ pub struct InFlightAdaptersResponse {
     pub inference_count: usize,
 }
 
+/// Extract CSRF token from browser cookies.
+///
+/// The server sets a `csrf_token` cookie that must be sent back as an
+/// `X-CSRF-Token` header on all mutating requests (POST, PUT, PATCH, DELETE).
 #[cfg(target_arch = "wasm32")]
-fn csrf_token_from_cookie() -> Option<String> {
+pub fn csrf_token_from_cookie() -> Option<String> {
     use wasm_bindgen::JsCast;
     web_sys::window()
         .and_then(|w| w.document())
@@ -66,8 +70,9 @@ fn csrf_token_from_cookie() -> Option<String> {
         })
 }
 
+/// Extract CSRF token from browser cookies (no-op for non-WASM targets).
 #[cfg(not(target_arch = "wasm32"))]
-fn csrf_token_from_cookie() -> Option<String> {
+pub fn csrf_token_from_cookie() -> Option<String> {
     None
 }
 
@@ -1128,6 +1133,8 @@ impl ApiClient {
     ///
     /// This method uses the raw fetch API to support multipart/form-data uploads
     /// which are required for file uploads to the backend.
+    ///
+    /// Security: Includes CSRF token header and credentials for cookie-based auth.
     #[cfg(target_arch = "wasm32")]
     pub async fn upload_document(&self, file: &web_sys::File) -> ApiResult<DocumentResponse> {
         use wasm_bindgen::JsCast;
@@ -1146,14 +1153,22 @@ impl ApiClient {
         let opts = web_sys::RequestInit::new();
         opts.set_method("POST");
         opts.set_body(&form_data);
+        // Include credentials (cookies) for httpOnly cookie auth
+        opts.set_credentials(web_sys::RequestCredentials::Include);
 
-        // Add auth header if available
+        // Add headers: auth token (if bearer) and CSRF token (required for mutations)
         let headers = web_sys::Headers::new()
             .map_err(|_| ApiError::Network("Failed to create Headers".into()))?;
         if let Some(token) = self.bearer_token() {
             headers
                 .set("Authorization", &format!("Bearer {}", token))
                 .map_err(|_| ApiError::Network("Failed to set Authorization header".into()))?;
+        }
+        // CSRF token is required for all mutating requests
+        if let Some(csrf_token) = csrf_token_from_cookie() {
+            headers
+                .set("X-CSRF-Token", &csrf_token)
+                .map_err(|_| ApiError::Network("Failed to set X-CSRF-Token header".into()))?;
         }
         opts.set_headers(&headers);
 
@@ -1328,6 +1343,8 @@ impl ApiClient {
     /// Upload a training dataset via multipart form data.
     ///
     /// Accepts multiple files and forwards them to `/v1/datasets`.
+    ///
+    /// Security: Includes CSRF token header and credentials for cookie-based auth.
     #[cfg(target_arch = "wasm32")]
     pub async fn upload_dataset(
         &self,
@@ -1342,6 +1359,8 @@ impl ApiClient {
         let opts = web_sys::RequestInit::new();
         opts.set_method("POST");
         opts.set_body(form_data);
+        // Include credentials (cookies) for httpOnly cookie auth
+        opts.set_credentials(web_sys::RequestCredentials::Include);
 
         let headers = web_sys::Headers::new()
             .map_err(|_| ApiError::Network("Failed to create Headers".into()))?;
@@ -1349,6 +1368,12 @@ impl ApiClient {
             headers
                 .set("Authorization", &format!("Bearer {}", token))
                 .map_err(|_| ApiError::Network("Failed to set Authorization header".into()))?;
+        }
+        // CSRF token is required for all mutating requests
+        if let Some(csrf_token) = csrf_token_from_cookie() {
+            headers
+                .set("X-CSRF-Token", &csrf_token)
+                .map_err(|_| ApiError::Network("Failed to set X-CSRF-Token header".into()))?;
         }
         if let Some(key) = idempotency_key.and_then(|value| {
             let trimmed = value.trim();
@@ -1404,6 +1429,8 @@ impl ApiClient {
     /// - `strategy`: "qa" or "summary" (default: qa)
     /// - `chunk_size`: Chunk size in characters (default: 2000)
     /// - `max_tokens`: Max tokens per inference (default: 512)
+    ///
+    /// Security: Includes CSRF token header and credentials for cookie-based auth.
     #[cfg(target_arch = "wasm32")]
     pub async fn generate_dataset(
         &self,
@@ -1417,6 +1444,8 @@ impl ApiClient {
         let opts = web_sys::RequestInit::new();
         opts.set_method("POST");
         opts.set_body(form_data);
+        // Include credentials (cookies) for httpOnly cookie auth
+        opts.set_credentials(web_sys::RequestCredentials::Include);
 
         let headers = web_sys::Headers::new()
             .map_err(|_| ApiError::Network("Failed to create Headers".into()))?;
@@ -1424,6 +1453,12 @@ impl ApiClient {
             headers
                 .set("Authorization", &format!("Bearer {}", token))
                 .map_err(|_| ApiError::Network("Failed to set Authorization header".into()))?;
+        }
+        // CSRF token is required for all mutating requests
+        if let Some(csrf_token) = csrf_token_from_cookie() {
+            headers
+                .set("X-CSRF-Token", &csrf_token)
+                .map_err(|_| ApiError::Network("Failed to set X-CSRF-Token header".into()))?;
         }
         opts.set_headers(&headers);
 
@@ -1964,14 +1999,9 @@ impl ApiClient {
         let path = if params.is_empty() {
             format!("/v1/ui/traces/inference/{}", trace_id)
         } else {
-            format!(
-                "/v1/ui/traces/inference/{}?{}",
-                trace_id,
-                params.join("&")
-            )
+            format!("/v1/ui/traces/inference/{}?{}", trace_id, params.join("&"))
         };
 
         self.get(&path).await
     }
-
 }

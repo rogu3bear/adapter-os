@@ -127,18 +127,16 @@ where
             aria-selected=move || (active.get() == tab_for_aria).to_string()
             class=move || {
                 let is_active = active.get() == tab_for_class;
-                let mut base = "whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded-t-sm".to_string();
-
-                if is_active {
-                    base.push_str(" border-primary text-primary");
+                let base = if is_active {
+                    "tab-button tab-button-active"
                 } else {
-                    base.push_str(" border-transparent text-muted-foreground hover:text-foreground hover:border-muted");
-                }
+                    "tab-button"
+                };
 
-                if !class.is_empty() {
+                if class.is_empty() {
+                    base.to_string()
+                } else {
                     format!("{} {}", base, class)
-                } else {
-                    base
                 }
             }
             on:click=move |_| active.set(tab_for_click.clone())
@@ -149,7 +147,7 @@ where
                     let c = count.get();
                     if c > 0 {
                         Some(view! {
-                            <span class="ml-1 rounded-full bg-destructive/10 px-2 py-0.5 text-xs text-destructive">
+                            <span class="tab-badge">
                                 {c.to_string()}
                             </span>
                         })

@@ -143,7 +143,7 @@ pub fn StyleAudit() -> impl IntoView {
                         <SubSection title="Line Chart">
                             <div class="h-64 border rounded p-4 bg-card">
                                 <LineChart
-                                    data=Signal::from(chart_data)
+                                    data=chart_data
                                     title="Traffic Overview".to_string()
                                     y_label="Requests/sec".to_string()
                                     height=200.0

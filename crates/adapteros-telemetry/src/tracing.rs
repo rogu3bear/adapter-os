@@ -389,14 +389,18 @@ pub struct TraceBufferStats {
     pub max_traces: usize,
 }
 
-/// Generate a 128-bit trace ID
+/// Generate a 128-bit trace ID as 32-char hex (W3C Trace Context compliant)
 fn generate_trace_id() -> String {
-    adapteros_core::ids::generate_id(adapteros_core::ids::IdKind::Trace, "trace")
+    let mut bytes = [0u8; 16];
+    rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut bytes);
+    hex::encode(bytes)
 }
 
-/// Generate a 64-bit span ID
+/// Generate a 64-bit span ID as 16-char hex (W3C Trace Context compliant)
 fn generate_span_id() -> String {
-    adapteros_core::ids::generate_id(adapteros_core::ids::IdKind::Trace, "span")
+    let mut bytes = [0u8; 8];
+    rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut bytes);
+    hex::encode(bytes)
 }
 
 /// Get current time in nanoseconds

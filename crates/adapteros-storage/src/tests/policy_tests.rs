@@ -739,7 +739,10 @@ fn test_action_move() -> Result<()> {
 
     let move_dest = temp_dir.path().join("moved.txt");
     let mut move_params = HashMap::new();
-    move_params.insert("destination".to_string(), move_dest.to_string_lossy().to_string());
+    move_params.insert(
+        "destination".to_string(),
+        move_dest.to_string_lossy().to_string(),
+    );
     let move_action = StorageAction {
         action_type: StorageActionType::Move,
         parameters: move_params,
@@ -773,7 +776,10 @@ fn test_action_copy() -> Result<()> {
 
     let copy_dest = temp_dir.path().join("copied.txt");
     let mut copy_params = HashMap::new();
-    copy_params.insert("destination".to_string(), copy_dest.to_string_lossy().to_string());
+    copy_params.insert(
+        "destination".to_string(),
+        copy_dest.to_string_lossy().to_string(),
+    );
     let copy_action = StorageAction {
         action_type: StorageActionType::Copy,
         parameters: copy_params,

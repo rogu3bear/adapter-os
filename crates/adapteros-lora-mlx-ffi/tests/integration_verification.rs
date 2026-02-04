@@ -6,7 +6,8 @@
 
 use adapteros_lora_mlx_ffi::{
     kv_cache::{KVCacheConfig, MLXKVCache},
-    mlx_runtime_init, mlx_runtime_is_initialized, mlx_sync, MLXAdapterCache, MLXAdapterCacheConfig,
+    mlx_runtime_init_with_device, mlx_runtime_is_initialized, mlx_sync, MLXAdapterCache,
+    MLXAdapterCacheConfig, MlxDeviceType,
 };
 use std::time::Instant;
 
@@ -15,10 +16,13 @@ fn verify_runtime_initialization() {
     println!("\n=== Runtime Initialization Verification ===\n");
 
     let start = Instant::now();
-    let result = mlx_runtime_init();
+    let result = mlx_runtime_init_with_device(MlxDeviceType::Cpu);
     let init_time = start.elapsed();
 
-    println!("mlx_runtime_init() completed in {:?}", init_time);
+    println!(
+        "mlx_runtime_init_with_device() completed in {:?}",
+        init_time
+    );
     println!("Result: {:?}", result);
 
     let is_init = mlx_runtime_is_initialized();
@@ -156,7 +160,7 @@ fn verify_complete_workflow() {
     println!("\n=== Complete Workflow Verification ===\n");
 
     // Step 1: Initialize runtime
-    let _ = mlx_runtime_init();
+    let _ = mlx_runtime_init_with_device(MlxDeviceType::Cpu);
     println!("[1/4] Runtime initialized");
 
     // Step 2: Create adapter cache

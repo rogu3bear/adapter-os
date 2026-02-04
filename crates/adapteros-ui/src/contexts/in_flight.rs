@@ -29,9 +29,23 @@ impl InFlightContext {
     }
 }
 
-/// Hook to access in-flight context
+/// Hook to access in-flight context.
+///
+/// # Panics
+///
+/// Panics if called outside of an `InFlightProvider`. Use `try_use_in_flight()`
+/// for fallible access that returns `None` if the context is unavailable.
 pub fn use_in_flight() -> InFlightContext {
     expect_context::<InFlightContext>()
+}
+
+/// Try to access in-flight context without panicking.
+///
+/// Returns `None` if called outside of an `InFlightProvider`.
+/// Useful for components that may be rendered in contexts where
+/// the provider is not guaranteed to exist.
+pub fn try_use_in_flight() -> Option<InFlightContext> {
+    use_context::<InFlightContext>()
 }
 
 /// Provider component that polls in-flight status

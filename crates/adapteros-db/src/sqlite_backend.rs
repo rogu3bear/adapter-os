@@ -146,8 +146,8 @@ impl DatabaseBackend for SqliteBackend {
             None => return Ok(false),
         };
 
-        let should_bump = current_adapter_ids_json != adapter_ids_json
-            || current_workflow_type != workflow_type;
+        let should_bump =
+            current_adapter_ids_json != adapter_ids_json || current_workflow_type != workflow_type;
         let bump = if should_bump { 1i64 } else { 0i64 };
 
         let result = sqlx::query(

@@ -458,10 +458,7 @@ pub async fn create_commit_delta(
         })?;
 
     // Create job ID
-    let job_id = crate::id_generator::readable_id(
-        adapteros_core::ids::IdKind::Job,
-        "code",
-    );
+    let job_id = crate::id_generator::readable_id(adapteros_core::ids::IdKind::Job, "code");
 
     // Spawn background task
     if let Some(ref code_job_manager) = state.code_job_manager {
@@ -571,10 +568,7 @@ pub async fn propose_patch(
                 .as_ref()
                 .map(|p| p.proposal_id.clone())
                 .unwrap_or_else(|| {
-                    crate::id_generator::readable_id(
-                        adapteros_core::ids::IdKind::Job,
-                        "code",
-                    )
+                    crate::id_generator::readable_id(adapteros_core::ids::IdKind::Job, "code")
                 });
 
             let status = if worker_response.patch_proposal.is_some() {

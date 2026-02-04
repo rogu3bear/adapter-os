@@ -6,15 +6,16 @@
 use leptos::prelude::*;
 
 use crate::api::{
-    ApiClient, UiInferenceTraceDetailResponse, InferenceTraceResponse, TimingBreakdown, TokenDecision,
-    UiTraceReceiptSummary,
+    ApiClient, InferenceTraceResponse, TimingBreakdown, TokenDecision,
+    UiInferenceTraceDetailResponse, UiTraceReceiptSummary,
 };
 use crate::components::async_state::ErrorDisplay;
 use crate::components::Spinner;
 use crate::constants::pagination::{TOKEN_DECISIONS_DOM_CAP, TOKEN_DECISIONS_PAGE_SIZE};
 use crate::hooks::LoadingState;
-use crate::signals::try_use_notifications;
+use crate::signals::{perf_logging_enabled, try_use_notifications};
 use leptos::task::spawn_local;
+use std::time::Instant;
 
 /// State for the trace viewer
 #[derive(Clone, Debug)]
@@ -529,6 +530,7 @@ pub fn TokenDecisionsPaged(
     let has_more = RwSignal::new(initial_has_more);
     let loading_more = RwSignal::new(false);
     let notifications = try_use_notifications();
+    let perf_enabled = perf_logging_enabled();
 
     let on_load_more = Callback::new(move |_| {
         if loading_more.get() || !has_more.get() {
@@ -540,28 +542,33 @@ pub fn TokenDecisionsPaged(
         loading_more.set(true);
         let trace_id = trace_id.clone();
         let notifications = notifications.clone();
+        let perf_enabled = perf_enabled;
 
         spawn_local(async move {
+            let started_at = Instant::now();
             let client = ApiClient::new();
             match client
-            .get_inference_trace_detail(
-                &trace_id,
-                Some(TOKEN_DECISIONS_PAGE_SIZE),
-                Some(after),
-            )
+                .get_inference_trace_detail(&trace_id, Some(TOKEN_DECISIONS_PAGE_SIZE), Some(after))
                 .await
             {
                 Ok(detail) => {
                     decisions.update(|items| items.extend(detail.token_decisions));
                     next_cursor.set(detail.token_decisions_next_cursor);
                     has_more.set(detail.token_decisions_has_more);
+                    if perf_enabled {
+                        let elapsed_ms = started_at.elapsed().as_millis();
+                        web_sys::console::log_1(
+                            &format!(
+                                "[perf] token decisions page: {}ms (trace_id={})",
+                                elapsed_ms, trace_id
+                            )
+                            .into(),
+                        );
+                    }
                 }
                 Err(err) => {
                     if let Some(notifications) = notifications {
-                        notifications.error(
-                            "Token decisions fetch failed",
-                            &err.to_string(),
-                        );
+                        notifications.error("Token decisions fetch failed", &err.to_string());
                     } else {
                         web_sys::console::warn_1(
                             &format!("Token decisions fetch failed: {}", err).into(),
@@ -678,7 +685,7 @@ fn ReceiptVerification(
     let cache_hit = receipt.prefix_cache_hit.unwrap_or(false);
 
     view! {
-        <div class=container_class>
+        <div class=container_class data-testid="receipt-verification">
             <div class="flex items-center justify-between mb-3">
                 <h4 class="text-sm font-medium">"Inference Receipt"</h4>
                 <div class="flex gap-2">

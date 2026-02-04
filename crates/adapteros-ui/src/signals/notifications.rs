@@ -4,7 +4,11 @@ use leptos::prelude::*;
 
 const MAX_TOASTS: usize = 5;
 #[cfg(target_arch = "wasm32")]
-const DEFAULT_TOAST_DURATION_MS: u32 = 5000;
+const DEFAULT_TOAST_DURATION_MS: u32 = 8000; // info/success
+#[cfg(target_arch = "wasm32")]
+const WARNING_TOAST_DURATION_MS: u32 = 15000;
+#[cfg(target_arch = "wasm32")]
+const ERROR_TOAST_DURATION_MS: u32 = 20000;
 
 fn readable_id(prefix: &str, slug_source: &str) -> String {
     let slug = slugify(slug_source);
@@ -101,14 +105,25 @@ impl ToastSeverity {
     }
 }
 
-/// Notification item for long-lived views (not currently surfaced in UI).
+/// Notification item for long-lived views (surfaced in error history panel).
 #[derive(Debug, Clone)]
 pub struct Notification {
     pub id: String,
     pub title: String,
     pub message: String,
+    pub details: Option<String>,
     pub severity: NotificationSeverity,
     pub read: bool,
+    pub timestamp: f64, // JS timestamp (ms since epoch)
+}
+
+const MAX_NOTIFICATION_HISTORY: usize = 50;
+
+/// Action link for actionable toasts.
+#[derive(Debug, Clone)]
+pub struct ToastAction {
+    pub label: String,
+    pub href: String,
 }
 
 /// Toast data for transient notifications.
@@ -120,6 +135,8 @@ pub struct Toast {
     pub details: Option<String>,
     pub severity: ToastSeverity,
     pub dismissible: bool,
+    /// Optional action link (label, href)
+    pub action: Option<ToastAction>,
 }
 
 /// Notification state.
@@ -185,6 +202,68 @@ impl NotificationAction {
         });
     }
 
+    /// Push a notification to persistent history.
+    /// Called automatically for errors and warnings.
+    fn push_notification(
+        &self,
+        severity: NotificationSeverity,
+        title: &str,
+        message: &str,
+        details: Option<&str>,
+    ) {
+        self.state.update(|state| {
+            let notification = Notification {
+                id: readable_id("notif", "hist"),
+                title: title.to_string(),
+                message: message.to_string(),
+                details: details.map(|d| d.to_string()),
+                severity,
+                read: false,
+                timestamp: js_sys::Date::now(),
+            };
+            state.notifications.push(notification);
+            // Keep history bounded
+            if state.notifications.len() > MAX_NOTIFICATION_HISTORY {
+                state.notifications.remove(0);
+            }
+        });
+    }
+
+    /// Mark a notification as read.
+    pub fn mark_read(&self, id: &str) {
+        self.state.update(|state| {
+            if let Some(n) = state.notifications.iter_mut().find(|n| n.id == id) {
+                n.read = true;
+            }
+        });
+    }
+
+    /// Mark all notifications as read.
+    pub fn mark_all_read(&self) {
+        self.state.update(|state| {
+            for n in &mut state.notifications {
+                n.read = true;
+            }
+        });
+    }
+
+    /// Clear all notifications from history.
+    pub fn clear_notifications(&self) {
+        self.state.update(|state| {
+            state.notifications.clear();
+        });
+    }
+
+    /// Get unread notification count.
+    pub fn unread_count(&self) -> usize {
+        self.state
+            .get_untracked()
+            .notifications
+            .iter()
+            .filter(|n| !n.read)
+            .count()
+    }
+
     pub fn info(&self, title: &str, message: &str) {
         self.push_simple(ToastSeverity::Info, title, message);
     }
@@ -194,10 +273,12 @@ impl NotificationAction {
     }
 
     pub fn warning(&self, title: &str, message: &str) {
+        self.push_notification(NotificationSeverity::Warning, title, message, None);
         self.push_simple(ToastSeverity::Warning, title, message);
     }
 
     pub fn error(&self, title: &str, message: &str) {
+        self.push_notification(NotificationSeverity::Error, title, message, None);
         self.push_simple(ToastSeverity::Error, title, message);
     }
 
@@ -206,7 +287,13 @@ impl NotificationAction {
     /// Use this for surfacing errors where users may want to copy diagnostic info
     /// (e.g., API errors, streaming failures, timeout details).
     pub fn error_with_details(&self, title: &str, message: &str, details: &str) {
-        // Error toasts with details persist longer (15s) so users can expand and copy
+        self.push_notification(NotificationSeverity::Error, title, message, Some(details));
+
+        #[cfg(target_arch = "wasm32")]
+        let duration = ERROR_TOAST_DURATION_MS;
+        #[cfg(not(target_arch = "wasm32"))]
+        let duration = 20000;
+
         self.push_toast(
             Toast {
                 id: readable_id("notif", "toast"),
@@ -215,8 +302,9 @@ impl NotificationAction {
                 details: Some(details.to_string()),
                 severity: ToastSeverity::Error,
                 dismissible: true,
+                action: None,
             },
-            Some(15_000), // 15 seconds for detailed errors
+            Some(duration),
         );
     }
 
@@ -225,6 +313,13 @@ impl NotificationAction {
     /// Use this for surfacing warnings where users may want to copy diagnostic info
     /// (e.g., in-flight adapter conflicts, rate limiting).
     pub fn warning_with_details(&self, title: &str, message: &str, details: &str) {
+        self.push_notification(NotificationSeverity::Warning, title, message, Some(details));
+
+        #[cfg(target_arch = "wasm32")]
+        let duration = WARNING_TOAST_DURATION_MS;
+        #[cfg(not(target_arch = "wasm32"))]
+        let duration = 15000;
+
         self.push_toast(
             Toast {
                 id: readable_id("notif", "toast"),
@@ -233,12 +328,22 @@ impl NotificationAction {
                 details: Some(details.to_string()),
                 severity: ToastSeverity::Warning,
                 dismissible: true,
+                action: None,
             },
-            Some(10_000), // 10 seconds for warnings with details
+            Some(duration),
         );
     }
 
     fn push_simple(&self, severity: ToastSeverity, title: &str, message: &str) {
+        #[cfg(target_arch = "wasm32")]
+        let duration = match severity {
+            ToastSeverity::Error => Some(ERROR_TOAST_DURATION_MS),
+            ToastSeverity::Warning => Some(WARNING_TOAST_DURATION_MS),
+            ToastSeverity::Info | ToastSeverity::Success => None, // uses DEFAULT_TOAST_DURATION_MS
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        let duration = None;
+
         self.push_toast(
             Toast {
                 id: readable_id("notif", "toast"),
@@ -247,8 +352,37 @@ impl NotificationAction {
                 details: None,
                 severity,
                 dismissible: true,
+                action: None,
             },
-            None,
+            duration,
+        );
+    }
+
+    /// Show a success toast with an action link.
+    ///
+    /// Use for notifications where the user may want to navigate to a related page
+    /// (e.g., "Try in Chat" after training completes).
+    pub fn success_with_action(
+        &self,
+        title: &str,
+        message: &str,
+        action_label: &str,
+        action_href: &str,
+    ) {
+        self.push_toast(
+            Toast {
+                id: readable_id("notif", "toast"),
+                title: title.to_string(),
+                message: message.to_string(),
+                details: None,
+                severity: ToastSeverity::Success,
+                dismissible: true,
+                action: Some(ToastAction {
+                    label: action_label.to_string(),
+                    href: action_href.to_string(),
+                }),
+            },
+            Some(10_000), // 10s for actionable toasts
         );
     }
 }

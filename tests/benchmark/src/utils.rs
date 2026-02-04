@@ -60,7 +60,7 @@ impl ResourceMonitor {
 
     pub fn get_cpu_usage(&mut self) -> f32 {
         self.system.refresh_all();
-        self.system.global_cpu_info().cpu_usage()
+        self.system.global_cpu_usage()
     }
 
     pub fn elapsed(&self) -> Duration {

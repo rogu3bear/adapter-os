@@ -61,6 +61,7 @@ pub mod tenants;
 pub mod topology;
 pub mod training;
 pub mod ui;
+pub mod update_field;
 pub mod workers;
 
 // Re-export commonly used types (server feature for full type access)
@@ -108,6 +109,7 @@ pub use tenants::*;
 pub use topology::*;
 pub use training::*;
 pub use ui::*;
+pub use update_field::UpdateField;
 pub use workers::*;
 
 /// Common error response structure

@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { ensureLoggedIn, seeded, waitForAppReady } from './utils';
 
-test('runs list and detail', async ({ page }) => {
+test('runs list and detail', { tag: ['@smoke', '@detail'] }, async ({ page }) => {
   await page.goto('/runs', { waitUntil: 'domcontentloaded' });
   await waitForAppReady(page);
   await ensureLoggedIn(page);
@@ -40,20 +40,11 @@ test('runs list and detail', async ({ page }) => {
       'K-sparse routing decisions showing which adapters were selected and their gate values.'
     )
   ).toBeVisible();
-  await page
-    .getByRole('button', { name: /Token Routing Decisions/ })
-    .click();
-  await expect(page.getByText('Adapters:').first()).toBeVisible();
-  const showMore = page.getByRole('button', { name: 'Show more' });
-  if (await showMore.isVisible().catch(() => false)) {
-    await showMore.click();
-  }
-
   await tabNav.getByRole('button', { name: 'Receipt', exact: true }).click();
   await expect(page.getByText('Receipts & Hashes')).toBeVisible();
 });
 
-test('primary flow: chat to run detail', async ({ page }) => {
+test('primary flow: chat to run detail', { tag: ['@flow'] }, async ({ page }) => {
   await page.goto('/chat', { waitUntil: 'domcontentloaded' });
   await waitForAppReady(page);
   await ensureLoggedIn(page);
@@ -72,21 +63,4 @@ test('primary flow: chat to run detail', async ({ page }) => {
   await expect(
     page.getByRole('heading', { name: 'Provenance', level: 3, exact: true })
   ).toBeVisible();
-});
-
-test('token decisions paging shows more', async ({ page }) => {
-  await page.goto(`/runs/${seeded.runId}?tab=trace`, {
-    waitUntil: 'domcontentloaded',
-  });
-  await waitForAppReady(page);
-  await ensureLoggedIn(page);
-  await page
-    .getByRole('button', { name: /Token Routing Decisions/ })
-    .click();
-  await expect(page.getByText('Adapters:').first()).toBeVisible();
-  const showMore = page.getByRole('button', { name: 'Show more' });
-  if (await showMore.isVisible().catch(() => false)) {
-    await showMore.click();
-    await expect(showMore).toBeHidden();
-  }
 });

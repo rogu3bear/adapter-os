@@ -417,11 +417,14 @@ pub fn has_email_like_token(text: &str) -> bool {
     })
 }
 
-static PHONE_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\b(?:\+?\d{1,3}[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)\d{3}[-.\s]?\d{4}\b").expect("phone regex"));
+static PHONE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b(?:\+?\d{1,3}[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)\d{3}[-.\s]?\d{4}\b")
+        .expect("phone regex")
+});
 static SSN_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b\d{3}-\d{2}-\d{4}\b").expect("ssn regex"));
-static CC_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b(?:\d[ -]*?){13,16}\b").expect("cc regex"));
+static CC_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b(?:\d[ -]*?){13,16}\b").expect("cc regex"));
 
 pub fn has_phone_like_token(text: &str) -> bool {
     PHONE_RE.is_match(text)
@@ -609,13 +612,16 @@ pub async fn record_safety_validation_runs(
     ];
 
     for (signal, acc) in signals {
-        let status = match status_with_threshold(acc, match signal {
-            "pii" => PII_BLOCK_THRESHOLD,
-            "toxicity" => TOXIC_BLOCK_THRESHOLD,
-            "leak" => 1,
-            "anomaly" => ANOMALY_BLOCK_THRESHOLD,
-            _ => 1,
-        })
+        let status = match status_with_threshold(
+            acc,
+            match signal {
+                "pii" => PII_BLOCK_THRESHOLD,
+                "toxicity" => TOXIC_BLOCK_THRESHOLD,
+                "leak" => 1,
+                "anomaly" => ANOMALY_BLOCK_THRESHOLD,
+                _ => 1,
+            },
+        )
         .as_str()
         {
             "block" => "block",
@@ -741,9 +747,11 @@ pub fn spawn_tier2_safety_validation(state: AppState, dataset_version_id: String
         match run_tier2_safety_scan(&version.storage_path).await {
             Ok(outcome) => {
                 let pii_status = status_with_threshold(&outcome.pii, PII_BLOCK_THRESHOLD);
-                let toxicity_status = status_with_threshold(&outcome.toxicity, TOXIC_BLOCK_THRESHOLD);
+                let toxicity_status =
+                    status_with_threshold(&outcome.toxicity, TOXIC_BLOCK_THRESHOLD);
                 let leak_status = status_with_threshold(&outcome.leak, 1);
-                let anomaly_status = status_with_threshold(&outcome.anomaly, ANOMALY_BLOCK_THRESHOLD);
+                let anomaly_status =
+                    status_with_threshold(&outcome.anomaly, ANOMALY_BLOCK_THRESHOLD);
 
                 let _ = state
                     .db

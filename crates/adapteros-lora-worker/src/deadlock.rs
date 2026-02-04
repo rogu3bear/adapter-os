@@ -198,13 +198,11 @@ impl DeadlockDetector {
 }
 
 fn supervisor_base_url() -> Option<String> {
-    std::env::var("SUPERVISOR_API_URL")
-        .ok()
-        .or_else(|| {
-            std::env::var("AOS_PANEL_PORT")
-                .ok()
-                .map(|port| format!("http://127.0.0.1:{}", port))
-        })
+    std::env::var("SUPERVISOR_API_URL").ok().or_else(|| {
+        std::env::var("AOS_PANEL_PORT")
+            .ok()
+            .map(|port| format!("http://127.0.0.1:{}", port))
+    })
 }
 
 fn supervisor_service_id() -> Option<String> {
@@ -292,7 +290,7 @@ impl DeadlockEvent {
             total_deadlocks,
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .expect("System time before UNIX epoch")
+                .unwrap_or(std::time::Duration::ZERO)
                 .as_secs(),
         }
     }

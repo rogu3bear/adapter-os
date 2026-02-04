@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { ensureLoggedIn, waitForAppReady } from './utils';
 
-test('routing management tab renders', async ({ page }) => {
+test('routing management tab renders', { tag: ['@smoke'] }, async ({ page }) => {
   await page.goto('/routing', { waitUntil: 'domcontentloaded' });
   await waitForAppReady(page);
   await ensureLoggedIn(page);
@@ -14,7 +14,7 @@ test('routing management tab renders', async ({ page }) => {
   ).toBeVisible();
 });
 
-test('routing decisions tab renders prompt input', async ({ page }) => {
+test('routing decisions tab renders prompt input', { tag: ['@smoke'] }, async ({ page }) => {
   await page.goto('/routing', { waitUntil: 'domcontentloaded' });
   await waitForAppReady(page);
   await ensureLoggedIn(page);

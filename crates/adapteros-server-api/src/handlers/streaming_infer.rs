@@ -596,10 +596,13 @@ pub async fn streaming_infer_with_progress(
         let resolved = resolve_session_token_lock(&state, &claims, &token.0.lock).await?;
         if let (Some(requested), Some(locked)) = (req.backend, resolved.backend_profile) {
             if requested != locked {
-                return Err(ApiError::forbidden("session token backend mismatch").with_details(
-                    format!("requested {}, token {}", requested.as_str(), locked.as_str()),
-                )
-                .into());
+                return Err(ApiError::forbidden("session token backend mismatch")
+                    .with_details(format!(
+                        "requested {}, token {}",
+                        requested.as_str(),
+                        locked.as_str()
+                    ))
+                    .into());
             }
         }
         if let (Some(requested), Some(locked)) = (req.coreml_mode, resolved.coreml_mode) {
@@ -830,10 +833,13 @@ pub async fn streaming_infer(
         let resolved = resolve_session_token_lock(&state, &claims, &token.0.lock).await?;
         if let (Some(requested), Some(locked)) = (req.backend, resolved.backend_profile) {
             if requested != locked {
-                return Err(ApiError::forbidden("session token backend mismatch").with_details(
-                    format!("requested {}, token {}", requested.as_str(), locked.as_str()),
-                )
-                .into());
+                return Err(ApiError::forbidden("session token backend mismatch")
+                    .with_details(format!(
+                        "requested {}, token {}",
+                        requested.as_str(),
+                        locked.as_str()
+                    ))
+                    .into());
             }
         }
         if let (Some(requested), Some(locked)) = (req.coreml_mode, resolved.coreml_mode) {

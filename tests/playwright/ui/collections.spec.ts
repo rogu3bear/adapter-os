@@ -1,9 +1,10 @@
 import { test, expect } from '@playwright/test';
-import { expectErrorState, waitForAppReady } from './utils';
+import { ensureLoggedIn, expectErrorState, waitForAppReady } from './utils';
 
-test('collections empty state and create dialog', async ({ page }) => {
+test('collections empty state and create dialog', { tag: ['@smoke'] }, async ({ page }) => {
   await page.goto('/collections', { waitUntil: 'domcontentloaded' });
   await waitForAppReady(page);
+  await ensureLoggedIn(page);
   await expect(
     page.getByRole('heading', { name: 'Collections', level: 1, exact: true })
   ).toBeVisible();
@@ -19,9 +20,10 @@ test('collections empty state and create dialog', async ({ page }) => {
   ).toHaveCount(0);
 });
 
-test('collection detail shows not found error for unknown id', async ({ page }) => {
+test('collection detail shows not found error for unknown id', { tag: ['@smoke'] }, async ({ page }) => {
   await page.goto('/collections/collection-missing', { waitUntil: 'domcontentloaded' });
   await waitForAppReady(page);
+  await ensureLoggedIn(page);
   await expect(
     page.getByRole('heading', { name: 'Collection Details', level: 1, exact: true })
   ).toBeVisible();

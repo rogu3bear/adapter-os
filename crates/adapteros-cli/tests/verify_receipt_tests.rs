@@ -309,11 +309,7 @@ fn test_valid_receipt_verification() {
     let bundle_path = create_valid_bundle(&temp_dir.path().to_path_buf());
 
     // Run verification using the command module
-    let output = run_aosctl(&[
-        "verify-receipt",
-        "--bundle",
-        bundle_path.to_str().unwrap(),
-    ]);
+    let output = run_aosctl(&["verify-receipt", "--bundle", bundle_path.to_str().unwrap()]);
 
     assert!(
         output.status.success(),
@@ -345,11 +341,7 @@ fn test_tampered_receipt_detection() {
     fs::write(&bundle_path, tampered_json).expect("write tampered bundle");
 
     // Run verification
-    let output = run_aosctl(&[
-        "verify-receipt",
-        "--bundle",
-        bundle_path.to_str().unwrap(),
-    ]);
+    let output = run_aosctl(&["verify-receipt", "--bundle", bundle_path.to_str().unwrap()]);
 
     assert!(
         !output.status.success(),
@@ -381,11 +373,7 @@ fn test_adapter_id_history_tamper_is_rejected() {
     let tampered_json = serde_json::to_string_pretty(&bundle).expect("serialize tampered");
     fs::write(&bundle_path, tampered_json).expect("write tampered bundle");
 
-    let output = run_aosctl(&[
-        "verify-receipt",
-        "--bundle",
-        bundle_path.to_str().unwrap(),
-    ]);
+    let output = run_aosctl(&["verify-receipt", "--bundle", bundle_path.to_str().unwrap()]);
 
     assert!(
         !output.status.success(),
@@ -445,11 +433,7 @@ fn test_json_output_format() {
 #[test]
 fn test_missing_file_error() {
     // Try to verify a non-existent file
-    let output = run_aosctl(&[
-        "verify-receipt",
-        "--bundle",
-        "var/nonexistent-receipt.json",
-    ]);
+    let output = run_aosctl(&["verify-receipt", "--bundle", "var/nonexistent-receipt.json"]);
 
     assert!(
         !output.status.success(),
@@ -492,11 +476,7 @@ fn test_invalid_json_error() {
     // Write invalid JSON
     fs::write(&bundle_path, "{ this is not valid json }").expect("write invalid json");
 
-    let output = run_aosctl(&[
-        "verify-receipt",
-        "--bundle",
-        bundle_path.to_str().unwrap(),
-    ]);
+    let output = run_aosctl(&["verify-receipt", "--bundle", bundle_path.to_str().unwrap()]);
 
     assert!(
         !output.status.success(),
@@ -528,11 +508,7 @@ fn test_backend_mismatch_detection() {
     fs::write(&bundle_path, modified_json).expect("write modified bundle");
 
     // Run verification
-    let output = run_aosctl(&[
-        "verify-receipt",
-        "--bundle",
-        bundle_path.to_str().unwrap(),
-    ]);
+    let output = run_aosctl(&["verify-receipt", "--bundle", bundle_path.to_str().unwrap()]);
 
     assert!(
         !output.status.success(),
@@ -564,11 +540,7 @@ fn test_output_digest_mismatch() {
     fs::write(&bundle_path, tampered_json).expect("write tampered bundle");
 
     // Run verification
-    let output = run_aosctl(&[
-        "verify-receipt",
-        "--bundle",
-        bundle_path.to_str().unwrap(),
-    ]);
+    let output = run_aosctl(&["verify-receipt", "--bundle", bundle_path.to_str().unwrap()]);
 
     assert!(
         !output.status.success(),
@@ -600,11 +572,7 @@ fn test_context_digest_mismatch() {
     fs::write(&bundle_path, tampered_json).expect("write tampered bundle");
 
     // Run verification
-    let output = run_aosctl(&[
-        "verify-receipt",
-        "--bundle",
-        bundle_path.to_str().unwrap(),
-    ]);
+    let output = run_aosctl(&["verify-receipt", "--bundle", bundle_path.to_str().unwrap()]);
 
     assert!(
         !output.status.success(),

@@ -1,8 +1,8 @@
 //! UI profile configuration state.
 
+use super::settings::use_settings;
 use crate::api::ApiClient;
 use crate::boot_log;
-use super::settings::use_settings;
 use adapteros_api_types::UiProfile;
 use leptos::prelude::*;
 

@@ -104,11 +104,11 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-#[cfg(test)]
+#[cfg(debug_assertions)]
 use once_cell::sync::Lazy;
 use tracing::{debug, info, warn};
 
-#[cfg(test)]
+#[cfg(debug_assertions)]
 static MIGRATION_TEST_LOCK: Lazy<tokio::sync::Mutex<()>> =
     Lazy::new(|| tokio::sync::Mutex::new(()));
 
@@ -138,6 +138,7 @@ pub mod metrics_db;
 pub mod policy_audit_kv;
 pub mod prefix_templates;
 pub mod rag;
+pub mod readable_ids;
 pub mod reembedding;
 pub mod replay_kv;
 pub mod repository_training_policies;
@@ -154,7 +155,6 @@ pub mod tenant_policy_bindings_kv;
 pub mod tenant_settings;
 pub mod topology;
 pub mod traits;
-pub mod readable_ids;
 
 // Lifecycle rules module
 pub mod lifecycle_rules;
@@ -1054,8 +1054,6 @@ impl Db {
     /// # Note
     /// This is available in both test and non-test builds for maximum flexibility.
     pub async fn new_in_memory() -> Result<Self> {
-        #[cfg(test)]
-        let _migration_guard = MIGRATION_TEST_LOCK.lock().await;
         let db = Self::connect("sqlite::memory:").await?;
         db.migrate().await?;
         Ok(db)
@@ -1089,7 +1087,7 @@ impl Db {
     pub async fn migrate(&self) -> Result<()> {
         use tracing::info;
 
-        #[cfg(test)]
+        #[cfg(debug_assertions)]
         let _migration_guard = MIGRATION_TEST_LOCK.lock().await;
 
         // Use CARGO_MANIFEST_DIR to find migrations relative to workspace root
@@ -1164,6 +1162,7 @@ impl Db {
         self.ensure_adapter_lora_strength_column().await?;
         self.ensure_adapter_recommended_for_moe_column().await?;
         self.ensure_worker_runtime_metadata_columns().await?;
+        self.ensure_inference_trace_tokens_index().await?;
 
         // Verify database version after migration
         self.verify_migration_version(&migrations_path).await?;
@@ -1278,6 +1277,24 @@ impl Db {
         .execute(pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to ensure workers index: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Ensure token paging queries can use a composite index.
+    async fn ensure_inference_trace_tokens_index(&self) -> Result<()> {
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_inference_trace_tokens_trace_token_index \
+             ON inference_trace_tokens (trace_id, token_index)",
+        )
+        .execute(self.pool())
+        .await
+        .map_err(|e| {
+            AosError::Database(format!(
+                "Failed to ensure inference_trace_tokens index: {}",
+                e
+            ))
+        })?;
 
         Ok(())
     }
@@ -1782,8 +1799,7 @@ impl Db {
         if self.storage_mode().write_to_sql() {
             if let Some(pool) = self.pool_opt() {
                 let (current_adapter_ids_json, current_workflow_type, current_version) =
-                    if let Some(row) =
-                        sqlx::query_as::<_, (String, Option<String>, String)>(
+                    if let Some(row) = sqlx::query_as::<_, (String, Option<String>, String)>(
                         r#"
                         SELECT adapter_ids_json, workflow_type, version
                         FROM adapter_stacks
@@ -1795,8 +1811,7 @@ impl Db {
                     .await
                     .map_err(|e| {
                         AosError::Database(format!("Failed to fetch stack for update: {}", e))
-                    })?
-                    {
+                    })? {
                         row
                     } else {
                         return Ok(false);

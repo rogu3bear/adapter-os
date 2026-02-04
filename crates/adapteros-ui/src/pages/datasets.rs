@@ -5,12 +5,14 @@
 
 use crate::api::{ApiClient, DatasetListResponse, DatasetVersionsResponse};
 use crate::components::{
-    Badge, BadgeVariant, BreadcrumbItem, BreadcrumbTrail, Button, ButtonVariant, Card, CopyableId,
-    ConfirmationDialog, ConfirmationSeverity, EmptyState, ErrorDisplay, LoadingDisplay, PageHeader,
-    RefreshButton, Spinner, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    Badge, BadgeVariant, BreadcrumbItem, BreadcrumbTrail, Button, ButtonVariant, Card,
+    ConfirmationDialog, ConfirmationSeverity, CopyableId, EmptyState, ErrorDisplay, LoadingDisplay,
+    PageHeader, RefreshButton, Spinner, Table, TableBody, TableCell, TableHead, TableHeader,
+    TableRow,
 };
-use crate::hooks::{use_api, use_api_resource, LoadingState};
+use crate::hooks::{use_api, use_api_resource, use_delete_dialog, LoadingState};
 use crate::pages::training::dataset_wizard::{DatasetUploadOutcome, DatasetUploadWizard};
+use crate::utils::{format_bytes, format_date};
 use leptos::prelude::*;
 use leptos_router::hooks::{use_navigate, use_params_map};
 use std::sync::Arc;
@@ -118,50 +120,42 @@ fn DatasetsList(
     let client = use_api();
     let navigate = use_navigate();
 
-    // Delete confirmation dialog state
-    let show_delete_confirm = RwSignal::new(false);
-    let pending_delete_id = RwSignal::new(Option::<String>::None);
-    let pending_delete_name = RwSignal::new(String::new());
-    let deleting = RwSignal::new(false);
-    let delete_error = RwSignal::new(Option::<String>::None);
-
-    // Reset dialog state
-    let reset_delete_state = move || {
-        pending_delete_id.set(None);
-        pending_delete_name.set(String::new());
-        delete_error.set(None);
-    };
+    // Delete confirmation dialog state using reusable hook
+    let delete_state = use_delete_dialog();
 
     // Handle cancel/close of delete dialog
+    let delete_state_for_cancel = delete_state.clone();
     let on_cancel_delete = Callback::new(move |_| {
-        show_delete_confirm.set(false);
-        reset_delete_state();
+        delete_state_for_cancel.cancel();
     });
 
     // Handle confirmed deletion
+    let delete_state_for_confirm = delete_state.clone();
     let on_confirm_delete = {
         let client = Arc::clone(&client);
         Callback::new(move |_| {
-            if let Some(id) = pending_delete_id.get() {
-                deleting.set(true);
-                delete_error.set(None);
+            if let Some(id) = delete_state_for_confirm.get_pending_id() {
+                delete_state_for_confirm.start_delete();
                 let client = Arc::clone(&client);
+                let delete_state = delete_state_for_confirm.clone();
                 wasm_bindgen_futures::spawn_local(async move {
                     match client.delete_dataset(&id).await {
                         Ok(_) => {
                             refetch_trigger.update(|n| *n = n.wrapping_add(1));
-                            show_delete_confirm.set(false);
-                            reset_delete_state();
+                            delete_state.finish_delete(Ok(()));
                         }
                         Err(e) => {
-                            delete_error.set(Some(format!("Failed to delete: {}", e)));
+                            delete_state.finish_delete(Err(format!("Failed to delete: {}", e)));
                         }
                     }
-                    deleting.set(false);
                 });
             }
         })
     };
+
+    // Clone for use in the row click handler
+    let delete_state_for_rows = delete_state.clone();
+    let delete_state_for_loading = delete_state.clone();
 
     view! {
         <Card>
@@ -204,6 +198,7 @@ fn DatasetsList(
                             .unwrap_or_else(|| "—".to_string());
 
                         let nav = navigate.clone();
+                        let delete_state = delete_state_for_rows.clone();
 
                         view! {
                             <TableRow>
@@ -268,10 +263,11 @@ fn DatasetsList(
                                     <Button
                                         variant=ButtonVariant::Ghost
                                         aria_label=format!("Delete dataset {}", name_for_delete.clone())
-                                        on_click=Callback::new(move |_| {
-                                            pending_delete_id.set(Some(id_for_delete.clone()));
-                                            pending_delete_name.set(name_for_delete.clone());
-                                            show_delete_confirm.set(true);
+                                        on_click=Callback::new({
+                                            let delete_state = delete_state.clone();
+                                            move |_| {
+                                                delete_state.confirm(id_for_delete.clone(), name_for_delete.clone());
+                                            }
                                         })
                                     >
                                         <svg
@@ -294,7 +290,7 @@ fn DatasetsList(
         </Card>
 
         <ConfirmationDialog
-            open=show_delete_confirm
+            open=delete_state.show
             title="Delete Dataset"
             description=format!("Are you sure you want to delete this dataset? This action cannot be undone.")
             severity=ConfirmationSeverity::Destructive
@@ -302,7 +298,7 @@ fn DatasetsList(
             cancel_text="Cancel"
             on_confirm=on_confirm_delete.clone()
             on_cancel=on_cancel_delete
-            loading=Signal::derive(move || deleting.get())
+            loading=Signal::derive(move || delete_state_for_loading.is_deleting())
         />
     }
     .into_any()
@@ -313,6 +309,7 @@ fn DatasetsList(
 pub fn DatasetDetail() -> impl IntoView {
     let params = use_params_map();
     let navigate = use_navigate();
+    let navigate_store = StoredValue::new(navigate);
 
     let dataset_id = move || params.get().get("id").unwrap_or_default();
 
@@ -359,17 +356,17 @@ pub fn DatasetDetail() -> impl IntoView {
 
     let on_confirm_delete = {
         let client = Arc::clone(&client);
-        let nav = navigate.clone();
+        let nav_store = navigate_store;
         Callback::new(move |_| {
             let id = dataset_id();
             deleting.set(true);
             delete_error.set(None);
             let client = Arc::clone(&client);
-            let nav = nav.clone();
+            let nav_store = nav_store;
             wasm_bindgen_futures::spawn_local(async move {
                 match client.delete_dataset(&id).await {
                     Ok(_) => {
-                        nav("/datasets", Default::default());
+                        nav_store.with_value(|nav| nav("/datasets", Default::default()));
                     }
                     Err(e) => {
                         delete_error.set(Some(format!("Failed to delete: {}", e)));
@@ -518,12 +515,41 @@ pub fn DatasetDetail() -> impl IntoView {
                             }
                         });
 
+                        // Determine if dataset is trainable
+                        let is_trainable = {
+                            let validation_ok = data.validation_status.as_deref()
+                                .map(|s| s == "valid")
+                                .unwrap_or(false);
+                            let trust_ok = data.trust_state.as_deref()
+                                .map(|s| matches!(s, "allowed" | "trusted" | "approved"))
+                                .unwrap_or(true); // Allow if trust_state not set
+                            let status_ok = matches!(data.status.as_str(), "ready" | "indexed");
+                            validation_ok && trust_ok && status_ok
+                        };
+                        let dataset_id_for_train = data.id.clone();
+
                         view! {
                             <PageHeader
                                 title=data.name.clone()
                                 subtitle=data.description.clone().unwrap_or_else(|| "Training dataset".to_string())
                             >
                                 <RefreshButton on_click=Callback::new(move |_| trigger_refresh())/>
+                                {is_trainable.then(|| {
+                                    let nav_store = navigate_store;
+                                    let id = dataset_id_for_train.clone();
+                                    view! {
+                                        <Button
+                                            variant=ButtonVariant::Primary
+                                            on_click=Callback::new(move |_| {
+                                                nav_store.with_value(|nav| {
+                                                    nav(&format!("/training?dataset_id={}", id), Default::default());
+                                                });
+                                            })
+                                        >
+                                            "Train Adapter"
+                                        </Button>
+                                    }
+                                })}
                                 <Button
                                     variant=ButtonVariant::Destructive
                                     on_click=Callback::new(move |_| show_delete_confirm.set(true))
@@ -752,29 +778,6 @@ pub fn DatasetDetail() -> impl IntoView {
             }}
         </div>
     }
-}
-
-/// Format bytes to human-readable string
-fn format_bytes(bytes: i64) -> String {
-    const KB: i64 = 1024;
-    const MB: i64 = KB * 1024;
-    const GB: i64 = MB * 1024;
-
-    if bytes >= GB {
-        format!("{:.1} GB", bytes as f64 / GB as f64)
-    } else if bytes >= MB {
-        format!("{:.1} MB", bytes as f64 / MB as f64)
-    } else if bytes >= KB {
-        format!("{:.1} KB", bytes as f64 / KB as f64)
-    } else {
-        format!("{} B", bytes)
-    }
-}
-
-/// Format date string for display (simplified)
-fn format_date(date_str: &str) -> String {
-    // Just show the date part for now
-    date_str.split('T').next().unwrap_or(date_str).to_string()
 }
 
 fn validation_badge_variant(status: &str) -> BadgeVariant {

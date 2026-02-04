@@ -161,10 +161,7 @@ pub async fn create_bundle_export(
     let events_truncated = events.len() >= 50000;
 
     // Build bundle contents
-    let export_id = crate::id_generator::readable_id(
-        adapteros_core::ids::IdKind::Export,
-        "diag",
-    );
+    let export_id = crate::id_generator::readable_id(adapteros_core::ids::IdKind::Export, "diag");
     let created_at = Utc::now().to_rfc3339();
 
     // Create bundle files in memory

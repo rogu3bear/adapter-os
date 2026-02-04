@@ -1,9 +1,10 @@
 import { test, expect } from '@playwright/test';
-import { waitForAppReady } from './utils';
+import { ensureLoggedIn, waitForAppReady } from './utils';
 
-test('policies create card toggles', async ({ page }) => {
+test('policies create card toggles', { tag: ['@smoke'] }, async ({ page }) => {
   await page.goto('/policies', { waitUntil: 'domcontentloaded' });
   await waitForAppReady(page);
+  await ensureLoggedIn(page);
   await expect(
     page.getByRole('heading', { name: 'Policy Packs', level: 1, exact: true })
   ).toBeVisible();

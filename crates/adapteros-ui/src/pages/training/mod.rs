@@ -29,8 +29,10 @@ mod wizard;
 use crate::api::ApiClient;
 use crate::components::{AsyncBoundary, Button, ButtonVariant, SplitPanel};
 use crate::hooks::{use_api_resource, use_conditional_polling, LoadingState};
+use crate::signals::{try_use_route_context, SelectedEntity};
 use adapteros_api_types::TrainingListParams;
 use leptos::prelude::*;
+use leptos_router::hooks::use_query_map;
 use std::sync::Arc;
 
 use components::{CoremlFilters, StatusFilter, TrainingJobList};
@@ -51,6 +53,29 @@ pub fn Training() -> impl IntoView {
 
     // Dialog open state
     let create_dialog_open = RwSignal::new(false);
+
+    // Track source document for training (from query params)
+    let source_document_id = RwSignal::new(None::<String>);
+    // Track initial dataset for training (from query params)
+    let initial_dataset_id = RwSignal::new(None::<String>);
+
+    // Handle query parameters for document-to-training and dataset-to-training workflows
+    let query = use_query_map();
+    Effect::new(move || {
+        let params = query.get();
+        // Document-to-training workflow
+        if params.get("source").as_deref() == Some("document") {
+            if let Some(doc_id) = params.get("document_id") {
+                source_document_id.set(Some(doc_id.clone()));
+                create_dialog_open.set(true);
+            }
+        }
+        // Dataset-to-training workflow (from dataset detail page)
+        if let Some(ds_id) = params.get("dataset_id") {
+            initial_dataset_id.set(Some(ds_id.clone()));
+            create_dialog_open.set(true);
+        }
+    });
 
     // Fetch training jobs with server-side filtering
     let (jobs, refetch_jobs) = use_api_resource(move |client: Arc<ApiClient>| {
@@ -96,6 +121,42 @@ pub fn Training() -> impl IntoView {
 
     // Derive selection state for SplitPanel
     let has_selection = Signal::derive(move || selected_job_id.get().is_some());
+
+    // Publish selection to RouteContext for contextual actions in Command Palette
+    {
+        let jobs = jobs.clone();
+        Effect::new(move || {
+            if let Some(route_ctx) = try_use_route_context() {
+                if let Some(job_id) = selected_job_id.get() {
+                    // Find the job name and status from loaded data
+                    if let LoadingState::Loaded(data) = jobs.get() {
+                        if let Some(job) = data.jobs.iter().find(|j| j.id == job_id) {
+                            route_ctx.set_selected(SelectedEntity::with_status(
+                                "training_job",
+                                job_id.clone(),
+                                job.adapter_name.clone(),
+                                job.status.clone(),
+                            ));
+                        } else {
+                            route_ctx.set_selected(SelectedEntity::new(
+                                "training_job",
+                                job_id.clone(),
+                                job_id,
+                            ));
+                        }
+                    } else {
+                        route_ctx.set_selected(SelectedEntity::new(
+                            "training_job",
+                            job_id.clone(),
+                            job_id,
+                        ));
+                    }
+                } else {
+                    route_ctx.clear_selected();
+                }
+            }
+        });
+    }
 
     view! {
         <div class="shell-page space-y-6">
@@ -169,6 +230,7 @@ pub fn Training() -> impl IntoView {
             <CreateJobWizard
                 open=create_dialog_open
                 on_created=on_job_created
+                initial_dataset_id=initial_dataset_id
             />
         </div>
     }

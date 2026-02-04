@@ -248,10 +248,8 @@ pub async fn upload_document(
         } else {
             &document_name
         };
-        document_id = crate::id_generator::readable_id(
-            adapteros_core::ids::IdKind::Document,
-            slug_source,
-        );
+        document_id =
+            crate::id_generator::readable_id(adapteros_core::ids::IdKind::Document, slug_source);
     }
 
     let file_data = file_data.ok_or_else(|| ApiError::bad_request("No file uploaded"))?;
@@ -452,7 +450,9 @@ pub async fn get_document(
     // Check permission
     require_permission(&claims, Permission::DatasetView)?;
 
-    let id = resolve_document_id(&state, &id).await.map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+    let id = resolve_document_id(&state, &id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Tenant isolation enforced at DB layer - only returns document if tenant matches
     let document = state
@@ -492,7 +492,9 @@ pub async fn delete_document(
     // Check permission
     require_permission(&claims, Permission::DatasetDelete)?;
 
-    let id = resolve_document_id(&state, &id).await.map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+    let id = resolve_document_id(&state, &id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Get document to find storage path (tenant isolation enforced at DB layer)
     let document = state
@@ -568,7 +570,9 @@ pub async fn list_document_chunks(
     // Check permission
     require_permission(&claims, Permission::DatasetView)?;
 
-    let id = resolve_document_id(&state, &id).await.map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+    let id = resolve_document_id(&state, &id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Verify document exists (tenant isolation enforced at DB layer)
     let document = state
@@ -644,7 +648,9 @@ pub async fn download_document(
     // Check permission
     require_permission(&claims, Permission::DatasetView)?;
 
-    let id = resolve_document_id(&state, &id).await.map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+    let id = resolve_document_id(&state, &id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Get document to find storage path (tenant isolation enforced at DB layer)
     let document = state
@@ -726,7 +732,9 @@ pub async fn process_document(
     // Check permission
     require_permission(&claims, Permission::DatasetUpload)?;
 
-    let id = resolve_document_id(&state, &id).await.map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+    let id = resolve_document_id(&state, &id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Get document (tenant isolation enforced at DB layer)
     let document = state
@@ -862,10 +870,8 @@ async fn process_document_inner(
     // Process each chunk within transaction
     for chunk in &ingested_doc.chunks {
         // Generate chunk UUID for document_chunks table
-        let chunk_db_id = crate::id_generator::readable_id(
-            adapteros_core::ids::IdKind::Chunk,
-            "chunk",
-        );
+        let chunk_db_id =
+            crate::id_generator::readable_id(adapteros_core::ids::IdKind::Chunk, "chunk");
 
         // Generate embedding with retry/backoff so one bad chunk does not abort the batch
         let embedding = embed_with_backoff(embedding_model, &chunk.text).await;
@@ -1107,7 +1113,9 @@ pub async fn retry_document(
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::DatasetUpload)?;
 
-    let id = resolve_document_id(&state, &id).await.map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+    let id = resolve_document_id(&state, &id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     // Get document with tenant isolation
     let document = state

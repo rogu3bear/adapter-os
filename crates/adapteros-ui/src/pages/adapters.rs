@@ -27,6 +27,7 @@ use crate::constants::urls::docs_link;
 use crate::contexts::use_in_flight;
 use crate::hooks::{use_api_resource, LoadingState};
 use crate::signals::refetch::{use_refetch_signal, RefetchTopic};
+use crate::signals::{try_use_route_context, SelectedEntity};
 use adapteros_api_types::AdapterResponse;
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
@@ -55,14 +56,42 @@ pub fn Adapters() -> impl IntoView {
         }
     });
 
-    // Derive selected adapter from list
-    let selected_adapter = Signal::derive(move || {
+    // Derive selected adapter from list (memoized to avoid recomputation)
+    let selected_adapter = Memo::new(move |_| {
         let id = selected_id.get()?;
         match adapters.get() {
             LoadingState::Loaded(data) => data.iter().find(|a| a.id == id).cloned(),
             _ => None,
         }
     });
+
+    // Publish selection to RouteContext for contextual actions in Command Palette
+    {
+        let adapters = adapters.clone();
+        Effect::new(move || {
+            if let Some(route_ctx) = try_use_route_context() {
+                if let Some(id) = selected_id.get() {
+                    // Find the adapter name and status from loaded data
+                    if let LoadingState::Loaded(data) = adapters.get() {
+                        if let Some(adapter) = data.iter().find(|a| a.id == id) {
+                            route_ctx.set_selected(SelectedEntity::with_status(
+                                "adapter",
+                                id.clone(),
+                                adapter.name.clone(),
+                                adapter.lifecycle_state.clone(),
+                            ));
+                        } else {
+                            route_ctx.set_selected(SelectedEntity::new("adapter", id.clone(), id));
+                        }
+                    } else {
+                        route_ctx.set_selected(SelectedEntity::new("adapter", id.clone(), id));
+                    }
+                } else {
+                    route_ctx.clear_selected();
+                }
+            }
+        });
+    }
 
     // Loading state
     let is_loading = Signal::derive(move || {
@@ -172,6 +201,12 @@ fn AdaptersListInteractive(
         visible_count.update(|c| *c = (*c + PAGE_SIZE).min(total));
     };
 
+    // Access in-flight IDs directly from context (already a HashSet)
+    let in_flight_ids = in_flight.adapter_ids;
+
+    // Clone adapters once for the closure
+    let adapters_for_rows = adapters.clone();
+
     view! {
         <Card>
             <Table>
@@ -186,16 +221,15 @@ fn AdaptersListInteractive(
                     {move || {
                         let count = visible_count.get();
                         let current_selected = selected_id.get();
-                        adapters.iter().take(count).map(|adapter| {
+                        let current_in_flight = in_flight_ids.get();
+                        adapters_for_rows.iter().take(count).map(|adapter| {
                             let id = adapter.id.clone();
                             let id_for_click = id.clone();
-                            let id_for_in_flight = id.clone();
                             let name = adapter.name.clone();
                             let lifecycle = adapter.lifecycle_state.clone();
                             let tier = adapter.tier.clone();
                             let is_selected = current_selected.as_ref() == Some(&id);
-                            let on_select = on_select.clone();
-                            let in_flight = in_flight.clone();
+                            let is_in_flight = current_in_flight.contains(&id);
 
                             // Lifecycle badge variant
                             let lifecycle_variant = match lifecycle.as_str() {
@@ -204,11 +238,6 @@ fn AdaptersListInteractive(
                                 "retired" => BadgeVariant::Destructive,
                                 _ => BadgeVariant::Secondary,
                             };
-
-                            // Check if adapter is in-flight
-                            let is_in_flight = Signal::derive(move || {
-                                in_flight.is_in_flight(&id_for_in_flight)
-                            });
 
                             view! {
                                 <tr
@@ -230,7 +259,7 @@ fn AdaptersListInteractive(
                                             <Badge variant=lifecycle_variant>
                                                 {lifecycle}
                                             </Badge>
-                                            {move || is_in_flight.get().then(|| view! {
+                                            {is_in_flight.then(|| view! {
                                                 <Badge variant=BadgeVariant::Warning>"In Use"</Badge>
                                             })}
                                         </div>

@@ -221,10 +221,7 @@ impl LifecycleManager {
     ) -> Self {
         let mut states = HashMap::new();
         for (idx, name) in adapter_names.iter().enumerate() {
-            states.insert(
-                idx as u16,
-                AdapterHeatRecord::new(name.clone(), idx as u16),
-            );
+            states.insert(idx as u16, AdapterHeatRecord::new(name.clone(), idx as u16));
         }
 
         // Create download progress channel with capacity for 100 events
@@ -276,10 +273,7 @@ impl LifecycleManager {
     ) -> Self {
         let mut states = HashMap::new();
         for (idx, name) in adapter_names.iter().enumerate() {
-            states.insert(
-                idx as u16,
-                AdapterHeatRecord::new(name.clone(), idx as u16),
-            );
+            states.insert(idx as u16, AdapterHeatRecord::new(name.clone(), idx as u16));
         }
 
         // Create download progress channel with capacity for 100 events
@@ -2092,7 +2086,10 @@ impl LifecycleManager {
                 );
             }
 
-            if let Err(e) = db_write.update_adapter_memory_tx(&adapter_id_clone, 0).await {
+            if let Err(e) = db_write
+                .update_adapter_memory_tx(&adapter_id_clone, 0)
+                .await
+            {
                 warn!(
                     "Failed to update adapter memory during eviction in database: {}",
                     e

@@ -59,6 +59,196 @@ pub struct AlertRecord {
     pub notifications: Vec<NotificationChannel>,
 }
 
+impl AlertRecord {
+    /// Get severity as string for display.
+    pub fn severity_str(&self) -> &'static str {
+        match self.severity {
+            AlertSeverity::Info => "INFO",
+            AlertSeverity::Warning => "WARNING",
+            AlertSeverity::Critical => "CRITICAL",
+        }
+    }
+}
+
+/// Error type for alert dispatch failures.
+#[derive(Debug, thiserror::Error)]
+pub enum AlertDispatchError {
+    #[error("HTTP request failed: {0}")]
+    HttpError(#[from] reqwest::Error),
+    #[error("Invalid webhook URL: {0}")]
+    InvalidUrl(String),
+}
+
+/// Dispatcher for sending alert notifications to external services.
+///
+/// Supports Slack, PagerDuty, and generic webhook channels.
+pub struct AlertDispatcher {
+    client: reqwest::Client,
+}
+
+impl AlertDispatcher {
+    /// Create a new AlertDispatcher with default timeout.
+    pub fn new() -> Self {
+        Self {
+            client: reqwest::Client::builder()
+                .timeout(Duration::from_secs(10))
+                .build()
+                .expect("failed to build HTTP client"),
+        }
+    }
+
+    /// Send alert to all notification channels in the record.
+    pub async fn dispatch(&self, record: &AlertRecord) -> Result<(), AlertDispatchError> {
+        for channel in &record.notifications {
+            match channel.channel_type.as_str() {
+                "slack" => self.send_slack(&channel.target, record).await?,
+                "pagerduty" => self.send_pagerduty(&channel.target, record).await?,
+                "webhook" => self.send_webhook(&channel.target, record).await?,
+                other => {
+                    tracing::warn!(channel_type = %other, "unknown notification channel type, skipping");
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Send alert to Slack webhook.
+    async fn send_slack(
+        &self,
+        webhook_url: &str,
+        record: &AlertRecord,
+    ) -> Result<(), AlertDispatchError> {
+        let emoji = match record.severity {
+            AlertSeverity::Critical => ":rotating_light:",
+            AlertSeverity::Warning => ":warning:",
+            AlertSeverity::Info => ":information_source:",
+        };
+
+        let payload = serde_json::json!({
+            "text": format!(
+                "{} *[{}]* {} | `{}` = {:.2}",
+                emoji,
+                record.severity_str(),
+                record.rule_name,
+                record.metric,
+                record.value
+            ),
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": format!(
+                            "{} *{}*\n`{}` = *{:.2}* (threshold exceeded)",
+                            emoji,
+                            record.rule_name,
+                            record.metric,
+                            record.value
+                        )
+                    }
+                }
+            ]
+        });
+
+        self.client
+            .post(webhook_url)
+            .json(&payload)
+            .send()
+            .await?
+            .error_for_status()?;
+
+        tracing::info!(
+            channel = "slack",
+            rule = %record.rule_name,
+            "alert dispatched successfully"
+        );
+        Ok(())
+    }
+
+    /// Send alert to PagerDuty Events API v2.
+    async fn send_pagerduty(
+        &self,
+        routing_key: &str,
+        record: &AlertRecord,
+    ) -> Result<(), AlertDispatchError> {
+        let severity = match record.severity {
+            AlertSeverity::Critical => "critical",
+            AlertSeverity::Warning => "warning",
+            AlertSeverity::Info => "info",
+        };
+
+        let payload = serde_json::json!({
+            "routing_key": routing_key,
+            "event_action": "trigger",
+            "payload": {
+                "summary": format!("{}: {} = {:.2}", record.rule_name, record.metric, record.value),
+                "source": "adapteros",
+                "severity": severity,
+                "custom_details": {
+                    "metric": record.metric,
+                    "value": record.value,
+                    "rule": record.rule_name
+                }
+            }
+        });
+
+        self.client
+            .post("https://events.pagerduty.com/v2/enqueue")
+            .json(&payload)
+            .send()
+            .await?
+            .error_for_status()?;
+
+        tracing::info!(
+            channel = "pagerduty",
+            rule = %record.rule_name,
+            "alert dispatched successfully"
+        );
+        Ok(())
+    }
+
+    /// Send alert to generic webhook endpoint.
+    async fn send_webhook(
+        &self,
+        webhook_url: &str,
+        record: &AlertRecord,
+    ) -> Result<(), AlertDispatchError> {
+        let payload = serde_json::json!({
+            "alert": {
+                "rule_name": record.rule_name,
+                "metric": record.metric,
+                "value": record.value,
+                "severity": record.severity_str(),
+                "triggered_at": record.triggered_at
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0)
+            }
+        });
+
+        self.client
+            .post(webhook_url)
+            .json(&payload)
+            .send()
+            .await?
+            .error_for_status()?;
+
+        tracing::info!(
+            channel = "webhook",
+            rule = %record.rule_name,
+            url = %webhook_url,
+            "alert dispatched successfully"
+        );
+        Ok(())
+    }
+}
+
+impl Default for AlertDispatcher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Production alerting engine with history retention.
 #[derive(Debug)]
 pub struct AlertingEngine {

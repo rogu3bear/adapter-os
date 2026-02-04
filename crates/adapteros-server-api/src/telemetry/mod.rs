@@ -458,7 +458,17 @@ impl MetricsCollector {
 
 impl Default for MetricsCollector {
     fn default() -> Self {
-        Self::new().expect("Failed to create default metrics collector")
+        Self::new().unwrap_or_else(|e| {
+            warn!(
+                "Failed to create metrics collector, using no-op stub: {}",
+                e
+            );
+            Self {
+                last_snapshot: Arc::new(RwLock::new(
+                    adapteros_telemetry::metrics::MetricsSnapshot::default(),
+                )),
+            }
+        })
     }
 }
 

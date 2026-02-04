@@ -28,8 +28,11 @@ rustflags = [
 rustflags = []
 
 [env]
-# Enable incremental compilation for faster rebuilds
-CARGO_INCREMENTAL = "1"
+# IMPORTANT: sccache and incremental compilation are mutually exclusive.
+# We use sccache (set above via rustc-wrapper) for cross-build caching.
+# Set to "0" to avoid "sccache: incremental compilation is prohibited" errors
+# that break rust-analyzer and cargo metadata.
+CARGO_INCREMENTAL = "0"
 # Always show progress bar during builds
 CARGO_TERM_PROGRESS_WHEN = "always"
 CLANG_MODULE_CACHE_PATH = "target/clang-cache"
@@ -77,3 +80,5 @@ nt = "nextest run --workspace"
 ntf = "nextest run --workspace --failure-output=immediate"
 # Quick check (faster than build, just type checking)
 c = "check --workspace"
+# Clippy with error visibility lints (catches silent error swallowing)
+cl = "clippy --workspace -- -W clippy::let_underscore_must_use"

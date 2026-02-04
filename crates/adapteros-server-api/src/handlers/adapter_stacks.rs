@@ -29,12 +29,7 @@ use tracing::{debug, info, warn};
 use utoipa::ToSchema;
 
 async fn resolve_stack_id(state: &AppState, id: &str) -> Result<String, ApiError> {
-    crate::id_resolver::resolve_id(
-        &state.db,
-        adapteros_core::ids::IdKind::Stack.prefix(),
-        id,
-    )
-    .await
+    crate::id_resolver::resolve_id(&state.db, adapteros_core::ids::IdKind::Stack.prefix(), id).await
 }
 
 /// Request to create a new adapter stack
@@ -296,10 +291,7 @@ pub async fn create_stack(
         );
     }
 
-    let id = crate::id_generator::readable_id(
-        adapteros_core::ids::IdKind::Stack,
-        &req.name,
-    );
+    let id = crate::id_generator::readable_id(adapteros_core::ids::IdKind::Stack, &req.name);
     let now = chrono::Utc::now().to_rfc3339();
     let adapter_ids_json = serde_json::to_string(&req.adapter_ids).map_err(|e| {
         (
@@ -1648,8 +1640,9 @@ pub async fn stack_policy_stream(
         Ok(value) => value,
         Err(err) => {
             warn!(error = %err, "Failed to resolve stack ID for policy stream");
-            let stream: Pin<Box<dyn futures_util::stream::Stream<Item = Result<Event, Infallible>> + Send>> =
-                Box::pin(futures_util::stream::empty());
+            let stream: Pin<
+                Box<dyn futures_util::stream::Stream<Item = Result<Event, Infallible>> + Send>,
+            > = Box::pin(futures_util::stream::empty());
             return axum::response::sse::Sse::new(stream).keep_alive(
                 KeepAlive::new()
                     .interval(Duration::from_secs(10))
@@ -1747,8 +1740,9 @@ pub async fn stack_policy_stream(
         },
     );
 
-    let stream: Pin<Box<dyn futures_util::stream::Stream<Item = Result<Event, Infallible>> + Send>> =
-        Box::pin(stream);
+    let stream: Pin<
+        Box<dyn futures_util::stream::Stream<Item = Result<Event, Infallible>> + Send>,
+    > = Box::pin(stream);
 
     axum::response::sse::Sse::new(stream).keep_alive(
         KeepAlive::new()

@@ -3,13 +3,14 @@
 //! Thin top bar with branding, command palette hint, and user menu.
 //! Responsive: collapses to hamburger menu on mobile viewports.
 
+use crate::components::error_history_panel::use_error_history;
 use crate::components::glass_toggle::GlassThemeToggle;
 use crate::components::global_search::GlobalSearchBox;
+use crate::components::layout::nav_registry::build_mobile_nav_items;
 use crate::components::responsive::use_is_mobile;
 use crate::components::status::{Badge, BadgeVariant};
-use crate::components::layout::nav_registry::build_mobile_nav_items;
 use crate::constants::urls::docs_url;
-use crate::signals::{use_auth, use_ui_profile};
+use crate::signals::{use_auth, use_notification_state, use_ui_profile};
 use leptos::prelude::*;
 
 /// Thin top bar with branding, command palette hint, and user menu.
@@ -92,6 +93,9 @@ pub fn TopBar() -> impl IntoView {
                         <span class="text-xs text-muted-foreground">"Docs"</span>
                     </a>
                 })}
+                // Error history button with unread badge
+                <ErrorHistoryButton />
+
                 // Glass theme toggle (PRD-UI-100) - secondary action, hidden on mobile
                 <div class="topbar-action-secondary">
                     <GlassThemeToggle/>
@@ -311,5 +315,53 @@ fn MobileMenu(
                 </div>
             </nav>
         </div>
+    }
+}
+
+/// Error history button with unread count badge
+#[component]
+fn ErrorHistoryButton() -> impl IntoView {
+    let notification_state = use_notification_state();
+    let error_history = use_error_history();
+
+    // Count unread errors/warnings
+    let unread_count = move || {
+        notification_state
+            .get()
+            .notifications
+            .iter()
+            .filter(|n| !n.read)
+            .count()
+    };
+
+    let on_click = move |_| {
+        if let Some(ctx) = error_history {
+            ctx.toggle();
+        }
+    };
+    let has_unread = move || unread_count() > 0;
+
+    view! {
+        <button
+            class="topbar-action relative flex items-center justify-center w-8 h-8 rounded-md hover:bg-muted/50 transition-colors"
+            on:click=on_click
+            title="Error History (Ctrl+Shift+E)"
+            aria-label="Open error history"
+        >
+            // Bell/notification icon
+            <svg class="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
+            </svg>
+
+            // Unread badge
+            <Show when=has_unread>
+                <span class="absolute -top-1 -right-1 flex items-center justify-center min-w-[18px] h-[18px] px-1 text-xs font-medium text-white bg-destructive rounded-full">
+                    {move || {
+                        let count = unread_count();
+                        if count > 99 { "99+".to_string() } else { count.to_string() }
+                    }}
+                </span>
+            </Show>
+        </button>
     }
 }

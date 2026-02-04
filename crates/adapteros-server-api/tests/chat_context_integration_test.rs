@@ -267,14 +267,9 @@ async fn test_streaming_infer_builds_prompt_from_chat_history() {
         .expect("config read")
         .chat_context
         .clone();
-    let expected = build_chat_prompt(
-        &state.db,
-        session_id,
-        "New user message",
-        &chat_config,
-    )
-    .await
-    .expect("build chat prompt");
+    let expected = build_chat_prompt(&state.db, session_id, "New user message", &chat_config)
+        .await
+        .expect("build chat prompt");
     assert!(
         expected.prompt_text.contains("Earlier message"),
         "expected history in prompt: {}",
