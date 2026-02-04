@@ -2,9 +2,9 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Tasteful Default: Existing Code First
+## Default: Existing Code First
 
-Agents should assume the code already exists; new code is only tasteful when you have proof it does not.
+Agents should assume the code already exists; new code is only appropriate when you have proof it does not.
 
 ## Quick Start
 
