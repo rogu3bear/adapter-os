@@ -11,6 +11,7 @@
 //! - **V4**: Production format with all fields (stop controller, KV, prefix cache, model cache)
 //! - **V5**: Equipment profile and citation binding (Patent 3535886.0002 Claims 6, 9-10)
 //! - **V6**: Cross-run lineage for temporal ordering (Patent 3535886.0002 Claims 7-8)
+//! - **V7**: Determinism envelope + cache/tooling binding (Receipt Rectification V7)
 //!
 //! # Digest Algorithm
 //!
@@ -23,6 +24,7 @@
 
 use crate::B3Hash;
 use serde::{Deserialize, Serialize};
+use serde_json;
 
 /// Receipt schema versions
 pub const RECEIPT_SCHEMA_V1: u8 = 1;
@@ -34,8 +36,10 @@ pub const RECEIPT_SCHEMA_V4: u8 = 4;
 pub const RECEIPT_SCHEMA_V5: u8 = 5;
 /// V6: Patent 3535886.0002 Claims 7-8 compliance - adds cross-run lineage for temporal ordering
 pub const RECEIPT_SCHEMA_V6: u8 = 6;
+/// V7: Determinism envelope + cache/tooling binding (Receipt Rectification V7)
+pub const RECEIPT_SCHEMA_V7: u8 = 7;
 /// Current schema version for new receipts
-pub const RECEIPT_SCHEMA_CURRENT: u8 = RECEIPT_SCHEMA_V6;
+pub const RECEIPT_SCHEMA_CURRENT: u8 = RECEIPT_SCHEMA_V7;
 
 /// Input fields for receipt digest computation.
 ///
@@ -127,6 +131,70 @@ pub struct ReceiptDigestInput {
     /// Monotonically increasing counter within a session, starting at 0.
     #[serde(default)]
     pub session_sequence: u64,
+
+    // V7 fields: Tokenizer identity
+    #[serde(default)]
+    pub tokenizer_hash_b3: Option<[u8; 32]>,
+    #[serde(default)]
+    pub tokenizer_version: Option<String>,
+    #[serde(default)]
+    pub tokenizer_normalization: Option<String>,
+
+    // V7 fields: Model/build provenance
+    #[serde(default)]
+    pub model_build_hash_b3: Option<[u8; 32]>,
+    #[serde(default)]
+    pub adapter_build_hash_b3: Option<[u8; 32]>,
+
+    // V7 fields: Decoder config
+    #[serde(default)]
+    pub decode_algo: Option<String>,
+    #[serde(default)]
+    pub temperature_q15: Option<i16>,
+    #[serde(default)]
+    pub top_p_q15: Option<i16>,
+    #[serde(default)]
+    pub top_k: Option<u32>,
+    #[serde(default)]
+    pub seed_digest_b3: Option<[u8; 32]>,
+    #[serde(default)]
+    pub sampling_backend: Option<String>,
+
+    // V7 fields: Concurrency determinism
+    #[serde(default)]
+    pub thread_count: Option<u32>,
+    #[serde(default)]
+    pub reduction_strategy: Option<String>,
+
+    // V7 fields: Stop controller inputs
+    #[serde(default)]
+    pub stop_eos_q15: Option<i16>,
+    #[serde(default)]
+    pub stop_window_digest_b3: Option<[u8; 32]>,
+
+    // V7 fields: Cache proof
+    #[serde(default)]
+    pub cache_scope: Option<String>,
+    #[serde(default)]
+    pub cached_prefix_digest_b3: Option<[u8; 32]>,
+    #[serde(default)]
+    pub cached_prefix_len: Option<u32>,
+    #[serde(default)]
+    pub cache_key_b3: Option<[u8; 32]>,
+
+    // V7 fields: Retrieval/tool binding
+    #[serde(default)]
+    pub retrieval_merkle_root_b3: Option<[u8; 32]>,
+    #[serde(default)]
+    pub retrieval_order_digest_b3: Option<[u8; 32]>,
+    #[serde(default)]
+    pub tool_call_inputs_digest_b3: Option<[u8; 32]>,
+    #[serde(default)]
+    pub tool_call_outputs_digest_b3: Option<[u8; 32]>,
+
+    // V7 fields: Disclosure level
+    #[serde(default)]
+    pub disclosure_level: Option<String>,
 }
 
 impl ReceiptDigestInput {
@@ -204,6 +272,107 @@ impl ReceiptDigestInput {
         model_cache_identity_v2_digest_b3: Option<[u8; 32]>,
     ) -> Self {
         self.model_cache_identity_v2_digest_b3 = model_cache_identity_v2_digest_b3;
+        self
+    }
+
+    /// Set tokenizer identity fields (V7+)
+    pub fn with_tokenizer_identity(
+        mut self,
+        tokenizer_hash_b3: Option<[u8; 32]>,
+        tokenizer_version: Option<String>,
+        tokenizer_normalization: Option<String>,
+    ) -> Self {
+        self.tokenizer_hash_b3 = tokenizer_hash_b3;
+        self.tokenizer_version = tokenizer_version;
+        self.tokenizer_normalization = tokenizer_normalization;
+        self
+    }
+
+    /// Set model/build provenance fields (V7+)
+    pub fn with_build_provenance(
+        mut self,
+        model_build_hash_b3: Option<[u8; 32]>,
+        adapter_build_hash_b3: Option<[u8; 32]>,
+    ) -> Self {
+        self.model_build_hash_b3 = model_build_hash_b3;
+        self.adapter_build_hash_b3 = adapter_build_hash_b3;
+        self
+    }
+
+    /// Set decoder config fields (V7+)
+    pub fn with_decoder_config(
+        mut self,
+        decode_algo: Option<String>,
+        temperature_q15: Option<i16>,
+        top_p_q15: Option<i16>,
+        top_k: Option<u32>,
+        seed_digest_b3: Option<[u8; 32]>,
+        sampling_backend: Option<String>,
+    ) -> Self {
+        self.decode_algo = decode_algo;
+        self.temperature_q15 = temperature_q15;
+        self.top_p_q15 = top_p_q15;
+        self.top_k = top_k;
+        self.seed_digest_b3 = seed_digest_b3;
+        self.sampling_backend = sampling_backend;
+        self
+    }
+
+    /// Set concurrency determinism fields (V7+)
+    pub fn with_concurrency_determinism(
+        mut self,
+        thread_count: Option<u32>,
+        reduction_strategy: Option<String>,
+    ) -> Self {
+        self.thread_count = thread_count;
+        self.reduction_strategy = reduction_strategy;
+        self
+    }
+
+    /// Set stop controller input bindings (V7+)
+    pub fn with_stop_controller_inputs(
+        mut self,
+        stop_eos_q15: Option<i16>,
+        stop_window_digest_b3: Option<[u8; 32]>,
+    ) -> Self {
+        self.stop_eos_q15 = stop_eos_q15;
+        self.stop_window_digest_b3 = stop_window_digest_b3;
+        self
+    }
+
+    /// Set cache proof bindings (V7+)
+    pub fn with_cache_proof(
+        mut self,
+        cache_scope: Option<String>,
+        cached_prefix_digest_b3: Option<[u8; 32]>,
+        cached_prefix_len: Option<u32>,
+        cache_key_b3: Option<[u8; 32]>,
+    ) -> Self {
+        self.cache_scope = cache_scope;
+        self.cached_prefix_digest_b3 = cached_prefix_digest_b3;
+        self.cached_prefix_len = cached_prefix_len;
+        self.cache_key_b3 = cache_key_b3;
+        self
+    }
+
+    /// Set retrieval/tool bindings (V7+)
+    pub fn with_retrieval_tool_binding(
+        mut self,
+        retrieval_merkle_root_b3: Option<[u8; 32]>,
+        retrieval_order_digest_b3: Option<[u8; 32]>,
+        tool_call_inputs_digest_b3: Option<[u8; 32]>,
+        tool_call_outputs_digest_b3: Option<[u8; 32]>,
+    ) -> Self {
+        self.retrieval_merkle_root_b3 = retrieval_merkle_root_b3;
+        self.retrieval_order_digest_b3 = retrieval_order_digest_b3;
+        self.tool_call_inputs_digest_b3 = tool_call_inputs_digest_b3;
+        self.tool_call_outputs_digest_b3 = tool_call_outputs_digest_b3;
+        self
+    }
+
+    /// Set disclosure level binding (V7+)
+    pub fn with_disclosure_level(mut self, disclosure_level: Option<String>) -> Self {
+        self.disclosure_level = disclosure_level;
         self
     }
 
@@ -296,6 +465,7 @@ pub fn compute_receipt_digest(input: &ReceiptDigestInput, schema_version: u8) ->
         RECEIPT_SCHEMA_V4 => Some(compute_v4_digest(input)),
         RECEIPT_SCHEMA_V5 => Some(compute_v5_digest(input)),
         RECEIPT_SCHEMA_V6 => Some(compute_v6_digest(input)),
+        RECEIPT_SCHEMA_V7 => Some(compute_v7_digest(input)),
         _ => {
             tracing::warn!(
                 schema_version = schema_version,
@@ -770,6 +940,240 @@ fn compute_v6_digest(input: &ReceiptDigestInput) -> B3Hash {
     ])
 }
 
+/// Compute V7 receipt digest (Receipt Rectification V7).
+///
+/// V7 extends V6 with:
+/// - Tokenizer identity + normalization
+/// - Model/build provenance
+/// - Decoder config + sampling backend
+/// - Concurrency determinism
+/// - Stop controller inputs (quantized)
+/// - Cache proof bindings
+/// - Retrieval/tool binding
+/// - Disclosure level
+fn compute_v7_digest(input: &ReceiptDigestInput) -> B3Hash {
+    // Backend identity (V5 requires backend binding for replay prevention)
+    let backend_bytes = input.backend_used.as_deref().unwrap_or("").as_bytes();
+    let attestation_bytes = input
+        .backend_attestation_b3
+        .map(|b| b.to_vec())
+        .unwrap_or_default();
+
+    // Stop controller fields
+    let stop_reason_bytes = input.stop_reason_code.as_deref().unwrap_or("").as_bytes();
+    let stop_token_index_bytes = input
+        .stop_reason_token_index
+        .unwrap_or(0xFFFFFFFF)
+        .to_le_bytes();
+    let stop_policy_bytes = input
+        .stop_policy_digest_b3
+        .map(|b| b.to_vec())
+        .unwrap_or_else(|| vec![0u8; 32]);
+
+    // KV residency policy
+    let kv_residency_policy_id = input.kv_residency_policy_id.as_deref();
+
+    // Prefix KV cache
+    let prefix_kv_key_bytes = input
+        .prefix_kv_key_b3
+        .map(|b| b.to_vec())
+        .unwrap_or_else(|| vec![0u8; 32]);
+
+    // Model cache identity V2
+    let model_cache_identity_bytes = input
+        .model_cache_identity_v2_digest_b3
+        .map(|b| b.to_vec())
+        .unwrap_or_else(|| vec![0u8; 32]);
+
+    // V5: Equipment profile (Patent 3535886.0002 Claims 6, 9-10)
+    let equipment_profile_bytes = input
+        .equipment_profile_digest_b3
+        .map(|b| b.to_vec())
+        .unwrap_or_else(|| vec![0u8; 32]);
+    let processor_id_bytes = input.processor_id.as_deref().unwrap_or("").as_bytes();
+    let mlx_version_bytes = input.mlx_version.as_deref().unwrap_or("").as_bytes();
+    let ane_version_bytes = input.ane_version.as_deref().unwrap_or("").as_bytes();
+
+    // V5: Citation binding (Patent 3535886.0002 Claim 6 enhancement)
+    let citations_merkle_bytes = input
+        .citations_merkle_root_b3
+        .map(|b| b.to_vec())
+        .unwrap_or_else(|| vec![0u8; 32]);
+
+    // V6: Cross-run lineage (Patent 3535886.0002 Claims 7-8)
+    let previous_receipt_bytes = input
+        .previous_receipt_digest
+        .map(|b| b.to_vec())
+        .unwrap_or_else(|| vec![0u8; 32]);
+
+    // V7: Tokenizer identity
+    let tokenizer_hash_bytes = input
+        .tokenizer_hash_b3
+        .map(|b| b.to_vec())
+        .unwrap_or_else(|| vec![0u8; 32]);
+    let tokenizer_version_bytes = input.tokenizer_version.as_deref().unwrap_or("").as_bytes();
+    let tokenizer_norm_bytes = input
+        .tokenizer_normalization
+        .as_deref()
+        .unwrap_or("")
+        .as_bytes();
+
+    // V7: Model/build provenance
+    let model_build_bytes = input
+        .model_build_hash_b3
+        .map(|b| b.to_vec())
+        .unwrap_or_else(|| vec![0u8; 32]);
+    let adapter_build_bytes = input
+        .adapter_build_hash_b3
+        .map(|b| b.to_vec())
+        .unwrap_or_else(|| vec![0u8; 32]);
+
+    // V7: Decoder config
+    let decode_algo_bytes = input.decode_algo.as_deref().unwrap_or("").as_bytes();
+    let temp_q15_bytes = input.temperature_q15.unwrap_or(i16::MIN).to_le_bytes();
+    let top_p_q15_bytes = input.top_p_q15.unwrap_or(i16::MIN).to_le_bytes();
+    let top_k_bytes = input.top_k.unwrap_or(0xFFFFFFFF).to_le_bytes();
+    let seed_digest_bytes = input
+        .seed_digest_b3
+        .map(|b| b.to_vec())
+        .unwrap_or_else(|| vec![0u8; 32]);
+    let sampling_backend_bytes = input.sampling_backend.as_deref().unwrap_or("").as_bytes();
+
+    // V7: Concurrency determinism
+    let thread_count_bytes = input.thread_count.unwrap_or(0xFFFFFFFF).to_le_bytes();
+    let reduction_strategy_bytes = input.reduction_strategy.as_deref().unwrap_or("").as_bytes();
+
+    // V7: Stop controller inputs
+    let stop_eos_q15_bytes = input.stop_eos_q15.unwrap_or(i16::MIN).to_le_bytes();
+    let stop_window_bytes = input
+        .stop_window_digest_b3
+        .map(|b| b.to_vec())
+        .unwrap_or_else(|| vec![0u8; 32]);
+
+    // V7: Cache proof
+    let cache_scope_bytes = input.cache_scope.as_deref().unwrap_or("").as_bytes();
+    let cached_prefix_digest_bytes = input
+        .cached_prefix_digest_b3
+        .map(|b| b.to_vec())
+        .unwrap_or_else(|| vec![0u8; 32]);
+    let cached_prefix_len_bytes = input.cached_prefix_len.unwrap_or(0xFFFFFFFF).to_le_bytes();
+    let cache_key_bytes = input
+        .cache_key_b3
+        .map(|b| b.to_vec())
+        .unwrap_or_else(|| vec![0u8; 32]);
+
+    // V7: Retrieval/tool binding
+    let retrieval_merkle_bytes = input
+        .retrieval_merkle_root_b3
+        .map(|b| b.to_vec())
+        .unwrap_or_else(|| vec![0u8; 32]);
+    let retrieval_order_bytes = input
+        .retrieval_order_digest_b3
+        .map(|b| b.to_vec())
+        .unwrap_or_else(|| vec![0u8; 32]);
+    let tool_inputs_bytes = input
+        .tool_call_inputs_digest_b3
+        .map(|b| b.to_vec())
+        .unwrap_or_else(|| vec![0u8; 32]);
+    let tool_outputs_bytes = input
+        .tool_call_outputs_digest_b3
+        .map(|b| b.to_vec())
+        .unwrap_or_else(|| vec![0u8; 32]);
+
+    // V7: Disclosure level
+    let disclosure_bytes = input.disclosure_level.as_deref().unwrap_or("").as_bytes();
+
+    B3Hash::hash_multi(&[
+        // Schema version marker
+        &[RECEIPT_SCHEMA_V7],
+        // Core fields
+        &input.context_digest[..],
+        &input.run_head_hash[..],
+        &input.output_digest[..],
+        &input.logical_prompt_tokens.to_le_bytes(),
+        &input.prefix_cached_token_count.to_le_bytes(),
+        &input.billed_input_tokens.to_le_bytes(),
+        &input.logical_output_tokens.to_le_bytes(),
+        &input.billed_output_tokens.to_le_bytes(),
+        // Backend identity (V5 requires backend binding for replay prevention)
+        &(backend_bytes.len() as u32).to_le_bytes(),
+        backend_bytes,
+        &(attestation_bytes.len() as u32).to_le_bytes(),
+        &attestation_bytes,
+        // Stop controller fields
+        &(stop_reason_bytes.len() as u32).to_le_bytes(),
+        stop_reason_bytes,
+        &stop_token_index_bytes,
+        &stop_policy_bytes,
+        // KV quota/residency fields
+        &input.tenant_kv_quota_bytes.to_le_bytes(),
+        &input.tenant_kv_bytes_used.to_le_bytes(),
+        &input.kv_evictions.to_le_bytes(),
+        &(kv_residency_policy_id.map(|s| s.len() as u32).unwrap_or(0)).to_le_bytes(),
+        kv_residency_policy_id.map(|s| s.as_bytes()).unwrap_or(&[]),
+        &[if input.kv_quota_enforced { 1u8 } else { 0u8 }],
+        // Prefix KV cache fields
+        &prefix_kv_key_bytes,
+        &[if input.prefix_cache_hit { 1u8 } else { 0u8 }],
+        &input.prefix_kv_bytes.to_le_bytes(),
+        // Model cache identity V2
+        &model_cache_identity_bytes,
+        // V5: Equipment profile
+        &equipment_profile_bytes,
+        &(processor_id_bytes.len() as u32).to_le_bytes(),
+        processor_id_bytes,
+        &(mlx_version_bytes.len() as u32).to_le_bytes(),
+        mlx_version_bytes,
+        &(ane_version_bytes.len() as u32).to_le_bytes(),
+        ane_version_bytes,
+        // V5: Citation binding
+        &citations_merkle_bytes,
+        &input.citation_count.to_le_bytes(),
+        // V6: Cross-run lineage
+        &previous_receipt_bytes,
+        &input.session_sequence.to_le_bytes(),
+        // V7: Tokenizer identity
+        &tokenizer_hash_bytes,
+        &(tokenizer_version_bytes.len() as u32).to_le_bytes(),
+        tokenizer_version_bytes,
+        &(tokenizer_norm_bytes.len() as u32).to_le_bytes(),
+        tokenizer_norm_bytes,
+        // V7: Model/build provenance
+        &model_build_bytes,
+        &adapter_build_bytes,
+        // V7: Decoder config
+        &(decode_algo_bytes.len() as u32).to_le_bytes(),
+        decode_algo_bytes,
+        &temp_q15_bytes,
+        &top_p_q15_bytes,
+        &top_k_bytes,
+        &seed_digest_bytes,
+        &(sampling_backend_bytes.len() as u32).to_le_bytes(),
+        sampling_backend_bytes,
+        // V7: Concurrency determinism
+        &thread_count_bytes,
+        &(reduction_strategy_bytes.len() as u32).to_le_bytes(),
+        reduction_strategy_bytes,
+        // V7: Stop controller inputs
+        &stop_eos_q15_bytes,
+        &stop_window_bytes,
+        // V7: Cache proof
+        &(cache_scope_bytes.len() as u32).to_le_bytes(),
+        cache_scope_bytes,
+        &cached_prefix_digest_bytes,
+        &cached_prefix_len_bytes,
+        &cache_key_bytes,
+        // V7: Retrieval/tool binding
+        &retrieval_merkle_bytes,
+        &retrieval_order_bytes,
+        &tool_inputs_bytes,
+        &tool_outputs_bytes,
+        // V7: Disclosure level
+        &(disclosure_bytes.len() as u32).to_le_bytes(),
+        disclosure_bytes,
+    ])
+}
+
 // =============================================================================
 // Output Digest Computation
 // =============================================================================
@@ -959,6 +1363,38 @@ pub fn decode_allowed_mask(bytes: &[u8]) -> Result<Vec<bool>, &'static str> {
         cursor += 1;
     }
     Ok(mask)
+}
+
+// =============================================================================
+// Canonical JSON Serialization
+// =============================================================================
+
+/// Serialize a value to canonical JSON string with deterministic key ordering.
+///
+/// Arrays preserve order; objects are sorted by key.
+pub fn canonical_json_string<T: Serialize>(value: &T) -> Result<String, serde_json::Error> {
+    let v = serde_json::to_value(value)?;
+    let canonical = canonicalize_json_value(v);
+    serde_json::to_string(&canonical)
+}
+
+fn canonicalize_json_value(value: serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(map) => {
+            let mut entries: Vec<(String, serde_json::Value)> =
+                map.into_iter().map(|(k, v)| (k, canonicalize_json_value(v))).collect();
+            entries.sort_by(|a, b| a.0.cmp(&b.0));
+            let mut ordered = serde_json::Map::with_capacity(entries.len());
+            for (k, v) in entries {
+                ordered.insert(k, v);
+            }
+            serde_json::Value::Object(ordered)
+        }
+        serde_json::Value::Array(arr) => serde_json::Value::Array(
+            arr.into_iter().map(canonicalize_json_value).collect(),
+        ),
+        other => other,
+    }
 }
 
 #[cfg(test)]
@@ -1162,12 +1598,14 @@ mod tests {
         let v4 = compute_receipt_digest(&input, RECEIPT_SCHEMA_V4).unwrap();
         let v5 = compute_receipt_digest(&input, RECEIPT_SCHEMA_V5).unwrap();
         let v6 = compute_receipt_digest(&input, RECEIPT_SCHEMA_V6).unwrap();
+        let v7 = compute_receipt_digest(&input, RECEIPT_SCHEMA_V7).unwrap();
 
         assert_ne!(v1, v2, "V1 and V2 should differ");
         assert_ne!(v2, v3, "V2 and V3 should differ");
         assert_ne!(v3, v4, "V3 and V4 should differ");
         assert_ne!(v4, v5, "V4 and V5 should differ");
         assert_ne!(v5, v6, "V5 and V6 should differ");
+        assert_ne!(v6, v7, "V6 and V7 should differ");
     }
 
     #[test]
@@ -1195,6 +1633,62 @@ mod tests {
         let d1 = compute_receipt_digest(&input, RECEIPT_SCHEMA_V6).unwrap();
         let d2 = compute_receipt_digest(&input, RECEIPT_SCHEMA_V6).unwrap();
         assert_eq!(d1, d2, "V6 digest should be deterministic");
+    }
+
+    #[test]
+    fn test_v7_digest_deterministic() {
+        let input = ReceiptDigestInput::new([1u8; 32], [2u8; 32], [3u8; 32], 100, 10, 90, 50, 50)
+            .with_stop_controller(Some("EOS".to_string()), Some(45), Some([4u8; 32]))
+            .with_kv_quota(
+                1024 * 1024,
+                512 * 1024,
+                0,
+                Some("default".to_string()),
+                true,
+            )
+            .with_prefix_cache(Some([5u8; 32]), true, 256 * 1024)
+            .with_model_cache_identity(Some([6u8; 32]))
+            .with_equipment_profile(
+                Some([7u8; 32]),
+                Some("Apple M4 Max:stepping-1".to_string()),
+                Some("0.21.0".to_string()),
+                Some("ANEv4-38core".to_string()),
+            )
+            .with_citations(Some([8u8; 32]), 5)
+            .with_cross_run_lineage(Some([9u8; 32]), 42)
+            .with_tokenizer_identity(
+                Some([10u8; 32]),
+                Some("qwen2.5".to_string()),
+                Some("nfkc".to_string()),
+            )
+            .with_build_provenance(Some([11u8; 32]), Some([12u8; 32]))
+            .with_decoder_config(
+                Some("sampling".to_string()),
+                Some(1234),
+                Some(2345),
+                Some(64),
+                Some([13u8; 32]),
+                Some("coreml".to_string()),
+            )
+            .with_concurrency_determinism(Some(8), Some("fixed".to_string()))
+            .with_stop_controller_inputs(Some(2048), Some([14u8; 32]))
+            .with_cache_proof(
+                Some("global".to_string()),
+                Some([15u8; 32]),
+                Some(128),
+                Some([16u8; 32]),
+            )
+            .with_retrieval_tool_binding(
+                Some([17u8; 32]),
+                Some([18u8; 32]),
+                Some([19u8; 32]),
+                Some([20u8; 32]),
+            )
+            .with_disclosure_level(Some("full".to_string()));
+
+        let d1 = compute_receipt_digest(&input, RECEIPT_SCHEMA_V7).unwrap();
+        let d2 = compute_receipt_digest(&input, RECEIPT_SCHEMA_V7).unwrap();
+        assert_eq!(d1, d2, "V7 digest should be deterministic");
     }
 
     #[test]

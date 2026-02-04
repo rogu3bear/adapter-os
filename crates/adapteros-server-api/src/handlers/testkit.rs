@@ -1258,11 +1258,85 @@ pub struct RunReceipt {
     pub logical_output_tokens: u32,
     pub billed_output_tokens: u32,
     #[serde(default)]
+    pub stop_reason_code: Option<String>,
+    #[serde(default)]
+    pub stop_reason_token_index: Option<u32>,
+    #[serde(default)]
+    pub stop_policy_digest_b3: Option<String>,
+    #[serde(default)]
+    pub tenant_kv_quota_bytes: u64,
+    #[serde(default)]
+    pub tenant_kv_bytes_used: u64,
+    #[serde(default)]
+    pub kv_evictions: u32,
+    #[serde(default)]
+    pub kv_residency_policy_id: Option<String>,
+    #[serde(default)]
+    pub kv_quota_enforced: bool,
+    #[serde(default)]
     pub prefix_kv_key_b3: Option<String>,
     #[serde(default)]
     pub prefix_cache_hit: bool,
     #[serde(default)]
     pub prefix_kv_bytes: u64,
+    #[serde(default)]
+    pub model_cache_identity_v2_digest_b3: Option<String>,
+    #[serde(default)]
+    pub previous_receipt_digest: Option<String>,
+    #[serde(default)]
+    pub session_sequence: u64,
+    #[serde(default)]
+    pub tokenizer_hash_b3: Option<String>,
+    #[serde(default)]
+    pub tokenizer_version: Option<String>,
+    #[serde(default)]
+    pub tokenizer_normalization: Option<String>,
+    #[serde(default)]
+    pub model_build_hash_b3: Option<String>,
+    #[serde(default)]
+    pub adapter_build_hash_b3: Option<String>,
+    #[serde(default)]
+    pub decode_algo: Option<String>,
+    #[serde(default)]
+    pub temperature_q15: Option<i16>,
+    #[serde(default)]
+    pub top_p_q15: Option<i16>,
+    #[serde(default)]
+    pub top_k: Option<u32>,
+    #[serde(default)]
+    pub seed_digest_b3: Option<String>,
+    #[serde(default)]
+    pub sampling_backend: Option<String>,
+    #[serde(default)]
+    pub thread_count: Option<u32>,
+    #[serde(default)]
+    pub reduction_strategy: Option<String>,
+    #[serde(default)]
+    pub stop_eos_q15: Option<i16>,
+    #[serde(default)]
+    pub stop_window_digest_b3: Option<String>,
+    #[serde(default)]
+    pub cache_scope: Option<String>,
+    #[serde(default)]
+    pub cached_prefix_digest_b3: Option<String>,
+    #[serde(default)]
+    pub cached_prefix_len: Option<u32>,
+    #[serde(default)]
+    pub cache_key_b3: Option<String>,
+    #[serde(default)]
+    pub retrieval_merkle_root_b3: Option<String>,
+    #[serde(default)]
+    pub retrieval_order_digest_b3: Option<String>,
+    #[serde(default)]
+    pub tool_call_inputs_digest_b3: Option<String>,
+    #[serde(default)]
+    pub tool_call_outputs_digest_b3: Option<String>,
+    #[serde(default)]
+    pub disclosure_level: Option<String>,
+    #[serde(default)]
+    pub receipt_signing_kid: Option<String>,
+    #[serde(default)]
+    pub receipt_signed_at: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1304,9 +1378,46 @@ pub async fn inference_stub(
             billed_input_tokens: 16,
             logical_output_tokens: 8,
             billed_output_tokens: 8,
+            stop_reason_code: Some("stop".to_string()),
+            stop_reason_token_index: Some(7),
+            stop_policy_digest_b3: Some("stop-policy-digest-b3".to_string()),
+            tenant_kv_quota_bytes: 0,
+            tenant_kv_bytes_used: 0,
+            kv_evictions: 0,
+            kv_residency_policy_id: None,
+            kv_quota_enforced: false,
             prefix_kv_key_b3: None,
             prefix_cache_hit: false,
             prefix_kv_bytes: 0,
+            model_cache_identity_v2_digest_b3: None,
+            previous_receipt_digest: None,
+            session_sequence: 0,
+            tokenizer_hash_b3: None,
+            tokenizer_version: None,
+            tokenizer_normalization: None,
+            model_build_hash_b3: None,
+            adapter_build_hash_b3: None,
+            decode_algo: Some("greedy".to_string()),
+            temperature_q15: None,
+            top_p_q15: None,
+            top_k: None,
+            seed_digest_b3: None,
+            sampling_backend: Some("coreml".to_string()),
+            thread_count: None,
+            reduction_strategy: None,
+            stop_eos_q15: None,
+            stop_window_digest_b3: None,
+            cache_scope: Some("global".to_string()),
+            cached_prefix_digest_b3: None,
+            cached_prefix_len: Some(0),
+            cache_key_b3: None,
+            retrieval_merkle_root_b3: None,
+            retrieval_order_digest_b3: None,
+            tool_call_inputs_digest_b3: None,
+            tool_call_outputs_digest_b3: None,
+            disclosure_level: Some("full".to_string()),
+            receipt_signing_kid: None,
+            receipt_signed_at: None,
         },
         trace: StubTrace {
             latency_ms: 42,

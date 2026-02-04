@@ -2,6 +2,10 @@
 //!
 //! Provides endpoints for creating, listing, and verifying deterministic replay sessions.
 
+use adapteros_core::receipt_digest::{
+    self, ReceiptDigestInput, RECEIPT_SCHEMA_V1, RECEIPT_SCHEMA_V2, RECEIPT_SCHEMA_V3,
+    RECEIPT_SCHEMA_V4, RECEIPT_SCHEMA_V5, RECEIPT_SCHEMA_V6, RECEIPT_SCHEMA_V7,
+};
 use adapteros_core::{AosError, B3Hash};
 use adapteros_crypto::signature::{Keypair, PublicKey, Signature};
 use adapteros_db::replay_sessions::ReplaySession;
@@ -1058,6 +1062,12 @@ struct ReceiptBundle {
     expected_backend: Option<String>,
     #[serde(default)]
     expected_kernel_version: Option<String>,
+    /// Backend used for inference (v2+)
+    #[serde(default)]
+    backend_used: Option<String>,
+    /// Backend attestation hash for determinism binding (v2+)
+    #[serde(default)]
+    backend_attestation_b3_hex: Option<String>,
     /// Dataset version ID for deterministic dataset pinning
     #[serde(default)]
     dataset_version_id: Option<String>,
@@ -1072,6 +1082,12 @@ struct ReceiptContext {
     policy_mask_digest_hex: Option<String>,
     #[serde(default)]
     context_digest_hex: Option<String>,
+    #[serde(default)]
+    tokenizer_hash_b3_hex: Option<String>,
+    #[serde(default)]
+    tokenizer_version: Option<String>,
+    #[serde(default)]
+    tokenizer_normalization: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1108,6 +1124,24 @@ struct ReceiptDigests {
     logical_output_tokens: u32,
     #[serde(default)]
     billed_output_tokens: u32,
+    /// Receipt schema version (defaults to 1 for backward compatibility)
+    #[serde(default = "default_schema_version")]
+    schema_version: u8,
+    /// Backend used for inference (v2+)
+    #[serde(default)]
+    backend_used: Option<String>,
+    /// Backend attestation hash for determinism binding (v2+)
+    #[serde(default)]
+    backend_attestation_b3_hex: Option<String>,
+    /// Root seed digest for determinism binding (v3+)
+    #[serde(default)]
+    root_seed_digest_hex: Option<String>,
+    /// Seed mode used for derivation (v3+)
+    #[serde(default)]
+    seed_mode: Option<String>,
+    /// Whether manifest was used in seed derivation (v3+)
+    #[serde(default)]
+    has_manifest_binding: Option<bool>,
     // Stop controller fields (PRD: Hard Deterministic Stop Controller)
     #[serde(default)]
     stop_reason_code: Option<String>,
@@ -1136,6 +1170,90 @@ struct ReceiptDigests {
     /// PRD-06: Model cache identity v2 digest (hex-encoded BLAKE3)
     #[serde(default)]
     model_cache_identity_v2_digest_b3_hex: Option<String>,
+
+    // =========================================================================
+    // V5 fields: Equipment profile + citations
+    // =========================================================================
+    #[serde(default)]
+    equipment_profile_digest_b3_hex: Option<String>,
+    #[serde(default)]
+    processor_id: Option<String>,
+    #[serde(default)]
+    mlx_version: Option<String>,
+    #[serde(default)]
+    ane_version: Option<String>,
+    #[serde(default)]
+    citations_merkle_root_b3_hex: Option<String>,
+    #[serde(default)]
+    citation_count: u32,
+
+    // =========================================================================
+    // V6 fields: Cross-run lineage
+    // =========================================================================
+    #[serde(default)]
+    previous_receipt_digest_hex: Option<String>,
+    #[serde(default)]
+    session_sequence: u64,
+
+    // =========================================================================
+    // V7 fields: Determinism envelope + cache/retrieval bindings
+    // =========================================================================
+    #[serde(default)]
+    tokenizer_hash_b3_hex: Option<String>,
+    #[serde(default)]
+    tokenizer_version: Option<String>,
+    #[serde(default)]
+    tokenizer_normalization: Option<String>,
+    #[serde(default)]
+    model_build_hash_b3_hex: Option<String>,
+    #[serde(default)]
+    adapter_build_hash_b3_hex: Option<String>,
+    #[serde(default)]
+    decode_algo: Option<String>,
+    #[serde(default)]
+    temperature_q15: Option<i16>,
+    #[serde(default)]
+    top_p_q15: Option<i16>,
+    #[serde(default)]
+    top_k: Option<u32>,
+    #[serde(default)]
+    seed_digest_b3_hex: Option<String>,
+    #[serde(default)]
+    sampling_backend: Option<String>,
+    #[serde(default)]
+    thread_count: Option<u32>,
+    #[serde(default)]
+    reduction_strategy: Option<String>,
+    #[serde(default)]
+    stop_eos_q15: Option<i16>,
+    #[serde(default)]
+    stop_window_digest_b3_hex: Option<String>,
+    #[serde(default)]
+    cache_scope: Option<String>,
+    #[serde(default)]
+    cached_prefix_digest_b3_hex: Option<String>,
+    #[serde(default)]
+    cached_prefix_len: Option<u32>,
+    #[serde(default)]
+    cache_key_b3_hex: Option<String>,
+    #[serde(default)]
+    retrieval_merkle_root_b3_hex: Option<String>,
+    #[serde(default)]
+    retrieval_order_digest_b3_hex: Option<String>,
+    #[serde(default)]
+    tool_call_inputs_digest_b3_hex: Option<String>,
+    #[serde(default)]
+    tool_call_outputs_digest_b3_hex: Option<String>,
+    #[serde(default)]
+    disclosure_level: Option<String>,
+    #[serde(default)]
+    receipt_signing_kid: Option<String>,
+    #[serde(default)]
+    receipt_signed_at: Option<String>,
+}
+
+fn default_schema_version() -> u8 {
+    RECEIPT_SCHEMA_V1
 }
 
 fn push_reason(reasons: &mut Vec<ReceiptReasonCode>, code: ReceiptReasonCode) {
@@ -1221,14 +1339,251 @@ fn compute_output_digest(output_tokens: &[u32]) -> B3Hash {
     B3Hash::hash(&buf)
 }
 
+fn compute_receipt_digest_from_bundle(
+    context_digest: &B3Hash,
+    run_head: &B3Hash,
+    output_digest: &B3Hash,
+    receipt: &ReceiptDigests,
+    bundle: &ReceiptBundle,
+) -> B3Hash {
+    let mut input = ReceiptDigestInput::new(
+        *context_digest.as_bytes(),
+        *run_head.as_bytes(),
+        *output_digest.as_bytes(),
+        receipt.logical_prompt_tokens,
+        receipt.prefix_cached_token_count,
+        receipt.billed_input_tokens,
+        receipt.logical_output_tokens,
+        receipt.billed_output_tokens,
+    );
+
+    if receipt.schema_version >= RECEIPT_SCHEMA_V2 {
+        let attestation_bytes = bundle
+            .backend_attestation_b3_hex
+            .as_ref()
+            .and_then(|h| hex::decode(h).ok())
+            .and_then(|b| <[u8; 32]>::try_from(b).ok());
+
+        input = input.with_backend(bundle.backend_used.clone(), attestation_bytes);
+    }
+
+    if receipt.schema_version >= RECEIPT_SCHEMA_V3 {
+        let seed_digest = receipt
+            .root_seed_digest_hex
+            .as_ref()
+            .and_then(|h| hex::decode(h).ok())
+            .and_then(|b| <[u8; 32]>::try_from(b).ok());
+
+        input = input.with_seed_lineage(
+            seed_digest,
+            receipt.seed_mode.clone(),
+            receipt.has_manifest_binding,
+        );
+    }
+
+    if receipt.schema_version >= RECEIPT_SCHEMA_V4 {
+        let stop_policy_digest = receipt
+            .stop_policy_digest_b3_hex
+            .as_ref()
+            .and_then(|h| hex::decode(h).ok())
+            .and_then(|b| <[u8; 32]>::try_from(b).ok());
+
+        input = input.with_stop_controller(
+            receipt.stop_reason_code.clone(),
+            receipt.stop_reason_token_index,
+            stop_policy_digest,
+        );
+
+        input = input.with_kv_quota(
+            receipt.tenant_kv_quota_bytes,
+            receipt.tenant_kv_bytes_used,
+            receipt.kv_evictions,
+            receipt.kv_residency_policy_id.clone(),
+            receipt.kv_quota_enforced,
+        );
+
+        let prefix_kv_key = receipt
+            .prefix_kv_key_b3_hex
+            .as_ref()
+            .and_then(|h| hex::decode(h).ok())
+            .and_then(|b| <[u8; 32]>::try_from(b).ok());
+
+        input = input.with_prefix_cache(
+            prefix_kv_key,
+            receipt.prefix_cache_hit,
+            receipt.prefix_kv_bytes,
+        );
+
+        let model_cache_identity = receipt
+            .model_cache_identity_v2_digest_b3_hex
+            .as_ref()
+            .and_then(|h| hex::decode(h).ok())
+            .and_then(|b| <[u8; 32]>::try_from(b).ok());
+
+        input = input.with_model_cache_identity(model_cache_identity);
+    }
+
+    if receipt.schema_version >= RECEIPT_SCHEMA_V5 {
+        let equipment_profile = receipt
+            .equipment_profile_digest_b3_hex
+            .as_ref()
+            .and_then(|h| hex::decode(h).ok())
+            .and_then(|b| <[u8; 32]>::try_from(b).ok());
+
+        input = input.with_equipment_profile(
+            equipment_profile,
+            receipt.processor_id.clone(),
+            receipt.mlx_version.clone(),
+            receipt.ane_version.clone(),
+        );
+
+        let citations_root = receipt
+            .citations_merkle_root_b3_hex
+            .as_ref()
+            .and_then(|h| hex::decode(h).ok())
+            .and_then(|b| <[u8; 32]>::try_from(b).ok());
+
+        input = input.with_citations(citations_root, receipt.citation_count);
+    }
+
+    if receipt.schema_version >= RECEIPT_SCHEMA_V6 {
+        let previous_receipt = receipt
+            .previous_receipt_digest_hex
+            .as_ref()
+            .and_then(|h| hex::decode(h).ok())
+            .and_then(|b| <[u8; 32]>::try_from(b).ok());
+
+        input = input.with_cross_run_lineage(previous_receipt, receipt.session_sequence);
+    }
+
+    if receipt.schema_version >= RECEIPT_SCHEMA_V7 {
+        let tokenizer_hash = receipt
+            .tokenizer_hash_b3_hex
+            .as_ref()
+            .and_then(|h| hex::decode(h).ok())
+            .and_then(|b| <[u8; 32]>::try_from(b).ok());
+
+        input = input.with_tokenizer_identity(
+            tokenizer_hash,
+            receipt.tokenizer_version.clone(),
+            receipt.tokenizer_normalization.clone(),
+        );
+
+        let model_build = receipt
+            .model_build_hash_b3_hex
+            .as_ref()
+            .and_then(|h| hex::decode(h).ok())
+            .and_then(|b| <[u8; 32]>::try_from(b).ok());
+        let adapter_build = receipt
+            .adapter_build_hash_b3_hex
+            .as_ref()
+            .and_then(|h| hex::decode(h).ok())
+            .and_then(|b| <[u8; 32]>::try_from(b).ok());
+
+        input = input.with_build_provenance(model_build, adapter_build);
+
+        let seed_digest = receipt
+            .seed_digest_b3_hex
+            .as_ref()
+            .and_then(|h| hex::decode(h).ok())
+            .and_then(|b| <[u8; 32]>::try_from(b).ok());
+
+        input = input.with_decoder_config(
+            receipt.decode_algo.clone(),
+            receipt.temperature_q15,
+            receipt.top_p_q15,
+            receipt.top_k,
+            seed_digest,
+            receipt.sampling_backend.clone(),
+        );
+
+        input = input.with_concurrency_determinism(
+            receipt.thread_count,
+            receipt.reduction_strategy.clone(),
+        );
+
+        let stop_window = receipt
+            .stop_window_digest_b3_hex
+            .as_ref()
+            .and_then(|h| hex::decode(h).ok())
+            .and_then(|b| <[u8; 32]>::try_from(b).ok());
+
+        input = input.with_stop_controller_inputs(receipt.stop_eos_q15, stop_window);
+
+        let cached_prefix_digest = receipt
+            .cached_prefix_digest_b3_hex
+            .as_ref()
+            .and_then(|h| hex::decode(h).ok())
+            .and_then(|b| <[u8; 32]>::try_from(b).ok());
+        let cache_key = receipt
+            .cache_key_b3_hex
+            .as_ref()
+            .and_then(|h| hex::decode(h).ok())
+            .and_then(|b| <[u8; 32]>::try_from(b).ok());
+
+        input = input.with_cache_proof(
+            receipt.cache_scope.clone(),
+            cached_prefix_digest,
+            receipt.cached_prefix_len,
+            cache_key,
+        );
+
+        let retrieval_merkle = receipt
+            .retrieval_merkle_root_b3_hex
+            .as_ref()
+            .and_then(|h| hex::decode(h).ok())
+            .and_then(|b| <[u8; 32]>::try_from(b).ok());
+        let retrieval_order = receipt
+            .retrieval_order_digest_b3_hex
+            .as_ref()
+            .and_then(|h| hex::decode(h).ok())
+            .and_then(|b| <[u8; 32]>::try_from(b).ok());
+        let tool_inputs = receipt
+            .tool_call_inputs_digest_b3_hex
+            .as_ref()
+            .and_then(|h| hex::decode(h).ok())
+            .and_then(|b| <[u8; 32]>::try_from(b).ok());
+        let tool_outputs = receipt
+            .tool_call_outputs_digest_b3_hex
+            .as_ref()
+            .and_then(|h| hex::decode(h).ok())
+            .and_then(|b| <[u8; 32]>::try_from(b).ok());
+
+        input = input.with_retrieval_tool_binding(
+            retrieval_merkle,
+            retrieval_order,
+            tool_inputs,
+            tool_outputs,
+        );
+
+        input = input.with_disclosure_level(receipt.disclosure_level.clone());
+    }
+
+    receipt_digest::compute_receipt_digest(&input, receipt.schema_version)
+        .unwrap_or_else(B3Hash::zero)
+}
+
 fn compute_context_digest(ctx: &ReceiptContext) -> Result<B3Hash> {
     let stack_bytes =
         hex::decode(&ctx.stack_hash_hex).with_context(|| "Failed to decode stack_hash_hex")?;
     let mut buf = Vec::with_capacity(
-        ctx.tenant_namespace.len() + stack_bytes.len() + 4 + ctx.prompt_tokens.len() * 4,
+        ctx.tenant_namespace.len() + stack_bytes.len() + 4 + ctx.prompt_tokens.len() * 4 + 96,
     );
     buf.extend_from_slice(ctx.tenant_namespace.as_bytes());
     buf.extend_from_slice(&stack_bytes);
+    if let Some(ref hex) = ctx.tokenizer_hash_b3_hex {
+        if let Ok(bytes) = hex::decode(hex) {
+            buf.extend_from_slice(&bytes);
+        }
+        if let Some(ref version) = ctx.tokenizer_version {
+            buf.extend_from_slice(&(version.len() as u32).to_le_bytes());
+            buf.extend_from_slice(version.as_bytes());
+        }
+        if let Some(ref norm) = ctx.tokenizer_normalization {
+            buf.extend_from_slice(&(norm.len() as u32).to_le_bytes());
+            buf.extend_from_slice(norm.as_bytes());
+        }
+    }
     buf.extend_from_slice(&(ctx.prompt_tokens.len() as u32).to_le_bytes());
     for t in &ctx.prompt_tokens {
         buf.extend_from_slice(&t.to_le_bytes());
@@ -1403,74 +1758,13 @@ fn verify_bundle(bundle: &ReceiptBundle) -> Result<ReceiptVerificationResult> {
         push_reason(&mut reasons, ReceiptReasonCode::OutputMismatch);
     }
 
-    // Compute receipt_digest with all fields (must match compute_receipt_digest in inference_trace.rs)
-    let stop_reason_bytes = bundle
-        .receipt
-        .stop_reason_code
-        .as_deref()
-        .unwrap_or("")
-        .as_bytes();
-    let stop_token_index_bytes = bundle
-        .receipt
-        .stop_reason_token_index
-        .unwrap_or(0xFFFFFFFF)
-        .to_le_bytes();
-    let stop_policy_bytes = bundle
-        .receipt
-        .stop_policy_digest_b3_hex
-        .as_ref()
-        .and_then(|h| hex::decode(h).ok())
-        .unwrap_or_else(|| vec![0u8; 32]);
-    let prefix_kv_key_bytes = bundle
-        .receipt
-        .prefix_kv_key_b3_hex
-        .as_ref()
-        .and_then(|h| hex::decode(h).ok())
-        .unwrap_or_else(|| vec![0u8; 32]);
-    let model_cache_identity_bytes = bundle
-        .receipt
-        .model_cache_identity_v2_digest_b3_hex
-        .as_ref()
-        .and_then(|h| hex::decode(h).ok())
-        .unwrap_or_else(|| vec![0u8; 32]);
-    let kv_residency_policy_id = bundle.receipt.kv_residency_policy_id.as_deref();
-
-    let receipt_digest = B3Hash::hash_multi(&[
-        computed_context.as_bytes(),
-        run_head.as_bytes(),
-        output_digest.as_bytes(),
-        &bundle.receipt.logical_prompt_tokens.to_le_bytes(),
-        &bundle.receipt.prefix_cached_token_count.to_le_bytes(),
-        &bundle.receipt.billed_input_tokens.to_le_bytes(),
-        &bundle.receipt.logical_output_tokens.to_le_bytes(),
-        &bundle.receipt.billed_output_tokens.to_le_bytes(),
-        // Stop controller fields
-        &(stop_reason_bytes.len() as u32).to_le_bytes(),
-        stop_reason_bytes,
-        &stop_token_index_bytes,
-        &stop_policy_bytes,
-        // KV quota/residency fields
-        &bundle.receipt.tenant_kv_quota_bytes.to_le_bytes(),
-        &bundle.receipt.tenant_kv_bytes_used.to_le_bytes(),
-        &bundle.receipt.kv_evictions.to_le_bytes(),
-        &(kv_residency_policy_id.map(|s| s.len() as u32).unwrap_or(0)).to_le_bytes(),
-        kv_residency_policy_id.map(|s| s.as_bytes()).unwrap_or(&[]),
-        &[if bundle.receipt.kv_quota_enforced {
-            1u8
-        } else {
-            0u8
-        }],
-        // Prefix KV cache fields
-        &prefix_kv_key_bytes,
-        &[if bundle.receipt.prefix_cache_hit {
-            1u8
-        } else {
-            0u8
-        }],
-        &bundle.receipt.prefix_kv_bytes.to_le_bytes(),
-        // Model cache identity V2 (PRD-06)
-        &model_cache_identity_bytes,
-    ]);
+    let receipt_digest = compute_receipt_digest_from_bundle(
+        &computed_context,
+        &run_head,
+        &output_digest,
+        &bundle.receipt,
+        &bundle,
+    );
     let expected_receipt =
         B3Hash::from_hex(&bundle.receipt.receipt_digest_hex).with_context(|| {
             format!(

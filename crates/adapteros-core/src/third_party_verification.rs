@@ -94,6 +94,7 @@
 use crate::evidence_envelope::InferenceReceiptRef;
 use crate::receipt_digest::{
     compute_output_digest, compute_receipt_digest, ReceiptDigestInput, RECEIPT_SCHEMA_V6,
+    RECEIPT_SCHEMA_V7,
 };
 use crate::{AosError, B3Hash, Result};
 use serde::{Deserialize, Serialize};
@@ -198,6 +199,73 @@ pub struct ClaimedConfig {
     /// Session sequence number for temporal ordering (V6+)
     #[serde(default)]
     pub session_sequence: u64,
+
+    // --- V7 fields: Tokenizer identity ---
+    /// Tokenizer hash (V7+)
+    #[serde(default)]
+    pub tokenizer_hash_b3: Option<[u8; 32]>,
+    /// Tokenizer version string (V7+)
+    #[serde(default)]
+    pub tokenizer_version: Option<String>,
+    /// Tokenizer normalization identifier (V7+)
+    #[serde(default)]
+    pub tokenizer_normalization: Option<String>,
+
+    // --- V7 fields: Model/build provenance ---
+    #[serde(default)]
+    pub model_build_hash_b3: Option<[u8; 32]>,
+    #[serde(default)]
+    pub adapter_build_hash_b3: Option<[u8; 32]>,
+
+    // --- V7 fields: Decoder config ---
+    #[serde(default)]
+    pub decode_algo: Option<String>,
+    #[serde(default)]
+    pub temperature_q15: Option<i16>,
+    #[serde(default)]
+    pub top_p_q15: Option<i16>,
+    #[serde(default)]
+    pub top_k: Option<u32>,
+    #[serde(default)]
+    pub seed_digest_b3: Option<[u8; 32]>,
+    #[serde(default)]
+    pub sampling_backend: Option<String>,
+
+    // --- V7 fields: Concurrency determinism ---
+    #[serde(default)]
+    pub thread_count: Option<u32>,
+    #[serde(default)]
+    pub reduction_strategy: Option<String>,
+
+    // --- V7 fields: Stop controller inputs ---
+    #[serde(default)]
+    pub stop_eos_q15: Option<i16>,
+    #[serde(default)]
+    pub stop_window_digest_b3: Option<[u8; 32]>,
+
+    // --- V7 fields: Cache proof ---
+    #[serde(default)]
+    pub cache_scope: Option<String>,
+    #[serde(default)]
+    pub cached_prefix_digest_b3: Option<[u8; 32]>,
+    #[serde(default)]
+    pub cached_prefix_len: Option<u32>,
+    #[serde(default)]
+    pub cache_key_b3: Option<[u8; 32]>,
+
+    // --- V7 fields: Retrieval/tool binding ---
+    #[serde(default)]
+    pub retrieval_merkle_root_b3: Option<[u8; 32]>,
+    #[serde(default)]
+    pub retrieval_order_digest_b3: Option<[u8; 32]>,
+    #[serde(default)]
+    pub tool_call_inputs_digest_b3: Option<[u8; 32]>,
+    #[serde(default)]
+    pub tool_call_outputs_digest_b3: Option<[u8; 32]>,
+
+    // --- V7 fields: Disclosure level ---
+    #[serde(default)]
+    pub disclosure_level: Option<String>,
 }
 
 /// Values claimed by a third party for verification.
@@ -403,11 +471,24 @@ impl VerificationResult {
 /// BLAKE3(tenant_namespace || stack_hash || prompt_token_count || prompt_tokens...)
 fn compute_context_digest(config: &ClaimedConfig) -> B3Hash {
     let mut buf = Vec::with_capacity(
-        config.tenant_namespace.len() + 32 + 4 + (config.prompt_tokens.len() * 4),
+        config.tenant_namespace.len() + 32 + 4 + (config.prompt_tokens.len() * 4) + 96,
     );
 
     buf.extend_from_slice(config.tenant_namespace.as_bytes());
     buf.extend_from_slice(config.stack_hash.as_bytes());
+
+    if let Some(tokenizer_hash) = config.tokenizer_hash_b3 {
+        buf.extend_from_slice(tokenizer_hash.as_bytes());
+        if let Some(ref version) = config.tokenizer_version {
+            buf.extend_from_slice(&(version.len() as u32).to_le_bytes());
+            buf.extend_from_slice(version.as_bytes());
+        }
+        if let Some(ref norm) = config.tokenizer_normalization {
+            buf.extend_from_slice(&(norm.len() as u32).to_le_bytes());
+            buf.extend_from_slice(norm.as_bytes());
+        }
+    }
+
     buf.extend_from_slice(&(config.prompt_tokens.len() as u32).to_le_bytes());
 
     for token in &config.prompt_tokens {
@@ -480,6 +561,60 @@ fn build_receipt_input(
         claimed.config.session_sequence,
     );
 
+    // V7 fields: Tokenizer identity
+    input = input.with_tokenizer_identity(
+        claimed.config.tokenizer_hash_b3,
+        claimed.config.tokenizer_version.clone(),
+        claimed.config.tokenizer_normalization.clone(),
+    );
+
+    // V7 fields: Model/build provenance
+    input = input.with_build_provenance(
+        claimed.config.model_build_hash_b3,
+        claimed.config.adapter_build_hash_b3,
+    );
+
+    // V7 fields: Decoder config
+    input = input.with_decoder_config(
+        claimed.config.decode_algo.clone(),
+        claimed.config.temperature_q15,
+        claimed.config.top_p_q15,
+        claimed.config.top_k,
+        claimed.config.seed_digest_b3,
+        claimed.config.sampling_backend.clone(),
+    );
+
+    // V7 fields: Concurrency determinism
+    input = input.with_concurrency_determinism(
+        claimed.config.thread_count,
+        claimed.config.reduction_strategy.clone(),
+    );
+
+    // V7 fields: Stop controller inputs
+    input = input.with_stop_controller_inputs(
+        claimed.config.stop_eos_q15,
+        claimed.config.stop_window_digest_b3,
+    );
+
+    // V7 fields: Cache proof
+    input = input.with_cache_proof(
+        claimed.config.cache_scope.clone(),
+        claimed.config.cached_prefix_digest_b3,
+        claimed.config.cached_prefix_len,
+        claimed.config.cache_key_b3,
+    );
+
+    // V7 fields: Retrieval/tool binding
+    input = input.with_retrieval_tool_binding(
+        claimed.config.retrieval_merkle_root_b3,
+        claimed.config.retrieval_order_digest_b3,
+        claimed.config.tool_call_inputs_digest_b3,
+        claimed.config.tool_call_outputs_digest_b3,
+    );
+
+    // V7 fields: Disclosure level
+    input = input.with_disclosure_level(claimed.config.disclosure_level.clone());
+
     input
 }
 
@@ -513,7 +648,7 @@ pub fn verify_receipt(
     schema_version: u8,
 ) -> Result<VerificationResult> {
     // Validate schema version
-    if schema_version > RECEIPT_SCHEMA_V6 {
+    if schema_version > RECEIPT_SCHEMA_V7 {
         return Ok(VerificationResult::failure(
             MismatchReason::UnsupportedSchemaVersion {
                 version: schema_version,
@@ -603,7 +738,7 @@ pub fn verify_receipt_with_precomputed(
     schema_version: u8,
 ) -> Result<VerificationResult> {
     // Validate schema version
-    if schema_version > RECEIPT_SCHEMA_V6 {
+    if schema_version > RECEIPT_SCHEMA_V7 {
         return Ok(VerificationResult::failure(
             MismatchReason::UnsupportedSchemaVersion {
                 version: schema_version,

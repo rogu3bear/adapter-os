@@ -385,4 +385,92 @@ pub struct RunReceipt<Hash = String> {
     /// inference ordering without access to the full trace.
     #[serde(default)]
     pub session_sequence: u64,
+
+    // =========================================================================
+    // V7: Tokenizer identity
+    // =========================================================================
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tokenizer_hash_b3: Option<Hash>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tokenizer_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tokenizer_normalization: Option<String>,
+
+    // =========================================================================
+    // V7: Model/build provenance
+    // =========================================================================
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_build_hash_b3: Option<Hash>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adapter_build_hash_b3: Option<Hash>,
+
+    // =========================================================================
+    // V7: Decoder config
+    // =========================================================================
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decode_algo: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temperature_q15: Option<i16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub top_p_q15: Option<i16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub top_k: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed_digest_b3: Option<Hash>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sampling_backend: Option<String>,
+
+    // =========================================================================
+    // V7: Concurrency determinism
+    // =========================================================================
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_count: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reduction_strategy: Option<String>,
+
+    // =========================================================================
+    // V7: Stop controller inputs
+    // =========================================================================
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_eos_q15: Option<i16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_window_digest_b3: Option<Hash>,
+
+    // =========================================================================
+    // V7: Cache proof
+    // =========================================================================
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_scope: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cached_prefix_digest_b3: Option<Hash>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cached_prefix_len: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_key_b3: Option<Hash>,
+
+    // =========================================================================
+    // V7: Retrieval/tool binding
+    // =========================================================================
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retrieval_merkle_root_b3: Option<Hash>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retrieval_order_digest_b3: Option<Hash>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_inputs_digest_b3: Option<Hash>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_outputs_digest_b3: Option<Hash>,
+
+    // =========================================================================
+    // V7: Disclosure level
+    // =========================================================================
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disclosure_level: Option<String>,
+
+    // =========================================================================
+    // V7: Receipt signing metadata
+    // =========================================================================
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub receipt_signing_kid: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub receipt_signed_at: Option<String>,
 }
