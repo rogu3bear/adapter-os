@@ -976,15 +976,17 @@ fn record_to_training_job(record: TrainingJobRecord) -> adapteros_orchestrator::
             TrainingConfig::default()
         });
 
-    let data_lineage_mode = record.data_lineage_mode.as_deref().and_then(|s| {
-        match s.to_lowercase().as_str() {
-            "versioned" => Some(DataLineageMode::Versioned),
-            "synthetic" => Some(DataLineageMode::Synthetic),
-            "dataset_only" => Some(DataLineageMode::DatasetOnly),
-            "legacy_unpinned" => Some(DataLineageMode::LegacyUnpinned),
-            _ => None,
-        }
-    });
+    let data_lineage_mode =
+        record
+            .data_lineage_mode
+            .as_deref()
+            .and_then(|s| match s.to_lowercase().as_str() {
+                "versioned" => Some(DataLineageMode::Versioned),
+                "synthetic" => Some(DataLineageMode::Synthetic),
+                "dataset_only" => Some(DataLineageMode::DatasetOnly),
+                "legacy_unpinned" => Some(DataLineageMode::LegacyUnpinned),
+                _ => None,
+            });
 
     let dataset_version_ids = record
         .data_spec_json
@@ -1336,16 +1338,13 @@ pub async fn create_training_job(
             })?,
     };
 
-    let adapter_name = req
-        .adapter_name
-        .clone()
-        .unwrap_or_else(|| {
-            format!(
-                "ws-{}-{}",
-                workspace_id,
-                adapteros_core::ids::generate_suffix(6)
-            )
-        });
+    let adapter_name = req.adapter_name.clone().unwrap_or_else(|| {
+        format!(
+            "ws-{}-{}",
+            workspace_id,
+            adapteros_core::ids::generate_suffix(6)
+        )
+    });
 
     let mut config = training_config_from_request(req.params.clone());
     config.base_model_path = Some(base_model_path);
@@ -1438,11 +1437,8 @@ pub async fn get_training_job(
                         return Err((
                             StatusCode::NOT_FOUND,
                             Json(
-                                ErrorResponse::new(format!(
-                                    "Training job not found: {}",
-                                    job_id
-                                ))
-                                .with_code("NOT_FOUND"),
+                                ErrorResponse::new(format!("Training job not found: {}", job_id))
+                                    .with_code("NOT_FOUND"),
                             ),
                         ));
                     }

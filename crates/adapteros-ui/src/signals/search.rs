@@ -1,7 +1,10 @@
 //! Search context for the command palette.
 
 use crate::api::ApiClient;
-use crate::search::{RecentItem, SearchResult};
+use crate::search::{
+    contextual_result_matches, generate_contextual_actions, RecentItem, SearchResult,
+};
+use crate::signals::page_context::RouteContext;
 use leptos::prelude::*;
 use std::sync::Arc;
 
@@ -108,22 +111,39 @@ impl SearchContext {
         let selected_index = self.selected_index;
         let search_version = self.search_version;
 
+        // Get contextual actions if RouteContext is available
+        let contextual_actions = use_context::<RouteContext>()
+            .map(|ctx| generate_contextual_actions(&ctx))
+            .unwrap_or_default();
+
         set_timeout_simple(
             move || {
                 if search_version.get_untracked() != version {
                     return;
                 }
-                if query.is_empty() {
-                    results.set(Vec::new());
-                    selected_index.set(0);
-                    return;
+
+                // Start with contextual actions (filtered by query if not empty)
+                let mut matches: Vec<SearchResult> = if query.is_empty() {
+                    // Show all contextual actions when query is empty
+                    contextual_actions
+                } else {
+                    // Filter contextual actions by query
+                    contextual_actions
+                        .into_iter()
+                        .filter(|result| contextual_result_matches(result, &query))
+                        .collect()
+                };
+
+                // If query is not empty, also search static results
+                if !query.is_empty() {
+                    let static_matches: Vec<SearchResult> = static_results()
+                        .into_iter()
+                        .filter(|result| result_matches(result, &query))
+                        .collect();
+                    matches.extend(static_matches);
                 }
 
-                let mut matches: Vec<SearchResult> = static_results()
-                    .into_iter()
-                    .filter(|result| result_matches(result, &query))
-                    .collect();
-
+                // Sort by score (contextual actions have higher scores)
                 matches.sort_by(|a, b| {
                     b.score
                         .partial_cmp(&a.score)
@@ -140,16 +160,34 @@ impl SearchContext {
         self.query.set(value.clone());
         let query = value.trim().to_string();
         self.search_version.update(|v| *v += 1);
-        if query.is_empty() {
-            self.results.set(Vec::new());
-            self.selected_index.set(0);
-            return;
-        }
-        let mut matches: Vec<SearchResult> = static_results()
-            .into_iter()
-            .filter(|result| result_matches(result, &query))
-            .collect();
 
+        // Get contextual actions if RouteContext is available
+        let contextual_actions = use_context::<RouteContext>()
+            .map(|ctx| generate_contextual_actions(&ctx))
+            .unwrap_or_default();
+
+        // Start with contextual actions (filtered by query if not empty)
+        let mut matches: Vec<SearchResult> = if query.is_empty() {
+            // Show all contextual actions when query is empty
+            contextual_actions
+        } else {
+            // Filter contextual actions by query
+            contextual_actions
+                .into_iter()
+                .filter(|result| contextual_result_matches(result, &query))
+                .collect()
+        };
+
+        // If query is not empty, also search static results
+        if !query.is_empty() {
+            let static_matches: Vec<SearchResult> = static_results()
+                .into_iter()
+                .filter(|result| result_matches(result, &query))
+                .collect();
+            matches.extend(static_matches);
+        }
+
+        // Sort by score (contextual actions have higher scores)
         matches.sort_by(|a, b| {
             b.score
                 .partial_cmp(&a.score)

@@ -25,11 +25,10 @@ pub async fn backfill_readable_ids(db: &Db) -> Result<()> {
     .execute(pool)
     .await?;
 
-    let completed: Option<String> = sqlx::query_scalar(
-        "SELECT completed_at FROM id_backfill_state WHERE id = 1",
-    )
-    .fetch_optional(pool)
-    .await?;
+    let completed: Option<String> =
+        sqlx::query_scalar("SELECT completed_at FROM id_backfill_state WHERE id = 1")
+            .fetch_optional(pool)
+            .await?;
     if completed.is_some() {
         return Ok(());
     }
@@ -59,11 +58,9 @@ pub async fn backfill_readable_ids(db: &Db) -> Result<()> {
         update_foreign_keys(pool, table, &table_kinds).await?;
     }
 
-    sqlx::query(
-        "INSERT INTO id_backfill_state (id, completed_at) VALUES (1, datetime('now'))",
-    )
-    .execute(pool)
-    .await?;
+    sqlx::query("INSERT INTO id_backfill_state (id, completed_at) VALUES (1, datetime('now'))")
+        .execute(pool)
+        .await?;
 
     Ok(())
 }
@@ -85,9 +82,11 @@ async fn ensure_alias_table(pool: &SqlitePool) -> Result<()> {
 }
 
 async fn list_tables(pool: &SqlitePool) -> Result<Vec<String>> {
-    let rows = sqlx::query("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
-        .fetch_all(pool)
-        .await?;
+    let rows = sqlx::query(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
+    )
+    .fetch_all(pool)
+    .await?;
     Ok(rows
         .into_iter()
         .filter_map(|r| r.try_get::<String, _>("name").ok())
@@ -128,10 +127,7 @@ async fn pick_slug_column(
 
 async fn backfill_table(pool: &SqlitePool, spec: &TableSpec, slug_col: Option<&str>) -> Result<()> {
     let select_sql = if let Some(col) = slug_col {
-        format!(
-            "SELECT id, legacy_id, {} as slug FROM {}",
-            col, spec.table
-        )
+        format!("SELECT id, legacy_id, {} as slug FROM {}", col, spec.table)
     } else {
         format!("SELECT id, legacy_id, NULL as slug FROM {}", spec.table)
     };
@@ -148,15 +144,16 @@ async fn backfill_table(pool: &SqlitePool, spec: &TableSpec, slug_col: Option<&s
             .filter(|s| !s.trim().is_empty())
             .unwrap_or(spec.fallback);
         let new_id = generate_id(spec.kind, slug_source);
-        sqlx::query(
-            "INSERT OR IGNORE INTO id_aliases (kind, legacy_id, new_id) VALUES (?, ?, ?)",
-        )
-        .bind(spec.kind.prefix())
-        .bind(&id)
-        .bind(&new_id)
-        .execute(pool)
-        .await?;
-        let update_sql = format!("UPDATE {} SET legacy_id = ?, id = ? WHERE id = ?", spec.table);
+        sqlx::query("INSERT OR IGNORE INTO id_aliases (kind, legacy_id, new_id) VALUES (?, ?, ?)")
+            .bind(spec.kind.prefix())
+            .bind(&id)
+            .bind(&new_id)
+            .execute(pool)
+            .await?;
+        let update_sql = format!(
+            "UPDATE {} SET legacy_id = ?, id = ? WHERE id = ?",
+            spec.table
+        );
         sqlx::query(&update_sql)
             .bind(&id)
             .bind(&new_id)

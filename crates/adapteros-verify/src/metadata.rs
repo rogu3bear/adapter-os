@@ -6,8 +6,8 @@
 use adapteros_core::{AosError, B3Hash, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::process::Command;
 use std::path::PathBuf;
+use std::process::Command;
 use tracing::warn;
 
 /// Toolchain metadata for reproducibility
@@ -74,10 +74,8 @@ impl ToolchainMetadata {
                     error = %e,
                     "Failed to read Metal kernel library for hashing"
                 );
-                B3Hash::from_hex(
-                    "0000000000000000000000000000000000000000000000000000000000000000",
-                )
-                .unwrap()
+                B3Hash::from_hex("0000000000000000000000000000000000000000000000000000000000000000")
+                    .unwrap()
             }
         }
     }

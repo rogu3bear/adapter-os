@@ -10,13 +10,13 @@ use crate::types::{
     MetricsSeriesResponse, MetricsSnapshotResponse, TimingBreakdown, TokenDecision,
     TraceReceiptSummary, UiInferenceTraceDetailResponse, UiTraceReceiptSummary,
 };
-use adapteros_db::{get_inference_trace_detail_for_tenant, list_inference_traces_for_tenant};
 use adapteros_db::kv_metrics::{
     global_kv_metrics, KV_ALERT_METRIC_DEGRADATIONS, KV_ALERT_METRIC_DRIFT, KV_ALERT_METRIC_ERRORS,
     KV_ALERT_METRIC_FALLBACKS,
 };
 use adapteros_db::users::Role;
 use adapteros_db::ActivityEvent;
+use adapteros_db::{get_inference_trace_detail_for_tenant, list_inference_traces_for_tenant};
 use adapteros_telemetry::{LogLevel, TelemetryFilters, UnifiedTelemetryEvent};
 use axum::extract::{Extension, Path, Query, State};
 use axum::response::{sse::Event, sse::KeepAlive, Sse};
@@ -226,8 +226,18 @@ pub struct InferenceTracesQueryParams {
 pub struct InferenceTraceDetailQueryParams {
     /// Return tokens with index > tokens_after
     pub tokens_after: Option<u32>,
-    /// Maximum number of token decisions to return
+    /// Maximum number of token decisions to return (0 = no cap)
     pub tokens_limit: Option<u32>,
+}
+
+const UI_DEFAULT_TRACE_TOKENS_LIMIT: u32 = 200;
+
+fn normalize_ui_tokens_limit(tokens_limit: Option<u32>) -> Option<u32> {
+    match tokens_limit {
+        Some(0) => None,
+        Some(value) => Some(value),
+        None => Some(UI_DEFAULT_TRACE_TOKENS_LIMIT),
+    }
 }
 
 /// GET /api/logs/query - Query logs with filters
@@ -468,7 +478,7 @@ fn parse_trace_timestamp(timestamp: &str) -> Option<chrono::DateTime<chrono::Utc
     params(
         ("trace_id" = String, Path, description = "Inference trace ID"),
         ("tokens_after" = Option<u32>, Query, description = "Return tokens with index > tokens_after"),
-        ("tokens_limit" = Option<u32>, Query, description = "Max token decisions to return"),
+        ("tokens_limit" = Option<u32>, Query, description = "Max token decisions to return (0 = no cap)"),
     ),
     responses(
         (status = 200, description = "Inference trace detail", body = InferenceTraceDetailResponse),
@@ -507,11 +517,11 @@ pub async fn get_inference_trace_detail(
     .map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new(format!(
-                    "Database error loading trace: {e}"
-                ))),
-            )
-        })?;
+            Json(ErrorResponse::new(format!(
+                "Database error loading trace: {e}"
+            ))),
+        )
+    })?;
 
     let Some(record) = record else {
         return Err((
@@ -613,7 +623,6 @@ pub async fn get_inference_trace_detail(
         receipt,
         backend_id,
     }))
-
 }
 
 /// UI-only inference trace detail endpoint with extended receipt data.
@@ -639,7 +648,7 @@ pub async fn get_ui_inference_trace_detail(
         &claims.tenant_id,
         &trace_id,
         params.tokens_after,
-        params.tokens_limit,
+        normalize_ui_tokens_limit(params.tokens_limit),
     )
     .await
     .map_err(|e| {

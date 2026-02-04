@@ -77,7 +77,8 @@ mod execute_task_tests {
         let assignment = create_test_assignment(vec![], "Refactor the codebase");
 
         let result =
-            adapteros_cli::commands::worker_executor::execute_task(&assignment, "agent-01", None).await;
+            adapteros_cli::commands::worker_executor::execute_task(&assignment, "agent-01", None)
+                .await;
 
         assert!(
             result.is_ok(),
@@ -106,7 +107,8 @@ mod execute_task_tests {
             create_test_assignment(vec![sample_file.clone()], "Add error handling to functions");
 
         let result =
-            adapteros_cli::commands::worker_executor::execute_task(&assignment, "agent-02", None).await;
+            adapteros_cli::commands::worker_executor::execute_task(&assignment, "agent-02", None)
+                .await;
 
         assert!(result.is_ok());
         let proposal = result.unwrap();
@@ -157,7 +159,8 @@ mod execute_task_tests {
         let assignment = create_test_assignment(existing_files.clone(), "Review code quality");
 
         let result =
-            adapteros_cli::commands::worker_executor::execute_task(&assignment, "agent-03", None).await;
+            adapteros_cli::commands::worker_executor::execute_task(&assignment, "agent-03", None)
+                .await;
 
         assert!(result.is_ok());
         let proposal = result.unwrap();
@@ -178,7 +181,8 @@ mod execute_task_tests {
         let assignment = create_test_assignment(vec![nonexistent], "Process file");
 
         let result =
-            adapteros_cli::commands::worker_executor::execute_task(&assignment, "agent-04", None).await;
+            adapteros_cli::commands::worker_executor::execute_task(&assignment, "agent-04", None)
+                .await;
 
         // Should succeed but with no modifications for unreadable files
         assert!(result.is_ok());
@@ -191,7 +195,8 @@ mod execute_task_tests {
         let assignment = create_test_assignment(vec![], "Test hash computation");
 
         let result =
-            adapteros_cli::commands::worker_executor::execute_task(&assignment, "agent-05", None).await;
+            adapteros_cli::commands::worker_executor::execute_task(&assignment, "agent-05", None)
+                .await;
 
         assert!(result.is_ok());
         let proposal = result.unwrap();
@@ -442,10 +447,13 @@ mod golden_tests {
         let assignment =
             create_test_assignment(vec![sample_file], "Identify areas needing attention");
 
-        let proposal =
-            adapteros_cli::commands::worker_executor::execute_task(&assignment, "golden-agent", None)
-                .await
-                .unwrap();
+        let proposal = adapteros_cli::commands::worker_executor::execute_task(
+            &assignment,
+            "golden-agent",
+            None,
+        )
+        .await
+        .unwrap();
 
         // Golden expectations: should produce modifications with explanations
         assert!(
@@ -473,10 +481,13 @@ mod golden_tests {
 
         let assignment = create_test_assignment(vec![clean_file], "Verify code cleanliness");
 
-        let proposal =
-            adapteros_cli::commands::worker_executor::execute_task(&assignment, "golden-agent", None)
-                .await
-                .unwrap();
+        let proposal = adapteros_cli::commands::worker_executor::execute_task(
+            &assignment,
+            "golden-agent",
+            None,
+        )
+        .await
+        .unwrap();
 
         // Golden expectations: should produce modifications with explanations
         assert!(
@@ -504,10 +515,13 @@ mod golden_tests {
 
         let assignment = create_test_assignment(vec![empty_file], "Analyze empty source");
 
-        let proposal =
-            adapteros_cli::commands::worker_executor::execute_task(&assignment, "golden-agent", None)
-                .await
-                .unwrap();
+        let proposal = adapteros_cli::commands::worker_executor::execute_task(
+            &assignment,
+            "golden-agent",
+            None,
+        )
+        .await
+        .unwrap();
 
         let explanation = proposal.modifications[0].explanation.as_ref().unwrap();
 
@@ -544,7 +558,8 @@ mod edge_cases {
 
         for agent_id in special_ids {
             let result =
-                adapteros_cli::commands::worker_executor::execute_task(&assignment, agent_id, None).await;
+                adapteros_cli::commands::worker_executor::execute_task(&assignment, agent_id, None)
+                    .await;
             assert!(result.is_ok(), "Should handle agent ID: {}", agent_id);
             assert_eq!(result.unwrap().agent_id, agent_id);
         }
@@ -555,9 +570,12 @@ mod edge_cases {
         let assignment =
             create_test_assignment(vec![], "Refactor code with unicode: cafe, , emoji");
 
-        let result =
-            adapteros_cli::commands::worker_executor::execute_task(&assignment, "agent-unicode", None)
-                .await;
+        let result = adapteros_cli::commands::worker_executor::execute_task(
+            &assignment,
+            "agent-unicode",
+            None,
+        )
+        .await;
 
         assert!(result.is_ok());
         let proposal = result.unwrap();
@@ -570,7 +588,8 @@ mod edge_cases {
         let assignment = create_test_assignment(vec![], &long_objective);
 
         let result =
-            adapteros_cli::commands::worker_executor::execute_task(&assignment, "agent-long", None).await;
+            adapteros_cli::commands::worker_executor::execute_task(&assignment, "agent-long", None)
+                .await;
 
         assert!(result.is_ok());
     }
@@ -579,9 +598,12 @@ mod edge_cases {
     async fn test_empty_objective() {
         let assignment = create_test_assignment(vec![], "");
 
-        let result =
-            adapteros_cli::commands::worker_executor::execute_task(&assignment, "agent-empty", None)
-                .await;
+        let result = adapteros_cli::commands::worker_executor::execute_task(
+            &assignment,
+            "agent-empty",
+            None,
+        )
+        .await;
 
         assert!(result.is_ok());
     }
@@ -593,7 +615,8 @@ mod edge_cases {
         assignment.task_id = [0xff; 32]; // All 1s
 
         let result =
-            adapteros_cli::commands::worker_executor::execute_task(&assignment, "agent-bin", None).await;
+            adapteros_cli::commands::worker_executor::execute_task(&assignment, "agent-bin", None)
+                .await;
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap().task_id, [0xff; 32]);
@@ -613,7 +636,8 @@ mod edge_cases {
         });
 
         let result =
-            adapteros_cli::commands::worker_executor::execute_task(&assignment, "agent-ctx", None).await;
+            adapteros_cli::commands::worker_executor::execute_task(&assignment, "agent-ctx", None)
+                .await;
 
         assert!(result.is_ok());
     }
@@ -664,9 +688,12 @@ mod constraint_tests {
             "tests/**".to_string(),
         ];
 
-        let result =
-            adapteros_cli::commands::worker_executor::execute_task(&assignment, "agent-exclude", None)
-                .await;
+        let result = adapteros_cli::commands::worker_executor::execute_task(
+            &assignment,
+            "agent-exclude",
+            None,
+        )
+        .await;
 
         assert!(result.is_ok());
     }

@@ -6,6 +6,7 @@ pub mod auth;
 pub mod chat;
 pub mod modal;
 pub mod notifications;
+pub mod page_context;
 pub mod refetch;
 pub mod search;
 pub mod settings;
@@ -27,13 +28,18 @@ pub use notifications::{
     use_notification_state, use_notifications, Notification, NotificationAction,
     NotificationContext, NotificationSeverity, NotificationState, Toast, ToastSeverity,
 };
+pub use page_context::{
+    provide_route_context, try_use_route_context, use_route_context, RouteContext, SelectedEntity,
+};
 pub use refetch::{
     provide_refetch_context, use_refetch, use_refetch_context, use_refetch_signal,
     use_refetch_state, RefetchAction, RefetchContext, RefetchState, RefetchTopic,
 };
 pub use search::{provide_search_context, use_search, SearchContext};
 pub use settings::{
-    provide_settings_context, update_setting, use_settings, DefaultPage, SettingsContext, Theme,
-    UserSettings,
+    perf_logging_enabled, provide_settings_context, update_setting, use_settings, DefaultPage,
+    SettingsContext, Theme, UserSettings,
 };
-pub use ui_profile::{provide_ui_profile_context, use_ui_profile, use_ui_profile_state, UiProfileState};
+pub use ui_profile::{
+    provide_ui_profile_context, use_ui_profile, use_ui_profile_state, UiProfileState,
+};

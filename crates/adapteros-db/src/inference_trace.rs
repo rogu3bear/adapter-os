@@ -1476,11 +1476,10 @@ pub async fn get_inference_trace_detail_for_tenant(
         token_query.push_bind(limit + 1);
     }
 
-    let mut token_rows = token_query
-        .build()
-        .fetch_all(pool)
-        .await
-        .map_err(|e| AosError::Database(format!("Failed to fetch inference trace tokens: {e}")))?;
+    let mut token_rows =
+        token_query.build().fetch_all(pool).await.map_err(|e| {
+            AosError::Database(format!("Failed to fetch inference trace tokens: {e}"))
+        })?;
 
     let mut token_decisions_has_more = false;
     if let Some(limit) = limit {
@@ -1702,7 +1701,6 @@ pub async fn list_inference_traces_for_tenant(
 
     Ok(records)
 }
-
 
 pub async fn find_trace_by_receipt_digest(
     db: &Db,

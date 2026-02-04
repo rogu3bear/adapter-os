@@ -383,8 +383,10 @@ impl ANEAccelerator {
 
         let elapsed_us = start.elapsed().as_micros() as u64;
         self.performance_metrics.total_executions += 1;
-        self.performance_metrics.total_execution_time_us =
-            self.performance_metrics.total_execution_time_us.saturating_add(elapsed_us);
+        self.performance_metrics.total_execution_time_us = self
+            .performance_metrics
+            .total_execution_time_us
+            .saturating_add(elapsed_us);
         self.performance_metrics.avg_execution_time_us =
             self.performance_metrics.total_execution_time_us as f32
                 / self.performance_metrics.total_executions as f32;

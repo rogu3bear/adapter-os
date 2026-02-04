@@ -22,8 +22,8 @@ use adapteros_config::resolve_tokenizer_path;
 use adapteros_core::reject_forbidden_tmp_path;
 #[cfg(feature = "embeddings")]
 use adapteros_ingest_docs::{
-    default_ingest_options, generate_training_data_from_documents, load_tokenizer, DocumentIngestor,
-    TrainingGenConfig, TrainingStrategy,
+    default_ingest_options, generate_training_data_from_documents, load_tokenizer,
+    DocumentIngestor, TrainingGenConfig, TrainingStrategy,
 };
 use adapteros_storage::secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
 use async_trait::async_trait;
@@ -512,21 +512,16 @@ impl DefaultTrainingDatasetService {
         }
 
         if jsonl_lines.is_empty() {
-            return Err(ApiError::bad_request(
-                "No Q/A pairs generated from document content",
-            )
-            .into());
-        }
-
-        if skipped > 0 {
-            warn!(
-                skipped,
-                "Skipped training examples without Q/A provenance"
+            return Err(
+                ApiError::bad_request("No Q/A pairs generated from document content").into(),
             );
         }
 
-        let dataset_name =
-            name.unwrap_or_else(|| format!("Q/A from document: {}", source_name));
+        if skipped > 0 {
+            warn!(skipped, "Skipped training examples without Q/A provenance");
+        }
+
+        let dataset_name = name.unwrap_or_else(|| format!("Q/A from document: {}", source_name));
 
         self.build_dataset_from_jsonl_lines(
             claims,
@@ -591,10 +586,8 @@ impl DefaultTrainingDatasetService {
         let mut failed_embeddings = 0usize;
 
         for chunk in &ingested_doc.chunks {
-            let chunk_db_id = crate::id_generator::readable_id(
-                adapteros_core::ids::IdKind::Chunk,
-                "chunk",
-            );
+            let chunk_db_id =
+                crate::id_generator::readable_id(adapteros_core::ids::IdKind::Chunk, "chunk");
             let embedding = embed_chunk_with_backoff(embedding_model, &chunk.text).await;
             let chunk_hash = B3Hash::hash(chunk.text.as_bytes()).to_hex();
             let text_preview = if chunk.text.len() > 200 {
@@ -889,10 +882,8 @@ impl TrainingDatasetService for DefaultTrainingDatasetService {
             .into());
         }
 
-        let document_id = crate::id_generator::readable_id(
-            adapteros_core::ids::IdKind::Document,
-            "document",
-        );
+        let document_id =
+            crate::id_generator::readable_id(adapteros_core::ids::IdKind::Document, "document");
         let storage_root = match std::env::var("AOS_DOCUMENTS_DIR") {
             Ok(value) => value,
             Err(_) => {

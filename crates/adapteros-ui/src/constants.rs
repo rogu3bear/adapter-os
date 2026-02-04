@@ -24,7 +24,6 @@ pub mod strings {
 
     /// Button text for refresh data (not full page)
     pub const REFRESH: &str = "Refresh";
-
 }
 
 /// URL helpers for UI navigation.

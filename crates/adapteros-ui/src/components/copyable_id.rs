@@ -1,3 +1,9 @@
+//! Copyable ID component with clipboard interaction.
+//!
+//! Displays a (potentially truncated) identifier with a copy-to-clipboard button.
+//! Shows "Copied" feedback for 1.2 seconds after a successful copy. Supports optional
+//! labels and legacy ID annotations for migrating between ID schemes.
+
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::spawn_local;
@@ -50,6 +56,7 @@ pub fn CopyableId(
                 <button
                     class="text-muted-foreground hover:text-foreground transition-colors"
                     title="Copy ID"
+                    aria-label="Copy ID to clipboard"
                     on:click=on_copy
                 >
                     <IconCopy class="h-3 w-3"/>
@@ -72,10 +79,13 @@ pub fn CopyableId(
 }
 
 async fn copy_to_clipboard(text: &str) -> bool {
-    let window = web_sys::window().unwrap();
+    // Defensive: window() may be None in non-browser environments (SSR, tests, workers)
+    let Some(window) = web_sys::window() else {
+        return false;
+    };
     let navigator = window.navigator();
-    let clipboard = js_sys::Reflect::get(&navigator, &wasm_bindgen::JsValue::from_str("clipboard"))
-        .ok();
+    let clipboard =
+        js_sys::Reflect::get(&navigator, &wasm_bindgen::JsValue::from_str("clipboard")).ok();
     let Some(clipboard) = clipboard else {
         return false;
     };

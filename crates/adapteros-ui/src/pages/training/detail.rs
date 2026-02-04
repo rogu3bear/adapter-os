@@ -17,8 +17,8 @@
 
 use crate::api::ApiClient;
 use crate::components::{
-    Button, ButtonVariant, Card, ConfirmationDialog, ConfirmationSeverity, DetailRow,
-    ErrorDisplay, Link, Spinner, TabButton, TabPanel,
+    Button, ButtonVariant, Card, ConfirmationDialog, ConfirmationSeverity, DetailRow, ErrorDisplay,
+    Link, Spinner, TabButton, TabPanel,
 };
 use crate::hooks::{use_api_resource, use_polling, LoadingState};
 use crate::signals::{use_notifications, use_refetch};
@@ -84,19 +84,20 @@ pub fn TrainingJobDetail(
                     refetch_action.adapters();
                     refetch_action.stacks();
 
-                    // Show success notification
+                    // Show success notification with "View Adapter" action
+                    // This links directly to the adapter detail page so users can find what they created
                     let adapter_name = data.adapter_name.clone();
-                    let adapter_id_msg = data
+                    let adapter_url = data
                         .adapter_id
                         .as_ref()
-                        .map(|id| format!(" ({})", id))
-                        .unwrap_or_default();
-                    notifications.success(
-                        "Training Complete",
-                        &format!(
-                            "Adapter '{}'{} is now available for inference",
-                            adapter_name, adapter_id_msg
-                        ),
+                        .map(|id| format!("/adapters/{}", id))
+                        .unwrap_or_else(|| "/adapters".to_string());
+
+                    notifications.success_with_action(
+                        "Adapter Ready!",
+                        &format!("'{}' is now available for inference", adapter_name),
+                        "View Adapter",
+                        &adapter_url,
                     );
                 }
 
@@ -314,6 +315,53 @@ pub fn JobDetailContent(
                         <div class="rounded-lg border border-status-error bg-status-error/10 p-3 mt-3">
                             <p class="text-sm text-status-error">{err}</p>
                         </div>
+                    })}
+
+                    // Prominent action buttons for completed jobs
+                    {(is_completed && adapter_id_for_detail.is_some()).then(|| {
+                        let adapter_id = adapter_id_for_detail.clone().unwrap();
+                        let adapter_href = format!("/adapters/{}", adapter_id);
+                        let chat_href = format!("/chat?adapter={}", adapter_id);
+                        view! {
+                            <div class="flex flex-wrap items-center gap-3 mt-4 pt-4 border-t">
+                                <Link href=adapter_href class="btn btn-primary">
+                                    <svg
+                                        xmlns="http://www.w3.org/2000/svg"
+                                        width="16"
+                                        height="16"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        stroke-width="2"
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                        class="mr-2"
+                                    >
+                                        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                                        <polyline points="3.29 7 12 12 20.71 7"/>
+                                        <line x1="12" y1="22" x2="12" y2="12"/>
+                                    </svg>
+                                    "View Adapter"
+                                </Link>
+                                <Link href=chat_href class="btn btn-secondary">
+                                    <svg
+                                        xmlns="http://www.w3.org/2000/svg"
+                                        width="16"
+                                        height="16"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        stroke-width="2"
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                        class="mr-2"
+                                    >
+                                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                                    </svg>
+                                    "Try in Chat"
+                                </Link>
+                            </div>
+                        }
                     })}
                 </div>
             </div>

@@ -48,7 +48,7 @@ pub struct RegisterAdapterRequest {
 ///
 /// Note: In the database, `current_state` maps to `runtime_state` in the API
 /// to provide clearer semantics.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct AdapterResponse {
@@ -160,7 +160,7 @@ pub struct AdapterResponse {
 }
 
 /// Adapter statistics
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub struct AdapterStats {

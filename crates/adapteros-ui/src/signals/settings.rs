@@ -2,9 +2,9 @@
 //!
 //! Provides reactive settings that persist to localStorage.
 
+use adapteros_api_types::UiProfile;
 use leptos::prelude::*;
 use serde::{Deserialize, Serialize};
-use adapteros_api_types::UiProfile;
 
 #[cfg(target_arch = "wasm32")]
 const SETTINGS_KEY: &str = "adapteros_settings";
@@ -215,6 +215,14 @@ pub fn use_settings() -> SettingsContext {
         provide_context(settings);
         settings
     })
+}
+
+/// Whether perf logging is enabled for UI-only diagnostics.
+///
+/// This is intentionally tied to the existing telemetry overlay setting
+/// to avoid adding new configuration surfaces.
+pub fn perf_logging_enabled() -> bool {
+    UserSettings::load().show_telemetry_overlay
 }
 
 /// Update and save a single setting

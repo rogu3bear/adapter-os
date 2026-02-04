@@ -152,6 +152,8 @@ mod mlx_seed_tests {
 #[cfg(feature = "mlx")]
 #[test]
 fn mlx_runtime_initializes_when_feature_enabled() {
-    adapteros_lora_mlx_ffi::mlx_runtime_init()
-        .expect("MLX runtime must be installed when building with `--features mlx`");
+    adapteros_lora_mlx_ffi::mlx_runtime_init_with_device(
+        adapteros_lora_mlx_ffi::MlxDeviceType::Cpu,
+    )
+    .expect("MLX runtime must be installed when building with `--features mlx`");
 }

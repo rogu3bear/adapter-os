@@ -5,6 +5,7 @@
 use super::state::{DataSort, DataSource, DatasetStatus, DocumentStatus};
 use crate::api::{DatasetResponse, DocumentResponse, PreprocessedCacheEntry};
 use crate::components::{Badge, BadgeVariant, Spinner};
+use crate::utils::{format_bytes, format_date};
 use leptos::prelude::*;
 
 /// Data item representation for unified list display.
@@ -85,30 +86,6 @@ impl DataListItem {
             updated_at: entry.produced_at.clone().unwrap_or_default(),
         }
     }
-}
-
-/// Format bytes into human-readable string.
-fn format_bytes(bytes: i64) -> String {
-    const KB: i64 = 1024;
-    const MB: i64 = KB * 1024;
-    const GB: i64 = MB * 1024;
-
-    if bytes >= GB {
-        format!("{:.1} GB", bytes as f64 / GB as f64)
-    } else if bytes >= MB {
-        format!("{:.1} MB", bytes as f64 / MB as f64)
-    } else if bytes >= KB {
-        format!("{:.1} KB", bytes as f64 / KB as f64)
-    } else {
-        format!("{} B", bytes)
-    }
-}
-
-/// Format ISO date string to relative or short format.
-fn format_date(iso_date: &str) -> String {
-    // For now, just truncate to date portion
-    // In a full implementation, this would parse and format properly
-    iso_date.split('T').next().unwrap_or(iso_date).to_string()
 }
 
 /// Center panel list component.

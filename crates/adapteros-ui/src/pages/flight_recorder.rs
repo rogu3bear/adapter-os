@@ -10,13 +10,14 @@
 
 use crate::api::{ApiClient, UiInferenceTraceDetailResponse};
 use crate::components::{
-    ActionCard, ActionCardVariant, AsyncBoundary, Badge, BadgeVariant, Button, ButtonVariant, Card,
-    CopyableId, DiffResults, Link, Select, Spinner, Table, TableBody, TableCell, TableHead,
-    TableHeader, TableRow, TokenDecisionsPaged, TraceViewerWithData,
+    ActionCard, ActionCardVariant, AsyncBoundary, Badge, BadgeVariant, BreadcrumbItem,
+    BreadcrumbTrail, Button, ButtonVariant, Card, CopyableId, DiffResults, Link, Select, Spinner,
+    Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TokenDecisionsPaged,
+    TraceViewerWithData,
 };
 use crate::constants::pagination::TOKEN_DECISIONS_PAGE_SIZE;
 use crate::hooks::{use_api_resource, use_polling, LoadingState};
-use crate::signals::{use_notifications, use_ui_profile, NotificationAction};
+use crate::signals::{perf_logging_enabled, use_notifications, use_ui_profile, NotificationAction};
 use adapteros_api_types::diagnostics::{
     DiagDiffRequest, DiagDiffResponse, DiagEventResponse, DiagExportResponse, DiagRunResponse,
     ListDiagRunsQuery, ListDiagRunsResponse, StageTiming,
@@ -26,6 +27,7 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::hooks::{use_params_map, use_query_map};
 use std::sync::Arc;
+use std::time::Instant;
 
 /// Runs list page - shows all diagnostic runs
 #[component]
@@ -137,7 +139,13 @@ pub fn FlightRecorderDetail() -> impl IntoView {
     let run_id = move || params.get().get("id").unwrap_or_default();
 
     view! {
-        <div class="p-6 h-full overflow-auto">
+        <div class="p-6 h-full overflow-auto space-y-4">
+            // Breadcrumb navigation
+            <BreadcrumbTrail items=vec![
+                BreadcrumbItem::link("Runs", "/runs"),
+                BreadcrumbItem::current(run_id()),
+            ]/>
+
             <RunDetailHub
                 run_id=run_id()
                 on_close=Callback::new(|_| {
@@ -306,6 +314,11 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
     // Tab state
     let active_tab = RwSignal::new(initial_tab);
     let receipt_digest = RwSignal::new(None::<String>);
+    let trace_detail_cache = RwSignal::new(None::<UiInferenceTraceDetailResponse>);
+    let trace_detail_cache_id = RwSignal::new(None::<String>);
+    let trace_detail_started_at = RwSignal::new(None::<Instant>);
+    let trace_detail_ready_logged = RwSignal::new(false);
+    let perf_enabled = perf_logging_enabled();
 
     // Fetch run export (includes events and timing)
     let run_id_clone = run_id.clone();
@@ -413,10 +426,10 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
                     <RunDetailTabButton tab=RunDetailTab::Overview active=active_tab label="Overview"/>
                     <RunDetailTabButton tab=RunDetailTab::Trace active=active_tab label="Trace"/>
                     <RunDetailTabButton tab=RunDetailTab::Receipt active=active_tab label="Receipt"/>
+                    <RunDetailTabButton tab=RunDetailTab::Routing active=active_tab label="Routing"/>
                     {move || {
                         if ui_profile.get() == UiProfile::Full {
                             Some(view! {
-                                <RunDetailTabButton tab=RunDetailTab::Routing active=active_tab label="Routing"/>
                                 <RunDetailTabButton tab=RunDetailTab::Tokens active=active_tab label="Tokens"/>
                                 <RunDetailTabButton tab=RunDetailTab::Diff active=active_tab label="Diff"/>
                                 <RunDetailTabButton tab=RunDetailTab::Events active=active_tab label="Events"/>
@@ -434,19 +447,43 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
                 render=move |export: DiagExportResponse| {
                     let trace_id = export.run.trace_id.clone();
 
-                    // Single fetch for trace detail - shared by all tabs that need it
+                    // Single fetch for trace detail - shared by all tabs that need it.
+                    // Cache to avoid redundant fetches on tab switches or re-renders.
                     let (trace_detail, _) = use_api_resource({
                         let tid = trace_id.clone();
+                        let cache = trace_detail_cache;
+                        let cache_id = trace_detail_cache_id;
+                        let perf_enabled = perf_enabled;
                         move |client: Arc<ApiClient>| {
                             let tid = tid.clone();
                             async move {
-                                client
+                                if cache_id.get_untracked().as_deref() == Some(tid.as_str()) {
+                                    if let Some(cached) = cache.get_untracked() {
+                                        return Ok(cached);
+                                    }
+                                }
+                                trace_detail_started_at.set(Some(Instant::now()));
+                                let started_at = Instant::now();
+                                let detail = client
                                     .get_inference_trace_detail(
                                         &tid,
                                         Some(TOKEN_DECISIONS_PAGE_SIZE),
                                         None,
                                     )
-                                    .await
+                                    .await?;
+                                if perf_enabled {
+                                    let elapsed_ms = started_at.elapsed().as_millis();
+                                    web_sys::console::log_1(
+                                        &format!(
+                                            "[perf] run detail trace load: {}ms (trace_id={})",
+                                            elapsed_ms, tid
+                                        )
+                                        .into(),
+                                    );
+                                }
+                                cache_id.set(Some(tid.clone()));
+                                cache.set(Some(detail.clone()));
+                                Ok(detail)
                             }
                         }
                     });
@@ -458,6 +495,9 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
                             trace_detail=trace_detail
                             compare_trace=compare_trace.clone()
                             receipt_digest=receipt_digest.write_only()
+                            trace_detail_started_at=trace_detail_started_at
+                            trace_detail_ready_logged=trace_detail_ready_logged
+                            perf_enabled=perf_enabled
                         />
                     }
                 }
@@ -474,11 +514,23 @@ fn TabContent(
     trace_detail: ReadSignal<crate::hooks::LoadingState<UiInferenceTraceDetailResponse>>,
     compare_trace: Option<String>,
     receipt_digest: WriteSignal<Option<String>>,
+    trace_detail_started_at: RwSignal<Option<Instant>>,
+    trace_detail_ready_logged: RwSignal<bool>,
+    perf_enabled: bool,
 ) -> impl IntoView {
     Effect::new(move |_| {
         if let LoadingState::Loaded(detail) = trace_detail.get() {
             let digest = detail.receipt.map(|receipt| receipt.receipt_digest);
             receipt_digest.set(digest);
+            if perf_enabled && !trace_detail_ready_logged.get_untracked() {
+                if let Some(started_at) = trace_detail_started_at.get_untracked() {
+                    let elapsed_ms = started_at.elapsed().as_millis();
+                    web_sys::console::log_1(
+                        &format!("[perf] run detail ready: {}ms", elapsed_ms).into(),
+                    );
+                }
+                trace_detail_ready_logged.set(true);
+            }
         }
     });
 
@@ -975,7 +1027,9 @@ fn OverviewTab(
 #[component]
 fn ProvenanceField(label: &'static str, value: Option<String>) -> impl IntoView {
     match value {
-        Some(value) => view! { <CopyableId id=value label=label.to_string() truncate=24/> }.into_any(),
+        Some(value) => {
+            view! { <CopyableId id=value label=label.to_string() truncate=24/> }.into_any()
+        }
         None => view! {
             <div class="flex flex-col gap-1">
                 <span class="text-xs text-muted-foreground">{label}</span>

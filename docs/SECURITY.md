@@ -58,6 +58,27 @@ graph TD
 - **Hardware Security:** Secure Enclave integration when available
 - **Cryptographic Protection:** Hardware-backed signing and encryption
 
+### Compile-Time Middleware Ordering
+
+Unlike runtime middleware stacks that can be misconfigured, adapterOS uses a **type-state pattern** (`crates/adapteros-server-api/src/middleware/chain_builder.rs`) that makes incorrect middleware ordering a compile-time error. The builder progresses through states: `NeedsAuth → NeedsTenantGuard → NeedsCsrf → NeedsContext → NeedsPolicy → NeedsAudit → Complete`. You cannot call `.build()` without traversing all states.
+
+### Internal Routes Security Model
+
+Worker-to-CP routes (`/v1/workers/*`, `/v1/internal/*`) use a different authentication model:
+- **Not protected by**: JWT auth, CSRF, tenant guard
+- **Protected by**: Policy enforcement only
+- **Authentication via**: Plan binding, worker ID existence check
+
+**IMPORTANT**: This is by design for performance, but assumes workers are trusted processes running on the same host.
+
+### UCred Validation (Opt-in)
+
+UCred validation for UDS connections is implemented. When `AOS_WORKER_UID` is set, the system validates that connecting processes are running as the expected UID.
+
+**To enable:** `export AOS_WORKER_UID=<expected_uid>`
+
+**Implementation:** `crates/adapteros-server-api/src/middleware/worker_uid.rs`
+
 ---
 
 ## Authentication
@@ -147,6 +168,14 @@ AOS_DEV_JWT_SECRET="my-test-secret" cargo run --bin adapteros-server
 ```
 
 **Warning:** Never use development authentication in production.
+
+### Dev Bypass Protection
+
+Dev bypass requires **both** conditions:
+1. `#[cfg(feature = "dev-bypass")]` feature flag enabled
+2. `#[cfg(debug_assertions)]` - debug build only
+
+Release builds have no-op implementations regardless of feature flags.
 
 ---
 

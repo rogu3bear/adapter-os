@@ -1,18 +1,20 @@
 import { test, expect } from '@playwright/test';
-import { expectErrorState, waitForAppReady } from './utils';
+import { ensureLoggedIn, expectErrorState, waitForAppReady } from './utils';
 
-test('reviews empty state', async ({ page }) => {
+test('reviews empty state', { tag: ['@empty'] }, async ({ page }) => {
   await page.goto('/reviews', { waitUntil: 'domcontentloaded' });
   await waitForAppReady(page);
+  await ensureLoggedIn(page);
   await expect(
     page.getByRole('heading', { name: 'Human Review', level: 1, exact: true })
   ).toBeVisible();
   await expect(page.getByText('No pending reviews')).toBeVisible();
 });
 
-test('errors empty state', async ({ page }) => {
+test('errors empty state', { tag: ['@empty'] }, async ({ page }) => {
   await page.goto('/errors', { waitUntil: 'domcontentloaded' });
   await waitForAppReady(page);
+  await ensureLoggedIn(page);
   await expect(
     page.getByRole('heading', { name: 'Incidents', level: 1, exact: true })
   ).toBeVisible();
@@ -26,24 +28,27 @@ test('errors empty state', async ({ page }) => {
   }
 });
 
-test('workers empty state', async ({ page }) => {
+test('workers empty state', { tag: ['@empty'] }, async ({ page }) => {
   await page.goto('/workers', { waitUntil: 'domcontentloaded' });
   await waitForAppReady(page);
+  await ensureLoggedIn(page);
   await expect(
     page.getByRole('heading', { name: 'Workers', level: 1, exact: true })
   ).toBeVisible();
   await expect(page.getByText('No workers yet')).toBeVisible();
 });
 
-test('worker detail shows not found error for unknown id', async ({ page }) => {
+test('worker detail shows not found error for unknown id', { tag: ['@empty'] }, async ({ page }) => {
   await page.goto('/workers/worker-missing', { waitUntil: 'domcontentloaded' });
   await waitForAppReady(page);
+  await ensureLoggedIn(page);
   await expectErrorState(page);
 });
 
-test('monitoring health endpoints card', async ({ page }) => {
+test('monitoring health endpoints card', { tag: ['@empty'] }, async ({ page }) => {
   await page.goto('/monitoring', { waitUntil: 'domcontentloaded' });
   await waitForAppReady(page);
+  await ensureLoggedIn(page);
   await expect(
     page.getByRole('heading', { name: 'Metrics', level: 1, exact: true })
   ).toBeVisible();

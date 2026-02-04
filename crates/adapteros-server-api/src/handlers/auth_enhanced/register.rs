@@ -219,10 +219,7 @@ pub async fn register_handler(
     info!(user_id = %user_id, email = %email, tenant_id = %tenant_id, "User created successfully");
 
     // Create default workspace for user
-    let ws_id = crate::id_generator::readable_id(
-        adapteros_core::ids::IdKind::Workspace,
-        "default",
-    );
+    let ws_id = crate::id_generator::readable_id(adapteros_core::ids::IdKind::Workspace, "default");
     if let Err(e) = sqlx::query(
         "INSERT INTO workspaces (id, name, description, created_by, created_at, updated_at) VALUES (?, 'Default Workspace', 'Auto-created workspace', ?, datetime('now'), datetime('now'))",
     )

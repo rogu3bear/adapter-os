@@ -12,7 +12,8 @@
 use leptos::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::Arc;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 
@@ -180,19 +181,37 @@ pub fn Dialog(
     });
 
     // Keyboard handler for Escape and Tab (focus trap)
-    // Use a guard to prevent multiple listener registrations (memory leak prevention)
-    let keyboard_handler_registered = StoredValue::new(false);
+    // Track if the handler should be active (Send+Sync for on_cleanup)
+    let handler_active = Arc::new(AtomicBool::new(true));
+    let handler_active_for_cleanup = Arc::clone(&handler_active);
+
+    // Track if we've already registered the listener (prevent duplicate registration)
+    let handler_registered = Arc::new(AtomicBool::new(false));
+
+    // Register cleanup to disable the keyboard handler on unmount
+    on_cleanup(move || {
+        handler_active_for_cleanup.store(false, Ordering::SeqCst);
+    });
 
     Effect::new(move || {
         let is_open = open.get();
-        // Only register listener once, when dialog first opens
-        if is_open && !keyboard_handler_registered.get_value() {
-            keyboard_handler_registered.set_value(true);
+
+        if is_open {
+            // Only register if we haven't already
+            if handler_registered.swap(true, Ordering::SeqCst) {
+                return;
+            }
 
             let dialog_id = dialog_id_for_keyboard.clone();
             let open_signal = open;
+            let handler_active = Arc::clone(&handler_active);
 
             let closure = Closure::wrap(Box::new(move |event: web_sys::KeyboardEvent| {
+                // Check if handler is still active (component not unmounted)
+                if !handler_active.load(Ordering::SeqCst) {
+                    return;
+                }
+
                 // Check if this dialog is the one handling the event
                 if let Some(document) = web_sys::window().and_then(|w| w.document()) {
                     if let Some(dialog) = document.get_element_by_id(&dialog_id) {
@@ -248,8 +267,7 @@ pub fn Dialog(
                     .add_event_listener_with_callback("keydown", closure.as_ref().unchecked_ref());
             }
 
-            // Closure is leaked intentionally (WASM limitation for event listeners)
-            // The check for dialog ID and focus prevents stale handlers from triggering
+            // Closure must be leaked (WASM limitation), but handler becomes no-op after cleanup
             closure.forget();
         }
     });

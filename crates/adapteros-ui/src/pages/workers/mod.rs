@@ -9,7 +9,7 @@ mod utils;
 
 use crate::api::ApiClient;
 use crate::components::{
-    BreadcrumbItem, BreadcrumbTrail, Button, ButtonVariant, ErrorDisplay, Spinner,
+    BreadcrumbItem, BreadcrumbTrail, Button, ButtonVariant, ErrorDisplay, LoadingDisplay,
 };
 use crate::hooks::{use_api_resource, use_polling, LoadingState};
 use adapteros_api_types::SpawnWorkerRequest;
@@ -69,7 +69,7 @@ pub fn Workers() -> impl IntoView {
     });
 
     view! {
-        <div class="p-6 space-y-6">
+        <div class="shell-page space-y-6">
             // Header with title and actions
             <div class="flex items-center justify-between">
                 <div>
@@ -139,9 +139,7 @@ pub fn Workers() -> impl IntoView {
                 match workers_state {
                     LoadingState::Idle | LoadingState::Loading => {
                         view! {
-                            <div class="flex items-center justify-center py-12">
-                                <Spinner/>
-                            </div>
+                            <LoadingDisplay message="Loading workers..."/>
                         }.into_any()
                     }
                     LoadingState::Loaded(workers_data) => {
@@ -287,12 +285,9 @@ pub fn WorkerDetail() -> impl IntoView {
         }
     });
 
-    // Set up polling for metrics
-    Effect::new(move |_| {
-        let interval_handle = gloo_timers::callback::Interval::new(3_000, move || {
-            refetch_metrics.run(());
-        });
-        std::mem::forget(interval_handle);
+    // Set up polling for metrics with proper cleanup
+    let _ = use_polling(3_000, move || async move {
+        refetch_metrics.run(());
     });
 
     view! {
@@ -310,9 +305,7 @@ pub fn WorkerDetail() -> impl IntoView {
                 match worker_state {
                     LoadingState::Idle | LoadingState::Loading => {
                         view! {
-                            <div class="flex items-center justify-center py-12">
-                                <Spinner/>
-                            </div>
+                            <LoadingDisplay message="Loading worker details..."/>
                         }.into_any()
                     }
                     LoadingState::Loaded(w) => {

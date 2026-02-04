@@ -1,6 +1,6 @@
+use crate::api_error::ApiError;
 use adapteros_core::ids::is_readable_id;
 use adapteros_db::ProtectedDb;
-use crate::api_error::ApiError;
 
 /// Resolve incoming IDs to canonical readable IDs.
 ///
@@ -12,14 +12,13 @@ pub async fn resolve_id(db: &ProtectedDb, kind: &str, input: &str) -> Result<Str
         return Ok(input.to_string());
     }
 
-    let resolved: Option<String> = sqlx::query_scalar(
-        "SELECT new_id FROM id_aliases WHERE legacy_id = ? AND kind = ?",
-    )
-    .bind(input)
-    .bind(kind)
-    .fetch_optional(db.pool())
-    .await
-    .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?;
+    let resolved: Option<String> =
+        sqlx::query_scalar("SELECT new_id FROM id_aliases WHERE legacy_id = ? AND kind = ?")
+            .bind(input)
+            .bind(kind)
+            .fetch_optional(db.pool())
+            .await
+            .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?;
 
     Ok(resolved.unwrap_or_else(|| input.to_string()))
 }

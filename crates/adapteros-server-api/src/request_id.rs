@@ -6,9 +6,9 @@
 //! - Request ID pattern: Standard HTTP tracing practices
 //! - UUID generation: RFC 4122
 
+use crate::id_generator::readable_request_id;
 use axum::{extract::Request, http::HeaderValue, middleware::Next, response::Response};
 use tracing::{debug, Span};
-use crate::id_generator::readable_request_id;
 
 /// Request ID header name
 pub const REQUEST_ID_HEADER: &str = "X-Request-ID";

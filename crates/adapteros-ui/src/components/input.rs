@@ -8,11 +8,11 @@ use leptos::prelude::*;
 pub fn Input(
     #[prop(optional, into)] value: RwSignal<String>,
     #[prop(optional, into)] placeholder: String,
-    #[prop(optional, into)] label: String,
+    #[prop(optional, into)] label: Option<String>,
     #[prop(optional, into)] input_type: String,
     #[prop(optional, into)] id: Option<String>,
     #[prop(optional, into)] name: Option<String>,
-    #[prop(optional)] disabled: bool,
+    #[prop(optional, into)] disabled: Signal<bool>,
     #[prop(optional, into)] class: String,
     #[prop(optional, into)] error: Option<String>,
     /// Show success state styling (green border)
@@ -61,7 +61,7 @@ pub fn Input(
     let char_count = move || value.get().len();
 
     // Determine if we have any form of accessible label
-    let has_visible_label = !label.is_empty();
+    let has_visible_label = label.is_some();
     let effective_aria_label = if has_visible_label || has_field_context {
         None // Label is visible, no need for aria-label
     } else {
@@ -83,18 +83,14 @@ pub fn Input(
 
     view! {
         <div class="grid w-full gap-1.5">
-            {if !label.is_empty() {
-                Some(view! {
-                    <label class="label" for=input_id.clone()>
-                        {label.clone()}
-                        {required.then(|| view! {
-                            <span class="form-field-required" aria-hidden="true">"*"</span>
-                        })}
-                    </label>
-                })
-            } else {
-                None
-            }}
+            {label.map(|l| view! {
+                <label class="label" for=input_id.clone()>
+                    {l}
+                    {required.then(|| view! {
+                        <span class="form-field-required" aria-hidden="true">"*"</span>
+                    })}
+                </label>
+            })}
             <div class="relative">
                 <input
                     id=input_id
@@ -102,7 +98,7 @@ pub fn Input(
                     type=input_type_val
                     class=full_class
                     placeholder=placeholder
-                    disabled=disabled
+                    disabled=move || disabled.get()
                     required=required
                     maxlength=max_length.map(|n| n.to_string())
                     aria-invalid=error.is_some().to_string()
@@ -164,10 +160,12 @@ pub fn Textarea(
     #[prop(optional, into)] label: Option<String>,
     #[prop(optional, into)] id: Option<String>,
     #[prop(optional, into)] name: Option<String>,
-    #[prop(optional)] disabled: bool,
+    #[prop(optional, into)] disabled: Signal<bool>,
     #[prop(optional)] rows: Option<u32>,
     #[prop(optional, into)] class: String,
-    #[prop(optional, into)] aria_label: String,
+    /// Accessible label for textareas without visible label (layout constraints)
+    #[prop(optional, into)]
+    aria_label: Option<String>,
     #[prop(optional, into)] data_testid: Option<String>,
     /// Mark field as required (shows * indicator)
     #[prop(optional)]
@@ -175,6 +173,9 @@ pub fn Textarea(
     /// Callback fired on blur (for validation timing)
     #[prop(optional)]
     on_blur: Option<Callback<()>>,
+    /// Callback fired on keydown (for Enter-to-submit handling)
+    #[prop(optional)]
+    on_keydown: Option<Callback<web_sys::KeyboardEvent>>,
     /// Hint text displayed below the textarea
     #[prop(optional, into)]
     hint: Option<String>,
@@ -195,10 +196,10 @@ pub fn Textarea(
 
     // Determine if we have any form of accessible label
     let has_visible_label = label.is_some();
-    let effective_aria_label = if has_visible_label || has_field_context || aria_label.is_empty() {
-        None
+    let effective_aria_label = if has_visible_label || has_field_context {
+        None // Label is visible, no need for aria-label
     } else {
-        Some(aria_label.clone())
+        aria_label.clone()
     };
 
     // Build hint ID for aria-describedby if hint is provided
@@ -231,7 +232,7 @@ pub fn Textarea(
                 name=name
                 class=full_class
                 placeholder=placeholder
-                disabled=disabled
+                disabled=move || disabled.get()
                 required=required
                 rows=rows.unwrap_or(3)
                 aria-label=effective_aria_label
@@ -245,6 +246,11 @@ pub fn Textarea(
                 on:blur=move |_| {
                     if let Some(ref cb) = on_blur {
                         cb.run(());
+                    }
+                }
+                on:keydown=move |ev: web_sys::KeyboardEvent| {
+                    if let Some(ref cb) = on_keydown {
+                        cb.run(ev);
                     }
                 }
             />

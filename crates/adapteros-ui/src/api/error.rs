@@ -235,11 +235,7 @@ fn apply_hint(mut message: String, hint: Option<&str>) -> String {
     message
 }
 
-fn user_message_for_code(
-    code: &str,
-    failure_code: Option<FailureCode>,
-    error: &str,
-) -> String {
+fn user_message_for_code(code: &str, failure_code: Option<FailureCode>, error: &str) -> String {
     let message = match code {
         "UNAUTHORIZED" | "TOKEN_EXPIRED" | "TOKEN_REVOKED" | "INVALID_TOKEN" | "MISSING_AUTH" => {
             "Session expired. Log in again.".to_string()
@@ -262,7 +258,9 @@ fn user_message_for_code(
         "BACKPRESSURE" | "MEMORY_PRESSURE" | "OUT_OF_MEMORY" => {
             "System is under memory pressure. Reduce request size or retry later.".to_string()
         }
-        "GPU_UNAVAILABLE" => "GPU unavailable. Retry in a moment or check worker health.".to_string(),
+        "GPU_UNAVAILABLE" => {
+            "GPU unavailable. Retry in a moment or check worker health.".to_string()
+        }
         "SERVICE_UNAVAILABLE" | "BAD_GATEWAY" | "NETWORK_ERROR" | "CIRCUIT_BREAKER_OPEN" => {
             "Service temporarily unavailable. Retry in a moment.".to_string()
         }

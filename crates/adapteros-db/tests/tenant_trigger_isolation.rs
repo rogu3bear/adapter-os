@@ -39,7 +39,10 @@ async fn new_test_db() -> TestDb {
         .await
         .expect("Failed to migrate sqlite database for tenant trigger isolation test");
 
-    TestDb { db, _path: temp_path }
+    TestDb {
+        db,
+        _path: temp_path,
+    }
 }
 
 async fn setup_tenants(db: &Db) -> (String, String) {

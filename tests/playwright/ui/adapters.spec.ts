@@ -1,9 +1,10 @@
 import { test, expect } from '@playwright/test';
-import { seeded, waitForAppReady } from './utils';
+import { ensureLoggedIn, seeded, waitForAppReady } from './utils';
 
-test('adapters list and detail', async ({ page }) => {
+test('adapters list and detail', { tag: ['@smoke', '@detail'] }, async ({ page }) => {
   await page.goto('/adapters', { waitUntil: 'domcontentloaded' });
   await waitForAppReady(page);
+  await ensureLoggedIn(page);
   await expect(
     page.getByRole('heading', { name: 'Adapters', level: 1, exact: true })
   ).toBeVisible();
@@ -11,6 +12,7 @@ test('adapters list and detail', async ({ page }) => {
 
   await page.goto(`/adapters/${seeded.adapterId}`, { waitUntil: 'domcontentloaded' });
   await waitForAppReady(page);
+  await ensureLoggedIn(page);
   await expect(
     page.getByRole('heading', { name: 'Adapter Details', level: 1, exact: true })
   ).toBeVisible();

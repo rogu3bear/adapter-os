@@ -132,7 +132,10 @@ impl AdapterHeatState {
     /// Verify expected state before transition to prevent concurrent load/unload races
     ///
     /// Returns Ok(new_state) if transition succeeded, Err(current_state) if CAS failed
-    pub fn cas_promote(&self, expected: AdapterHeatState) -> std::result::Result<Self, AdapterHeatState> {
+    pub fn cas_promote(
+        &self,
+        expected: AdapterHeatState,
+    ) -> std::result::Result<Self, AdapterHeatState> {
         if *self != expected {
             return Err(*self);
         }
@@ -143,7 +146,10 @@ impl AdapterHeatState {
     /// Verify expected state before transition to prevent concurrent load/unload races
     ///
     /// Returns Ok(new_state) if transition succeeded, Err(current_state) if CAS failed
-    pub fn cas_demote(&self, expected: AdapterHeatState) -> std::result::Result<Self, AdapterHeatState> {
+    pub fn cas_demote(
+        &self,
+        expected: AdapterHeatState,
+    ) -> std::result::Result<Self, AdapterHeatState> {
         if *self != expected {
             return Err(*self);
         }

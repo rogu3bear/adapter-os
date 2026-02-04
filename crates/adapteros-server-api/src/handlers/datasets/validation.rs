@@ -945,10 +945,8 @@ impl ValidationRule for JsonlFormatRule {
 
             let is_raw = keys.len() == 1 && has_text;
             let is_legacy = keys.len() == 2 && has_prompt && has_completion;
-            let is_canonical = has_prompt
-                && (has_response || has_completion)
-                && has_id
-                && has_metadata;
+            let is_canonical =
+                has_prompt && (has_response || has_completion) && has_id && has_metadata;
 
             let line_schema = if is_raw {
                 Some(TrainingJsonlSchema::RawText)
@@ -960,30 +958,76 @@ impl ValidationRule for JsonlFormatRule {
                 None
             };
 
+            let has_any_schema_field =
+                has_prompt || has_completion || has_response || has_text || has_metadata || has_id;
+
             let Some(line_schema) = line_schema else {
-                let keys_list = if keys.is_empty() {
-                    "<none>".to_string()
+                if has_any_schema_field {
+                    let mut missing_fields = Vec::new();
+                    let wants_canonical =
+                        has_id || has_metadata || has_response || (has_prompt && has_response);
+
+                    if wants_canonical {
+                        if !has_id {
+                            missing_fields.push("id".to_string());
+                        }
+                        if !has_prompt {
+                            missing_fields.push("prompt".to_string());
+                        }
+                        if !(has_response || has_completion) {
+                            missing_fields.push("response".to_string());
+                        }
+                        if !has_metadata {
+                            missing_fields.push("metadata".to_string());
+                        }
+                    } else {
+                        if !has_prompt {
+                            missing_fields.push("prompt".to_string());
+                        }
+                        if !has_completion {
+                            missing_fields.push("completion".to_string());
+                        }
+                    }
+
+                    errors.push(
+                        ValidationError::new(
+                            ValidationSeverity::Error,
+                            ValidationCategory::Schema,
+                            "JSONL entry has missing or invalid fields",
+                            "JSONL_SCHEMA_ERROR",
+                        )
+                        .with_file(&path_str)
+                        .with_line(line_number)
+                        .with_raw_snippet(raw_snippet.clone())
+                        .with_missing_fields(missing_fields)
+                        .with_contract_version(contract_version.clone())
+                        .with_suggestion("Ensure required fields are present with correct types"),
+                    );
                 } else {
-                    keys.iter().copied().collect::<Vec<_>>().join(", ")
-                };
-                errors.push(
-                    ValidationError::new(
-                        ValidationSeverity::Error,
-                        ValidationCategory::Schema,
-                        format!(
-                            "Unsupported JSONL schema (fields: {}). Expected canonical {{id,prompt,response,metadata}} or legacy {{prompt,completion}}/{{text}}",
-                            keys_list
+                    let keys_list = if keys.is_empty() {
+                        "<none>".to_string()
+                    } else {
+                        keys.iter().copied().collect::<Vec<_>>().join(", ")
+                    };
+                    errors.push(
+                        ValidationError::new(
+                            ValidationSeverity::Error,
+                            ValidationCategory::Schema,
+                            format!(
+                                "Unsupported JSONL schema (fields: {}). Expected canonical {{id,prompt,response,metadata}} or legacy {{prompt,completion}}/{{text}}",
+                                keys_list
+                            ),
+                            "JSONL_SCHEMA_UNSUPPORTED",
+                        )
+                        .with_file(&path_str)
+                        .with_line(line_number)
+                        .with_raw_snippet(raw_snippet.clone())
+                        .with_contract_version(contract_version.clone())
+                        .with_suggestion(
+                            "Use {id,prompt,response,metadata} (assets optional) or legacy {prompt,completion} / {text}",
                         ),
-                        "JSONL_SCHEMA_UNSUPPORTED",
-                    )
-                    .with_file(&path_str)
-                    .with_line(line_number)
-                    .with_raw_snippet(raw_snippet.clone())
-                    .with_contract_version(contract_version.clone())
-                    .with_suggestion(
-                        "Use {id,prompt,response,metadata} (assets optional) or legacy {prompt,completion} / {text}",
-                    ),
-                );
+                    );
+                }
                 continue;
             };
 
@@ -1179,10 +1223,8 @@ impl ValidationRule for JsonlFormatRule {
                     }
 
                     if let Some(assets_value) = obj.get("assets") {
-                        if let Err(err) = validate_assets(
-                            assets_value,
-                            config.asset_index.as_ref(),
-                        ) {
+                        if let Err(err) = validate_assets(assets_value, config.asset_index.as_ref())
+                        {
                             errors.push(
                                 ValidationError::new(
                                     ValidationSeverity::Error,
@@ -1213,9 +1255,7 @@ impl ValidationRule for JsonlFormatRule {
                     .with_missing_fields(missing_fields)
                     .with_invalid_field_types(invalid_field_types)
                     .with_contract_version(contract_version.clone())
-                    .with_suggestion(
-                        "Ensure required fields are present with correct types",
-                    ),
+                    .with_suggestion("Ensure required fields are present with correct types"),
                 );
             }
 
@@ -1288,7 +1328,8 @@ impl ValidationRule for JsonlFormatRule {
             }
 
             if config.enable_exact_dedup {
-                if let (Some(prompt), Some(response)) = (prompt_text.as_ref(), response_text.as_ref())
+                if let (Some(prompt), Some(response)) =
+                    (prompt_text.as_ref(), response_text.as_ref())
                 {
                     let content_hash =
                         B3Hash::hash_multi(&[prompt.as_bytes(), b"\0", response.as_bytes()])
@@ -1308,8 +1349,7 @@ impl ValidationRule for JsonlFormatRule {
 
                     if config.enable_split_leakage {
                         if let Some(split) = split_value.as_ref() {
-                            if let Some(existing) =
-                                split_content_hashes.get(&content_hash).cloned()
+                            if let Some(existing) = split_content_hashes.get(&content_hash).cloned()
                             {
                                 if existing != *split {
                                     errors.push(
@@ -2131,9 +2171,7 @@ pub async fn validate_dataset(
             );
             is_valid = false;
         }
-        if !dataset.dataset_hash_b3.is_empty()
-            && dataset.dataset_hash_b3 != computed_hash
-        {
+        if !dataset.dataset_hash_b3.is_empty() && dataset.dataset_hash_b3 != computed_hash {
             validation_errors.push(
                 ValidationError::new(
                     ValidationSeverity::Error,

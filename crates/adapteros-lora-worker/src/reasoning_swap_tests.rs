@@ -75,10 +75,7 @@ fn reasoning_span_selects_adapter_consistent_with_router() {
         ..ReasoningRouterConfig::default()
     };
 
-    let rationale = format!(
-        "{}Switch to python for this step.",
-        config.thinking_token
-    );
+    let rationale = format!("{}Switch to python for this step.", config.thinking_token);
     let decision = router
         .route_on_reasoning(&rationale, &priors, &adapter_info, &policy_mask, None)
         .expect("router decision");

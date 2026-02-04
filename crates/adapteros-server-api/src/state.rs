@@ -1814,7 +1814,8 @@ impl AppState {
             return Err("Model server not enabled".to_string());
         }
 
-        let server_addr = server_addr.ok_or_else(|| "Model server address not configured".to_string())?;
+        let server_addr =
+            server_addr.ok_or_else(|| "Model server address not configured".to_string())?;
         let client = ModelServerClient::new(ModelServerClientConfig::with_addr(server_addr));
 
         let max_seq_len = request
@@ -1857,7 +1858,11 @@ impl AppState {
                 .model_server_state
                 .read()
                 .map_err(|e| format!("Failed to read model server state: {}", e))?;
-            (state.enabled, state.server_addr.clone(), state.active_sessions)
+            (
+                state.enabled,
+                state.server_addr.clone(),
+                state.active_sessions,
+            )
         };
 
         if !enabled {

@@ -1,6 +1,6 @@
 //! Reusable UI components
 //!
-//! Headless-style components with Tailwind CSS styling.
+//! Headless-style components using the Liquid Glass design system.
 
 pub mod action_card;
 pub mod adapter_bar;
@@ -22,6 +22,7 @@ pub mod data_table;
 pub mod diag_diff;
 pub mod dialog;
 pub mod error_boundary;
+pub mod error_history_panel;
 pub mod form_dialog;
 pub mod form_field;
 pub mod glass_toggle;
@@ -80,6 +81,10 @@ pub use data_table::{Column, DataTable};
 pub use diag_diff::DiffResults;
 pub use dialog::{Dialog, DialogSize};
 pub use error_boundary::{InlineErrorBoundary, RouteErrorBoundary};
+pub use error_history_panel::{
+    use_error_history, use_error_history_shortcut, ErrorHistory, ErrorHistoryContext,
+    ErrorHistoryPanel,
+};
 pub use form_dialog::{FormDialog, StepFormDialog};
 pub use form_field::{FormField, HelpTooltip, LabelWithHelp};
 pub use glass_toggle::GlassThemeToggle;
@@ -111,8 +116,7 @@ pub use tabs::{TabButton, TabNav, TabPanel};
 pub use toggle::{Select, Toggle};
 pub use trace_viewer::{
     TokenDecisions, TokenDecisionsPaged, TraceButton, TraceDetailStandalone, TracePanel,
-    TraceViewer,
-    TraceViewerWithData,
+    TraceViewer, TraceViewerWithData,
 };
 pub use workspace::{
     TwoColumnRatio, Workspace, WorkspaceColumn, WorkspaceGrid, WorkspaceHeader, WorkspacePanel,

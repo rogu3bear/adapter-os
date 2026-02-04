@@ -549,11 +549,7 @@ impl StoragePolicyEngine {
                 self.walk_usage(&root, &mut used_bytes)?;
             } else if root.is_file() {
                 let metadata = fs::metadata(&root).map_err(|e| {
-                    AosError::Io(format!(
-                        "Failed to read metadata {}: {}",
-                        root.display(),
-                        e
-                    ))
+                    AosError::Io(format!("Failed to read metadata {}: {}", root.display(), e))
                 })?;
                 used_bytes = metadata.len();
             }
@@ -610,10 +606,7 @@ impl StoragePolicyEngine {
 
             let canonical_path = if path.exists() {
                 path.canonicalize().map_err(|e| {
-                    AosError::Io(format!(
-                        "Failed to canonicalize path for validation: {}",
-                        e
-                    ))
+                    AosError::Io(format!("Failed to canonicalize path for validation: {}", e))
                 })?
             } else if path.is_absolute() {
                 if let Some(parent) = path.parent() {
@@ -686,10 +679,7 @@ fn parse_duration_seconds(value: &str) -> Result<u64> {
     };
 
     let value: u64 = number_part.parse().map_err(|e| {
-        AosError::PolicyViolation(format!(
-            "Invalid duration value '{}': {}",
-            number_part, e
-        ))
+        AosError::PolicyViolation(format!("Invalid duration value '{}': {}", number_part, e))
     })?;
 
     Ok(value.saturating_mul(multiplier))

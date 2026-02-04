@@ -96,9 +96,9 @@ mod tests {
         assert!(preset.estimate_time_minutes(Some(0)).is_none());
 
         // With samples, should get an estimate
-        let estimate = preset.estimate_time_minutes(Some(100));
-        assert!(estimate.is_some());
-        let minutes = estimate.unwrap();
+        let minutes = preset
+            .estimate_time_minutes(Some(100))
+            .expect("estimate should be Some for non-zero sample count");
         // 100 samples * 0.5s/sample * 10 epochs = 500s = ~8.33 min
         assert!(
             minutes > 7.0 && minutes < 10.0,

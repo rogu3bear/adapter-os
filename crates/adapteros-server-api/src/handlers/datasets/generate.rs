@@ -417,10 +417,8 @@ pub async fn generate_dataset_from_file(
     } else {
         "generated"
     };
-    let dataset_id = crate::id_generator::readable_id(
-        adapteros_core::ids::IdKind::Dataset,
-        dataset_slug,
-    );
+    let dataset_id =
+        crate::id_generator::readable_id(adapteros_core::ids::IdKind::Dataset, dataset_slug);
     let dataset_root =
         resolve_dataset_root(&state).map_err(|e| ApiError::internal(e.to_string()))?;
     let paths = DatasetPaths::new(dataset_root);

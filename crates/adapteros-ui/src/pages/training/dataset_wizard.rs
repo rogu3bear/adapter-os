@@ -578,7 +578,6 @@ pub fn DatasetUploadWizard(
         let manifest_preview = manifest_preview.clone();
         let parse_errors = parse_errors.clone();
         let refresh_preview = refresh_preview.clone();
-        let upload_limits = upload_limits;
         move |ev: web_sys::Event| {
             if let Some(input) = ev
                 .target()
@@ -628,7 +627,6 @@ pub fn DatasetUploadWizard(
         let parse_errors = parse_errors.clone();
         let refresh_preview = refresh_preview.clone();
         let mode = mode.clone();
-        let upload_limits = upload_limits;
         move |ev: web_sys::Event| {
             if let Some(input) = ev
                 .target()

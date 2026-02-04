@@ -3,34 +3,11 @@
 //! Reports UI errors to the server for persistent logging.
 //! Also provides toast-based error surfacing with diagnostic bundles.
 
-use super::{api_base_url, ApiError, DiagnosticBundle};
+use super::{api_base_url, csrf_token_from_cookie, ApiError, DiagnosticBundle};
 use crate::redact_sensitive_info;
 use crate::signals::notifications::try_use_notifications;
 use gloo_net::http::Request;
 use serde::Serialize;
-
-#[cfg(target_arch = "wasm32")]
-fn csrf_token_from_cookie() -> Option<String> {
-    use wasm_bindgen::JsCast;
-    web_sys::window()
-        .and_then(|w| w.document())
-        .and_then(|d| d.dyn_into::<web_sys::HtmlDocument>().ok())
-        .and_then(|d| d.cookie().ok())
-        .and_then(|cookies| {
-            for cookie in cookies.split(';') {
-                let cookie = cookie.trim();
-                if let Some(token) = cookie.strip_prefix("csrf_token=") {
-                    return Some(token.to_string());
-                }
-            }
-            None
-        })
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn csrf_token_from_cookie() -> Option<String> {
-    None
-}
 
 /// Client error report payload (matches server's ClientErrorReport)
 #[derive(Debug, Clone, Serialize)]

@@ -343,6 +343,34 @@ flowchart TD
 
 ---
 
+## Compile-Time Enforcement
+
+### Q15 Constant Protection
+
+The Q15 denominator has a **compile-time assertion** preventing accidental changes:
+
+```rust
+// crates/adapteros-lora-router/src/quantization.rs
+const _: () = assert!(
+    ROUTER_GATE_Q15_DENOM.to_bits() == 32767.0_f32.to_bits(),
+    "Q15 denominator must be 32767.0 for determinism"
+);
+```
+
+### CI Enforcement
+
+- GitHub Actions scans for `-ffast-math` flags and fails the build if detected
+- Script: `scripts/check_fast_math_flags.sh`
+- Metal kernels include explicit `#pragma` disabling fast-math
+
+### Known Limitation: ID Generation
+
+`crates/adapteros-core/src/ids.rs` uses `rand::thread_rng()` for ID suffix generation.
+If IDs are used in sorting or iteration order, this could theoretically introduce non-determinism.
+**Mitigation**: IDs should not be used for ordering in determinism-critical paths; the router uses `stable_id` fields instead.
+
+---
+
 ## Conversation Trace: Determinism in Action
 
 This trace shows how a single message becomes deterministically reproducible:

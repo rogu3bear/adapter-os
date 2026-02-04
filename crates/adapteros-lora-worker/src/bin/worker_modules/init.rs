@@ -110,7 +110,10 @@ fn load_logging_toml_section() -> Result<Option<LoggingTomlSection>> {
     };
 
     let raw = fs::read_to_string(&path).map_err(|e| {
-        AosError::Io(format!("Failed to read config TOML for logging at {}: {}", path, e))
+        AosError::Io(format!(
+            "Failed to read config TOML for logging at {}: {}",
+            path, e
+        ))
     })?;
 
     let parsed: LoggingToml = toml::from_str(&raw).map_err(|e| {
@@ -172,8 +175,7 @@ fn resolve_log_dir_from_env_or_config(
 
 fn resolve_worker_logging_settings() -> Result<WorkerLoggingSettings> {
     let logging_toml = load_logging_toml_section()?;
-    let (log_dir, log_prefix_override) =
-        resolve_log_dir_from_env_or_config(logging_toml.as_ref())?;
+    let (log_dir, log_prefix_override) = resolve_log_dir_from_env_or_config(logging_toml.as_ref())?;
 
     let default_level = "aos_worker=info,adapteros_lora_worker=info".to_string();
     let level = std::env::var("RUST_LOG")
@@ -190,7 +192,12 @@ fn resolve_worker_logging_settings() -> Result<WorkerLoggingSettings> {
             "text" | "pretty" => Some(false),
             _ => None,
         })
-        .unwrap_or_else(|| logging_toml.as_ref().and_then(|cfg| cfg.json_format).unwrap_or(false));
+        .unwrap_or_else(|| {
+            logging_toml
+                .as_ref()
+                .and_then(|cfg| cfg.json_format)
+                .unwrap_or(false)
+        });
 
     let rotation_raw = logging_toml
         .as_ref()

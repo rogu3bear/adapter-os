@@ -113,10 +113,7 @@ mod tests {
 
         // Verify Run 1 != Run 3 when dropout is active; otherwise ensure no seed effect.
         if adapter_weights.is_empty() {
-            assert_eq!(
-                data1, data3,
-                "Dropout should be inactive with no adapters"
-            );
+            assert_eq!(data1, data3, "Dropout should be inactive with no adapters");
         } else {
             // With 128 elements and 0.1 dropout rate, it's extremely unlikely (~1 in 2^128)
             // that two different seeds would produce identical bit-for-bit results.

@@ -1,9 +1,10 @@
 import { test, expect } from '@playwright/test';
-import { expectErrorState, waitForAppReady } from './utils';
+import { ensureLoggedIn, expectErrorState, waitForAppReady } from './utils';
 
-test('datasets empty state and upload dialog', async ({ page }) => {
+test('datasets empty state and upload dialog', { tag: ['@smoke'] }, async ({ page }) => {
   await page.goto('/datasets', { waitUntil: 'domcontentloaded' });
   await waitForAppReady(page);
+  await ensureLoggedIn(page);
   await expect(
     page.getByRole('heading', { name: 'Datasets', level: 1, exact: true })
   ).toBeVisible();
@@ -19,8 +20,9 @@ test('datasets empty state and upload dialog', async ({ page }) => {
   ).toHaveCount(0);
 });
 
-test('dataset detail shows not found error for unknown id', async ({ page }) => {
+test('dataset detail shows not found error for unknown id', { tag: ['@smoke'] }, async ({ page }) => {
   await page.goto('/datasets/dataset-missing', { waitUntil: 'domcontentloaded' });
   await waitForAppReady(page);
+  await ensureLoggedIn(page);
   await expectErrorState(page);
 });

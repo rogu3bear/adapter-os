@@ -69,7 +69,7 @@ impl ConfirmationSeverity {
     fn icon_class(&self) -> &'static str {
         match self {
             Self::Normal => "text-primary",
-            Self::Warning => "text-yellow-500",
+            Self::Warning => "text-status-warning",
             Self::Destructive => "text-destructive",
         }
     }
@@ -442,8 +442,8 @@ pub fn ConfirmationDialog(
                     </Button>
                     <Button
                         variant=severity.button_variant()
-                        disabled=!can_confirm.get_untracked() || loading.get_untracked()
-                        loading=loading.get_untracked()
+                        disabled=Signal::derive(move || !can_confirm.get() || loading.get())
+                        loading=loading
                         on_click=Callback::new(handle_confirm)
                     >
                         {confirm_btn_text.clone()}

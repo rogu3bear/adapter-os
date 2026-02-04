@@ -129,6 +129,9 @@ fn StepIndicator(current: WizardStep) -> impl IntoView {
 pub fn CreateJobWizard(
     open: RwSignal<bool>,
     on_created: impl Fn() + Clone + Send + Sync + 'static,
+    /// Optional initial dataset ID (e.g., from dataset detail page navigation)
+    #[prop(optional)]
+    initial_dataset_id: Option<RwSignal<Option<String>>>,
 ) -> impl IntoView {
     // Wizard step state
     let current_step = RwSignal::new(WizardStep::default());
@@ -138,6 +141,16 @@ pub fn CreateJobWizard(
     let base_model_id = RwSignal::new(String::new());
     let dataset_id = RwSignal::new(String::new());
     let dataset_message = RwSignal::new(None::<String>);
+
+    // Initialize dataset_id from initial_dataset_id if provided
+    if let Some(init_ds) = initial_dataset_id {
+        Effect::new(move || {
+            if let Some(ds_id) = init_ds.get() {
+                dataset_id.set(ds_id.clone());
+                dataset_message.set(Some(format!("Using dataset: {}", ds_id)));
+            }
+        });
+    }
     let category = RwSignal::new("code".to_string());
 
     // Training parameters with preset support

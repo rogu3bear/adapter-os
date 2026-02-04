@@ -1180,12 +1180,7 @@ pub async fn dashboard_metrics_stream(
                             severity: None,
                             start_time: None,
                             end_time: None,
-                            limit: Some(
-                                config
-                                    .get("limit")
-                                    .and_then(|v| v.as_i64())
-                                    .unwrap_or(10),
-                            ),
+                            limit: Some(config.get("limit").and_then(|v| v.as_i64()).unwrap_or(10)),
                             offset: None,
                         };
 

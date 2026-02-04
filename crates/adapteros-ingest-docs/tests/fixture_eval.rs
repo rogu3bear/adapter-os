@@ -1,4 +1,3 @@
-use ahash::AHashMap;
 use adapteros_core::{AosError, Result};
 use adapteros_ingest_docs::EmbeddingModel;
 use adapteros_ingest_docs::{
@@ -7,6 +6,7 @@ use adapteros_ingest_docs::{
     TrainingStrategy,
 };
 use adapteros_retrieval::rag::{DocMetadata, TenantIndex};
+use ahash::AHashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

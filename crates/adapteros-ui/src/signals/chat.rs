@@ -4,6 +4,7 @@
 //! Supports both non-streaming and SSE streaming inference.
 
 use crate::api::{api_base_url, ApiClient, ApiError, InferenceRequest};
+use crate::signals::perf_logging_enabled;
 use adapteros_api_types::inference::ContextRequest;
 use chrono::{DateTime, Utc};
 #[cfg(target_arch = "wasm32")]
@@ -14,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
+use std::time::Instant;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
@@ -852,6 +854,9 @@ impl ChatAction {
             return Ok(());
         }
 
+        let perf_enabled = perf_logging_enabled();
+        let request_started_at = Instant::now();
+
         // Add user message with FIFO eviction
         self.state.update(|s| {
             s.messages.push(ChatMessage::user(content.clone()));
@@ -882,6 +887,12 @@ impl ChatAction {
                         s.mark_as_read();
                     }
                 });
+                if perf_enabled {
+                    let elapsed_ms = request_started_at.elapsed().as_millis();
+                    web_sys::console::log_1(
+                        &format!("[perf] infer non-streaming completion: {}ms", elapsed_ms).into(),
+                    );
+                }
                 Ok(())
             }
             Err(e) => {
@@ -889,6 +900,13 @@ impl ChatAction {
                     s.loading = false;
                     s.error = Some(e.to_string());
                 });
+                if perf_enabled {
+                    let elapsed_ms = request_started_at.elapsed().as_millis();
+                    web_sys::console::log_1(
+                        &format!("[perf] infer non-streaming failure after {}ms", elapsed_ms)
+                            .into(),
+                    );
+                }
                 Err(e)
             }
         }
@@ -1001,11 +1019,17 @@ impl ChatAction {
         });
     }
 
-    /// Clear error
+    /// Clear error state completely
+    ///
+    /// Clears error, notice, and recovery state to reset the chat to a clean state.
+    /// The user can then send a new message without the previous error context.
     pub fn clear_error(&self) {
         self.state.update(|s| {
             s.error = None;
             s.stream_notice = None;
+            // Clear recovery state since user dismissed the error
+            // This prevents stale retry context from persisting
+            s.stream_recovery = None;
         });
     }
 
@@ -1435,15 +1459,21 @@ fn mark_partial_assistant(state: &mut ChatState, assistant_id: &str) {
     }
 }
 
+/// Human-readable error label with context for the user.
+///
+/// Maps error codes and messages to clear, actionable labels that help users
+/// understand what went wrong and whether they can do something about it.
 fn stream_notice_from_failure(failure: &StreamFailure) -> StreamNotice {
     let code = failure.code.as_deref().unwrap_or("");
     let message_lower = failure.message.to_lowercase();
 
+    // Map error codes to human-readable labels with context
     let label = if matches!(
         code,
         "BACKPRESSURE" | "CACHE_BUDGET_EXCEEDED" | "REQUEST_TIMEOUT" | "STREAM_IDLE_TIMEOUT"
     ) {
-        "Server slow"
+        // Transient server-side pressure - likely to resolve on retry
+        "Server is busy"
     } else if matches!(
         code,
         "WORKER_DEGRADED"
@@ -1451,31 +1481,42 @@ fn stream_notice_from_failure(failure: &StreamFailure) -> StreamNotice {
             | "NO_COMPATIBLE_WORKER"
             | "WORKER_ID_UNAVAILABLE"
     ) {
-        "Worker busy"
+        // Worker-specific issue - retry may route to different worker
+        "No workers available"
     } else if matches!(code, "SERVICE_UNAVAILABLE") {
         if message_lower.contains("worker") {
-            "Worker busy"
+            "No workers available"
         } else {
-            "Server busy"
+            "Service temporarily unavailable"
         }
     } else if matches!(
         code,
         "DUPLICATE_REQUEST" | "IDEMPOTENCY_CONFLICT" | "IDEMPOTENCY_TIMEOUT"
     ) {
+        // Idempotency conflict - user should wait, not retry immediately
         "Request already in progress"
     } else if message_lower.contains("network") || message_lower.contains("fetch failed") {
+        // Client-side network issue
         "Connection lost"
+    } else if message_lower.contains("unauthorized") || code == "UNAUTHORIZED" {
+        // Auth issue - not retryable without re-login
+        "Session expired"
+    } else if message_lower.contains("forbidden") || code == "FORBIDDEN" {
+        // Permission issue - not retryable
+        "Access denied"
+    } else if message_lower.contains("rate limit") || code == "RATE_LIMITED" {
+        // Rate limiting - retryable after delay
+        "Too many requests"
     } else {
-        "Stream error"
+        // Generic fallback
+        "Something went wrong"
     };
 
-    let notice = if failure.retryable {
+    if failure.retryable {
         StreamNotice::warning(label, true)
     } else {
         StreamNotice::error(label, false)
-    };
-
-    notice
+    }
 }
 
 /// Helper to safely update state, returning false if signal is disposed
@@ -1492,6 +1533,9 @@ async fn stream_inference_to_state(
     idempotency_key: Option<String>,
 ) -> Result<StreamTraceInfo, StreamFailure> {
     let url = format!("{}/v1/infer/stream", api_base_url());
+    let perf_enabled = perf_logging_enabled();
+    let stream_started_at = Instant::now();
+    let mut first_token_logged = false;
 
     let body = serde_json::to_string(request).map_err(|e| {
         StreamFailure::new(format!("Failed to serialize request: {}", e), None, false)
@@ -1721,6 +1765,13 @@ async fn stream_inference_to_state(
                     // Signal disposed, bail out early
                     return Ok(trace_info);
                 }
+                if perf_enabled && !first_token_logged {
+                    let elapsed_ms = stream_started_at.elapsed().as_millis();
+                    web_sys::console::log_1(
+                        &format!("[perf] stream first token: {}ms", elapsed_ms).into(),
+                    );
+                    first_token_logged = true;
+                }
                 slow_timer.cancel();
             }
 
@@ -1876,14 +1927,7 @@ impl ChatSessionsManager {
                         preview: s
                             .messages
                             .last()
-                            .map(|m| {
-                                let content = &m.content;
-                                if content.len() > 100 {
-                                    format!("{}...", &content[..100])
-                                } else {
-                                    content.clone()
-                                }
-                            })
+                            .map(|m| truncate_string(&m.content, 100))
                             .unwrap_or_default(),
                         created_at: s.created_at,
                         updated_at: s.updated_at,
@@ -1963,20 +2007,30 @@ impl ChatSessionsManager {
     }
 
     /// Create a session from current dock state
+    ///
+    /// If an existing session is provided, its `created_at` is preserved.
     pub fn session_from_state(id: &str, state: &ChatState) -> StoredChatSession {
+        // Check if session already exists to preserve created_at
+        let existing = Self::load_session(id);
+        Self::session_from_state_with_created(
+            id,
+            state,
+            existing.as_ref().map(|s| s.created_at.as_str()),
+        )
+    }
+
+    /// Create a session from current dock state with explicit created_at
+    fn session_from_state_with_created(
+        id: &str,
+        state: &ChatState,
+        created_at: Option<&str>,
+    ) -> StoredChatSession {
         let now = chrono::Utc::now().to_rfc3339();
         let title = state
             .messages
             .iter()
             .find(|m| m.role == "user")
-            .map(|m| {
-                let content = &m.content;
-                if content.len() > 50 {
-                    format!("{}...", &content[..50])
-                } else {
-                    content.clone()
-                }
-            })
+            .map(|m| truncate_string(&m.content, 50))
             .unwrap_or_else(|| "New Chat".to_string());
 
         StoredChatSession {
@@ -2011,9 +2065,22 @@ impl ChatSessionsManager {
                     }
                 })
                 .collect(),
-            created_at: now.clone(),
+            // Preserve original created_at if updating an existing session
+            created_at: created_at.unwrap_or(&now).to_string(),
             updated_at: now,
         }
+    }
+}
+
+/// Truncate a string to a maximum number of characters, respecting UTF-8 boundaries.
+/// Appends "..." if truncated.
+fn truncate_string(s: &str, max_chars: usize) -> String {
+    let char_count = s.chars().count();
+    if char_count <= max_chars {
+        s.to_string()
+    } else {
+        let truncated: String = s.chars().take(max_chars).collect();
+        format!("{}...", truncated)
     }
 }
 
@@ -2276,6 +2343,48 @@ mod tests {
                 "Partial response content"
             );
             assert!(!state.messages.last().unwrap().is_streaming);
+        }
+    }
+
+    /// Tests for UTF-8 safe string truncation
+    mod truncate_string_tests {
+        use super::*;
+
+        #[test]
+        fn truncates_ascii_string() {
+            let input = "Hello, world!";
+            assert_eq!(truncate_string(input, 5), "Hello...");
+        }
+
+        #[test]
+        fn preserves_short_string() {
+            let input = "Hi";
+            assert_eq!(truncate_string(input, 5), "Hi");
+        }
+
+        #[test]
+        fn handles_exact_length() {
+            let input = "12345";
+            assert_eq!(truncate_string(input, 5), "12345");
+        }
+
+        #[test]
+        fn handles_multibyte_characters() {
+            // Each emoji is multiple bytes but counts as 1 char
+            let input = "Hello 👋🌍!";
+            // "Hello 👋🌍!" is 10 chars: H-e-l-l-o-space-wave-earth-!
+            assert_eq!(truncate_string(input, 7), "Hello 👋...");
+        }
+
+        #[test]
+        fn handles_cjk_characters() {
+            let input = "你好世界"; // 4 characters, each is 3 bytes
+            assert_eq!(truncate_string(input, 2), "你好...");
+        }
+
+        #[test]
+        fn handles_empty_string() {
+            assert_eq!(truncate_string("", 5), "");
         }
     }
 }

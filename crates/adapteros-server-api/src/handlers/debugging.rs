@@ -276,10 +276,8 @@ pub async fn start_debug_session(
 
     ensure_worker_access(&state, &claims, &worker_id).await?;
 
-    let session_id = crate::id_generator::readable_id(
-        adapteros_core::ids::IdKind::Session,
-        "debug",
-    );
+    let session_id =
+        crate::id_generator::readable_id(adapteros_core::ids::IdKind::Session, "debug");
     let now = Utc::now().to_rfc3339();
 
     sqlx::query(
@@ -382,10 +380,7 @@ pub async fn run_troubleshooting_step(
 
     ensure_worker_access(&state, &claims, &worker_id).await?;
 
-    let step_id = crate::id_generator::readable_id(
-        adapteros_core::ids::IdKind::Run,
-        "step",
-    );
+    let step_id = crate::id_generator::readable_id(adapteros_core::ids::IdKind::Run, "step");
     let now = Utc::now().to_rfc3339();
 
     sqlx::query(

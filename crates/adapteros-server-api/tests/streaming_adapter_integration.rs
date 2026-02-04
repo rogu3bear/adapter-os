@@ -510,10 +510,7 @@ fn test_streaming_with_session_id() {
     );
 
     let parsed: StreamingInferRequest = serde_json::from_value(request).expect("deserialize");
-    assert_eq!(
-        parsed.session_id.as_deref(),
-        Some("chat-session-abc123")
-    );
+    assert_eq!(parsed.session_id.as_deref(), Some("chat-session-abc123"));
     assert!(parsed.reasoning_mode);
 }
 

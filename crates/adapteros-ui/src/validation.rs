@@ -20,10 +20,12 @@
 //! - **Custom**: Function-based validation
 //!
 //! ## Predefined Rule Sets (in `rules` module)
-//! - `adapter_name()`: identifier format, 3-128 chars
+//! - `adapter_name()`: identifier format, 1-64 chars, alphanumeric with hyphens/underscores,
+//!   must start/end with alphanumeric, no consecutive hyphens/underscores, no reserved prefixes
 //! - `learning_rate()`: 1e-10 to 1.0
 //! - `password()`: minimum 8 chars
 //! - `email()`: RFC 5322 email pattern (matches server validation)
+//! - `description()`: maximum 1024 chars (matches server validation)
 //!
 //! ## Usage Pattern
 //! ```rust
@@ -41,6 +43,21 @@
 
 use leptos::prelude::*;
 use std::collections::{HashMap, HashSet};
+use std::sync::OnceLock;
+
+/// Pre-compiled email regex for efficient validation.
+/// Compiled once on first use via OnceLock to avoid panics and improve performance.
+/// Returns None if the regex pattern is somehow invalid (defensive - should never happen).
+fn get_email_regex() -> Option<&'static regex_lite::Regex> {
+    static EMAIL_REGEX: OnceLock<Option<regex_lite::Regex>> = OnceLock::new();
+    EMAIL_REGEX
+        .get_or_init(|| {
+            // RFC 5322 compliant email pattern (case-insensitive)
+            let email_pattern = r"(?i)^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$";
+            regex_lite::Regex::new(email_pattern).ok()
+        })
+        .as_ref()
+}
 
 /// A validation rule that can be applied to form fields
 #[derive(Clone, Debug)]
@@ -85,21 +102,27 @@ impl ValidationRule {
                 }
             }
             ValidationRule::MinLength(min) => {
-                if value.len() < *min {
+                let char_count = value.chars().count();
+                if char_count < *min {
                     Some(format!("Must be at least {} characters", min))
                 } else {
                     None
                 }
             }
             ValidationRule::MaxLength(max) => {
-                if value.len() > *max {
+                let char_count = value.chars().count();
+                if char_count > *max {
                     Some(format!("Must be at most {} characters", max))
                 } else {
                     None
                 }
             }
             ValidationRule::Pattern { pattern, message } => {
-                let re = regex_lite::Regex::new(pattern).ok()?;
+                // Fail-closed: if regex compilation fails, validation fails
+                let Ok(re) = regex_lite::Regex::new(pattern) else {
+                    // Invalid pattern - fail validation (fail-closed)
+                    return Some(message.to_string());
+                };
                 if re.is_match(value) {
                     None
                 } else {
@@ -119,11 +142,11 @@ impl ValidationRule {
                 if value.len() < 3 || value.len() > 254 {
                     return Some("Must be a valid email address".to_string());
                 }
-                // Case-insensitive RFC 5322 pattern (matches server validation.rs)
-                let email_pattern = r"(?i)^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$";
-                // Fail-closed: if regex compilation fails, validation fails
-                let re = regex_lite::Regex::new(email_pattern)
-                    .expect("Email regex pattern is invalid - this is a bug");
+                // Use pre-compiled regex via OnceLock (panic-free, compiled once)
+                // Fail-closed: if regex is unavailable, validation fails
+                let Some(re) = get_email_regex() else {
+                    return Some("Must be a valid email address".to_string());
+                };
                 if re.is_match(value) {
                     None
                 } else {
@@ -471,15 +494,41 @@ pub fn use_field_error(state: RwSignal<FormState>, field: &'static str) -> Signa
 pub mod rules {
     use super::ValidationRule;
 
+    /// Reserved prefixes for adapter names (matches server validation)
+    const RESERVED_ADAPTER_PREFIXES: &[&str] = &["system-", "internal-", "reserved-"];
+
     /// Rules for adapter names
+    ///
+    /// Matches server validation in adapteros-core/src/validation/mod.rs:
+    /// - Not empty
+    /// - Maximum 64 characters
+    /// - Alphanumeric with hyphens and underscores
+    /// - Must start and end with alphanumeric character
+    /// - No consecutive hyphens/underscores
+    /// - Cannot use reserved prefixes (system-, internal-, reserved-)
     pub fn adapter_name() -> Vec<ValidationRule> {
         vec![
             ValidationRule::Required,
-            ValidationRule::MinLength(3),
-            ValidationRule::MaxLength(128),
+            ValidationRule::MinLength(1),
+            ValidationRule::MaxLength(64),
             ValidationRule::Pattern {
-                pattern: r"^[a-zA-Z][a-zA-Z0-9_-]*$",
-                message: "Must start with a letter and contain only letters, numbers, underscores, and hyphens",
+                pattern: r"^[a-zA-Z0-9][a-zA-Z0-9_-]*[a-zA-Z0-9]$|^[a-zA-Z0-9]$",
+                message: "Must start and end with alphanumeric character, contain only letters, numbers, underscores, and hyphens",
+            },
+            // Custom rule for no consecutive hyphens/underscores
+            ValidationRule::Custom {
+                validator: |s| {
+                    !s.contains("--") && !s.contains("__") && !s.contains("-_") && !s.contains("_-")
+                },
+                message: "Cannot contain consecutive hyphens or underscores",
+            },
+            // Custom rule for reserved prefixes
+            ValidationRule::Custom {
+                validator: |s| {
+                    let lower = s.to_lowercase();
+                    !RESERVED_ADAPTER_PREFIXES.iter().any(|prefix| lower.starts_with(prefix))
+                },
+                message: "Cannot start with reserved prefix (system-, internal-, reserved-)",
             },
         ]
     }
@@ -520,8 +569,11 @@ pub mod rules {
     }
 
     /// Rules for optional descriptions
+    ///
+    /// Matches server validation in adapteros-core/src/validation/mod.rs:
+    /// - Maximum 1024 characters
     pub fn description() -> Vec<ValidationRule> {
-        vec![ValidationRule::MaxLength(10000)]
+        vec![ValidationRule::MaxLength(1024)]
     }
 
     /// Rules for short descriptions (e.g., publishing)
@@ -678,5 +730,144 @@ mod tests {
         assert!(state.is_touched("email"));
         assert!(!state.is_submitted());
         assert!(state.get_error("email").is_none());
+    }
+
+    #[test]
+    fn test_min_length_counts_characters_not_bytes() {
+        // Test with multi-byte UTF-8 characters
+        let rule = ValidationRule::MinLength(3);
+        // 3 emoji = 3 characters but 12 bytes
+        assert!(rule.validate("\u{1F600}\u{1F600}\u{1F600}").is_none()); // 3 chars: valid
+        assert!(rule.validate("\u{1F600}\u{1F600}").is_some()); // 2 chars: invalid
+                                                                // Chinese characters: 3 chars but 9 bytes
+        assert!(rule.validate("\u{4E2D}\u{6587}\u{5B57}").is_none()); // 3 chars: valid
+        assert!(rule.validate("\u{4E2D}\u{6587}").is_some()); // 2 chars: invalid
+    }
+
+    #[test]
+    fn test_max_length_counts_characters_not_bytes() {
+        // Test with multi-byte UTF-8 characters
+        let rule = ValidationRule::MaxLength(3);
+        // 3 emoji = 3 characters but 12 bytes
+        assert!(rule.validate("\u{1F600}\u{1F600}\u{1F600}").is_none()); // 3 chars: valid
+        assert!(rule
+            .validate("\u{1F600}\u{1F600}\u{1F600}\u{1F600}")
+            .is_some()); // 4 chars: invalid
+                         // Chinese characters
+        assert!(rule.validate("\u{4E2D}\u{6587}\u{5B57}").is_none()); // 3 chars: valid
+        assert!(rule.validate("\u{4E2D}\u{6587}\u{5B57}\u{7B26}").is_some()); // 4 chars: invalid
+    }
+
+    #[test]
+    fn test_adapter_name_rules_basic() {
+        let adapter_rules = rules::adapter_name();
+
+        // Valid adapter names
+        assert!(validate_field("a", &adapter_rules).is_none()); // Single char
+        assert!(validate_field("my-adapter", &adapter_rules).is_none());
+        assert!(validate_field("my_adapter", &adapter_rules).is_none());
+        assert!(validate_field("adapter123", &adapter_rules).is_none());
+        assert!(validate_field("a1", &adapter_rules).is_none());
+        assert!(validate_field("MyAdapter", &adapter_rules).is_none());
+    }
+
+    #[test]
+    fn test_adapter_name_rules_max_length() {
+        let adapter_rules = rules::adapter_name();
+
+        // 64 chars should pass
+        let valid_64 = "a".repeat(64);
+        assert!(validate_field(&valid_64, &adapter_rules).is_none());
+
+        // 65 chars should fail
+        let invalid_65 = "a".repeat(65);
+        assert!(validate_field(&invalid_65, &adapter_rules).is_some());
+    }
+
+    #[test]
+    fn test_adapter_name_rules_must_start_end_alphanumeric() {
+        let adapter_rules = rules::adapter_name();
+
+        // Cannot start with hyphen/underscore
+        assert!(validate_field("-adapter", &adapter_rules).is_some());
+        assert!(validate_field("_adapter", &adapter_rules).is_some());
+
+        // Cannot end with hyphen/underscore
+        assert!(validate_field("adapter-", &adapter_rules).is_some());
+        assert!(validate_field("adapter_", &adapter_rules).is_some());
+    }
+
+    #[test]
+    fn test_adapter_name_rules_no_consecutive_separators() {
+        let adapter_rules = rules::adapter_name();
+
+        // No consecutive hyphens
+        assert!(validate_field("my--adapter", &adapter_rules).is_some());
+
+        // No consecutive underscores
+        assert!(validate_field("my__adapter", &adapter_rules).is_some());
+
+        // No mixed consecutive separators
+        assert!(validate_field("my-_adapter", &adapter_rules).is_some());
+        assert!(validate_field("my_-adapter", &adapter_rules).is_some());
+    }
+
+    #[test]
+    fn test_adapter_name_rules_reserved_prefixes() {
+        let adapter_rules = rules::adapter_name();
+
+        // Reserved prefixes should fail (case-insensitive)
+        assert!(validate_field("system-foo", &adapter_rules).is_some());
+        assert!(validate_field("System-Foo", &adapter_rules).is_some());
+        assert!(validate_field("SYSTEM-FOO", &adapter_rules).is_some());
+        assert!(validate_field("internal-bar", &adapter_rules).is_some());
+        assert!(validate_field("Internal-Bar", &adapter_rules).is_some());
+        assert!(validate_field("reserved-baz", &adapter_rules).is_some());
+        assert!(validate_field("Reserved-Baz", &adapter_rules).is_some());
+
+        // Similar but not reserved prefixes should pass
+        assert!(validate_field("systems", &adapter_rules).is_none());
+        assert!(validate_field("internals", &adapter_rules).is_none());
+        assert!(validate_field("reservations", &adapter_rules).is_none());
+    }
+
+    #[test]
+    fn test_description_rules_max_length() {
+        let desc_rules = rules::description();
+
+        // 1024 chars should pass
+        let valid_1024 = "a".repeat(1024);
+        assert!(validate_field(&valid_1024, &desc_rules).is_none());
+
+        // 1025 chars should fail
+        let invalid_1025 = "a".repeat(1025);
+        assert!(validate_field(&invalid_1025, &desc_rules).is_some());
+
+        // Empty should pass (not required)
+        assert!(validate_field("", &desc_rules).is_none());
+    }
+
+    #[test]
+    fn test_pattern_rule_fail_closed() {
+        // This test documents that Pattern rule returns error on invalid regex
+        // rather than silently passing (fail-closed behavior)
+        let rule = ValidationRule::Pattern {
+            pattern: r"^valid$",
+            message: "Must be valid",
+        };
+        // Valid regex should work
+        assert!(rule.validate("valid").is_none());
+        assert!(rule.validate("invalid").is_some());
+    }
+
+    #[test]
+    fn test_pattern_rule_invalid_regex_fails_closed() {
+        // Invalid regex should fail validation (not pass silently)
+        let rule = ValidationRule::Pattern {
+            pattern: r"[invalid(regex", // Unclosed bracket - invalid regex
+            message: "Pattern error",
+        };
+        // Should return error message, not pass
+        assert!(rule.validate("anything").is_some());
     }
 }

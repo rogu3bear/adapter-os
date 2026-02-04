@@ -132,6 +132,7 @@ pub fn clear_ffi_error() {
     // It has no return value and does not access any Rust state. This is a
     // simple state reset that is always safe to call.
     unsafe {
+        crate::mlx_test_auto_init();
         mlx_clear_error();
     }
 }

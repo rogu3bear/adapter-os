@@ -34,6 +34,7 @@ pub mod search;
 pub mod signals;
 pub mod sse;
 pub mod theme;
+pub mod utils;
 pub mod validation;
 
 use leptos::prelude::*;

@@ -984,12 +984,8 @@ pub async fn create_repo(
     let repo_id = req.repo_id.unwrap_or_else(|| "repo-e2e".to_string());
     let name = req.name.unwrap_or_else(|| "e2e-repo".to_string());
     let default_branch = req.default_branch.as_deref().unwrap_or("main");
-    let repo_path = req
-        .path
-        .unwrap_or_else(|| format!("var/repos/{}", repo_id));
-    let languages = req
-        .languages
-        .unwrap_or_else(|| vec!["Rust".to_string()]);
+    let repo_path = req.path.unwrap_or_else(|| format!("var/repos/{}", repo_id));
+    let languages = req.languages.unwrap_or_else(|| vec!["Rust".to_string()]);
 
     let created_id = state
         .db
@@ -1382,7 +1378,10 @@ pub fn register_routes() -> axum::Router<AppState> {
         .route("/testkit/reset", post(reset))
         .route("/testkit/seed_minimal", post(seed_minimal))
         .route("/testkit/create_trace_fixture", post(create_trace_fixture))
-        .route("/testkit/create_diag_run_fixture", post(create_diag_run_fixture))
+        .route(
+            "/testkit/create_diag_run_fixture",
+            post(create_diag_run_fixture),
+        )
         .route(
             "/testkit/create_evidence_fixture",
             post(create_evidence_fixture),

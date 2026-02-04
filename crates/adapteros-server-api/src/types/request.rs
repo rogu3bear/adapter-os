@@ -1,8 +1,6 @@
 //! Request types for API endpoints.
 
-use adapteros_api_types::{
-    CreateTrainingJobRequest, InferRequest, TrainingConfigRequest,
-};
+use adapteros_api_types::{CreateTrainingJobRequest, InferRequest, TrainingConfigRequest};
 use adapteros_core::{determinism::DeterminismContext, BackendKind, SeedMode};
 use adapteros_types::adapters::metadata::RoutingDeterminismMode;
 use serde::{Deserialize, Serialize};

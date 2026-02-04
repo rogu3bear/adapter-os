@@ -68,10 +68,8 @@ pub async fn request_shutdown(
         ));
     };
 
-    let tracking_id = crate::id_generator::readable_id(
-        adapteros_core::ids::IdKind::Request,
-        "lifecycle",
-    );
+    let tracking_id =
+        crate::id_generator::readable_id(adapteros_core::ids::IdKind::Request, "lifecycle");
     match body.mode {
         ShutdownMode::Drain => {
             boot_state.drain().await;
@@ -127,10 +125,8 @@ pub async fn request_maintenance(
         ));
     };
 
-    let tracking_id = crate::id_generator::readable_id(
-        adapteros_core::ids::IdKind::Request,
-        "lifecycle",
-    );
+    let tracking_id =
+        crate::id_generator::readable_id(adapteros_core::ids::IdKind::Request, "lifecycle");
     let mut worker_results: Vec<WorkerMaintenanceResult> = Vec::new();
 
     match body.scope {

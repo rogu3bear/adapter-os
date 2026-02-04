@@ -13,13 +13,14 @@ use crate::api::{
     DocumentListParams, DocumentListResponse,
 };
 use crate::components::{
-    async_state::AsyncBoundary, Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card,
-    Checkbox, ConfirmationDialog, ConfirmationSeverity, CopyableId, Dialog, Input, Link,
-    LinkVariant, Select, Spinner, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-    Textarea,
+    async_state::AsyncBoundary, Badge, BadgeVariant, BreadcrumbItem, BreadcrumbTrail, Button,
+    ButtonSize, ButtonVariant, Card, Checkbox, ConfirmationDialog, ConfirmationSeverity,
+    CopyableId, Dialog, Input, Select, Spinner, Table, TableBody, TableCell, TableHead,
+    TableHeader, TableRow, Textarea,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use crate::signals::use_notifications;
+use crate::utils::{format_bytes, format_date};
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
 use std::collections::HashSet;
@@ -399,16 +400,15 @@ pub fn CollectionDetail() -> impl IntoView {
 
     view! {
         <div class="space-y-6">
-            // Header with back link
+            // Breadcrumb navigation
+            <BreadcrumbTrail items=vec![
+                BreadcrumbItem::link("Collections", "/collections"),
+                BreadcrumbItem::current(collection_id.get()),
+            ]/>
+
+            // Header
             <div class="flex items-center justify-between">
-                <div class="flex items-center gap-4">
-                    <Link href="/collections" variant=LinkVariant::Muted>
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>
-                        </svg>
-                    </Link>
-                    <h1 class="text-3xl font-bold tracking-tight">"Collection Details"</h1>
-                </div>
+                <h1 class="text-3xl font-bold tracking-tight">"Collection Details"</h1>
                 <div class="flex items-center gap-2">
                     <Button
                         variant=ButtonVariant::Secondary
@@ -960,32 +960,5 @@ fn AddDocumentsDialog(
                 </div>
             </div>
         </Dialog>
-    }
-}
-
-/// Format an ISO date string to a human-readable format
-fn format_date(iso_date: &str) -> String {
-    // Simple formatting - just show date portion
-    if let Some(date_part) = iso_date.split('T').next() {
-        date_part.to_string()
-    } else {
-        iso_date.to_string()
-    }
-}
-
-/// Format bytes to human-readable size
-fn format_bytes(bytes: i64) -> String {
-    const KB: i64 = 1024;
-    const MB: i64 = KB * 1024;
-    const GB: i64 = MB * 1024;
-
-    if bytes >= GB {
-        format!("{:.1} GB", bytes as f64 / GB as f64)
-    } else if bytes >= MB {
-        format!("{:.1} MB", bytes as f64 / MB as f64)
-    } else if bytes >= KB {
-        format!("{:.1} KB", bytes as f64 / KB as f64)
-    } else {
-        format!("{} B", bytes)
     }
 }

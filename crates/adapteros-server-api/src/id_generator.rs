@@ -1,4 +1,6 @@
-use adapteros_core::ids::{generate_id, generate_id_with_suffix_len, generate_suffix, slugify, IdKind};
+use adapteros_core::ids::{
+    generate_id, generate_id_with_suffix_len, generate_suffix, slugify, IdKind,
+};
 use chrono::Utc;
 
 pub fn date_slug() -> String {

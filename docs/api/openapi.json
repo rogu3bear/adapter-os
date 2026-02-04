@@ -32056,7 +32056,7 @@
       "name": ""
     },
     "title": "adapteros-server-api",
-    "version": "0.4.0"
+    "version": "0.4.1"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -52921,7 +52921,7 @@
             }
           },
           {
-            "description": "Max token decisions to return",
+            "description": "Max token decisions to return (0 = no cap)",
             "in": "query",
             "name": "tokens_limit",
             "required": false,

@@ -149,10 +149,7 @@ pub async fn add_ip_rule(
     reason: Option<&str>,
     expires_at: Option<&str>,
 ) -> Result<String> {
-    let id = crate::id_generator::readable_id(
-        adapteros_core::ids::IdKind::Policy,
-        "ip",
-    );
+    let id = crate::id_generator::readable_id(adapteros_core::ids::IdKind::Policy, "ip");
     let created_at = Utc::now().to_rfc3339();
 
     if list_type != "allow" && list_type != "deny" {

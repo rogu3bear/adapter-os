@@ -3,7 +3,7 @@ import { waitForAppReady } from './utils';
 
 test.use({ storageState: { cookies: [], origins: [] } });
 
-test('login page loads and authenticates', async ({ page }) => {
+test('login page loads and authenticates', { tag: ['@smoke'] }, async ({ page }) => {
   await page.goto('/login', { waitUntil: 'domcontentloaded' });
   await waitForAppReady(page);
   await expect(
