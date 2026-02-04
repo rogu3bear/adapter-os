@@ -283,6 +283,7 @@ pub async fn initialize_runtime(
                 allow_registration: None,
                 clock_skew_seconds: 300,
                 dev_bypass: false,
+                ci_attestation_public_keys: None,
             },
             auth: adapteros_server_api::config::AuthConfig {
                 dev_algo: "hs256".to_string(),
@@ -411,6 +412,10 @@ pub async fn initialize_runtime(
                     allow_registration: cfg.security.allow_registration,
                     clock_skew_seconds: cfg.security.clock_skew_seconds,
                     dev_bypass: cfg.security.dev_bypass,
+                    ci_attestation_public_keys: cfg
+                        .security
+                        .ci_attestation_public_keys
+                        .clone(),
                 },
                 auth: adapteros_server_api::config::AuthConfig {
                     dev_algo: cfg.auth.dev_algo.clone(),

@@ -321,6 +321,7 @@ pub(crate) async fn package_and_register_adapter(
         targets: worker_cfg.targets.clone(),
         multi_module_training: worker_cfg.multi_module_training,
         lora_layer_indices: worker_cfg.lora_layer_indices.clone(),
+        mlx_version: worker_cfg.mlx_version.clone(),
     };
 
     // Generate unique adapter ID from job_id

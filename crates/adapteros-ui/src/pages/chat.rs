@@ -18,7 +18,7 @@
 //!
 //! Enable `show_telemetry_overlay` in settings for perf timing.
 
-use crate::api::ApiClient;
+use crate::api::{api_base_url, ApiClient};
 use crate::components::inference_guidance::guidance_for;
 use crate::components::status_center::use_status_center;
 use crate::components::{
@@ -27,7 +27,9 @@ use crate::components::{
     SuggestedAdapterView, SuggestedAdaptersBar, Textarea, TraceButton, TracePanel,
 };
 use crate::hooks::{use_api_resource, LoadingState};
-use crate::signals::{use_chat, ChatSessionMeta, ChatSessionsManager, StreamNoticeTone};
+use crate::signals::{
+    use_chat, ChatSessionMeta, ChatSessionsManager, ChatTarget, StreamNoticeTone,
+};
 use adapteros_api_types::InferenceReadyState;
 use leptos::prelude::*;
 use leptos_router::hooks::{use_navigate, use_params_map};
@@ -353,6 +355,8 @@ pub fn ChatSession() -> impl IntoView {
     let session_loaded = RwSignal::new(false);
     let current_session_id = RwSignal::new(String::new());
     let session_error = RwSignal::new(Option::<String>::None);
+    let verified_mode = RwSignal::new(false);
+    let navigate = use_navigate();
 
     // Load session from localStorage when session ID changes
     // Tracks session_id() reactively to handle navigation between sessions
@@ -536,6 +540,8 @@ pub fn ChatSession() -> impl IntoView {
         !loading && !streaming && has_recovery
     });
     let retry_disabled = Signal::derive(move || !can_retry.get());
+    let show_adapter_tray =
+        Memo::new(move |_| is_streaming.get() || !chat_state.get().suggested_adapters.is_empty());
 
     // Convert active_adapters to AdapterMagnets for the AdapterBar
     let adapter_magnets = Memo::new(move |_| {
@@ -663,7 +669,38 @@ pub fn ChatSession() -> impl IntoView {
                         <span class="font-mono bg-muted/30 px-1.5 py-0.5 rounded text-2xs">{session_label}</span>
                     </div>
                 </div>
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-3">
+                    // Target selector for choosing model, stack, or policy pack
+                    <ChatTargetSelector/>
+                    <div class="flex items-center rounded-full border border-border bg-muted/30 p-0.5 text-xs">
+                        <button
+                            class=move || {
+                                if verified_mode.get() {
+                                    "px-2 py-1 rounded-full text-muted-foreground".to_string()
+                                } else {
+                                    "px-2 py-1 rounded-full bg-background text-foreground shadow-sm".to_string()
+                                }
+                            }
+                            on:click=move |_| verified_mode.set(false)
+                            type="button"
+                        >
+                            "Fast"
+                        </button>
+                        <button
+                            class=move || {
+                                if verified_mode.get() {
+                                    "px-2 py-1 rounded-full bg-background text-foreground shadow-sm".to_string()
+                                } else {
+                                    "px-2 py-1 rounded-full text-muted-foreground".to_string()
+                                }
+                            }
+                            on:click=move |_| verified_mode.set(true)
+                            type="button"
+                        >
+                            "Verified"
+                        </button>
+                    </div>
+                    // Status badge
                     {move || {
                         let err = error.get();
                         if err.is_some() {
@@ -710,10 +747,22 @@ pub fn ChatSession() -> impl IntoView {
             <AdapterBar adapters=adapter_magnets/>
 
             // Suggested Adapters Bar - shows router preview suggestions with click-to-pin
-            <SuggestedAdaptersBar
-                suggestions=suggested_adapters
-                on_toggle_pin=on_toggle_pin
-            />
+            {move || {
+                if show_adapter_tray.get() {
+                    Some(view! {
+                        <div class="flex justify-end">
+                            <div class="w-full max-w-md">
+                                <SuggestedAdaptersBar
+                                    suggestions=suggested_adapters
+                                    on_toggle_pin=on_toggle_pin
+                                />
+                            </div>
+                        </div>
+                    })
+                } else {
+                    None
+                }
+            }}
 
             // Messages
             <div
@@ -815,7 +864,7 @@ pub fn ChatSession() -> impl IntoView {
                                                                     view! {
                                                                         <span class="inline-flex items-center gap-1.5 text-muted-foreground">
                                                                             <Spinner/>
-                                                                            <span class="text-xs">"Thinking..."</span>
+                                                                            <span class="text-xs">"Routing..."</span>
                                                                         </span>
                                                                     }.into_any()
                                                                 } else {
@@ -1154,6 +1203,13 @@ pub fn ChatSession() -> impl IntoView {
                         }
                     }
                 >
+                    <button
+                        type="button"
+                        class="btn btn-outline btn-sm"
+                        on:click=move |_| navigate("/training", Default::default())
+                    >
+                        "Attach data"
+                    </button>
                     <Textarea
                         value=message
                         placeholder="Type your message...".to_string()
@@ -1208,6 +1264,301 @@ fn format_token_display(
             )
         }
         _ => format!("{} tokens", total),
+    }
+}
+
+/// Target options fetched from API for the chat target selector
+#[derive(Debug, Clone, Default)]
+struct TargetOptions {
+    models: Vec<(String, String)>,   // (id, name)
+    stacks: Vec<(String, String)>,   // (id, name)
+    policies: Vec<(String, String)>, // (cpid, display_name)
+    loading: bool,
+    error: Option<String>,
+}
+
+/// Chat target selector component for choosing model, stack, or policy pack
+#[component]
+fn ChatTargetSelector() -> impl IntoView {
+    let (chat_state, chat_action) = use_chat();
+    let show_dropdown = RwSignal::new(false);
+    let options = RwSignal::new(TargetOptions::default());
+    let has_loaded = RwSignal::new(false);
+
+    let toggle_dropdown = move |_| {
+        show_dropdown.update(|v| *v = !*v);
+    };
+
+    let select_target = {
+        let action = chat_action.clone();
+        move |target: ChatTarget| {
+            action.set_target(target);
+            show_dropdown.set(false);
+        }
+    };
+
+    // Reset has_loaded when dropdown closes to allow refresh on next open
+    Effect::new(move |prev_open: Option<bool>| {
+        let is_open = show_dropdown.get();
+        if let Some(was_open) = prev_open {
+            if was_open && !is_open {
+                has_loaded.set(false);
+            }
+        }
+        is_open
+    });
+
+    // Fetch options when dropdown is first opened
+    Effect::new(move || {
+        if show_dropdown.get() && !has_loaded.get() {
+            has_loaded.set(true);
+            options.update(|o| {
+                o.loading = true;
+                o.error = None;
+            });
+
+            wasm_bindgen_futures::spawn_local(async move {
+                let client = ApiClient::with_base_url(api_base_url());
+
+                // Fetch all in parallel
+                let models_fut = client.list_models();
+                let stacks_fut = client.list_stacks();
+                let policies_fut = client.list_policies();
+
+                let (models_res, stacks_res, policies_res) =
+                    futures::join!(models_fut, stacks_fut, policies_fut);
+
+                let mut errors: Vec<String> = Vec::new();
+
+                options.update(|o| {
+                    o.loading = false;
+
+                    // Parse models
+                    match models_res {
+                        Ok(resp) => {
+                            o.models = resp
+                                .models
+                                .into_iter()
+                                .map(|m| (m.id.clone(), m.name.clone()))
+                                .collect();
+                        }
+                        Err(e) => {
+                            let msg = format!("Models: {}", e);
+                            web_sys::console::warn_1(&msg.clone().into());
+                            errors.push(msg);
+                        }
+                    }
+
+                    // Parse stacks
+                    match stacks_res {
+                        Ok(stacks) => {
+                            o.stacks = stacks
+                                .into_iter()
+                                .filter(|s| s.is_active)
+                                .map(|s| (s.id.clone(), s.name.clone()))
+                                .collect();
+                        }
+                        Err(e) => {
+                            let msg = format!("Stacks: {}", e);
+                            web_sys::console::warn_1(&msg.clone().into());
+                            errors.push(msg);
+                        }
+                    }
+
+                    // Parse policies - extract display name from CPID
+                    match policies_res {
+                        Ok(policies) => {
+                            o.policies = policies
+                                .into_iter()
+                                .map(|p| {
+                                    let display = p
+                                        .cpid
+                                        .replace('-', " ")
+                                        .split_whitespace()
+                                        .map(|w| {
+                                            let mut chars = w.chars();
+                                            match chars.next() {
+                                                Some(first) => {
+                                                    first.to_uppercase().chain(chars).collect()
+                                                }
+                                                None => String::new(),
+                                            }
+                                        })
+                                        .collect::<Vec<String>>()
+                                        .join(" ");
+                                    (p.cpid, display)
+                                })
+                                .collect();
+                        }
+                        Err(e) => {
+                            let msg = format!("Policies: {}", e);
+                            web_sys::console::warn_1(&msg.clone().into());
+                            errors.push(msg);
+                        }
+                    }
+
+                    if !errors.is_empty() {
+                        o.error = Some(format!("Failed to load: {}", errors.join(", ")));
+                    }
+                });
+            });
+        }
+    });
+
+    view! {
+        <div class="relative">
+            <button
+                class="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-1.5 text-sm hover:bg-muted transition-colors"
+                on:click=toggle_dropdown
+                data-testid="chat-target-selector"
+            >
+                <span class="text-muted-foreground text-xs">"Target:"</span>
+                <span class="font-medium truncate max-w-[150px]">{move || chat_state.get().target.display_name()}</span>
+                <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    class="h-4 w-4 text-muted-foreground flex-shrink-0"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    stroke-width="2"
+                >
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+                </svg>
+            </button>
+
+            // Dropdown menu
+            {move || {
+                if show_dropdown.get() {
+                    let select = select_target.clone();
+                    let opts = options.get();
+
+                    view! {
+                        <div
+                            class="absolute left-0 top-full z-50 mt-1 min-w-[200px] rounded-md border border-border bg-popover shadow-lg max-h-80 overflow-y-auto"
+                            data-testid="chat-target-dropdown"
+                        >
+                            <div class="p-1">
+                                <TargetOption
+                                    target=ChatTarget::Default
+                                    label="Default".to_string()
+                                    on_select=select.clone()
+                                />
+
+                                // Error display
+                                {opts.error.as_ref().map(|e| view! {
+                                    <div class="px-2 py-2 text-xs text-destructive bg-destructive/10 rounded mx-1 my-1">
+                                        {e.clone()}
+                                    </div>
+                                })}
+
+                                // Loading indicator
+                                {if opts.loading {
+                                    Some(view! {
+                                        <div class="px-2 py-3 text-center text-sm text-muted-foreground">
+                                            <span class="animate-pulse">"Loading options..."</span>
+                                        </div>
+                                    })
+                                } else {
+                                    None
+                                }}
+
+                                // Models section
+                                {if !opts.models.is_empty() {
+                                    let select = select.clone();
+                                    Some(view! {
+                                        <div class="my-1 border-t border-border"/>
+                                        <div class="px-2 py-1.5 text-xs font-medium text-muted-foreground">"Models"</div>
+                                        {opts.models.iter().map(|(id, name)| {
+                                            let target = ChatTarget::Model(id.clone());
+                                            let label = name.clone();
+                                            let select = select.clone();
+                                            view! {
+                                                <TargetOption
+                                                    target=target
+                                                    label=label
+                                                    on_select=select
+                                                />
+                                            }
+                                        }).collect::<Vec<_>>()}
+                                    })
+                                } else {
+                                    None
+                                }}
+
+                                // Stacks section
+                                {if !opts.stacks.is_empty() {
+                                    let select = select.clone();
+                                    Some(view! {
+                                        <div class="my-1 border-t border-border"/>
+                                        <div class="px-2 py-1.5 text-xs font-medium text-muted-foreground">"Stacks"</div>
+                                        {opts.stacks.iter().map(|(id, name)| {
+                                            let target = ChatTarget::Stack(id.clone());
+                                            let label = name.clone();
+                                            let select = select.clone();
+                                            view! {
+                                                <TargetOption
+                                                    target=target
+                                                    label=label
+                                                    on_select=select
+                                                />
+                                            }
+                                        }).collect::<Vec<_>>()}
+                                    })
+                                } else {
+                                    None
+                                }}
+
+                                // Policy Packs section
+                                {if !opts.policies.is_empty() {
+                                    let select = select.clone();
+                                    Some(view! {
+                                        <div class="my-1 border-t border-border"/>
+                                        <div class="px-2 py-1.5 text-xs font-medium text-muted-foreground">"Policy Packs"</div>
+                                        {opts.policies.iter().map(|(id, name)| {
+                                            let target = ChatTarget::PolicyPack(id.clone());
+                                            let label = name.clone();
+                                            let select = select.clone();
+                                            view! {
+                                                <TargetOption
+                                                    target=target
+                                                    label=label
+                                                    on_select=select
+                                                />
+                                            }
+                                        }).collect::<Vec<_>>()}
+                                    })
+                                } else {
+                                    None
+                                }}
+                            </div>
+                        </div>
+                    }.into_any()
+                } else {
+                    view! {}.into_any()
+                }
+            }}
+        </div>
+    }
+}
+
+/// Individual target option in the dropdown
+#[component]
+fn TargetOption<F>(target: ChatTarget, label: String, on_select: F) -> impl IntoView
+where
+    F: Fn(ChatTarget) + Clone + 'static,
+{
+    let target_clone = target.clone();
+    let select = on_select.clone();
+
+    view! {
+        <button
+            class="flex w-full items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground transition-colors text-left"
+            on:click=move |_| {
+                select(target_clone.clone());
+            }
+        >
+            {label}
+        </button>
     }
 }
 

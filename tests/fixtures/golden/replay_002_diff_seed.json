@@ -1,0 +1,31 @@
+{
+  "id": "replay_002_diff_seed",
+  "input_seed_hex": "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b",
+  "adapter_ids": [
+    "adapter-a",
+    "adapter-b"
+  ],
+  "prompt_tokens": [
+    100,
+    101,
+    102,
+    103,
+    104
+  ],
+  "seed_mode": "Strict",
+  "gate_raw_scores": [
+    0.8,
+    0.7
+  ],
+  "backend_used": "mock",
+  "expected_decision_hash": "ca2ea4a3028e7c1f4131ed40da3e0a7c36fff6ed338065f14b123cf914a65ef7",
+  "expected_gates_q15": [
+    26213,
+    22936
+  ],
+  "expected_output_digest": "c1f641245ef0af8bf7fef9c6b5c5e461102b361e30c0c4ca33a5010ec2ffc893",
+  "expected_receipt_digest": "a331128464bf1e0a0a430963e03a1b3c177ab97a5635e22d6d2e7c1c348ca51c",
+  "expected_seed_lineage_hash": "af5a093fb98de4706174d2cb223edd091844323608c3361a1a63aede1fbea758",
+  "hkdf_version": 2,
+  "verified": true
+}

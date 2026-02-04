@@ -246,6 +246,7 @@ impl TrainArgs {
                 targets: vec!["q_proj".to_string(), "v_proj".to_string()],
                 multi_module_training: false,
                 lora_layer_indices: Vec::new(),
+                mlx_version: None,
             };
 
             info!("Using command-line training configuration");

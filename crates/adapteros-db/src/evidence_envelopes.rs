@@ -156,6 +156,13 @@ impl Db {
     /// Validates that the envelope correctly links to the existing chain
     /// before storing. Returns the envelope ID on success.
     ///
+    /// # Transaction Guarantees
+    ///
+    /// The chain tail read and envelope insert are wrapped in a transaction to ensure
+    /// atomicity. This prevents race conditions where concurrent writes could corrupt
+    /// the chain linkage (e.g., two writers both reading the same tail and inserting
+    /// with the same `previous_root`).
+    ///
     /// # Errors
     ///
     /// Returns `EVIDENCE_CHAIN_DIVERGED` error if:
@@ -163,13 +170,31 @@ impl Db {
     /// - Envelope claims to be first but chain already has entries
     /// - Envelope claims a previous but chain is empty
     pub async fn store_evidence_envelope(&self, envelope: &EvidenceEnvelope) -> Result<String> {
-        // Validate envelope structure first
+        // Validate envelope structure first (outside transaction - pure validation)
         envelope.validate()?;
 
-        // Get current chain tail
-        let tail = self
-            .get_evidence_chain_tail(&envelope.tenant_id, envelope.scope)
-            .await?;
+        // Begin transaction for atomic chain read + insert
+        let mut tx = self.begin_write_tx().await?;
+
+        // Get current chain tail within transaction
+        let tail: Option<(String, i64)> = sqlx::query_as(
+            r#"
+            SELECT root, chain_sequence
+            FROM evidence_envelopes
+            WHERE tenant_id = ? AND scope = ?
+            ORDER BY chain_sequence DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(&envelope.tenant_id)
+        .bind(envelope.scope.as_str())
+        .fetch_optional(&mut *tx)
+        .await
+        .db_err("fetch chain tail in transaction")?;
+
+        let tail = tail.map(|(root, seq)| -> Result<(B3Hash, i64)> {
+            Ok((B3Hash::from_hex(&root)?, seq))
+        }).transpose()?;
 
         // =========================================================================
         // Evidence Chain Sequence Validation (1-indexed)
@@ -213,7 +238,7 @@ impl Db {
             scope = ?envelope.scope,
             expected_sequence = expected_sequence,
             previous_root = ?envelope.previous_root.as_ref().map(|h| h.to_short_hex()),
-            "Storing evidence envelope with sequence continuity check"
+            "Storing evidence envelope with sequence continuity check (transactional)"
         );
 
         // Verify chain linkage (previous_root must match current tail)
@@ -277,9 +302,14 @@ impl Db {
         .bind(envelope.signed_at_us as i64)
         .bind(&payload_json)
         .bind(expected_sequence)
-        .execute(self.pool())
+        .execute(&mut *tx)
         .await
         .db_err("insert evidence envelope")?;
+
+        // Commit the transaction
+        tx.commit()
+            .await
+            .map_err(|e| AosError::database(format!("Failed to commit evidence envelope: {e}")))?;
 
         Ok(id)
     }

@@ -6,11 +6,12 @@
 #![allow(clippy::useless_vec)]
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use adapteros_core::{cosine_similarity, normalize};
 use blake3::Hasher;
 use std::sync::Arc;
-use tracing::{debug, info};
+use tracing::{debug, error, info, warn};
 
 pub use crate::ane_embedder::TinyBertEmbedder;
 
@@ -32,6 +33,9 @@ pub struct ReasoningRouterConfig {
     pub embedder_type: EmbedderType,
     /// Path to the embedder model (if using TinyBert).
     pub model_path: Option<String>,
+    /// Minimum boundary kind required to trigger thought analysis.
+    /// Default: Sentence (single newlines are not sufficient).
+    pub min_boundary_kind: BoundaryKind,
 }
 
 /// Supported embedder types for the reasoning router.
@@ -41,6 +45,21 @@ pub enum EmbedderType {
     Hashed,
     /// Tiny-BERT model pinned to ANE (semantic understanding).
     TinyBert,
+}
+
+/// Boundary types for thought segmentation, ordered by precedence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum BoundaryKind {
+    /// No boundary detected.
+    None = 0,
+    /// Word boundary (whitespace).
+    Word = 1,
+    /// Sentence boundary (punctuation + space/newline).
+    Sentence = 2,
+    /// Paragraph boundary (double newline).
+    Paragraph = 3,
+    /// Explicit marker (e.g., `<thinking>`).
+    Explicit = 4,
 }
 
 impl Default for ReasoningRouterConfig {
@@ -53,6 +72,7 @@ impl Default for ReasoningRouterConfig {
             analysis_window: 1024,
             embedder_type: EmbedderType::Hashed,
             model_path: None,
+            min_boundary_kind: BoundaryKind::Sentence,
         }
     }
 }
@@ -148,6 +168,7 @@ impl FastEmbedder {
     /// external weights. This keeps the model resident and fast.
     pub fn embed(&self, text: &str) -> Vec<f32> {
         if text.trim().is_empty() {
+            warn!("Hashed embedder called with empty text");
             return vec![0.0; self.dim];
         }
 
@@ -213,35 +234,80 @@ pub struct TransitionScore {
 }
 
 /// Scorer that blends semantic similarity with topology priors.
-#[derive(Debug, Clone)]
 pub struct ReasoningScorer {
-    clusters: HashMap<String, Vec<f32>>,
+    /// Cluster centroids keyed by name, with stable ordering ID for deterministic tie-breaking.
+    clusters: Vec<(String, Vec<f32>, u64)>,
     topology: TopologyPrior,
     semantic_weight: f32,
     topology_weight: f32,
+    /// Counter for dimension mismatches (diagnostic telemetry).
+    dimension_mismatches: AtomicU64,
+}
+
+impl Clone for ReasoningScorer {
+    fn clone(&self) -> Self {
+        Self {
+            clusters: self.clusters.clone(),
+            topology: self.topology.clone(),
+            semantic_weight: self.semantic_weight,
+            topology_weight: self.topology_weight,
+            dimension_mismatches: AtomicU64::new(self.dimension_mismatches.load(Ordering::Relaxed)),
+        }
+    }
+}
+
+impl std::fmt::Debug for ReasoningScorer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ReasoningScorer")
+            .field("clusters", &self.clusters.len())
+            .field("topology", &self.topology)
+            .field("semantic_weight", &self.semantic_weight)
+            .field("topology_weight", &self.topology_weight)
+            .field("dimension_mismatches", &self.dimension_mismatches.load(Ordering::Relaxed))
+            .finish()
+    }
 }
 
 impl ReasoningScorer {
+    /// Create a new scorer with cluster centroids and topology priors.
+    ///
+    /// The clusters HashMap is converted to a sorted Vec with stable ordering IDs
+    /// for deterministic tie-breaking.
     pub fn new(
         clusters: HashMap<String, Vec<f32>>,
         topology: TopologyPrior,
         semantic_weight: f32,
         topology_weight: f32,
     ) -> Self {
+        // Convert to sorted Vec with stable ordering IDs
+        let mut sorted_clusters: Vec<_> = clusters.into_iter().collect();
+        sorted_clusters.sort_by(|(a, _), (b, _)| a.cmp(b));
+        let clusters_with_ids: Vec<(String, Vec<f32>, u64)> = sorted_clusters
+            .into_iter()
+            .enumerate()
+            .map(|(idx, (name, centroid))| (name, centroid, idx as u64))
+            .collect();
+
         Self {
-            clusters,
+            clusters: clusters_with_ids,
             topology,
             semantic_weight,
             topology_weight,
+            dimension_mismatches: AtomicU64::new(0),
         }
     }
 
     pub fn from_adapter_ids(adapter_ids: &[String], embedder: &Embedder) -> Self {
-        let clusters = adapter_ids
+        let clusters: HashMap<_, _> = adapter_ids
             .iter()
             .map(|id| (id.clone(), embedder.embed(id)))
             .collect();
         Self::new(clusters, TopologyPrior::default(), 0.7, 0.3)
+    }
+
+    /// Get the number of dimension mismatches encountered during scoring.
+    pub fn dimension_mismatch_count(&self) -> u64 {
+        self.dimension_mismatches.load(Ordering::Relaxed)
     }
 
     pub fn score_transition(
@@ -249,37 +315,63 @@ impl ReasoningScorer {
         current_cluster: &str,
         thought_vector: &[f32],
     ) -> TransitionScore {
-        let mut best_target: Option<String> = None;
-        let mut best_conf = 0.0;
-        let mut best_semantic = 0.0;
-        let mut best_topology = 0.0;
+        // Collect candidates with scores for deterministic tie-breaking
+        let mut candidates: Vec<(usize, f32, f32, f32, &str, u64)> = Vec::new();
+        let mut skipped_count = 0usize;
 
-        // Sort clusters by key for deterministic iteration order
-        let mut sorted_clusters: Vec<_> = self.clusters.iter().collect();
-        sorted_clusters.sort_by_key(|(name, _)| name.as_str());
-
-        for (name, centroid) in sorted_clusters {
+        for (idx, (name, centroid, stable_id)) in self.clusters.iter().enumerate() {
             if centroid.len() != thought_vector.len() {
+                warn!(
+                    cluster = %name,
+                    centroid_dim = centroid.len(),
+                    thought_dim = thought_vector.len(),
+                    "Dimension mismatch in reasoning scorer - cluster skipped"
+                );
+                self.dimension_mismatches.fetch_add(1, Ordering::Relaxed);
+                skipped_count += 1;
                 continue;
             }
 
             let semantic = cosine_similarity(thought_vector, centroid);
             let topology = self.topology.probability(current_cluster, name);
             let combined = self.semantic_weight * semantic + self.topology_weight * topology;
-
-            if combined > best_conf {
-                best_conf = combined;
-                best_semantic = semantic;
-                best_topology = topology;
-                best_target = Some(name.clone());
-            }
+            candidates.push((idx, combined, semantic, topology, name.as_str(), *stable_id));
         }
 
-        TransitionScore {
-            target: best_target,
-            confidence: best_conf,
-            semantic: best_semantic,
-            topology: best_topology,
+        // Log error if all clusters were skipped due to dimension mismatch
+        if candidates.is_empty() && skipped_count > 0 {
+            error!(
+                cluster_count = self.clusters.len(),
+                thought_dim = thought_vector.len(),
+                "All clusters skipped due to dimension mismatch - reasoning routing disabled"
+            );
+        }
+
+        // Sort: score DESC, stable_id ASC for deterministic tie-breaking
+        candidates.sort_by(|a, b| {
+            let score_cmp = b.1.total_cmp(&a.1); // score DESC
+            if score_cmp == std::cmp::Ordering::Equal {
+                a.5.cmp(&b.5) // stable_id ASC
+            } else {
+                score_cmp
+            }
+        });
+
+        // Take the best candidate
+        if let Some((_, conf, semantic, topology, name, _)) = candidates.first() {
+            TransitionScore {
+                target: Some(name.to_string()),
+                confidence: *conf,
+                semantic: *semantic,
+                topology: *topology,
+            }
+        } else {
+            TransitionScore {
+                target: None,
+                confidence: 0.0,
+                semantic: 0.0,
+                topology: 0.0,
+            }
         }
     }
 }
@@ -422,8 +514,43 @@ impl StreamInspector {
         })
     }
 
+    /// Detect the kind of boundary represented by a token.
+    fn detect_boundary(&self, token: &str) -> BoundaryKind {
+        // Explicit marker (highest priority)
+        if token.trim() == self.config.thinking_token {
+            return BoundaryKind::Explicit;
+        }
+
+        // Paragraph boundary (double newline)
+        if token.contains("\n\n") {
+            return BoundaryKind::Paragraph;
+        }
+
+        // Sentence boundary (punctuation + space/newline)
+        let sentence_endings = [". ", "! ", "? ", ".\n", "!\n", "?\n"];
+        for ending in &sentence_endings {
+            if token.contains(ending) {
+                return BoundaryKind::Sentence;
+            }
+        }
+
+        // Check cross-token sentence boundary (buffer ends with punctuation, token starts with space)
+        if (self.buffer.ends_with('.') || self.buffer.ends_with('!') || self.buffer.ends_with('?'))
+            && (token.starts_with(' ') || token.starts_with('\n'))
+        {
+            return BoundaryKind::Sentence;
+        }
+
+        // Single newline is only a Word-level boundary (not sufficient by default)
+        if token.contains('\n') {
+            return BoundaryKind::Word;
+        }
+
+        BoundaryKind::None
+    }
+
     fn is_boundary_token(&self, token: &str) -> bool {
-        token.contains('\n') || token.trim() == self.config.thinking_token
+        self.detect_boundary(token) >= self.config.min_boundary_kind
     }
 }
 
@@ -479,6 +606,8 @@ mod tests {
                 analysis_window: 256,
                 embedder_type: EmbedderType::Hashed,
                 model_path: None,
+                // Use Word boundary for test compatibility (single newlines trigger)
+                min_boundary_kind: BoundaryKind::Word,
             },
         );
 

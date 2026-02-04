@@ -2,8 +2,8 @@
 
 use crate::api::ApiClient;
 use crate::components::{
-    Button, ButtonVariant, Card, EmptyState, ErrorDisplay, Input, LoadingDisplay, PageHeader,
-    RefreshButton, Select, Spinner, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    Button, ButtonVariant, Card, EmptyState, ErrorDisplay, Input, LoadingDisplay, RefreshButton,
+    Select, Spinner, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api, use_api_resource, LoadingState};
 use adapteros_api_types::{CreateRoutingRuleRequest, RoutingRuleResponse};
@@ -43,12 +43,15 @@ pub fn RoutingRules() -> impl IntoView {
 
     view! {
         <div class="space-y-6">
-            <PageHeader
-                title="Routing Rules"
-                subtitle="Map Identity Set outcomes to target adapters"
-            >
+            <div class="flex items-center justify-between">
+                <div>
+                    <h2 class="text-2xl font-semibold tracking-tight">"Routing Rules"</h2>
+                    <p class="text-muted-foreground mt-1">
+                        "Map Identity Set outcomes to target adapters"
+                    </p>
+                </div>
                 <RefreshButton on_click=Callback::new(move |_| refetch_trigger.update(|n| *n = n.wrapping_add(1)))/>
-            </PageHeader>
+            </div>
 
             <div class="grid gap-6 md:grid-cols-4">
                 <Card class="md:col-span-1">

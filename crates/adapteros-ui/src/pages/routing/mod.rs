@@ -19,7 +19,7 @@ pub fn Routing() -> impl IntoView {
     let active_tab = RwSignal::new("rules");
 
     view! {
-        <div class="space-y-6">
+        <div class="shell-page space-y-6">
             <div>
                 <h1 class="text-3xl font-bold tracking-tight">"Routing Debug"</h1>
                 <p class="text-sm text-muted-foreground">

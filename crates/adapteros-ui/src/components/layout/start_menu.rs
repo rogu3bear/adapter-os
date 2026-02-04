@@ -15,6 +15,15 @@ use leptos::prelude::*;
 pub fn StartMenu(on_close: impl Fn() + Clone + Send + Sync + 'static) -> impl IntoView {
     let ui_profile = use_ui_profile();
     let modules = Signal::derive(move || build_start_menu_modules(ui_profile.get()));
+    let menu_ref = NodeRef::<html::Div>::new();
+    on_mount({
+        let menu_ref = menu_ref.clone();
+        move || {
+            if let Some(menu) = menu_ref.get() {
+                let _ = menu.focus();
+            }
+        }
+    });
 
     // Track which modules are expanded (Tools starts collapsed)
     let expanded_modules = RwSignal::new(Vec::new());
@@ -23,39 +32,61 @@ pub fn StartMenu(on_close: impl Fn() + Clone + Send + Sync + 'static) -> impl In
         expanded_modules.set(initial_expanded);
     });
 
+    let on_escape = {
+        let on_close = on_close.clone();
+        move |ev: web_sys::KeyboardEvent| {
+            if ev.key() == "Escape" {
+                ev.prevent_default();
+                ev.stop_propagation();
+                on_close();
+            }
+        }
+    };
+
     view! {
-        <div
-            class="absolute left-0 w-80 bg-background border border-border rounded-lg shadow-xl z-50"
-            style="bottom: 100%; margin-bottom: 0.5rem; max-height: calc(100vh - 6rem);"
-        >
-            // Header
-            <div class="p-4 border-b border-border">
-                <h2 class="text-lg font-semibold">"adapterOS"</h2>
-                <p class="text-xs text-muted-foreground">"Control Plane"</p>
-            </div>
+        <div class="fixed inset-0 z-50">
+            <button
+                class="absolute inset-0 bg-background/60 backdrop-blur-sm"
+                aria-label="Close start menu"
+                on:click=move |_| on_close()
+            />
+            <div
+                node_ref=menu_ref
+                class="absolute left-0 w-80 bg-background border border-border rounded-lg shadow-xl"
+                style="bottom: 100%; margin-bottom: 0.5rem; max-height: calc(100vh - 6rem);"
+                role="dialog"
+                aria-modal="true"
+                tabindex="0"
+                on:keydown=on_escape
+            >
+                // Header
+                <div class="p-4 border-b border-border">
+                    <h2 class="text-lg font-semibold">"adapterOS"</h2>
+                    <p class="text-xs text-muted-foreground">"Control Plane"</p>
+                </div>
 
-            // Module list
-            <div class="p-2 overflow-y-auto" style="max-height: calc(100vh - 12rem);">
-                {move || {
-                    modules
-                        .get()
-                        .into_iter()
-                        .enumerate()
-                        .map(|(idx, module)| {
-                            let on_close = on_close.clone();
-                            view! {
-                                <ModuleSection
-                                    module=module
-                                    expanded=expanded_modules
-                                    index=idx
-                                    on_navigate=on_close
-                                />
-                            }
-                        })
-                        .collect::<Vec<_>>()
-                }}
+                // Module list
+                <div class="p-2 overflow-y-auto" style="max-height: calc(100vh - 12rem);">
+                    {move || {
+                        modules
+                            .get()
+                            .into_iter()
+                            .enumerate()
+                            .map(|(idx, module)| {
+                                let on_close = on_close.clone();
+                                view! {
+                                    <ModuleSection
+                                        module=module
+                                        expanded=expanded_modules
+                                        index=idx
+                                        on_navigate=on_close
+                                    />
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                    }}
+                </div>
             </div>
-
         </div>
     }
 }

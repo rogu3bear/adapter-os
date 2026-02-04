@@ -79,6 +79,7 @@ pub fn build_api_config(server_config: Arc<RwLock<Config>>) -> Result<Arc<RwLock
             clock_skew_seconds: cfg.security.clock_skew_seconds,
             dev_bypass: cfg.security.dev_bypass,
             allow_registration: cfg.security.allow_registration,
+            ci_attestation_public_keys: cfg.security.ci_attestation_public_keys.clone(),
         },
         auth: adapteros_server_api::state::AuthConfigApi {
             dev_algo: cfg.auth.dev_algo.clone(),

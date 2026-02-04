@@ -65,6 +65,7 @@ use crate::response_types::TokenUsage;
 use crate::router_bridge::decision_to_router_ring_with_active_ids_and_strengths;
 use adapteros_api_types::inference::{
     FusionIntervalTrace, RouterDecisionChainEntry, RouterDecisionHash, RouterModelType, RunReceipt,
+    STOP_Q15_DENOM,
 };
 use adapteros_config::{
     resolve_index_root, try_effective_config, ModelConfig, PlacementConfig, PlacementMode,
@@ -649,6 +650,58 @@ pub fn normalize_backend_id(backend: &str) -> &'static str {
         // Unknown backend
         _ => "unknown",
     }
+}
+
+fn q15_from_unit(value: f32) -> i16 {
+    let clamped = value.clamp(0.0, 1.0);
+    (clamped * STOP_Q15_DENOM).round().clamp(i16::MIN as f32, i16::MAX as f32) as i16
+}
+
+fn compute_cached_prefix_digest(
+    tokens: &[u32],
+    tokenizer_hash: &B3Hash,
+    cached_len: u32,
+) -> Option<B3Hash> {
+    if cached_len == 0 {
+        return None;
+    }
+    let len = cached_len as usize;
+    let mut buf = Vec::with_capacity(32 + 4 + len * 4);
+    buf.extend_from_slice(tokenizer_hash.as_bytes());
+    buf.extend_from_slice(&cached_len.to_le_bytes());
+    for t in tokens.iter().take(len) {
+        buf.extend_from_slice(&t.to_le_bytes());
+    }
+    Some(B3Hash::hash(&buf))
+}
+
+fn compute_retrieval_digests(evidence: &[EvidenceRef], tenant_id: &str) -> (Option<B3Hash>, Option<B3Hash>) {
+    if evidence.is_empty() {
+        return (None, None);
+    }
+
+    let mut entry_hashes = Vec::with_capacity(evidence.len());
+    let mut order_buf = Vec::with_capacity(evidence.len() * 64);
+
+    for (idx, e) in evidence.iter().enumerate() {
+        let mut entry_buf = Vec::with_capacity(e.doc_id.len() + e.rev.len() + 32 + 8);
+        entry_buf.extend_from_slice(e.doc_id.as_bytes());
+        entry_buf.extend_from_slice(e.rev.as_bytes());
+        entry_buf.extend_from_slice(e.span_hash.as_bytes());
+        entry_buf.extend_from_slice(&e.score.to_le_bytes());
+        let entry_hash = B3Hash::hash(&entry_buf);
+        entry_hashes.push(entry_hash);
+
+        order_buf.extend_from_slice(&(idx as u32).to_le_bytes());
+        order_buf.extend_from_slice(entry_hash.as_bytes());
+    }
+
+    let merkle_root = adapteros_core::receipt_merkle::batch_receipts(tenant_id, &entry_hashes)
+        .map(|b| b.merkle_root)
+        .ok();
+    let order_digest = Some(B3Hash::hash(&order_buf));
+
+    (merkle_root, order_digest)
 }
 
 fn is_determinism_downgrade(baseline: DeterminismLevel, candidate: DeterminismLevel) -> bool {
@@ -2936,6 +2989,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             Vec::with_capacity(self.tenant_namespace.len() + 32 + (prompt_tokens.len() * 4) + 4);
         context_bytes.extend_from_slice(self.tenant_namespace.as_bytes());
         context_bytes.extend_from_slice(stack_hash.as_bytes());
+        context_bytes.extend_from_slice(self.manifest.base.tokenizer_hash.as_bytes());
         context_bytes.extend_from_slice(&(prompt_tokens.len() as u32).to_le_bytes());
         for t in &prompt_tokens {
             context_bytes.extend_from_slice(&t.to_le_bytes());
@@ -3574,6 +3628,44 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 kv_quota_enforced,
             ) = self.kv_receipt_fields();
 
+            let tokenizer_hash_b3 = Some(self.manifest.base.tokenizer_hash);
+            let tokenizer_version = None;
+            let tokenizer_normalization = None;
+            let model_build_hash_b3 = None;
+            let adapter_build_hash_b3 = None;
+            let decode_algo = Some(if request.temperature.unwrap_or(1.0) <= 0.0 {
+                "greedy".to_string()
+            } else {
+                "sampling".to_string()
+            });
+            let temperature_q15 = request.temperature.map(q15_from_unit);
+            let top_p_q15 = request.top_p.map(q15_from_unit);
+            let top_k = request.top_k.map(|v| v as u32);
+            let seed_digest_b3 = request
+                .request_seed
+                .map(|seed| B3Hash::hash(&seed))
+                .or_else(|| request.seed.map(|seed| B3Hash::hash(&seed.to_le_bytes())));
+            let sampling_backend = Some(backend_used.clone());
+            let thread_count = None;
+            let reduction_strategy = None;
+            let stop_eos_q15 = None;
+            let stop_window_digest_b3 = None;
+            let cache_scope = Some("global".to_string());
+            let cached_prefix_digest_b3 = compute_cached_prefix_digest(
+                &prompt_tokens,
+                &self.manifest.base.tokenizer_hash,
+                prefix_cached_token_count,
+            );
+            let cached_prefix_len = Some(prefix_cached_token_count);
+            let cache_key_b3 = Some(prefix_kv_key);
+            let (retrieval_merkle_root_b3, retrieval_order_digest_b3) =
+                compute_retrieval_digests(&evidence, &request.cpid);
+            let tool_call_inputs_digest_b3 = None;
+            let tool_call_outputs_digest_b3 = None;
+            let disclosure_level = Some("full".to_string());
+            let receipt_signing_kid = None;
+            let receipt_signed_at = None;
+
             if let Some(sink) = trace_sink.as_mut() {
                 // model_cache_identity_v2_digest already computed earlier for cache lookup
                 match sink
@@ -3608,6 +3700,32 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                         cache_attestation: None,
                         worker_public_key: None,
                         copy_bytes: None,
+                        tokenizer_hash_b3,
+                        tokenizer_version: tokenizer_version.clone(),
+                        tokenizer_normalization: tokenizer_normalization.clone(),
+                        model_build_hash_b3,
+                        adapter_build_hash_b3,
+                        decode_algo: decode_algo.clone(),
+                        temperature_q15,
+                        top_p_q15,
+                        top_k,
+                        seed_digest_b3,
+                        sampling_backend: sampling_backend.clone(),
+                        thread_count,
+                        reduction_strategy: reduction_strategy.clone(),
+                        stop_eos_q15,
+                        stop_window_digest_b3,
+                        cache_scope: cache_scope.clone(),
+                        cached_prefix_digest_b3,
+                        cached_prefix_len,
+                        cache_key_b3,
+                        retrieval_merkle_root_b3,
+                        retrieval_order_digest_b3,
+                        tool_call_inputs_digest_b3,
+                        tool_call_outputs_digest_b3,
+                        disclosure_level: disclosure_level.clone(),
+                        receipt_signing_kid: receipt_signing_kid.clone(),
+                        receipt_signed_at: receipt_signed_at.clone(),
                     })
                     .await
                 {
@@ -3664,6 +3782,32 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                             // V6 cross-run lineage (not tracked yet)
                             previous_receipt_digest: None,
                             session_sequence: 0,
+                            tokenizer_hash_b3: tokenizer_hash_b3.map(|h| h),
+                            tokenizer_version: tokenizer_version.clone(),
+                            tokenizer_normalization: tokenizer_normalization.clone(),
+                            model_build_hash_b3: model_build_hash_b3.map(|h| h),
+                            adapter_build_hash_b3: adapter_build_hash_b3.map(|h| h),
+                            decode_algo: decode_algo.clone(),
+                            temperature_q15,
+                            top_p_q15,
+                            top_k,
+                            seed_digest_b3: seed_digest_b3.map(|h| h),
+                            sampling_backend: sampling_backend.clone(),
+                            thread_count,
+                            reduction_strategy: reduction_strategy.clone(),
+                            stop_eos_q15,
+                            stop_window_digest_b3,
+                            cache_scope: cache_scope.clone(),
+                            cached_prefix_digest_b3: cached_prefix_digest_b3.map(|h| h),
+                            cached_prefix_len,
+                            cache_key_b3: cache_key_b3.map(|h| h),
+                            retrieval_merkle_root_b3: retrieval_merkle_root_b3.map(|h| h),
+                            retrieval_order_digest_b3: retrieval_order_digest_b3.map(|h| h),
+                            tool_call_inputs_digest_b3,
+                            tool_call_outputs_digest_b3,
+                            disclosure_level: disclosure_level.clone(),
+                            receipt_signing_kid: receipt_signing_kid.clone(),
+                            receipt_signed_at: receipt_signed_at.clone(),
                         });
                     }
                     Err(e) => {
@@ -4367,6 +4511,44 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             kv_quota_enforced,
         ) = self.kv_receipt_fields();
 
+        let tokenizer_hash_b3 = Some(self.manifest.base.tokenizer_hash);
+        let tokenizer_version = None;
+        let tokenizer_normalization = None;
+        let model_build_hash_b3 = None;
+        let adapter_build_hash_b3 = None;
+        let decode_algo = Some(if request.temperature.unwrap_or(1.0) <= 0.0 {
+            "greedy".to_string()
+        } else {
+            "sampling".to_string()
+        });
+        let temperature_q15 = request.temperature.map(q15_from_unit);
+        let top_p_q15 = request.top_p.map(q15_from_unit);
+        let top_k = request.top_k.map(|v| v as u32);
+        let seed_digest_b3 = request
+            .request_seed
+            .map(|seed| B3Hash::hash(&seed))
+            .or_else(|| request.seed.map(|seed| B3Hash::hash(&seed.to_le_bytes())));
+        let sampling_backend = Some(backend_used.clone());
+        let thread_count = None;
+        let reduction_strategy = None;
+        let stop_eos_q15 = None;
+        let stop_window_digest_b3 = None;
+        let cache_scope = Some("global".to_string());
+        let cached_prefix_digest_b3 = compute_cached_prefix_digest(
+            &prompt_tokens,
+            &self.manifest.base.tokenizer_hash,
+            prefix_cached_token_count,
+        );
+        let cached_prefix_len = Some(prefix_cached_token_count);
+        let cache_key_b3 = Some(prefix_kv_key);
+        let (retrieval_merkle_root_b3, retrieval_order_digest_b3) =
+            compute_retrieval_digests(&evidence, &request.cpid);
+        let tool_call_inputs_digest_b3 = None;
+        let tool_call_outputs_digest_b3 = None;
+        let disclosure_level = Some("full".to_string());
+        let receipt_signing_kid = None;
+        let receipt_signed_at = None;
+
         if let Some(sink) = trace_sink.as_mut() {
             match sink
                 .finalize(TraceFinalization {
@@ -4401,6 +4583,32 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                     cache_attestation: None,
                     worker_public_key: None,
                     copy_bytes: None,
+                    tokenizer_hash_b3,
+                    tokenizer_version: tokenizer_version.clone(),
+                    tokenizer_normalization: tokenizer_normalization.clone(),
+                    model_build_hash_b3,
+                    adapter_build_hash_b3,
+                    decode_algo: decode_algo.clone(),
+                    temperature_q15,
+                    top_p_q15,
+                    top_k,
+                    seed_digest_b3,
+                    sampling_backend: sampling_backend.clone(),
+                    thread_count,
+                    reduction_strategy: reduction_strategy.clone(),
+                    stop_eos_q15,
+                    stop_window_digest_b3,
+                    cache_scope: cache_scope.clone(),
+                    cached_prefix_digest_b3,
+                    cached_prefix_len,
+                    cache_key_b3,
+                    retrieval_merkle_root_b3,
+                    retrieval_order_digest_b3,
+                    tool_call_inputs_digest_b3,
+                    tool_call_outputs_digest_b3,
+                    disclosure_level: disclosure_level.clone(),
+                    receipt_signing_kid: receipt_signing_kid.clone(),
+                    receipt_signed_at: receipt_signed_at.clone(),
                 })
                 .await
             {
@@ -4458,6 +4666,32 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                         // V6 cross-run lineage (not tracked yet)
                         previous_receipt_digest: None,
                         session_sequence: 0,
+                        tokenizer_hash_b3: tokenizer_hash_b3.map(|h| h),
+                        tokenizer_version: tokenizer_version.clone(),
+                        tokenizer_normalization: tokenizer_normalization.clone(),
+                        model_build_hash_b3: model_build_hash_b3.map(|h| h),
+                        adapter_build_hash_b3: adapter_build_hash_b3.map(|h| h),
+                        decode_algo: decode_algo.clone(),
+                        temperature_q15,
+                        top_p_q15,
+                        top_k,
+                        seed_digest_b3: seed_digest_b3.map(|h| h),
+                        sampling_backend: sampling_backend.clone(),
+                        thread_count,
+                        reduction_strategy: reduction_strategy.clone(),
+                        stop_eos_q15,
+                        stop_window_digest_b3,
+                        cache_scope: cache_scope.clone(),
+                        cached_prefix_digest_b3: cached_prefix_digest_b3.map(|h| h),
+                        cached_prefix_len,
+                        cache_key_b3: cache_key_b3.map(|h| h),
+                        retrieval_merkle_root_b3: retrieval_merkle_root_b3.map(|h| h),
+                        retrieval_order_digest_b3: retrieval_order_digest_b3.map(|h| h),
+                        tool_call_inputs_digest_b3,
+                        tool_call_outputs_digest_b3,
+                        disclosure_level: disclosure_level.clone(),
+                        receipt_signing_kid: receipt_signing_kid.clone(),
+                        receipt_signed_at: receipt_signed_at.clone(),
                     });
                 }
                 Err(e) => {

@@ -136,7 +136,10 @@ fn build_error_payload(error: &ApiError) -> String {
         payload.push_str(&format!("Failure Code: {}\n", fc.as_str()));
     }
 
-    if let ApiError::Structured { details: Some(d), .. } = error {
+    if let ApiError::Structured {
+        details: Some(d), ..
+    } = error
+    {
         if let Ok(json) = serde_json::to_string_pretty(d) {
             payload.push_str(&format!("\nDetails:\n{}\n", json));
         }

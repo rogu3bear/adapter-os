@@ -5362,6 +5362,74 @@
         ],
         "type": "object"
       },
+      "CiAttestationRequest": {
+        "properties": {
+          "build_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ci_run_id": {
+            "type": "string"
+          },
+          "commit_sha": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "image_digest": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "public_key": {
+            "type": "string"
+          },
+          "signature": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ci_run_id",
+          "status",
+          "signature",
+          "public_key"
+        ],
+        "type": "object"
+      },
+      "CiAttestationResponse": {
+        "properties": {
+          "ci_checked_at": {
+            "type": "string"
+          },
+          "ci_run_id": {
+            "type": "string"
+          },
+          "ci_status": {
+            "type": "string"
+          },
+          "release_id": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "release_id",
+          "ci_run_id",
+          "ci_status",
+          "ci_checked_at"
+        ],
+        "type": "object"
+      },
       "Citation": {
         "description": "Citation metadata for a response",
         "properties": {
@@ -19131,6 +19199,16 @@
               "null"
             ]
           },
+          "release": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ReleaseMetadata"
+              }
+            ]
+          },
           "target_stage": {
             "type": "string"
           }
@@ -19142,10 +19220,22 @@
       },
       "PromoteResponse": {
         "properties": {
+          "ci_run_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ci_status": {
+            "type": "string"
+          },
           "created_at": {
             "type": "string"
           },
           "golden_run_id": {
+            "type": "string"
+          },
+          "release_id": {
             "type": "string"
           },
           "request_id": {
@@ -19160,9 +19250,11 @@
         },
         "required": [
           "request_id",
+          "release_id",
           "golden_run_id",
           "target_stage",
           "status",
+          "ci_status",
           "created_at"
         ],
         "type": "object"
@@ -19310,6 +19402,21 @@
             },
             "type": "array"
           },
+          "ci_checked_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ci_run_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ci_status": {
+            "type": "string"
+          },
           "created_at": {
             "type": "string"
           },
@@ -19327,6 +19434,9 @@
               "string",
               "null"
             ]
+          },
+          "release_id": {
+            "type": "string"
           },
           "request_id": {
             "type": "string"
@@ -19346,9 +19456,11 @@
         },
         "required": [
           "request_id",
+          "release_id",
           "golden_run_id",
           "target_stage",
           "status",
+          "ci_status",
           "requester_email",
           "created_at",
           "updated_at",
@@ -20389,6 +20501,35 @@
           "available",
           "message"
         ],
+        "type": "object"
+      },
+      "ReleaseMetadata": {
+        "properties": {
+          "build_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ci_run_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "commit_sha": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "image_digest": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
         "type": "object"
       },
       "ReplayAvailabilityResponse": {
@@ -21864,6 +22005,12 @@
         "properties": {
           "reason": {
             "type": "string"
+          },
+          "target_run_id": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -32056,7 +32203,7 @@
       "name": ""
     },
     "title": "adapteros-server-api",
-    "version": "0.4.1"
+    "version": "0.0.1"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -41168,6 +41315,48 @@
         ]
       }
     },
+    "/v1/diag/bundle/{export_id}/signature": {
+      "get": {
+        "operationId": "download_signature",
+        "parameters": [
+          {
+            "description": "Export ID",
+            "in": "path",
+            "name": "export_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {}
+            },
+            "description": "Signature file"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Export not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearer_token": []
+          }
+        ],
+        "summary": "GET /v1/diag/bundle/{export_id}/signature - Download standalone signature file",
+        "tags": [
+          "diagnostics"
+        ]
+      }
+    },
     "/v1/diag/diff": {
       "post": {
         "description": "Computes differences between two runs for debugging.",
@@ -43658,6 +43847,61 @@
           }
         ],
         "summary": "POST /v1/golden/:runId/approve - Approve or reject promotion",
+        "tags": [
+          "promotion"
+        ]
+      }
+    },
+    "/v1/golden/{run_id}/ci-attestation": {
+      "post": {
+        "operationId": "record_ci_attestation",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CiAttestationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CiAttestationResponse"
+                }
+              }
+            },
+            "description": "CI attestation recorded"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "403": {
+            "description": "Insufficient permissions"
+          },
+          "404": {
+            "description": "Promotion request not found"
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ],
+        "summary": "POST /v1/golden/:runId/ci-attestation - Record CI attestation for promotion",
         "tags": [
           "promotion"
         ]

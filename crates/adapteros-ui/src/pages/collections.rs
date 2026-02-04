@@ -15,8 +15,8 @@ use crate::api::{
 use crate::components::{
     async_state::AsyncBoundary, Badge, BadgeVariant, BreadcrumbItem, BreadcrumbTrail, Button,
     ButtonSize, ButtonVariant, Card, Checkbox, ConfirmationDialog, ConfirmationSeverity,
-    CopyableId, Dialog, Input, Select, Spinner, Table, TableBody, TableCell, TableHead,
-    TableHeader, TableRow, Textarea,
+    CopyableId, Dialog, Input, PageHeader, RefreshButton, Select, Spinner, Table, TableBody,
+    TableCell, TableHead, TableHeader, TableRow, Textarea,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use crate::signals::use_notifications;
@@ -100,32 +100,23 @@ pub fn Collections() -> impl IntoView {
 
     view! {
         <div class="shell-page space-y-6">
-            // Header with title and actions
-            <div class="flex items-center justify-between">
-                <div>
-                    <h1 class="text-3xl font-bold tracking-tight">"Collections"</h1>
-                    <p class="text-muted-foreground mt-1">
-                        "Organize documents into collections for RAG-enabled inference"
-                    </p>
-                </div>
-                <div class="flex items-center gap-2">
-                    <Button
-                        variant=ButtonVariant::Secondary
-                        on_click=Callback::new({
-                            let refetch = refetch.clone();
-                            move |_| refetch()
-                        })
-                    >
-                        "Refresh"
-                    </Button>
-                    <Button
-                        variant=ButtonVariant::Primary
-                        on_click=Callback::new(move |_| show_create_dialog.set(true))
-                    >
-                        "New Collection"
-                    </Button>
-                </div>
-            </div>
+            <PageHeader
+                title="Collections"
+                subtitle="Organize documents into collections for RAG-enabled inference"
+            >
+                <RefreshButton
+                    on_click=Callback::new({
+                        let refetch = refetch.clone();
+                        move |_| refetch()
+                    })
+                />
+                <Button
+                    variant=ButtonVariant::Primary
+                    on_click=Callback::new(move |_| show_create_dialog.set(true))
+                >
+                    "New Collection"
+                </Button>
+            </PageHeader>
 
             // Main content
             <AsyncBoundary
@@ -407,32 +398,26 @@ pub fn CollectionDetail() -> impl IntoView {
             ]/>
 
             // Header
-            <div class="flex items-center justify-between">
-                <h1 class="text-3xl font-bold tracking-tight">"Collection Details"</h1>
-                <div class="flex items-center gap-2">
-                    <Button
-                        variant=ButtonVariant::Secondary
-                        on_click=Callback::new({
-                            let refetch = refetch.clone();
-                            move |_| refetch()
-                        })
-                    >
-                        "Refresh"
-                    </Button>
-                    <Button
-                        variant=ButtonVariant::Primary
-                        on_click=Callback::new(move |_| show_add_dialog.set(true))
-                    >
-                        "Add Documents"
-                    </Button>
-                    <Button
-                        variant=ButtonVariant::Destructive
-                        on_click=Callback::new(move |_| show_delete_confirm.set(true))
-                    >
-                        "Delete"
-                    </Button>
-                </div>
-            </div>
+            <PageHeader title="Collection Details">
+                <RefreshButton
+                    on_click=Callback::new({
+                        let refetch = refetch.clone();
+                        move |_| refetch()
+                    })
+                />
+                <Button
+                    variant=ButtonVariant::Primary
+                    on_click=Callback::new(move |_| show_add_dialog.set(true))
+                >
+                    "Add Documents"
+                </Button>
+                <Button
+                    variant=ButtonVariant::Destructive
+                    on_click=Callback::new(move |_| show_delete_confirm.set(true))
+                >
+                    "Delete"
+                </Button>
+            </PageHeader>
 
             // Main content
             {

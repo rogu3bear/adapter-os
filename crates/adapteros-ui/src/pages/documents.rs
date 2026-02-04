@@ -6,8 +6,8 @@ use crate::api::client::{ChunkListResponse, DocumentListParams, DocumentResponse
 use crate::api::ApiClient;
 use crate::components::{
     Badge, BadgeVariant, BreadcrumbItem, BreadcrumbTrail, Button, ButtonSize, ButtonVariant, Card,
-    ConfirmationDialog, ConfirmationSeverity, CopyableId, Dialog, LoadingDisplay, Select, Table,
-    TableBody, TableCell, TableHead, TableHeader, TableRow,
+    ConfirmationDialog, ConfirmationSeverity, CopyableId, Dialog, LoadingDisplay, RefreshButton,
+    Select, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use crate::signals::{try_use_route_context, SelectedEntity};
@@ -83,15 +83,12 @@ pub fn Documents() -> impl IntoView {
                         ]
                         class="w-40".to_string()
                     />
-                    <Button
-                        variant=ButtonVariant::Primary
+                    <RefreshButton
                         on_click=Callback::new({
                             let refetch = refetch.clone();
                             move |_| refetch()
                         })
-                    >
-                        "Refresh"
-                    </Button>
+                    />
                     <Button
                         variant=ButtonVariant::Primary
                         on_click=Callback::new(move |_| show_upload_dialog.set(true))
@@ -539,15 +536,12 @@ pub fn DocumentDetail() -> impl IntoView {
             <div class="flex items-center justify-between">
                 <h1 class="text-3xl font-bold tracking-tight">"Document Details"</h1>
                 <div class="flex items-center gap-2">
-                    <Button
-                        variant=ButtonVariant::Primary
+                    <RefreshButton
                         on_click=Callback::new({
                             let refetch = refetch.clone();
                             move |_| refetch()
                         })
-                    >
-                        "Refresh"
-                    </Button>
+                    />
                 </div>
             </div>
 

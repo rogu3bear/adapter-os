@@ -301,6 +301,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::diag_bundle::create_bundle_export,
         handlers::diag_bundle::get_bundle_export,
         handlers::diag_bundle::download_bundle,
+        handlers::diag_bundle::download_signature,
         handlers::telemetry::search_traces,
         handlers::telemetry::get_trace,
         handlers::telemetry::list_inference_traces,
@@ -383,6 +384,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::promotion::request_promotion,
         handlers::promotion::get_promotion_status,
         handlers::promotion::approve_or_reject_promotion,
+        handlers::promotion::record_ci_attestation,
         handlers::promotion::get_gate_status,
         handlers::promotion::rollback_promotion,
         handlers::activity::list_activity_events,
@@ -792,6 +794,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::git::FileChangeEvent,
         // Promotion types
         crate::handlers::promotion::PromoteRequest,
+        crate::handlers::promotion::ReleaseMetadata,
         crate::handlers::promotion::PromoteResponse,
         crate::handlers::promotion::PromotionStatusResponse,
         crate::handlers::promotion::GateStatus,
@@ -800,6 +803,8 @@ use utoipa_swagger_ui::SwaggerUi;
         crate::handlers::promotion::ApproveResponse,
         crate::handlers::promotion::RollbackRequest,
         crate::handlers::promotion::RollbackResponse,
+        crate::handlers::promotion::CiAttestationRequest,
+        crate::handlers::promotion::CiAttestationResponse,
         // Federation types
         crate::handlers::federation::FederationStatusResponse,
         crate::handlers::federation::QuarantineStatusResponse,
@@ -2003,6 +2008,10 @@ pub fn build(state: AppState) -> Router {
             "/v1/diag/bundle/{export_id}/download",
             get(handlers::diag_bundle::download_bundle),
         )
+        .route(
+            "/v1/diag/bundle/{export_id}/signature",
+            get(handlers::diag_bundle::download_signature),
+        )
         // Trace routes
         .route("/v1/traces/search", get(handlers::telemetry::search_traces))
         .route(
@@ -2296,6 +2305,10 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/golden/{run_id}/approve",
             post(handlers::promotion::approve_or_reject_promotion),
+        )
+        .route(
+            "/v1/golden/{run_id}/ci-attestation",
+            post(handlers::promotion::record_ci_attestation),
         )
         .route(
             "/v1/golden/{run_id}/gates",

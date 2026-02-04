@@ -1,0 +1,34 @@
+{
+  "id": "replay_006_quant_edges",
+  "input_seed_hex": "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a",
+  "adapter_ids": [
+    "adapter-edge-1",
+    "adapter-edge-2",
+    "adapter-edge-3",
+    "adapter-edge-4"
+  ],
+  "prompt_tokens": [
+    300,
+    301
+  ],
+  "seed_mode": "Strict",
+  "gate_raw_scores": [
+    1.0,
+    0.99999,
+    0.0,
+    -0.0001
+  ],
+  "backend_used": "mock",
+  "expected_decision_hash": "6dba8df8f2fa15b87daf413c4430b8e049358a0bc06399cf04f087d006dd13c8",
+  "expected_gates_q15": [
+    32767,
+    32766,
+    0,
+    -4
+  ],
+  "expected_output_digest": "d7b9b011024444641be678cddde8901f8d30449e90ba35f72a58857a69510856",
+  "expected_receipt_digest": "e52eb398c2550df28b8806411b8a30ec6617b6ad7cc850bff2ac4dd4d6c631f5",
+  "expected_seed_lineage_hash": "af5a093fb98de4706174d2cb223edd091844323608c3361a1a63aede1fbea758",
+  "hkdf_version": 2,
+  "verified": true
+}

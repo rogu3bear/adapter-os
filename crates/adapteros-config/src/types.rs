@@ -115,6 +115,9 @@ pub struct SecurityConfig {
     /// Allow user self-registration (defaults to false)
     #[serde(default)]
     pub allow_registration: Option<bool>,
+    /// Allowed CI attestation public keys (hex or PEM). Required for CI attestation verification.
+    #[serde(default)]
+    pub ci_attestation_public_keys: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -457,6 +460,9 @@ pub fn default_hot_adapter_threshold() -> f32 {
 /// Allows operators to disable specific checks during incidents.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct InvariantsConfig {
+    /// Explicit acknowledgement to allow disabling invariants in production
+    #[serde(default)]
+    pub i_understand_security_risk: bool,
     /// Disable SEC-001: Dev auth bypass check (NOT RECOMMENDED)
     #[serde(default)]
     pub disable_sec_001_dev_bypass: bool,

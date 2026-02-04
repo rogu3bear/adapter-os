@@ -1,0 +1,24 @@
+{
+  "id": "replay_009_single_adapter",
+  "input_seed_hex": "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a",
+  "adapter_ids": [
+    "adapter-solo"
+  ],
+  "prompt_tokens": [
+    500
+  ],
+  "seed_mode": "Strict",
+  "gate_raw_scores": [
+    0.33333334
+  ],
+  "backend_used": "mock",
+  "expected_decision_hash": "68be20d06aa7bba94adf53aecb5fe3611059f10aceafcf0b37f356dd14bb2260",
+  "expected_gates_q15": [
+    10922
+  ],
+  "expected_output_digest": "3dcdf9dc6ebe4ad22e5c290793e8de066258f1306e24e521f9662e1d69e7b85b",
+  "expected_receipt_digest": "69e3f7879767a2389e53a44eede36424f3c7ca1caacf9e5d9be822b649d323d5",
+  "expected_seed_lineage_hash": "af5a093fb98de4706174d2cb223edd091844323608c3361a1a63aede1fbea758",
+  "hkdf_version": 2,
+  "verified": true
+}

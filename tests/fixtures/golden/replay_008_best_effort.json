@@ -1,0 +1,30 @@
+{
+  "id": "replay_008_best_effort",
+  "input_seed_hex": "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a",
+  "adapter_ids": [
+    "adapter-a",
+    "adapter-b"
+  ],
+  "prompt_tokens": [
+    400,
+    401,
+    402,
+    403
+  ],
+  "seed_mode": "BestEffort",
+  "gate_raw_scores": [
+    0.75,
+    0.25
+  ],
+  "backend_used": "mock",
+  "expected_decision_hash": "13fbe757d8f6c4e7d2d3c16cfc2b9240346518ac7e3743cb3373c3d9becaa0c2",
+  "expected_gates_q15": [
+    24575,
+    8191
+  ],
+  "expected_output_digest": "90ee2963e87c4909d9fa3046402865c32d3a45dc90fbe39ba1849702ed6a8964",
+  "expected_receipt_digest": "6e4b263a07afcad4911a617c35f0f3452340696b77f352b9cbdfdbbeb1e51b39",
+  "expected_seed_lineage_hash": "d6ed4ce4e5ccea9b86fe05ac076fe2895b6b7e0b34f34c623a8812ace984a1b3",
+  "hkdf_version": 2,
+  "verified": true
+}

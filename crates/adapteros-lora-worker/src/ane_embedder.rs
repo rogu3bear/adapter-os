@@ -120,6 +120,7 @@ impl TinyBertEmbedder {
     /// Compute embedding for text
     pub fn embed(&self, text: &str) -> Vec<f32> {
         if text.trim().is_empty() {
+            warn!("TinyBERT embedding called with empty text");
             return vec![0.0; self.dim];
         }
 
@@ -129,13 +130,14 @@ impl TinyBertEmbedder {
             let encoding = match self.tokenizer.encode(text, true) {
                 Ok(e) => e,
                 Err(e) => {
-                    debug!("Tiny-BERT tokenization failed: {}", e);
+                    warn!(error = %e, text_len = text.len(), "TinyBERT tokenization failed");
                     return vec![0.0; self.dim];
                 }
             };
 
             let token_ids = encoding.get_ids();
             if token_ids.is_empty() {
+                warn!(text_len = text.len(), "TinyBERT produced no tokens");
                 return vec![0.0; self.dim];
             }
 
@@ -161,7 +163,7 @@ impl TinyBertEmbedder {
             };
 
             if result < 0 {
-                debug!("Tiny-BERT ANE inference failed with code {}", result);
+                warn!(code = result, "TinyBERT ANE inference failed");
                 return vec![0.0; self.dim];
             }
 

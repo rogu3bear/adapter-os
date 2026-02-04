@@ -517,6 +517,8 @@ pub struct SecurityConfigApi {
     /// Allow user self-registration (defaults to false)
     #[serde(default)]
     pub allow_registration: Option<bool>,
+    #[serde(default)]
+    pub ci_attestation_public_keys: Option<Vec<String>>,
 }
 
 fn default_clock_skew_seconds() -> u64 {

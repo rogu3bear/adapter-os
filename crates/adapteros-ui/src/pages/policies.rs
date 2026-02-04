@@ -341,63 +341,66 @@ fn PolicyDetailContent(policy: PolicyPackResponse, on_applied: Callback<()>) -> 
     let description_signal = RwSignal::new(String::new());
     let original_for_reset = original_content.clone();
     let has_changes = Signal::derive(move || content_signal.get() != original_content);
-
     view! {
-        // Metadata
-        <Card title="Metadata".to_string()>
-            <div class="grid gap-3 text-sm">
-                <div class="flex justify-between">
-                    <span class="text-muted-foreground">"CPID"</span>
-                    <span class="font-mono text-xs">{cpid}</span>
+        <div class="flex flex-col gap-4">
+            // Metadata
+            <Card title="Metadata".to_string() class="order-1".to_string()>
+                <div class="grid gap-3 text-sm">
+                    <div class="flex justify-between">
+                        <span class="text-muted-foreground">"CPID"</span>
+                        <span class="font-mono text-xs">{cpid}</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-muted-foreground">"Hash (BLAKE3)"</span>
+                        <span class="font-mono text-xs truncate max-w-60" title=hash_b3_title>
+                            {hash_b3}
+                        </span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-muted-foreground">"Created"</span>
+                        <span>{format_datetime(&created_at)}</span>
+                    </div>
                 </div>
-                <div class="flex justify-between">
-                    <span class="text-muted-foreground">"Hash (BLAKE3)"</span>
-                    <span class="font-mono text-xs truncate max-w-60" title=hash_b3_title>
-                        {hash_b3}
-                    </span>
-                </div>
-                <div class="flex justify-between">
-                    <span class="text-muted-foreground">"Created"</span>
-                    <span>{format_datetime(&created_at)}</span>
-                </div>
-            </div>
-        </Card>
+            </Card>
 
-        // Policy content
-        <Card
-            title="Policy Content".to_string()
-            description="Edit policy JSON and apply changes to update enforcement.".to_string()
-            class="mt-4".to_string()
-        >
-            <div class="flex items-center justify-between mb-2">
-                <p class="text-xs text-muted-foreground">
-                    {move || if has_changes.get() { "Unsaved changes" } else { "No local changes" }}
-                </p>
-                <Button
-                    variant=ButtonVariant::Ghost
-                    on_click=Callback::new(move |_| content_signal.set(original_for_reset.clone()))
-                    disabled=Signal::derive(move || !has_changes.get())
-                >
-                    "Reset"
-                </Button>
+            // Actions (role-gated via backend)
+            <div class="order-2 md:order-3">
+                <PolicyActionsCard
+                    cpid=cpid_signal
+                    content=content_signal
+                    description=description_signal
+                    apply_label="Apply".to_string()
+                    on_applied=on_applied
+                />
             </div>
-            <Textarea
-                value=content_signal
-                label="Policy JSON".to_string()
-                aria_label="Policy JSON".to_string()
-                rows=16
-                class="font-mono text-xs bg-muted text-status-success min-h-56".to_string()
-            />
-        </Card>
 
-        // Actions (role-gated via backend)
-        <PolicyActionsCard
-            cpid=cpid_signal
-            content=content_signal
-            description=description_signal
-            apply_label="Apply".to_string()
-            on_applied=on_applied
-        />
+            // Policy content
+            <Card
+                title="Policy Content".to_string()
+                description="Edit policy JSON and apply changes to update enforcement.".to_string()
+                class="order-3 md:order-2".to_string()
+            >
+                <div class="flex items-center justify-between mb-2">
+                    <p class="text-xs text-muted-foreground">
+                        {move || if has_changes.get() { "Unsaved changes" } else { "No local changes" }}
+                    </p>
+                    <Button
+                        variant=ButtonVariant::Ghost
+                        on_click=Callback::new(move |_| content_signal.set(original_for_reset.clone()))
+                        disabled=Signal::derive(move || !has_changes.get())
+                    >
+                        "Reset"
+                    </Button>
+                </div>
+                <Textarea
+                    value=content_signal
+                    label="Policy JSON".to_string()
+                    aria_label="Policy JSON".to_string()
+                    rows=16
+                    class="font-mono text-xs bg-muted text-status-success min-h-56".to_string()
+                />
+            </Card>
+        </div>
     }
 }
 
@@ -483,7 +486,7 @@ fn PolicyActionsCard(
     });
 
     view! {
-        <Card title="Actions".to_string() class="mt-4".to_string()>
+        <Card title="Actions".to_string()>
             <div class="flex gap-2">
                 <Button
                     variant=ButtonVariant::Outline

@@ -302,7 +302,7 @@ pub fn SuggestedAdaptersBar(
                         d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
                     ></path>
                 </svg>
-                <span>"Suggested"</span>
+                <span>"Adapter Tray"</span>
             </div>
 
             <div class="adapter-magnet-chips" role="listbox" aria-label="Adapter suggestions">
@@ -311,12 +311,16 @@ pub fn SuggestedAdaptersBar(
                     if suggestion_list.is_empty() {
                         view! {
                             <span class="adapter-magnet-empty">
-                                "Type to see adapter suggestions..."
+                                "Routing adapters..."
                             </span>
                         }.into_any()
                     } else {
                         // Sort deterministically: confidence DESC, adapter_id ASC
                         suggestion_list.sort_by(sort_adapters_deterministic);
+                        let max_items = 5usize;
+                        if suggestion_list.len() > max_items {
+                            suggestion_list.truncate(max_items);
+                        }
 
                         suggestion_list
                             .into_iter()
@@ -395,7 +399,12 @@ pub fn SuggestedAdaptersBar(
                                             // Pin icon (state indicator)
                                             <AdapterChipIcon state=chip_state/>
                                             <span class="adapter-chip-id">{adapter_id_display}</span>
-                                            <span class="adapter-chip-confidence">{format!("{}%", confidence_pct)}</span>
+                                            <div class="h-1 w-12 rounded-full bg-muted/40 overflow-hidden">
+                                                <div
+                                                    class="h-full bg-primary/70"
+                                                    style=format!("width: {}%;", confidence_pct)
+                                                ></div>
+                                            </div>
                                         </button>
 
                                         // Expanded tooltip on hover (only for non-disabled)

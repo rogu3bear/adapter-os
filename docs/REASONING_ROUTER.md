@@ -143,6 +143,32 @@ A transition is accepted when:
 2. `tokens_since_last_swap >= debounce_tokens`
 3. Target adapter differs from current adapter
 
+### Confidence Threshold Math
+
+Understanding the relationship between threshold and minimum semantic similarity:
+
+```
+combined_score = (semantic_weight × semantic) + (topology_weight × topology_prior)
+```
+
+Solving for minimum semantic similarity at the threshold boundary:
+
+```
+min_semantic = (threshold - topology_weight × topology_prior) / semantic_weight
+```
+
+With default weights (70% semantic, 30% topology) and default topology prior (0.5):
+
+| Threshold | Min Semantic Similarity Required |
+|-----------|----------------------------------|
+| 0.82      | 0.957 (very strict)              |
+| 0.75      | 0.857                            |
+| 0.70      | 0.786                            |
+| 0.65      | 0.714                            |
+| 0.60      | 0.643                            |
+
+**Note:** The default threshold (0.82) requires near-perfect semantic alignment to trigger. Consider lowering to 0.70-0.75 for more responsive routing, or use shadow mode to observe behavior before tuning.
+
 ---
 
 ## UI Integration
