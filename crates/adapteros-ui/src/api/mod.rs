@@ -38,9 +38,9 @@ pub use types::{
     RoutingDecisionsResponse, SearchResponse, SearchResultItem, ServiceStatus, StackResponse,
     SystemHealthResponse, SystemOverviewResponse, SystemReadyResponse, TimingBreakdown,
     TokenDecision, TraceEvent, TraceReceiptSummary, TraceSearchQuery, TrainingConfigRequest,
-    UpdateCodePolicyRequest, UpdateErrorAlertRuleRequest, UpdateStackRequest,
-    ValidateAllFilesResponse, ValidateFileRequest, ValidateFileResponse, ValidatePolicyRequest,
-    WorkflowType,
+    UiInferenceTraceDetailResponse, UiTraceReceiptSummary, UpdateCodePolicyRequest,
+    UpdateErrorAlertRuleRequest, UpdateStackRequest, ValidateAllFilesResponse, ValidateFileRequest,
+    ValidateFileResponse, ValidatePolicyRequest, WorkflowType,
 };
 
 // Re-export types from adapteros-api-types via client module

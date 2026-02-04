@@ -103,7 +103,14 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
+
+#[cfg(test)]
+use once_cell::sync::Lazy;
 use tracing::{debug, info, warn};
+
+#[cfg(test)]
+static MIGRATION_TEST_LOCK: Lazy<tokio::sync::Mutex<()>> =
+    Lazy::new(|| tokio::sync::Mutex::new(()));
 
 // Query constants for SELECT column lists
 pub mod constants;
@@ -1047,6 +1054,8 @@ impl Db {
     /// # Note
     /// This is available in both test and non-test builds for maximum flexibility.
     pub async fn new_in_memory() -> Result<Self> {
+        #[cfg(test)]
+        let _migration_guard = MIGRATION_TEST_LOCK.lock().await;
         let db = Self::connect("sqlite::memory:").await?;
         db.migrate().await?;
         Ok(db)
@@ -1079,6 +1088,9 @@ impl Db {
     /// 3. Verifies database is at expected version after completion
     pub async fn migrate(&self) -> Result<()> {
         use tracing::info;
+
+        #[cfg(test)]
+        let _migration_guard = MIGRATION_TEST_LOCK.lock().await;
 
         // Use CARGO_MANIFEST_DIR to find migrations relative to workspace root
         let manifest_dir = env!("CARGO_MANIFEST_DIR");

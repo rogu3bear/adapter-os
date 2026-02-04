@@ -16,6 +16,7 @@ pub mod response;
 pub mod sampling;
 pub mod session;
 pub mod telemetry;
+pub mod ui;
 
 // Re-export the run_envelope submodule
 pub mod run_envelope;
@@ -36,6 +37,7 @@ pub use response::*;
 pub use sampling::*;
 pub use session::*;
 pub use telemetry::*;
+pub use ui::*;
 
 // Re-export shared API types from adapteros-api-types.
 pub use adapteros_api_types::*;

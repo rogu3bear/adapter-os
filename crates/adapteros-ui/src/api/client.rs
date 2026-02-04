@@ -1950,8 +1950,24 @@ impl ApiClient {
     pub async fn get_inference_trace_detail(
         &self,
         trace_id: &str,
+        token_limit: Option<u32>,
+        token_after: Option<u32>,
     ) -> ApiResult<InferenceTraceDetailResponse> {
-        self.get(&format!("/v1/traces/inference/{}", trace_id))
-            .await
+        let mut params = Vec::new();
+        if let Some(limit) = token_limit {
+            params.push(format!("tokens_limit={}", limit));
+        }
+        if let Some(after) = token_after {
+            params.push(format!("tokens_after={}", after));
+        }
+
+        let path = if params.is_empty() {
+            format!("/v1/traces/inference/{}", trace_id)
+        } else {
+            format!("/v1/traces/inference/{}?{}", trace_id, params.join("&"))
+        };
+
+        self.get(&path).await
     }
+
 }

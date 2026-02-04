@@ -8,7 +8,7 @@ use crate::telemetry::{SpanStatus, TraceSearchQuery};
 use crate::types::{
     ErrorResponse, InferenceTraceDetailResponse, InferenceTraceResponse, MetricDataPointResponse,
     MetricsSeriesResponse, MetricsSnapshotResponse, TimingBreakdown, TokenDecision,
-    TraceReceiptSummary,
+    TraceReceiptSummary, UiInferenceTraceDetailResponse, UiTraceReceiptSummary,
 };
 use adapteros_db::{get_inference_trace_detail_for_tenant, list_inference_traces_for_tenant};
 use adapteros_db::kv_metrics::{
@@ -219,6 +219,15 @@ pub struct LogsQueryParams {
 pub struct InferenceTracesQueryParams {
     pub request_id: Option<String>,
     pub limit: Option<usize>,
+}
+
+/// Query parameters for inference trace detail endpoint
+#[derive(Debug, Deserialize)]
+pub struct InferenceTraceDetailQueryParams {
+    /// Return tokens with index > tokens_after
+    pub tokens_after: Option<u32>,
+    /// Maximum number of token decisions to return
+    pub tokens_limit: Option<u32>,
 }
 
 /// GET /api/logs/query - Query logs with filters
@@ -458,6 +467,8 @@ fn parse_trace_timestamp(timestamp: &str) -> Option<chrono::DateTime<chrono::Utc
     path = "/v1/traces/inference/{trace_id}",
     params(
         ("trace_id" = String, Path, description = "Inference trace ID"),
+        ("tokens_after" = Option<u32>, Query, description = "Return tokens with index > tokens_after"),
+        ("tokens_limit" = Option<u32>, Query, description = "Max token decisions to return"),
     ),
     responses(
         (status = 200, description = "Inference trace detail", body = InferenceTraceDetailResponse),
@@ -472,6 +483,7 @@ pub async fn get_inference_trace_detail(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(trace_id): Path<String>,
+    Query(params): Query<InferenceTraceDetailQueryParams>,
 ) -> Result<Json<InferenceTraceDetailResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::TelemetryView).map_err(|_| {
         (
@@ -484,11 +496,17 @@ pub async fn get_inference_trace_detail(
         .await
         .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
-    let record = get_inference_trace_detail_for_tenant(&state.db, &claims.tenant_id, &trace_id)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
+    let record = get_inference_trace_detail_for_tenant(
+        &state.db,
+        &claims.tenant_id,
+        &trace_id,
+        params.tokens_after,
+        params.tokens_limit,
+    )
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse::new(format!(
                     "Database error loading trace: {e}"
                 ))),
@@ -589,6 +607,149 @@ pub async fn get_inference_trace_detail(
         model_id: record.model_id,
         policy_id: record.policy_id,
         token_decisions,
+        token_decisions_next_cursor: record.token_decisions_next_cursor,
+        token_decisions_has_more: record.token_decisions_has_more,
+        timing_breakdown,
+        receipt,
+        backend_id,
+    }))
+
+}
+
+/// UI-only inference trace detail endpoint with extended receipt data.
+pub async fn get_ui_inference_trace_detail(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(trace_id): Path<String>,
+    Query(params): Query<InferenceTraceDetailQueryParams>,
+) -> Result<Json<UiInferenceTraceDetailResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_permission(&claims, Permission::TelemetryView).map_err(|_| {
+        (
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse::new("insufficient permissions").with_code("FORBIDDEN")),
+        )
+    })?;
+
+    let trace_id = crate::id_resolver::resolve_any_id(&state.db, &trace_id)
+        .await
+        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
+
+    let record = get_inference_trace_detail_for_tenant(
+        &state.db,
+        &claims.tenant_id,
+        &trace_id,
+        params.tokens_after,
+        params.tokens_limit,
+    )
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new(format!(
+                "Database error loading trace: {e}"
+            ))),
+        )
+    })?;
+
+    let Some(record) = record else {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(
+                ErrorResponse::new("trace not found")
+                    .with_code("NOT_FOUND")
+                    .with_string_details(trace_id),
+            ),
+        ));
+    };
+
+    let mut adapters_used = Vec::new();
+    let mut seen = HashSet::new();
+    let mut backend_id: Option<String> = None;
+
+    let token_decisions = record
+        .tokens
+        .into_iter()
+        .map(|token| {
+            for adapter in &token.adapter_ids {
+                if seen.insert(adapter.clone()) {
+                    adapters_used.push(adapter.clone());
+                }
+            }
+            if backend_id.is_none() {
+                backend_id = token.backend_id.clone();
+            }
+
+            TokenDecision {
+                token_index: token.token_index,
+                token_id: None,
+                adapter_ids: token.adapter_ids,
+                gates_q15: token.gates_q15,
+                entropy: 0.0,
+                decision_hash: Some(hex::encode(token.decision_hash)),
+                backend_id: token.backend_id,
+                kernel_version_id: token.kernel_version_id,
+            }
+        })
+        .collect::<Vec<_>>();
+
+    let latency_ms = record
+        .receipt
+        .as_ref()
+        .and_then(|receipt| {
+            let start = parse_trace_timestamp(&record.created_at)?;
+            let end = receipt
+                .created_at
+                .as_deref()
+                .and_then(parse_trace_timestamp)?;
+            let delta = end.signed_duration_since(start).num_milliseconds();
+            if delta < 0 {
+                None
+            } else {
+                Some(delta as u64)
+            }
+        })
+        .unwrap_or(0);
+
+    let timing_breakdown = TimingBreakdown {
+        total_ms: latency_ms,
+        routing_ms: 0,
+        inference_ms: latency_ms,
+        policy_ms: 0,
+        prefill_ms: None,
+        decode_ms: None,
+    };
+
+    let receipt = record.receipt.map(|receipt| UiTraceReceiptSummary {
+        receipt_digest: hex::encode(receipt.receipt_digest),
+        run_head_hash: hex::encode(receipt.run_head_hash),
+        output_digest: hex::encode(receipt.output_digest),
+        input_digest_b3: receipt.input_digest_b3.map(hex::encode),
+        seed_lineage_hash: receipt.seed_lineage_hash.map(hex::encode),
+        backend_attestation_b3: receipt.backend_attestation_b3.map(hex::encode),
+        logical_prompt_tokens: receipt.logical_prompt_tokens,
+        logical_output_tokens: receipt.logical_output_tokens,
+        stop_reason_code: receipt.stop_reason_code,
+        stop_reason_token_index: receipt.stop_reason_token_index,
+        verified: receipt.receipt_parity_verified.unwrap_or(false),
+        processor_id: receipt.processor_id,
+        engine_version: receipt.engine_version,
+        ane_version: receipt.ane_version,
+        prefix_cache_hit: Some(receipt.prefix_cache_hit),
+        prefix_kv_bytes: Some(receipt.prefix_kv_bytes),
+    });
+
+    Ok(Json(UiInferenceTraceDetailResponse {
+        trace_id: record.trace_id,
+        request_id: record.request_id,
+        created_at: record.created_at,
+        latency_ms,
+        adapters_used,
+        stack_id: record.stack_id,
+        model_id: record.model_id,
+        policy_id: record.policy_id,
+        token_decisions,
+        token_decisions_next_cursor: record.token_decisions_next_cursor,
+        token_decisions_has_more: record.token_decisions_has_more,
         timing_breakdown,
         receipt,
         backend_id,

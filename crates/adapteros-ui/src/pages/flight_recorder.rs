@@ -8,19 +8,20 @@
 //! - Tokens (token accounting and cache stats)
 //! - Diff (compare with another run)
 
-use crate::api::client::InferenceTraceDetailResponse;
-use crate::api::ApiClient;
+use crate::api::{ApiClient, InferenceTraceDetailResponse};
 use crate::components::{
     ActionCard, ActionCardVariant, AsyncBoundary, Badge, BadgeVariant, Button, ButtonVariant, Card,
     CopyableId, DiffResults, Link, Select, Spinner, Table, TableBody, TableCell, TableHead,
-    TableHeader, TableRow, TokenDecisions, TraceViewerWithData,
+    TableHeader, TableRow, TokenDecisionsPaged, TraceViewerWithData,
 };
+use crate::constants::pagination::TOKEN_DECISIONS_PAGE_SIZE;
 use crate::hooks::{use_api_resource, use_polling, LoadingState};
-use crate::signals::{use_notifications, NotificationAction};
+use crate::signals::{use_notifications, use_ui_profile, NotificationAction};
 use adapteros_api_types::diagnostics::{
     DiagDiffRequest, DiagDiffResponse, DiagEventResponse, DiagExportResponse, DiagRunResponse,
     ListDiagRunsQuery, ListDiagRunsResponse, StageTiming,
 };
+use adapteros_api_types::UiProfile;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::hooks::{use_params_map, use_query_map};
@@ -300,6 +301,7 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
         .map(|t| RunDetailTab::from_str(&t))
         .unwrap_or_default();
     let compare_trace = query.get().get("compare");
+    let ui_profile = use_ui_profile();
 
     // Tab state
     let active_tab = RwSignal::new(initial_tab);
@@ -388,13 +390,21 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
                     label="Export"
                     action=QuickAction::Export(run_id.clone())
                 />
-                <a
-                    href=format!("/runs/{}?tab=diff", run_id)
-                    class="inline-flex items-center gap-1.5 px-2 py-1 text-xs rounded border border-border hover:bg-muted transition-colors"
-                >
-                    <span>"↔"</span>
-                    <span>"Open Diff"</span>
-                </a>
+                {move || {
+                    if ui_profile.get() == UiProfile::Full {
+                        Some(view! {
+                            <a
+                                href=format!("/runs/{}?tab=diff", run_id)
+                                class="inline-flex items-center gap-1.5 px-2 py-1 text-xs rounded border border-border hover:bg-muted transition-colors"
+                            >
+                                <span>"↔"</span>
+                                <span>"Open Diff"</span>
+                            </a>
+                        })
+                    } else {
+                        None
+                    }
+                }}
             </div>
 
             // Tabs navigation
@@ -403,10 +413,18 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
                     <RunDetailTabButton tab=RunDetailTab::Overview active=active_tab label="Overview"/>
                     <RunDetailTabButton tab=RunDetailTab::Trace active=active_tab label="Trace"/>
                     <RunDetailTabButton tab=RunDetailTab::Receipt active=active_tab label="Receipt"/>
-                    <RunDetailTabButton tab=RunDetailTab::Routing active=active_tab label="Routing"/>
-                    <RunDetailTabButton tab=RunDetailTab::Tokens active=active_tab label="Tokens"/>
-                    <RunDetailTabButton tab=RunDetailTab::Diff active=active_tab label="Diff"/>
-                    <RunDetailTabButton tab=RunDetailTab::Events active=active_tab label="Events"/>
+                    {move || {
+                        if ui_profile.get() == UiProfile::Full {
+                            Some(view! {
+                                <RunDetailTabButton tab=RunDetailTab::Routing active=active_tab label="Routing"/>
+                                <RunDetailTabButton tab=RunDetailTab::Tokens active=active_tab label="Tokens"/>
+                                <RunDetailTabButton tab=RunDetailTab::Diff active=active_tab label="Diff"/>
+                                <RunDetailTabButton tab=RunDetailTab::Events active=active_tab label="Events"/>
+                            })
+                        } else {
+                            None
+                        }
+                    }}
                 </nav>
             </div>
 
@@ -421,7 +439,15 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
                         let tid = trace_id.clone();
                         move |client: Arc<ApiClient>| {
                             let tid = tid.clone();
-                            async move { client.get_inference_trace_detail(&tid).await }
+                            async move {
+                                client
+                                    .get_inference_trace_detail(
+                                        &tid,
+                                        Some(TOKEN_DECISIONS_PAGE_SIZE),
+                                        None,
+                                    )
+                                    .await
+                            }
                         }
                     });
 
@@ -662,6 +688,7 @@ fn OverviewTab(
     // Extract backend info from events (look for inference-related events)
     let events = export.events.clone().unwrap_or_default();
     let reasoning_mode = extract_reasoning_mode_from_events(&events);
+    let ui_profile = use_ui_profile();
 
     // Calculate total duration for percentage bars
     let total_us: i64 = timing.iter().filter_map(|s| s.duration_us).sum();
@@ -806,6 +833,73 @@ fn OverviewTab(
                 }}
             </Card>
 
+            // Provenance summary (UI-only receipt fields)
+            <Card title="Provenance Summary".to_string()>
+                <div data-testid="run-provenance-summary">
+                    {move || match trace_detail.get() {
+                        LoadingState::Loaded(detail) => {
+                            if let Some(receipt) = detail.receipt.clone() {
+                                let verified = receipt.verified;
+                                let verified_label = if verified { "Verified" } else { "Unverified" };
+                                let verified_variant = if verified {
+                                    BadgeVariant::Success
+                                } else {
+                                    BadgeVariant::Warning
+                                };
+                                let backend_label = detail
+                                    .backend_id
+                                    .clone()
+                                    .unwrap_or_else(|| "Unknown".to_string());
+                                let verified_note = if verified {
+                                    "Server validated receipt parity."
+                                } else {
+                                    "Receipt parity was not validated."
+                                };
+                                view! {
+                                    <div class="space-y-3">
+                                        <div class="flex items-center justify-between">
+                                            <div>
+                                                <p class="text-sm text-muted-foreground">"Receipt status"</p>
+                                                <Badge variant=verified_variant>{verified_label}</Badge>
+                                            </div>
+                                            <div class="text-right">
+                                                <p class="text-sm text-muted-foreground">"Backend"</p>
+                                                <Badge variant=BadgeVariant::Secondary>{backend_label}</Badge>
+                                            </div>
+                                        </div>
+                                        <p class="text-xs text-muted-foreground">{verified_note}</p>
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                            <ProvenanceField label="Input digest" value=receipt.input_digest_b3.clone()/>
+                                            <ProvenanceField label="Output digest" value=Some(receipt.output_digest.clone())/>
+                                            <ProvenanceField label="Receipt digest" value=Some(receipt.receipt_digest.clone())/>
+                                            <ProvenanceField label="Run head hash" value=Some(receipt.run_head_hash.clone())/>
+                                            <ProvenanceField label="Seed lineage hash" value=receipt.seed_lineage_hash.clone()/>
+                                            <ProvenanceField label="Backend attestation hash" value=receipt.backend_attestation_b3.clone()/>
+                                        </div>
+                                    </div>
+                                }
+                                .into_any()
+                            } else {
+                                view! {
+                                    <div class="text-sm text-muted-foreground italic">
+                                        "Receipt details are not available for this run yet."
+                                    </div>
+                                }
+                                .into_any()
+                            }
+                        }
+                        LoadingState::Error(err) => view! {
+                            <div class="text-sm text-muted-foreground">{format!("Failed to load provenance: {}", err)}</div>
+                        }
+                        .into_any(),
+                        _ => view! {
+                            <div class="text-sm text-muted-foreground italic">"Loading provenance..."</div>
+                        }
+                        .into_any(),
+                    }}
+                </div>
+            </Card>
+
             // Stage timeline (if available)
             {if !timing.is_empty() {
                 Some(view! {
@@ -847,25 +941,48 @@ fn OverviewTab(
                         variant=ActionCardVariant::Subtle
                         centered=true
                     />
-                    <ActionCard
-                        href="?tab=routing"
-                        icon="⚡"
-                        title="Routing"
-                        description="K-sparse decisions"
-                        variant=ActionCardVariant::Subtle
-                        centered=true
-                    />
-                    <ActionCard
-                        href="?tab=diff"
-                        icon="↔"
-                        title="Diff"
-                        description="Compare runs"
-                        variant=ActionCardVariant::Subtle
-                        centered=true
-                    />
+                    {move || {
+                        if ui_profile.get() == UiProfile::Full {
+                            Some(view! {
+                                <ActionCard
+                                    href="?tab=routing"
+                                    icon="⚡"
+                                    title="Routing"
+                                    description="K-sparse decisions"
+                                    variant=ActionCardVariant::Subtle
+                                    centered=true
+                                />
+                                <ActionCard
+                                    href="?tab=diff"
+                                    icon="↔"
+                                    title="Diff"
+                                    description="Compare runs"
+                                    variant=ActionCardVariant::Subtle
+                                    centered=true
+                                />
+                            })
+                        } else {
+                            None
+                        }
+                    }}
                 </div>
             </Card>
         </div>
+    }
+}
+
+/// Provenance field with copy affordance.
+#[component]
+fn ProvenanceField(label: &'static str, value: Option<String>) -> impl IntoView {
+    match value {
+        Some(value) => view! { <CopyableId id=value label=label.to_string() truncate=24/> }.into_any(),
+        None => view! {
+            <div class="flex flex-col gap-1">
+                <span class="text-xs text-muted-foreground">{label}</span>
+                <span class="text-xs text-muted-foreground italic">"Unavailable"</span>
+            </div>
+        }
+        .into_any(),
     }
 }
 
@@ -897,7 +1014,9 @@ fn StageRow(stage: StageTiming, pct: f64) -> impl IntoView {
 
 /// Trace tab - uses TraceViewerWithData to display pre-loaded trace data
 #[component]
-fn TraceTab(trace_detail: ReadSignal<LoadingState<InferenceTraceDetailResponse>>) -> impl IntoView {
+fn TraceTab(
+    trace_detail: ReadSignal<LoadingState<InferenceTraceDetailResponse>>,
+) -> impl IntoView {
     view! {
         <div class="space-y-4">
             <p class="text-sm text-muted-foreground">
@@ -1034,6 +1153,7 @@ fn RoutingTab(
 ) -> impl IntoView {
     // Expandable state for TokenDecisions
     let expanded = RwSignal::new(true);
+    let ui_profile = use_ui_profile();
 
     // Extract routing-related events as fallback
     let events = export.events.clone().unwrap_or_default();
@@ -1080,10 +1200,13 @@ fn RoutingTab(
                                 }.into_any()
                             }
                         } else {
-                            // Show TokenDecisions component
+                            // Show paged TokenDecisions component
                             view! {
-                                <TokenDecisions
-                                    decisions=detail.token_decisions.clone()
+                                <TokenDecisionsPaged
+                                    trace_id=detail.trace_id.clone()
+                                    initial_decisions=detail.token_decisions.clone()
+                                    initial_next_cursor=detail.token_decisions_next_cursor
+                                    initial_has_more=detail.token_decisions_has_more
                                     expanded=expanded.read_only()
                                     set_expanded=expanded.write_only()
                                     compact=false
@@ -1095,13 +1218,21 @@ fn RoutingTab(
             />
 
             // Link to full routing debug
-            <Card>
-                <div class="text-center py-4">
-                    <Link href="/routing" class="text-sm">
-                        "Open Routing Debug Tool →"
-                    </Link>
-                </div>
-            </Card>
+            {move || {
+                if ui_profile.get() == UiProfile::Full {
+                    Some(view! {
+                        <Card>
+                            <div class="text-center py-4">
+                                <Link href="/routing" class="text-sm">
+                                    "Open Routing Debug Tool →"
+                                </Link>
+                            </div>
+                        </Card>
+                    })
+                } else {
+                    None
+                }
+            }}
         </div>
     }
 }
@@ -1156,7 +1287,7 @@ fn TokensTab(
                     if let Some(receipt) = &detail.receipt {
                         let prompt_tokens = receipt.logical_prompt_tokens;
                         let output_tokens = receipt.logical_output_tokens;
-                        let cache_hit = receipt.prefix_cache_hit;
+                        let cache_hit = receipt.prefix_cache_hit.unwrap_or(false);
                         let total_tokens = prompt_tokens + output_tokens;
 
                         view! {

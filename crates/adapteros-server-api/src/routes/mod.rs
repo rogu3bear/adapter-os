@@ -1990,6 +1990,10 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/traces/search", get(handlers::telemetry::search_traces))
         .route("/v1/traces/inference", get(handlers::telemetry::list_inference_traces))
         .route(
+            "/v1/ui/traces/inference/{trace_id}",
+            get(handlers::telemetry::get_ui_inference_trace_detail),
+        )
+        .route(
             "/v1/traces/inference/{trace_id}",
             get(handlers::telemetry::get_inference_trace_detail),
         )
