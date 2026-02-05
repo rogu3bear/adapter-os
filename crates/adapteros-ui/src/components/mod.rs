@@ -14,6 +14,7 @@ pub mod card;
 pub mod charts;
 pub mod chat_dock;
 pub mod checkbox;
+pub mod combobox;
 pub mod command_palette;
 pub mod confirmation_dialog;
 pub mod copyable_id;
@@ -69,6 +70,7 @@ pub use button::{Button, ButtonSize, ButtonVariant};
 pub use card::Card;
 pub use chat_dock::{ChatDock, ChatDockPanel, MobileChatOverlay, NarrowChatDock};
 pub use checkbox::Checkbox;
+pub use combobox::{Combobox, ComboboxOption, ModelCombobox};
 pub use command_palette::CommandPalette;
 pub use confirmation_dialog::{
     ConfirmationDialog, ConfirmationSeverity, ImpactItem, SimpleConfirmDialog,
