@@ -60,6 +60,8 @@ pub fn ingest_markdown_bytes(
             source_name
         )));
     }
+    let normalized_text_hash = B3Hash::hash(normalized.as_bytes());
+    let normalized_text_len = normalized.chars().count();
     let chunks = finalize_chunks(chunker.chunk(&normalized, None)?);
 
     Ok(IngestedDocument {
@@ -67,6 +69,8 @@ pub fn ingest_markdown_bytes(
         source_name: source_name.to_string(),
         source_path,
         doc_hash,
+        normalized_text_hash: Some(normalized_text_hash),
+        normalized_text_len: Some(normalized_text_len),
         byte_len: bytes.len(),
         page_count: None,
         chunks,

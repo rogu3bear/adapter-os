@@ -30,6 +30,8 @@ use async_trait::async_trait;
 use axum::body::Bytes;
 use axum::http::StatusCode;
 use axum::Json;
+use serde_json::Value;
+use std::collections::HashMap;
 #[cfg(feature = "embeddings")]
 use std::path::Path as StdPath;
 use std::path::Path;
@@ -52,6 +54,25 @@ const MAX_JSONL_SIZE: i64 = 100 * 1024 * 1024;
 const EMBEDDING_MAX_RETRIES: usize = 3;
 #[cfg(feature = "embeddings")]
 const EMBEDDING_BACKOFF_MS: u64 = 200;
+
+fn upsert_metadata_json(
+    existing: Option<&str>,
+    updates: &[(&str, Value)],
+) -> Result<String, ApiError> {
+    let mut map = match existing {
+        Some(raw) => {
+            serde_json::from_str::<serde_json::Map<String, Value>>(raw).unwrap_or_default()
+        }
+        None => serde_json::Map::new(),
+    };
+
+    for (key, value) in updates {
+        map.insert((*key).to_string(), value.clone());
+    }
+
+    serde_json::to_string(&Value::Object(map))
+        .map_err(|e| ApiError::db_error(format!("Failed to serialize document metadata: {}", e)))
+}
 
 /// Parameters for creating a dataset from explicit document IDs
 #[derive(Debug, Clone)]
@@ -161,10 +182,43 @@ impl DefaultTrainingDatasetService {
             .into());
         }
 
+        let mut rag_texts: HashMap<String, String> = HashMap::new();
+        if self.state.db.storage_mode().read_from_sql() && !chunks.is_empty() {
+            let rag_doc_ids: Vec<String> = chunks
+                .iter()
+                .map(|chunk| format!("{}__chunk_{}", chunk.document_id, chunk.chunk_index))
+                .collect();
+            let placeholders = rag_doc_ids
+                .iter()
+                .map(|_| "?")
+                .collect::<Vec<_>>()
+                .join(",");
+            let query = format!(
+                "SELECT doc_id, text FROM rag_documents WHERE tenant_id = ? AND doc_id IN ({})",
+                placeholders
+            );
+            let mut query_builder = sqlx::query_as::<_, (String, String)>(&query);
+            query_builder = query_builder.bind(&claims.tenant_id);
+            for doc_id in &rag_doc_ids {
+                query_builder = query_builder.bind(doc_id);
+            }
+            let rows = query_builder
+                .fetch_all(self.state.db.pool())
+                .await
+                .map_err(|e| ApiError::db_error(format!("Failed to load rag documents: {}", e)))?;
+            rag_texts.extend(rows.into_iter());
+        }
+
         // Build JSONL lines
         let mut jsonl_lines: Vec<String> = Vec::with_capacity(chunks.len());
         for chunk in &chunks {
-            if let Some(text) = &chunk.text_preview {
+            let rag_doc_id = format!("{}__chunk_{}", chunk.document_id, chunk.chunk_index);
+            let text = rag_texts
+                .get(&rag_doc_id)
+                .map(|s| s.as_str())
+                .or_else(|| chunk.text_preview.as_deref());
+
+            if let Some(text) = text {
                 if !text.trim().is_empty() {
                     let json_obj = serde_json::json!({ "text": text });
                     jsonl_lines.push(json_obj.to_string());
@@ -443,11 +497,10 @@ impl DefaultTrainingDatasetService {
         let ingestor = DocumentIngestor::new(default_ingest_options(), Some(tokenizer.clone()));
         let ingested_doc = if mime_type.contains("pdf") {
             ingestor.ingest_pdf_bytes(data, source_name)
-        } else if mime_type.contains("markdown")
-            || mime_type.contains("text/")
-            || source_name.ends_with(".md")
-        {
+        } else if mime_type.contains("markdown") || source_name.ends_with(".md") {
             ingestor.ingest_markdown_bytes(data, source_name)
+        } else if mime_type.starts_with("text/plain") || source_name.ends_with(".txt") {
+            ingestor.ingest_text_bytes(data, source_name)
         } else {
             return Err(ApiError::bad_request(format!(
                 "Unsupported document type for QA generation: {}",
@@ -566,6 +619,8 @@ impl DefaultTrainingDatasetService {
             ingestor.ingest_pdf_bytes(file_data, document_name)
         } else if mime_type.contains("markdown") || document_name.ends_with(".md") {
             ingestor.ingest_markdown_bytes(file_data, document_name)
+        } else if mime_type.starts_with("text/plain") || document_name.ends_with(".txt") {
+            ingestor.ingest_text_bytes(file_data, document_name)
         } else {
             return Err(ApiError::bad_request(&format!(
                 "Unsupported document type: {}",
@@ -680,6 +735,52 @@ impl DefaultTrainingDatasetService {
                 .execute(&*self.state.db.pool())
                 .await
                 .map_err(|e| ApiError::db_error(format!("Failed to update page count: {}", e)))?;
+        }
+
+        if let Ok(Some(document)) = self
+            .state
+            .db
+            .get_document(&claims.tenant_id, document_id)
+            .await
+        {
+            let metadata_json = upsert_metadata_json(
+                document.metadata_json.as_deref(),
+                &[
+                    (
+                        "normalized_text_hash",
+                        ingested_doc
+                            .normalized_text_hash
+                            .as_ref()
+                            .map(|h| Value::String(h.to_hex()))
+                            .unwrap_or(Value::Null),
+                    ),
+                    (
+                        "normalized_char_count",
+                        ingested_doc
+                            .normalized_text_len
+                            .map(|v| Value::Number(serde_json::Number::from(v as u64)))
+                            .unwrap_or(Value::Null),
+                    ),
+                    (
+                        "ingestion_version",
+                        Value::Number(serde_json::Number::from(
+                            adapteros_ingest_docs::INGESTION_VERSION as u64,
+                        )),
+                    ),
+                ],
+            )?;
+            if let Err(e) = self
+                .state
+                .db
+                .update_document_metadata(document_id, &metadata_json)
+                .await
+            {
+                warn!(
+                    document_id = %document_id,
+                    error = %e,
+                    "Failed to update document metadata after indexing"
+                );
+            }
         }
 
         info!(
@@ -983,10 +1084,15 @@ impl TrainingDatasetService for DefaultTrainingDatasetService {
         // Choose file extension for storage (do not rely on user-provided path)
         let ext = if mime_type.contains("markdown") || params.file_name.ends_with(".md") {
             "md"
-        } else if mime_type.contains("pdf") {
+        } else if mime_type.contains("pdf") || params.file_name.ends_with(".pdf") {
             "pdf"
+        } else if mime_type.starts_with("text/plain") || params.file_name.ends_with(".txt") {
+            "txt"
         } else {
-            "bin"
+            return Err(ApiError::bad_request(
+                "Unsupported document type (expected .pdf, .md, .txt)",
+            )
+            .into());
         };
 
         let file_path = tenant_path.join(format!("{}.{}", document_id, ext));
@@ -1018,6 +1124,34 @@ impl TrainingDatasetService for DefaultTrainingDatasetService {
             })
             .await
             .map_err(ApiError::db_error)?;
+
+        let metadata_json = upsert_metadata_json(
+            None,
+            &[
+                ("original_filename", Value::String(params.file_name.clone())),
+                ("mime_type", Value::String(mime_type.clone())),
+                ("extension", Value::String(ext.to_string())),
+                ("source_hash", Value::String(file_hash.clone())),
+                (
+                    "ingestion_version",
+                    Value::Number(serde_json::Number::from(
+                        adapteros_ingest_docs::INGESTION_VERSION as u64,
+                    )),
+                ),
+            ],
+        )?;
+        if let Err(e) = self
+            .state
+            .db
+            .update_document_metadata(&document_id, &metadata_json)
+            .await
+        {
+            warn!(
+                document_id = %document_id,
+                error = %e,
+                "Failed to update document metadata"
+            );
+        }
 
         info!(
             "Uploaded document {} ({} bytes) for tenant {}",

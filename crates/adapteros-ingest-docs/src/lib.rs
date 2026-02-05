@@ -10,6 +10,7 @@ mod markdown;
 mod pdf;
 pub mod pdf_render;
 pub mod rag_integration;
+mod text;
 pub mod training_gen;
 pub mod types;
 mod utils;
@@ -27,6 +28,7 @@ pub use rag_integration::{
     generate_revision, index_document_with_provenance, prepare_document_for_rag,
     prepare_documents_for_rag, RagChunkParams,
 };
+pub const INGESTION_VERSION: u32 = 1;
 pub use training_gen::{
     generate_training_data, generate_training_data_from_documents, TrainingData, TrainingExample,
     TrainingGenConfig, TrainingStrategy,
@@ -79,6 +81,18 @@ impl DocumentIngestor {
         source_name: &str,
     ) -> Result<IngestedDocument> {
         markdown::ingest_markdown_bytes(bytes.as_ref(), source_name, None, &self.chunker)
+    }
+
+    pub fn ingest_text_path<P: AsRef<Path>>(&self, path: P) -> Result<IngestedDocument> {
+        text::ingest_text_path(path.as_ref(), &self.chunker)
+    }
+
+    pub fn ingest_text_bytes<B: AsRef<[u8]>>(
+        &self,
+        bytes: B,
+        source_name: &str,
+    ) -> Result<IngestedDocument> {
+        text::ingest_text_bytes(bytes.as_ref(), source_name, None, &self.chunker)
     }
 }
 

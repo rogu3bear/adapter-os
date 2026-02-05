@@ -1,5 +1,4 @@
 use crate::chunker::DocumentChunker;
-use crate::pdf_render;
 use crate::types::{
     DocumentSource, IngestedDocument, IngestedDocumentWithErrors, PageExtractionResult,
 };
@@ -42,6 +41,7 @@ pub fn ingest_pdf_bytes(
     let pages = pages_with_limits(&document, source_name)?;
 
     let mut all_chunks = Vec::new();
+    let mut normalized_text = String::new();
     for (page_number, _object_id) in pages.iter() {
         let text = document.extract_text(&[*page_number]).map_err(|e| {
             AosError::Validation(format!(
@@ -62,17 +62,32 @@ pub fn ingest_pdf_bytes(
                 MAX_PAGE_TEXT_CHARS
             )));
         }
+        if !normalized_text.is_empty() {
+            normalized_text.push_str("\n\n");
+        }
+        normalized_text.push_str(&normalized);
         let mut page_chunks = chunker.chunk(&normalized, Some(*page_number))?;
         all_chunks.append(&mut page_chunks);
     }
 
+    if normalized_text.trim().is_empty() {
+        return Err(AosError::Validation(format!(
+            "PDF {} contains no text layer",
+            source_name
+        )));
+    }
+
     let chunks = finalize_chunks(all_chunks);
+    let normalized_text_hash = B3Hash::hash(normalized_text.as_bytes());
+    let normalized_text_len = normalized_text.chars().count();
 
     Ok(IngestedDocument {
         source: DocumentSource::Pdf,
         source_name: source_name.to_string(),
         source_path,
         doc_hash,
+        normalized_text_hash: Some(normalized_text_hash),
+        normalized_text_len: Some(normalized_text_len),
         byte_len: bytes.len(),
         page_count: Some(pages.len()),
         chunks,
@@ -105,6 +120,7 @@ pub fn ingest_pdf_bytes_resilient(
     let mut successful_pages = 0;
     let mut pages_with_images = 0;
     let mut pages_with_visual_extraction = 0;
+    let mut normalized_text = String::new();
 
     for (page_number, object_id) in pages.iter() {
         // Check if page contains images that won't be extracted as text
@@ -113,43 +129,11 @@ pub fn ingest_pdf_bytes_resilient(
             pages_with_images += 1;
         }
 
-        // Try to extract images for visual content description
-        let (visual_content_extracted, visual_description) = if has_images {
-            let extracted_images =
-                pdf_render::extract_page_images(&document, *object_id, *page_number);
-            if !extracted_images.is_empty() {
-                pages_with_visual_extraction += 1;
-                // Convert images to base64 for later vision model processing
-                let base64_images = pdf_render::images_to_base64(&extracted_images);
-                let description = format!(
-                    "[Visual Content: {} image(s) extracted from page {}. Base64 data available for vision model inference.]",
-                    extracted_images.len(),
-                    page_number
-                );
-                tracing::info!(
-                    page = page_number,
-                    source = source_name,
-                    image_count = extracted_images.len(),
-                    "Extracted images from page for visual content processing"
-                );
-                // Store base64 references in description for downstream processing
-                let _ = base64_images; // Used for logging, actual processing done downstream
-                (true, Some(description))
-            } else {
-                (false, None)
-            }
-        } else {
-            (false, None)
-        };
+        let (visual_content_extracted, visual_description) = (false, None);
 
         match document.extract_text(&[*page_number]) {
             Ok(text) => {
-                let mut normalized = normalize_whitespace(&text);
-
-                // Append visual content description to page text if extracted
-                if let Some(ref visual_desc) = visual_description {
-                    normalized = format!("{}\n\n{}", normalized, visual_desc);
-                }
+                let normalized = normalize_whitespace(&text);
 
                 if normalized.trim().is_empty() && visual_description.is_none() {
                     // Empty page with no visual content - skip
@@ -185,6 +169,13 @@ pub fn ingest_pdf_bytes_resilient(
                         visual_description,
                     });
                     continue;
+                }
+
+                if !normalized.trim().is_empty() {
+                    if !normalized_text.is_empty() {
+                        normalized_text.push_str("\n\n");
+                    }
+                    normalized_text.push_str(&normalized);
                 }
 
                 match chunker.chunk(&normalized, Some(*page_number)) {
@@ -237,10 +228,9 @@ pub fn ingest_pdf_bytes_resilient(
         }
     }
 
-    // Require at least one successful page
-    if successful_pages == 0 {
+    if normalized_text.trim().is_empty() {
         return Err(AosError::Validation(format!(
-            "No pages could be extracted from PDF {}",
+            "PDF {} contains no text layer",
             source_name
         )));
     }
@@ -277,6 +267,8 @@ pub fn ingest_pdf_bytes_resilient(
     }
 
     let chunks = finalize_chunks(all_chunks);
+    let normalized_text_hash = B3Hash::hash(normalized_text.as_bytes());
+    let normalized_text_len = normalized_text.chars().count();
 
     Ok(IngestedDocumentWithErrors {
         document: IngestedDocument {
@@ -284,6 +276,8 @@ pub fn ingest_pdf_bytes_resilient(
             source_name: source_name.to_string(),
             source_path,
             doc_hash,
+            normalized_text_hash: Some(normalized_text_hash),
+            normalized_text_len: Some(normalized_text_len),
             byte_len: bytes.len(),
             page_count: Some(total_pages),
             chunks,
