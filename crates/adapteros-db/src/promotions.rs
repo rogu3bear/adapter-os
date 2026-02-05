@@ -385,11 +385,7 @@ impl Db {
     }
 
     /// Initialize pending gates for a promotion request
-    pub async fn init_promotion_gates(
-        &self,
-        request_id: &str,
-        gate_names: &[&str],
-    ) -> Result<()> {
+    pub async fn init_promotion_gates(&self, request_id: &str, gate_names: &[&str]) -> Result<()> {
         for gate_name in gate_names {
             sqlx::query(
                 "INSERT OR IGNORE INTO golden_run_promotion_gates

@@ -246,7 +246,10 @@ pub async fn get_receipt_by_digest(
         tokenizer_version: row.tokenizer_version,
         tokenizer_normalization: row.tokenizer_normalization,
         model_build_hash_b3: parse_digest_opt("model_build_hash_b3", row.model_build_hash_b3)?,
-        adapter_build_hash_b3: parse_digest_opt("adapter_build_hash_b3", row.adapter_build_hash_b3)?,
+        adapter_build_hash_b3: parse_digest_opt(
+            "adapter_build_hash_b3",
+            row.adapter_build_hash_b3,
+        )?,
         decode_algo: row.decode_algo,
         temperature_q15: row.temperature_q15.map(|v| v as i16),
         top_p_q15: row.top_p_q15.map(|v| v as i16),
@@ -256,7 +259,10 @@ pub async fn get_receipt_by_digest(
         thread_count: row.thread_count.map(|v| v.max(0) as u32),
         reduction_strategy: row.reduction_strategy,
         stop_eos_q15: row.stop_eos_q15.map(|v| v as i16),
-        stop_window_digest_b3: parse_digest_opt("stop_window_digest_b3", row.stop_window_digest_b3)?,
+        stop_window_digest_b3: parse_digest_opt(
+            "stop_window_digest_b3",
+            row.stop_window_digest_b3,
+        )?,
         cache_scope: row.cache_scope,
         cached_prefix_digest_b3: parse_digest_opt(
             "cached_prefix_digest_b3",

@@ -192,9 +192,9 @@ impl Db {
         .await
         .db_err("fetch chain tail in transaction")?;
 
-        let tail = tail.map(|(root, seq)| -> Result<(B3Hash, i64)> {
-            Ok((B3Hash::from_hex(&root)?, seq))
-        }).transpose()?;
+        let tail = tail
+            .map(|(root, seq)| -> Result<(B3Hash, i64)> { Ok((B3Hash::from_hex(&root)?, seq)) })
+            .transpose()?;
 
         // =========================================================================
         // Evidence Chain Sequence Validation (1-indexed)

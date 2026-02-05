@@ -9,9 +9,9 @@ use std::sync::Arc;
 use std::time::Instant;
 use tracing::{debug, info, warn};
 
-use adapteros_core::{AosError, Result, Q15_GATE_DENOMINATOR};
 use crate::adapter_cache::{AdapterCache, CachedAdapter};
 use crate::kv_cache::KvCacheManager;
+use adapteros_core::{AosError, Result, Q15_GATE_DENOMINATOR};
 
 #[cfg(feature = "mlx")]
 use adapteros_lora_mlx_ffi::tensor::MLXFFITensor;

@@ -599,8 +599,7 @@ pub async fn approve_or_reject_promotion(
             // If approved, execute promotion
             if req.action == "approve" {
                 if let Err(e) =
-                    execute_promotion(&state, &request_id, &run_id, &claims.email, &signature)
-                        .await
+                    execute_promotion(&state, &request_id, &run_id, &claims.email, &signature).await
                 {
                     error!("Failed to execute promotion: {}", e);
                 }
@@ -714,20 +713,20 @@ pub async fn record_ci_attestation(
     }
 
     let allowed_keys = {
-        let cfg = state
-            .config
-            .read()
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("config lock poisoned")
-                            .with_code("INTERNAL_ERROR")
-                            .with_string_details(e.to_string()),
-                    ),
-                )
-            })?;
-        cfg.security.ci_attestation_public_keys.clone().unwrap_or_default()
+        let cfg = state.config.read().map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("config lock poisoned")
+                        .with_code("INTERNAL_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
+        cfg.security
+            .ci_attestation_public_keys
+            .clone()
+            .unwrap_or_default()
     };
 
     if allowed_keys.is_empty() {
@@ -741,12 +740,7 @@ pub async fn record_ci_attestation(
         ));
     }
 
-    verify_ci_attestation(
-        &allowed_keys,
-        &request.release_id,
-        &run_id,
-        &req,
-    )?;
+    verify_ci_attestation(&allowed_keys, &request.release_id, &run_id, &req)?;
 
     let _ = state
         .db
@@ -1092,7 +1086,11 @@ async fn record_gate_result(
     let params = adapteros_db::RecordGateParams {
         request_id: request_id.to_string(),
         gate_name: gate_name.to_string(),
-        status: if passed { "passed".to_string() } else { "failed".to_string() },
+        status: if passed {
+            "passed".to_string()
+        } else {
+            "failed".to_string()
+        },
         passed,
         details: details.cloned(),
         error_message,
@@ -1380,16 +1378,18 @@ async fn ensure_gates_passed(
     state: &AppState,
     request_id: &str,
 ) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
-    check_gates_passed(state, request_id).await.map_err(|details| {
-        (
-            StatusCode::CONFLICT,
-            Json(
-                ErrorResponse::new("promotion gates not complete or failed")
-                    .with_code("GATES_NOT_READY")
-                    .with_string_details(details),
-            ),
-        )
-    })
+    check_gates_passed(state, request_id)
+        .await
+        .map_err(|details| {
+            (
+                StatusCode::CONFLICT,
+                Json(
+                    ErrorResponse::new("promotion gates not complete or failed")
+                        .with_code("GATES_NOT_READY")
+                        .with_string_details(details),
+                ),
+            )
+        })
 }
 
 fn check_ci_passed(request: &adapteros_db::PromotionRequest) -> Result<(), String> {
@@ -1547,16 +1547,18 @@ fn verify_ci_attestation(
     }
 
     let message = build_ci_attestation_message(release_id, run_id, req);
-    public_key.verify(message.as_bytes(), &signature).map_err(|e| {
-        (
-            StatusCode::BAD_REQUEST,
-            Json(
-                ErrorResponse::new("ci attestation signature invalid")
-                    .with_code("BAD_REQUEST")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    public_key
+        .verify(message.as_bytes(), &signature)
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("ci attestation signature invalid")
+                        .with_code("BAD_REQUEST")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
 
     Ok(())
 }

@@ -654,7 +654,9 @@ pub fn normalize_backend_id(backend: &str) -> &'static str {
 
 fn q15_from_unit(value: f32) -> i16 {
     let clamped = value.clamp(0.0, 1.0);
-    (clamped * STOP_Q15_DENOM).round().clamp(i16::MIN as f32, i16::MAX as f32) as i16
+    (clamped * STOP_Q15_DENOM)
+        .round()
+        .clamp(i16::MIN as f32, i16::MAX as f32) as i16
 }
 
 fn compute_cached_prefix_digest(
@@ -675,7 +677,10 @@ fn compute_cached_prefix_digest(
     Some(B3Hash::hash(&buf))
 }
 
-fn compute_retrieval_digests(evidence: &[EvidenceRef], tenant_id: &str) -> (Option<B3Hash>, Option<B3Hash>) {
+fn compute_retrieval_digests(
+    evidence: &[EvidenceRef],
+    tenant_id: &str,
+) -> (Option<B3Hash>, Option<B3Hash>) {
     if evidence.is_empty() {
         return (None, None);
     }

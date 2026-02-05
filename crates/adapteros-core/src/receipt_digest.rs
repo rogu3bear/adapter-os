@@ -1381,8 +1381,10 @@ pub fn canonical_json_string<T: Serialize>(value: &T) -> Result<String, serde_js
 fn canonicalize_json_value(value: serde_json::Value) -> serde_json::Value {
     match value {
         serde_json::Value::Object(map) => {
-            let mut entries: Vec<(String, serde_json::Value)> =
-                map.into_iter().map(|(k, v)| (k, canonicalize_json_value(v))).collect();
+            let mut entries: Vec<(String, serde_json::Value)> = map
+                .into_iter()
+                .map(|(k, v)| (k, canonicalize_json_value(v)))
+                .collect();
             entries.sort_by(|a, b| a.0.cmp(&b.0));
             let mut ordered = serde_json::Map::with_capacity(entries.len());
             for (k, v) in entries {
@@ -1390,9 +1392,9 @@ fn canonicalize_json_value(value: serde_json::Value) -> serde_json::Value {
             }
             serde_json::Value::Object(ordered)
         }
-        serde_json::Value::Array(arr) => serde_json::Value::Array(
-            arr.into_iter().map(canonicalize_json_value).collect(),
-        ),
+        serde_json::Value::Array(arr) => {
+            serde_json::Value::Array(arr.into_iter().map(canonicalize_json_value).collect())
+        }
         other => other,
     }
 }

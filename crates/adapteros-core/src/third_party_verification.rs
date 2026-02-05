@@ -93,8 +93,7 @@
 
 use crate::evidence_envelope::InferenceReceiptRef;
 use crate::receipt_digest::{
-    compute_output_digest, compute_receipt_digest, ReceiptDigestInput, RECEIPT_SCHEMA_V6,
-    RECEIPT_SCHEMA_V7,
+    compute_output_digest, compute_receipt_digest, ReceiptDigestInput, RECEIPT_SCHEMA_V7,
 };
 use crate::{AosError, B3Hash, Result};
 use serde::{Deserialize, Serialize};
@@ -478,7 +477,7 @@ fn compute_context_digest(config: &ClaimedConfig) -> B3Hash {
     buf.extend_from_slice(config.stack_hash.as_bytes());
 
     if let Some(tokenizer_hash) = config.tokenizer_hash_b3 {
-        buf.extend_from_slice(tokenizer_hash.as_bytes());
+        buf.extend_from_slice(&tokenizer_hash);
         if let Some(ref version) = config.tokenizer_version {
             buf.extend_from_slice(&(version.len() as u32).to_le_bytes());
             buf.extend_from_slice(version.as_bytes());

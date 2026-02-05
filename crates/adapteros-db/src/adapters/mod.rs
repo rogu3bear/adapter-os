@@ -2706,13 +2706,12 @@ impl Db {
     /// in the router. The stable_id is unique per-tenant and assigned at
     /// registration time in the order adapters are created.
     async fn get_next_adapter_stable_id(&self, tenant_id: &str) -> Result<i64> {
-        let max_stable_id: Option<i64> = sqlx::query_scalar(
-            "SELECT MAX(stable_id) FROM adapters WHERE tenant_id = ?",
-        )
-        .bind(tenant_id)
-        .fetch_one(self.pool())
-        .await
-        .map_err(|e| AosError::database(format!("get max stable_id: {e}")))?;
+        let max_stable_id: Option<i64> =
+            sqlx::query_scalar("SELECT MAX(stable_id) FROM adapters WHERE tenant_id = ?")
+                .bind(tenant_id)
+                .fetch_one(self.pool())
+                .await
+                .map_err(|e| AosError::database(format!("get max stable_id: {e}")))?;
 
         // Start from 1 if no existing adapters
         Ok(max_stable_id.unwrap_or(0) + 1)

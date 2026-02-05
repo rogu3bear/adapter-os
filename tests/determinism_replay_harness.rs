@@ -175,8 +175,7 @@ impl ReplayInferenceContext {
 
     /// Execute deterministic inference and return results
     fn execute(&self) -> ReplayInferenceResult {
-        if !self.gate_raw_scores.is_empty()
-            && self.gate_raw_scores.len() != self.adapter_ids.len()
+        if !self.gate_raw_scores.is_empty() && self.gate_raw_scores.len() != self.adapter_ids.len()
         {
             panic!(
                 "gate_raw_scores length {} does not match adapter_ids length {}",
@@ -219,7 +218,10 @@ impl ReplayInferenceContext {
             prompt_buf.extend_from_slice(&token.to_le_bytes());
         }
         let prompt_hash = B3Hash::hash(&prompt_buf);
-        let output_seed = derive_seed(&self.global_seed, &format!("output:{}", prompt_hash.to_hex()));
+        let output_seed = derive_seed(
+            &self.global_seed,
+            &format!("output:{}", prompt_hash.to_hex()),
+        );
         let output_tokens: Vec<u32> = (0..(10 + self.prompt_tokens.len() as u32))
             .map(|i| {
                 let token_seed =
@@ -756,8 +758,8 @@ impl ReplayGoldenFixture {
     }
 
     fn context(&self) -> Result<ReplayInferenceContext, String> {
-        let seed_bytes = hex::decode(&self.input_seed_hex)
-            .map_err(|e| format!("Invalid seed hex: {}", e))?;
+        let seed_bytes =
+            hex::decode(&self.input_seed_hex).map_err(|e| format!("Invalid seed hex: {}", e))?;
         if seed_bytes.len() != 32 {
             return Err(format!("Invalid seed length: {}", seed_bytes.len()));
         }

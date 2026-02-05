@@ -263,7 +263,10 @@ impl std::fmt::Debug for ReasoningScorer {
             .field("topology", &self.topology)
             .field("semantic_weight", &self.semantic_weight)
             .field("topology_weight", &self.topology_weight)
-            .field("dimension_mismatches", &self.dimension_mismatches.load(Ordering::Relaxed))
+            .field(
+                "dimension_mismatches",
+                &self.dimension_mismatches.load(Ordering::Relaxed),
+            )
             .finish()
     }
 }

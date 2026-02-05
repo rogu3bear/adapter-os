@@ -10,8 +10,7 @@ use std::path::{Path, PathBuf};
 
 use adapteros_core::receipt_digest::{
     self, ReceiptDigestInput, RECEIPT_SCHEMA_CURRENT, RECEIPT_SCHEMA_V1, RECEIPT_SCHEMA_V2,
-    RECEIPT_SCHEMA_V3, RECEIPT_SCHEMA_V4, RECEIPT_SCHEMA_V5, RECEIPT_SCHEMA_V6,
-    RECEIPT_SCHEMA_V7,
+    RECEIPT_SCHEMA_V3, RECEIPT_SCHEMA_V4, RECEIPT_SCHEMA_V5, RECEIPT_SCHEMA_V6, RECEIPT_SCHEMA_V7,
 };
 use adapteros_core::B3Hash;
 use adapteros_crypto::signature::{PublicKey, Signature};
@@ -769,10 +768,8 @@ fn compute_receipt_digest_from_bundle(
             receipt.sampling_backend.clone(),
         );
 
-        input = input.with_concurrency_determinism(
-            receipt.thread_count,
-            receipt.reduction_strategy.clone(),
-        );
+        input = input
+            .with_concurrency_determinism(receipt.thread_count, receipt.reduction_strategy.clone());
 
         let stop_window = receipt
             .stop_window_digest_b3_hex
