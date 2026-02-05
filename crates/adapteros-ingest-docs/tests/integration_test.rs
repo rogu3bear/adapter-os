@@ -70,6 +70,41 @@ This section provides additional details and specifications.
 }
 
 #[test]
+fn test_text_ingestion_deterministic() {
+    let text_content = "Line one.  \r\n\r\n   Line two.\n\nLine three.";
+    let options = default_ingest_options();
+    let ingestor = DocumentIngestor::new(options, None);
+
+    let doc1 = ingestor
+        .ingest_text_bytes(text_content.as_bytes(), "notes.txt")
+        .expect("Failed to ingest text");
+    let doc2 = ingestor
+        .ingest_text_bytes(text_content.as_bytes(), "notes.txt")
+        .expect("Failed to ingest text");
+
+    assert_eq!(doc1.source, DocumentSource::Text);
+    assert_eq!(doc1.normalized_text_hash, doc2.normalized_text_hash);
+    assert_eq!(doc1.normalized_text_len, doc2.normalized_text_len);
+    assert_eq!(doc1.chunks.len(), doc2.chunks.len());
+    assert_eq!(doc1.chunks[0].text, doc2.chunks[0].text);
+}
+
+#[test]
+fn test_pdf_no_text_layer_rejected() {
+    let options = default_ingest_options();
+    let ingestor = DocumentIngestor::new(options, None);
+
+    // Minimal PDF with a single empty page and no text content.
+    let empty_pdf: &[u8] = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R >>\nendobj\n4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\nxref\n0 5\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \n0000000202 00000 n \ntrailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n251\n%%EOF\n";
+
+    let err = ingestor
+        .ingest_pdf_bytes(empty_pdf, "empty-text.pdf")
+        .expect_err("Expected PDF with no text layer to fail");
+    let msg = err.to_string();
+    assert!(msg.contains("contains no text layer"));
+}
+
+#[test]
 fn test_pdf_toxic_empty_rejected() {
     let options = default_ingest_options();
     let ingestor = DocumentIngestor::new(options, None);

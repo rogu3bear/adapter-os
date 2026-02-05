@@ -1,6 +1,6 @@
 //! Document management handlers
 //!
-//! Provides REST endpoints for PDF document upload, indexing, and management.
+//! Provides REST endpoints for document upload, indexing, and management.
 //! Documents are ingested, chunked, and stored with embeddings for RAG workflows.
 
 use crate::api_error::ApiError;
@@ -18,6 +18,7 @@ use axum::{
     Extension,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::path::{Path as StdPath, PathBuf};
 #[cfg(feature = "embeddings")]
 use std::sync::Arc;
@@ -32,6 +33,85 @@ use utoipa::ToSchema;
 
 /// Maximum document size (100MB)
 const MAX_DOCUMENT_SIZE: usize = 100 * 1024 * 1024;
+#[cfg(feature = "embeddings")]
+const INGESTION_VERSION: u32 = adapteros_ingest_docs::INGESTION_VERSION;
+#[cfg(not(feature = "embeddings"))]
+const INGESTION_VERSION: u32 = 1;
+
+const DEFAULT_MIME_PDF: &str = "application/pdf";
+const DEFAULT_MIME_MD: &str = "text/markdown";
+const DEFAULT_MIME_TEXT: &str = "text/plain";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DocumentKind {
+    Pdf,
+    Markdown,
+    Text,
+}
+
+impl DocumentKind {
+    fn extension(&self) -> &'static str {
+        match self {
+            DocumentKind::Pdf => "pdf",
+            DocumentKind::Markdown => "md",
+            DocumentKind::Text => "txt",
+        }
+    }
+
+    fn default_mime_type(&self) -> &'static str {
+        match self {
+            DocumentKind::Pdf => DEFAULT_MIME_PDF,
+            DocumentKind::Markdown => DEFAULT_MIME_MD,
+            DocumentKind::Text => DEFAULT_MIME_TEXT,
+        }
+    }
+}
+
+fn detect_document_kind(file_name: &str, mime_type: &str) -> Option<DocumentKind> {
+    let ext = std::path::Path::new(file_name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase());
+
+    if let Some(ext) = ext.as_deref() {
+        match ext {
+            "pdf" => return Some(DocumentKind::Pdf),
+            "md" | "markdown" => return Some(DocumentKind::Markdown),
+            "txt" => return Some(DocumentKind::Text),
+            _ => return None,
+        }
+    }
+
+    let mime = mime_type.to_ascii_lowercase();
+    if mime.contains("pdf") {
+        Some(DocumentKind::Pdf)
+    } else if mime.contains("markdown") {
+        Some(DocumentKind::Markdown)
+    } else if mime.starts_with("text/plain") {
+        Some(DocumentKind::Text)
+    } else {
+        None
+    }
+}
+
+fn upsert_metadata_json(
+    existing: Option<&str>,
+    updates: &[(&str, Value)],
+) -> Result<String, ApiError> {
+    let mut map = match existing {
+        Some(raw) => {
+            serde_json::from_str::<serde_json::Map<String, Value>>(raw).unwrap_or_default()
+        }
+        None => serde_json::Map::new(),
+    };
+
+    for (key, value) in updates {
+        map.insert((*key).to_string(), value.clone());
+    }
+
+    serde_json::to_string(&Value::Object(map))
+        .map_err(|e| ApiError::internal(format!("Failed to serialize document metadata: {}", e)))
+}
 
 async fn resolve_document_id(state: &AppState, id: &str) -> Result<String, ApiError> {
     crate::id_resolver::resolve_id(
@@ -135,7 +215,7 @@ pub struct ChunkResponse {
 
 /// Upload document request (multipart form)
 /// Expected fields:
-/// - file: PDF file (required)
+/// - file: Document file (required, .pdf/.md/.txt)
 /// - name: Document name (optional, defaults to filename)
 #[utoipa::path(
     post,
@@ -189,8 +269,10 @@ pub async fn upload_document(
         .map_err(ApiError::db_error)?;
 
     let mut document_name = String::new();
+    let mut original_filename: Option<String> = None;
     let mut file_data: Option<Vec<u8>> = None;
-    let mut mime_type = "application/pdf".to_string();
+    let mut mime_type = String::new();
+    let mut document_kind: Option<DocumentKind> = None;
 
     // Process multipart form
     while let Some(field) = multipart
@@ -213,6 +295,8 @@ pub async fn upload_document(
                     .ok_or_else(|| ApiError::bad_request("File must have a name"))?
                     .to_string();
 
+                original_filename = Some(file_name.clone());
+
                 if document_name.is_empty() {
                     document_name = file_name.clone();
                 }
@@ -220,6 +304,8 @@ pub async fn upload_document(
                 if let Some(ct) = field.content_type() {
                     mime_type = ct.to_string();
                 }
+
+                document_kind = detect_document_kind(&file_name, &mime_type);
 
                 let data = field
                     .bytes()
@@ -253,6 +339,13 @@ pub async fn upload_document(
     }
 
     let file_data = file_data.ok_or_else(|| ApiError::bad_request("No file uploaded"))?;
+    let document_kind = document_kind.ok_or_else(|| {
+        ApiError::bad_request("Unsupported document type. Supported: .pdf, .md, .txt")
+    })?;
+
+    if mime_type.is_empty() || mime_type == "application/octet-stream" {
+        mime_type = document_kind.default_mime_type().to_string();
+    }
 
     if document_name.is_empty() {
         document_name = format!("Document {}", &document_id[0..8]);
@@ -291,7 +384,7 @@ pub async fn upload_document(
     }
 
     // Save file to disk (only for new documents)
-    let file_path = tenant_path.join(format!("{}.pdf", document_id));
+    let file_path = tenant_path.join(format!("{}.{}", document_id, document_kind.extension()));
     let mut file = fs::File::create(&file_path)
         .await
         .map_err(ApiError::db_error)?;
@@ -318,6 +411,41 @@ pub async fn upload_document(
         })
         .await
         .map_err(ApiError::db_error)?;
+
+    let metadata_json = upsert_metadata_json(
+        None,
+        &[
+            (
+                "original_filename",
+                Value::String(
+                    original_filename
+                        .clone()
+                        .unwrap_or_else(|| document_name.clone()),
+                ),
+            ),
+            ("mime_type", Value::String(mime_type.clone())),
+            (
+                "extension",
+                Value::String(document_kind.extension().to_string()),
+            ),
+            ("source_hash", Value::String(file_hash.clone())),
+            (
+                "ingestion_version",
+                Value::Number(serde_json::Number::from(INGESTION_VERSION as u64)),
+            ),
+        ],
+    )?;
+    if let Err(e) = state
+        .db
+        .update_document_metadata(&document_id, &metadata_json)
+        .await
+    {
+        warn!(
+            document_id = %document_id,
+            error = %e,
+            "Failed to update document metadata"
+        );
+    }
 
     info!(
         "Uploaded document {} ({} bytes) for tenant {}",
@@ -817,35 +945,39 @@ async fn process_document_inner(
         .await
         .map_err(|e| ApiError::db_error(format!("Failed to read document file: {}", e)))?;
 
+    let document_kind = detect_document_kind(&document.file_path, &document.mime_type)
+        .or_else(|| detect_document_kind(&document.name, &document.mime_type))
+        .ok_or_else(|| {
+            ApiError::bad_request(format!("Unsupported document type: {}", document.mime_type))
+        })?;
+
     // Parse document into chunks - use resilient processing for PDFs
     let ingestor = DocumentIngestor::new(default_ingest_options(), None);
-    let ingested_doc = if document.mime_type.contains("pdf") {
-        // Use resilient PDF processing that continues on page errors
-        let result = ingestor
-            .ingest_pdf_bytes_resilient(&file_data, &document.name)
-            .map_err(|e| ApiError::db_error(format!("Failed to parse PDF: {}", e)))?;
+    let ingested_doc = match document_kind {
+        DocumentKind::Pdf => {
+            // Use resilient PDF processing that continues on page errors
+            let result = ingestor
+                .ingest_pdf_bytes_resilient(&file_data, &document.name)
+                .map_err(|e| ApiError::db_error(format!("Failed to parse PDF: {}", e)))?;
 
-        // Log any page errors
-        if result.successful_pages < result.total_pages {
-            warn!(
-                document_id = %document_id,
-                total_pages = result.total_pages,
-                successful_pages = result.successful_pages,
-                "Document processed with some page failures"
-            );
+            // Log any page errors
+            if result.successful_pages < result.total_pages {
+                warn!(
+                    document_id = %document_id,
+                    total_pages = result.total_pages,
+                    successful_pages = result.successful_pages,
+                    "Document processed with some page failures"
+                );
+            }
+
+            result.document
         }
-
-        result.document
-    } else if document.mime_type.contains("markdown") || document.name.ends_with(".md") {
-        ingestor
+        DocumentKind::Markdown => ingestor
             .ingest_markdown_bytes(&file_data, &document.name)
-            .map_err(|e| ApiError::db_error(format!("Failed to parse markdown: {}", e)))?
-    } else {
-        return Err(ApiError::bad_request(format!(
-            "Unsupported document type: {}",
-            document.mime_type
-        ))
-        .into());
+            .map_err(|e| ApiError::db_error(format!("Failed to parse markdown: {}", e)))?,
+        DocumentKind::Text => ingestor
+            .ingest_text_bytes(&file_data, &document.name)
+            .map_err(|e| ApiError::db_error(format!("Failed to parse text: {}", e)))?,
     };
 
     info!(
@@ -1011,6 +1143,43 @@ async fn process_document_inner(
     tx.commit()
         .await
         .map_err(|e| ApiError::db_error(format!("Failed to commit transaction: {}", e)))?;
+
+    let metadata_updates = [
+        (
+            "normalized_text_hash",
+            ingested_doc
+                .normalized_text_hash
+                .as_ref()
+                .map(|h| Value::String(h.to_hex()))
+                .unwrap_or(Value::Null),
+        ),
+        (
+            "normalized_char_count",
+            ingested_doc
+                .normalized_text_len
+                .map(|v| Value::Number(serde_json::Number::from(v as u64)))
+                .unwrap_or(Value::Null),
+        ),
+        (
+            "ingestion_version",
+            Value::Number(serde_json::Number::from(INGESTION_VERSION as u64)),
+        ),
+    ];
+    if let Ok(metadata_json) =
+        upsert_metadata_json(document.metadata_json.as_deref(), &metadata_updates)
+    {
+        if let Err(e) = state
+            .db
+            .update_document_metadata(document_id, &metadata_json)
+            .await
+        {
+            warn!(
+                document_id = %document_id,
+                error = %e,
+                "Failed to update document metadata after processing"
+            );
+        }
+    }
 
     info!(
         document_id = %document_id,

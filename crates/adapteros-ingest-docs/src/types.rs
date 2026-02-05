@@ -7,6 +7,7 @@ use std::path::PathBuf;
 pub enum DocumentSource {
     Pdf,
     Markdown,
+    Text,
 }
 
 impl DocumentSource {
@@ -14,6 +15,7 @@ impl DocumentSource {
         match self {
             DocumentSource::Pdf => "pdf",
             DocumentSource::Markdown => "markdown",
+            DocumentSource::Text => "text",
         }
     }
 }
@@ -56,13 +58,17 @@ impl DocumentChunk {
     }
 }
 
-/// Result of ingesting a single document (pdf/markdown)
+/// Result of ingesting a single document (pdf/markdown/text)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IngestedDocument {
     pub source: DocumentSource,
     pub source_name: String,
     pub source_path: Option<PathBuf>,
     pub doc_hash: B3Hash,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub normalized_text_hash: Option<B3Hash>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub normalized_text_len: Option<usize>,
     pub byte_len: usize,
     pub page_count: Option<usize>,
     pub chunks: Vec<DocumentChunk>,
