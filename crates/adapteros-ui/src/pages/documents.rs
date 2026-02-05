@@ -287,7 +287,7 @@ fn DocumentUploadDialog(open: RwSignal<bool>, on_success: Callback<String>) -> i
     const MAX_FILE_SIZE: u64 = 50 * 1024 * 1024;
 
     #[cfg(target_arch = "wasm32")]
-    const SUPPORTED_EXTENSIONS: &[&str] = &[".pdf", ".txt", ".md", ".html", ".json", ".jsonl"];
+    const SUPPORTED_EXTENSIONS: &[&str] = &[".pdf", ".txt", ".md"];
 
     let uploading = RwSignal::new(false);
     let error_msg = RwSignal::new(None::<String>);
@@ -420,7 +420,7 @@ fn DocumentUploadDialog(open: RwSignal<bool>, on_success: Callback<String>) -> i
                     <label class="text-sm font-medium">"File"</label>
                     <input
                         type="file"
-                        accept=".pdf,.txt,.md,.html,.json,.jsonl"
+                        accept=".pdf,.txt,.md"
                         class="block w-full text-sm"
                         disabled=move || uploading.get()
                         on:change=handle_file_change

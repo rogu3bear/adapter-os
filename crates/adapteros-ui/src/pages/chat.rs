@@ -23,8 +23,8 @@ use crate::components::inference_guidance::guidance_for;
 use crate::components::status_center::use_status_center;
 use crate::components::{
     AdapterBar, AdapterHeat, AdapterMagnet, Badge, BadgeVariant, Button, ButtonSize, ButtonVariant,
-    Card, ConfirmationDialog, ConfirmationSeverity, EmptyState, EmptyStateVariant, Spinner,
-    SuggestedAdapterView, SuggestedAdaptersBar, Textarea, TraceButton, TracePanel,
+    Card, ConfirmationDialog, ConfirmationSeverity, Dialog, EmptyState, EmptyStateVariant, Input,
+    Spinner, SuggestedAdapterView, SuggestedAdaptersBar, Textarea, TraceButton, TracePanel,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use crate::signals::{
@@ -34,6 +34,7 @@ use adapteros_api_types::InferenceReadyState;
 use leptos::prelude::*;
 use leptos_router::hooks::{use_navigate, use_params_map};
 use std::sync::Arc;
+use wasm_bindgen::JsCast;
 
 /// Maximum prompt length for URL-embedded prompts (bytes).
 /// This prevents DoS attacks from extremely long URLs that could:
@@ -41,6 +42,13 @@ use std::sync::Arc;
 /// 2. Exhaust memory when decoded
 /// 3. Overwhelm the inference endpoint
 const MAX_URL_PROMPT_LENGTH: usize = 2000;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AttachMode {
+    Upload,
+    Paste,
+    Chat,
+}
 
 /// Chat sessions landing page with recent sessions
 #[component]
@@ -355,7 +363,16 @@ pub fn ChatSession() -> impl IntoView {
     let session_loaded = RwSignal::new(false);
     let current_session_id = RwSignal::new(String::new());
     let session_error = RwSignal::new(Option::<String>::None);
-    let verified_mode = RwSignal::new(false);
+    let verified_mode = Signal::derive(move || chat_state.get().verified_mode);
+    let show_attach_dialog = RwSignal::new(false);
+    let attach_mode = RwSignal::new(AttachMode::Upload);
+    let selected_file_name = RwSignal::new(Option::<String>::None);
+    let selected_file = RwSignal::new(Option::<web_sys::File>::None);
+    let attach_status = RwSignal::new(Option::<String>::None);
+    let attach_error = RwSignal::new(Option::<String>::None);
+    let attach_busy = RwSignal::new(false);
+    let pasted_text = RwSignal::new(String::new());
+    let chat_range = RwSignal::new(String::new());
     let navigate = use_navigate();
 
     // Load session from localStorage when session ID changes
@@ -473,11 +490,12 @@ pub fn ChatSession() -> impl IntoView {
     // Auto-save session when messages change
     // Uses chat_state.get() to create reactive dependency, then compares with previous state
     {
-        Effect::new(move |prev_state: Option<(usize, bool)>| {
+        Effect::new(move |prev_state: Option<(usize, bool, bool)>| {
             // Get state reactively to trigger effect when it changes
             let state = chat_state.get();
             let msg_count = state.messages.len();
             let is_streaming = state.streaming;
+            let verified_mode = state.verified_mode;
             // Get session ID untracked since we only care about state changes, not ID changes
             let id = current_session_id.get_untracked();
 
@@ -488,9 +506,12 @@ pub fn ChatSession() -> impl IntoView {
             let should_save = !id.is_empty() && msg_count > 0 && !is_streaming;
 
             if should_save {
-                if let Some((prev_count, was_streaming)) = prev_state {
-                    // Save when message count changes, or when streaming just completed
-                    if msg_count != prev_count || (was_streaming && !is_streaming) {
+                if let Some((prev_count, was_streaming, prev_verified)) = prev_state {
+                    // Save when message count changes, streaming just completed, or mode toggled
+                    if msg_count != prev_count
+                        || (was_streaming && !is_streaming)
+                        || verified_mode != prev_verified
+                    {
                         let session = ChatSessionsManager::session_from_state(&id, &state);
                         ChatSessionsManager::save_session(&session);
                         web_sys::console::log_1(
@@ -501,7 +522,23 @@ pub fn ChatSession() -> impl IntoView {
                 }
             }
 
-            (msg_count, is_streaming)
+            (msg_count, is_streaming, verified_mode)
+        });
+    }
+
+    // Reset attach dialog state when closed
+    {
+        Effect::new(move || {
+            if !show_attach_dialog.get() {
+                attach_mode.set(AttachMode::Upload);
+                selected_file_name.set(None);
+                selected_file.set(None);
+                attach_status.set(None);
+                attach_error.set(None);
+                attach_busy.set(false);
+                pasted_text.set(String::new());
+                chat_range.set(String::new());
+            }
         });
     }
 
@@ -540,8 +577,10 @@ pub fn ChatSession() -> impl IntoView {
         !loading && !streaming && has_recovery
     });
     let retry_disabled = Signal::derive(move || !can_retry.get());
-    let show_adapter_tray =
-        Memo::new(move |_| is_streaming.get() || !chat_state.get().suggested_adapters.is_empty());
+    let base_model_label = Signal::derive(move || match chat_state.get().target.clone() {
+        ChatTarget::Model(name) => name,
+        _ => "Default".to_string(),
+    });
 
     // Convert active_adapters to AdapterMagnets for the AdapterBar
     let adapter_magnets = Memo::new(move |_| {
@@ -565,19 +604,22 @@ pub fn ChatSession() -> impl IntoView {
     });
 
     // Convert suggested_adapters for the SuggestedAdaptersBar
-    // Name is populated from topology; other fields remain optional
+    // Name/purpose are populated from topology; other fields remain optional
     let suggested_adapters = Memo::new(move |_| {
+        let selected = chat_state.get().selected_adapter;
         chat_state
             .get()
             .suggested_adapters
             .iter()
             .map(|s| SuggestedAdapterView {
                 adapter_id: s.adapter_id.clone(),
+                display_name: s.name.clone().unwrap_or_else(|| s.adapter_id.clone()),
                 confidence: s.confidence,
                 is_pinned: s.is_pinned,
+                is_selected: selected.as_deref() == Some(&s.adapter_id),
                 // Use adapter name as description if available
                 disabled_reason: None,
-                description: s.name.clone(),
+                description: s.purpose.clone(),
                 tags: None,
             })
             .collect::<Vec<_>>()
@@ -615,6 +657,14 @@ pub fn ChatSession() -> impl IntoView {
         let action = chat_action.clone();
         Callback::new(move |adapter_id: String| {
             action.toggle_pin_adapter(&adapter_id);
+        })
+    };
+
+    // Select adapter for next message (one-shot override)
+    let on_select_override = {
+        let action = chat_action.clone();
+        Callback::new(move |adapter_id: String| {
+            action.select_next_adapter(&adapter_id);
         })
     };
 
@@ -658,6 +708,164 @@ pub fn ChatSession() -> impl IntoView {
         })
     };
 
+    // Attach data -> dataset draft
+    let create_draft = {
+        let navigate = navigate.clone();
+        let chat_state = chat_state.clone();
+        Callback::new(move |_: ()| {
+            attach_error.set(None);
+            let mode = attach_mode.get();
+            let base_model_id = match chat_state.get().target.clone() {
+                ChatTarget::Model(name) => Some(name),
+                _ => None,
+            };
+            let base_model_param = base_model_id
+                .as_ref()
+                .map(|val| {
+                    let encoded = js_sys::encode_uri_component(val)
+                        .as_string()
+                        .unwrap_or_else(|| val.clone());
+                    format!("&base_model_id={}", encoded)
+                })
+                .unwrap_or_default();
+
+            match mode {
+                AttachMode::Upload => {
+                    let Some(file) = selected_file.get() else {
+                        attach_error.set(Some("Select a file to upload.".to_string()));
+                        return;
+                    };
+
+                    let file_name = file.name();
+                    attach_busy.set(true);
+                    attach_status.set(Some(format!("Uploading {}...", file_name)));
+
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        let navigate = navigate.clone();
+                        let attach_status = attach_status.clone();
+                        let attach_error = attach_error.clone();
+                        let attach_busy = attach_busy.clone();
+                        let show_attach_dialog = show_attach_dialog.clone();
+                        let base_model_param = base_model_param.clone();
+
+                        wasm_bindgen_futures::spawn_local(async move {
+                            let client = ApiClient::with_base_url(&api_base_url());
+                            match client.upload_document(&file).await {
+                                Ok(doc) => {
+                                    attach_status.set(Some("Processing document...".to_string()));
+                                    let doc_id = doc.document_id.clone();
+                                    let mut chunk_count = doc.chunk_count.unwrap_or(0) as usize;
+
+                                    for _ in 0..60 {
+                                        gloo_timers::future::TimeoutFuture::new(1000).await;
+                                        match client.get_document(&doc_id).await {
+                                            Ok(status) => match status.status.as_str() {
+                                                "indexed" => {
+                                                    if let Some(count) = status.chunk_count {
+                                                        chunk_count = count as usize;
+                                                    }
+                                                    let encoded_name =
+                                                        js_sys::encode_uri_component(&file_name)
+                                                            .as_string()
+                                                            .unwrap_or_else(|| file_name.clone());
+                                                    let path = format!(
+                                                        "/datasets/draft?source=file&items={}&name={}&document_id={}{}",
+                                                        chunk_count,
+                                                        encoded_name,
+                                                        doc_id,
+                                                        base_model_param
+                                                    );
+                                                    navigate(&path, Default::default());
+                                                    show_attach_dialog.set(false);
+                                                    attach_busy.set(false);
+                                                    attach_status.set(None);
+                                                    return;
+                                                }
+                                                "failed" => {
+                                                    attach_error.set(Some(format!(
+                                                        "Document processing failed: {}",
+                                                        status.error_message.unwrap_or_default()
+                                                    )));
+                                                    attach_busy.set(false);
+                                                    attach_status.set(None);
+                                                    return;
+                                                }
+                                                _ => {
+                                                    attach_status.set(Some(format!(
+                                                        "Processing document ({})...",
+                                                        status.status
+                                                    )));
+                                                }
+                                            },
+                                            Err(e) => {
+                                                attach_error.set(Some(format!(
+                                                    "Failed to check status: {}",
+                                                    e
+                                                )));
+                                                attach_busy.set(false);
+                                                attach_status.set(None);
+                                                return;
+                                            }
+                                        }
+                                    }
+
+                                    attach_error
+                                        .set(Some("Document processing timed out.".to_string()));
+                                    attach_busy.set(false);
+                                    attach_status.set(None);
+                                }
+                                Err(e) => {
+                                    attach_error.set(Some(format!("Upload failed: {}", e)));
+                                    attach_busy.set(false);
+                                    attach_status.set(None);
+                                }
+                            }
+                        });
+                    }
+
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        let _ = file;
+                        attach_error.set(Some(
+                            "File upload is only available in the web UI.".to_string(),
+                        ));
+                        attach_busy.set(false);
+                        attach_status.set(None);
+                    }
+                }
+                AttachMode::Paste => {
+                    let text = pasted_text.get();
+                    let item_count = text.lines().filter(|l| !l.trim().is_empty()).count();
+                    let name = "pasted-text".to_string();
+                    let encoded_name = js_sys::encode_uri_component(&name)
+                        .as_string()
+                        .unwrap_or(name);
+                    let path = format!(
+                        "/datasets/draft?source=paste&items={}&name={}{}",
+                        item_count, encoded_name, base_model_param
+                    );
+                    navigate(&path, Default::default());
+                    show_attach_dialog.set(false);
+                }
+                AttachMode::Chat => {
+                    let range = chat_range.get();
+                    let item_count = if range.trim().is_empty() { 0 } else { 1 };
+                    let name = "chat-selection".to_string();
+                    let encoded_name = js_sys::encode_uri_component(&name)
+                        .as_string()
+                        .unwrap_or(name);
+                    let path = format!(
+                        "/datasets/draft?source=chat&items={}&name={}{}",
+                        item_count, encoded_name, base_model_param
+                    );
+                    navigate(&path, Default::default());
+                    show_attach_dialog.set(false);
+                }
+            }
+        })
+    };
+
     view! {
         <div class="p-6 flex h-full min-h-0 flex-col gap-4">
             // Header
@@ -672,6 +880,9 @@ pub fn ChatSession() -> impl IntoView {
                 <div class="flex items-center gap-3">
                     // Target selector for choosing model, stack, or policy pack
                     <ChatTargetSelector/>
+                    <Badge variant=BadgeVariant::Outline>
+                        {move || format!("Base model: {}", base_model_label.get())}
+                    </Badge>
                     <div class="flex items-center rounded-full border border-border bg-muted/30 p-0.5 text-xs">
                         <button
                             class=move || {
@@ -681,7 +892,7 @@ pub fn ChatSession() -> impl IntoView {
                                     "px-2 py-1 rounded-full bg-background text-foreground shadow-sm".to_string()
                                 }
                             }
-                            on:click=move |_| verified_mode.set(false)
+                            on:click=move |_| chat_action.set_verified_mode(false)
                             type="button"
                         >
                             "Fast"
@@ -694,7 +905,7 @@ pub fn ChatSession() -> impl IntoView {
                                     "px-2 py-1 rounded-full text-muted-foreground".to_string()
                                 }
                             }
-                            on:click=move |_| verified_mode.set(true)
+                            on:click=move |_| chat_action.set_verified_mode(true)
                             type="button"
                         >
                             "Verified"
@@ -745,24 +956,6 @@ pub fn ChatSession() -> impl IntoView {
 
             // Adapter Bar - shows active adapters as colored magnets
             <AdapterBar adapters=adapter_magnets/>
-
-            // Suggested Adapters Bar - shows router preview suggestions with click-to-pin
-            {move || {
-                if show_adapter_tray.get() {
-                    Some(view! {
-                        <div class="flex justify-end">
-                            <div class="w-full max-w-md">
-                                <SuggestedAdaptersBar
-                                    suggestions=suggested_adapters
-                                    on_toggle_pin=on_toggle_pin
-                                />
-                            </div>
-                        </div>
-                    })
-                } else {
-                    None
-                }
-            }}
 
             // Messages
             <div
@@ -872,40 +1065,62 @@ pub fn ChatSession() -> impl IntoView {
                                                                 }}
                                                             </p>
                                                         </div>
-                                                        // Show trace button and run links for assistant messages with trace info
-                                                        {if let (false, false, Some(tid)) = (is_user, is_streaming, trace_id.clone()) {
+                                                        // Run/Receipt links for assistant messages (placeholder if trace unavailable)
+                                                        {if !is_user && !is_streaming {
                                                             let latency = latency_ms.unwrap_or(0);
-                                                            let run_overview_url = format!("/runs/{}", tid);
-                                                            let run_receipt_url = format!("/runs/{}?tab=receipt", tid);
+                                                            let trace = trace_id.clone();
+                                                            let run_overview_url = trace.clone().map(|tid| format!("/runs/{}", tid));
+                                                            let run_receipt_url = trace.clone().map(|tid| format!("/runs/{}?tab=receipt", tid));
                                                             Some(view! {
                                                                 <div class="flex items-center gap-3 mt-1 px-1 flex-wrap" data-testid="chat-trace-links">
-                                                                    <TraceButton
-                                                                        trace_id=tid.clone()
-                                                                        latency_ms=latency
-                                                                        on_click=Callback::new(move |id: String| {
-                                                                            active_trace.set(Some(id));
-                                                                        })
-                                                                        data_testid="chat-trace-link".to_string()
-                                                                    />
-                                                                    // Run detail links
+                                                                    {trace.clone().map(|tid| view! {
+                                                                        <TraceButton
+                                                                            trace_id=tid.clone()
+                                                                            latency_ms=latency
+                                                                            on_click=Callback::new(move |id: String| {
+                                                                                active_trace.set(Some(id));
+                                                                            })
+                                                                            data_testid="chat-trace-link".to_string()
+                                                                        />
+                                                                    })}
                                                                     <div class="flex items-center gap-1">
-                                                                        <a
-                                                                            href=run_overview_url
-                                                                            class="text-xs text-muted-foreground hover:text-primary transition-colors px-1.5 py-0.5 rounded hover:bg-muted"
-                                                                            title="View Run Detail"
-                                                                            data-testid="chat-run-link"
-                                                                        >
-                                                                            "Run"
-                                                                        </a>
+                                                                        {run_overview_url.map(|url| view! {
+                                                                            <a
+                                                                                href=url
+                                                                                class="text-xs text-muted-foreground hover:text-primary transition-colors px-1.5 py-0.5 rounded hover:bg-muted"
+                                                                                title="View Run Detail"
+                                                                                data-testid="chat-run-link"
+                                                                            >
+                                                                                "Run"
+                                                                            </a>
+                                                                        }).unwrap_or_else(|| view! {
+                                                                            <span
+                                                                                class="text-xs text-muted-foreground/60 px-1.5 py-0.5 rounded"
+                                                                                title="Run detail unavailable"
+                                                                                data-testid="chat-run-link"
+                                                                            >
+                                                                                "Run"
+                                                                            </span>
+                                                                        })}
                                                                         <span class="text-muted-foreground/50">"·"</span>
-                                                                        <a
-                                                                            href=run_receipt_url
-                                                                            class="text-xs text-muted-foreground hover:text-primary transition-colors px-1.5 py-0.5 rounded hover:bg-muted"
-                                                                            title="Verify Receipt"
-                                                                            data-testid="chat-receipt-link"
-                                                                        >
-                                                                            "Receipt"
-                                                                        </a>
+                                                                        {run_receipt_url.map(|url| view! {
+                                                                            <a
+                                                                                href=url
+                                                                                class="text-xs text-muted-foreground hover:text-primary transition-colors px-1.5 py-0.5 rounded hover:bg-muted"
+                                                                                title="View Receipt"
+                                                                                data-testid="chat-receipt-link"
+                                                                            >
+                                                                                "Receipt"
+                                                                            </a>
+                                                                        }).unwrap_or_else(|| view! {
+                                                                            <span
+                                                                                class="text-xs text-muted-foreground/60 px-1.5 py-0.5 rounded"
+                                                                                title="Receipt unavailable"
+                                                                                data-testid="chat-receipt-link"
+                                                                            >
+                                                                                "Receipt"
+                                                                            </span>
+                                                                        })}
                                                                     </div>
                                                                     {token_count.map(|tc| {
                                                                         let display = format_token_display(tc, prompt_tokens, completion_tokens);
@@ -1192,6 +1407,18 @@ pub fn ChatSession() -> impl IntoView {
                 }
             }}
 
+            // Suggested Adapters Tray - inline dock near composer
+            <div class="flex justify-end">
+                <div class="w-full max-w-md">
+                    <SuggestedAdaptersBar
+                        suggestions=suggested_adapters
+                        on_select_override=on_select_override
+                        on_toggle_pin=on_toggle_pin
+                        loading=is_streaming
+                    />
+                </div>
+            </div>
+
             // Input
             <div class="border-t border-border pt-4">
                 <form
@@ -1206,7 +1433,7 @@ pub fn ChatSession() -> impl IntoView {
                     <button
                         type="button"
                         class="btn btn-outline btn-sm"
-                        on:click=move |_| navigate("/training", Default::default())
+                        on:click=move |_| show_attach_dialog.set(true)
                     >
                         "Attach data"
                     </button>
@@ -1246,6 +1473,129 @@ pub fn ChatSession() -> impl IntoView {
                     }}
                 </form>
             </div>
+
+            <Dialog
+                open=show_attach_dialog
+                title="Attach data".to_string()
+                description="Create a dataset draft from a file, pasted text, or this chat.".to_string()
+            >
+                <div class="space-y-4">
+                    <div class="grid grid-cols-3 gap-2 text-xs">
+                        <button
+                            type="button"
+                            class=move || {
+                                if attach_mode.get() == AttachMode::Upload {
+                                    "rounded-md border border-border bg-muted px-3 py-2 text-foreground"
+                                } else {
+                                    "rounded-md border border-border/60 px-3 py-2 text-muted-foreground hover:text-foreground hover:bg-muted/40"
+                                }
+                            }
+                            on:click=move |_| attach_mode.set(AttachMode::Upload)
+                        >
+                            "Upload file"
+                        </button>
+                        <button
+                            type="button"
+                            class=move || {
+                                if attach_mode.get() == AttachMode::Paste {
+                                    "rounded-md border border-border bg-muted px-3 py-2 text-foreground"
+                                } else {
+                                    "rounded-md border border-border/60 px-3 py-2 text-muted-foreground hover:text-foreground hover:bg-muted/40"
+                                }
+                            }
+                            on:click=move |_| attach_mode.set(AttachMode::Paste)
+                        >
+                            "Paste text"
+                        </button>
+                        <button
+                            type="button"
+                            class=move || {
+                                if attach_mode.get() == AttachMode::Chat {
+                                    "rounded-md border border-border bg-muted px-3 py-2 text-foreground"
+                                } else {
+                                    "rounded-md border border-border/60 px-3 py-2 text-muted-foreground hover:text-foreground hover:bg-muted/40"
+                                }
+                            }
+                            on:click=move |_| attach_mode.set(AttachMode::Chat)
+                        >
+                            "Use this chat"
+                        </button>
+                    </div>
+
+                    {move || match attach_mode.get() {
+                        AttachMode::Upload => view! {
+                            <div class="space-y-2">
+                                <label class="text-xs text-muted-foreground">"Select a file"</label>
+                                <input
+                                    type="file"
+                                    class="block w-full text-xs text-muted-foreground file:mr-3 file:rounded-md file:border-0 file:bg-muted file:px-3 file:py-2 file:text-xs file:font-medium file:text-foreground hover:file:bg-muted/70"
+                                    accept=".pdf,.txt,.md"
+                                    on:change=move |ev| {
+                                        let file = selected_file_from_event(&ev);
+                                        let name = file.as_ref().map(|f| f.name());
+                                        selected_file_name.set(name);
+                                        selected_file.set(file);
+                                    }
+                                />
+                                {move || selected_file_name.get().map(|name| view! {
+                                    <div class="text-xs text-muted-foreground">
+                                        {format!("Selected: {}", name)}
+                                    </div>
+                                })}
+                            </div>
+                        }.into_any(),
+                        AttachMode::Paste => view! {
+                            <div class="space-y-2">
+                                <label class="text-xs text-muted-foreground">"Paste text"</label>
+                                <Textarea
+                                    value=pasted_text
+                                    placeholder="Paste training examples or notes...".to_string()
+                                    rows=5
+                                    class="w-full".to_string()
+                                    aria_label="Paste dataset text".to_string()
+                                />
+                            </div>
+                        }.into_any(),
+                        AttachMode::Chat => view! {
+                            <div class="space-y-2">
+                                <label class="text-xs text-muted-foreground">"Chat range (stub)"</label>
+                                <Input
+                                    value=chat_range
+                                    placeholder="e.g. Last 10 messages".to_string()
+                                />
+                                <p class="text-xs text-muted-foreground">
+                                    "Range selection will be supported in a follow-up."
+                                </p>
+                            </div>
+                        }.into_any(),
+                    }}
+
+                    {move || attach_error.get().map(|msg| view! {
+                        <div class="text-xs text-destructive">{msg}</div>
+                    })}
+                    {move || attach_status.get().map(|msg| view! {
+                        <div class="text-xs text-muted-foreground">{msg}</div>
+                    })}
+
+                    <div class="flex justify-end gap-2 pt-2 border-t border-border">
+                        <Button
+                            variant=ButtonVariant::Outline
+                            disabled=Signal::derive(move || attach_busy.get())
+                            on_click=Callback::new(move |_| show_attach_dialog.set(false))
+                        >
+                            "Cancel"
+                        </Button>
+                        <Button
+                            variant=ButtonVariant::Primary
+                            loading=Signal::derive(move || attach_busy.get())
+                            disabled=Signal::derive(move || attach_busy.get())
+                            on_click=create_draft
+                        >
+                            "Create draft"
+                        </Button>
+                    </div>
+                </div>
+            </Dialog>
         </div>
     }
 }
@@ -1265,6 +1615,14 @@ fn format_token_display(
         }
         _ => format!("{} tokens", total),
     }
+}
+
+fn selected_file_from_event(ev: &web_sys::Event) -> Option<web_sys::File> {
+    let target = ev
+        .target()
+        .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok())?;
+    let files = target.files()?;
+    files.get(0)
 }
 
 /// Target options fetched from API for the chat target selector
