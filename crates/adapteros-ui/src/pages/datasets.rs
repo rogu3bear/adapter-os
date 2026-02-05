@@ -3,12 +3,12 @@
 //! Provides UI for managing training datasets - listing, viewing,
 //! and deleting datasets used for adapter training.
 
-use crate::api::{ApiClient, DatasetListResponse, DatasetVersionsResponse};
+use crate::api::{ApiClient, DatasetListResponse, DatasetStatisticsResponse, DatasetVersionsResponse};
 use crate::components::{
     Badge, BadgeVariant, BreadcrumbItem, BreadcrumbTrail, Button, ButtonVariant, Card, Checkbox,
     ConfirmationDialog, ConfirmationSeverity, CopyableId, EmptyState, ErrorDisplay, Input,
     LoadingDisplay, PageHeader, RefreshButton, Spinner, Table, TableBody, TableCell, TableHead,
-    TableHeader, TableRow,
+    TableHeader, TableRow, Toggle,
 };
 use crate::hooks::{use_api, use_api_resource, use_delete_dialog, LoadingState};
 use crate::pages::training::dataset_wizard::{DatasetUploadOutcome, DatasetUploadWizard};
@@ -872,6 +872,47 @@ fn DatasetDraftView(
     let client = use_api();
     let poll_nonce = RwSignal::new(0u64);
 
+    // Statistics state
+    let stats_state = RwSignal::new(LoadingState::<DatasetStatisticsResponse>::Idle);
+
+    // Fetch statistics when dataset_id_state changes
+    {
+        let client = Arc::clone(&client);
+        Effect::new(move |_| {
+            let dataset_id = dataset_id_state.get();
+            if let Some(id) = dataset_id {
+                stats_state.set(LoadingState::Loading);
+                let client = Arc::clone(&client);
+                #[cfg(target_arch = "wasm32")]
+                wasm_bindgen_futures::spawn_local(async move {
+                    match client.get_dataset_statistics(&id).await {
+                        Ok(stats) => {
+                            stats_state.set(LoadingState::Loaded(stats));
+                        }
+                        Err(e) => {
+                            stats_state.set(LoadingState::Error(e));
+                        }
+                    }
+                });
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    let _ = client;
+                }
+            } else {
+                stats_state.set(LoadingState::Idle);
+            }
+        });
+    }
+
+    // Training configuration signals
+    let epochs = RwSignal::new("10".to_string());
+    let learning_rate = RwSignal::new("0.0001".to_string());
+    let show_advanced = RwSignal::new(false);
+    let validation_split = RwSignal::new("0.1".to_string());
+    let batch_size = RwSignal::new("4".to_string());
+    let rank = RwSignal::new("8".to_string());
+    let alpha = RwSignal::new("16".to_string());
+
     let source_label = match source.as_str() {
         "file" => "File upload",
         "paste" => "Pasted text",
@@ -957,6 +998,13 @@ fn DatasetDraftView(
             let existing_dataset_id = dataset_id_state.get();
             let document_ids = document_ids_store.with_value(|ids| ids.clone());
 
+            // Capture training config values
+            let epochs_val: u32 = epochs.get().parse().unwrap_or(10);
+            let learning_rate_val: f64 = learning_rate.get().parse().unwrap_or(0.0001);
+            let batch_size_val: u32 = batch_size.get().parse().unwrap_or(4);
+            let rank_val: u32 = rank.get().parse().unwrap_or(8);
+            let alpha_val: u32 = alpha.get().parse().unwrap_or(16);
+
             is_training.set(true);
             training_status.set(Some("Preparing training...".to_string()));
 
@@ -1001,12 +1049,12 @@ fn DatasetDraftView(
                         "base_model_id": base_model_val,
                         "dataset_id": dataset_id,
                         "config": {
-                            "rank": 8,
-                            "alpha": 16,
+                            "rank": rank_val,
+                            "alpha": alpha_val,
                             "targets": ["q_proj", "v_proj"],
-                            "epochs": 10,
-                            "learning_rate": 0.0001,
-                            "batch_size": 4
+                            "epochs": epochs_val,
+                            "learning_rate": learning_rate_val,
+                            "batch_size": batch_size_val
                         },
                         "adapter_type": adapter_type_val,
                         "category": "docs",
@@ -1204,17 +1252,139 @@ fn DatasetDraftView(
                 </Card>
             </div>
 
+            // Statistics card - only shown when dataset_id is available
+            {move || dataset_id_state.get().map(|_| view! {
+                <Card>
+                    <h3 class="text-lg font-semibold mb-4">"Statistics"</h3>
+                    {move || match stats_state.get() {
+                        LoadingState::Idle => {
+                            view! { <p class="text-sm text-muted-foreground">"No dataset selected"</p> }.into_any()
+                        }
+                        LoadingState::Loading => {
+                            view! { <div class="flex justify-center py-4"><Spinner/></div> }.into_any()
+                        }
+                        LoadingState::Loaded(stats_data) => {
+                            view! {
+                                <dl class="space-y-3 text-sm">
+                                    <div class="flex justify-between">
+                                        <dt class="text-muted-foreground">"Examples"</dt>
+                                        <dd>{stats_data.num_examples.to_string()}</dd>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <dt class="text-muted-foreground">"Total Tokens"</dt>
+                                        <dd>{stats_data.total_tokens.to_string()}</dd>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <dt class="text-muted-foreground">"Avg Input Length"</dt>
+                                        <dd>{format!("{:.1}", stats_data.avg_input_length)}</dd>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <dt class="text-muted-foreground">"Avg Target Length"</dt>
+                                        <dd>{format!("{:.1}", stats_data.avg_target_length)}</dd>
+                                    </div>
+                                </dl>
+                            }.into_any()
+                        }
+                        LoadingState::Error(_) => {
+                            view! {
+                                <p class="text-sm text-muted-foreground">"Statistics unavailable"</p>
+                            }.into_any()
+                        }
+                    }}
+                </Card>
+            })}
+
+            <Card>
+                <h3 class="text-lg font-semibold mb-4">"Training Configuration"</h3>
+                <div class="space-y-4 text-sm">
+                    // Basic config: epochs and learning_rate
+                    <div class="grid gap-4 md:grid-cols-2">
+                        <div class="space-y-2">
+                            <label class="text-xs text-muted-foreground">"Epochs"</label>
+                            <Input
+                                value=epochs
+                                input_type="number".to_string()
+                                placeholder="10".to_string()
+                            />
+                            <p class="text-xs text-muted-foreground">"Number of training epochs"</p>
+                        </div>
+                        <div class="space-y-2">
+                            <label class="text-xs text-muted-foreground">"Learning Rate"</label>
+                            <Input
+                                value=learning_rate
+                                input_type="text".to_string()
+                                placeholder="0.0001".to_string()
+                            />
+                            <p class="text-xs text-muted-foreground">"Learning rate for optimizer"</p>
+                        </div>
+                    </div>
+
+                    // Advanced toggle
+                    <Toggle
+                        checked=show_advanced
+                        label=Some("Show advanced options".to_string())
+                        description=Some("Configure LoRA rank, alpha, batch size, and validation split".to_string())
+                    />
+
+                    // Advanced options (conditionally shown)
+                    {move || show_advanced.get().then(|| view! {
+                        <div class="pt-4 border-t border-border space-y-4">
+                            <div class="grid gap-4 md:grid-cols-2">
+                                <div class="space-y-2">
+                                    <label class="text-xs text-muted-foreground">"LoRA Rank"</label>
+                                    <Input
+                                        value=rank
+                                        input_type="number".to_string()
+                                        placeholder="8".to_string()
+                                    />
+                                    <p class="text-xs text-muted-foreground">"Low-rank adaptation dimension"</p>
+                                </div>
+                                <div class="space-y-2">
+                                    <label class="text-xs text-muted-foreground">"LoRA Alpha"</label>
+                                    <Input
+                                        value=alpha
+                                        input_type="number".to_string()
+                                        placeholder="16".to_string()
+                                    />
+                                    <p class="text-xs text-muted-foreground">"Scaling factor for LoRA weights"</p>
+                                </div>
+                            </div>
+                            <div class="grid gap-4 md:grid-cols-2">
+                                <div class="space-y-2">
+                                    <label class="text-xs text-muted-foreground">"Batch Size"</label>
+                                    <Input
+                                        value=batch_size
+                                        input_type="number".to_string()
+                                        placeholder="4".to_string()
+                                    />
+                                    <p class="text-xs text-muted-foreground">"Training batch size"</p>
+                                </div>
+                                <div class="space-y-2">
+                                    <label class="text-xs text-muted-foreground">"Validation Split"</label>
+                                    <Input
+                                        value=validation_split
+                                        input_type="text".to_string()
+                                        placeholder="0.1".to_string()
+                                    />
+                                    <p class="text-xs text-muted-foreground">"Fraction held out for validation"</p>
+                                </div>
+                            </div>
+                        </div>
+                    })}
+                </div>
+            </Card>
+
             <Card>
                 <h3 class="text-lg font-semibold mb-4">"Preprocessing"</h3>
                 <div class="space-y-3 text-sm">
                     <Checkbox
                         checked=Signal::derive(move || pii_scrub.get())
-                        on_change=Some(Callback::new(move |val| pii_scrub.set(val)))
+                        on_change=Callback::new(move |val| pii_scrub.set(val))
                         label=Some("PII scrub".to_string())
                     />
                     <Checkbox
                         checked=Signal::derive(move || dedupe.get())
-                        on_change=Some(Callback::new(move |val| dedupe.set(val)))
+                        on_change=Callback::new(move |val| dedupe.set(val))
                         label=Some("Dedupe".to_string())
                     />
                     <p class="text-xs text-muted-foreground">

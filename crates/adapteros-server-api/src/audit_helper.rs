@@ -132,6 +132,130 @@ pub async fn log_failure(
     .await
 }
 
+/// Log an audit action with metadata
+///
+/// Records the action to the database with additional metadata and logs it via tracing.
+/// Use this when you need to include structured metadata that the UI can display
+/// (e.g., adapter_id, cache_hit, verified).
+///
+/// # Metadata Fields Used by UI
+/// The UI's audit page (`derive_event_labels()`) looks for these fields:
+/// - `adapter_id`: String - Shows "Adapter selected: {id}"
+/// - `cache_hit`: bool - Shows "Cache hit" or "Cache miss"
+/// - `verified`: bool - Shows "Verification result"
+pub async fn log_action_with_metadata(
+    db: &Db,
+    claims: &Claims,
+    action: &str,
+    resource_type: &str,
+    resource_id: Option<&str>,
+    status: &str,
+    error_message: Option<&str>,
+    metadata: Option<serde_json::Value>,
+) -> Result<()> {
+    // Serialize metadata to JSON string if provided
+    let metadata_json = metadata
+        .as_ref()
+        .map(|m| serde_json::to_string(m))
+        .transpose()
+        .map_err(|e| {
+            adapteros_core::AosError::Validation(format!("Failed to serialize metadata: {}", e))
+        })?;
+
+    // Log to database
+    db.log_audit(
+        &claims.sub,
+        &claims.role,
+        &claims.tenant_id,
+        action,
+        resource_type,
+        resource_id,
+        status,
+        error_message,
+        None, // IP address
+        metadata_json.as_deref(),
+    )
+    .await?;
+
+    // Log to tracing for real-time observability
+    info!(
+        event_type = "audit.action",
+        user_id = %claims.sub,
+        user_role = %claims.role,
+        tenant_id = %claims.tenant_id,
+        action = %action,
+        resource_type = %resource_type,
+        resource_id = ?resource_id,
+        status = %status,
+        error_message = ?error_message,
+        metadata = ?metadata,
+        "Audit log recorded"
+    );
+
+    Ok(())
+}
+
+/// Log a successful action with metadata
+///
+/// Convenience wrapper for log_action_with_metadata with status = "success".
+/// Use this for events that need UI-displayable metadata.
+///
+/// # Metadata Fields Used by UI
+/// - `adapter_id`: String - Shows "Adapter selected: {id}"
+/// - `cache_hit`: bool - Shows "Cache hit" or "Cache miss"
+/// - `verified`: bool - Shows "Verification result"
+pub async fn log_success_with_metadata(
+    db: &Db,
+    claims: &Claims,
+    action: &str,
+    resource_type: &str,
+    resource_id: Option<&str>,
+    metadata: serde_json::Value,
+) -> Result<()> {
+    log_action_with_metadata(
+        db,
+        claims,
+        action,
+        resource_type,
+        resource_id,
+        "success",
+        None,
+        Some(metadata),
+    )
+    .await
+}
+
+/// Log a failed action with metadata
+///
+/// Convenience wrapper for log_action_with_metadata with status = "failure".
+/// Use this for events that need UI-displayable metadata.
+///
+/// # Metadata Fields Used by UI
+/// - `adapter_id`: String - Shows "Adapter selected: {id}"
+/// - `cache_hit`: bool - Shows "Cache hit" or "Cache miss"
+/// - `verified`: bool - Shows "Verification result"
+pub async fn log_failure_with_metadata(
+    db: &Db,
+    claims: &Claims,
+    action: &str,
+    resource_type: &str,
+    resource_id: Option<&str>,
+    error: &str,
+    metadata: serde_json::Value,
+) -> Result<()> {
+    log_action_with_metadata(
+        db,
+        claims,
+        action,
+        resource_type,
+        resource_id,
+        "failure",
+        Some(error),
+        Some(metadata),
+    )
+    .await
+}
+
 /// Log a successful action, with explicit error handling on failure
 ///
 /// Unlike `log_success`, this function NEVER silently discards errors.

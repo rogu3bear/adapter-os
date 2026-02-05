@@ -143,12 +143,19 @@ pub async fn infer(
         .map(|lock| lock.adapter_ids.join(","))
         .or(adapters_requested);
 
-    if let Err(e) = crate::audit_helper::log_success(
+    // Build audit metadata for UI display (adapter_id for "Adapter selected" label)
+    let audit_metadata = serde_json::json!({
+        "adapter_id": adapters_requested.as_deref().unwrap_or("none"),
+        "request_id": &request_id_str,
+    });
+
+    if let Err(e) = crate::audit_helper::log_success_with_metadata(
         &state.db,
         &claims,
         crate::audit_helper::actions::INFERENCE_EXECUTE,
         crate::audit_helper::resources::ADAPTER,
         adapters_requested.as_deref(),
+        audit_metadata,
     )
     .await
     {
@@ -408,14 +415,20 @@ pub async fn infer(
                 "Inference failed"
             );
 
-            // Log failure to audit trail
-            if let Err(audit_err) = crate::audit_helper::log_failure(
+            // Log failure to audit trail with metadata for UI display
+            let failure_metadata = serde_json::json!({
+                "adapter_id": adapters_requested.as_deref().unwrap_or("none"),
+                "request_id": &request_id_str,
+                "cache_hit": false, // Failure - no cache interaction
+            });
+            if let Err(audit_err) = crate::audit_helper::log_failure_with_metadata(
                 &state.db,
                 &claims,
                 crate::audit_helper::actions::INFERENCE_EXECUTE,
                 crate::audit_helper::resources::ADAPTER,
                 adapters_requested.as_deref(),
                 &e.to_string(),
+                failure_metadata,
             )
             .await
             {
