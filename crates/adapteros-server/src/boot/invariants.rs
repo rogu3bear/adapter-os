@@ -361,7 +361,9 @@ pub fn validate_boot_invariants(
     let invariants_config = &cfg.invariants;
     let disabled_invariants = collect_disabled_invariants(invariants_config);
 
-    if production && !disabled_invariants.is_empty() && !invariants_config.i_understand_security_risk
+    if production
+        && !disabled_invariants.is_empty()
+        && !invariants_config.i_understand_security_risk
     {
         report.record_violation(InvariantViolation {
             id: "SEC-000",
@@ -1806,7 +1808,9 @@ pub fn enforce_invariants(report: &InvariantReport, production: bool) -> Result<
     Ok(())
 }
 
-fn collect_disabled_invariants(cfg: &adapteros_server_api::config::InvariantsConfig) -> Vec<&'static str> {
+fn collect_disabled_invariants(
+    cfg: &adapteros_server_api::config::InvariantsConfig,
+) -> Vec<&'static str> {
     let mut disabled = Vec::new();
     if cfg.disable_sec_001_dev_bypass {
         disabled.push("SEC-001");

@@ -776,9 +776,15 @@ impl TraceSink for SqlTraceSink {
         )
         .with_retrieval_tool_binding(
             finalization.retrieval_merkle_root_b3.map(|h| *h.as_bytes()),
-            finalization.retrieval_order_digest_b3.map(|h| *h.as_bytes()),
-            finalization.tool_call_inputs_digest_b3.map(|h| *h.as_bytes()),
-            finalization.tool_call_outputs_digest_b3.map(|h| *h.as_bytes()),
+            finalization
+                .retrieval_order_digest_b3
+                .map(|h| *h.as_bytes()),
+            finalization
+                .tool_call_inputs_digest_b3
+                .map(|h| *h.as_bytes()),
+            finalization
+                .tool_call_outputs_digest_b3
+                .map(|h| *h.as_bytes()),
         )
         .with_disclosure_level(finalization.disclosure_level.clone());
 
@@ -1482,10 +1488,8 @@ pub async fn recompute_receipt(db: &Db, trace_id: &str) -> Result<TraceReceiptVe
         };
 
         let disclosure_level: Option<String> = row.try_get("disclosure_level").ok().flatten();
-        let receipt_signing_kid: Option<String> =
-            row.try_get("receipt_signing_kid").ok().flatten();
-        let receipt_signed_at: Option<String> =
-            row.try_get("receipt_signed_at").ok().flatten();
+        let receipt_signing_kid: Option<String> = row.try_get("receipt_signing_kid").ok().flatten();
+        let receipt_signed_at: Option<String> = row.try_get("receipt_signed_at").ok().flatten();
 
         // Extract input digest and equipment profile from stored receipt
         let input_digest_bytes: Option<Vec<u8>> = row.try_get("input_digest_b3").ok().flatten();
@@ -1676,14 +1680,18 @@ pub async fn recompute_receipt(db: &Db, trace_id: &str) -> Result<TraceReceiptVe
     )
     .with_model_cache_identity(model_cache_identity_v2_digest_b3.map(|h| *h.as_bytes()))
     .with_tokenizer_identity(
-        stored.as_ref().and_then(|s| s.tokenizer_hash_b3.map(|h| *h.as_bytes())),
+        stored
+            .as_ref()
+            .and_then(|s| s.tokenizer_hash_b3.map(|h| *h.as_bytes())),
         stored.as_ref().and_then(|s| s.tokenizer_version.clone()),
         stored
             .as_ref()
             .and_then(|s| s.tokenizer_normalization.clone()),
     )
     .with_build_provenance(
-        stored.as_ref().and_then(|s| s.model_build_hash_b3.map(|h| *h.as_bytes())),
+        stored
+            .as_ref()
+            .and_then(|s| s.model_build_hash_b3.map(|h| *h.as_bytes())),
         stored
             .as_ref()
             .and_then(|s| s.adapter_build_hash_b3.map(|h| *h.as_bytes())),
@@ -1693,7 +1701,9 @@ pub async fn recompute_receipt(db: &Db, trace_id: &str) -> Result<TraceReceiptVe
         stored.as_ref().and_then(|s| s.temperature_q15),
         stored.as_ref().and_then(|s| s.top_p_q15),
         stored.as_ref().and_then(|s| s.top_k),
-        stored.as_ref().and_then(|s| s.seed_digest_b3.map(|h| *h.as_bytes())),
+        stored
+            .as_ref()
+            .and_then(|s| s.seed_digest_b3.map(|h| *h.as_bytes())),
         stored.as_ref().and_then(|s| s.sampling_backend.clone()),
     )
     .with_concurrency_determinism(
@@ -1712,7 +1722,9 @@ pub async fn recompute_receipt(db: &Db, trace_id: &str) -> Result<TraceReceiptVe
             .as_ref()
             .and_then(|s| s.cached_prefix_digest_b3.map(|h| *h.as_bytes())),
         stored.as_ref().and_then(|s| s.cached_prefix_len),
-        stored.as_ref().and_then(|s| s.cache_key_b3.map(|h| *h.as_bytes())),
+        stored
+            .as_ref()
+            .and_then(|s| s.cache_key_b3.map(|h| *h.as_bytes())),
     )
     .with_retrieval_tool_binding(
         stored

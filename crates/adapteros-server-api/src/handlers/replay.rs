@@ -1497,10 +1497,8 @@ fn compute_receipt_digest_from_bundle(
             receipt.sampling_backend.clone(),
         );
 
-        input = input.with_concurrency_determinism(
-            receipt.thread_count,
-            receipt.reduction_strategy.clone(),
-        );
+        input = input
+            .with_concurrency_determinism(receipt.thread_count, receipt.reduction_strategy.clone());
 
         let stop_window = receipt
             .stop_window_digest_b3_hex
