@@ -214,8 +214,12 @@ pub fn AdapterBar(
 #[derive(Clone, Debug, PartialEq)]
 pub struct SuggestedAdapterView {
     pub adapter_id: String,
+    /// Display name for the adapter (falls back to adapter_id)
+    pub display_name: String,
     pub confidence: f32,
     pub is_pinned: bool,
+    /// Selected for next message (one-shot override)
+    pub is_selected: bool,
     /// Optional: disabled state with reason
     pub disabled_reason: Option<String>,
     /// Optional: adapter description for tooltip
@@ -231,6 +235,8 @@ impl SuggestedAdapterView {
             AdapterChipState::Disabled
         } else if self.is_pinned {
             AdapterChipState::Pinned
+        } else if self.is_selected {
+            AdapterChipState::Selected
         } else {
             AdapterChipState::Suggested
         }
@@ -272,9 +278,15 @@ pub fn SuggestedAdaptersBar(
     /// Suggested adapters from router preview
     #[prop(into)]
     suggestions: Signal<Vec<SuggestedAdapterView>>,
-    /// Callback when an adapter is clicked (for pinning)
+    /// Callback when an adapter is clicked (for one-shot override)
+    #[prop(into)]
+    on_select_override: Callback<String>,
+    /// Callback when an adapter pin is toggled
     #[prop(into)]
     on_toggle_pin: Callback<String>,
+    /// Whether suggestions are currently loading (streaming)
+    #[prop(into)]
+    loading: Signal<bool>,
 ) -> impl IntoView {
     // Expanded adapter tooltip state
     let expanded_adapter = RwSignal::new(Option::<String>::None);
@@ -309,9 +321,10 @@ pub fn SuggestedAdaptersBar(
                 {move || {
                     let mut suggestion_list = suggestions.get();
                     if suggestion_list.is_empty() {
+                        let is_loading = loading.get();
                         view! {
                             <span class="adapter-magnet-empty">
-                                "Routing adapters..."
+                                {if is_loading { "Routing adapters..." } else { "No suggestions yet" }}
                             </span>
                         }.into_any()
                     } else {
@@ -329,26 +342,30 @@ pub fn SuggestedAdaptersBar(
                                 let adapter_id_click = adapter_id.clone();
                                 let adapter_id_hover = adapter_id.clone();
                                 let adapter_id_display = adapter_id.clone();
+                                let adapter_name = adapter.display_name.clone();
                                 let confidence = adapter.confidence;
                                 let chip_state = adapter.chip_state();
                                 let is_disabled = chip_state == AdapterChipState::Disabled;
                                 let is_pinned = chip_state == AdapterChipState::Pinned;
+                                let is_selected = chip_state == AdapterChipState::Selected;
                                 let disabled_reason = adapter.disabled_reason.clone();
                                 let description = adapter.description.clone();
                                 let tags = adapter.tags.clone();
                                 let on_toggle = on_toggle_pin.clone();
+                                let on_select = on_select_override.clone();
 
                                 let confidence_pct = (confidence * 100.0) as u32;
+                                let confidence_label = confidence_to_label(confidence);
 
                                 // Build tooltip content
                                 let tooltip_text = if let Some(reason) = &disabled_reason {
                                     format!("{} (disabled: {})", adapter_id, reason)
                                 } else {
-                                    let mut tip = format!("{} - {}% confidence", adapter_id, confidence_pct);
+                                    let mut tip = format!("{} - {} confidence", adapter_id, confidence_label);
                                     if is_pinned {
                                         tip.push_str(" (pinned)");
-                                    } else {
-                                        tip.push_str(" - click to pin");
+                                    } else if is_selected {
+                                        tip.push_str(" (next message)");
                                     }
                                     tip
                                 };
@@ -361,15 +378,14 @@ pub fn SuggestedAdaptersBar(
                                     )
                                 } else {
                                     format!(
-                                        "{} adapter {} with {}% confidence",
-                                        if is_pinned { "Unpin" } else { "Pin" },
+                                        "Use adapter {} for next message ({} confidence)",
                                         adapter_id,
-                                        confidence_pct
+                                        confidence_label
                                     )
                                 };
 
                                 view! {
-                                    <div class="adapter-chip-wrapper">
+                                    <div class="adapter-chip-wrapper flex items-center gap-1">
                                         <button
                                             type="button"
                                             class=format!(
@@ -381,7 +397,7 @@ pub fn SuggestedAdaptersBar(
                                             disabled=is_disabled
                                             on:click=move |_| {
                                                 if !is_disabled {
-                                                    on_toggle.run(adapter_id_click.clone());
+                                                    on_select.run(adapter_id_click.clone());
                                                 }
                                             }
                                             on:mouseenter=move |_| {
@@ -390,21 +406,52 @@ pub fn SuggestedAdaptersBar(
                                             on:mouseleave=move |_| {
                                                 expanded_adapter.set(None);
                                             }
-                                            aria-pressed=is_pinned.to_string()
+                                            aria-pressed=is_selected.to_string()
                                             aria-label=aria_label
                                             aria-disabled=is_disabled.to_string()
                                             role="option"
-                                            aria-selected=is_pinned.to_string()
+                                            aria-selected=is_selected.to_string()
                                         >
                                             // Pin icon (state indicator)
                                             <AdapterChipIcon state=chip_state/>
-                                            <span class="adapter-chip-id">{adapter_id_display}</span>
-                                            <div class="h-1 w-12 rounded-full bg-muted/40 overflow-hidden">
+                                            <div class="flex flex-col text-left leading-tight min-w-[7rem]">
+                                                <span class="text-[10px] font-semibold">{adapter_name}</span>
+                                                <span class="text-[9px] text-white/80">
+                                                    {description.clone().unwrap_or_else(|| "Unknown purpose".to_string())}
+                                                </span>
+                                            </div>
+                                            <div class="h-1 w-12 rounded-full bg-white/20 overflow-hidden">
                                                 <div
-                                                    class="h-full bg-primary/70"
+                                                    class="h-full bg-white/70"
                                                     style=format!("width: {}%;", confidence_pct)
                                                 ></div>
                                             </div>
+                                        </button>
+
+                                        <button
+                                            type="button"
+                                            class=move || {
+                                                if is_pinned {
+                                                    "h-7 w-7 inline-flex items-center justify-center rounded-full border border-border bg-background/80 text-primary shadow-sm hover:bg-muted transition-colors text-[10px]"
+                                                } else {
+                                                    "h-7 w-7 inline-flex items-center justify-center rounded-full border border-border bg-background/80 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors text-[10px]"
+                                                }
+                                            }
+                                            title=if is_pinned { "Unpin adapter" } else { "Pin adapter" }
+                                            aria-label=if is_pinned { "Unpin adapter" } else { "Pin adapter" }
+                                            on:click=move |_| {
+                                                on_toggle.run(adapter_id_display.clone());
+                                            }
+                                        >
+                                            <svg
+                                                xmlns="http://www.w3.org/2000/svg"
+                                                class="h-3.5 w-3.5"
+                                                viewBox="0 0 20 20"
+                                                fill="currentColor"
+                                                aria-hidden="true"
+                                            >
+                                                <path d="M5 5a2 2 0 012-2h6a2 2 0 012 2v2h2a1 1 0 011 1v1a1 1 0 01-1 1h-1v5a3 3 0 01-3 3H7a3 3 0 01-3-3v-5H3a1 1 0 01-1-1V8a1 1 0 011-1h2V5z"/>
+                                            </svg>
                                         </button>
 
                                         // Expanded tooltip on hover (only for non-disabled)
@@ -449,6 +496,17 @@ fn confidence_to_css_class(confidence: f32) -> &'static str {
     }
 }
 
+/// Human-readable confidence label (no numeric display)
+fn confidence_to_label(confidence: f32) -> &'static str {
+    if confidence > 0.7 {
+        "High"
+    } else if confidence > 0.4 {
+        "Medium"
+    } else {
+        "Low"
+    }
+}
+
 /// Icon for adapter chip based on state
 #[component]
 fn AdapterChipIcon(state: AdapterChipState) -> impl IntoView {
@@ -489,6 +547,7 @@ fn AdapterChipTooltip(
     confidence: f32,
 ) -> impl IntoView {
     let aria_label = format!("Details for adapter {}", adapter_id);
+    let confidence_label = confidence_to_label(confidence);
     view! {
         <div
             class="adapter-chip-tooltip"
@@ -498,7 +557,7 @@ fn AdapterChipTooltip(
             <div class="adapter-chip-tooltip-header">
                 <span class="adapter-chip-tooltip-id">{adapter_id}</span>
                 <span class="adapter-chip-tooltip-confidence">
-                    {format!("{:.0}%", confidence * 100.0)}
+                    {confidence_label}
                 </span>
             </div>
 
@@ -568,8 +627,10 @@ mod tests {
         // Disabled takes precedence
         let disabled = SuggestedAdapterView {
             adapter_id: "test".to_string(),
+            display_name: "test".to_string(),
             confidence: 0.9,
             is_pinned: true, // Even if pinned, disabled wins
+            is_selected: false,
             disabled_reason: Some("rate limited".to_string()),
             description: None,
             tags: None,
@@ -579,19 +640,36 @@ mod tests {
         // Pinned state
         let pinned = SuggestedAdapterView {
             adapter_id: "test".to_string(),
+            display_name: "test".to_string(),
             confidence: 0.8,
             is_pinned: true,
+            is_selected: false,
             disabled_reason: None,
             description: None,
             tags: None,
         };
         assert_eq!(pinned.chip_state(), AdapterChipState::Pinned);
 
+        // Selected state
+        let selected = SuggestedAdapterView {
+            adapter_id: "test".to_string(),
+            display_name: "test".to_string(),
+            confidence: 0.7,
+            is_pinned: false,
+            is_selected: true,
+            disabled_reason: None,
+            description: None,
+            tags: None,
+        };
+        assert_eq!(selected.chip_state(), AdapterChipState::Selected);
+
         // Default to suggested
         let suggested = SuggestedAdapterView {
             adapter_id: "test".to_string(),
+            display_name: "test".to_string(),
             confidence: 0.5,
             is_pinned: false,
+            is_selected: false,
             disabled_reason: None,
             description: None,
             tags: None,
@@ -604,24 +682,30 @@ mod tests {
         let mut adapters: Vec<_> = [
             SuggestedAdapterView {
                 adapter_id: "low".to_string(),
+                display_name: "low".to_string(),
                 confidence: 0.3,
                 is_pinned: false,
+                is_selected: false,
                 disabled_reason: None,
                 description: None,
                 tags: None,
             },
             SuggestedAdapterView {
                 adapter_id: "high".to_string(),
+                display_name: "high".to_string(),
                 confidence: 0.9,
                 is_pinned: false,
+                is_selected: false,
                 disabled_reason: None,
                 description: None,
                 tags: None,
             },
             SuggestedAdapterView {
                 adapter_id: "medium".to_string(),
+                display_name: "medium".to_string(),
                 confidence: 0.6,
                 is_pinned: false,
+                is_selected: false,
                 disabled_reason: None,
                 description: None,
                 tags: None,
@@ -642,24 +726,30 @@ mod tests {
         let mut adapters: Vec<_> = [
             SuggestedAdapterView {
                 adapter_id: "zebra".to_string(),
+                display_name: "zebra".to_string(),
                 confidence: 0.5,
                 is_pinned: false,
+                is_selected: false,
                 disabled_reason: None,
                 description: None,
                 tags: None,
             },
             SuggestedAdapterView {
                 adapter_id: "alpha".to_string(),
+                display_name: "alpha".to_string(),
                 confidence: 0.5, // Same confidence
                 is_pinned: false,
+                is_selected: false,
                 disabled_reason: None,
                 description: None,
                 tags: None,
             },
             SuggestedAdapterView {
                 adapter_id: "beta".to_string(),
+                display_name: "beta".to_string(),
                 confidence: 0.5, // Same confidence
                 is_pinned: false,
+                is_selected: false,
                 disabled_reason: None,
                 description: None,
                 tags: None,

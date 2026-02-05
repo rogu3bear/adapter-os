@@ -489,8 +489,12 @@ pub struct ChatState {
     pub active_adapters: Vec<AdapterStateInfo>,
     /// Suggested adapters from router preview (based on input text)
     pub suggested_adapters: Vec<SuggestedAdapter>,
+    /// Selected adapter for next message (one-shot override)
+    pub selected_adapter: Option<String>,
     /// User-pinned adapters to include in next request
     pub pinned_adapters: Vec<String>,
+    /// Session-local mode toggle (Fast/Verified)
+    pub verified_mode: bool,
     /// Streaming status notice for the UI
     pub stream_notice: Option<StreamNotice>,
     /// Stream recovery metadata (idempotency + last request linkage)
@@ -506,6 +510,8 @@ pub struct SuggestedAdapter {
     pub adapter_id: String,
     /// Human-readable name (from topology)
     pub name: Option<String>,
+    /// One-line purpose (from topology cluster description)
+    pub purpose: Option<String>,
     /// Confidence score from router (0.0-1.0)
     pub confidence: f32,
     /// Whether this adapter is pinned by the user
@@ -568,7 +574,9 @@ impl Default for ChatState {
             session_id: None,
             active_adapters: Vec::new(),
             suggested_adapters: Vec::new(),
+            selected_adapter: None,
             pinned_adapters: Vec::new(),
+            verified_mode: false,
             stream_notice: None,
             stream_recovery: None,
             partial_assistant_ids: Vec::new(),
@@ -751,8 +759,8 @@ impl ChatAction {
         let abort_controller = self.abort_controller;
 
         // Build context request from current state (PRD-002 Phase 2)
-        // Also capture pinned adapters and reasoning mode for the request
-        let (context_request, pinned_adapters, reasoning_mode, session_id) = {
+        // Also capture pinned adapters, next-message override, and reasoning mode for the request
+        let (context_request, pinned_adapters, selected_adapter, reasoning_mode, session_id) = {
             let current = self.state.get_untracked();
             let context = ContextRequest {
                 include_page_context: current.context.current_page,
@@ -777,10 +785,16 @@ impl ChatAction {
             (
                 context,
                 pinned,
+                current.selected_adapter.clone(),
                 current.context.reasoning_mode,
                 current.session_id.clone(),
             )
         };
+
+        // Clear one-shot selection immediately after capturing it
+        let _ = self.state.try_update(|s| {
+            s.selected_adapter = None;
+        });
 
         wasm_bindgen_futures::spawn_local(async move {
             // When reasoning mode is enabled, route to CoreML backend
@@ -790,12 +804,25 @@ impl ChatAction {
                 (None, None)
             };
 
+            // Merge pinned adapters with one-shot selection (deduped)
+            let mut adapters = pinned_adapters.unwrap_or_default();
+            if let Some(selected) = selected_adapter {
+                if !adapters.contains(&selected) {
+                    adapters.insert(0, selected);
+                }
+            }
+            let adapters = if adapters.is_empty() {
+                None
+            } else {
+                Some(adapters)
+            };
+
             let request = StreamingInferRequest {
                 prompt,
                 session_id,
                 max_tokens: Some(DEFAULT_MAX_TOKENS),
                 temperature: Some(DEFAULT_TEMPERATURE),
-                adapters: pinned_adapters,
+                adapters,
                 context: Some(context_request),
                 reasoning_mode: reasoning_mode_opt,
                 backend: backend_opt,
@@ -1033,6 +1060,32 @@ impl ChatAction {
         });
     }
 
+    /// Set session-local mode (Fast/Verified)
+    pub fn set_verified_mode(&self, verified: bool) {
+        self.state.update(|s| {
+            s.verified_mode = verified;
+        });
+        let state = self.state.get_untracked();
+        if let Some(id) = state.session_id.clone() {
+            if !id.is_empty() && !state.messages.is_empty() {
+                let session = ChatSessionsManager::session_from_state(&id, &state);
+                ChatSessionsManager::save_session(&session);
+            }
+        }
+    }
+
+    /// Select an adapter for the next message (one-shot override).
+    pub fn select_next_adapter(&self, adapter_id: &str) {
+        let id = adapter_id.to_string();
+        self.state.update(|s| {
+            if s.selected_adapter.as_deref() == Some(&id) {
+                s.selected_adapter = None;
+            } else {
+                s.selected_adapter = Some(id);
+            }
+        });
+    }
+
     /// Toggle a context option
     pub fn toggle_context(&self, toggle: ContextToggle) {
         self.state.update(|s| match toggle {
@@ -1060,6 +1113,9 @@ impl ChatAction {
             s.error = None;
             s.last_read_message_id = None;
             s.active_adapters.clear();
+            s.suggested_adapters.clear();
+            s.selected_adapter = None;
+            s.pinned_adapters.clear();
             s.stream_notice = None;
             s.stream_recovery = None;
             s.partial_assistant_ids.clear();
@@ -1130,6 +1186,8 @@ impl ChatAction {
             s.stream_notice = None;
             s.stream_recovery = None;
             s.partial_assistant_ids.clear();
+            s.selected_adapter = None;
+            s.verified_mode = session.verified_mode;
             // Mark all restored messages as read
             s.last_read_message_id = s.messages.last().map(|m| m.id.clone());
         });
@@ -1164,6 +1222,13 @@ impl ChatAction {
                             .iter()
                             .map(|a| (a.adapter_id.clone(), a.name.clone()))
                             .collect();
+                        // Build cluster description lookup for one-line purpose
+                        let cluster_descriptions: std::collections::HashMap<String, String> =
+                            topology
+                                .clusters
+                                .iter()
+                                .map(|c| (c.id.clone(), c.description.clone()))
+                                .collect();
 
                         // Use try_update to avoid panic if signal is disposed during navigation
                         let _ = state.try_update(|s| {
@@ -1174,9 +1239,15 @@ impl ChatAction {
                                 .filter_map(|node| {
                                     node.adapter_id.map(|id| {
                                         let name = adapter_names.get(&id).cloned();
+                                        let purpose = node
+                                            .cluster_id
+                                            .as_ref()
+                                            .and_then(|cid| cluster_descriptions.get(cid))
+                                            .cloned();
                                         SuggestedAdapter {
                                             adapter_id: id.clone(),
                                             name,
+                                            purpose,
                                             confidence: node.confidence.unwrap_or(0.0),
                                             is_pinned: pinned.contains(&id),
                                         }
@@ -1965,6 +2036,9 @@ pub struct StoredChatSession {
     pub title: String,
     pub target: String,
     pub messages: Vec<StoredMessage>,
+    /// Session-local mode toggle (Fast/Verified)
+    #[serde(default)]
+    pub verified_mode: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -2162,6 +2236,7 @@ impl ChatSessionsManager {
                     }
                 })
                 .collect(),
+            verified_mode: state.verified_mode,
             // Preserve original created_at if updating an existing session
             created_at: created_at.unwrap_or(&now).to_string(),
             updated_at: now,
@@ -2275,7 +2350,9 @@ mod tests {
                 session_id: None,
                 active_adapters: Vec::new(),
                 suggested_adapters: Vec::new(),
+                selected_adapter: None,
                 pinned_adapters: Vec::new(),
+                verified_mode: false,
                 stream_notice: None,
                 stream_recovery: None,
                 partial_assistant_ids: Vec::new(),

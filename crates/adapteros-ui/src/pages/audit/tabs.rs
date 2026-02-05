@@ -63,6 +63,7 @@ pub fn TimelineTab(
                                             <TableHead>"Timestamp"</TableHead>
                                             <TableHead>"Action"</TableHead>
                                             <TableHead>"Resource"</TableHead>
+                                            <TableHead>"Events"</TableHead>
                                             <TableHead>"User"</TableHead>
                                             <TableHead>"Status"</TableHead>
                                         </TableRow>
@@ -136,16 +137,11 @@ fn TimelineRow(entry: AuditLogEntry) -> impl IntoView {
         _ => BadgeVariant::Secondary,
     };
 
-    // Check if this is a run-related resource that can link to Run Detail
-    let is_run_resource = matches!(
-        entry.resource_type.as_str(),
-        "inference" | "run" | "trace" | "diag_run"
-    );
-    let run_link = if is_run_resource {
-        entry.resource_id.clone().map(|id| format!("/runs/{}", id))
-    } else {
-        None
-    };
+    // Link to Run Detail whenever a resource_id is present (MVP correlation)
+    let is_run_resource = entry.resource_id.is_some();
+    let run_link = entry.resource_id.clone().map(|id| format!("/runs/{}", id));
+
+    let event_labels = derive_event_labels(&entry, is_run_resource);
 
     view! {
         <TableRow>
@@ -181,6 +177,15 @@ fn TimelineRow(entry: AuditLogEntry) -> impl IntoView {
                 </div>
             </TableCell>
             <TableCell>
+                <div class="space-y-1">
+                    {event_labels.into_iter().map(|label| {
+                        view! {
+                            <span class="text-xs text-muted-foreground">{label}</span>
+                        }
+                    }).collect::<Vec<_>>()}
+                </div>
+            </TableCell>
+            <TableCell>
                 <div>
                     <p class="text-sm">{entry.user_id.clone()}</p>
                     <p class="text-xs text-muted-foreground">{entry.user_role.clone()}</p>
@@ -191,6 +196,68 @@ fn TimelineRow(entry: AuditLogEntry) -> impl IntoView {
             </TableCell>
         </TableRow>
     }
+}
+
+fn derive_event_labels(entry: &AuditLogEntry, is_run_resource: bool) -> Vec<String> {
+    let mut labels = Vec::new();
+    let action = entry.action.to_lowercase();
+
+    let metadata = entry
+        .metadata_json
+        .as_ref()
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok());
+
+    // Run created
+    if action.contains("run") && (action.contains("create") || action.contains("start")) {
+        labels.push("Run created".to_string());
+    }
+
+    // Adapter selected
+    if action.contains("adapter")
+        || metadata
+            .as_ref()
+            .and_then(|v| v.get("adapter_id"))
+            .is_some()
+    {
+        labels.push("Adapter selected".to_string());
+    }
+
+    // Cache hit/miss
+    if action.contains("cache") {
+        if action.contains("hit") {
+            labels.push("Cache hit".to_string());
+        } else if action.contains("miss") {
+            labels.push("Cache miss".to_string());
+        } else {
+            labels.push("Cache event".to_string());
+        }
+    } else if let Some(value) = metadata.as_ref().and_then(|v| v.get("cache_hit")) {
+        if value.as_bool() == Some(true) {
+            labels.push("Cache hit".to_string());
+        } else if value.as_bool() == Some(false) {
+            labels.push("Cache miss".to_string());
+        }
+    }
+
+    // Verification result
+    if action.contains("verify") || action.contains("receipt") {
+        labels.push("Verification result".to_string());
+    } else if metadata.as_ref().and_then(|v| v.get("verified")).is_some() {
+        labels.push("Verification result".to_string());
+    }
+
+    if labels.is_empty() && is_run_resource {
+        labels.push("Run created: Unknown".to_string());
+        labels.push("Adapter selected: Unknown".to_string());
+        labels.push("Cache: Unknown".to_string());
+        labels.push("Verification: Unknown".to_string());
+    }
+
+    if labels.is_empty() {
+        labels.push("Event details unavailable".to_string());
+    }
+
+    labels
 }
 
 // ============================================================================

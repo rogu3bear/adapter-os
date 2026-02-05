@@ -808,9 +808,27 @@ fn OverviewTab(
                 </div>
             </Card>
 
+            // Inputs (hash-only by default)
+            <Card title="Inputs".to_string()>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <CopyableId
+                        id=export.run.request_hash.clone()
+                        label="Prompt hash".to_string()
+                        truncate=28
+                    />
+                    {export.run.manifest_hash.clone().map(|hash| view! {
+                        <CopyableId
+                            id=hash
+                            label="Manifest hash".to_string()
+                            truncate=28
+                        />
+                    })}
+                </div>
+            </Card>
+
             // Configuration section - shows stack/model/policy/backend used
             <Card title="Configuration".to_string()>
-                <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+                <div class="grid grid-cols-2 md:grid-cols-6 gap-4">
                     <div>
                         <p class="text-sm text-muted-foreground">"Stack"</p>
                         {move || {
@@ -886,6 +904,31 @@ fn OverviewTab(
                         }}
                     </div>
                     <div>
+                        <p class="text-sm text-muted-foreground">"Adapters"</p>
+                        {move || {
+                            match trace_detail.get() {
+                                LoadingState::Loaded(detail) => {
+                                    if detail.adapters_used.is_empty() {
+                                        view! { <p class="font-medium text-sm text-muted-foreground/70 italic">"Unknown"</p> }.into_any()
+                                    } else {
+                                        view! {
+                                            <div class="flex flex-wrap gap-1.5">
+                                                {detail.adapters_used.iter().map(|adapter_id| {
+                                                    view! {
+                                                        <Badge variant=BadgeVariant::Secondary>{adapter_id.clone()}</Badge>
+                                                    }
+                                                }).collect::<Vec<_>>()}
+                                            </div>
+                                        }.into_any()
+                                    }
+                                }
+                                _ => view! {
+                                    <p class="font-medium text-sm text-muted-foreground/70 italic">"Loading..."</p>
+                                }.into_any()
+                            }
+                        }}
+                    </div>
+                    <div>
                         <p class="text-sm text-muted-foreground">"Thinking Mode"</p>
                         {match reasoning_mode {
                             Some(true) => view! {
@@ -915,6 +958,16 @@ fn OverviewTab(
                         _ => None,
                     }
                 }}
+
+                <details class="text-xs text-muted-foreground mt-3">
+                    <summary class="cursor-pointer hover:text-foreground">"Decode params"</summary>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mt-2">
+                        <div>"Temperature: " <span class="italic">"Unknown"</span></div>
+                        <div>"Top-p: " <span class="italic">"Unknown"</span></div>
+                        <div>"Top-k: " <span class="italic">"Unknown"</span></div>
+                        <div>"Max tokens: " <span class="italic">"Unknown"</span></div>
+                    </div>
+                </details>
             </Card>
 
             // Provenance summary (UI-only receipt fields)
@@ -1143,12 +1196,34 @@ fn ReceiptsTab(
     export: DiagExportResponse,
     trace_detail: ReadSignal<LoadingState<UiInferenceTraceDetailResponse>>,
 ) -> impl IntoView {
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum ReceiptPanelTab {
+        Summary,
+        Details,
+        Export,
+    }
+
+    let active_tab = RwSignal::new(ReceiptPanelTab::Summary);
+    let receipt_digest = RwSignal::new(Option::<String>::None);
+
+    Effect::new(move |_| {
+        if let LoadingState::Loaded(detail) = trace_detail.get() {
+            receipt_digest.set(detail.receipt.map(|r| r.receipt_digest));
+        }
+    });
+
     let run_id = export.run.id.clone();
     let trace_id = export.run.trace_id.clone();
     let request_hash = export.run.request_hash.clone();
     let request_hash_verified = export.run.request_hash_verified;
     let manifest_hash = export.run.manifest_hash.clone();
     let manifest_hash_verified = export.run.manifest_hash_verified;
+    let events = export.events.clone().unwrap_or_default();
+    let determinism_label = match extract_reasoning_mode_from_events(&events) {
+        Some(true) => "Verified",
+        Some(false) => "Fast",
+        None => "Fast",
+    };
 
     let exported_at = export
         .metadata
@@ -1180,113 +1255,258 @@ fn ReceiptsTab(
 
     view! {
         <div class="space-y-4">
-            <p class="text-sm text-muted-foreground">
-                "Cryptographic receipt verification for this inference run. All hashes are BLAKE3."
-            </p>
-
-            <Card title="Receipts & Hashes".to_string()>
-                <div class="space-y-4">
-                    // Run ID and Trace ID
-                    <div class="grid grid-cols-2 gap-4">
-                        <CopyableId id=run_id.clone() label="Run ID".to_string() truncate=28 />
-                        <CopyableId id=trace_id.clone() label="Trace ID".to_string() truncate=28 />
-                    </div>
-
-                    // Hashes
-                    <div class="space-y-3">
-                        <HashRow
-                            label="Request Hash"
-                            hash=request_hash
-                            verified=request_hash_verified
-                        />
-                        {manifest_hash.map(|hash| {
-                            view! {
-                                <HashRow
-                                    label="Manifest Hash"
-                                    hash=hash
-                                    verified=manifest_hash_verified
-                                />
-                            }
-                        })}
-                    </div>
-
-                    // Metadata
-                    {if has_metadata {
-                        Some(view! {
-                            <div class="border-t border-border pt-4 mt-4">
-                                <p class="text-sm text-muted-foreground mb-2">"Export Metadata"</p>
-                                <div class="grid grid-cols-2 gap-2 text-sm">
-                                    <div>
-                                        <span class="text-muted-foreground">"Exported: "</span>
-                                        {exported_at}
-                                    </div>
-                                    <div>
-                                        <span class="text-muted-foreground">"Events: "</span>
-                                        {events_str}
-                                    </div>
-                                </div>
-                            </div>
-                        })
-                    } else {
-                        None
-                    }}
-                </div>
-            </Card>
-
-            // Training Lineage section - displays adapter training digests
-            <Card title="Training Lineage".to_string()>
-                {move || match trace_detail.get() {
-                    LoadingState::Loaded(detail) => {
-                        if let Some(receipt) = detail.receipt.clone() {
-                            if let Some(digests) = receipt.adapter_training_digests {
-                                if digests.is_empty() {
-                                    view! {
-                                        <div class="text-sm text-muted-foreground italic">
-                                            "No training digests recorded for this run."
-                                        </div>
-                                    }.into_any()
-                                } else {
-                                    view! {
-                                        <div class="space-y-3">
-                                            <p class="text-xs text-muted-foreground">
-                                                "Training dataset digests for adapters used in this inference. Each digest is a BLAKE3 hash of the training data that produced the adapter."
-                                            </p>
-                                            <div class="space-y-2">
-                                                {digests.into_iter().enumerate().map(|(idx, digest)| {
-                                                    view! {
-                                                        <TrainingDigestRow
-                                                            index=idx
-                                                            digest=digest
-                                                        />
-                                                    }
-                                                }).collect::<Vec<_>>()}
-                                            </div>
-                                        </div>
-                                    }.into_any()
-                                }
+            <div class="border-b border-border">
+                <nav class="flex gap-1">
+                    <button
+                        class=move || {
+                            if active_tab.get() == ReceiptPanelTab::Summary {
+                                "px-3 py-1.5 text-xs rounded-md bg-muted text-foreground".to_string()
                             } else {
-                                view! {
-                                    <div class="text-sm text-muted-foreground italic">
-                                        "Training lineage not available for this run."
-                                    </div>
-                                }.into_any()
+                                "px-3 py-1.5 text-xs rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50".to_string()
                             }
-                        } else {
-                            view! {
-                                <div class="text-sm text-muted-foreground italic">
-                                    "Receipt not available for this run."
-                                </div>
-                            }.into_any()
                         }
+                        on:click=move |_| active_tab.set(ReceiptPanelTab::Summary)
+                        type="button"
+                    >
+                        "Summary"
+                    </button>
+                    <button
+                        class=move || {
+                            if active_tab.get() == ReceiptPanelTab::Details {
+                                "px-3 py-1.5 text-xs rounded-md bg-muted text-foreground".to_string()
+                            } else {
+                                "px-3 py-1.5 text-xs rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50".to_string()
+                            }
+                        }
+                        on:click=move |_| active_tab.set(ReceiptPanelTab::Details)
+                        type="button"
+                    >
+                        "Details"
+                    </button>
+                    <button
+                        class=move || {
+                            if active_tab.get() == ReceiptPanelTab::Export {
+                                "px-3 py-1.5 text-xs rounded-md bg-muted text-foreground".to_string()
+                            } else {
+                                "px-3 py-1.5 text-xs rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50".to_string()
+                            }
+                        }
+                        on:click=move |_| active_tab.set(ReceiptPanelTab::Export)
+                        type="button"
+                    >
+                        "Export"
+                    </button>
+                </nav>
+            </div>
+
+            {move || {
+                match active_tab.get() {
+                    ReceiptPanelTab::Summary => {
+                        view! {
+                            <div class="space-y-4">
+                                <Card title="Receipt Summary".to_string()>
+                                    {move || match trace_detail.get() {
+                                        LoadingState::Loaded(detail) => {
+                                            if let Some(receipt) = detail.receipt.clone() {
+                                                let verified_label = if receipt.verified { "Verified" } else { "Unverified" };
+                                                let verified_variant = if receipt.verified {
+                                                    BadgeVariant::Success
+                                                } else {
+                                                    BadgeVariant::Warning
+                                                };
+                                                let cache_label = match receipt.prefix_cache_hit {
+                                                    Some(true) => "Cache credit applied",
+                                                    Some(false) => "No cache credit",
+                                                    None => "Cache credit unknown",
+                                                };
+                                                view! {
+                                                    <div class="space-y-3">
+                                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                            <CopyableId
+                                                                id=receipt.receipt_digest.clone()
+                                                                label="Receipt digest".to_string()
+                                                                truncate=28
+                                                            />
+                                                            <div>
+                                                                <p class="text-sm text-muted-foreground">"Verification status"</p>
+                                                                <Badge variant=verified_variant>{verified_label}</Badge>
+                                                            </div>
+                                                        </div>
+                                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                                                            <div>
+                                                                <p class="text-muted-foreground">"Determinism mode"</p>
+                                                                <p>{determinism_label}</p>
+                                                            </div>
+                                                            <div>
+                                                                <p class="text-muted-foreground">"Cache credit"</p>
+                                                                <p>{cache_label}</p>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                }.into_any()
+                                            } else {
+                                                view! {
+                                                    <div class="space-y-3">
+                                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                            <div>
+                                                                <p class="text-sm text-muted-foreground">"Receipt digest"</p>
+                                                                <p class="text-sm text-muted-foreground italic">"Unknown"</p>
+                                                            </div>
+                                                            <div>
+                                                                <p class="text-sm text-muted-foreground">"Verification status"</p>
+                                                                <Badge variant=BadgeVariant::Warning>"Not verified"</Badge>
+                                                            </div>
+                                                        </div>
+                                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                                                            <div>
+                                                                <p class="text-muted-foreground">"Determinism mode"</p>
+                                                                <p>{determinism_label}</p>
+                                                            </div>
+                                                            <div>
+                                                                <p class="text-muted-foreground">"Cache credit"</p>
+                                                                <p>"Unknown"</p>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                }.into_any()
+                                            }
+                                        }
+                                        LoadingState::Error(err) => view! {
+                                            <div class="text-sm text-muted-foreground">{format!("Failed to load: {}", err)}</div>
+                                        }.into_any(),
+                                        _ => view! {
+                                            <div class="text-sm text-muted-foreground italic">"Loading receipt summary..."</div>
+                                        }.into_any(),
+                                    }}
+                                </Card>
+                            </div>
+                        }.into_any()
                     }
-                    LoadingState::Error(err) => view! {
-                        <div class="text-sm text-muted-foreground">{format!("Failed to load: {}", err)}</div>
-                    }.into_any(),
-                    _ => view! {
-                        <div class="text-sm text-muted-foreground italic">"Loading training lineage..."</div>
-                    }.into_any(),
-                }}
-            </Card>
+                    ReceiptPanelTab::Details => {
+                        view! {
+                            <div class="space-y-4">
+                                <Card title="Receipts & Hashes".to_string()>
+                                    <div class="space-y-4">
+                                        <div class="grid grid-cols-2 gap-4">
+                                            <CopyableId id=run_id.clone() label="Run ID".to_string() truncate=28 />
+                                            <CopyableId id=trace_id.clone() label="Trace ID".to_string() truncate=28 />
+                                        </div>
+
+                                        <div class="space-y-3">
+                                            <HashRow
+                                                label="Request Hash"
+                                                hash=request_hash
+                                                verified=request_hash_verified
+                                            />
+                                            {manifest_hash.map(|hash| {
+                                                view! {
+                                                    <HashRow
+                                                        label="Manifest Hash"
+                                                        hash=hash
+                                                        verified=manifest_hash_verified
+                                                    />
+                                                }
+                                            })}
+                                        </div>
+
+                                        {if has_metadata {
+                                            Some(view! {
+                                                <div class="border-t border-border pt-4 mt-4">
+                                                    <p class="text-sm text-muted-foreground mb-2">"Export Metadata"</p>
+                                                    <div class="grid grid-cols-2 gap-2 text-sm">
+                                                        <div>
+                                                            <span class="text-muted-foreground">"Exported: "</span>
+                                                            {exported_at}
+                                                        </div>
+                                                        <div>
+                                                            <span class="text-muted-foreground">"Events: "</span>
+                                                            {events_str}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            })
+                                        } else {
+                                            None
+                                        }}
+                                    </div>
+                                </Card>
+
+                                <Card title="Training Lineage".to_string()>
+                                    {move || match trace_detail.get() {
+                                        LoadingState::Loaded(detail) => {
+                                            if let Some(receipt) = detail.receipt.clone() {
+                                                if let Some(digests) = receipt.adapter_training_digests {
+                                                    if digests.is_empty() {
+                                                        view! {
+                                                            <div class="text-sm text-muted-foreground italic">
+                                                                "No training digests recorded for this run."
+                                                            </div>
+                                                        }.into_any()
+                                                    } else {
+                                                        view! {
+                                                            <div class="space-y-3">
+                                                                <p class="text-xs text-muted-foreground">
+                                                                    "Training dataset digests for adapters used in this inference. Each digest is a BLAKE3 hash of the training data that produced the adapter."
+                                                                </p>
+                                                                <div class="space-y-2">
+                                                                    {digests.into_iter().enumerate().map(|(idx, digest)| {
+                                                                        view! {
+                                                                            <TrainingDigestRow
+                                                                                index=idx
+                                                                                digest=digest
+                                                                            />
+                                                                        }
+                                                                    }).collect::<Vec<_>>()}
+                                                                </div>
+                                                            </div>
+                                                        }.into_any()
+                                                    }
+                                                } else {
+                                                    view! {
+                                                        <div class="text-sm text-muted-foreground italic">
+                                                            "Training lineage not available for this run."
+                                                        </div>
+                                                    }.into_any()
+                                                }
+                                            } else {
+                                                view! {
+                                                    <div class="text-sm text-muted-foreground italic">
+                                                        "Receipt not available for this run."
+                                                    </div>
+                                                }.into_any()
+                                            }
+                                        }
+                                        LoadingState::Error(err) => view! {
+                                            <div class="text-sm text-muted-foreground">{format!("Failed to load: {}", err)}</div>
+                                        }.into_any(),
+                                        _ => view! {
+                                            <div class="text-sm text-muted-foreground italic">"Loading training lineage..."</div>
+                                        }.into_any(),
+                                    }}
+                                </Card>
+                            </div>
+                        }.into_any()
+                    }
+                    ReceiptPanelTab::Export => {
+                        view! {
+                            <Card title="Export".to_string()>
+                                <div class="flex flex-wrap gap-2">
+                                    <QuickActionButton
+                                        icon="🔗"
+                                        label="Copy hash"
+                                        action=QuickAction::CopyReceiptHash(receipt_digest.read_only())
+                                    />
+                                    <QuickActionButton
+                                        icon="⬇"
+                                        label="Download receipt JSON"
+                                        action=QuickAction::Export(run_id.clone())
+                                    />
+                                </div>
+                            </Card>
+                        }.into_any()
+                    }
+                }
+            }}
         </div>
     }
 }
@@ -1468,36 +1688,39 @@ fn TokensTab(
                     if let Some(receipt) = &detail.receipt {
                         let prompt_tokens = receipt.logical_prompt_tokens;
                         let output_tokens = receipt.logical_output_tokens;
-                        let cache_hit = receipt.prefix_cache_hit.unwrap_or(false);
-                        let total_tokens = prompt_tokens + output_tokens;
+                        let logical_tokens = prompt_tokens + output_tokens;
+                        let cache_hit = receipt.prefix_cache_hit;
+
+                        let cached_display = match cache_hit {
+                            Some(true) => "Cache hit (tokens unknown)".to_string(),
+                            Some(false) => "0".to_string(),
+                            None => "Unknown".to_string(),
+                        };
+
+                        let billed_display = match cache_hit {
+                            Some(true) => format!("≤ {}", logical_tokens),
+                            Some(false) => logical_tokens.to_string(),
+                            None => "Unknown".to_string(),
+                        };
 
                         view! {
                             <Card title="Token Summary".to_string()>
-                                <div class="grid grid-cols-4 gap-4">
+                                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                                     <div class="text-center p-4 bg-muted/30 rounded-lg">
-                                        <div class="text-2xl font-bold text-primary">{prompt_tokens.to_string()}</div>
-                                        <div class="text-sm text-muted-foreground">"Input Tokens"</div>
+                                        <div class="text-2xl font-bold text-primary">{logical_tokens.to_string()}</div>
+                                        <div class="text-sm text-muted-foreground">"Logical Tokens"</div>
                                     </div>
                                     <div class="text-center p-4 bg-muted/30 rounded-lg">
-                                        <div class="text-2xl font-bold text-primary">{output_tokens.to_string()}</div>
-                                        <div class="text-sm text-muted-foreground">"Output Tokens"</div>
+                                        <div class="text-lg font-semibold">{cached_display}</div>
+                                        <div class="text-sm text-muted-foreground">"Cached Tokens"</div>
                                     </div>
                                     <div class="text-center p-4 bg-muted/30 rounded-lg">
-                                        <div class="text-2xl font-bold">{total_tokens.to_string()}</div>
-                                        <div class="text-sm text-muted-foreground">"Total Tokens"</div>
+                                        <div class="text-lg font-semibold">{billed_display}</div>
+                                        <div class="text-sm text-muted-foreground">"Billed Tokens"</div>
                                     </div>
-                                    <div class="text-center p-4 bg-muted/30 rounded-lg">
-                                        <div class=move || {
-                                            if cache_hit {
-                                                "text-2xl font-bold text-success"
-                                            } else {
-                                                "text-2xl font-bold text-muted-foreground"
-                                            }
-                                        }>
-                                            {if cache_hit { "✓" } else { "—" }}
-                                        </div>
-                                        <div class="text-sm text-muted-foreground">"Cache Hit"</div>
-                                    </div>
+                                </div>
+                                <div class="mt-3 text-xs text-muted-foreground">
+                                    {format!("Prompt: {} · Completion: {}", prompt_tokens, output_tokens)}
                                 </div>
                             </Card>
                         }.into_any()
