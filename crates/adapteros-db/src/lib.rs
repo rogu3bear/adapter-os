@@ -2807,6 +2807,10 @@ pub use inference_trace::{
     TraceFinalization, TraceReceipt, TraceReceiptVerification, TraceSink, TraceStart,
     TraceTokenInput,
 };
+pub mod inference_verdicts;
+pub use inference_verdicts::{
+    CreateVerdictParams, EvaluatorType, InferenceVerdict, Verdict, VerdictSummary,
+};
 pub mod batch_jobs;
 pub use batch_jobs::{
     BatchItemRecord, BatchJobRecord, CreateBatchItemParams, CreateBatchJobParams,
@@ -2923,6 +2927,7 @@ pub mod process_monitoring;
 pub mod progress_events;
 pub mod rag_retrieval_audit;
 pub mod replay_sessions;
+pub mod discrepancy_cases;
 pub mod repositories;
 pub mod repositories_kv;
 pub mod routing_decisions;
