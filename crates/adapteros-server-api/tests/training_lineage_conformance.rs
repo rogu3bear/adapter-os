@@ -93,6 +93,7 @@ fn base_request(repo_id: String, base_model_id: &str) -> StartTrainingRequest {
         scope: None,
         category: None,
         description: None,
+        adapter_type: None,
         language: None,
         symbol_targets: None,
         framework_id: None,

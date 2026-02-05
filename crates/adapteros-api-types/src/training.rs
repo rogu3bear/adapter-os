@@ -490,6 +490,9 @@ pub struct CreateTrainingJobRequest {
     /// Human-readable description
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Adapter type hint (identify/behavior)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adapter_type: Option<String>,
     /// Adapter category (code, framework, codebase, docs, domain)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub category: Option<String>,
@@ -585,6 +588,8 @@ pub struct StartTrainingRequest {
     pub category: Option<String>,
     /// Human-readable description
     pub description: Option<String>,
+    /// Adapter type hint (identify/behavior)
+    pub adapter_type: Option<String>,
 
     // Category-specific configuration
     /// Programming language (for code adapters)

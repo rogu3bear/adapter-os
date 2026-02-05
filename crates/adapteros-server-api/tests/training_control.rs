@@ -140,6 +140,7 @@ fn make_request(name: &str, repo_id: String, base_model_id: &str) -> StartTraini
         scope: None,
         category: None,
         description: None,
+        adapter_type: None,
         language: None,
         symbol_targets: None,
         framework_id: None,
