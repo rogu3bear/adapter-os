@@ -26,6 +26,7 @@ mod from_documents;
 mod from_text;
 mod generate;
 mod helpers;
+mod preprocess;
 mod progress_sse;
 mod safety;
 mod synthesize;
@@ -69,6 +70,10 @@ pub use files::{
 pub use from_documents::create_dataset_from_documents;
 pub use from_text::{create_dataset_from_chat, create_dataset_from_text};
 pub use generate::generate_dataset_from_file;
+pub use preprocess::{
+    get_preprocess_status, start_preprocess, PreprocessStatus, PreprocessStatusResponse,
+    StartPreprocessRequest, StartPreprocessResponse,
+};
 pub use progress_sse::dataset_upload_progress;
 pub use safety::{
     apply_dataset_trust_override, apply_dataset_version_trust_override, check_dataset_safety,
@@ -144,6 +149,10 @@ pub use from_text::__path_create_dataset_from_chat;
 pub use from_text::__path_create_dataset_from_text;
 #[doc(hidden)]
 pub use generate::__path_generate_dataset_from_file;
+#[doc(hidden)]
+pub use preprocess::__path_get_preprocess_status;
+#[doc(hidden)]
+pub use preprocess::__path_start_preprocess;
 #[doc(hidden)]
 pub use progress_sse::__path_dataset_upload_progress;
 #[doc(hidden)]

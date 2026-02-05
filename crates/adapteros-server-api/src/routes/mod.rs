@@ -222,6 +222,8 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::datasets::validate_dataset,
         handlers::datasets::apply_dataset_trust_override,
         handlers::datasets::preview_dataset,
+        handlers::datasets::start_preprocess,
+        handlers::datasets::get_preprocess_status,
         handlers::datasets::dataset_upload_progress,
         handlers::datasets::create_dataset_from_documents,
         handlers::datasets::create_dataset_from_text,
@@ -829,6 +831,11 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::datasets::UploadSessionStatusResponse,
         handlers::datasets::UploadSessionSummary,
         handlers::datasets::ListUploadSessionsResponse,
+        // Preprocessing types (PII scrub, dedupe)
+        handlers::datasets::StartPreprocessRequest,
+        handlers::datasets::StartPreprocessResponse,
+        handlers::datasets::PreprocessStatus,
+        handlers::datasets::PreprocessStatusResponse,
         // Evidence types (PRD-DATA-01 Phase 2)
         handlers::evidence::CreateEvidenceRequest,
         handlers::evidence::EvidenceResponse,
@@ -1707,6 +1714,15 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/datasets/{dataset_id}/preview",
             get(handlers::datasets::preview_dataset),
+        )
+        // Dataset preprocessing routes (PII scrub, dedupe)
+        .route(
+            "/v1/datasets/{dataset_id}/preprocess",
+            post(handlers::datasets::start_preprocess),
+        )
+        .route(
+            "/v1/datasets/{dataset_id}/preprocess/status",
+            get(handlers::datasets::get_preprocess_status),
         )
         .route(
             "/v1/datasets/upload/progress",
