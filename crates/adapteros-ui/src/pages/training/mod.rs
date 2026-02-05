@@ -75,6 +75,10 @@ pub fn Training() -> impl IntoView {
             initial_dataset_id.set(Some(ds_id.clone()));
             create_dialog_open.set(true);
         }
+        // Job deep-link workflow (from datasets draft page after training starts)
+        if let Some(job_id) = params.get("job_id") {
+            selected_job_id.set(Some(job_id.clone()));
+        }
     });
 
     // Fetch training jobs with server-side filtering

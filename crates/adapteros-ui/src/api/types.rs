@@ -1462,6 +1462,48 @@ pub struct RoutingDecisionChainResponse {
 }
 
 // ============================================================================
+// Dataset Safety Types
+// ============================================================================
+
+/// Result of checking if a dataset is safe for training
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DatasetSafetyCheckResult {
+    /// Whether the dataset is safe for training
+    pub is_safe: bool,
+    /// Trust state: allowed, allowed_with_warning, blocked, needs_approval, unknown
+    pub trust_state: String,
+    /// Individual safety signal statuses
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub safety_signals: Option<SafetySignals>,
+    /// Reasons why training is blocked (if trust_state is blocked)
+    #[serde(default)]
+    pub blocking_reasons: Vec<String>,
+    /// Warnings that don't block training
+    #[serde(default)]
+    pub warnings: Vec<String>,
+}
+
+/// Individual safety signal statuses
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SafetySignals {
+    /// PII detection status
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pii_status: Option<String>,
+    /// Toxicity detection status
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub toxicity_status: Option<String>,
+    /// Data leak detection status
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub leak_status: Option<String>,
+    /// Anomaly detection status
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub anomaly_status: Option<String>,
+    /// Overall safety status
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub overall_safety: Option<String>,
+}
+
+// ============================================================================
 // Admin Types
 // ============================================================================
 

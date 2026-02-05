@@ -1138,10 +1138,14 @@ fn DatasetDraftView(
                             {move || training_job_status.get().unwrap_or_else(|| "queued".to_string())}
                         </Badge>
                     </div>
-                    {move || training_job_id.get().map(|job_id| view! {
-                        <div class="mt-3">
-                            <CopyableId id=job_id label="Training job".to_string() truncate=24 />
-                        </div>
+                    {move || training_job_id.get().map(|job_id| {
+                        let href = format!("/training?job_id={}", job_id);
+                        view! {
+                            <div class="mt-3 flex items-center gap-4">
+                                <CopyableId id=job_id label="Training job".to_string() truncate=24 />
+                                <a href=href class="text-primary hover:underline text-sm">"View job →"</a>
+                            </div>
+                        }
                     })}
                 </Card>
             })}
