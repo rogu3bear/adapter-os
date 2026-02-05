@@ -390,6 +390,16 @@ pub fn check_deprecation(path: &str, _version: ApiVersion) -> Option<Deprecation
         );
     }
 
+    // Replay endpoint consolidation (2026-02-04)
+    // POST /v1/adapteros/replay → POST /v1/replay
+    if path == "/v1/adapteros/replay" {
+        return Some(
+            DeprecationInfo::new("2026-02-04T00:00:00Z", Some("2026-08-01T00:00:00Z"))
+                .with_replacement("/v1/replay")
+                .with_migration_url("https://docs.adapteros.com/api/replay"),
+        );
+    }
+
     // No deprecation for this endpoint
     None
 }

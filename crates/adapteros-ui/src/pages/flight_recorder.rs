@@ -681,11 +681,18 @@ fn QuickActionButton(
                     let client = ApiClient::new();
                     match client.get_receipt_json(&digest).await {
                         Ok(json_content) => {
-                            let filename = format!("receipt-{}.json", &digest[..16.min(digest.len())]);
+                            let filename =
+                                format!("receipt-{}.json", &digest[..16.min(digest.len())]);
                             if let Err(e) = trigger_download(&filename, &json_content) {
-                                notifs.error("Download failed", &format!("Could not download receipt: {}", e));
+                                notifs.error(
+                                    "Download failed",
+                                    &format!("Could not download receipt: {}", e),
+                                );
                             } else {
-                                notifs.success("Download started", "Receipt JSON download initiated.");
+                                notifs.success(
+                                    "Download started",
+                                    "Receipt JSON download initiated.",
+                                );
                             }
                         }
                         Err(e) => {

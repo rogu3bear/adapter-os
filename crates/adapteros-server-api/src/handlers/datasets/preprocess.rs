@@ -26,12 +26,14 @@ use utoipa::ToSchema;
 
 /// In-memory store for preprocessing job status.
 /// In production, this should be persisted to the database.
-static PREPROCESS_JOBS: std::sync::LazyLock<Arc<RwLock<std::collections::HashMap<String, PreprocessJobState>>>> =
-    std::sync::LazyLock::new(|| Arc::new(RwLock::new(std::collections::HashMap::new())));
+static PREPROCESS_JOBS: std::sync::LazyLock<
+    Arc<RwLock<std::collections::HashMap<String, PreprocessJobState>>>,
+> = std::sync::LazyLock::new(|| Arc::new(RwLock::new(std::collections::HashMap::new())));
 
 /// Internal state for a preprocessing job
 #[derive(Debug, Clone)]
 struct PreprocessJobState {
+    dataset_id: String,
     status: PreprocessStatus,
     pii_scrub: bool,
     dedupe: bool,
@@ -191,11 +193,13 @@ pub async fn start_preprocess(
     // Generate job ID
     let job_id = format!("preproc-{}", uuid::Uuid::new_v4());
 
-    // Check if a job is already running for this dataset
+    // Atomic check-and-insert to prevent race conditions
     {
-        let jobs = PREPROCESS_JOBS.read().await;
-        for (existing_job_id, job_state) in jobs.iter() {
-            if existing_job_id.contains(&dataset_id)
+        let mut jobs = PREPROCESS_JOBS.write().await;
+
+        // Check if a job is already running for this dataset
+        for (_existing_job_id, job_state) in jobs.iter() {
+            if job_state.dataset_id == dataset_id
                 && (job_state.status == PreprocessStatus::Pending
                     || job_state.status == PreprocessStatus::Running)
             {
@@ -204,23 +208,37 @@ pub async fn start_preprocess(
                 ));
             }
         }
-    }
 
-    // Create initial job state
-    let job_state = PreprocessJobState {
-        status: PreprocessStatus::Pending,
-        pii_scrub: request.pii_scrub,
-        dedupe: request.dedupe,
-        lines_processed: 0,
-        lines_removed: 0,
-        error_message: None,
-        started_at: chrono::Utc::now(),
-        completed_at: None,
-    };
+        // Clean up old completed/failed jobs (keep last 100)
+        if jobs.len() > 100 {
+            let mut entries: Vec<_> = jobs
+                .iter()
+                .filter(|(_, state)| {
+                    state.status == PreprocessStatus::Completed
+                        || state.status == PreprocessStatus::Failed
+                })
+                .map(|(id, state)| (id.clone(), state.started_at))
+                .collect();
+            entries.sort_by_key(|(_, time)| *time);
+            // Keep last 50, remove the rest (oldest first since sorted ascending)
+            let remove_count = entries.len().saturating_sub(50);
+            for (id, _) in entries.into_iter().take(remove_count) {
+                jobs.remove(&id);
+            }
+        }
 
-    // Store job state
-    {
-        let mut jobs = PREPROCESS_JOBS.write().await;
+        // Create and insert job state atomically
+        let job_state = PreprocessJobState {
+            dataset_id: dataset_id.clone(),
+            status: PreprocessStatus::Pending,
+            pii_scrub: request.pii_scrub,
+            dedupe: request.dedupe,
+            lines_processed: 0,
+            lines_removed: 0,
+            error_message: None,
+            started_at: chrono::Utc::now(),
+            completed_at: None,
+        };
         jobs.insert(job_id.clone(), job_state);
     }
 
@@ -335,26 +353,17 @@ pub async fn get_preprocess_status(
     let jobs = PREPROCESS_JOBS.read().await;
     let mut matching_jobs: Vec<_> = jobs
         .iter()
-        .filter(|(job_id, _)| job_id.contains(&dataset_id) || true) // We'll match by checking all jobs
+        .filter(|(_, job_state)| job_state.dataset_id == dataset_id)
         .collect();
+
+    if matching_jobs.is_empty() {
+        return Err(ApiError::not_found(
+            "No preprocessing job found for this dataset",
+        ));
+    }
 
     // Sort by started_at descending to get the most recent
     matching_jobs.sort_by(|a, b| b.1.started_at.cmp(&a.1.started_at));
-
-    // Find jobs that match the dataset_id pattern
-    let job = matching_jobs
-        .iter()
-        .find(|(job_id, _)| {
-            // Job IDs don't contain dataset_id, so we need a different approach
-            // For now, we'll return the most recent job (this is a simplification)
-            // In production, jobs should be stored with dataset_id association
-            true
-        })
-        .or_else(|| matching_jobs.first());
-
-    if matching_jobs.is_empty() {
-        return Err(ApiError::not_found("No preprocessing job found for this dataset"));
-    }
 
     let (job_id, job_state) = matching_jobs.first().unwrap();
 
@@ -402,16 +411,56 @@ async fn run_preprocess_job(
     // Resolve the dataset root and find JSONL files
     // Use block scope to ensure config guard is dropped before any async operations
     let datasets_root = {
-        let config = state.config.read().map_err(|e| {
-            AosError::Internal(format!("Failed to read config: {}", e))
-        })?;
+        let config = state
+            .config
+            .read()
+            .map_err(|e| AosError::Internal(format!("Failed to read config: {}", e)))?;
         std::path::PathBuf::from(&config.paths.datasets_root)
     };
 
+    // Validate storage_path to prevent path traversal attacks
     let dataset_path = if storage_path.starts_with('/') {
-        std::path::PathBuf::from(storage_path)
+        // Absolute path - ensure it's canonical and under a safe root
+        let path = std::path::PathBuf::from(storage_path);
+        let canonical = path
+            .canonicalize()
+            .map_err(|e| AosError::Io(format!("Invalid storage path: {}", e)))?;
+        // Absolute paths must be under datasets_root or var/
+        let var_root = std::path::PathBuf::from("var");
+        let canonical_datasets = datasets_root
+            .canonicalize()
+            .unwrap_or_else(|_| datasets_root.clone());
+        let canonical_var = var_root.canonicalize().unwrap_or_else(|_| var_root);
+        if !canonical.starts_with(&canonical_datasets) && !canonical.starts_with(&canonical_var) {
+            return Err(AosError::validation(format!(
+                "Storage path must be under datasets root or var/: {}",
+                storage_path
+            )));
+        }
+        canonical
     } else {
-        datasets_root.join(storage_path)
+        // Relative path - ensure it doesn't escape datasets_root via ..
+        if storage_path.contains("..") {
+            return Err(AosError::validation(format!(
+                "Storage path contains invalid traversal: {}",
+                storage_path
+            )));
+        }
+        let joined = datasets_root.join(storage_path);
+        // Canonicalize and verify still under root
+        let canonical = joined
+            .canonicalize()
+            .map_err(|e| AosError::Io(format!("Invalid storage path: {}", e)))?;
+        let canonical_root = datasets_root
+            .canonicalize()
+            .unwrap_or_else(|_| datasets_root.clone());
+        if !canonical.starts_with(&canonical_root) {
+            return Err(AosError::validation(format!(
+                "Storage path escapes dataset root: {}",
+                storage_path
+            )));
+        }
+        canonical
     };
 
     // Find JSONL files in the dataset
@@ -421,15 +470,21 @@ async fn run_preprocess_job(
             .await
             .map_err(|e| AosError::Io(format!("Failed to read dataset directory: {}", e)))?;
 
-        while let Some(entry) = entries.next_entry().await.map_err(|e| {
-            AosError::Io(format!("Failed to read directory entry: {}", e))
-        })? {
+        while let Some(entry) = entries
+            .next_entry()
+            .await
+            .map_err(|e| AosError::Io(format!("Failed to read directory entry: {}", e)))?
+        {
             let path = entry.path();
             if path.extension().map(|e| e == "jsonl").unwrap_or(false) {
                 jsonl_files.push(path);
             }
         }
-    } else if dataset_path.extension().map(|e| e == "jsonl").unwrap_or(false) {
+    } else if dataset_path
+        .extension()
+        .map(|e| e == "jsonl")
+        .unwrap_or(false)
+    {
         jsonl_files.push(dataset_path.clone());
     }
 
@@ -452,13 +507,8 @@ async fn run_preprocess_job(
     let mut total_lines_removed = 0usize;
 
     for jsonl_file in jsonl_files {
-        let (processed, removed) = preprocess_jsonl_file(
-            job_id,
-            &jsonl_file,
-            pii_scrub,
-            dedupe,
-        )
-        .await?;
+        let (processed, removed) =
+            preprocess_jsonl_file(job_id, &jsonl_file, pii_scrub, dedupe).await?;
 
         total_lines_processed += processed;
         total_lines_removed += removed;
@@ -505,9 +555,13 @@ async fn preprocess_jsonl_file(
     use adapteros_core::AosError;
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-    let file = tokio::fs::File::open(file_path)
-        .await
-        .map_err(|e| AosError::Io(format!("Failed to open file {}: {}", file_path.display(), e)))?;
+    let file = tokio::fs::File::open(file_path).await.map_err(|e| {
+        AosError::Io(format!(
+            "Failed to open file {}: {}",
+            file_path.display(),
+            e
+        ))
+    })?;
 
     let reader = BufReader::new(file);
     let mut lines = reader.lines();
@@ -517,9 +571,11 @@ async fn preprocess_jsonl_file(
     let mut lines_processed = 0usize;
     let mut lines_removed = 0usize;
 
-    while let Some(line) = lines.next_line().await.map_err(|e| {
-        AosError::Io(format!("Failed to read line: {}", e))
-    })? {
+    while let Some(line) = lines
+        .next_line()
+        .await
+        .map_err(|e| AosError::Io(format!("Failed to read line: {}", e)))?
+    {
         lines_processed += 1;
 
         // Skip empty lines
@@ -566,17 +622,26 @@ async fn preprocess_jsonl_file(
         .map_err(|e| AosError::Io(format!("Failed to create temp file: {}", e)))?;
 
     for line in &processed_lines {
-        temp_file.write_all(line.as_bytes()).await.map_err(|e| {
-            AosError::Io(format!("Failed to write line: {}", e))
-        })?;
-        temp_file.write_all(b"\n").await.map_err(|e| {
-            AosError::Io(format!("Failed to write newline: {}", e))
-        })?;
+        temp_file
+            .write_all(line.as_bytes())
+            .await
+            .map_err(|e| AosError::Io(format!("Failed to write line: {}", e)))?;
+        temp_file
+            .write_all(b"\n")
+            .await
+            .map_err(|e| AosError::Io(format!("Failed to write newline: {}", e)))?;
     }
 
-    temp_file.flush().await.map_err(|e| {
-        AosError::Io(format!("Failed to flush temp file: {}", e))
-    })?;
+    temp_file
+        .flush()
+        .await
+        .map_err(|e| AosError::Io(format!("Failed to flush temp file: {}", e)))?;
+
+    // Sync to disk to ensure durability before atomic rename
+    temp_file
+        .sync_all()
+        .await
+        .map_err(|e| AosError::Io(format!("Failed to sync temp file: {}", e)))?;
 
     // Atomically replace the original file
     tokio::fs::rename(&temp_path, file_path)

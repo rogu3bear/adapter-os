@@ -145,8 +145,6 @@ pub struct DefaultTrainingDatasetService {
     state: Arc<AppState>,
 }
 
-const MAX_CHUNKS: usize = 100;
-
 impl DefaultTrainingDatasetService {
     pub fn new(state: Arc<AppState>) -> Self {
         Self { state }

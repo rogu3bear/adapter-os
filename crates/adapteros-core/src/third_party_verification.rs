@@ -957,7 +957,7 @@ pub fn verify_output_against_receipt(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::receipt_digest::{RECEIPT_SCHEMA_V1, RECEIPT_SCHEMA_V4};
+    use crate::receipt_digest::{RECEIPT_SCHEMA_V1, RECEIPT_SCHEMA_V4, RECEIPT_SCHEMA_V6};
 
     fn sample_config() -> ClaimedConfig {
         ClaimedConfig {
@@ -1335,29 +1335,10 @@ mod tests {
             output_digest,
             receipt_digest,
             logical_prompt_tokens: 10,
-            prefix_cached_token_count: 0,
             billed_input_tokens: 10,
             logical_output_tokens: 5,
             billed_output_tokens: 5,
-            stop_reason_code: None,
-            stop_reason_token_index: None,
-            stop_policy_digest_b3: None,
-            tenant_kv_quota_bytes: 0,
-            tenant_kv_bytes_used: 0,
-            kv_evictions: 0,
-            kv_residency_policy_id: None,
-            kv_quota_enforced: false,
-            prefix_kv_key_b3: None,
-            prefix_cache_hit: false,
-            prefix_kv_bytes: 0,
-            model_cache_identity_v2_digest_b3: None,
-            backend_used: String::new(),
-            backend_attestation_b3: None,
-            seed_lineage_hash: None,
-            adapter_training_lineage_digest: None,
-            // Patent 3535886.0002 Claims 7-8: Cross-run lineage
-            previous_receipt_digest: None,
-            session_sequence: 0,
+            ..Default::default()
         }
     }
 
@@ -1427,29 +1408,10 @@ mod tests {
             output_digest,
             receipt_digest,
             logical_prompt_tokens: 10,
-            prefix_cached_token_count: 0,
             billed_input_tokens: 10,
             logical_output_tokens: output_tokens.len() as u32,
             billed_output_tokens: output_tokens.len() as u32,
-            stop_reason_code: None,
-            stop_reason_token_index: None,
-            stop_policy_digest_b3: None,
-            tenant_kv_quota_bytes: 0,
-            tenant_kv_bytes_used: 0,
-            kv_evictions: 0,
-            kv_residency_policy_id: None,
-            kv_quota_enforced: false,
-            prefix_kv_key_b3: None,
-            prefix_cache_hit: false,
-            prefix_kv_bytes: 0,
-            model_cache_identity_v2_digest_b3: None,
-            backend_used: String::new(),
-            backend_attestation_b3: None,
-            seed_lineage_hash: None,
-            adapter_training_lineage_digest: None,
-            // Patent 3535886.0002 Claims 7-8: Cross-run lineage
-            previous_receipt_digest: None,
-            session_sequence: 0,
+            ..Default::default()
         };
 
         // Verify with correct output tokens

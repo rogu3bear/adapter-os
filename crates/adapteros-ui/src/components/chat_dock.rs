@@ -13,6 +13,25 @@ use adapteros_api_types::InferenceReadyState;
 use leptos::prelude::*;
 use std::sync::Arc;
 
+const INFERENCE_BANNER_DISMISSED_KEY: &str = "adapteros_inference_banner_dismissed";
+
+/// Check if the inference banner has been dismissed this session
+fn is_inference_banner_dismissed() -> bool {
+    web_sys::window()
+        .and_then(|w| w.session_storage().ok().flatten())
+        .and_then(|s| s.get_item(INFERENCE_BANNER_DISMISSED_KEY).ok().flatten())
+        .is_some()
+}
+
+/// Dismiss the inference banner for this session
+fn dismiss_inference_banner() {
+    if let Some(storage) = web_sys::window()
+        .and_then(|w| w.session_storage().ok().flatten())
+    {
+        let _ = storage.set_item(INFERENCE_BANNER_DISMISSED_KEY, "1");
+    }
+}
+
 /// Chat Dock component - persistent chat panel on the right side (wrapper)
 #[component]
 pub fn ChatDock() -> impl IntoView {
@@ -855,6 +874,9 @@ fn ChatInput() -> impl IntoView {
         use_api_resource(|client: Arc<ApiClient>| async move { client.system_status().await });
     let status_center = use_status_center();
 
+    // Track if inference banner has been dismissed this session
+    let banner_dismissed = RwSignal::new(is_inference_banner_dismissed());
+
     // Create derived signals for state tracking
     let is_loading = Memo::new(move |_| chat_state.get().loading);
     let is_streaming = Memo::new(move |_| chat_state.get().streaming);
@@ -902,6 +924,11 @@ fn ChatInput() -> impl IntoView {
                 }
             >
                 {move || {
+                    // Don't show banner if dismissed this session
+                    if banner_dismissed.get() {
+                        return view! {}.into_any();
+                    }
+
                     match system_status.get() {
                         LoadingState::Loaded(status) => {
                             if matches!(status.inference_ready, InferenceReadyState::True) {
@@ -927,12 +954,26 @@ fn ChatInput() -> impl IntoView {
                                                 </a>
                                                 {status_center.map(|ctx| view! {
                                                         <button
+                                                            type="button"
                                                             class="text-xs text-muted-foreground hover:text-foreground"
                                                             on:click=move |_| ctx.open()
                                                         >
                                                             "Why?"
                                                         </button>
                                                     })}
+                                                <button
+                                                    type="button"
+                                                    class="text-muted-foreground hover:text-foreground"
+                                                    title="Dismiss for this session"
+                                                    on:click=move |_| {
+                                                        dismiss_inference_banner();
+                                                        banner_dismissed.set(true);
+                                                    }
+                                                >
+                                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                                    </svg>
+                                                </button>
                                             </div>
                                         </div>
                                     </div>

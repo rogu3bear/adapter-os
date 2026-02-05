@@ -562,7 +562,7 @@ pub struct PageContext {
 impl Default for ChatState {
     fn default() -> Self {
         Self {
-            dock_state: DockState::Docked,
+            dock_state: DockState::Narrow,
             messages: Vec::new(),
             target: ChatTarget::Default,
             context: load_context_toggles(),
@@ -2338,7 +2338,7 @@ mod tests {
         /// Create a test-friendly ChatState without WASM dependencies
         fn test_chat_state() -> ChatState {
             ChatState {
-                dock_state: DockState::Docked,
+                dock_state: DockState::Narrow,
                 messages: Vec::new(),
                 target: ChatTarget::Default,
                 context: ContextToggles::default(),

@@ -8,6 +8,7 @@
 
 use crate::components::layout::nav_registry::{build_start_menu_modules, StartMenuModule};
 use crate::signals::use_ui_profile;
+use leptos::html;
 use leptos::prelude::*;
 
 /// Module launcher menu with six-module navigation structure
@@ -16,9 +17,9 @@ pub fn StartMenu(on_close: impl Fn() + Clone + Send + Sync + 'static) -> impl In
     let ui_profile = use_ui_profile();
     let modules = Signal::derive(move || build_start_menu_modules(ui_profile.get()));
     let menu_ref = NodeRef::<html::Div>::new();
-    on_mount({
+    Effect::new({
         let menu_ref = menu_ref.clone();
-        move || {
+        move |_| {
             if let Some(menu) = menu_ref.get() {
                 let _ = menu.focus();
             }

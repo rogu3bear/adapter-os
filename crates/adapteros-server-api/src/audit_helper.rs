@@ -661,4 +661,8 @@ pub mod resources {
     pub const SETTINGS: &str = "settings";
     pub const DOCUMENT: &str = "document";
     pub const COLLECTION: &str = "collection";
+    pub const INFERENCE: &str = "inference";
+    pub const TRAINING: &str = "training";
+    pub const DISCREPANCY: &str = "discrepancy";
+    pub const VERDICT: &str = "verdict";
 }

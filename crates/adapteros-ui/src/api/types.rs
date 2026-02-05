@@ -1098,6 +1098,61 @@ pub struct ValidateAllFilesResponse {
 }
 
 // ============================================================================
+// Dataset Preprocessing types (PII scrub, deduplication)
+// ============================================================================
+
+/// Request to start preprocessing on a dataset
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct StartDatasetPreprocessRequest {
+    /// Whether to scrub PII from the dataset
+    #[serde(default)]
+    pub pii_scrub: bool,
+    /// Whether to deduplicate the dataset
+    #[serde(default)]
+    pub dedupe: bool,
+}
+
+/// Response from starting a preprocessing job
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct StartDatasetPreprocessResponse {
+    /// Unique job ID for tracking progress
+    pub job_id: String,
+    /// Dataset ID being preprocessed
+    pub dataset_id: String,
+    /// Initial status
+    pub status: String,
+    /// Message describing the job
+    pub message: String,
+}
+
+/// Response for preprocessing status check
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DatasetPreprocessStatusResponse {
+    /// Job ID
+    pub job_id: String,
+    /// Dataset ID being preprocessed
+    pub dataset_id: String,
+    /// Current status: pending, running, completed, failed
+    pub status: String,
+    /// Whether PII scrubbing was requested
+    pub pii_scrub: bool,
+    /// Whether deduplication was requested
+    pub dedupe: bool,
+    /// Number of lines processed so far
+    pub lines_processed: usize,
+    /// Number of lines removed (duplicates or PII-containing)
+    pub lines_removed: usize,
+    /// Error message if failed
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_message: Option<String>,
+    /// When the job started (ISO 8601)
+    pub started_at: String,
+    /// When the job completed (ISO 8601), if finished
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<String>,
+}
+
+// ============================================================================
 // Code Policy types
 // ============================================================================
 
@@ -1517,3 +1572,206 @@ pub struct SafetySignals {
 // API key types (CreateApiKeyRequest, CreateApiKeyResponse, ApiKeyInfo,
 // ApiKeyListResponse, RevokeApiKeyResponse) are now imported from
 // adapteros_api_types::api_keys
+
+// ============================================================================
+// Discrepancy Types
+// ============================================================================
+
+/// Request to create a discrepancy case
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CreateDiscrepancyRequest {
+    /// Inference run ID that produced the discrepancy
+    pub inference_id: String,
+    /// Type of discrepancy (incorrect_answer, incomplete_answer, hallucination, etc.)
+    pub discrepancy_type: String,
+    /// Document ID referenced during inference
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub document_id: Option<String>,
+    /// Page number in source document
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page_number: Option<u32>,
+    /// BLAKE3 hash of the chunk used
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chunk_hash_b3: Option<String>,
+    /// Whether to store plaintext content (requires explicit opt-in)
+    #[serde(default)]
+    pub store_content: bool,
+    /// The user's original question
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_question: Option<String>,
+    /// The model's answer
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_answer: Option<String>,
+    /// The correct/expected answer
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ground_truth: Option<String>,
+    /// Additional notes
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notes: Option<String>,
+}
+
+/// Response containing a discrepancy case
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DiscrepancyResponse {
+    pub id: String,
+    pub tenant_id: String,
+    pub inference_id: String,
+    pub discrepancy_type: String,
+    pub resolution_status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub document_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page_number: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chunk_hash_b3: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_question: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_answer: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ground_truth: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notes: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_by: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolved_by: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolved_at: Option<String>,
+}
+
+// ============================================================================
+// Verdict Types
+// ============================================================================
+
+/// Response containing verdict details
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct VerdictResponse {
+    /// Unique verdict ID
+    pub id: String,
+    /// The inference ID this verdict applies to
+    pub inference_id: String,
+    /// Verdict level (high, medium, low, paused)
+    pub verdict: String,
+    /// Confidence score (0.0 - 1.0)
+    pub confidence: f64,
+    /// Evaluator type (rule, human, model)
+    pub evaluator_type: String,
+    /// Evaluator identifier
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub evaluator_id: Option<String>,
+    /// Warnings/notes as JSON
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warnings_json: Option<serde_json::Value>,
+    /// Extraction confidence score
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extraction_confidence_score: Option<f64>,
+    /// Trust state
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trust_state: Option<String>,
+    /// Creation timestamp (ISO 8601)
+    pub created_at: String,
+}
+
+/// Request to derive a verdict using rules
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DeriveVerdictRequest {
+    /// Optional inference ID (required if store=true)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inference_id: Option<String>,
+    /// Extraction confidence score from upstream processing
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extraction_confidence_score: Option<f64>,
+    /// Trust state
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trust_state: Option<String>,
+    /// Whether to store the derived verdict (default: false)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub store: Option<bool>,
+}
+
+/// Response from verdict derivation
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DeriveVerdictResponse {
+    /// Derived verdict level
+    pub verdict: String,
+    /// Confidence score
+    pub confidence: f64,
+    /// Warning message if rules triggered
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
+    /// Structured warnings as JSON
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warnings_json: Option<serde_json::Value>,
+}
+
+// ============================================================================
+// Replay Session Types
+// ============================================================================
+
+/// Response for a replay session
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ReplaySessionResponse {
+    pub id: String,
+    pub tenant_id: String,
+    pub cpid: String,
+    pub plan_id: String,
+    pub snapshot_at: String,
+    pub seed_global_b3: String,
+    pub manifest_hash_b3: String,
+    pub policy_hash_b3: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kernel_hash_b3: Option<String>,
+    pub telemetry_bundle_ids: Vec<String>,
+    pub adapter_state: AdapterStateSnapshot,
+    pub routing_decisions: Vec<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inference_traces: Option<Vec<serde_json::Value>>,
+    pub signature: String,
+    pub created_at: String,
+}
+
+/// Adapter state snapshot for replay sessions
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AdapterStateSnapshot {
+    pub adapters: Vec<serde_json::Value>,
+    pub timestamp: String,
+    pub memory_usage_bytes: u64,
+}
+
+/// Request to create a replay session
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CreateReplaySessionRequest {
+    pub tenant_id: String,
+    pub cpid: String,
+    pub plan_id: String,
+    pub telemetry_bundle_ids: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snapshot_at: Option<String>,
+}
+
+/// Replay verification response
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ReplayVerificationResponse {
+    pub session_id: String,
+    pub signature_valid: bool,
+    pub hash_chain_valid: bool,
+    pub manifest_verified: bool,
+    pub policy_verified: bool,
+    pub kernel_verified: bool,
+    pub telemetry_verified: bool,
+    pub overall_valid: bool,
+    pub divergences: Vec<ReplayDivergence>,
+    pub verified_at: String,
+}
+
+/// Divergence detected during replay verification
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ReplayDivergence {
+    pub divergence_type: String,
+    pub expected_hash: String,
+    pub actual_hash: String,
+    pub context: String,
+}
