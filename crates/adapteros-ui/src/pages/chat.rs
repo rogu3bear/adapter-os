@@ -23,13 +23,15 @@ use crate::components::inference_guidance::guidance_for;
 use crate::components::status_center::use_status_center;
 use crate::components::{
     AdapterBar, AdapterHeat, AdapterMagnet, Badge, BadgeVariant, Button, ButtonSize, ButtonVariant,
-    Card, ConfirmationDialog, ConfirmationSeverity, Dialog, EmptyState, EmptyStateVariant, Input,
-    Spinner, SuggestedAdapterView, SuggestedAdaptersBar, Textarea, TraceButton, TracePanel,
+    Card, Checkbox, ConfirmationDialog, ConfirmationSeverity, Dialog, EmptyState,
+    EmptyStateVariant, Spinner, SuggestedAdapterView, SuggestedAdaptersBar, Textarea, TraceButton,
+    TracePanel,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use crate::signals::{
     use_chat, ChatSessionMeta, ChatSessionsManager, ChatTarget, StreamNoticeTone,
 };
+use adapteros_api_types::training::ChatMessageInput;
 use adapteros_api_types::InferenceReadyState;
 use leptos::prelude::*;
 use leptos_router::hooks::{use_navigate, use_params_map};
@@ -372,7 +374,8 @@ pub fn ChatSession() -> impl IntoView {
     let attach_error = RwSignal::new(Option::<String>::None);
     let attach_busy = RwSignal::new(false);
     let pasted_text = RwSignal::new(String::new());
-    let chat_range = RwSignal::new(String::new());
+    // Selected message indices for chat-to-dataset feature
+    let selected_msg_indices = RwSignal::new(std::collections::HashSet::<usize>::new());
     let navigate = use_navigate();
 
     // Load session from localStorage when session ID changes
@@ -537,7 +540,7 @@ pub fn ChatSession() -> impl IntoView {
                 attach_error.set(None);
                 attach_busy.set(false);
                 pasted_text.set(String::new());
-                chat_range.set(String::new());
+                selected_msg_indices.set(std::collections::HashSet::new());
             }
         });
     }
@@ -836,31 +839,148 @@ pub fn ChatSession() -> impl IntoView {
                 }
                 AttachMode::Paste => {
                     let text = pasted_text.get();
-                    let item_count = text.lines().filter(|l| !l.trim().is_empty()).count();
-                    let name = "pasted-text".to_string();
-                    let encoded_name = js_sys::encode_uri_component(&name)
-                        .as_string()
-                        .unwrap_or(name);
-                    let path = format!(
-                        "/datasets/draft?source=paste&items={}&name={}{}",
-                        item_count, encoded_name, base_model_param
-                    );
-                    navigate(&path, Default::default());
-                    show_attach_dialog.set(false);
+                    if text.trim().is_empty() {
+                        attach_error.set(Some("Paste some text content first.".to_string()));
+                        return;
+                    }
+
+                    attach_busy.set(true);
+                    attach_status.set(Some("Creating dataset from text...".to_string()));
+
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        let navigate = navigate.clone();
+                        let attach_status = attach_status.clone();
+                        let attach_error = attach_error.clone();
+                        let attach_busy = attach_busy.clone();
+                        let show_attach_dialog = show_attach_dialog.clone();
+                        let base_model_param = base_model_param.clone();
+
+                        wasm_bindgen_futures::spawn_local(async move {
+                            let client = ApiClient::with_base_url(&api_base_url());
+                            match client
+                                .create_dataset_from_text(
+                                    text,
+                                    Some("pasted-text".to_string()),
+                                    None,
+                                )
+                                .await
+                            {
+                                Ok(resp) => {
+                                    let path = format!(
+                                        "/datasets/draft?dataset_id={}{}",
+                                        resp.dataset_id, base_model_param
+                                    );
+                                    navigate(&path, Default::default());
+                                    show_attach_dialog.set(false);
+                                    attach_busy.set(false);
+                                    attach_status.set(None);
+                                }
+                                Err(e) => {
+                                    attach_error.set(Some(format!(
+                                        "Failed to create dataset: {}",
+                                        e
+                                    )));
+                                    attach_busy.set(false);
+                                    attach_status.set(None);
+                                }
+                            }
+                        });
+                    }
+
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        attach_error.set(Some(
+                            "Text dataset creation is only available in the web UI.".to_string(),
+                        ));
+                        attach_busy.set(false);
+                        attach_status.set(None);
+                    }
                 }
                 AttachMode::Chat => {
-                    let range = chat_range.get();
-                    let item_count = if range.trim().is_empty() { 0 } else { 1 };
-                    let name = "chat-selection".to_string();
-                    let encoded_name = js_sys::encode_uri_component(&name)
-                        .as_string()
-                        .unwrap_or(name);
-                    let path = format!(
-                        "/datasets/draft?source=chat&items={}&name={}{}",
-                        item_count, encoded_name, base_model_param
-                    );
-                    navigate(&path, Default::default());
-                    show_attach_dialog.set(false);
+                    let indices = selected_msg_indices.get();
+                    if indices.is_empty() {
+                        attach_error.set(Some("Select at least one message.".to_string()));
+                        return;
+                    }
+
+                    let messages = chat_state.get().messages;
+                    let session_id = chat_state.get().session_id.clone();
+
+                    // Convert selected messages to ChatMessageInput format
+                    let mut selected: Vec<(usize, ChatMessageInput)> = indices
+                        .iter()
+                        .filter_map(|&idx| {
+                            messages.get(idx).map(|msg| {
+                                (
+                                    idx,
+                                    ChatMessageInput {
+                                        role: msg.role.clone(),
+                                        content: msg.content.clone(),
+                                        timestamp: Some(msg.timestamp.to_rfc3339()),
+                                    },
+                                )
+                            })
+                        })
+                        .collect();
+                    // Sort by index to preserve conversation order
+                    selected.sort_by_key(|(idx, _)| *idx);
+                    let chat_messages: Vec<ChatMessageInput> =
+                        selected.into_iter().map(|(_, m)| m).collect();
+
+                    attach_busy.set(true);
+                    attach_status.set(Some("Creating dataset from chat...".to_string()));
+
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        let navigate = navigate.clone();
+                        let attach_status = attach_status.clone();
+                        let attach_error = attach_error.clone();
+                        let attach_busy = attach_busy.clone();
+                        let show_attach_dialog = show_attach_dialog.clone();
+                        let base_model_param = base_model_param.clone();
+
+                        wasm_bindgen_futures::spawn_local(async move {
+                            let client = ApiClient::with_base_url(&api_base_url());
+                            match client
+                                .create_dataset_from_chat(
+                                    chat_messages,
+                                    Some("chat-selection".to_string()),
+                                    session_id,
+                                )
+                                .await
+                            {
+                                Ok(resp) => {
+                                    let path = format!(
+                                        "/datasets/draft?dataset_id={}{}",
+                                        resp.dataset_id, base_model_param
+                                    );
+                                    navigate(&path, Default::default());
+                                    show_attach_dialog.set(false);
+                                    attach_busy.set(false);
+                                    attach_status.set(None);
+                                }
+                                Err(e) => {
+                                    attach_error.set(Some(format!(
+                                        "Failed to create dataset: {}",
+                                        e
+                                    )));
+                                    attach_busy.set(false);
+                                    attach_status.set(None);
+                                }
+                            }
+                        });
+                    }
+
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        let _ = (chat_messages, session_id);
+                        attach_error.set(Some(
+                            "Chat dataset creation is only available in the web UI.".to_string(),
+                        ));
+                        attach_busy.set(false);
+                        attach_status.set(None);
+                    }
                 }
             }
         })
@@ -1556,18 +1676,125 @@ pub fn ChatSession() -> impl IntoView {
                                 />
                             </div>
                         }.into_any(),
-                        AttachMode::Chat => view! {
-                            <div class="space-y-2">
-                                <label class="text-xs text-muted-foreground">"Chat range (stub)"</label>
-                                <Input
-                                    value=chat_range
-                                    placeholder="e.g. Last 10 messages".to_string()
-                                />
-                                <p class="text-xs text-muted-foreground">
-                                    "Range selection will be supported in a follow-up."
-                                </p>
-                            </div>
-                        }.into_any(),
+                        AttachMode::Chat => {
+                            let messages = chat_state.get().messages;
+                            let msg_count = messages.len();
+                            let selected_count = Memo::new(move |_| selected_msg_indices.get().len());
+
+                            // Quick select: last N messages
+                            let select_last_n = move |n: usize| {
+                                let msgs = chat_state.get().messages;
+                                let total = msgs.len();
+                                let start = total.saturating_sub(n);
+                                let indices: std::collections::HashSet<usize> = (start..total).collect();
+                                selected_msg_indices.set(indices);
+                            };
+
+                            // Toggle all
+                            let toggle_all = move |_| {
+                                let current = selected_msg_indices.get();
+                                let total = chat_state.get().messages.len();
+                                if current.len() == total {
+                                    selected_msg_indices.set(std::collections::HashSet::new());
+                                } else {
+                                    selected_msg_indices.set((0..total).collect());
+                                }
+                            };
+
+                            view! {
+                                <div class="space-y-3">
+                                    <div class="flex items-center justify-between">
+                                        <label class="text-xs text-muted-foreground">"Select messages"</label>
+                                        <span class="text-xs text-muted-foreground">
+                                            {move || format!("{} of {} selected", selected_count.get(), chat_state.get().messages.len())}
+                                        </span>
+                                    </div>
+
+                                    // Quick actions
+                                    <div class="flex gap-2 flex-wrap">
+                                        <button
+                                            type="button"
+                                            class="px-2 py-1 text-xs rounded border border-border hover:bg-muted/50"
+                                            on:click=toggle_all
+                                        >
+                                            {move || if selected_msg_indices.get().len() == chat_state.get().messages.len() && !chat_state.get().messages.is_empty() {
+                                                "Deselect all"
+                                            } else {
+                                                "Select all"
+                                            }}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            class="px-2 py-1 text-xs rounded border border-border hover:bg-muted/50"
+                                            on:click=move |_| select_last_n(5)
+                                        >
+                                            "Last 5"
+                                        </button>
+                                        <button
+                                            type="button"
+                                            class="px-2 py-1 text-xs rounded border border-border hover:bg-muted/50"
+                                            on:click=move |_| select_last_n(10)
+                                        >
+                                            "Last 10"
+                                        </button>
+                                        <button
+                                            type="button"
+                                            class="px-2 py-1 text-xs rounded border border-border hover:bg-muted/50"
+                                            on:click=move |_| select_last_n(20)
+                                        >
+                                            "Last 20"
+                                        </button>
+                                    </div>
+
+                                    // Message list with checkboxes
+                                    {if msg_count == 0 {
+                                        view! {
+                                            <p class="text-xs text-muted-foreground py-4 text-center">
+                                                "No messages in this chat session."
+                                            </p>
+                                        }.into_any()
+                                    } else {
+                                        view! {
+                                            <div class="max-h-48 overflow-y-auto border border-border rounded-md">
+                                                {messages.into_iter().enumerate().map(|(idx, msg)| {
+                                                    let is_checked = Memo::new(move |_| selected_msg_indices.get().contains(&idx));
+                                                    let role_badge = if msg.role == "user" { "U" } else { "A" };
+                                                    let content_preview: String = msg.content.chars().take(60).collect::<String>()
+                                                        + if msg.content.len() > 60 { "..." } else { "" };
+                                                    let toggle_msg = move |checked: bool| {
+                                                        selected_msg_indices.update(|set| {
+                                                            if checked {
+                                                                set.insert(idx);
+                                                            } else {
+                                                                set.remove(&idx);
+                                                            }
+                                                        });
+                                                    };
+                                                    view! {
+                                                        <div class="flex items-start gap-2 px-3 py-2 border-b border-border/50 last:border-b-0 hover:bg-muted/30">
+                                                            <Checkbox
+                                                                checked=Signal::derive(move || is_checked.get())
+                                                                on_change=Callback::new(toggle_msg)
+                                                                aria_label=format!("Select message {}", idx + 1)
+                                                            />
+                                                            <span class=move || format!(
+                                                                "shrink-0 w-5 h-5 rounded text-xs flex items-center justify-center {}",
+                                                                if msg.role == "user" { "bg-primary/20 text-primary" } else { "bg-muted text-muted-foreground" }
+                                                            )>
+                                                                {role_badge}
+                                                            </span>
+                                                            <span class="text-xs text-foreground/80 line-clamp-2 flex-1">
+                                                                {content_preview}
+                                                            </span>
+                                                        </div>
+                                                    }
+                                                }).collect::<Vec<_>>()}
+                                            </div>
+                                        }.into_any()
+                                    }}
+                                </div>
+                            }.into_any()
+                        },
                     }}
 
                     {move || attach_error.get().map(|msg| view! {
