@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "signed_at": "2026-02-04T22:58:01Z",
+  "signed_at": "2026-02-05T07:27:42Z",
   "public_key": "LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUNvd0JRWURLMlZ3QXlFQUI4YzQxRktSQnNJQlVIMENRY0l0TUdUNGt3ZGxTWGhkSXg2c3d2U0dMQ0U9Ci0tLS0tRU5EIFBVQkxJQyBLRVktLS0tLQo=",
   "signatures": {
     "0001_init.sql": {"hash": "f8660473370b023cfcb2207b3ed774f8ae90069c269ae2d953e7a3d2abc6e2ed", "signature": "MSEb3f3FTSTqU4pYbRKYaLkId86TstCeVZ8yyP+8uMzk0rpMgMRSC5ZXxxJpNLNQSQ4L1n0kbPmSBzToGfGpAg==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
@@ -311,6 +311,8 @@
     "20260203120000_inference_trace_config_ids.sql": {"hash": "94b0414de5263785748217ed7eb5a58137e058d4fba620d65b018bfddad92584", "signature": "xk7oaPw+ETfIGegE+xsWRaS/ul1rV5tlGRyk9rj2umFklHMoBOEvOok3umRqe8pmj/ytki/rGCmXHSzWewg8AQ==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
     "20260203121000_readable_ids.sql": {"hash": "39f67e4752e8b312e3bcae5edf5f38a6038e957daec613810d869659f8ef5f1e", "signature": "KepSIY84ZjgjTsS9br+wSpo4oNNQBXH/vBwjM59cL/JOL2Q9kLWrs6kA68xCVTT0VFb5G2F/G5q0usgSSLm9BA==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
     "20260204120000_promotion_ci_release_correlation.sql": {"hash": "78e63bdc094ddea3930b62d6158a06ad0c8922cfa1a94e5980eb0ea387b110d2", "signature": "EAmcbC/TsqB1vV3/xsv4YVfzaayT8lSAAcl2N2Q6YqlgFpsQVOUbisgtSjXERupyGhagBsLcYGCsNuAiowHIDA==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
-    "20260204130000_receipt_schema_v7_fields.sql": {"hash": "9722662c61062beba4e0542487db49675747cabb96dcb062568b6f408ad95403", "signature": "0p//XCP+5S74gDU+Jme3B99+cX/qWpmIRclkFjrvXlC1xMBYcvHG8F1knYZ9JRm8fpJI133nCEe5co5GWgbtBA==", "algorithm": "ed25519", "hash_algorithm": "blake3"}
+    "20260204130000_receipt_schema_v7_fields.sql": {"hash": "9722662c61062beba4e0542487db49675747cabb96dcb062568b6f408ad95403", "signature": "0p//XCP+5S74gDU+Jme3B99+cX/qWpmIRclkFjrvXlC1xMBYcvHG8F1knYZ9JRm8fpJI133nCEe5co5GWgbtBA==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
+    "20260204140000_discrepancy_cases.sql": {"hash": "fc615eb8200c559dbc0bbec57ff86208e683eaa9f814a71b5c611350941dfde1", "signature": "tX9cJgkUkCsq8lsj/8PYNQ+vz+twfniLxRUHu/XmaxBnIW5oIUr+CHmS0vb7MhMfEcz1x4kvhsfTmNp880HPAA==", "algorithm": "ed25519", "hash_algorithm": "blake3"},
+    "20260204140100_inference_verdicts.sql": {"hash": "b833a472a70efb937b6b1ad4e68e1f16c3ec82c5ea3437883e995fbe7681a9f8", "signature": "1+8fNYXzSDpIjgLrXhg6z1NiZj1gL9ZJxcAwc9zwoLONZNWNHGUv981k+aWpJ8OPgzox9Ppr97/WfBFXOaHkAg==", "algorithm": "ed25519", "hash_algorithm": "blake3"}
   }
 }

@@ -178,6 +178,10 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::review::get_pause_details,
         handlers::review::export_review_context,
         handlers::review::submit_review_response,
+        handlers::verdicts::list_verdicts,
+        handlers::verdicts::create_verdict,
+        handlers::verdicts::get_verdict,
+        handlers::verdicts::derive_verdict,
         handlers::batch::create_batch_job,
         handlers::batch::get_batch_status,
         handlers::batch::get_batch_items,
@@ -253,6 +257,11 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::evidence::delete_evidence,
         handlers::evidence::get_dataset_evidence,
         handlers::evidence::get_adapter_evidence,
+        handlers::discrepancies::create_discrepancy,
+        handlers::discrepancies::get_discrepancy,
+        handlers::discrepancies::list_discrepancies,
+        handlers::discrepancies::resolve_discrepancy,
+        handlers::discrepancies::export_discrepancies,
         handlers::code::register_repo,
         handlers::code::scan_repo,
         handlers::code::get_scan_status,
@@ -840,6 +849,12 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::evidence::CreateEvidenceRequest,
         handlers::evidence::EvidenceResponse,
         handlers::evidence::ListEvidenceQuery,
+        // Discrepancy case types (human-in-the-loop feedback)
+        handlers::discrepancies::CreateDiscrepancyRequest,
+        handlers::discrepancies::DiscrepancyResponse,
+        handlers::discrepancies::ListDiscrepanciesQuery,
+        handlers::discrepancies::ResolveDiscrepancyRequest,
+        handlers::discrepancies::DiscrepancyExportRow,
         // Activity types
         CreateActivityEventRequest,
         ActivityEventResponse,
@@ -931,6 +946,14 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::adapteros_receipts::AdapterosReplayRequest,
         handlers::replay::ReceiptVerificationResult,
         adapteros_api_types::inference::RunReceipt,
+        // Verdict types
+        handlers::verdicts::CreateVerdictRequest,
+        handlers::verdicts::VerdictResponse,
+        handlers::verdicts::ListVerdictsQuery,
+        handlers::verdicts::DeriveVerdictRequest,
+        handlers::verdicts::DeriveVerdictResponse,
+        handlers::verdicts::Verdict,
+        handlers::verdicts::EvaluatorType,
     )),
     tags(
         (name = "health", description = "Health check endpoints"),
@@ -953,6 +976,8 @@ use utoipa_swagger_ui::SwaggerUi;
         (name = "federation", description = "Federation verification and quarantine management"),
         (name = "Policy", description = "Policy quarantine and configuration management"),
         (name = "inference", description = "Model inference endpoints"),
+        (name = "discrepancies", description = "Discrepancy case management for training feedback"),
+        (name = "verdicts", description = "Inference verdict quality assessment"),
         (name = "promotion", description = "Golden run promotion workflow"),
         (name = "activity", description = "Activity event tracking and feeds"),
         (name = "workspaces", description = "Workspace management and resource sharing"),
@@ -1539,6 +1564,19 @@ pub fn build(state: AppState) -> Router {
             "/v1/reviews/submit",
             post(handlers::review::submit_review_response),
         )
+        // Inference verdict routes (quality assessment)
+        .route(
+            "/v1/verdicts",
+            get(handlers::verdicts::list_verdicts).post(handlers::verdicts::create_verdict),
+        )
+        .route(
+            "/v1/verdicts/derive",
+            post(handlers::verdicts::derive_verdict),
+        )
+        .route(
+            "/v1/verdicts/{inference_id}",
+            get(handlers::verdicts::get_verdict),
+        )
         // Async batch job routes
         .route("/v1/batches", post(handlers::batch::create_batch_job))
         .route(
@@ -1832,6 +1870,24 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/adapters/{adapter_id}/evidence",
             get(handlers::evidence::get_adapter_evidence),
+        )
+        // Discrepancy case routes (human-in-the-loop feedback collection)
+        .route(
+            "/v1/discrepancies",
+            get(handlers::discrepancies::list_discrepancies)
+                .post(handlers::discrepancies::create_discrepancy),
+        )
+        .route(
+            "/v1/discrepancies/export",
+            get(handlers::discrepancies::export_discrepancies),
+        )
+        .route(
+            "/v1/discrepancies/{id}",
+            get(handlers::discrepancies::get_discrepancy),
+        )
+        .route(
+            "/v1/discrepancies/{id}/resolve",
+            patch(handlers::discrepancies::resolve_discrepancy),
         )
         // Code intelligence routes
         .route(

@@ -1253,6 +1253,29 @@ Examples:
         args: train_embeddings::TrainEmbeddingsArgs,
     },
 
+    /// Generate training data from confirmed discrepancy cases
+    #[command(after_help = "\
+Examples:
+  # Export confirmed errors to JSONL (stdout)
+  aosctl train-from-discrepancies
+
+  # Export to a file
+  aosctl train-from-discrepancies --output discrepancies.jsonl
+
+  # Filter by resolution status
+  aosctl train-from-discrepancies --status confirmed_error
+
+  # Append to existing dataset
+  aosctl train-from-discrepancies --dataset ds-abc123
+
+  # Dry run - show what would be exported
+  aosctl train-from-discrepancies --dry-run
+")]
+    TrainFromDiscrepancies {
+        #[command(flatten)]
+        args: commands::train_from_discrepancies::TrainFromDiscrepanciesArgs,
+    },
+
     /// Embedding benchmark operations (corpus, index, search, bench, train, compare)
     #[command(
         subcommand,
@@ -2092,6 +2115,10 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
             train_embeddings::run(args.clone()).await?;
         }
 
+        Commands::TrainFromDiscrepancies { args } => {
+            args.execute(&output).await?;
+        }
+
         // Embedding Benchmark Commands
         Commands::Embed(cmd) => {
             commands::embed::handle_embed_command(cmd.clone()).await?;
@@ -2453,6 +2480,7 @@ fn get_command_name(command: &Commands) -> String {
         Commands::Train(_) => "train",
         Commands::TrainDocs { .. } => "train-docs",
         Commands::TrainEmbeddings { .. } => "train-embeddings",
+        Commands::TrainFromDiscrepancies { .. } => "train-from-discrepancies",
         Commands::Embed(_) => "embed",
         Commands::Code(_) => "code",
         Commands::BackendStatus(_) => "backend-status",

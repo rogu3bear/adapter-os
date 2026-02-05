@@ -117,6 +117,7 @@ pub mod train_cli;
 pub mod train_docs;
 pub mod train_embeddings;
 pub mod train_from_code;
+pub mod train_from_discrepancies;
 pub mod training_common;
 
 #[cfg(feature = "orchestrator")]
