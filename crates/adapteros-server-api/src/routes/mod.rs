@@ -224,6 +224,8 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::datasets::preview_dataset,
         handlers::datasets::dataset_upload_progress,
         handlers::datasets::create_dataset_from_documents,
+        handlers::datasets::create_dataset_from_text,
+        handlers::datasets::create_dataset_from_chat,
         handlers::training_datasets::create_training_dataset_from_upload,
         handlers::datasets::generate_dataset_from_file,
         handlers::training_datasets::get_training_dataset_manifest,
@@ -1714,6 +1716,16 @@ pub fn build(state: AppState) -> Router {
         .route(
             "/v1/datasets/from-documents",
             post(handlers::datasets::create_dataset_from_documents),
+        )
+        // Create dataset from pasted text or extracted content
+        .route(
+            "/v1/datasets/from-text",
+            post(handlers::datasets::create_dataset_from_text),
+        )
+        // Create dataset from selected chat messages
+        .route(
+            "/v1/datasets/from-chat",
+            post(handlers::datasets::create_dataset_from_chat),
         )
         .route(
             "/v1/training/datasets/from-upload",
