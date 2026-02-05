@@ -174,16 +174,25 @@ pub(crate) async fn package_and_register_adapter(
     let quantized_weights = LoRAQuantizer::quantize_to_q15(&training_result.weights);
 
     // Build packaging metadata for auditability
-    let (scope_value, lora_tier_meta, backend_policy_meta, correlation_id) = {
+    let (scope_value, lora_tier_meta, backend_policy_meta, correlation_id, adapter_type) = {
         let jobs = jobs_ref.read().await;
-        let scope_val = jobs
-            .get(job_id)
+        let job = jobs.get(job_id);
+        let scope_val = job
             .and_then(|j| j.scope.clone())
             .unwrap_or_else(|| "project".to_string());
-        let tier_val = jobs.get(job_id).and_then(|j| j.lora_tier);
-        let backend_policy = jobs.get(job_id).and_then(|j| j.backend_policy.clone());
-        let corr = jobs.get(job_id).and_then(|j| j.correlation_id.clone());
-        (scope_val, tier_val, backend_policy, corr)
+        let tier_val = job.and_then(|j| j.lora_tier);
+        let backend_policy = job.and_then(|j| j.backend_policy.clone());
+        let corr = job.and_then(|j| j.correlation_id.clone());
+        let adapter_type = job
+            .and_then(|j| j.data_spec_json.as_ref())
+            .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
+            .and_then(|value| {
+                value
+                    .get("adapter_type")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            });
+        (scope_val, tier_val, backend_policy, corr, adapter_type)
     };
 
     let mut package_metadata = HashMap::new();
@@ -741,29 +750,29 @@ pub(crate) async fn package_and_register_adapter(
             .cloned()
             .unwrap_or_else(|| "unspecified".to_string());
         let scope_value = packaged.manifest.scope.clone();
-        let adapter_metadata_json =
+        let adapter_metadata_json = {
+            let mut meta = serde_json::Map::new();
             if let (Some(tenant), Some(model_id)) = (tenant_id, base_model_id) {
                 match database.get_model_for_tenant(tenant, model_id).await {
                     Ok(Some(model)) => {
-                        match serde_json::to_string(&serde_json::json!({
-                            "base_model_id": model_id,
-                            "base_model_hash_b3": model.hash_b3,
-                            "tokenizer_hash_b3": model.tokenizer_hash_b3,
-                            "tokenizer_cfg_hash_b3": model.tokenizer_cfg_hash_b3,
-                        })) {
-                            Ok(json) => Some(json),
-                            Err(e) => {
-                                warn!(
-                                    job_id = %job_id,
-                                    model_id = %model_id,
-                                    error = %e,
-                                    "Failed to serialize adapter metadata JSON"
-                                );
-                                None
-                            }
-                        }
+                        meta.insert(
+                            "base_model_id".to_string(),
+                            serde_json::Value::String(model_id.to_string()),
+                        );
+                        meta.insert(
+                            "base_model_hash_b3".to_string(),
+                            serde_json::Value::String(model.hash_b3),
+                        );
+                        meta.insert(
+                            "tokenizer_hash_b3".to_string(),
+                            serde_json::Value::String(model.tokenizer_hash_b3),
+                        );
+                        meta.insert(
+                            "tokenizer_cfg_hash_b3".to_string(),
+                            serde_json::Value::String(model.tokenizer_cfg_hash_b3),
+                        );
                     }
-                    Ok(None) => None,
+                    Ok(None) => {}
                     Err(e) => {
                         warn!(
                             job_id = %job_id,
@@ -771,12 +780,31 @@ pub(crate) async fn package_and_register_adapter(
                             error = %e,
                             "Failed to load base model metadata for adapter linkage"
                         );
+                    }
+                }
+            }
+            if let Some(adapter_type) = adapter_type.clone() {
+                meta.insert(
+                    "adapter_type".to_string(),
+                    serde_json::Value::String(adapter_type),
+                );
+            }
+            if meta.is_empty() {
+                None
+            } else {
+                match serde_json::to_string(&serde_json::Value::Object(meta)) {
+                    Ok(json) => Some(json),
+                    Err(e) => {
+                        warn!(
+                            job_id = %job_id,
+                            error = %e,
+                            "Failed to serialize adapter metadata JSON"
+                        );
                         None
                     }
                 }
-            } else {
-                None
-            };
+            }
+        };
 
         let reg_params = AdapterRegistrationBuilder::new()
             .tenant_id(tenant_id.unwrap_or("default"))
@@ -787,6 +815,7 @@ pub(crate) async fn package_and_register_adapter(
             .tier(&post_actions.tier)
             .alpha(orchestrator_cfg.alpha as f64)
             .category(adapter_category)
+            .adapter_type(adapter_type.clone())
             .scope(&scope_value)
             .domain(Some(domain))
             .purpose(Some(group))

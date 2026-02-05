@@ -259,6 +259,7 @@ async fn start(args: TrainStartArgs, output: &OutputWriter) -> Result<()> {
         scope: None,
         category: None,
         description: None,
+        adapter_type: None,
         language: None,
         symbol_targets: None,
         framework_id: None,

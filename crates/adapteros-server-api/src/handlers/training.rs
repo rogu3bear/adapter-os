@@ -1346,6 +1346,14 @@ pub async fn create_training_job(
         )
     });
 
+    let adapter_type = req
+        .adapter_type
+        .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty());
+    let data_spec_json = adapter_type
+        .map(|adapter_type| serde_json::json!({ "adapter_type": adapter_type }).to_string());
+
     let mut config = training_config_from_request(req.params.clone());
     config.base_model_path = Some(base_model_path);
     let dataset_version_ids = vec![CoreDatasetVersionSelection {
@@ -1382,7 +1390,7 @@ pub async fn create_training_job(
             None,                           // retry_of_job_id
             None,                           // versioning
             None,                           // code_commit_sha
-            None,                           // data_spec_json
+            data_spec_json,                 // data_spec_json
             None,                           // data_spec_hash
         )
         .await
@@ -2341,7 +2349,39 @@ pub async fn start_training(
         }
     }
 
-    let data_spec_json = request.data_spec.clone();
+    let adapter_type = request
+        .adapter_type
+        .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty());
+
+    let data_spec_json = match (request.data_spec.clone(), adapter_type) {
+        (Some(spec), Some(adapter_type)) => {
+            match serde_json::from_str::<serde_json::Value>(&spec) {
+                Ok(mut value) => {
+                    if let Some(obj) = value.as_object_mut() {
+                        obj.insert(
+                            "adapter_type".to_string(),
+                            serde_json::Value::String(adapter_type.to_string()),
+                        );
+                        Some(value.to_string())
+                    } else {
+                        warn!("adapter_type ignored because data_spec is not a JSON object");
+                        Some(spec)
+                    }
+                }
+                Err(_) => {
+                    warn!("adapter_type ignored because data_spec is not valid JSON");
+                    Some(spec)
+                }
+            }
+        }
+        (Some(spec), None) => Some(spec),
+        (None, Some(adapter_type)) => {
+            Some(serde_json::json!({ "adapter_type": adapter_type }).to_string())
+        }
+        (None, None) => None,
+    };
     let mut data_spec_hash = request.data_spec_hash.clone().or_else(|| {
         data_spec_json.as_ref().map(|json| {
             let mut hasher = Hasher::new();

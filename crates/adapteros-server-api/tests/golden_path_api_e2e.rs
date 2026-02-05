@@ -559,6 +559,7 @@ async fn start_training_job(
         template_id: None,
         repo_id: None,
         description: None,
+        adapter_type: None,
         category: None,
     };
 
