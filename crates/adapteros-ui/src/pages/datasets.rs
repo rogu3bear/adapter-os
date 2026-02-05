@@ -3,12 +3,12 @@
 //! Provides UI for managing training datasets - listing, viewing,
 //! and deleting datasets used for adapter training.
 
-use crate::api::{ApiClient, DatasetListResponse, DatasetStatisticsResponse, DatasetVersionsResponse};
+use crate::api::{ApiClient, DatasetListResponse, DatasetSafetyCheckResult, DatasetStatisticsResponse, DatasetVersionsResponse, ModelWithStatsResponse};
 use crate::components::{
     Badge, BadgeVariant, BreadcrumbItem, BreadcrumbTrail, Button, ButtonVariant, Card, Checkbox,
-    ConfirmationDialog, ConfirmationSeverity, CopyableId, EmptyState, ErrorDisplay, Input,
-    LoadingDisplay, PageHeader, RefreshButton, Spinner, Table, TableBody, TableCell, TableHead,
-    TableHeader, TableRow, Toggle,
+    Combobox, ComboboxOption, ConfirmationDialog, ConfirmationSeverity, CopyableId, EmptyState,
+    ErrorDisplay, Input, LoadingDisplay, PageHeader, RefreshButton, Spinner, Table, TableBody,
+    TableCell, TableHead, TableHeader, TableRow, Toggle,
 };
 use crate::hooks::{use_api, use_api_resource, use_delete_dialog, LoadingState};
 use crate::pages::training::dataset_wizard::{DatasetUploadOutcome, DatasetUploadWizard};
@@ -867,6 +867,8 @@ fn DatasetDraftView(
     let training_job_id = RwSignal::new(None::<String>);
     let training_job_status = RwSignal::new(None::<String>);
     let is_training = RwSignal::new(false);
+    let safety_check_result = RwSignal::new(None::<DatasetSafetyCheckResult>);
+    let safety_warning_acknowledged = RwSignal::new(false);
     let dataset_id_state = RwSignal::new(dataset_id);
     let document_ids_store = StoredValue::new(document_ids);
     let client = use_api();
@@ -874,6 +876,34 @@ fn DatasetDraftView(
 
     // Statistics state
     let stats_state = RwSignal::new(LoadingState::<DatasetStatisticsResponse>::Idle);
+
+    // Models state for combobox
+    let models_state = RwSignal::new(Vec::<ModelWithStatsResponse>::new());
+
+    // Fetch available models on mount
+    {
+        let client = Arc::clone(&client);
+        Effect::new(move |_| {
+            let client = Arc::clone(&client);
+            #[cfg(target_arch = "wasm32")]
+            wasm_bindgen_futures::spawn_local(async move {
+                match client.list_models().await {
+                    Ok(resp) => {
+                        models_state.set(resp.models);
+                    }
+                    Err(e) => {
+                        web_sys::console::warn_1(
+                            &format!("Failed to load models for combobox: {}", e).into(),
+                        );
+                    }
+                }
+            });
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                let _ = client;
+            }
+        });
+    }
 
     // Fetch statistics when dataset_id_state changes
     {
@@ -900,6 +930,35 @@ fn DatasetDraftView(
                 }
             } else {
                 stats_state.set(LoadingState::Idle);
+            }
+        });
+    }
+
+    // Fetch safety check when dataset_id_state changes
+    {
+        let client = Arc::clone(&client);
+        Effect::new(move |_| {
+            let dataset_id = dataset_id_state.get();
+            if let Some(id) = dataset_id {
+                let client = Arc::clone(&client);
+                #[cfg(target_arch = "wasm32")]
+                wasm_bindgen_futures::spawn_local(async move {
+                    match client.check_dataset_safety(&id).await {
+                        Ok(result) => {
+                            safety_check_result.set(Some(result));
+                        }
+                        Err(_) => {
+                            // Safety check failed - allow training with unknown state
+                            safety_check_result.set(None);
+                        }
+                    }
+                });
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    let _ = client;
+                }
+            } else {
+                safety_check_result.set(None);
             }
         });
     }
@@ -1016,6 +1075,8 @@ fn DatasetDraftView(
                 let training_error = training_error.clone();
                 let training_job_id = training_job_id.clone();
                 let is_training = is_training.clone();
+                let safety_check_result = safety_check_result.clone();
+                let safety_warning_acknowledged = safety_warning_acknowledged.clone();
 
                 wasm_bindgen_futures::spawn_local(async move {
                     let dataset_id = if let Some(id) = existing_dataset_id {
@@ -1043,6 +1104,57 @@ fn DatasetDraftView(
                         is_training.set(false);
                         return;
                     };
+
+                    // Safety gate check before training
+                    training_status.set(Some("Checking dataset safety...".to_string()));
+                    match client.check_dataset_safety(&dataset_id).await {
+                        Ok(safety_result) => {
+                            safety_check_result.set(Some(safety_result.clone()));
+                            match safety_result.trust_state.as_str() {
+                                "blocked" => {
+                                    let reasons = if safety_result.blocking_reasons.is_empty() {
+                                        "Dataset safety check failed".to_string()
+                                    } else {
+                                        safety_result.blocking_reasons.join("; ")
+                                    };
+                                    training_error.set(Some(format!("Training blocked: {}", reasons)));
+                                    is_training.set(false);
+                                    return;
+                                }
+                                "needs_approval" => {
+                                    training_error.set(Some(
+                                        "Dataset requires approval before training. Please contact an administrator.".to_string()
+                                    ));
+                                    is_training.set(false);
+                                    return;
+                                }
+                                "allowed_with_warning" => {
+                                    // Show warning but proceed if acknowledged
+                                    if !safety_warning_acknowledged.get_untracked() {
+                                        // Set warning acknowledged so next attempt proceeds
+                                        safety_warning_acknowledged.set(true);
+                                        let warnings = if safety_result.warnings.is_empty() {
+                                            "Dataset has safety warnings".to_string()
+                                        } else {
+                                            safety_result.warnings.join("; ")
+                                        };
+                                        training_error.set(Some(format!(
+                                            "Warning: {}. Click Train again to proceed.",
+                                            warnings
+                                        )));
+                                        is_training.set(false);
+                                        return;
+                                    }
+                                }
+                                // "allowed" or "unknown" - proceed
+                                _ => {}
+                            }
+                        }
+                        Err(e) => {
+                            // Log but don't block on safety check failure
+                            leptos::logging::log!("Safety check failed, proceeding: {}", e);
+                        }
+                    }
 
                     training_status.set(Some("Starting training...".to_string()));
                     let request = json!({
@@ -1150,6 +1262,90 @@ fn DatasetDraftView(
                 </Card>
             })}
 
+            // Safety Gate Card - shows trust state and any warnings
+            {move || safety_check_result.get().map(|result| {
+                let trust_state = result.trust_state.clone();
+                let badge_variant = trust_state_badge_variant(&trust_state);
+                let has_warnings = !result.warnings.is_empty();
+                let has_blocking_reasons = !result.blocking_reasons.is_empty();
+                let is_blocked = trust_state == "blocked";
+                let needs_approval = trust_state == "needs_approval";
+                let has_warning_state = trust_state == "allowed_with_warning";
+
+                view! {
+                    <Card>
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-lg font-semibold">"Safety Gate"</h3>
+                            <Badge variant=badge_variant>{trust_state.clone()}</Badge>
+                        </div>
+
+                        {is_blocked.then(|| view! {
+                            <div class="p-3 rounded-md bg-destructive/10 border border-destructive/20 mb-3">
+                                <p class="text-sm text-destructive font-medium">
+                                    "Training is blocked for this dataset."
+                                </p>
+                            </div>
+                        })}
+
+                        {needs_approval.then(|| view! {
+                            <div class="p-3 rounded-md bg-warning/10 border border-warning/20 mb-3">
+                                <p class="text-sm text-warning-foreground font-medium">
+                                    "This dataset requires approval before training can proceed."
+                                </p>
+                            </div>
+                        })}
+
+                        {has_warning_state.then(|| view! {
+                            <div class="p-3 rounded-md bg-warning/10 border border-warning/20 mb-3">
+                                <p class="text-sm text-warning-foreground font-medium">
+                                    "Training allowed with warnings. Review before proceeding."
+                                </p>
+                            </div>
+                        })}
+
+                        {has_blocking_reasons.then(|| {
+                            let reasons = result.blocking_reasons.clone();
+                            view! {
+                                <div class="mb-3">
+                                    <h4 class="text-sm font-medium text-destructive mb-2">"Blocking Reasons"</h4>
+                                    <ul class="space-y-1 text-sm text-muted-foreground">
+                                        {reasons.into_iter().map(|reason| view! {
+                                            <li class="flex items-start gap-2">
+                                                <span class="text-destructive">"•"</span>
+                                                <span>{reason}</span>
+                                            </li>
+                                        }).collect_view()}
+                                    </ul>
+                                </div>
+                            }
+                        })}
+
+                        {has_warnings.then(|| {
+                            let warnings = result.warnings.clone();
+                            view! {
+                                <div>
+                                    <h4 class="text-sm font-medium text-warning-foreground mb-2">"Warnings"</h4>
+                                    <ul class="space-y-1 text-sm text-muted-foreground">
+                                        {warnings.into_iter().map(|warning| view! {
+                                            <li class="flex items-start gap-2">
+                                                <span class="text-warning">"•"</span>
+                                                <span>{warning}</span>
+                                            </li>
+                                        }).collect_view()}
+                                    </ul>
+                                </div>
+                            }
+                        })}
+
+                        {(!has_warnings && !has_blocking_reasons && !is_blocked && !needs_approval).then(|| view! {
+                            <p class="text-sm text-muted-foreground">
+                                "No safety concerns detected."
+                            </p>
+                        })}
+                    </Card>
+                }
+            })}
+
             <div class="grid gap-6 md:grid-cols-2">
                 <Card>
                     <h3 class="text-lg font-semibold mb-4">"Draft Summary"</h3>
@@ -1197,10 +1393,29 @@ fn DatasetDraftView(
                     <h3 class="text-lg font-semibold mb-4">"Training"</h3>
                     <div class="space-y-4 text-sm">
                         <div class="space-y-2">
-                            <label class="text-xs text-muted-foreground">"Base model ID"</label>
-                            <Input
+                            <label class="text-xs text-muted-foreground">"Base model"</label>
+                            <Combobox
                                 value=base_model
-                                placeholder="qwen2.5-coder-base".to_string()
+                                options=Signal::derive(move || {
+                                    models_state.get()
+                                        .into_iter()
+                                        .map(|m| {
+                                            let desc = match (&m.format, &m.backend) {
+                                                (Some(f), Some(b)) => format!("{} / {}", f, b),
+                                                (Some(f), None) => f.clone(),
+                                                (None, Some(b)) => b.clone(),
+                                                (None, None) => String::new(),
+                                            };
+                                            ComboboxOption {
+                                                value: m.id.clone(),
+                                                label: m.name.clone(),
+                                                description: if desc.is_empty() { None } else { Some(desc) },
+                                            }
+                                        })
+                                        .collect::<Vec<_>>()
+                                })
+                                placeholder="Select or type a model ID".to_string()
+                                allow_free_text=true
                             />
                         </div>
                         <div class="flex items-center justify-between gap-3">
