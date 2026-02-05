@@ -1371,6 +1371,76 @@ impl ApiClient {
         .await
     }
 
+    /// Create a training dataset from raw text content
+    pub async fn create_dataset_from_text(
+        &self,
+        content: String,
+        name: Option<String>,
+        format: Option<String>,
+    ) -> ApiResult<adapteros_api_types::training::CreateDatasetFromTextResponse> {
+        #[derive(serde::Serialize)]
+        struct Request {
+            content: String,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            name: Option<String>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            format: Option<String>,
+        }
+        self.post(
+            "/v1/datasets/from-text",
+            &Request {
+                content,
+                name,
+                format,
+            },
+        )
+        .await
+    }
+
+    /// Create a training dataset from chat messages
+    pub async fn create_dataset_from_chat(
+        &self,
+        messages: Vec<adapteros_api_types::training::ChatMessageInput>,
+        name: Option<String>,
+        session_id: Option<String>,
+    ) -> ApiResult<adapteros_api_types::training::CreateDatasetFromChatResponse> {
+        #[derive(serde::Serialize)]
+        struct Request {
+            messages: Vec<adapteros_api_types::training::ChatMessageInput>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            name: Option<String>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            session_id: Option<String>,
+        }
+        self.post(
+            "/v1/datasets/from-chat",
+            &Request {
+                messages,
+                name,
+                session_id,
+            },
+        )
+        .await
+    }
+
+    /// Check if a dataset is safe for training
+    pub async fn check_dataset_safety(
+        &self,
+        dataset_id: &str,
+    ) -> ApiResult<crate::api::types::DatasetSafetyCheckResult> {
+        self.get(&format!("/v1/datasets/{}/safety-check", dataset_id))
+            .await
+    }
+
+    /// Get a receipt by its digest
+    pub async fn get_receipt_by_digest(
+        &self,
+        digest: &str,
+    ) -> ApiResult<serde_json::Value> {
+        self.get(&format!("/v1/adapteros/receipts/{}", digest))
+            .await
+    }
+
     /// Upload a training dataset via multipart form data.
     ///
     /// Accepts multiple files and forwards them to `/v1/datasets`.
