@@ -504,6 +504,29 @@ pub async fn verify_replay_session(
         verified_at: chrono::Utc::now().to_rfc3339(),
     };
 
+    // Audit log with verified metadata for UI display
+    let audit_metadata = serde_json::json!({
+        "verified": overall_valid,
+        "signature_valid": signature_valid,
+        "hash_chain_valid": hash_chain_valid,
+    });
+    if let Err(e) = crate::audit_helper::log_success_with_metadata(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::REPLAY_VERIFY,
+        crate::audit_helper::resources::REPLAY_SESSION,
+        Some(&session_id),
+        audit_metadata,
+    )
+    .await
+    {
+        warn!(
+            session_id = %session_id,
+            error = %e,
+            "Failed to log replay session verification to audit trail"
+        );
+    }
+
     Ok(Json(verification))
 }
 
@@ -1039,7 +1062,30 @@ pub async fn verify_trace_receipt(
 
     validate_tenant_isolation(&claims, &verification.tenant_id)?;
 
-    let report = build_receipt_verification_result(req.trace_id, verification, "trace");
+    let report = build_receipt_verification_result(req.trace_id.clone(), verification, "trace");
+
+    // Audit log with verified metadata for UI display
+    let audit_metadata = serde_json::json!({
+        "verified": report.pass,
+        "signature_checked": report.signature_checked,
+        "signature_valid": report.signature_valid,
+    });
+    if let Err(e) = crate::audit_helper::log_success_with_metadata(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::REPLAY_VERIFY,
+        crate::audit_helper::resources::REPLAY_SESSION,
+        Some(&req.trace_id),
+        audit_metadata,
+    )
+    .await
+    {
+        warn!(
+            trace_id = %req.trace_id,
+            error = %e,
+            "Failed to log trace receipt verification to audit trail"
+        );
+    }
 
     Ok(Json(report))
 }
@@ -1853,7 +1899,7 @@ pub(crate) fn verify_bundle_bytes(bytes: &[u8]) -> Result<ReceiptVerificationRes
     tag = "replay"
 )]
 pub async fn verify_bundle_receipt(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     mut multipart: Multipart,
 ) -> ApiResult<ReceiptVerificationResult> {
@@ -1886,6 +1932,30 @@ pub async fn verify_bundle_receipt(
     // Tenant isolation for uploaded bundles (best-effort using bundle metadata)
     if let Some(tenant) = report.tenant_id.as_ref() {
         validate_tenant_isolation(&claims, tenant)?;
+    }
+
+    // Audit log with verified metadata for UI display
+    let audit_metadata = serde_json::json!({
+        "verified": report.pass,
+        "signature_checked": report.signature_checked,
+        "signature_valid": report.signature_valid,
+        "source": "bundle",
+    });
+    if let Err(e) = crate::audit_helper::log_success_with_metadata(
+        &state.db,
+        &claims,
+        crate::audit_helper::actions::REPLAY_VERIFY,
+        crate::audit_helper::resources::REPLAY_SESSION,
+        Some(&report.trace_id),
+        audit_metadata,
+    )
+    .await
+    {
+        warn!(
+            trace_id = %report.trace_id,
+            error = %e,
+            "Failed to log bundle verification to audit trail"
+        );
     }
 
     Ok(Json(report))
