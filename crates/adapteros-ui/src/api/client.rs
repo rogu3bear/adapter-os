@@ -2035,4 +2035,13 @@ impl ApiClient {
 
         self.get(&path).await
     }
+
+    /// Get receipt JSON by digest as raw text (for download)
+    ///
+    /// Fetches the stored receipt from `/v1/adapteros/receipts/{digest}` and returns
+    /// the raw JSON text for direct file download.
+    pub async fn get_receipt_json(&self, digest: &str) -> ApiResult<String> {
+        self.get_text(&format!("/v1/adapteros/receipts/{}", digest))
+            .await
+    }
 }

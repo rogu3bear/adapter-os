@@ -604,6 +604,8 @@ enum QuickAction {
     Export(String),
     /// Download signature file (requires bundle creation)
     DownloadSignature(String),
+    /// Download receipt JSON file (fetches from API and triggers browser download)
+    DownloadReceipt(ReadSignal<Option<String>>),
 }
 
 /// Quick action button component
@@ -660,6 +662,36 @@ fn QuickActionButton(
                             notifs.error(
                                 "Signature download failed",
                                 &format!("Could not generate signature: {}", e),
+                            );
+                        }
+                    }
+                });
+            }
+            QuickAction::DownloadReceipt(digest_signal) => {
+                // Download receipt JSON file
+                let Some(digest) = digest_signal.get() else {
+                    notifications.error(
+                        "Receipt unavailable",
+                        "Receipt digest is not available for this run yet.",
+                    );
+                    return;
+                };
+                let notifs = notifications.clone();
+                spawn_local(async move {
+                    let client = ApiClient::new();
+                    match client.get_receipt_json(&digest).await {
+                        Ok(json_content) => {
+                            let filename = format!("receipt-{}.json", &digest[..16.min(digest.len())]);
+                            if let Err(e) = trigger_download(&filename, &json_content) {
+                                notifs.error("Download failed", &format!("Could not download receipt: {}", e));
+                            } else {
+                                notifs.success("Download started", "Receipt JSON download initiated.");
+                            }
+                        }
+                        Err(e) => {
+                            notifs.error(
+                                "Receipt download failed",
+                                &format!("Could not fetch receipt: {}", e),
                             );
                         }
                     }
@@ -750,6 +782,54 @@ fn copy_to_clipboard(
             );
         }
     });
+}
+
+/// Trigger a browser file download with the given content.
+///
+/// Creates a Blob from the content, generates an object URL, creates a hidden
+/// anchor element to trigger the download, then revokes the URL.
+fn trigger_download(filename: &str, content: &str) -> Result<(), String> {
+    use wasm_bindgen::JsCast;
+
+    let window = web_sys::window().ok_or("No window available")?;
+    let document = window.document().ok_or("No document available")?;
+
+    // Create a Blob from the content with JSON mime type
+    let blob_parts = js_sys::Array::new();
+    blob_parts.push(&wasm_bindgen::JsValue::from_str(content));
+
+    let blob_options = web_sys::BlobPropertyBag::new();
+    blob_options.set_type("application/json");
+
+    let blob = web_sys::Blob::new_with_str_sequence_and_options(&blob_parts, &blob_options)
+        .map_err(|e| format!("Failed to create Blob: {:?}", e))?;
+
+    // Create object URL from blob
+    let url = web_sys::Url::create_object_url_with_blob(&blob)
+        .map_err(|e| format!("Failed to create object URL: {:?}", e))?;
+
+    // Create hidden anchor element
+    let anchor = document
+        .create_element("a")
+        .map_err(|e| format!("Failed to create anchor: {:?}", e))?
+        .dyn_into::<web_sys::HtmlAnchorElement>()
+        .map_err(|_| "Failed to cast to HtmlAnchorElement")?;
+
+    anchor.set_href(&url);
+    anchor.set_download(filename);
+
+    // Append to document, click, then remove
+    let body = document.body().ok_or("No document body")?;
+    body.append_child(&anchor)
+        .map_err(|e| format!("Failed to append anchor: {:?}", e))?;
+    anchor.click();
+    body.remove_child(&anchor)
+        .map_err(|e| format!("Failed to remove anchor: {:?}", e))?;
+
+    // Revoke the object URL to free memory
+    let _ = web_sys::Url::revoke_object_url(&url);
+
+    Ok(())
 }
 
 // ============================================================================
@@ -1499,7 +1579,7 @@ fn ReceiptsTab(
                                     <QuickActionButton
                                         icon="⬇"
                                         label="Download receipt JSON"
-                                        action=QuickAction::Export(run_id.clone())
+                                        action=QuickAction::DownloadReceipt(receipt_digest.read_only())
                                     />
                                 </div>
                             </Card>
