@@ -3,7 +3,10 @@
 //! Provides UI for managing training datasets - listing, viewing,
 //! and deleting datasets used for adapter training.
 
-use crate::api::{ApiClient, DatasetListResponse, DatasetSafetyCheckResult, DatasetStatisticsResponse, DatasetVersionsResponse, ModelWithStatsResponse};
+use crate::api::{
+    ApiClient, DatasetListResponse, DatasetSafetyCheckResult, DatasetStatisticsResponse,
+    DatasetVersionsResponse, ModelWithStatsResponse,
+};
 use crate::components::{
     Badge, BadgeVariant, BreadcrumbItem, BreadcrumbTrail, Button, ButtonVariant, Card, Checkbox,
     Combobox, ComboboxOption, ConfirmationDialog, ConfirmationSeverity, CopyableId, EmptyState,
@@ -993,6 +996,21 @@ fn DatasetDraftView(
                 && document_ids_store.with_value(|ids| ids.is_empty()))
     });
 
+    // Reason why train button is disabled (for user hint)
+    let train_disabled_reason = Signal::derive(move || {
+        if is_training.get() {
+            Some("Training in progress...".to_string())
+        } else if base_model.get().trim().is_empty() {
+            Some("Select a base model to enable training".to_string())
+        } else if dataset_id_state.get().is_none()
+            && document_ids_store.with_value(|ids| ids.is_empty())
+        {
+            Some("Attach a document or select a dataset first".to_string())
+        } else {
+            None
+        }
+    });
+
     // Poll training job status when a job id is available
     {
         let client = Arc::clone(&client);
@@ -1064,6 +1082,10 @@ fn DatasetDraftView(
             let rank_val: u32 = rank.get().parse().unwrap_or(8);
             let alpha_val: u32 = alpha.get().parse().unwrap_or(16);
 
+            // Capture preprocessing options
+            let pii_scrub_val = pii_scrub.get();
+            let dedupe_val = dedupe.get();
+
             is_training.set(true);
             training_status.set(Some("Preparing training...".to_string()));
 
@@ -1092,8 +1114,7 @@ fn DatasetDraftView(
                                 ds.id
                             }
                             Err(e) => {
-                                training_error
-                                    .set(Some(format!("Failed to create dataset: {}", e)));
+                                training_error.set(Some(format!("Dataset error: {}", e)));
                                 is_training.set(false);
                                 return;
                             }
@@ -1104,6 +1125,76 @@ fn DatasetDraftView(
                         is_training.set(false);
                         return;
                     };
+
+                    // Run preprocessing if enabled (PII scrub or deduplication)
+                    if pii_scrub_val || dedupe_val {
+                        training_status.set(Some("Preprocessing dataset...".to_string()));
+                        match client
+                            .start_dataset_preprocessing(&dataset_id, pii_scrub_val, dedupe_val)
+                            .await
+                        {
+                            Ok(_preprocess_response) => {
+                                // Poll for preprocessing completion (max 5 minutes = 300 polls)
+                                const MAX_PREPROCESS_POLLS: usize = 300;
+                                for poll_count in 0..MAX_PREPROCESS_POLLS {
+                                    gloo_timers::future::TimeoutFuture::new(1000).await;
+                                    match client.get_dataset_preprocess_status(&dataset_id).await {
+                                        Ok(status) => {
+                                            let lines_info = if status.lines_removed > 0 {
+                                                format!(
+                                                    " ({} lines processed, {} removed)",
+                                                    status.lines_processed, status.lines_removed
+                                                )
+                                            } else {
+                                                format!(
+                                                    " ({} lines processed)",
+                                                    status.lines_processed
+                                                )
+                                            };
+                                            training_status.set(Some(format!(
+                                                "Preprocessing: {}{}",
+                                                status.status, lines_info
+                                            )));
+                                            if status.status == "completed" {
+                                                break;
+                                            } else if status.status == "failed" {
+                                                let error_msg =
+                                                    status.error_message.unwrap_or_else(|| {
+                                                        "Preprocessing failed".to_string()
+                                                    });
+                                                training_error.set(Some(error_msg));
+                                                is_training.set(false);
+                                                return;
+                                            }
+                                        }
+                                        Err(e) => {
+                                            // If we can't get status, continue polling
+                                            leptos::logging::log!(
+                                                "Preprocessing status check failed: {}",
+                                                e
+                                            );
+                                        }
+                                    }
+                                    // Timeout after max polls
+                                    if poll_count == MAX_PREPROCESS_POLLS - 1 {
+                                        training_error.set(Some(
+                                            "Preprocessing timed out after 5 minutes".to_string(),
+                                        ));
+                                        is_training.set(false);
+                                        return;
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                // If preprocessing fails to start, log but proceed
+                                // (preprocessing is optional enhancement)
+                                leptos::logging::log!(
+                                    "Preprocessing failed to start, proceeding: {}",
+                                    e
+                                );
+                            }
+                        }
+                    }
 
                     // Safety gate check before training
                     training_status.set(Some("Checking dataset safety...".to_string()));
@@ -1117,7 +1208,8 @@ fn DatasetDraftView(
                                     } else {
                                         safety_result.blocking_reasons.join("; ")
                                     };
-                                    training_error.set(Some(format!("Training blocked: {}", reasons)));
+                                    training_error
+                                        .set(Some(format!("Training blocked: {}", reasons)));
                                     is_training.set(false);
                                     return;
                                 }
@@ -1182,7 +1274,7 @@ fn DatasetDraftView(
                             training_job_id.set(Some(job.id));
                         }
                         Err(e) => {
-                            training_error.set(Some(format!("Failed to start training: {}", e)));
+                            training_error.set(Some(format!("Training error: {}", e)));
                         }
                     }
                     is_training.set(false);
@@ -1215,26 +1307,40 @@ fn DatasetDraftView(
                 title="Dataset Draft"
                 subtitle="Review draft data before training an adapter."
             >
-                <Button
-                    variant=ButtonVariant::Primary
-                    disabled=train_disabled
-                    loading=Signal::derive(move || is_training.get())
-                    on_click=on_train
-                >
-                    "Train Adapter"
-                </Button>
+                <div>
+                    <Button
+                        variant=ButtonVariant::Primary
+                        disabled=train_disabled
+                        loading=Signal::derive(move || is_training.get())
+                        on_click=on_train
+                    >
+                        "Train Adapter"
+                    </Button>
+                    {move || train_disabled_reason.get().map(|reason| view! {
+                        <p class="text-xs text-muted-foreground mt-1">{reason}</p>
+                    })}
+                </div>
             </PageHeader>
 
-            {move || training_error.get().map(|msg| view! {
-                <Card>
-                    <div class="flex items-center justify-between">
-                        <div>
-                            <h3 class="text-lg font-semibold text-destructive">"Training blocked"</h3>
-                            <p class="text-sm text-muted-foreground">{msg}</p>
+            {move || training_error.get().map(|msg| {
+                // Determine heading based on error phase (Dataset vs Training)
+                let is_dataset_error = msg.starts_with("Dataset");
+                let heading = if is_dataset_error {
+                    "Dataset creation failed"
+                } else {
+                    "Training blocked"
+                };
+                view! {
+                    <Card>
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <h3 class="text-lg font-semibold text-destructive">{heading}</h3>
+                                <p class="text-sm text-muted-foreground">{msg}</p>
+                            </div>
+                            <Badge variant=BadgeVariant::Destructive>"Error"</Badge>
                         </div>
-                        <Badge variant=BadgeVariant::Destructive>"Error"</Badge>
-                    </div>
-                </Card>
+                    </Card>
+                }
             })}
 
             {move || training_status.get().map(|status| view! {

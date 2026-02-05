@@ -1346,12 +1346,29 @@ pub async fn create_training_job(
         )
     });
 
+    // Normalize and validate adapter_type
+    const KNOWN_ADAPTER_TYPES: &[&str] = &["identify", "behavior"];
     let adapter_type = req
         .adapter_type
         .as_ref()
-        .map(|s| s.trim())
+        .map(|s| s.trim().to_lowercase())
         .filter(|s| !s.is_empty());
+    if let Some(ref at) = adapter_type {
+        if !KNOWN_ADAPTER_TYPES.contains(&at.as_str()) {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new(format!(
+                        "Invalid adapter_type '{}'. Expected one of: {:?}",
+                        at, KNOWN_ADAPTER_TYPES
+                    ))
+                    .with_code("INVALID_ADAPTER_TYPE"),
+                ),
+            ));
+        }
+    }
     let data_spec_json = adapter_type
+        .as_ref()
         .map(|adapter_type| serde_json::json!({ "adapter_type": adapter_type }).to_string());
 
     let mut config = training_config_from_request(req.params.clone());
@@ -2349,11 +2366,27 @@ pub async fn start_training(
         }
     }
 
+    // Normalize and validate adapter_type
+    const KNOWN_ADAPTER_TYPES: &[&str] = &["identify", "behavior"];
     let adapter_type = request
         .adapter_type
         .as_ref()
-        .map(|s| s.trim())
+        .map(|s| s.trim().to_lowercase())
         .filter(|s| !s.is_empty());
+    if let Some(ref at) = adapter_type {
+        if !KNOWN_ADAPTER_TYPES.contains(&at.as_str()) {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new(format!(
+                        "Invalid adapter_type '{}'. Expected one of: {:?}",
+                        at, KNOWN_ADAPTER_TYPES
+                    ))
+                    .with_code("INVALID_ADAPTER_TYPE"),
+                ),
+            ));
+        }
+    }
 
     let data_spec_json = match (request.data_spec.clone(), adapter_type) {
         (Some(spec), Some(adapter_type)) => {

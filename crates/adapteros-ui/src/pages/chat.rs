@@ -376,6 +376,8 @@ pub fn ChatSession() -> impl IntoView {
     let pasted_text = RwSignal::new(String::new());
     // Selected message indices for chat-to-dataset feature
     let selected_msg_indices = RwSignal::new(std::collections::HashSet::<usize>::new());
+    // Cancellation signal to abort in-flight uploads when dialog is closed
+    let upload_cancelled = RwSignal::new(false);
     let navigate = use_navigate();
 
     // Load session from localStorage when session ID changes
@@ -533,6 +535,8 @@ pub fn ChatSession() -> impl IntoView {
     {
         Effect::new(move || {
             if !show_attach_dialog.get() {
+                // Signal cancellation to abort any in-flight uploads
+                upload_cancelled.set(true);
                 attach_mode.set(AttachMode::Upload);
                 selected_file_name.set(None);
                 selected_file.set(None);
@@ -740,6 +744,8 @@ pub fn ChatSession() -> impl IntoView {
                     };
 
                     let file_name = file.name();
+                    // Reset cancellation flag before starting
+                    upload_cancelled.set(false);
                     attach_busy.set(true);
                     attach_status.set(Some(format!("Uploading {}...", file_name)));
 
@@ -753,18 +759,49 @@ pub fn ChatSession() -> impl IntoView {
                         let base_model_param = base_model_param.clone();
 
                         wasm_bindgen_futures::spawn_local(async move {
+                            // Check cancellation before starting
+                            if upload_cancelled.get_untracked() {
+                                return;
+                            }
+
                             let client = ApiClient::with_base_url(&api_base_url());
                             match client.upload_document(&file).await {
                                 Ok(doc) => {
-                                    attach_status.set(Some("Processing document...".to_string()));
+                                    // Check cancellation before updating UI
+                                    if upload_cancelled.get_untracked() {
+                                        return;
+                                    }
+
+                                    // Show "already indexed" notice if document was deduplicated
+                                    let info_suffix = if doc.deduplicated {
+                                        " (already indexed)"
+                                    } else {
+                                        ""
+                                    };
+                                    attach_status.set(Some(format!(
+                                        "Processing document{}...",
+                                        info_suffix
+                                    )));
                                     let doc_id = doc.document_id.clone();
                                     let mut chunk_count = doc.chunk_count.unwrap_or(0) as usize;
 
                                     for _ in 0..60 {
+                                        // Check cancellation before each poll
+                                        if upload_cancelled.get_untracked() {
+                                            return;
+                                        }
                                         gloo_timers::future::TimeoutFuture::new(1000).await;
+                                        // Check cancellation after sleep
+                                        if upload_cancelled.get_untracked() {
+                                            return;
+                                        }
                                         match client.get_document(&doc_id).await {
                                             Ok(status) => match status.status.as_str() {
                                                 "indexed" => {
+                                                    // Check cancellation before navigation
+                                                    if upload_cancelled.get_untracked() {
+                                                        return;
+                                                    }
                                                     if let Some(count) = status.chunk_count {
                                                         chunk_count = count as usize;
                                                     }
@@ -786,6 +823,9 @@ pub fn ChatSession() -> impl IntoView {
                                                     return;
                                                 }
                                                 "failed" => {
+                                                    if upload_cancelled.get_untracked() {
+                                                        return;
+                                                    }
                                                     attach_error.set(Some(format!(
                                                         "Document processing failed: {}",
                                                         status.error_message.unwrap_or_default()
@@ -795,6 +835,9 @@ pub fn ChatSession() -> impl IntoView {
                                                     return;
                                                 }
                                                 _ => {
+                                                    if upload_cancelled.get_untracked() {
+                                                        return;
+                                                    }
                                                     attach_status.set(Some(format!(
                                                         "Processing document ({})...",
                                                         status.status
@@ -802,6 +845,9 @@ pub fn ChatSession() -> impl IntoView {
                                                 }
                                             },
                                             Err(e) => {
+                                                if upload_cancelled.get_untracked() {
+                                                    return;
+                                                }
                                                 attach_error.set(Some(format!(
                                                     "Failed to check status: {}",
                                                     e
@@ -813,12 +859,18 @@ pub fn ChatSession() -> impl IntoView {
                                         }
                                     }
 
+                                    if upload_cancelled.get_untracked() {
+                                        return;
+                                    }
                                     attach_error
                                         .set(Some("Document processing timed out.".to_string()));
                                     attach_busy.set(false);
                                     attach_status.set(None);
                                 }
                                 Err(e) => {
+                                    if upload_cancelled.get_untracked() {
+                                        return;
+                                    }
                                     attach_error.set(Some(format!("Upload failed: {}", e)));
                                     attach_busy.set(false);
                                     attach_status.set(None);
@@ -844,6 +896,8 @@ pub fn ChatSession() -> impl IntoView {
                         return;
                     }
 
+                    // Reset cancellation flag before starting
+                    upload_cancelled.set(false);
                     attach_busy.set(true);
                     attach_status.set(Some("Creating dataset from text...".to_string()));
 
@@ -857,6 +911,11 @@ pub fn ChatSession() -> impl IntoView {
                         let base_model_param = base_model_param.clone();
 
                         wasm_bindgen_futures::spawn_local(async move {
+                            // Check cancellation before starting
+                            if upload_cancelled.get_untracked() {
+                                return;
+                            }
+
                             let client = ApiClient::with_base_url(&api_base_url());
                             match client
                                 .create_dataset_from_text(
@@ -867,6 +926,10 @@ pub fn ChatSession() -> impl IntoView {
                                 .await
                             {
                                 Ok(resp) => {
+                                    // Check cancellation before navigation
+                                    if upload_cancelled.get_untracked() {
+                                        return;
+                                    }
                                     let path = format!(
                                         "/datasets/draft?dataset_id={}{}",
                                         resp.dataset_id, base_model_param
@@ -877,10 +940,11 @@ pub fn ChatSession() -> impl IntoView {
                                     attach_status.set(None);
                                 }
                                 Err(e) => {
-                                    attach_error.set(Some(format!(
-                                        "Failed to create dataset: {}",
-                                        e
-                                    )));
+                                    if upload_cancelled.get_untracked() {
+                                        return;
+                                    }
+                                    attach_error
+                                        .set(Some(format!("Failed to create dataset: {}", e)));
                                     attach_busy.set(false);
                                     attach_status.set(None);
                                 }
@@ -928,6 +992,8 @@ pub fn ChatSession() -> impl IntoView {
                     let chat_messages: Vec<ChatMessageInput> =
                         selected.into_iter().map(|(_, m)| m).collect();
 
+                    // Reset cancellation flag before starting
+                    upload_cancelled.set(false);
                     attach_busy.set(true);
                     attach_status.set(Some("Creating dataset from chat...".to_string()));
 
@@ -941,6 +1007,11 @@ pub fn ChatSession() -> impl IntoView {
                         let base_model_param = base_model_param.clone();
 
                         wasm_bindgen_futures::spawn_local(async move {
+                            // Check cancellation before starting
+                            if upload_cancelled.get_untracked() {
+                                return;
+                            }
+
                             let client = ApiClient::with_base_url(&api_base_url());
                             match client
                                 .create_dataset_from_chat(
@@ -951,6 +1022,10 @@ pub fn ChatSession() -> impl IntoView {
                                 .await
                             {
                                 Ok(resp) => {
+                                    // Check cancellation before navigation
+                                    if upload_cancelled.get_untracked() {
+                                        return;
+                                    }
                                     let path = format!(
                                         "/datasets/draft?dataset_id={}{}",
                                         resp.dataset_id, base_model_param
@@ -961,10 +1036,11 @@ pub fn ChatSession() -> impl IntoView {
                                     attach_status.set(None);
                                 }
                                 Err(e) => {
-                                    attach_error.set(Some(format!(
-                                        "Failed to create dataset: {}",
-                                        e
-                                    )));
+                                    if upload_cancelled.get_untracked() {
+                                        return;
+                                    }
+                                    attach_error
+                                        .set(Some(format!("Failed to create dataset: {}", e)));
                                     attach_busy.set(false);
                                     attach_status.set(None);
                                 }

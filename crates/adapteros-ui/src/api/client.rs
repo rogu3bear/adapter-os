@@ -1432,11 +1432,31 @@ impl ApiClient {
             .await
     }
 
-    /// Get a receipt by its digest
-    pub async fn get_receipt_by_digest(
+    /// Start preprocessing on a dataset (PII scrub, deduplication)
+    pub async fn start_dataset_preprocessing(
         &self,
-        digest: &str,
-    ) -> ApiResult<serde_json::Value> {
+        dataset_id: &str,
+        pii_scrub: bool,
+        dedupe: bool,
+    ) -> ApiResult<crate::api::types::StartDatasetPreprocessResponse> {
+        self.post(
+            &format!("/v1/datasets/{}/preprocess", dataset_id),
+            &crate::api::types::StartDatasetPreprocessRequest { pii_scrub, dedupe },
+        )
+        .await
+    }
+
+    /// Get preprocessing job status for a dataset
+    pub async fn get_dataset_preprocess_status(
+        &self,
+        dataset_id: &str,
+    ) -> ApiResult<crate::api::types::DatasetPreprocessStatusResponse> {
+        self.get(&format!("/v1/datasets/{}/preprocess/status", dataset_id))
+            .await
+    }
+
+    /// Get a receipt by its digest
+    pub async fn get_receipt_by_digest(&self, digest: &str) -> ApiResult<serde_json::Value> {
         self.get(&format!("/v1/adapteros/receipts/{}", digest))
             .await
     }
@@ -2017,6 +2037,102 @@ impl ApiClient {
             None => "/v1/embeddings/benchmarks".to_string(),
         };
         self.get(&path).await
+    }
+
+    // ========================================================================
+    // Discrepancies
+    // ========================================================================
+
+    /// Create a new discrepancy case
+    pub async fn create_discrepancy(
+        &self,
+        request: &CreateDiscrepancyRequest,
+    ) -> ApiResult<DiscrepancyResponse> {
+        self.post("/v1/discrepancies", request).await
+    }
+
+    /// List discrepancy cases with optional status filter
+    pub async fn list_discrepancy_cases(
+        &self,
+        status: Option<&str>,
+    ) -> ApiResult<Vec<DiscrepancyResponse>> {
+        let path = match status {
+            Some(s) => format!("/v1/discrepancies?status={}", encode(s)),
+            None => "/v1/discrepancies".to_string(),
+        };
+        self.get(&path).await
+    }
+
+    /// Get a single discrepancy case by ID
+    pub async fn get_discrepancy(&self, id: &str) -> ApiResult<DiscrepancyResponse> {
+        self.get(&format!("/v1/discrepancies/{}", id)).await
+    }
+
+    /// Resolve a discrepancy case
+    pub async fn resolve_discrepancy(
+        &self,
+        id: &str,
+        resolution: &str,
+        notes: Option<&str>,
+    ) -> ApiResult<DiscrepancyResponse> {
+        #[derive(serde::Serialize)]
+        struct ResolveRequest<'a> {
+            resolution_status: &'a str,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            notes: Option<&'a str>,
+        }
+        self.post(
+            &format!("/v1/discrepancies/{}/resolve", id),
+            &ResolveRequest {
+                resolution_status: resolution,
+                notes,
+            },
+        )
+        .await
+    }
+
+    // ========================================================================
+    // Verdicts
+    // ========================================================================
+
+    /// Get verdict for an inference by inference ID
+    pub async fn get_inference_verdict(&self, inference_id: &str) -> ApiResult<VerdictResponse> {
+        self.get(&format!("/v1/verdicts/{}", inference_id)).await
+    }
+
+    /// Derive a rule-based verdict for an inference
+    pub async fn derive_rule_verdict(
+        &self,
+        request: &DeriveVerdictRequest,
+    ) -> ApiResult<DeriveVerdictResponse> {
+        self.post("/v1/verdicts/derive", request).await
+    }
+
+    // ========================================================================
+    // Replay Sessions
+    // ========================================================================
+
+    /// Create a new replay session
+    pub async fn create_replay_session(
+        &self,
+        request: &CreateReplaySessionRequest,
+    ) -> ApiResult<ReplaySessionResponse> {
+        self.post("/v1/replay/sessions", request).await
+    }
+
+    /// Get a replay session by ID
+    pub async fn get_replay_session(&self, session_id: &str) -> ApiResult<ReplaySessionResponse> {
+        self.get(&format!("/v1/replay/sessions/{}", session_id))
+            .await
+    }
+
+    /// Verify a replay session's cryptographic integrity
+    pub async fn verify_replay_session(
+        &self,
+        session_id: &str,
+    ) -> ApiResult<ReplayVerificationResponse> {
+        self.post_empty(&format!("/v1/replay/sessions/{}/verify", session_id))
+            .await
     }
 }
 

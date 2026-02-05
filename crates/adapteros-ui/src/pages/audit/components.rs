@@ -3,7 +3,7 @@
 //! Filter and summary components used across tabs.
 
 use crate::api::{AuditChainResponse, ChainVerificationResponse, ComplianceAuditResponse};
-use crate::components::{Card, Spinner};
+use crate::components::{Card, Skeleton, Spinner};
 use crate::hooks::LoadingState;
 use leptos::prelude::*;
 
@@ -179,7 +179,7 @@ pub fn ChainStatusSummary(
                                 }
                                 _ => {
                                     view! {
-                                        <p class="text-lg font-bold text-muted-foreground">"--"</p>
+                                        <Skeleton class="h-6 w-20"/>
                                     }
                                     .into_any()
                                 }
@@ -216,7 +216,7 @@ pub fn ChainStatusSummary(
                                 }
                                 _ => {
                                     view! {
-                                        <p class="text-lg font-bold text-muted-foreground">"--"</p>
+                                        <Skeleton class="h-6 w-12"/>
                                     }
                                     .into_any()
                                 }
@@ -268,7 +268,7 @@ pub fn ChainStatusSummary(
                                 }
                                 _ => {
                                     view! {
-                                        <p class="text-sm font-mono text-muted-foreground">"--"</p>
+                                        <Skeleton class="h-4 w-24"/>
                                     }
                                     .into_any()
                                 }
@@ -320,7 +320,7 @@ pub fn ChainStatusSummary(
                                 }
                                 _ => {
                                     view! {
-                                        <p class="text-lg font-bold text-muted-foreground">"--"</p>
+                                        <Skeleton class="h-6 w-14"/>
                                     }
                                     .into_any()
                                 }

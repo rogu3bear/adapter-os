@@ -11,7 +11,7 @@ name = "aos-server"
 path = "src/main.rs"
 
 [features]
-default = []
+default = ["embeddings"]
 # Multi-backend feature flag
 # Enables MLX FFI backend through adapteros-lora-worker
 # For research/training workloads with MLX support

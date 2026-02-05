@@ -127,4 +127,192 @@ pub struct IngestedDocumentWithErrors {
     pub pages_with_images: usize,
     /// Number of pages where visual content was successfully extracted and described.
     pub pages_with_visual_extraction: usize,
+    /// Extraction confidence metadata for the document.
+    pub extraction_confidence: ExtractionConfidence,
+}
+
+// ============================================================================
+// Extraction Confidence (Feature: extraction-confidence)
+// ============================================================================
+
+/// Method used to extract text from a document.
+///
+/// This enum tracks how text was extracted, enabling downstream consumers
+/// to understand extraction reliability and adjust trust accordingly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExtractionMethod {
+    /// Direct text extraction from PDF (lopdf, no OCR)
+    TextNative,
+    /// OCR via Tesseract (future)
+    OcrTesseract,
+    /// OCR via Apple Vision framework (future)
+    OcrAppleVision,
+    /// Mixed extraction: some pages text-native, some OCR
+    Mixed,
+}
+
+impl Default for ExtractionMethod {
+    fn default() -> Self {
+        Self::TextNative
+    }
+}
+
+/// Extraction confidence metadata for a document.
+///
+/// Provides quality signals about how reliably text was extracted.
+/// Downstream consumers (training pipelines, RAG) can use this to:
+/// - Gate low-quality extractions from training
+/// - Surface warnings in UI for degraded documents
+/// - Track extraction method for audit trails
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtractionConfidence {
+    /// Overall text extraction quality score (0.0 - 1.0).
+    ///
+    /// Scoring formula (v1, deterministic):
+    /// - text_score = pages_with_text / total_pages
+    /// - Penalized by degraded_pages: each degraded page reduces score
+    ///
+    /// Interpretation:
+    /// - 1.0: All pages extracted successfully with text
+    /// - 0.8-1.0: Minor extraction issues, usable
+    /// - 0.5-0.8: Significant content may be missing
+    /// - < 0.5: Severe extraction problems, review required
+    pub text_score: f32,
+
+    /// Method used for extraction.
+    pub method: ExtractionMethod,
+
+    /// Page numbers with degraded extraction.
+    ///
+    /// A page is degraded if:
+    /// - `has_unextracted_images = true` (visual content not captured)
+    /// - OR extracted text is empty AND page is not blank
+    pub degraded_pages: Vec<u32>,
+
+    /// Human-readable reason if text_score < 0.8.
+    ///
+    /// Examples:
+    /// - "3 of 10 pages contain unextracted images"
+    /// - "Document appears to be a scanned PDF with no OCR"
+    /// - "Pages 2, 5, 8 failed text extraction"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub degradation_reason: Option<String>,
+
+    /// Total pages in the document.
+    pub total_pages: usize,
+
+    /// Pages with successful text extraction (non-empty text).
+    pub pages_with_text: usize,
+}
+
+impl ExtractionConfidence {
+    /// Compute extraction confidence from page extraction results.
+    ///
+    /// This is the canonical confidence computation for v1.
+    pub fn compute(
+        total_pages: usize,
+        successful_pages: usize,
+        pages_with_images: usize,
+        page_errors: &[PageExtractionResult],
+    ) -> Self {
+        // Find degraded pages: pages with unextracted images or extraction errors
+        let mut degraded_pages: Vec<u32> = Vec::new();
+
+        for result in page_errors {
+            // Page is degraded if it has unextracted images
+            if result.has_unextracted_images && !result.visual_content_extracted {
+                degraded_pages.push(result.page_number);
+            }
+            // Page is degraded if extraction failed with no visual fallback
+            if result.text.is_none() && result.error.is_some() {
+                if !degraded_pages.contains(&result.page_number) {
+                    degraded_pages.push(result.page_number);
+                }
+            }
+        }
+
+        // Also count pages with images that weren't in errors
+        // (they succeeded but have missing visual content)
+        let degraded_from_images = pages_with_images.saturating_sub(degraded_pages.len());
+
+        // Compute text score
+        let text_score = if total_pages == 0 {
+            0.0
+        } else {
+            let base_score = successful_pages as f32 / total_pages as f32;
+            // Penalize for degraded pages (0.1 penalty per degraded page, capped)
+            let penalty = (degraded_pages.len() + degraded_from_images) as f32 * 0.1;
+            (base_score - penalty).max(0.0)
+        };
+
+        // Generate degradation reason if score < 0.8
+        let degradation_reason = if text_score < 0.8 {
+            if total_pages > 0 && successful_pages == 0 {
+                Some("Document appears to be a scanned PDF with no extractable text".to_string())
+            } else if !degraded_pages.is_empty() {
+                Some(format!(
+                    "{} of {} pages contain unextracted visual content",
+                    degraded_pages.len(),
+                    total_pages
+                ))
+            } else if successful_pages < total_pages {
+                Some(format!(
+                    "{} of {} pages failed text extraction",
+                    total_pages - successful_pages,
+                    total_pages
+                ))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        Self {
+            text_score,
+            method: ExtractionMethod::TextNative, // v1: always text-native
+            degraded_pages,
+            degradation_reason,
+            total_pages,
+            pages_with_text: successful_pages,
+        }
+    }
+
+    /// Returns true if extraction quality is acceptable for training.
+    ///
+    /// Default threshold: 0.8 (configurable in future).
+    pub fn is_acceptable(&self) -> bool {
+        self.text_score >= 0.8
+    }
+
+    /// Returns true if document appears to be scanned (no extractable text).
+    pub fn is_scanned_document(&self) -> bool {
+        self.total_pages > 0 && self.pages_with_text == 0
+    }
+}
+
+impl Default for ExtractionConfidence {
+    fn default() -> Self {
+        Self {
+            text_score: 1.0,
+            method: ExtractionMethod::TextNative,
+            degraded_pages: Vec::new(),
+            degradation_reason: None,
+            total_pages: 0,
+            pages_with_text: 0,
+        }
+    }
+}
+
+/// Result of document extraction with confidence metadata.
+///
+/// This is the preferred return type for extraction functions,
+/// bundling the extracted document with quality signals.
+#[derive(Debug)]
+pub struct ExtractionResult {
+    /// The extracted document with chunks.
+    pub document: IngestedDocumentWithErrors,
+    /// Extraction confidence metadata.
+    pub confidence: ExtractionConfidence,
 }

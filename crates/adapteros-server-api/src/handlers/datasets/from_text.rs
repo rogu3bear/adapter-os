@@ -22,12 +22,7 @@ use adapteros_api_types::training::{
     TextDatasetFormat, TextDatasetSourceType,
 };
 use adapteros_storage::secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::IntoResponse,
-    Extension, Json,
-};
+use axum::{extract::State, http::StatusCode, response::IntoResponse, Extension, Json};
 use serde_json::json;
 use tokio::fs;
 use tracing::{info, warn};
@@ -86,7 +81,9 @@ pub async fn create_dataset_from_text(
     let jsonl_lines = convert_text_to_jsonl(&request.content, request.format);
 
     if jsonl_lines.is_empty() {
-        return Err(ApiError::bad_request("No training samples could be generated from content").into());
+        return Err(
+            ApiError::bad_request("No training samples could be generated from content").into(),
+        );
     }
 
     let sample_count = jsonl_lines.len();
@@ -369,8 +366,11 @@ pub async fn create_dataset_from_chat(
     });
 
     // Convert messages to JSONL based on format
-    let (jsonl_lines, turn_count) =
-        convert_chat_to_jsonl(&filtered_messages, request.format, request.include_system_messages);
+    let (jsonl_lines, turn_count) = convert_chat_to_jsonl(
+        &filtered_messages,
+        request.format,
+        request.include_system_messages,
+    );
 
     if jsonl_lines.is_empty() {
         return Err(

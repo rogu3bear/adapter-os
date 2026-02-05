@@ -1,6 +1,7 @@
 use crate::chunker::DocumentChunker;
 use crate::types::{
-    DocumentSource, IngestedDocument, IngestedDocumentWithErrors, PageExtractionResult,
+    DocumentSource, ExtractionConfidence, IngestedDocument, IngestedDocumentWithErrors,
+    PageExtractionResult,
 };
 use crate::utils::{finalize_chunks, normalize_whitespace};
 use adapteros_core::{AosError, B3Hash, Result};
@@ -270,6 +271,25 @@ pub fn ingest_pdf_bytes_resilient(
     let normalized_text_hash = B3Hash::hash(normalized_text.as_bytes());
     let normalized_text_len = normalized_text.chars().count();
 
+    // Compute extraction confidence from results
+    let extraction_confidence = ExtractionConfidence::compute(
+        total_pages,
+        successful_pages,
+        pages_with_images,
+        &page_errors,
+    );
+
+    // Log confidence if degraded
+    if !extraction_confidence.is_acceptable() {
+        tracing::warn!(
+            source = source_name,
+            text_score = extraction_confidence.text_score,
+            degraded_pages = ?extraction_confidence.degraded_pages,
+            reason = ?extraction_confidence.degradation_reason,
+            "Document extraction confidence below threshold"
+        );
+    }
+
     Ok(IngestedDocumentWithErrors {
         document: IngestedDocument {
             source: DocumentSource::Pdf,
@@ -287,6 +307,7 @@ pub fn ingest_pdf_bytes_resilient(
         successful_pages,
         pages_with_images,
         pages_with_visual_extraction,
+        extraction_confidence,
     })
 }
 

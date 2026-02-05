@@ -869,22 +869,10 @@ mod tests {
             stop_reason_code: Some("end_turn".to_string()),
             stop_reason_token_index: Some(49),
             stop_policy_digest_b3: Some(B3Hash::hash(b"stop-policy")),
-            tenant_kv_quota_bytes: 0,
-            tenant_kv_bytes_used: 0,
-            kv_evictions: 0,
-            kv_residency_policy_id: None,
-            kv_quota_enforced: false,
-            prefix_kv_key_b3: None,
-            prefix_cache_hit: false,
-            prefix_kv_bytes: 0,
             model_cache_identity_v2_digest_b3: Some(B3Hash::hash(b"model-cache-id")),
             backend_used: "metal".to_string(),
             backend_attestation_b3: Some(B3Hash::hash(b"metal-attestation")),
-            seed_lineage_hash: None, // PRD-DET-001: PR-A
-            adapter_training_lineage_digest: None,
-            // Patent 3535886.0002 Claims 7-8: Cross-run lineage
-            previous_receipt_digest: None,
-            session_sequence: 0,
+            ..Default::default()
         }
     }
 
