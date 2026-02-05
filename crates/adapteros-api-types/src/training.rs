@@ -2350,3 +2350,259 @@ pub enum EmbeddingExample {
         score: f32,
     },
 }
+
+// =============================================================================
+// Text/Chat Dataset Creation Types
+// =============================================================================
+
+/// Format for text-based dataset creation.
+///
+/// Determines how the input text is processed into training samples.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum TextDatasetFormat {
+    /// Each line becomes a separate training example (instruction-response pairs).
+    #[default]
+    Lines,
+    /// Parse as question-answer pairs (expects Q: and A: prefixes or similar structure).
+    Qa,
+    /// Raw text processed as-is (single continuous document).
+    Raw,
+}
+
+impl TextDatasetFormat {
+    /// Returns the format as a lowercase string.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TextDatasetFormat::Lines => "lines",
+            TextDatasetFormat::Qa => "qa",
+            TextDatasetFormat::Raw => "raw",
+        }
+    }
+
+    /// Parse from a database/API string, returning default if unrecognized.
+    pub fn from_db_string(s: &str) -> Self {
+        match s.to_ascii_lowercase().as_str() {
+            "lines" => Self::Lines,
+            "qa" => Self::Qa,
+            "raw" => Self::Raw,
+            _ => Self::default(),
+        }
+    }
+}
+
+impl std::fmt::Display for TextDatasetFormat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+/// Source type for text-based dataset creation.
+///
+/// Indicates the origin of the text content for provenance tracking.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum TextDatasetSourceType {
+    /// Text pasted directly into the UI.
+    #[default]
+    Pasted,
+    /// Text extracted from uploaded documents.
+    Extracted,
+    /// Text from external API or integration.
+    External,
+}
+
+impl TextDatasetSourceType {
+    /// Returns the source type as a lowercase string.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TextDatasetSourceType::Pasted => "pasted",
+            TextDatasetSourceType::Extracted => "extracted",
+            TextDatasetSourceType::External => "external",
+        }
+    }
+}
+
+impl std::fmt::Display for TextDatasetSourceType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+/// Format for chat-based dataset creation.
+///
+/// Determines how chat messages are transformed into training samples.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum ChatDatasetFormat {
+    /// Multi-turn conversation format (system/user/assistant turns).
+    #[default]
+    Conversation,
+    /// Extract instruction-response pairs from user/assistant message pairs.
+    InstructionResponse,
+    /// Raw message sequence without structured formatting.
+    Raw,
+}
+
+impl ChatDatasetFormat {
+    /// Returns the format as a lowercase string.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ChatDatasetFormat::Conversation => "conversation",
+            ChatDatasetFormat::InstructionResponse => "instruction_response",
+            ChatDatasetFormat::Raw => "raw",
+        }
+    }
+
+    /// Parse from a database/API string, returning default if unrecognized.
+    pub fn from_db_string(s: &str) -> Self {
+        match s.to_ascii_lowercase().as_str() {
+            "conversation" => Self::Conversation,
+            "instruction_response" => Self::InstructionResponse,
+            "raw" => Self::Raw,
+            _ => Self::default(),
+        }
+    }
+}
+
+impl std::fmt::Display for ChatDatasetFormat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+/// A single chat message for dataset creation.
+///
+/// Represents one turn in a conversation with role, content, and optional timestamp.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct ChatMessageInput {
+    /// Role of the message sender (system, user, assistant).
+    pub role: String,
+    /// Content of the message.
+    pub content: String,
+    /// Optional ISO 8601 timestamp of when the message was sent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<String>,
+}
+
+/// Request to create a dataset from pasted or extracted text.
+///
+/// Used by the UI when users paste text content directly or when text
+/// is extracted from uploaded documents.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct CreateDatasetFromTextRequest {
+    /// The text content to process into a dataset.
+    pub content: String,
+    /// Name for the dataset (auto-generated if not provided).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// Format for processing the text content.
+    #[serde(default)]
+    pub format: TextDatasetFormat,
+    /// Source type for provenance tracking.
+    #[serde(default)]
+    pub source_type: TextDatasetSourceType,
+    /// Optional description for the dataset.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Whether to auto-generate QA pairs from the content.
+    /// When true, uses the generation pipeline to create instruction-response pairs.
+    #[serde(default)]
+    pub auto_generate: bool,
+    /// Generation strategy when auto_generate is true (defaults to qa).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub generation_strategy: Option<GenerationStrategy>,
+}
+
+/// Request to create a dataset from selected chat messages.
+///
+/// Used by the UI when users select a range of messages from a chat session
+/// to convert into training data.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct CreateDatasetFromChatRequest {
+    /// The chat messages to include in the dataset.
+    pub messages: Vec<ChatMessageInput>,
+    /// Name for the dataset (auto-generated if not provided).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// Format for processing the chat messages.
+    #[serde(default)]
+    pub format: ChatDatasetFormat,
+    /// Optional session ID for provenance (links to original chat session).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    /// Optional description for the dataset.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Whether to include system messages in the output.
+    #[serde(default = "default_true")]
+    pub include_system_messages: bool,
+}
+
+/// Response after creating a dataset from text content.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct CreateDatasetFromTextResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
+    /// ID of the created dataset.
+    pub dataset_id: String,
+    /// Dataset version ID.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dataset_version_id: Option<String>,
+    /// Name of the dataset.
+    pub name: String,
+    /// Number of training samples created.
+    pub sample_count: usize,
+    /// Total character count of the input text.
+    pub input_char_count: usize,
+    /// BLAKE3 hash of the dataset.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dataset_hash_b3: Option<String>,
+    /// Format used for processing.
+    pub format: TextDatasetFormat,
+    /// Source type for provenance.
+    pub source_type: TextDatasetSourceType,
+    /// Whether auto-generation was used.
+    pub auto_generated: bool,
+}
+
+/// Response after creating a dataset from chat messages.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub struct CreateDatasetFromChatResponse {
+    #[serde(default = "schema_version")]
+    pub schema_version: String,
+    /// ID of the created dataset.
+    pub dataset_id: String,
+    /// Dataset version ID.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dataset_version_id: Option<String>,
+    /// Name of the dataset.
+    pub name: String,
+    /// Number of training samples created.
+    pub sample_count: usize,
+    /// Number of messages processed.
+    pub message_count: usize,
+    /// Number of conversation turns (user+assistant pairs).
+    pub turn_count: usize,
+    /// BLAKE3 hash of the dataset.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dataset_hash_b3: Option<String>,
+    /// Format used for processing.
+    pub format: ChatDatasetFormat,
+    /// Session ID if provided (for provenance).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+}
