@@ -6,13 +6,13 @@
 use crate::crypto_at_rest::{
     crypto_from_env_runtime, redact_for_log, CryptoAtRest, EncryptedField,
 };
+use crate::new_id;
 use crate::replay_kv::record_replay_drift;
 use crate::{Db, Result};
 use adapteros_core::AosError;
+use adapteros_id::IdPrefix;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
-use crate::new_id;
-use adapteros_id::IdPrefix;
 
 /// Inference replay metadata record
 #[derive(Debug, Clone, Serialize, Deserialize)]

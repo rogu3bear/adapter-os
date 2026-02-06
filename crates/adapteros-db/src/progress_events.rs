@@ -3,12 +3,12 @@
 //! Implements CRUD operations for progress tracking events.
 //! Stores historical progress data with configurable retention.
 
+use crate::new_id;
 use crate::Db;
 use adapteros_core::Result;
+use adapteros_id::IdPrefix;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use crate::new_id;
-use adapteros_id::IdPrefix;
 
 /// Progress event record stored in database
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]

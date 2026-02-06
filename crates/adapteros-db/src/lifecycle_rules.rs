@@ -33,13 +33,13 @@
 //! - Any -> Failed: Always allowed (failure can happen at any stage)
 //! - Retired/Failed are terminal states
 
+use crate::new_id;
 use crate::Db;
 use adapteros_core::{AosError, Result};
+use adapteros_id::IdPrefix;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use tracing::{debug, info, warn};
-use crate::new_id;
-use adapteros_id::IdPrefix;
 
 /// Action type for lifecycle rule actions
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

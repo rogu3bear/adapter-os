@@ -1,10 +1,10 @@
+use crate::new_id;
 use crate::Db;
 use adapteros_core::error_helpers::DbErrorExt;
 use adapteros_core::{AosError, Result};
+use adapteros_id::IdPrefix;
 use adapteros_types::nodes::{Node, NodeDetail as NodeDetailType};
 use serde::{Deserialize, Serialize};
-use crate::new_id;
-use adapteros_id::IdPrefix;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 struct NodeRow {

@@ -8,14 +8,14 @@
 //! - `tenant/{tenant_id}/document/{id}/chunk/{chunk_id}` -> DocumentChunkKv (JSON)
 //! - `document-chunk-lookup/{chunk_id}` -> {tenant_id}|{document_id} (fast lookup by chunk)
 
+use crate::new_id;
 use adapteros_core::{AosError, Result};
+use adapteros_id::IdPrefix;
 use adapteros_storage::KvBackend;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing;
-use crate::new_id;
-use adapteros_id::IdPrefix;
 
 /// Document KV representation (parity with SQL schema)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

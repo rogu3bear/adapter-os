@@ -3,11 +3,11 @@
 //! Records the document chunks and context used for each inference operation,
 //! enabling full audit trails and reproducibility.
 
+use crate::new_id;
 use crate::{Db, Result};
 use adapteros_core::AosError;
-use serde::{Deserialize, Serialize};
-use crate::new_id;
 use adapteros_id::IdPrefix;
+use serde::{Deserialize, Serialize};
 
 /// Inference evidence record
 #[derive(Debug, Clone, Serialize, Deserialize)]

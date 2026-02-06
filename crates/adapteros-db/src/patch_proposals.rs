@@ -1,9 +1,9 @@
+use crate::new_id;
 use crate::Db;
+use adapteros_id::IdPrefix;
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use crate::new_id;
-use adapteros_id::IdPrefix;
 
 /// Builder for creating patch proposal parameters
 #[derive(Debug, Default)]

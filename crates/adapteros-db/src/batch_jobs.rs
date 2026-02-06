@@ -1,10 +1,10 @@
+use crate::new_id;
 use crate::Db;
 use adapteros_core::Result;
+use adapteros_id::IdPrefix;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use crate::new_id;
-use adapteros_id::IdPrefix;
 
 /// Batch job record stored in database
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]

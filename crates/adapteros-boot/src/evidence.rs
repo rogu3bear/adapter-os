@@ -501,7 +501,11 @@ impl BootAttestation {
                 .filter(|s| s != "unknown"),
             build_timestamp: {
                 let ts = adapteros_core::version::BUILD_TIMESTAMP;
-                if ts != "unknown" { ts.parse().ok() } else { None }
+                if ts != "unknown" {
+                    ts.parse().ok()
+                } else {
+                    None
+                }
             },
             attested_at_us,
             signature: String::new(),

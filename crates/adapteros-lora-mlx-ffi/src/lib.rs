@@ -1353,10 +1353,7 @@ extern "C" {
 
     // Token sampling for text generation (legacy)
     // Returns sampled token index on success, -1 on error
-    fn mlx_sample_token(
-        logits: *mut mlx_array_t,
-        config: *const MlxSamplerConfig,
-    ) -> i32;
+    fn mlx_sample_token(logits: *mut mlx_array_t, config: *const MlxSamplerConfig) -> i32;
 
     // Token sampling with metadata
     fn mlx_sample_token_with_metadata(

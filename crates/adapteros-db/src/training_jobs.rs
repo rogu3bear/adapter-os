@@ -4,9 +4,11 @@
 //! Evidence: migrations/0013_git_repository_integration.sql:25-40
 //! Pattern: Database schema for training jobs
 
+use crate::new_id;
 use crate::training_jobs_kv::{TrainingJobKv, TrainingJobKvRepository, TrainingMetricKv};
 use crate::{Db, KvBackend};
 use adapteros_core::{AosError, Result};
+use adapteros_id::IdPrefix;
 use adapteros_types::training::DatasetVersionSelection;
 use blake3::Hasher;
 use serde::{Deserialize, Serialize};
@@ -14,8 +16,6 @@ use sqlx::FromRow;
 use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::{info, warn};
-use crate::new_id;
-use adapteros_id::IdPrefix;
 
 const DEFAULT_SEED_MODE: &str = "best_effort";
 const DATASET_LINK_CONFLICT_MARKER: &str = "already linked to job";

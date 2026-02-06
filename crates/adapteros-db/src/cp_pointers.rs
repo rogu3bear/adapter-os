@@ -1,9 +1,9 @@
+use crate::new_id;
 use crate::{
     models::{BundleSignature, CpPointer},
     Db,
 };
 use adapteros_core::{AosError, Result};
-use crate::new_id;
 use adapteros_id::IdPrefix;
 
 impl Db {

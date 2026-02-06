@@ -1,10 +1,10 @@
+use crate::new_id;
 use crate::plugin_configs_kv::{PluginConfigKv, PluginConfigKvRepository, PluginTenantEnableKv};
 use crate::{Db, StorageMode};
 use adapteros_core::{AosError, Result};
+use adapteros_id::IdPrefix;
 use serde::{Deserialize, Serialize};
 use tracing::debug;
-use crate::new_id;
-use adapteros_id::IdPrefix;
 
 /// Plugin configuration record
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]

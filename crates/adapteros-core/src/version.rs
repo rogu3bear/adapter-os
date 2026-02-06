@@ -637,13 +637,26 @@ mod tests {
     #[test]
     fn test_build_metadata_populated() {
         // After build.rs changes, these should no longer be "unknown"
-        assert_ne!(GIT_COMMIT_HASH, "unknown", "GIT_COMMIT_HASH should be set by build.rs");
-        assert_ne!(BUILD_TIMESTAMP, "unknown", "BUILD_TIMESTAMP should be set by build.rs");
+        assert_ne!(
+            GIT_COMMIT_HASH, "unknown",
+            "GIT_COMMIT_HASH should be set by build.rs"
+        );
+        assert_ne!(
+            BUILD_TIMESTAMP, "unknown",
+            "BUILD_TIMESTAMP should be set by build.rs"
+        );
         assert_ne!(BUILD_ID, "unknown", "BUILD_ID should be set by build.rs");
-        assert_ne!(RUSTC_VERSION, "unknown", "RUSTC_VERSION should be set by build.rs");
+        assert_ne!(
+            RUSTC_VERSION, "unknown",
+            "RUSTC_VERSION should be set by build.rs"
+        );
 
         // BUILD_ID should contain a dash (hash-timestamp format)
-        assert!(BUILD_ID.contains('-'), "BUILD_ID should be in hash-timestamp format: {}", BUILD_ID);
+        assert!(
+            BUILD_ID.contains('-'),
+            "BUILD_ID should be in hash-timestamp format: {}",
+            BUILD_ID
+        );
 
         let info = VersionInfo::current();
         assert_eq!(info.build_id, BUILD_ID);

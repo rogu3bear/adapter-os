@@ -4,13 +4,13 @@
 //! Audit logs are immutable and queryable for compliance officers and administrators.
 #![allow(deprecated)]
 
+use crate::new_id;
 use crate::query_helpers::{db_err, FilterBuilder};
 use crate::Db;
 use adapteros_core::error_helpers::DbErrorExt;
 use adapteros_core::{AosError, Result};
-use serde::{Deserialize, Serialize};
-use crate::new_id;
 use adapteros_id::IdPrefix;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct AuditLog {

@@ -1,12 +1,12 @@
+use crate::new_id;
 use crate::telemetry_kv::record_telemetry_drift;
 use crate::Db;
 use adapteros_core::{AosError, Result};
+use adapteros_id::IdPrefix;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::FromRow;
 use tracing::warn;
-use crate::new_id;
-use adapteros_id::IdPrefix;
 
 /// Builder for creating telemetry batch parameters
 #[derive(Debug, Default)]
