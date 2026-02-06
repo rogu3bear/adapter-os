@@ -28,6 +28,7 @@ use crate::components::{
     TracePanel,
 };
 use crate::hooks::{use_api_resource, LoadingState};
+use crate::signals::chat::load_pinned_adapters;
 use crate::signals::{
     use_chat, ChatSessionMeta, ChatSessionsManager, ChatTarget, StreamNoticeTone,
 };
@@ -369,7 +370,7 @@ pub fn ChatSession() -> impl IntoView {
     let show_attach_dialog = RwSignal::new(false);
     let attach_mode = RwSignal::new(AttachMode::Upload);
     let selected_file_name = RwSignal::new(Option::<String>::None);
-    let selected_file = RwSignal::new(Option::<web_sys::File>::None);
+    let selected_file = StoredValue::new_local(Option::<web_sys::File>::None);
     let attach_status = RwSignal::new(Option::<String>::None);
     let attach_error = RwSignal::new(Option::<String>::None);
     let attach_busy = RwSignal::new(false);
@@ -442,6 +443,12 @@ pub fn ChatSession() -> impl IntoView {
                             // Otherwise it's a fresh session with custom ID, no error needed
                         }
                     }
+                }
+
+                // For new sessions, apply default pinned adapters from localStorage
+                let defaults = load_pinned_adapters();
+                for adapter_id in &defaults {
+                    action.toggle_pin_adapter(adapter_id);
                 }
             }
 
@@ -539,7 +546,7 @@ pub fn ChatSession() -> impl IntoView {
                 upload_cancelled.set(true);
                 attach_mode.set(AttachMode::Upload);
                 selected_file_name.set(None);
-                selected_file.set(None);
+                selected_file.set_value(None);
                 attach_status.set(None);
                 attach_error.set(None);
                 attach_busy.set(false);
@@ -591,8 +598,9 @@ pub fn ChatSession() -> impl IntoView {
 
     // Convert active_adapters to AdapterMagnets for the AdapterBar
     let adapter_magnets = Memo::new(move |_| {
-        chat_state
-            .get()
+        let state = chat_state.get();
+        let pinned = &state.pinned_adapters;
+        state
             .active_adapters
             .iter()
             .map(|info| {
@@ -605,6 +613,7 @@ pub fn ChatSession() -> impl IntoView {
                     adapter_id: info.adapter_id.clone(),
                     heat,
                     is_active: info.is_active,
+                    is_pinned: pinned.contains(&info.adapter_id),
                 }
             })
             .collect::<Vec<_>>()
@@ -738,7 +747,7 @@ pub fn ChatSession() -> impl IntoView {
 
             match mode {
                 AttachMode::Upload => {
-                    let Some(file) = selected_file.get() else {
+                    let Some(file) = selected_file.get_value() else {
                         attach_error.set(Some("Select a file to upload.".to_string()));
                         return;
                     };
@@ -1088,7 +1097,10 @@ pub fn ChatSession() -> impl IntoView {
                                     "px-2 py-1 rounded-full bg-background text-foreground shadow-sm".to_string()
                                 }
                             }
-                            on:click=move |_| chat_action.set_verified_mode(false)
+                            on:click={
+                                let action = chat_action.clone();
+                                move |_| action.set_verified_mode(false)
+                            }
                             type="button"
                         >
                             "Fast"
@@ -1101,7 +1113,10 @@ pub fn ChatSession() -> impl IntoView {
                                     "px-2 py-1 rounded-full text-muted-foreground".to_string()
                                 }
                             }
-                            on:click=move |_| chat_action.set_verified_mode(true)
+                            on:click={
+                                let action = chat_action.clone();
+                                move |_| action.set_verified_mode(true)
+                            }
                             type="button"
                         >
                             "Verified"
@@ -1151,7 +1166,7 @@ pub fn ChatSession() -> impl IntoView {
             }}
 
             // Adapter Bar - shows active adapters as colored magnets
-            <AdapterBar adapters=adapter_magnets/>
+            <AdapterBar adapters=adapter_magnets on_toggle_pin=on_toggle_pin/>
 
             // Messages
             <div
@@ -1289,7 +1304,7 @@ pub fn ChatSession() -> impl IntoView {
                                                                             >
                                                                                 "Run"
                                                                             </a>
-                                                                        }).unwrap_or_else(|| view! {
+                                                                        }.into_any()).unwrap_or_else(|| view! {
                                                                             <span
                                                                                 class="text-xs text-muted-foreground/60 px-1.5 py-0.5 rounded"
                                                                                 title="Run detail unavailable"
@@ -1297,7 +1312,7 @@ pub fn ChatSession() -> impl IntoView {
                                                                             >
                                                                                 "Run"
                                                                             </span>
-                                                                        })}
+                                                                        }.into_any())}
                                                                         <span class="text-muted-foreground/50">"·"</span>
                                                                         {run_receipt_url.map(|url| view! {
                                                                             <a
@@ -1308,7 +1323,7 @@ pub fn ChatSession() -> impl IntoView {
                                                                             >
                                                                                 "Receipt"
                                                                             </a>
-                                                                        }).unwrap_or_else(|| view! {
+                                                                        }.into_any()).unwrap_or_else(|| view! {
                                                                             <span
                                                                                 class="text-xs text-muted-foreground/60 px-1.5 py-0.5 rounded"
                                                                                 title="Receipt unavailable"
@@ -1316,7 +1331,7 @@ pub fn ChatSession() -> impl IntoView {
                                                                             >
                                                                                 "Receipt"
                                                                             </span>
-                                                                        })}
+                                                                        }.into_any())}
                                                                     </div>
                                                                     {token_count.map(|tc| {
                                                                         let display = format_token_display(tc, prompt_tokens, completion_tokens);
@@ -1612,6 +1627,14 @@ pub fn ChatSession() -> impl IntoView {
                         on_toggle_pin=on_toggle_pin
                         loading=is_streaming
                     />
+                    <div class="flex justify-end mt-1">
+                        <a
+                            href="/training?open_wizard=1&return_to=/chat"
+                            class="text-xs text-muted-foreground hover:text-primary transition-colors"
+                        >
+                            "Create adapter \u{2192}"
+                        </a>
+                    </div>
                 </div>
             </div>
 
@@ -1730,7 +1753,7 @@ pub fn ChatSession() -> impl IntoView {
                                         let file = selected_file_from_event(&ev);
                                         let name = file.as_ref().map(|f| f.name());
                                         selected_file_name.set(name);
-                                        selected_file.set(file);
+                                        selected_file.set_value(file);
                                     }
                                 />
                                 {move || selected_file_name.get().map(|name| view! {

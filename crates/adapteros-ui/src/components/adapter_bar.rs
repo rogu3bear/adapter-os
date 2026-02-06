@@ -67,6 +67,9 @@ pub struct AdapterMagnet {
     pub adapter_id: String,
     pub heat: AdapterHeat,
     pub is_active: bool,
+    /// Whether this magnet is user-pinned (vs. system-reported active)
+    #[serde(default)]
+    pub is_pinned: bool,
 }
 
 /// Heat level classification based on usage
@@ -101,12 +104,17 @@ impl AdapterHeat {
     }
 }
 
-/// Adapter bar component showing active adapters as colored magnets
+/// Adapter bar component showing active adapters as colored magnets.
+///
+/// Click toggles pin state; info icon navigates to adapter detail.
 #[component]
 pub fn AdapterBar(
     /// Current adapter states
     #[prop(into)]
     adapters: Signal<Vec<AdapterMagnet>>,
+    /// Callback when an adapter pin is toggled
+    #[prop(into)]
+    on_toggle_pin: Callback<String>,
 ) -> impl IntoView {
     view! {
         <div class="flex gap-3 p-4 border-b bg-gradient-to-r from-card/80 to-card/50 backdrop-blur-sm">
@@ -138,18 +146,24 @@ pub fn AdapterBar(
                             </span>
                         }.into_any()
                     } else {
+                        let on_pin = on_toggle_pin.clone();
                         adapter_list
                             .iter()
                             .map(|adapter| {
                                 let color_class = adapter.heat.to_css_class();
                                 let emoji = adapter.heat.to_emoji();
                                 let opacity = if adapter.is_active {
-                                    "opacity-100 shadow-lg ring-2 ring-white/50 scale-105"
+                                    "opacity-100 shadow-lg scale-105"
                                 } else {
                                     "opacity-70 hover:opacity-90"
                                 };
                                 let animation = if adapter.is_active {
                                     "animate-pulse"
+                                } else {
+                                    ""
+                                };
+                                let pinned_class = if adapter.is_pinned {
+                                    "ring-2 ring-primary/60"
                                 } else {
                                     ""
                                 };
@@ -161,27 +175,65 @@ pub fn AdapterBar(
                                     AdapterHeat::Inactive => "Inactive",
                                 };
 
+                                let pin_action = if adapter.is_pinned { "Unpin" } else { "Pin" };
+                                let status_label = if adapter.is_pinned && adapter.is_active {
+                                    "Pinned, Active"
+                                } else if adapter.is_pinned {
+                                    "Pinned"
+                                } else if adapter.is_active {
+                                    "Active"
+                                } else {
+                                    "Idle"
+                                };
+
                                 let title = format!(
-                                    "{} - {} ({})",
-                                    adapter.adapter_id,
+                                    "Click to {} \u{2022} {} ({})",
+                                    pin_action,
                                     heat_label,
-                                    if adapter.is_active { "Active" } else { "Idle" }
+                                    status_label,
                                 );
 
+                                let adapter_id = adapter.adapter_id.clone();
+                                let adapter_id_toggle = adapter_id.clone();
+                                let href = format!("/adapters/{}", adapter_id);
+                                let on_pin = on_pin.clone();
+
                                 view! {
-                                    <div
-                                        class=format!(
-                                            "{} {} {} rounded-full px-3 py-1.5 text-xs font-medium text-white shadow-md transition-all duration-300 cursor-default flex items-center gap-1",
-                                            color_class,
-                                            opacity,
-                                            animation
-                                        )
-                                        title=title
-                                        role="status"
-                                        aria-label=format!("Adapter {} is {}", adapter.adapter_id, heat_label)
-                                    >
-                                        <span class="text-xs">{emoji}</span>
-                                        <span class="font-mono">{adapter.adapter_id.clone()}</span>
+                                    <div class="flex items-center gap-0.5">
+                                        <button
+                                            type="button"
+                                            class=format!(
+                                                "{} {} {} {} rounded-full px-3 py-1.5 text-xs font-medium text-white shadow-md transition-all duration-300 flex items-center gap-1 hover:brightness-110 cursor-pointer border-0",
+                                                color_class,
+                                                opacity,
+                                                animation,
+                                                pinned_class
+                                            )
+                                            title=title
+                                            aria-label=format!("{} adapter {}", pin_action, adapter_id)
+                                            aria-pressed=adapter.is_pinned.to_string()
+                                            on:click=move |_| on_pin.run(adapter_id_toggle.clone())
+                                        >
+                                            <svg class="w-3 h-3 flex-shrink-0" viewBox="0 0 20 20" aria-hidden="true"
+                                                fill=if adapter.is_pinned { "currentColor" } else { "none" }
+                                                stroke=if adapter.is_pinned { "none" } else { "currentColor" }
+                                                stroke-width=if adapter.is_pinned { "0" } else { "1.5" }
+                                            >
+                                                <path d="M5 5a2 2 0 012-2h6a2 2 0 012 2v2h2a1 1 0 011 1v1a1 1 0 01-1 1h-1v5a3 3 0 01-3 3H7a3 3 0 01-3-3v-5H3a1 1 0 01-1-1V8a1 1 0 011-1h2V5z"/>
+                                            </svg>
+                                            <span class="text-xs">{emoji}</span>
+                                            <span class="font-mono">{adapter_id.clone()}</span>
+                                        </button>
+                                        <a
+                                            href=href
+                                            class="adapter-magnet-info"
+                                            title=format!("View adapter {} details", adapter_id)
+                                            aria-label=format!("View details for adapter {}", adapter_id)
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                            </svg>
+                                        </a>
                                     </div>
                                 }
                             })
@@ -573,6 +625,421 @@ fn AdapterChipTooltip(
                 </div>
             })}
         </div>
+    }
+}
+
+/// Unified adapters region for the chat session view.
+///
+/// Combines Active, Pinned, and Suggested adapter sections into a single region
+/// with a pending indicator and "Manage" button for adapter selection.
+#[component]
+pub fn ChatAdaptersRegion(
+    /// Active adapters (from SSE AdapterStateUpdate)
+    #[prop(into)]
+    active_adapters: Signal<Vec<AdapterMagnet>>,
+    /// Pinned adapter IDs (user intent)
+    #[prop(into)]
+    pinned_adapters: Signal<Vec<String>>,
+    /// Suggested adapters from router preview
+    #[prop(into)]
+    suggestions: Signal<Vec<SuggestedAdapterView>>,
+    /// Whether adapter selection is pending SSE confirmation
+    #[prop(into)]
+    pending: Signal<bool>,
+    /// Callback when an adapter is clicked for one-shot override
+    #[prop(into)]
+    on_select_override: Callback<String>,
+    /// Callback when an adapter pin is toggled
+    #[prop(into)]
+    on_toggle_pin: Callback<String>,
+    /// Callback to set the full pinned adapter list (from manage dialog)
+    #[prop(into)]
+    on_set_pinned: Callback<Vec<String>>,
+    /// Whether suggestions are loading
+    #[prop(into)]
+    loading: Signal<bool>,
+) -> impl IntoView {
+    let show_manage = RwSignal::new(false);
+
+    // Derive pinned-only magnets (pinned but not in active set)
+    let pinned_only_magnets = Memo::new(move |_| {
+        let active = active_adapters.get();
+        let pinned = pinned_adapters.get();
+        let active_ids: std::collections::HashSet<_> =
+            active.iter().map(|a| a.adapter_id.as_str()).collect();
+        pinned
+            .iter()
+            .filter(|id| !active_ids.contains(id.as_str()))
+            .map(|id| AdapterMagnet {
+                adapter_id: id.clone(),
+                heat: AdapterHeat::Inactive,
+                is_active: false,
+                is_pinned: true,
+            })
+            .collect::<Vec<_>>()
+    });
+
+    // Mark active magnets that are also pinned
+    let active_with_pins = Memo::new(move |_| {
+        let active = active_adapters.get();
+        let pinned = pinned_adapters.get();
+        active
+            .into_iter()
+            .map(|mut m| {
+                m.is_pinned = pinned.contains(&m.adapter_id);
+                m
+            })
+            .collect::<Vec<_>>()
+    });
+
+    let has_active = Memo::new(move |_| !active_with_pins.get().is_empty());
+    let has_pinned_only = Memo::new(move |_| !pinned_only_magnets.get().is_empty());
+
+    view! {
+        <div
+            class="chat-adapters-region"
+            role="region"
+            aria-label="Adapters"
+        >
+            // Header with Manage button
+            <div class="chat-adapters-header">
+                <div class="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                    <svg
+                        class="w-4 h-4"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                        xmlns="http://www.w3.org/2000/svg"
+                        aria-hidden="true"
+                    >
+                        <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M13 10V3L4 14h7v7l9-11h-7z"
+                        ></path>
+                    </svg>
+                    "Adapters"
+                </div>
+                <div class="flex items-center gap-2">
+                    {move || pending.get().then(|| view! {
+                        <span
+                            class="chat-adapters-pending-badge"
+                            role="status"
+                            aria-label="Adapter changes pending confirmation"
+                        >
+                            "Pending next message"
+                        </span>
+                    })}
+                    <button
+                        type="button"
+                        class="btn btn-outline btn-xs"
+                        on:click=move |_| show_manage.set(true)
+                        aria-label="Manage adapter selection"
+                    >
+                        "Manage"
+                    </button>
+                </div>
+            </div>
+
+            // Active section
+            {move || has_active.get().then(|| {
+                let magnets = active_with_pins.get();
+                let on_pin = on_toggle_pin.clone();
+                view! {
+                    <div class="chat-adapters-section">
+                        <span class="chat-adapters-section-label">"Active"</span>
+                        <div class="flex gap-2 flex-wrap items-center">
+                            {magnets
+                                .iter()
+                                .map(|adapter| {
+                                    let color_class = adapter.heat.to_css_class();
+                                    let emoji = adapter.heat.to_emoji();
+                                    let opacity = if adapter.is_active {
+                                        "opacity-100 shadow-lg scale-105"
+                                    } else {
+                                        "opacity-70 hover:opacity-90"
+                                    };
+                                    let animation = if adapter.is_active { "animate-pulse" } else { "" };
+                                    let pinned_class = if adapter.is_pinned { "ring-2 ring-primary/60" } else { "" };
+                                    let heat_label = match adapter.heat {
+                                        AdapterHeat::Hot => "Hot",
+                                        AdapterHeat::Warm => "Warm",
+                                        AdapterHeat::Cold => "Cold",
+                                        AdapterHeat::Inactive => "Inactive",
+                                    };
+                                    let pin_action = if adapter.is_pinned { "Unpin" } else { "Pin" };
+                                    let title = format!("Click to {} \u{2022} {} (Active{})", pin_action, heat_label, if adapter.is_pinned { ", Pinned" } else { "" });
+                                    let adapter_id = adapter.adapter_id.clone();
+                                    let adapter_id_toggle = adapter_id.clone();
+                                    let href = format!("/adapters/{}", adapter_id);
+                                    let on_pin = on_pin.clone();
+                                    view! {
+                                        <div class="flex items-center gap-0.5">
+                                            <button
+                                                type="button"
+                                                class=format!(
+                                                    "{} {} {} {} rounded-full px-3 py-1.5 text-xs font-medium text-white shadow-md transition-all duration-300 flex items-center gap-1 hover:brightness-110 cursor-pointer border-0",
+                                                    color_class, opacity, animation, pinned_class
+                                                )
+                                                title=title
+                                                aria-label=format!("{} adapter {}", pin_action, adapter_id)
+                                                aria-pressed=adapter.is_pinned.to_string()
+                                                on:click=move |_| on_pin.run(adapter_id_toggle.clone())
+                                            >
+                                                // Pin/unpin icon
+                                                <svg class="w-3 h-3 flex-shrink-0" viewBox="0 0 20 20" aria-hidden="true"
+                                                    fill=if adapter.is_pinned { "currentColor" } else { "none" }
+                                                    stroke=if adapter.is_pinned { "none" } else { "currentColor" }
+                                                    stroke-width=if adapter.is_pinned { "0" } else { "1.5" }
+                                                >
+                                                    <path d="M5 5a2 2 0 012-2h6a2 2 0 012 2v2h2a1 1 0 011 1v1a1 1 0 01-1 1h-1v5a3 3 0 01-3 3H7a3 3 0 01-3-3v-5H3a1 1 0 01-1-1V8a1 1 0 011-1h2V5z"/>
+                                                </svg>
+                                                <span class="text-xs">{emoji}</span>
+                                                <span class="font-mono">{adapter_id.clone()}</span>
+                                            </button>
+                                            // Info link to adapter detail page
+                                            <a
+                                                href=href
+                                                class="adapter-magnet-info"
+                                                title=format!("View adapter {} details", adapter_id)
+                                                aria-label=format!("View details for adapter {}", adapter_id)
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                                </svg>
+                                            </a>
+                                        </div>
+                                    }
+                                })
+                                .collect::<Vec<_>>()
+                            }
+                        </div>
+                    </div>
+                }
+            })}
+
+            // Pinned-only section (pinned adapters not yet in active set)
+            {move || has_pinned_only.get().then(|| {
+                let magnets = pinned_only_magnets.get();
+                let on_unpin = on_toggle_pin.clone();
+                view! {
+                    <div class="chat-adapters-section">
+                        <span class="chat-adapters-section-label">"Pinned"</span>
+                        <div class="flex gap-2 flex-wrap items-center">
+                            {magnets
+                                .iter()
+                                .map(|adapter| {
+                                    let adapter_id = adapter.adapter_id.clone();
+                                    let adapter_id_toggle = adapter_id.clone();
+                                    let on_unpin = on_unpin.clone();
+                                    let href = format!("/adapters/{}", adapter_id);
+                                    view! {
+                                        <div class="flex items-center gap-0.5">
+                                            <button
+                                                type="button"
+                                                class="bg-primary/80 ring-2 ring-primary/60 rounded-full px-3 py-1.5 text-xs font-medium text-white shadow-md transition-all duration-300 flex items-center gap-1 hover:brightness-110 opacity-70 cursor-pointer border-0"
+                                                title=format!("Click to unpin {} (awaiting inference)", adapter_id)
+                                                aria-label=format!("Unpin adapter {}", adapter_id)
+                                                aria-pressed="true"
+                                                on:click=move |_| on_unpin.run(adapter_id_toggle.clone())
+                                            >
+                                                <svg class="w-3 h-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                                                    <path d="M5 5a2 2 0 012-2h6a2 2 0 012 2v2h2a1 1 0 011 1v1a1 1 0 01-1 1h-1v5a3 3 0 01-3 3H7a3 3 0 01-3-3v-5H3a1 1 0 01-1-1V8a1 1 0 011-1h2V5z"/>
+                                                </svg>
+                                                <span class="font-mono">{adapter_id.clone()}</span>
+                                            </button>
+                                            // Info link to adapter detail page
+                                            <a
+                                                href=href
+                                                class="adapter-magnet-info"
+                                                title=format!("View adapter {} details", adapter_id)
+                                                aria-label=format!("View details for adapter {}", adapter_id)
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                                </svg>
+                                            </a>
+                                        </div>
+                                    }
+                                })
+                                .collect::<Vec<_>>()
+                            }
+                        </div>
+                    </div>
+                }
+            })}
+
+            // Suggested section
+            <div class="chat-adapters-section">
+                <SuggestedAdaptersBar
+                    suggestions=suggestions
+                    on_select_override=on_select_override
+                    on_toggle_pin=on_toggle_pin
+                    loading=loading
+                />
+            </div>
+
+            // Manage dialog
+            <AdapterManageDialog
+                open=show_manage
+                pinned_adapters=pinned_adapters
+                suggestions=suggestions
+                active_adapters=active_adapters
+                on_apply=on_set_pinned
+            />
+        </div>
+    }
+}
+
+/// Dialog for managing adapter pin selection.
+///
+/// Shows a searchable list of known adapters (active + suggested) with
+/// checkboxes. Apply sets the pinned set in state.
+#[component]
+pub fn AdapterManageDialog(
+    /// Controls dialog visibility
+    #[prop(into)]
+    open: RwSignal<bool>,
+    /// Current pinned adapter IDs
+    #[prop(into)]
+    pinned_adapters: Signal<Vec<String>>,
+    /// Suggested adapters (for adapter discovery)
+    #[prop(into)]
+    suggestions: Signal<Vec<SuggestedAdapterView>>,
+    /// Active adapters (for adapter discovery)
+    #[prop(into)]
+    active_adapters: Signal<Vec<AdapterMagnet>>,
+    /// Callback with the new pinned set on Apply
+    #[prop(into)]
+    on_apply: Callback<Vec<String>>,
+) -> impl IntoView {
+    let search_query = RwSignal::new(String::new());
+    // Local draft of selected adapter IDs (initialized from pinned when dialog opens)
+    let draft_selection = RwSignal::new(Vec::<String>::new());
+
+    // Sync draft from pinned when dialog opens
+    Effect::new(move |_| {
+        if open.get() {
+            draft_selection.set(pinned_adapters.get_untracked());
+        }
+    });
+
+    // Build list of all known adapters (union of active + suggested), deduped
+    let all_adapters = Memo::new(move |_| {
+        let mut seen = std::collections::HashSet::new();
+        let mut items = Vec::new();
+        let query = search_query.get().to_lowercase();
+
+        for m in active_adapters.get() {
+            if seen.insert(m.adapter_id.clone()) {
+                if query.is_empty() || m.adapter_id.to_lowercase().contains(&query) {
+                    items.push((m.adapter_id.clone(), None::<String>));
+                }
+            }
+        }
+        for s in suggestions.get() {
+            if seen.insert(s.adapter_id.clone()) {
+                if query.is_empty()
+                    || s.adapter_id.to_lowercase().contains(&query)
+                    || s.display_name.to_lowercase().contains(&query)
+                {
+                    items.push((s.adapter_id.clone(), Some(s.display_name.clone())));
+                }
+            }
+        }
+        items.sort_by(|a, b| a.0.cmp(&b.0));
+        items
+    });
+
+    let do_apply = move |_: web_sys::SubmitEvent| {
+        on_apply.run(draft_selection.get_untracked());
+        open.set(false);
+    };
+
+    view! {
+        <crate::components::Dialog
+            open=open
+            title="Manage Adapters".to_string()
+            description="Select adapters to pin for upcoming messages.".to_string()
+            size=crate::components::DialogSize::Md
+            scrollable=true
+        >
+            <form on:submit=do_apply class="space-y-4">
+                <div class="relative">
+                    <input
+                        type="text"
+                        class="input input-sm w-full"
+                        placeholder="Search adapters..."
+                        aria-label="Search adapters"
+                        on:input=move |ev| {
+                            use leptos::prelude::*;
+                            search_query.set(event_target_value(&ev));
+                        }
+                        prop:value=move || search_query.get()
+                    />
+                </div>
+                <div class="space-y-1 max-h-64 overflow-y-auto">
+                    {move || {
+                        let items = all_adapters.get();
+                        let draft = draft_selection.get();
+                        if items.is_empty() {
+                            view! {
+                                <p class="text-xs text-muted-foreground italic py-2">
+                                    "No adapters found"
+                                </p>
+                            }.into_any()
+                        } else {
+                            items
+                                .into_iter()
+                                .map(|(adapter_id, display_name)| {
+                                    let id = adapter_id.clone();
+                                    let id_toggle = adapter_id.clone();
+                                    let checked = draft.contains(&adapter_id);
+                                    let label = display_name.unwrap_or_else(|| adapter_id.clone());
+                                    view! {
+                                        <label class="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-muted cursor-pointer text-sm">
+                                            <input
+                                                type="checkbox"
+                                                class="accent-primary"
+                                                prop:checked=checked
+                                                on:change=move |_| {
+                                                    draft_selection.update(|d| {
+                                                        if let Some(pos) = d.iter().position(|x| x == &id_toggle) {
+                                                            d.remove(pos);
+                                                        } else {
+                                                            d.push(id_toggle.clone());
+                                                        }
+                                                    });
+                                                }
+                                            />
+                                            <span class="font-mono text-xs">{id}</span>
+                                            <span class="text-xs text-muted-foreground ml-auto">{label}</span>
+                                        </label>
+                                    }
+                                })
+                                .collect::<Vec<_>>()
+                                .into_any()
+                        }
+                    }}
+                </div>
+                <div class="flex justify-end gap-2 pt-2 border-t border-border">
+                    <button
+                        type="button"
+                        class="btn btn-outline btn-sm"
+                        on:click=move |_| open.set(false)
+                    >
+                        "Cancel"
+                    </button>
+                    <button
+                        type="submit"
+                        class="btn btn-primary btn-sm"
+                    >
+                        "Apply"
+                    </button>
+                </div>
+            </form>
+        </crate::components::Dialog>
     }
 }
 
