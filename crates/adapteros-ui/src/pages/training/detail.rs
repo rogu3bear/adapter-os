@@ -46,6 +46,9 @@ pub fn TrainingJobDetail(
     job_id: String,
     on_close: impl Fn() + Copy + 'static,
     on_cancelled: impl Fn() + Copy + Send + Sync + 'static,
+    /// Optional return-to path (e.g., "/chat") — renders a "Back to ..." link in the header
+    #[prop(optional)]
+    return_to: Option<String>,
 ) -> impl IntoView {
     let job_id_for_fetch = job_id.clone();
 
@@ -151,6 +154,20 @@ pub fn TrainingJobDetail(
         })
     };
 
+    // Derive return button label from path
+    let return_button = return_to.map(|path| {
+        let label = if path == "/chat" || path.starts_with("/chat/") {
+            "Back to Chat"
+        } else if path == "/adapters" || path.starts_with("/adapters/") {
+            "Back to Adapters"
+        } else if path == "/datasets" || path.starts_with("/datasets/") {
+            "Back to Datasets"
+        } else {
+            "Go Back"
+        };
+        (label, path)
+    });
+
     view! {
         <div class="space-y-4 min-w-0">
             // Header with close button
@@ -159,27 +176,48 @@ pub fn TrainingJobDetail(
                     <p class="text-sm text-muted-foreground">"Training job"</p>
                     <h2 class="text-xl font-semibold leading-tight">{job_id.clone()}</h2>
                 </div>
-                <button
-                    class="text-muted-foreground hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
-                    aria-label="Close"
-                    type="button"
-                    on:click=move |_| on_close()
-                >
-                    <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="24"
-                        height="24"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
+                <div class="flex items-center gap-2">
+                    {return_button.map(|(label, href)| view! {
+                        <Link href=href class="btn btn-secondary btn-sm">
+                            <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                width="14"
+                                height="14"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                class="mr-1.5"
+                            >
+                                <path d="m15 18-6-6 6-6"/>
+                            </svg>
+                            {label}
+                        </Link>
+                    })}
+                    <button
+                        class="text-muted-foreground hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
+                        aria-label="Close"
+                        type="button"
+                        on:click=move |_| on_close()
                     >
-                        <path d="M18 6 6 18"/>
-                        <path d="m6 6 12 12"/>
-                    </svg>
-                </button>
+                        <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="24"
+                            height="24"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                        >
+                            <path d="M18 6 6 18"/>
+                            <path d="m6 6 12 12"/>
+                        </svg>
+                    </button>
+                </div>
             </div>
 
             {move || {

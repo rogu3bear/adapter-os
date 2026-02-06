@@ -128,7 +128,7 @@ fn StepIndicator(current: WizardStep) -> impl IntoView {
 #[component]
 pub fn CreateJobWizard(
     open: RwSignal<bool>,
-    on_created: impl Fn() + Clone + Send + Sync + 'static,
+    on_created: impl Fn(String) + Clone + Send + Sync + 'static,
     /// Optional initial dataset ID (e.g., from dataset detail page navigation)
     #[prop(optional)]
     initial_dataset_id: Option<RwSignal<Option<String>>>,
@@ -399,13 +399,13 @@ pub fn CreateJobWizard(
                     .post::<_, TrainingJobResponse>("/v1/training/jobs", &request)
                     .await
                 {
-                    Ok(_) => {
+                    Ok(response) => {
                         submitting.set(false);
                         notifications.success(
                             "Training job created",
                             &format!("\"{}\" is now queued for training", name_for_toast),
                         );
-                        on_created();
+                        on_created(response.id);
                     }
                     Err(e) => {
                         error.set(Some(e.to_string()));

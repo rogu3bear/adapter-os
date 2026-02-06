@@ -995,14 +995,15 @@ fn OverviewTab(
                         {move || {
                             match trace_detail.get() {
                                 LoadingState::Loaded(detail) => {
-                                    if detail.adapters_used.is_empty() {
+                                    let adapters = detail.adapters_used.clone();
+                                    if adapters.is_empty() {
                                         view! { <p class="font-medium text-sm text-muted-foreground/70 italic">"Unknown"</p> }.into_any()
                                     } else {
                                         view! {
                                             <div class="flex flex-wrap gap-1.5">
-                                                {detail.adapters_used.iter().map(|adapter_id| {
+                                                {adapters.into_iter().map(|adapter_id| {
                                                     view! {
-                                                        <Badge variant=BadgeVariant::Secondary>{adapter_id.clone()}</Badge>
+                                                        <Badge variant=BadgeVariant::Secondary>{adapter_id}</Badge>
                                                     }
                                                 }).collect::<Vec<_>>()}
                                             </div>
@@ -1387,6 +1388,12 @@ fn ReceiptsTab(
             </div>
 
             {move || {
+                let run_id = run_id.clone();
+                let trace_id = trace_id.clone();
+                let request_hash = request_hash.clone();
+                let manifest_hash = manifest_hash.clone();
+                let exported_at = exported_at.clone();
+                let events_str = events_str.clone();
                 match active_tab.get() {
                     ReceiptPanelTab::Summary => {
                         view! {
