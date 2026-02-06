@@ -326,7 +326,6 @@ pub fn DatasetDetail() -> impl IntoView {
         query
             .get()
             .get("source")
-            .cloned()
             .unwrap_or_else(|| "unknown".to_string())
     });
     let draft_items = Signal::derive(move || {
@@ -338,9 +337,9 @@ pub fn DatasetDetail() -> impl IntoView {
     });
     let draft_name = Signal::derive(move || {
         query.get().get("name").map(|raw| {
-            js_sys::decode_uri_component(raw)
+            js_sys::decode_uri_component(&raw)
                 .map(|s| s.as_string().unwrap_or_else(|| raw.clone()))
-                .unwrap_or_else(|_| raw.clone())
+                .unwrap_or(raw)
         })
     });
     let draft_document_ids = Signal::derive(move || {
@@ -362,10 +361,10 @@ pub fn DatasetDetail() -> impl IntoView {
         }
         ids
     });
-    let draft_dataset_id = Signal::derive(move || query.get().get("dataset_id").cloned());
+    let draft_dataset_id = Signal::derive(move || query.get().get("dataset_id"));
     let draft_base_model_id = Signal::derive(move || {
         query.get().get("base_model_id").and_then(|raw| {
-            js_sys::decode_uri_component(raw)
+            js_sys::decode_uri_component(&raw)
                 .ok()
                 .and_then(|s| s.as_string())
         })
@@ -1100,13 +1099,14 @@ fn DatasetDraftView(
                 let safety_check_result = safety_check_result.clone();
                 let safety_warning_acknowledged = safety_warning_acknowledged.clone();
 
+                let name_label = name_label.clone();
                 wasm_bindgen_futures::spawn_local(async move {
                     let dataset_id = if let Some(id) = existing_dataset_id {
                         id
                     } else if !document_ids.is_empty() {
                         training_status.set(Some("Creating dataset...".to_string()));
                         match client
-                            .create_dataset_from_documents(document_ids, Some(name_label.clone()))
+                            .create_dataset_from_documents(document_ids, Some(name_label))
                             .await
                         {
                             Ok(ds) => {
@@ -1647,8 +1647,8 @@ fn DatasetDraftView(
                     // Advanced toggle
                     <Toggle
                         checked=show_advanced
-                        label=Some("Show advanced options".to_string())
-                        description=Some("Configure LoRA rank, alpha, batch size, and validation split".to_string())
+                        label="Show advanced options".to_string()
+                        description="Configure LoRA rank, alpha, batch size, and validation split".to_string()
                     />
 
                     // Advanced options (conditionally shown)
@@ -1705,12 +1705,12 @@ fn DatasetDraftView(
                     <Checkbox
                         checked=Signal::derive(move || pii_scrub.get())
                         on_change=Callback::new(move |val| pii_scrub.set(val))
-                        label=Some("PII scrub".to_string())
+                        label="PII scrub".to_string()
                     />
                     <Checkbox
                         checked=Signal::derive(move || dedupe.get())
                         on_change=Callback::new(move |val| dedupe.set(val))
-                        label=Some("Dedupe".to_string())
+                        label="Dedupe".to_string()
                     />
                     <p class="text-xs text-muted-foreground">
                         "These settings are UI-only in the MVP."

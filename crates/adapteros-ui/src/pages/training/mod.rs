@@ -32,7 +32,7 @@ use crate::hooks::{use_api_resource, use_conditional_polling, LoadingState};
 use crate::signals::{try_use_route_context, SelectedEntity};
 use adapteros_api_types::TrainingListParams;
 use leptos::prelude::*;
-use leptos_router::hooks::use_query_map;
+use leptos_router::hooks::{use_navigate, use_query_map};
 use std::sync::Arc;
 
 use components::{CoremlFilters, StatusFilter, TrainingJobList};
@@ -59,10 +59,27 @@ pub fn Training() -> impl IntoView {
     // Track initial dataset for training (from query params)
     let initial_dataset_id = RwSignal::new(None::<String>);
 
+    // Return-to path after wizard completion (from cross-page CTAs)
+    let return_to = RwSignal::new(None::<String>);
+
     // Handle query parameters for document-to-training and dataset-to-training workflows
     let query = use_query_map();
+    let params_consumed = RwSignal::new(false);
+    let navigate = use_navigate();
     Effect::new(move || {
         let params = query.get();
+        // Guard: only consume params once to prevent re-triggering on browser back
+        if params_consumed.get_untracked() {
+            return;
+        }
+        let has_params = params.get("source").is_some()
+            || params.get("dataset_id").is_some()
+            || params.get("open_wizard").is_some()
+            || params.get("job_id").is_some()
+            || params.get("return_to").is_some();
+        if !has_params {
+            return;
+        }
         // Document-to-training workflow
         if params.get("source").as_deref() == Some("document") {
             if let Some(doc_id) = params.get("document_id") {
@@ -75,10 +92,27 @@ pub fn Training() -> impl IntoView {
             initial_dataset_id.set(Some(ds_id.clone()));
             create_dialog_open.set(true);
         }
+        // Generic wizard auto-open (from chat/adapters CTAs)
+        if params.get("open_wizard").as_deref() == Some("1") {
+            create_dialog_open.set(true);
+        }
         // Job deep-link workflow (from datasets draft page after training starts)
         if let Some(job_id) = params.get("job_id") {
             selected_job_id.set(Some(job_id.clone()));
         }
+        // Return-to path for post-wizard navigation
+        if let Some(path) = params.get("return_to") {
+            return_to.set(Some(path.clone()));
+        }
+        // Mark consumed and clean URL to prevent re-triggering on browser back
+        params_consumed.set(true);
+        navigate(
+            "/training",
+            leptos_router::NavigateOptions {
+                replace: true,
+                ..Default::default()
+            },
+        );
     });
 
     // Fetch training jobs with server-side filtering
@@ -118,9 +152,10 @@ pub fn Training() -> impl IntoView {
         selected_job_id.set(None);
     };
 
-    let on_job_created = move || {
+    let on_job_created = move |job_id: String| {
         create_dialog_open.set(false);
         refetch_jobs.run(());
+        selected_job_id.set(Some(job_id));
     };
 
     // Derive selection state for SplitPanel
@@ -220,12 +255,22 @@ pub fn Training() -> impl IntoView {
                 detail_panel=move || {
                     // Detail panel content - job_id comes from selected_job_id
                     let job_id = selected_job_id.get().unwrap_or_default();
-                    view! {
-                        <TrainingJobDetail
-                            job_id=job_id
-                            on_close=on_close_detail
-                            on_cancelled=move || refetch_jobs.run(())
-                        />
+                    match return_to.get_untracked() {
+                        Some(ret) => view! {
+                            <TrainingJobDetail
+                                job_id=job_id
+                                on_close=on_close_detail
+                                on_cancelled=move || refetch_jobs.run(())
+                                return_to=ret
+                            />
+                        }.into_any(),
+                        None => view! {
+                            <TrainingJobDetail
+                                job_id=job_id
+                                on_close=on_close_detail
+                                on_cancelled=move || refetch_jobs.run(())
+                            />
+                        }.into_any(),
                     }
                 }
             />
