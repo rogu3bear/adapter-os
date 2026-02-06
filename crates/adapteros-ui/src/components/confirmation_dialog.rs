@@ -333,7 +333,7 @@ pub fn ConfirmationDialog(
                     <div class="flex-1">
                         <h2
                             id="confirm-dialog-title"
-                            class=format!("text-lg font-semibold {}", severity.header_class())
+                            class=format!("heading-3 {}", severity.header_class())
                         >
                             {title.clone()}
                         </h2>

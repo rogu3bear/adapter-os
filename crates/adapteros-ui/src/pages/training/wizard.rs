@@ -7,7 +7,7 @@
 //! 4. Review - Summary and submit
 
 use crate::api::ApiClient;
-use crate::components::{Button, ButtonVariant, Card, FormField, Input};
+use crate::components::{Button, ButtonVariant, Card, Dialog, DialogSize, FormField, Input};
 use crate::pages::training::config_presets::{TrainingConfigPresets, TrainingPreset};
 use crate::pages::training::dataset_wizard::{DatasetUploadOutcome, DatasetUploadWizard};
 use crate::pages::training::generate_wizard::{GenerateDatasetOutcome, GenerateDatasetWizard};
@@ -132,6 +132,9 @@ pub fn CreateJobWizard(
     /// Optional initial dataset ID (e.g., from dataset detail page navigation)
     #[prop(optional)]
     initial_dataset_id: Option<RwSignal<Option<String>>>,
+    /// Optional source document ID (e.g., from document-to-training workflow)
+    #[prop(optional)]
+    source_document_id: Option<RwSignal<Option<String>>>,
 ) -> impl IntoView {
     // Wizard step state
     let current_step = RwSignal::new(WizardStep::default());
@@ -148,6 +151,16 @@ pub fn CreateJobWizard(
             if let Some(ds_id) = init_ds.get() {
                 dataset_id.set(ds_id.clone());
                 dataset_message.set(Some(format!("Using dataset: {}", ds_id)));
+            }
+        });
+    }
+
+    // Pre-populate from source document if provided
+    if let Some(src_doc) = source_document_id {
+        Effect::new(move || {
+            if let Some(doc_id) = src_doc.get() {
+                dataset_message
+                    .set(Some(format!("From document: {} — generate or upload a dataset", doc_id)));
             }
         });
     }
@@ -441,161 +454,139 @@ pub fn CreateJobWizard(
         show_advanced_backend.set(false);
     };
 
+    // Reset form when dialog closes
+    Effect::new(move || {
+        if !open.get() {
+            close(());
+        }
+    });
+
     view! {
-        {move || {
-            if !open.get() {
-                return view! {}.into_any();
-            }
+        <Dialog
+            open=open
+            title="New Training Job".to_string()
+            description=Signal::derive(move || current_step.get().label().to_string()).get()
+            size=DialogSize::Lg
+            scrollable=true
+        >
+            <StepIndicator current=current_step.get()/>
 
-            let step = current_step.get();
-
-            view! {
-                // Backdrop
-                <div
-                    class="dialog-overlay"
-                    on:click=move |_| close(())
-                />
-
-                // Dialog
-                <div class="dialog-content dialog-scrollable min-w-0 overflow-x-hidden">
-                    // Header with step indicator
-                    <div class="flex items-center justify-between mb-2">
-                        <div>
-                            <h2 class="text-lg font-semibold">"New Training Job"</h2>
-                            <p class="text-sm text-muted-foreground">{step.label()}</p>
-                        </div>
-                        <button
-                            class="rounded-sm opacity-70 hover:opacity-100"
-                            aria-label="Close"
-                            type="button"
-                            on:click=move |_| close(())
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
-                            </svg>
-                        </button>
-                    </div>
-
-                    <StepIndicator current=step/>
-
-                    // Error message
-                    {move || error.get().map(|e| view! {
-                        <div class="mb-4 rounded-lg border border-destructive bg-destructive/10 p-3">
-                            <p class="text-sm text-destructive">{e}</p>
-                        </div>
-                    })}
-
-                    // Step content
-                    <div class="min-h-[300px] min-w-0 max-h-[70vh] overflow-y-auto">
-                        {match step {
-                            WizardStep::Dataset => view! {
-                                <DatasetStepContent
-                                    dataset_id=dataset_id
-                                    dataset_message=dataset_message
-                                    dataset_wizard_open=dataset_wizard_open
-                                    generate_wizard_open=generate_wizard_open
-                                />
-                            }.into_any(),
-                            WizardStep::Model => view! {
-                                <ModelStepContent
-                                    adapter_name=adapter_name
-                                    base_model_id=base_model_id
-                                    category=category
-                                    form_errors=form_errors
-                                />
-                            }.into_any(),
-                            WizardStep::Config => view! {
-                                <ConfigStepContent
-                                    training_preset=training_preset
-                                    epochs=epochs
-                                    learning_rate=learning_rate
-                                    validation_split=validation_split
-                                    early_stopping=early_stopping
-                                    batch_size=batch_size
-                                    rank=rank
-                                    alpha=alpha
-                                    show_advanced=show_advanced_backend
-                                    preferred_backend=preferred_backend
-                                    backend_policy=backend_policy
-                                    coreml_fallback=coreml_training_fallback
-                                    form_errors=form_errors
-                                    sample_count=dataset_sample_count.get()
-                                />
-                            }.into_any(),
-                            WizardStep::Review => view! {
-                                <ReviewStepContent
-                                    adapter_name=adapter_name.get()
-                                    base_model_id=base_model_id.get()
-                                    dataset_id=dataset_id.get()
-                                    category=category.get()
-                                    preset=training_preset.get()
-                                    epochs=epochs.get()
-                                    learning_rate=learning_rate.get()
-                                    validation_split=validation_split.get()
-                                    early_stopping=early_stopping.get()
-                                    batch_size=batch_size.get()
-                                    rank=rank.get()
-                                    alpha=alpha.get()
-                                    backend=preferred_backend.get()
-                                />
-                            }.into_any(),
-                        }}
-                    </div>
-
-                    // Embedded wizards (modals inside modal)
-                    <DatasetUploadWizard
-                        open=dataset_wizard_open
-                        on_complete=Callback::new(on_dataset_uploaded.clone())
-                    />
-                    <GenerateDatasetWizard
-                        open=generate_wizard_open
-                        on_generated=Callback::new(on_dataset_generated.clone())
-                    />
-
-                    // Footer navigation
-                    <div class="flex justify-between mt-6 pt-4 border-t">
-                        <div>
-                            {(step != WizardStep::Dataset).then(|| view! {
-                                <Button
-                                    variant=ButtonVariant::Outline
-                                    on_click=Callback::new(go_back)
-                                >
-                                    "Back"
-                                </Button>
-                            })}
-                        </div>
-                        <div class="flex gap-2">
-                            <Button
-                                variant=ButtonVariant::Outline
-                                on_click=Callback::new(close.clone())
-                            >
-                                "Cancel"
-                            </Button>
-                            {if step == WizardStep::Review {
-                                view! {
-                                    <Button
-                                        variant=ButtonVariant::Primary
-                                        loading=submitting.get()
-                                        on_click=Callback::new(submit.clone())
-                                    >
-                                        "Start Training"
-                                    </Button>
-                                }.into_any()
-                            } else {
-                                view! {
-                                    <Button
-                                        variant=ButtonVariant::Primary
-                                        on_click=Callback::new(go_next)
-                                    >
-                                        "Next"
-                                    </Button>
-                                }.into_any()
-                            }}
-                        </div>
-                    </div>
+            // Error message
+            {move || error.get().map(|e| view! {
+                <div class="mb-4 rounded-lg border border-destructive bg-destructive/10 p-3">
+                    <p class="text-sm text-destructive">{e}</p>
                 </div>
-            }.into_any()
-        }}
+            })}
+
+            // Step content
+            <div class="min-h-72 min-w-0">
+                {move || match current_step.get() {
+                    WizardStep::Dataset => view! {
+                        <DatasetStepContent
+                            dataset_id=dataset_id
+                            dataset_message=dataset_message
+                            dataset_wizard_open=dataset_wizard_open
+                            generate_wizard_open=generate_wizard_open
+                        />
+                    }.into_any(),
+                    WizardStep::Model => view! {
+                        <ModelStepContent
+                            adapter_name=adapter_name
+                            base_model_id=base_model_id
+                            category=category
+                            form_errors=form_errors
+                        />
+                    }.into_any(),
+                    WizardStep::Config => view! {
+                        <ConfigStepContent
+                            training_preset=training_preset
+                            epochs=epochs
+                            learning_rate=learning_rate
+                            validation_split=validation_split
+                            early_stopping=early_stopping
+                            batch_size=batch_size
+                            rank=rank
+                            alpha=alpha
+                            show_advanced=show_advanced_backend
+                            preferred_backend=preferred_backend
+                            backend_policy=backend_policy
+                            coreml_fallback=coreml_training_fallback
+                            form_errors=form_errors
+                            sample_count=dataset_sample_count.get()
+                        />
+                    }.into_any(),
+                    WizardStep::Review => view! {
+                        <ReviewStepContent
+                            adapter_name=adapter_name.get()
+                            base_model_id=base_model_id.get()
+                            dataset_id=dataset_id.get()
+                            category=category.get()
+                            preset=training_preset.get()
+                            epochs=epochs.get()
+                            learning_rate=learning_rate.get()
+                            validation_split=validation_split.get()
+                            early_stopping=early_stopping.get()
+                            batch_size=batch_size.get()
+                            rank=rank.get()
+                            alpha=alpha.get()
+                            backend=preferred_backend.get()
+                        />
+                    }.into_any(),
+                }}
+            </div>
+
+            // Embedded wizards (modals inside modal)
+            <DatasetUploadWizard
+                open=dataset_wizard_open
+                on_complete=Callback::new(on_dataset_uploaded.clone())
+            />
+            <GenerateDatasetWizard
+                open=generate_wizard_open
+                on_generated=Callback::new(on_dataset_generated.clone())
+            />
+
+            // Footer navigation
+            <div class="flex justify-between mt-6 pt-4 border-t">
+                <div>
+                    {move || (current_step.get() != WizardStep::Dataset).then(|| view! {
+                        <Button
+                            variant=ButtonVariant::Outline
+                            on_click=Callback::new(go_back)
+                        >
+                            "Back"
+                        </Button>
+                    })}
+                </div>
+                <div class="flex gap-2">
+                    <Button
+                        variant=ButtonVariant::Outline
+                        on_click=Callback::new(move |_| open.set(false))
+                    >
+                        "Cancel"
+                    </Button>
+                    {move || if current_step.get() == WizardStep::Review {
+                        view! {
+                            <Button
+                                variant=ButtonVariant::Primary
+                                loading=submitting.get()
+                                on_click=Callback::new(submit.clone())
+                            >
+                                "Start Training"
+                            </Button>
+                        }.into_any()
+                    } else {
+                        view! {
+                            <Button
+                                variant=ButtonVariant::Primary
+                                on_click=Callback::new(go_next)
+                            >
+                                "Next"
+                            </Button>
+                        }.into_any()
+                    }}
+                </div>
+            </div>
+        </Dialog>
     }
 }
 
@@ -610,7 +601,7 @@ fn DatasetStepContent(
     view! {
         <div class="space-y-6">
             <div class="text-center py-4">
-                <h3 class="text-lg font-medium mb-2">"Choose your training data"</h3>
+                <h3 class="heading-4 mb-2">"Choose your training data"</h3>
                 <p class="text-sm text-muted-foreground">
                     "Select how you want to provide training data. You can also skip this step to use synthetic data."
                 </p>
@@ -916,7 +907,7 @@ fn ReviewStepContent(
     view! {
         <div class="space-y-6">
             <div class="text-center py-2">
-                <h3 class="text-lg font-medium">"Review Your Training Job"</h3>
+                <h3 class="heading-4">"Review Your Training Job"</h3>
                 <p class="text-sm text-muted-foreground">
                     "Confirm the settings below before starting training"
                 </p>
@@ -950,9 +941,9 @@ fn ReviewStepContent(
 #[component]
 fn ReviewRow(label: &'static str, value: String) -> impl IntoView {
     view! {
-        <div class="flex justify-between py-3 px-4">
-            <span class="text-sm text-muted-foreground">{label}</span>
-            <span class="text-sm font-medium">{value}</span>
+        <div class="flex justify-between gap-4 py-3 px-4">
+            <span class="text-sm text-muted-foreground shrink-0">{label}</span>
+            <span class="text-sm font-medium min-w-0 truncate">{value}</span>
         </div>
     }
 }

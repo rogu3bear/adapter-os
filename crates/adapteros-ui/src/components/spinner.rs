@@ -30,7 +30,9 @@ pub fn Spinner(
     let full_class = format!("spinner {} {}", size.class(), class);
 
     view! {
-        <div class=full_class role="status" aria-live="polite"></div>
+        <div class=full_class role="status" aria-live="polite" aria-label="Loading">
+            <span class="sr-only">"Loading"</span>
+        </div>
     }
 }
 
@@ -39,9 +41,14 @@ pub fn Spinner(
 pub fn PageLoader() -> impl IntoView {
     view! {
         <div class="flex h-screen w-full items-center justify-center">
-            <div class="flex flex-col items-center gap-4">
-                <Spinner size=SpinnerSize::Lg/>
-                <p class="text-muted-foreground">"Loading..."</p>
+            <div
+                class="flex flex-col items-center gap-4"
+                role="status"
+                aria-live="polite"
+                aria-labelledby="page-loader-text"
+            >
+                <div class="spinner spinner-lg" aria-hidden="true"></div>
+                <p id="page-loader-text" class="text-muted-foreground">"Loading..."</p>
             </div>
         </div>
     }

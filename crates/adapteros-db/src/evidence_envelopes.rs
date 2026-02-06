@@ -275,7 +275,7 @@ impl Db {
             _ => {}
         }
 
-        let id = uuid::Uuid::now_v7().to_string();
+        let id = crate::new_id(adapteros_id::IdPrefix::Trc);
         let scope_str = envelope.scope.as_str();
         let payload_json = serde_json::to_string(envelope)?;
 

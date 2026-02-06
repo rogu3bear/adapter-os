@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::FromRow;
 use tracing::warn;
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 /// Builder for creating telemetry batch parameters
 #[derive(Debug, Default)]
@@ -187,7 +188,7 @@ impl Db {
     /// # }
     /// ```
     pub async fn record_telemetry_batch(&self, params: TelemetryBatchParams) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Evt);
         let event_data_json = serde_json::to_string(&params.event_data)
             .map_err(|e| AosError::Validation(format!("Failed to serialize event_data: {}", e)))?;
         let metadata_json = params.metadata.as_ref().map(|m| m.to_string());

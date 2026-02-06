@@ -8,9 +8,9 @@
 //! 4. Cross-check validation on read to detect drift
 
 use adapteros_core::{AosError, B3Hash, Result};
+use adapteros_id::{IdPrefix, TypedId};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 // =============================================================================
 // WriteStatus - Individual store outcome
@@ -89,7 +89,7 @@ impl WriteStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WriteAck {
     /// Unique identifier for this operation
-    pub operation_id: Uuid,
+    pub operation_id: String,
     /// Type of entity being written (e.g., "adapter", "trace", "session")
     pub entity_type: String,
     /// ID of the entity being written
@@ -114,7 +114,7 @@ impl WriteAck {
     /// Create a new pending WriteAck for an operation.
     pub fn new(entity_type: impl Into<String>, entity_id: impl Into<String>) -> Self {
         Self {
-            operation_id: Uuid::new_v4(),
+            operation_id: TypedId::new(IdPrefix::Wak).to_string(),
             entity_type: entity_type.into(),
             entity_id: entity_id.into(),
             sql_status: WriteStatus::Pending,
@@ -129,12 +129,12 @@ impl WriteAck {
 
     /// Create a new WriteAck with a specific operation ID.
     pub fn with_operation_id(
-        operation_id: Uuid,
+        operation_id: impl Into<String>,
         entity_type: impl Into<String>,
         entity_id: impl Into<String>,
     ) -> Self {
         Self {
-            operation_id,
+            operation_id: operation_id.into(),
             entity_type: entity_type.into(),
             entity_id: entity_id.into(),
             sql_status: WriteStatus::Pending,
@@ -257,13 +257,13 @@ pub trait WriteAckStore: Send + Sync {
     async fn store_ack(&self, ack: &WriteAck) -> Result<()>;
 
     /// Retrieve a WriteAck by operation ID
-    async fn get_ack(&self, operation_id: Uuid) -> Result<Option<WriteAck>>;
+    async fn get_ack(&self, operation_id: &str) -> Result<Option<WriteAck>>;
 
     /// List degraded WriteAcks for repair queue
     async fn list_degraded(&self, limit: usize) -> Result<Vec<WriteAck>>;
 
     /// Delete a WriteAck after successful repair
-    async fn delete_ack(&self, operation_id: Uuid) -> Result<()>;
+    async fn delete_ack(&self, operation_id: &str) -> Result<()>;
 }
 
 // =============================================================================
@@ -339,7 +339,7 @@ impl WriteAckStore for Db {
                 completed_at = excluded.completed_at
             "#,
         )
-        .bind(ack.operation_id.to_string())
+        .bind(&ack.operation_id)
         .bind(&ack.entity_type)
         .bind(&ack.entity_id)
         .bind(ack.sql_status.to_db_string())
@@ -359,7 +359,7 @@ impl WriteAckStore for Db {
     }
 
     /// Retrieve a WriteAck by operation ID
-    async fn get_ack(&self, operation_id: Uuid) -> Result<Option<WriteAck>> {
+    async fn get_ack(&self, operation_id: &str) -> Result<Option<WriteAck>> {
         let pool = self.pool_opt().ok_or_else(|| {
             AosError::Database("SQL pool unavailable for WriteAck retrieval".to_string())
         })?;
@@ -374,7 +374,7 @@ impl WriteAckStore for Db {
             WHERE operation_id = $1
             "#,
         )
-        .bind(operation_id.to_string())
+        .bind(operation_id)
         .fetch_optional(pool)
         .await
         .map_err(|e| AosError::Database(format!("Failed to retrieve WriteAck: {}", e)))?;
@@ -409,13 +409,13 @@ impl WriteAckStore for Db {
     }
 
     /// Delete a WriteAck after successful repair
-    async fn delete_ack(&self, operation_id: Uuid) -> Result<()> {
+    async fn delete_ack(&self, operation_id: &str) -> Result<()> {
         let pool = self.pool_opt().ok_or_else(|| {
             AosError::Database("SQL pool unavailable for WriteAck deletion".to_string())
         })?;
 
         sqlx::query("DELETE FROM write_acks WHERE operation_id = $1")
-            .bind(operation_id.to_string())
+            .bind(operation_id)
             .execute(pool)
             .await
             .map_err(|e| AosError::Database(format!("Failed to delete WriteAck: {}", e)))?;
@@ -448,7 +448,7 @@ struct WriteAckRow {
 impl From<WriteAckRow> for WriteAck {
     fn from(row: WriteAckRow) -> Self {
         WriteAck {
-            operation_id: Uuid::parse_str(&row.operation_id).unwrap_or_else(|_| Uuid::nil()),
+            operation_id: row.operation_id,
             entity_type: row.entity_type,
             entity_id: row.entity_id,
             sql_status: WriteStatus::from_db_string(&row.sql_status, row.sql_error),

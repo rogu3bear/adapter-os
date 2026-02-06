@@ -34,7 +34,7 @@ pub fn Admin() -> impl IntoView {
         <div class="p-6 space-y-6">
                 <div class="flex items-center justify-between">
                     <div>
-                        <h1 class="text-3xl font-bold tracking-tight">"Administration"</h1>
+                        <h1 class="heading-1">"Administration"</h1>
                         <p class="text-muted-foreground mt-1">"Manage users, roles, and organization settings"</p>
                     </div>
                     {move || {

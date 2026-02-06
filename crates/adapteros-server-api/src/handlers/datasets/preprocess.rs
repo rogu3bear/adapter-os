@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use adapteros_id::{TypedId, IdPrefix};
 use tracing::{error, info, warn};
 use utoipa::ToSchema;
 
@@ -191,7 +192,7 @@ pub async fn start_preprocess(
     }
 
     // Generate job ID
-    let job_id = format!("preproc-{}", uuid::Uuid::new_v4());
+    let job_id = TypedId::new(IdPrefix::Job).to_string();
 
     // Atomic check-and-insert to prevent race conditions
     {

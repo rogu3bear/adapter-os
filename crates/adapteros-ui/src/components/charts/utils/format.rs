@@ -34,11 +34,26 @@ fn format_minutes_seconds(secs: i64) -> String {
     format!("{:02}:{:02}", mins, secs)
 }
 
-/// Format as hours:minutes ("HH:MM").
+/// Format as hours:minutes in 12-hour AM/PM format.
 fn format_hours_minutes(secs: i64) -> String {
-    let hours = (secs / 3600) % 24;
+    let hours_24 = (secs / 3600) % 24;
     let mins = (secs / 60) % 60;
-    format!("{:02}:{:02}", hours, mins)
+    let (h12, period) = to_12h(hours_24);
+    if mins == 0 {
+        format!("{} {}", h12, period)
+    } else {
+        format!("{}:{:02} {}", h12, mins, period)
+    }
+}
+
+/// Convert 24-hour to 12-hour format with AM/PM.
+fn to_12h(hour_24: i64) -> (i64, &'static str) {
+    match hour_24 {
+        0 => (12, "AM"),
+        1..=11 => (hour_24, "AM"),
+        12 => (12, "PM"),
+        _ => (hour_24 - 12, "PM"),
+    }
 }
 
 /// Format as short date ("Jan 3").
@@ -71,15 +86,16 @@ fn format_date(secs: i64) -> String {
     format!("{} {}", month_names[month_idx], day)
 }
 
-/// Format a timestamp for tooltip display (full precision).
+/// Format a timestamp for tooltip display (full precision, 12-hour AM/PM).
 pub fn format_timestamp_full(timestamp_ms: u64) -> String {
     let secs = (timestamp_ms / 1000) as i64;
-    let hours = (secs / 3600) % 24;
+    let hours_24 = (secs / 3600) % 24;
     let mins = (secs / 60) % 60;
-    let secs = secs % 60;
+    let s = secs % 60;
     let millis = timestamp_ms % 1000;
+    let (h12, period) = to_12h(hours_24);
 
-    format!("{:02}:{:02}:{:02}.{:03}", hours, mins, secs, millis)
+    format!("{}:{:02}:{:02}.{:03} {}", h12, mins, s, millis, period)
 }
 
 /// Format a number for axis labels.

@@ -224,7 +224,7 @@ impl DatabaseBackend for SqliteBackend {
 
     fn generate_id(&self) -> String {
         // Generate a UUID-like ID for SQLite
-        uuid::Uuid::now_v7().to_string()
+        crate::new_id(adapteros_id::IdPrefix::Evt)
     }
 
     fn current_timestamp(&self) -> String {

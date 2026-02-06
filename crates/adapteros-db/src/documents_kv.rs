@@ -14,7 +14,8 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing;
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 /// Document KV representation (parity with SQL schema)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -498,7 +499,7 @@ impl DocumentKvRepository {
         chunk_hash: &str,
         text_preview: Option<String>,
     ) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Doc);
         let chunk = DocumentChunkKv {
             id: id.clone(),
             tenant_id: tenant_id.to_string(),

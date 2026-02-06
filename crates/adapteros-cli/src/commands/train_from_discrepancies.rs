@@ -149,7 +149,9 @@ impl TrainFromDiscrepanciesArgs {
         // Load auth
         let _auth = load_auth()
             .map_err(|e| AosError::Io(format!("Failed to load auth: {e}")))?
-            .ok_or_else(|| AosError::Validation("No stored auth; run `aosctl auth login`".into()))?;
+            .ok_or_else(|| {
+                AosError::Validation("No stored auth; run `aosctl auth login`".into())
+            })?;
 
         warn_if_tenant_mismatch(None, output);
 
@@ -256,9 +258,10 @@ impl TrainFromDiscrepanciesArgs {
             updated_at: String,
         }
 
-        let items: Vec<DiscrepancyResponse> = resp.json().await.map_err(|e| {
-            AosError::Io(format!("Failed to parse discrepancies response: {e}"))
-        })?;
+        let items: Vec<DiscrepancyResponse> = resp
+            .json()
+            .await
+            .map_err(|e| AosError::Io(format!("Failed to parse discrepancies response: {e}")))?;
 
         let exports: Vec<DiscrepancyExportRow> = items
             .into_iter()
@@ -478,7 +481,13 @@ impl TrainFromDiscrepanciesArgs {
             let form = reqwest::multipart::Form::new()
                 .text("dataset_id", dataset_id.to_string())
                 .text("format", "jsonl")
-                .text("description", format!("Training data from {} discrepancy cases", training_pairs.len()))
+                .text(
+                    "description",
+                    format!(
+                        "Training data from {} discrepancy cases",
+                        training_pairs.len()
+                    ),
+                )
                 .part("file", part);
 
             client.post(url).bearer_auth(&store.token).multipart(form)

@@ -2,7 +2,8 @@ use crate::Db;
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 /// Builder for creating patch proposal parameters
 #[derive(Debug, Default)]
@@ -149,7 +150,7 @@ impl Db {
     /// # }
     /// ```
     pub async fn create_patch_proposal(&self, params: PatchProposalParams) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Ver);
         sqlx::query(
             "INSERT INTO patch_proposals 
              (id, repo_id, commit_sha, description, target_files_json, patch_json, validation_result_json, status, created_by) 

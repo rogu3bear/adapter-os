@@ -34,12 +34,18 @@ impl BadgeVariant {
 pub fn Badge(
     #[prop(optional)] variant: BadgeVariant,
     #[prop(optional, into)] class: String,
+    /// Semantic role for status-conveying badges (e.g., "status")
+    #[prop(optional, into)]
+    role: Option<String>,
+    /// Accessible label for screen readers
+    #[prop(optional, into)]
+    aria_label: Option<String>,
     children: Children,
 ) -> impl IntoView {
     let full_class = format!("badge {} {}", variant.class(), class);
 
     view! {
-        <span class=full_class>
+        <span class=full_class role=role aria-label=aria_label>
             {children()}
         </span>
     }

@@ -509,8 +509,8 @@ get_active_dev_flags() {
 # Returns: path to binary on stdout, exits with error if required binary missing.
 # NOTE: Status messages go to stderr to keep stdout clean for command substitution.
 select_server_binary() {
-    local debug_bin="$PROJECT_ROOT/target/debug/adapteros-server"
-    local release_bin="$PROJECT_ROOT/target/release/adapteros-server"
+    local debug_bin="$PROJECT_ROOT/target/debug/aos-server"
+    local release_bin="$PROJECT_ROOT/target/release/aos-server"
 
     if is_dev_mode; then
         local active_flags
@@ -1186,9 +1186,11 @@ start_worker() {
 
     echo "$pid" > "$WORKER_PID_FILE"
 
-    # Wait for socket to be created (configurable timeout, default 90 seconds)
+    # Wait for socket to be created (configurable timeout, default 150 seconds).
+    # Must exceed the strict-mode verifying key load deadline (120s) since the
+    # UDS socket is bound after key loading completes.
     local waited=0
-    local timeout="${AOS_WORKER_TIMEOUT:-90}"
+    local timeout="${AOS_WORKER_TIMEOUT:-150}"
     local log_interval=5
     while [ $waited -lt "$timeout" ]; do
         # Early exit: check if process died during startup
@@ -1203,11 +1205,10 @@ start_worker() {
         if [ -S "$uds_path" ]; then
             success_msg "Worker started (PID: $pid, Socket: $uds_path)"
 
-            # Register worker in database
-            if register_worker_in_db "$pid" "$uds_path"; then
-                # Update status to serving once socket is ready
-                update_worker_status "serving"
-            fi
+            # Worker self-registers with the control plane via HTTP during its
+            # own startup sequence (registration.rs). Shell-level DB registration
+            # was removed to avoid racing with the Rust state machine, which
+            # enforces validated transitions and audit logging.
 
             return 0
         fi

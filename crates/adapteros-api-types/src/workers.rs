@@ -274,6 +274,10 @@ pub struct WorkerResponse {
     /// Number of active cache entries (in-use, cannot be evicted)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_active_entries: Option<u32>,
+    /// Human-readable display name derived from the worker's typed ID word alias.
+    /// Example: "wrk-brave-falcon". Populated when the ID uses the TypedId format.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
 }
 
 /// Worker status update

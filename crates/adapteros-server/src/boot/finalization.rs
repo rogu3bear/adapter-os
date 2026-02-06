@@ -203,10 +203,23 @@ pub fn write_boot_report(
         }
     };
 
+    let run_id = std::env::var("AOS_RUN_ID").ok();
+    let build_id = {
+        let id = adapteros_core::version::BUILD_ID;
+        if id == "unknown" { None } else { Some(id.to_string()) }
+    };
+
     let mut report_builder = BootReport::builder()
         .config_hash_from_bytes(&config_bytes)
         .bind_addr(bind_config.bind.to_string())
         .port(bind_config.port);
+
+    if let Some(ref rid) = run_id {
+        report_builder = report_builder.run_id(rid.clone());
+    }
+    if let Some(ref bid) = build_id {
+        report_builder = report_builder.build_id_field(bid.clone());
+    }
 
     // Add worker key ID if available
     if let Some(keypair) = worker_keypair {
@@ -245,6 +258,10 @@ pub fn write_boot_report(
     match report.write_to_file(&report_path_str) {
         Ok(()) => {
             info!(path = %report_path.display(), "Boot report written");
+
+            // Append to runs.jsonl for run history
+            append_run_entry(&run_id, &build_id);
+
             Ok(())
         }
         Err(e) => {
@@ -267,6 +284,35 @@ pub fn write_boot_report(
                 Ok(())
             }
         }
+    }
+}
+
+/// Append a single line to var/logs/runs.jsonl recording this run.
+fn append_run_entry(run_id: &Option<String>, build_id: &Option<String>) {
+    use std::io::Write;
+
+    let var_base = adapteros_core::resolve_var_dir();
+    let logs_dir = var_base.join("logs");
+    let runs_path = logs_dir.join("runs.jsonl");
+
+    if std::fs::create_dir_all(&logs_dir).is_err() {
+        return;
+    }
+
+    let entry = serde_json::json!({
+        "run_id": run_id.as_deref().unwrap_or("none"),
+        "build_id": build_id.as_deref().unwrap_or("unknown"),
+        "version": adapteros_core::version::VERSION,
+        "started_at": chrono::Utc::now().to_rfc3339(),
+        "pid": std::process::id(),
+    });
+
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(&runs_path)
+    {
+        let _ = writeln!(file, "{}", entry);
     }
 }
 

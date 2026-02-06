@@ -9,7 +9,8 @@
 use crate::{AosError, Db, Result};
 use sqlx::Row;
 use tracing::{info, warn};
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 /// Status of a re-embedding job
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -118,7 +119,7 @@ impl<'a> ReembeddingManager<'a> {
             ));
         }
 
-        let job_id = Uuid::now_v7().to_string();
+        let job_id = new_id(IdPrefix::Job);
 
         sqlx::query(
             r#"

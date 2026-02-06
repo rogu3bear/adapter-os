@@ -5,7 +5,7 @@ use crate::components::{
     Button, ButtonVariant, Card, EmptyState, ErrorDisplay, Input, LoadingDisplay, RefreshButton,
     Select, Spinner, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
-use crate::hooks::{use_api, use_api_resource, LoadingState};
+use crate::hooks::{use_api, use_api_resource, use_scope_alive, LoadingState};
 use adapteros_api_types::{CreateRoutingRuleRequest, RoutingRuleResponse};
 use leptos::prelude::*;
 use std::sync::Arc;
@@ -45,7 +45,7 @@ pub fn RoutingRules() -> impl IntoView {
         <div class="space-y-6">
             <div class="flex items-center justify-between">
                 <div>
-                    <h2 class="text-2xl font-semibold tracking-tight">"Routing Rules"</h2>
+                    <h2 class="heading-2">"Routing Rules"</h2>
                     <p class="text-muted-foreground mt-1">
                         "Map Identity Set outcomes to target adapters"
                     </p>
@@ -104,7 +104,7 @@ pub fn RoutingRules() -> impl IntoView {
                             match rules.get() {
                                 LoadingState::Loading | LoadingState::Idle => view! { <LoadingDisplay message="Loading rules..."/> }.into_any(),
                                 LoadingState::Error(e) => {
-                                    view! { <ErrorDisplay error=e on_retry=refetch_rules/> }.into_any()
+                                    view! { <ErrorDisplay error=e on_retry=refetch_rules.as_callback()/> }.into_any()
                                 }
                                 LoadingState::Loaded(rule_list) => {
                                     view! {
@@ -112,11 +112,11 @@ pub fn RoutingRules() -> impl IntoView {
                                             <CreateRuleForm
                                                 dataset_id=selected_dataset_id.get().unwrap_or_default()
                                                 adapters=adapters.get()
-                                                on_success=refetch_rules
+                                                on_success=refetch_rules.as_callback()
                                             />
                                             <RulesTable
                                                 rules=rule_list
-                                                on_delete=refetch_rules
+                                                on_delete=refetch_rules.as_callback()
                                             />
                                         </div>
                                     }.into_any()
@@ -136,6 +136,7 @@ fn CreateRuleForm(
     adapters: LoadingState<Vec<adapteros_api_types::AdapterResponse>>,
     on_success: Callback<()>,
 ) -> impl IntoView {
+    let alive = use_scope_alive();
     let client = use_api();
     let condition = RwSignal::new(String::new());
     let target_adapter_id = RwSignal::new(String::new());
@@ -174,6 +175,7 @@ fn CreateRuleForm(
         let ds_id = dataset_id.clone();
         let p = priority.get().parse::<i64>().unwrap_or(1);
 
+        let alive = alive.clone();
         wasm_bindgen_futures::spawn_local(async move {
             let req = CreateRoutingRuleRequest {
                 identity_dataset_id: ds_id,
@@ -186,7 +188,9 @@ fn CreateRuleForm(
                 Ok(_) => {
                     condition.set(String::new());
                     target_adapter_id.set(String::new());
-                    on_success.run(());
+                    if alive.load(std::sync::atomic::Ordering::SeqCst) {
+                        on_success.run(());
+                    }
                 }
                 Err(e) => {
                     error.set(Some(e.to_string()));
@@ -232,6 +236,7 @@ fn CreateRuleForm(
 
 #[component]
 fn RulesTable(rules: Vec<RoutingRuleResponse>, on_delete: Callback<()>) -> impl IntoView {
+    let alive = use_scope_alive();
     let client = use_api();
     let deleting = RwSignal::new(false);
 
@@ -247,6 +252,47 @@ fn RulesTable(rules: Vec<RoutingRuleResponse>, on_delete: Callback<()>) -> impl 
         .into_any();
     }
 
+    let rules_view = rules.into_iter().map(|rule| {
+        let id = rule.id.clone();
+        let client = Arc::clone(&client);
+        let alive = alive.clone();
+
+        let delete_handler = Callback::new({
+            let alive = alive.clone();
+            move |_| {
+                let id = id.clone();
+                let client = Arc::clone(&client);
+                let alive = alive.clone();
+                deleting.set(true);
+                wasm_bindgen_futures::spawn_local(async move {
+                    let _ = client.delete_routing_rule(&id).await;
+                    deleting.set(false);
+                    if alive.load(std::sync::atomic::Ordering::SeqCst) {
+                        on_delete.run(());
+                    }
+                });
+            }
+        });
+
+        view! {
+            <TableRow>
+                <TableCell class="font-mono text-xs">{rule.condition_logic}</TableCell>
+                <TableCell>{rule.target_adapter_id}</TableCell>
+                <TableCell>{rule.priority}</TableCell>
+                <TableCell class="text-right">
+                    <Button
+                        variant=ButtonVariant::Ghost
+                        on_click=delete_handler
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-destructive" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                    </Button>
+                </TableCell>
+            </TableRow>
+        }
+    }).collect_view();
+
     view! {
         <Card>
             <Table>
@@ -259,37 +305,7 @@ fn RulesTable(rules: Vec<RoutingRuleResponse>, on_delete: Callback<()>) -> impl 
                     </TableRow>
                 </TableHeader>
                 <TableBody>
-                    {rules.into_iter().map(|rule| {
-                        let id = rule.id.clone();
-                        let client = Arc::clone(&client);
-
-                        view! {
-                            <TableRow>
-                                <TableCell class="font-mono text-xs">{rule.condition_logic}</TableCell>
-                                <TableCell>{rule.target_adapter_id}</TableCell>
-                                <TableCell>{rule.priority}</TableCell>
-                                <TableCell class="text-right">
-                                    <Button
-                                        variant=ButtonVariant::Ghost
-                                        on_click=Callback::new(move |_| {
-                                            let id = id.clone();
-                                            let client = Arc::clone(&client);
-                                            deleting.set(true);
-                                            wasm_bindgen_futures::spawn_local(async move {
-                                                let _ = client.delete_routing_rule(&id).await;
-                                                deleting.set(false);
-                                                on_delete.run(());
-                                            });
-                                        })
-                                    >
-                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-destructive" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                        </svg>
-                                    </Button>
-                                </TableCell>
-                            </TableRow>
-                        }
-                    }).collect_view()}
+                    {rules_view}
                 </TableBody>
             </Table>
         </Card>

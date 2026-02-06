@@ -6,7 +6,8 @@
 use crate::{Db, Result};
 use adapteros_core::AosError;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 /// Inference evidence record
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -80,7 +81,7 @@ impl Db {
     /// # Returns
     /// The unique ID of the created evidence record
     pub async fn create_inference_evidence(&self, params: CreateEvidenceParams) -> Result<String> {
-        let id = Uuid::new_v4().to_string();
+        let id = new_id(IdPrefix::Trc);
 
         // Serialize RAG fields to JSON
         let rag_doc_ids_json = params
@@ -399,7 +400,7 @@ impl Db {
         let mut ids = Vec::with_capacity(params_list.len());
 
         for params in params_list {
-            let id = Uuid::new_v4().to_string();
+            let id = new_id(IdPrefix::Trc);
 
             // Serialize RAG fields to JSON
             let rag_doc_ids_json = params

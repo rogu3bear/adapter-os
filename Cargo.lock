@@ -172,6 +172,7 @@ name = "adapteros-api-types"
 version = "0.0.1"
 dependencies = [
  "adapteros-core",
+ "adapteros-id",
  "adapteros-telemetry",
  "adapteros-telemetry-types",
  "adapteros-types",
@@ -468,6 +469,7 @@ name = "adapteros-core"
 version = "0.0.1"
 dependencies = [
  "adapteros-error-registry",
+ "adapteros-id",
  "adapteros-infra-common",
  "adapteros-types",
  "anyhow",
@@ -565,6 +567,7 @@ dependencies = [
  "adapteros-config",
  "adapteros-core",
  "adapteros-crypto",
+ "adapteros-id",
  "adapteros-lora-lifecycle",
  "adapteros-storage",
  "adapteros-telemetry",
@@ -812,6 +815,17 @@ dependencies = [
  "tokio-stream",
  "tokio-test",
  "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "adapteros-id"
+version = "0.0.1"
+dependencies = [
+ "blake3",
+ "proptest",
+ "serde",
+ "serde_json",
  "uuid",
 ]
 
@@ -1126,6 +1140,7 @@ dependencies = [
  "adapteros-crypto",
  "adapteros-db",
  "adapteros-deterministic-exec",
+ "adapteros-id",
  "adapteros-lora-kernel-api",
  "adapteros-lora-kernel-coreml",
  "adapteros-lora-kernel-mtl",
@@ -1332,6 +1347,7 @@ dependencies = [
  "adapteros-artifacts",
  "adapteros-core",
  "adapteros-crypto",
+ "adapteros-id",
  "adapteros-lora-worker",
  "adapteros-policy",
  "adapteros-telemetry",
@@ -1453,6 +1469,7 @@ dependencies = [
  "adapteros-crypto",
  "adapteros-db",
  "adapteros-deterministic-exec",
+ "adapteros-id",
  "adapteros-lora-kernel-api",
  "adapteros-manifest",
  "adapteros-model-hub",
@@ -1689,6 +1706,7 @@ dependencies = [
  "adapteros-error-registry",
  "adapteros-federation",
  "adapteros-git",
+ "adapteros-id",
  "adapteros-ingest-docs",
  "adapteros-lora-kernel-api",
  "adapteros-lora-kernel-coreml",
@@ -2014,6 +2032,8 @@ version = "0.0.1"
 dependencies = [
  "adapteros-core",
  "adapteros-db",
+ "adapteros-id",
+ "adapteros-lora-kernel-coreml",
  "adapteros-lora-mlx-ffi",
  "adapteros-model-hub",
  "adapteros-policy",
@@ -2046,6 +2066,7 @@ version = "0.0.1"
 dependencies = [
  "adapteros-core",
  "adapteros-crypto",
+ "adapteros-id",
  "adapteros-types",
  "anyhow",
  "async-trait",
@@ -2182,6 +2203,7 @@ name = "adapteros-ui"
 version = "0.0.1"
 dependencies = [
  "adapteros-api-types",
+ "adapteros-id",
  "chrono",
  "console_error_panic_hook",
  "csv",

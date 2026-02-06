@@ -683,9 +683,9 @@ pub fn PageHeader(
             // Title and actions row
             <div class="flex items-center justify-between">
                 <div>
-                    <h1 class="text-3xl font-bold tracking-tight">{title}</h1>
+                    <h1 class="heading-1">{title}</h1>
                     {subtitle.map(|s| view! {
-                        <p class="text-muted-foreground mt-1">{s}</p>
+                        <p class="body-small text-muted-foreground mt-1">{s}</p>
                     })}
                 </div>
                 {children.map(|c| view! {

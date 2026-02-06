@@ -102,7 +102,7 @@ pub fn Diff() -> impl IntoView {
             // Header
             <div class="flex items-center justify-between">
                 <div>
-                    <h1 class="text-3xl font-bold tracking-tight">"Run Diff"</h1>
+                    <h1 class="heading-1">"Run Diff"</h1>
                     <p class="text-muted-foreground mt-1">
                         "Compare diagnostic runs and launch into the Run Detail diff tab"
                     </p>
@@ -115,7 +115,7 @@ pub fn Diff() -> impl IntoView {
             // Run selectors
             <Card>
                 <div class="space-y-4">
-                    <h2 class="text-lg font-semibold">"Select Runs to Compare"</h2>
+                    <h2 class="heading-4">"Select Runs to Compare"</h2>
                     <div class="grid gap-4 md:grid-cols-2">
                         // Run A selector
                         <div>

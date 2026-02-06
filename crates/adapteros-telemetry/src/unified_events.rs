@@ -310,10 +310,7 @@ impl TelemetryEventBuilder {
     ) -> Self {
         Self {
             event: TelemetryEvent {
-                id: adapteros_core::ids::generate_id(
-                    adapteros_core::ids::IdKind::Event,
-                    "telemetry",
-                ),
+                id: adapteros_id::TypedId::new(adapteros_id::IdPrefix::Evt).to_string(),
                 timestamp: Utc::now(),
                 event_type: event_type.as_str().to_string(),
                 level,

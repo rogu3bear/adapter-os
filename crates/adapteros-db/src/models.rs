@@ -2,7 +2,8 @@ use crate::constants::MODEL_COLUMNS;
 use crate::Db;
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 /// The shared/system tenant ID that is visible to all tenants.
 /// Models with this tenant_id are considered base models and accessible by any tenant.
@@ -314,7 +315,7 @@ impl Db {
     /// # }
     /// ```
     pub async fn register_model(&self, params: ModelRegistrationParams) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Mdl);
         sqlx::query(
             "INSERT INTO models (id, name, hash_b3, license_hash_b3, config_hash_b3, tokenizer_hash_b3, tokenizer_cfg_hash_b3, metadata_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
         )
@@ -421,7 +422,7 @@ impl Db {
     ) -> Result<String> {
         use std::path::Path;
 
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Mdl);
         let now = chrono::Utc::now().to_rfc3339();
         // Normalize path for consistent storage
         let normalized_path = normalize_model_path(model_path);
@@ -584,7 +585,7 @@ impl Db {
         let id = existing
             .as_ref()
             .map(|m| m.id.clone())
-            .unwrap_or_else(|| Uuid::now_v7().to_string());
+            .unwrap_or_else(|| new_id(IdPrefix::Mdl));
 
         let now = chrono::Utc::now().to_rfc3339();
         // Normalize path for consistent storage
@@ -925,7 +926,7 @@ impl Db {
             .await?;
         } else {
             // Insert new record
-            let id = Uuid::now_v7().to_string();
+            let id = new_id(IdPrefix::Mdl);
             sqlx::query(
                 "INSERT INTO base_model_status (id, tenant_id, model_id, status, error_message, memory_usage_mb, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
             )
@@ -941,9 +942,9 @@ impl Db {
             .await?;
         }
 
-        // Update loaded_at/unloaded_at timestamps based on status
+        // Update loaded_at/unloaded_at timestamps based on normalized status
         match normalized_status {
-            "ready" => {
+            "loaded" => {
                 sqlx::query(
                     "UPDATE base_model_status SET loaded_at = ? WHERE tenant_id = ? AND model_id = ?"
                 )
@@ -953,7 +954,7 @@ impl Db {
                 .execute(self.pool())
                 .await?;
             }
-            "no-model" => {
+            "unloaded" => {
                 sqlx::query(
                     "UPDATE base_model_status SET unloaded_at = ? WHERE tenant_id = ? AND model_id = ?"
                 )

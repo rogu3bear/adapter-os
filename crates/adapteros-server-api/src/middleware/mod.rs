@@ -36,7 +36,7 @@ use blake3::Hasher;
 use chrono::{Duration, Utc};
 use serde_json;
 use std::str::FromStr;
-use uuid::Uuid;
+use adapteros_id::{TypedId, IdPrefix};
 
 /// Raw ApiKey token attached to the request for downstream use (e.g., worker UDS)
 #[derive(Clone)]
@@ -310,7 +310,7 @@ fn dev_no_auth_claims() -> Claims {
         rot_id: None,
         exp: (now + Duration::hours(8)).timestamp(),
         iat: now.timestamp(),
-        jti: Uuid::new_v4().to_string(),
+        jti: TypedId::new(IdPrefix::Tok).to_string(),
         nbf: now.timestamp(),
         iss: crate::auth::JWT_ISSUER.to_string(),
         auth_mode: AuthMode::DevBypass,

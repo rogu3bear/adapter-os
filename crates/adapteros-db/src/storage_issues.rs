@@ -3,7 +3,8 @@
 use crate::Db;
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct StorageIssue {
@@ -35,7 +36,7 @@ pub struct NewStorageIssue<'a> {
 impl Db {
     /// Record a new storage integrity issue.
     pub async fn record_storage_issue(&self, issue: NewStorageIssue<'_>) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Fil);
         let pool = self.pool_opt().ok_or_else(|| {
             AosError::Database("SQL pool not configured for storage issue recording".to_string())
         })?;

@@ -7,7 +7,7 @@ use adapteros_types::training::ExampleMetadataV1;
 use blake3;
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
@@ -721,7 +721,7 @@ async fn test_try_resume_from_checkpoint_with_checkpoint() {
     let weights = LoRAWeights {
         lora_a: vec![vec![1.0, 2.0]],
         lora_b: vec![vec![3.0, 4.0]],
-        modules: HashMap::new(),
+        modules: BTreeMap::new(),
         moe_config: None,
         precomputed_delta: None,
     };
@@ -758,7 +758,7 @@ async fn test_try_resume_from_checkpoint_mismatched_optimizer() {
     let weights = LoRAWeights {
         lora_a: vec![vec![1.0, 2.0]],
         lora_b: vec![vec![3.0, 4.0]],
-        modules: HashMap::new(),
+        modules: BTreeMap::new(),
         moe_config: None,
         precomputed_delta: None,
     };
@@ -795,7 +795,7 @@ async fn test_try_resume_from_checkpoint_force_resume() {
     let weights = LoRAWeights {
         lora_a: vec![vec![1.0, 2.0]],
         lora_b: vec![vec![3.0, 4.0]],
-        modules: HashMap::new(),
+        modules: BTreeMap::new(),
         moe_config: None,
         precomputed_delta: None,
     };

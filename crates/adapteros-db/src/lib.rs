@@ -112,6 +112,11 @@ use tracing::{debug, info, warn};
 static MIGRATION_TEST_LOCK: Lazy<tokio::sync::Mutex<()>> =
     Lazy::new(|| tokio::sync::Mutex::new(()));
 
+/// Generate a new typed ID string for database storage.
+pub fn new_id(prefix: adapteros_id::IdPrefix) -> String {
+    adapteros_id::TypedId::new(prefix).to_string()
+}
+
 // Query constants for SELECT column lists
 pub mod constants;
 
@@ -138,7 +143,6 @@ pub mod metrics_db;
 pub mod policy_audit_kv;
 pub mod prefix_templates;
 pub mod rag;
-pub mod readable_ids;
 pub mod reembedding;
 pub mod replay_kv;
 pub mod repository_training_policies;
@@ -2392,7 +2396,7 @@ impl Db {
 
     /// Insert a new adapter stack
     pub async fn insert_stack(&self, req: &CreateStackRequest) -> Result<String> {
-        let id = uuid::Uuid::new_v4().to_string();
+        let id = new_id(adapteros_id::IdPrefix::Stk);
         let adapter_ids_json =
             serde_json::to_string(&req.adapter_ids).map_err(|e| AosError::Serialization(e))?;
         let workflow_type = req.workflow_type.as_deref().unwrap_or("Parallel");
@@ -2923,11 +2927,11 @@ pub mod tenants_kv;
 pub use policy_hash::PolicyHashRecord;
 pub use stacks_kv::{StackKvOps, StackKvRepository};
 pub use tenants_kv::{CreateTenantParams, TenantKvOps, TenantKvRepository};
+pub mod discrepancy_cases;
 pub mod process_monitoring;
 pub mod progress_events;
 pub mod rag_retrieval_audit;
 pub mod replay_sessions;
-pub mod discrepancy_cases;
 pub mod repositories;
 pub mod repositories_kv;
 pub mod routing_decisions;
@@ -3044,13 +3048,6 @@ impl Db {
         .await
         .map_err(|e| AosError::Database(format!("Failed to update anomaly status: {}", e)))?;
         Ok(())
-    }
-
-    /// Backfill readable IDs across SQL tables (one-time).
-    pub async fn backfill_readable_ids(&self) -> Result<()> {
-        crate::readable_ids::backfill_readable_ids(self)
-            .await
-            .map_err(|e| AosError::Database(format!("Readable ID backfill failed: {}", e)))
     }
 
     /// Get a system setting value by key
@@ -3418,7 +3415,7 @@ impl Db {
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
-        .bind(uuid::Uuid::now_v7().to_string())
+        .bind(new_id(adapteros_id::IdPrefix::Evt))
         .bind(event_type)
         .bind(adapter_id)
         .bind(tenant_id)

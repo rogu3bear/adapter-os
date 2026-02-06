@@ -60,6 +60,14 @@ pub struct BootReport {
     /// Build information.
     pub build: BuildInfo,
 
+    /// Run ID for this server instance.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<String>,
+
+    /// Build identifier ({hash}-{timestamp}).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub build_id: Option<String>,
+
     /// Timestamp of report generation (ISO 8601).
     pub generated_at: String,
 }
@@ -82,19 +90,30 @@ pub struct BuildInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rustc_version: Option<String>,
 
-    /// Target triple (e.g., "aarch64-apple-darwin").
+    /// Target triple (e.g., "aarch64-macos").
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target: Option<String>,
+
+    /// Combined build identifier ({hash}-{timestamp}).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub build_id: Option<String>,
 }
 
 impl Default for BuildInfo {
     fn default() -> Self {
+        use adapteros_core::version;
+
         Self {
-            git_sha: option_env!("GIT_SHA").map(String::from),
-            build_time: option_env!("BUILD_TIME").map(String::from),
-            version: env!("CARGO_PKG_VERSION").to_string(),
-            rustc_version: option_env!("RUSTC_VERSION").map(String::from),
-            target: option_env!("TARGET").map(String::from),
+            git_sha: Some(version::GIT_COMMIT_HASH.to_string())
+                .filter(|s| s != "unknown"),
+            build_time: Some(version::BUILD_TIMESTAMP.to_string())
+                .filter(|s| s != "unknown"),
+            version: version::VERSION.to_string(),
+            rustc_version: Some(version::RUSTC_VERSION.to_string())
+                .filter(|s| s != "unknown"),
+            target: Some(format!("{}-{}", version::TARGET_ARCH, version::TARGET_OS)),
+            build_id: Some(version::BUILD_ID.to_string())
+                .filter(|s| s != "unknown"),
         }
     }
 }
@@ -110,6 +129,8 @@ pub struct BootReportBuilder {
     auth_key_kids: Vec<String>,
     worker_key_kids: Vec<String>,
     build: BuildInfo,
+    run_id: Option<String>,
+    build_id: Option<String>,
 }
 
 impl Default for BootReportBuilder {
@@ -131,6 +152,8 @@ impl BootReportBuilder {
             auth_key_kids: Vec::new(),
             worker_key_kids: Vec::new(),
             build: BuildInfo::default(),
+            run_id: None,
+            build_id: None,
         }
     }
 
@@ -216,6 +239,18 @@ impl BootReportBuilder {
         self
     }
 
+    /// Set the run ID.
+    pub fn run_id(mut self, run_id: impl Into<String>) -> Self {
+        self.run_id = Some(run_id.into());
+        self
+    }
+
+    /// Set the build ID.
+    pub fn build_id_field(mut self, build_id: impl Into<String>) -> Self {
+        self.build_id = Some(build_id.into());
+        self
+    }
+
     /// Build the boot report.
     pub fn build(self) -> BootReport {
         let mut phase_durations = HashMap::new();
@@ -239,6 +274,8 @@ impl BootReportBuilder {
             auth_key_kids: self.auth_key_kids,
             worker_key_kids: self.worker_key_kids,
             build: self.build,
+            run_id: self.run_id,
+            build_id: self.build_id,
             generated_at: chrono::Utc::now().to_rfc3339(),
         }
     }

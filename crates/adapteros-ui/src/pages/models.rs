@@ -7,10 +7,11 @@ use crate::api::{
     ModelStatusResponse,
 };
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonVariant, Card, CopyableId, ErrorDisplay, Spinner,
-    SplitPanel, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    Badge, BadgeVariant, Button, ButtonVariant, Card, CopyableId, ErrorDisplay, PageScaffold,
+    PageScaffoldActions, Spinner, SplitPanel, Table, TableBody, TableCell, TableHead, TableHeader,
+    TableRow,
 };
-use crate::hooks::{use_api_resource, LoadingState};
+use crate::hooks::{use_api_resource, LoadingState, Refetch};
 use crate::utils::format_datetime;
 use leptos::prelude::*;
 use std::sync::Arc;
@@ -39,7 +40,16 @@ pub fn Models() -> impl IntoView {
     let has_selection = Signal::derive(move || selected_model_id.get().is_some());
 
     view! {
-        <div class="p-6 space-y-6">
+        <PageScaffold title="Models">
+            <PageScaffoldActions slot>
+                <Button
+                    variant=ButtonVariant::Outline
+                    on_click=Callback::new(move |_| refetch_models.run(()))
+                >
+                    "Refresh"
+                </Button>
+            </PageScaffoldActions>
+
             <SplitPanel
                 has_selection=has_selection
                 on_close=Callback::new(move |_| on_close_detail())
@@ -47,19 +57,6 @@ pub fn Models() -> impl IntoView {
                 list_panel=move || {
                     view! {
                         <div class="space-y-6">
-                            // Header
-                            <div class="flex items-center justify-between">
-                                <h1 class="text-3xl font-bold tracking-tight">"Models"</h1>
-                                <div class="flex items-center gap-2">
-                                    <Button
-                                        variant=ButtonVariant::Outline
-                                        on_click=Callback::new(move |_| refetch_models.run(()))
-                                    >
-                                        "Refresh"
-                                    </Button>
-                                </div>
-                            </div>
-
                             // Model list
                             {move || {
                                 match models.get() {
@@ -93,7 +90,7 @@ pub fn Models() -> impl IntoView {
                                             view! {
                                                 <ErrorDisplay
                                                     error=e
-                                                    on_retry=refetch_models
+                                                    on_retry=refetch_models.as_callback()
                                                 />
                                             }
                                             .into_any()
@@ -114,7 +111,7 @@ pub fn Models() -> impl IntoView {
                     }
                 }
             />
-        </div>
+        </PageScaffold>
     }
 }
 
@@ -267,7 +264,7 @@ fn ModelDetail(model_id: String, on_close: impl Fn() + Copy + 'static) -> impl I
         <div class="space-y-4">
             // Header with close button
             <div class="flex items-center justify-between">
-                <h2 class="text-xl font-semibold">"Model Details"</h2>
+                <h2 class="heading-3">"Model Details"</h2>
                 <button
                     class="text-muted-foreground hover:text-foreground"
                     on:click=move |_| on_close()
@@ -308,7 +305,7 @@ fn ModelDetail(model_id: String, on_close: impl Fn() + Copy + 'static) -> impl I
                         view! {
                             <ErrorDisplay
                                 error=e
-                                on_retry=refetch
+                                on_retry=refetch.as_callback()
                             />
                         }.into_any()
                     }
@@ -323,7 +320,7 @@ fn ModelDetail(model_id: String, on_close: impl Fn() + Copy + 'static) -> impl I
 fn ModelDetailContent(
     model: ModelStatusResponse,
     model_id: String,
-    on_update: Callback<()>,
+    on_update: Refetch,
 ) -> impl IntoView {
     let status_variant = if model.is_loaded {
         BadgeVariant::Success

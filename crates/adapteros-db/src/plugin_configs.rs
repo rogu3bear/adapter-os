@@ -3,7 +3,8 @@ use crate::{Db, StorageMode};
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use tracing::debug;
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 /// Plugin configuration record
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -221,7 +222,7 @@ impl Db {
                     .await
                     .map_err(|e| AosError::Database(format!("Failed to update plugin config: {}", e)))?;
                 } else {
-                    let id = Uuid::new_v4().to_string();
+                    let id = new_id(IdPrefix::Pol);
                     sqlx::query(
                         "INSERT INTO plugin_configs (id, plugin_name, enabled, config_json) VALUES (?, ?, ?, ?)"
                     )
@@ -406,7 +407,7 @@ impl Db {
                     .await
                     .map_err(|e| AosError::Database(format!("Failed to update tenant plugin override: {}", e)))?;
                 } else {
-                    let id = Uuid::new_v4().to_string();
+                    let id = new_id(IdPrefix::Pol);
                     sqlx::query(
                         "INSERT INTO plugin_tenant_enables (id, plugin_name, tenant_id, enabled, config_override_json) VALUES (?, ?, ?, ?, ?)"
                     )
@@ -496,7 +497,7 @@ impl Db {
                 })?;
         } else {
             // Insert new override with disabled state
-            let id = Uuid::new_v4().to_string();
+            let id = new_id(IdPrefix::Pol);
             sqlx::query(
                 "INSERT INTO plugin_tenant_enables (id, plugin_name, tenant_id, enabled) VALUES (?, ?, ?, ?)"
             )

@@ -6,6 +6,7 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
+adapteros-id = { path = "../adapteros-id" }
 adapteros-types = { path = "../adapteros-types" }
 adapteros-infra-common = { path = "../adapteros-infra-common" }
 adapteros-error-registry = { path = "../adapteros-error-registry" }

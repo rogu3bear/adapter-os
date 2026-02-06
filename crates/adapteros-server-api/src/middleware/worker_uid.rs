@@ -85,6 +85,21 @@ impl UdsPeerCredentials {
 /// This is read once at first access and cached for performance.
 static EXPECTED_WORKER_UID: OnceLock<Option<u32>> = OnceLock::new();
 
+/// Cached production mode flag from environment.
+static IS_PRODUCTION_MODE: OnceLock<bool> = OnceLock::new();
+
+/// Check if production mode is enabled via AOS_PRODUCTION_MODE env var.
+fn is_production_mode() -> bool {
+    *IS_PRODUCTION_MODE.get_or_init(|| {
+        std::env::var("AOS_PRODUCTION_MODE")
+            .map(|v| {
+                let lower = v.to_ascii_lowercase();
+                matches!(lower.as_str(), "1" | "true")
+            })
+            .unwrap_or(false)
+    })
+}
+
 /// Get the expected worker UID from environment.
 ///
 /// Returns `Some(uid)` if `AOS_WORKER_UID` is set and valid, `None` otherwise.
@@ -105,7 +120,14 @@ fn get_expected_worker_uid() -> Option<u32> {
             }
         },
         Err(_) => {
-            debug!("AOS_WORKER_UID not set, worker UID validation disabled (backwards compatible)");
+            if is_production_mode() {
+                warn!(
+                    "AOS_WORKER_UID not set in production mode - internal routes will require UCred validation. \
+                     Set AOS_WORKER_UID to the expected worker process UID."
+                );
+            } else {
+                debug!("AOS_WORKER_UID not set, worker UID validation disabled (backwards compatible)");
+            }
             None
         }
     })
@@ -119,10 +141,13 @@ pub fn is_worker_uid_validation_enabled() -> bool {
 /// Middleware to validate the connecting process's UID for internal routes.
 ///
 /// This middleware:
-/// 1. Checks if `AOS_WORKER_UID` is set; if not, allows the request (backwards compatible)
-/// 2. Extracts `UdsPeerCredentials` from request extensions
-/// 3. Validates the peer UID matches the expected worker UID
-/// 4. Rejects with 403 Forbidden if validation fails
+/// 1. In production mode (AOS_PRODUCTION_MODE=1): UCred validation is MANDATORY
+///    - Requests without peer credentials are rejected
+///    - If AOS_WORKER_UID is set, UID must match; otherwise any authenticated UDS connection is allowed
+/// 2. In development mode: Backwards compatible - allows requests without validation if AOS_WORKER_UID is not set
+/// 3. Extracts `UdsPeerCredentials` from request extensions
+/// 4. Validates the peer UID matches the expected worker UID (when configured)
+/// 5. Rejects with 403 Forbidden if validation fails
 ///
 /// # Example
 ///
@@ -135,21 +160,60 @@ pub fn is_worker_uid_validation_enabled() -> bool {
 ///     .layer(middleware::from_fn(worker_uid_middleware));
 /// ```
 pub async fn worker_uid_middleware(req: Request<Body>, next: Next) -> Response {
-    // Check if validation is enabled
-    let expected_uid = match get_expected_worker_uid() {
-        Some(uid) => uid,
-        None => {
-            // Validation disabled, allow request
-            return next.run(req).await;
-        }
-    };
+    let production_mode = is_production_mode();
+    let expected_uid = get_expected_worker_uid();
 
     // Extract peer credentials from request extensions
     let peer_creds = req.extensions().get::<UdsPeerCredentials>().cloned();
 
-    match peer_creds {
-        Some(creds) => {
-            if creds.uid == expected_uid {
+    match (production_mode, expected_uid, peer_creds) {
+        // Production mode: UCred validation is MANDATORY
+        (true, _, None) => {
+            warn!(
+                path = %req.uri().path(),
+                "SECURITY: Internal route called without UCred in production mode. \
+                 Internal routes require UDS connections with peer credentials in production. \
+                 Ensure workers connect via Unix Domain Socket."
+            );
+            production_no_credentials_response()
+        }
+
+        // Production mode with expected UID: validate UID matches
+        (true, Some(uid), Some(creds)) => {
+            if creds.uid == uid {
+                debug!(
+                    peer_uid = creds.uid,
+                    peer_pid = ?creds.pid,
+                    path = %req.uri().path(),
+                    "Worker UID validation passed (production mode)"
+                );
+                next.run(req).await
+            } else {
+                warn!(
+                    peer_uid = creds.uid,
+                    expected_uid = uid,
+                    peer_pid = ?creds.pid,
+                    path = %req.uri().path(),
+                    "Worker UID validation failed: UID mismatch (production mode)"
+                );
+                uid_mismatch_response(creds.uid, uid)
+            }
+        }
+
+        // Production mode without expected UID: accept any UDS connection with credentials
+        (true, None, Some(creds)) => {
+            debug!(
+                peer_uid = creds.uid,
+                peer_pid = ?creds.pid,
+                path = %req.uri().path(),
+                "Internal route allowed via UDS with credentials (production mode, no UID filter)"
+            );
+            next.run(req).await
+        }
+
+        // Development mode with expected UID and credentials: validate
+        (false, Some(uid), Some(creds)) => {
+            if creds.uid == uid {
                 debug!(
                     peer_uid = creds.uid,
                     peer_pid = ?creds.pid,
@@ -160,22 +224,17 @@ pub async fn worker_uid_middleware(req: Request<Body>, next: Next) -> Response {
             } else {
                 warn!(
                     peer_uid = creds.uid,
-                    expected_uid = expected_uid,
+                    expected_uid = uid,
                     peer_pid = ?creds.pid,
                     path = %req.uri().path(),
                     "Worker UID validation failed: UID mismatch"
                 );
-                uid_mismatch_response(creds.uid, expected_uid)
+                uid_mismatch_response(creds.uid, uid)
             }
         }
-        None => {
-            // No peer credentials available - this could mean:
-            // 1. Request came over TCP (not UDS)
-            // 2. Credentials weren't injected (implementation bug)
-            //
-            // In production UDS mode, this should be treated as a failure.
-            // However, to support mixed TCP/UDS development environments,
-            // we check if we're likely on UDS.
+
+        // Development mode with expected UID but no credentials
+        (false, Some(_), None) => {
             warn!(
                 path = %req.uri().path(),
                 "Worker UID validation failed: no peer credentials available. \
@@ -183,6 +242,15 @@ pub async fn worker_uid_middleware(req: Request<Body>, next: Next) -> Response {
                  were not injected."
             );
             no_credentials_response()
+        }
+
+        // Development mode without expected UID: backwards compatible - allow all
+        (false, None, _) => {
+            debug!(
+                path = %req.uri().path(),
+                "Internal route allowed (development mode, no UID validation configured)"
+            );
+            next.run(req).await
         }
     }
 }
@@ -206,6 +274,20 @@ fn no_credentials_response() -> Response {
         .with_string_details(
             "Peer credentials not available. Internal routes require UDS connections \
              with AOS_WORKER_UID validation enabled."
+                .to_string(),
+        );
+
+    (StatusCode::FORBIDDEN, Json(body)).into_response()
+}
+
+/// Generate a 403 Forbidden response for missing credentials in production mode.
+fn production_no_credentials_response() -> Response {
+    let body = ErrorResponse::new("internal route requires UDS connection in production")
+        .with_code("PRODUCTION_UCRED_REQUIRED")
+        .with_string_details(
+            "Production mode (AOS_PRODUCTION_MODE=1) requires internal routes to be accessed \
+             via Unix Domain Socket with peer credentials. TCP connections to internal routes \
+             are not permitted in production. Ensure workers connect via UDS."
                 .to_string(),
         );
 

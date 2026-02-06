@@ -63,9 +63,7 @@ pub fn build_plan(manifest: &ManifestV3, metallib: &[u8]) -> Result<PlanMeta> {
 
     // Get toolchain info
     let toolchain_version = env!("CARGO_PKG_VERSION").to_string();
-    let rustc_version = option_env!("RUSTC_VERSION")
-        .unwrap_or("unknown")
-        .to_string();
+    let rustc_version = adapteros_core::version::RUSTC_VERSION.to_string();
 
     Ok(PlanMeta {
         manifest_hash,

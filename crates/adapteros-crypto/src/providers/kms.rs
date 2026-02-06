@@ -32,11 +32,15 @@ use aws_sdk_kms::{types::SigningAlgorithmSpec, Client as KmsClient};
 #[cfg(feature = "aws-kms")]
 use aws_types::region::Region;
 
-/// Create a seeded RNG for deterministic key generation
-/// Uses HKDF with domain separation for cryptographic operations
-fn seeded_rng(context: &str) -> StdRng {
-    // Use a base seed derived from a constant (for KMS operations)
-    // In production, this should be derived from a master key or system entropy
+/// Create a seeded RNG for **mock/test** key generation only.
+///
+/// WARNING: This function produces deterministic output for a given context.
+/// It is ONLY suitable for mock providers and testing. For real cryptographic
+/// key generation, use `OsRng` directly.
+///
+/// Uses HKDF with domain separation for cryptographic operations.
+fn seeded_rng_for_mock(context: &str) -> StdRng {
+    // Deterministic seed for mock/test reproducibility
     let base_seed = B3Hash::hash(format!("kms-seed:{}", context).as_bytes());
     let seed_bytes = derive_seed(&base_seed, &format!("kms-rng:{}", context));
     let mut seed_array = [0u8; 32];
@@ -813,18 +817,19 @@ impl KmsProvider for MockKmsProvider {
             return Err(AosError::Crypto(format!("Key already exists: {}", key_id)));
         }
 
-        // Generate mock key material
+        // Generate mock key material (deterministic for test reproducibility)
         let (private_key, public_key) = match alg {
             KeyAlgorithm::Ed25519 => {
                 let mut private = vec![0u8; 32];
-                seeded_rng(&format!("mock-generate-ed25519:{}", key_id)).fill_bytes(&mut private);
+                seeded_rng_for_mock(&format!("mock-generate-ed25519:{}", key_id))
+                    .fill_bytes(&mut private);
                 // Derive public key (simplified mock)
                 let public = private.iter().map(|b| b.wrapping_add(1)).collect();
                 (private, public)
             }
             KeyAlgorithm::Aes256Gcm | KeyAlgorithm::ChaCha20Poly1305 => {
                 let mut key = vec![0u8; 32];
-                seeded_rng("mock-symmetric-keygen").fill_bytes(&mut key);
+                seeded_rng_for_mock("mock-symmetric-keygen").fill_bytes(&mut key);
                 (key.clone(), vec![])
             }
         };
@@ -918,17 +923,19 @@ impl KmsProvider for MockKmsProvider {
             .get_mut(key_id)
             .ok_or_else(|| AosError::Crypto(format!("Key not found: {}", key_id)))?;
 
-        // Generate new key material
+        // Generate new key material (deterministic for test reproducibility)
         let (private_key, public_key) = match key.algorithm {
             KeyAlgorithm::Ed25519 => {
                 let mut private = vec![0u8; 32];
-                seeded_rng(&format!("mock-rotate-ed25519:{}", key_id)).fill_bytes(&mut private);
+                seeded_rng_for_mock(&format!("mock-rotate-ed25519:{}", key_id))
+                    .fill_bytes(&mut private);
                 let public = private.iter().map(|b| b.wrapping_add(1)).collect();
                 (private, public)
             }
             KeyAlgorithm::Aes256Gcm | KeyAlgorithm::ChaCha20Poly1305 => {
                 let mut k = vec![0u8; 32];
-                seeded_rng(&format!("mock-rotate-symmetric:{}", key_id)).fill_bytes(&mut k);
+                seeded_rng_for_mock(&format!("mock-rotate-symmetric:{}", key_id))
+                    .fill_bytes(&mut k);
                 (k.clone(), vec![])
             }
         };
@@ -1388,25 +1395,30 @@ impl LocalKmsProvider {
         Ok(())
     }
 
-    /// Generate key material based on algorithm
+    /// Generate key material based on algorithm using OS entropy.
+    ///
+    /// Uses `OsRng` for cryptographically secure random key generation.
     fn generate_key_material(alg: &KeyAlgorithm) -> (Vec<u8>, Vec<u8>) {
+        use rand::rngs::OsRng;
         use rand::RngCore;
-        let mut rng = seeded_rng(&format!("key-material:{:?}", alg));
+        use zeroize::Zeroize;
 
         match alg {
             KeyAlgorithm::Ed25519 => {
-                // Generate Ed25519 keypair
+                // Generate Ed25519 keypair with OS entropy
                 let mut seed = [0u8; 32];
-                rng.fill_bytes(&mut seed);
+                OsRng.fill_bytes(&mut seed);
                 let signing_key = ed25519_dalek::SigningKey::from_bytes(&seed);
                 let verifying_key = signing_key.verifying_key();
 
-                (seed.to_vec(), verifying_key.to_bytes().to_vec())
+                let result = (seed.to_vec(), verifying_key.to_bytes().to_vec());
+                seed.zeroize(); // Zeroize seed after use
+                result
             }
             KeyAlgorithm::Aes256Gcm | KeyAlgorithm::ChaCha20Poly1305 => {
-                // Generate 256-bit symmetric key
+                // Generate 256-bit symmetric key with OS entropy
                 let mut key = vec![0u8; 32];
-                rng.fill_bytes(&mut key);
+                OsRng.fill_bytes(&mut key);
                 (key.clone(), vec![]) // No public key for symmetric
             }
         }
@@ -1491,6 +1503,7 @@ impl KmsProvider for LocalKmsProvider {
             KeyAlgorithm::Aes256Gcm => {
                 use aes_gcm::aead::Aead;
                 use aes_gcm::{Aes256Gcm, KeyInit};
+                use rand::rngs::OsRng;
                 use rand::RngCore;
 
                 let key_bytes: &[u8; 32] = key_data.key_material[..32]
@@ -1499,9 +1512,11 @@ impl KmsProvider for LocalKmsProvider {
 
                 let cipher = Aes256Gcm::new(key_bytes.into());
 
-                // Generate deterministic nonce using seeded RNG
+                // SECURITY: Generate random 12-byte nonce using OS entropy.
+                // AES-GCM nonces MUST be unique per encryption with the same key.
+                // Deterministic nonces would allow nonce reuse attacks.
                 let mut nonce_bytes = [0u8; 12];
-                seeded_rng(&format!("aes-nonce:{}", key_id)).fill_bytes(&mut nonce_bytes);
+                OsRng.fill_bytes(&mut nonce_bytes);
                 let nonce = aes_gcm::Nonce::from_slice(&nonce_bytes);
 
                 // Encrypt
@@ -1509,7 +1524,7 @@ impl KmsProvider for LocalKmsProvider {
                     .encrypt(nonce, plaintext)
                     .map_err(|e| AosError::Crypto(format!("AES-GCM encryption failed: {}", e)))?;
 
-                // Prepend nonce to ciphertext
+                // Prepend nonce to ciphertext so decryption can extract it
                 let mut result = nonce_bytes.to_vec();
                 result.extend_from_slice(&ciphertext);
                 Ok(result)

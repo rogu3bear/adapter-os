@@ -105,7 +105,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use tokio::sync::watch;
 use tracing::{debug, error, info, warn};
-use uuid::Uuid;
+use adapteros_id::{TypedId, IdPrefix};
 
 const DETERMINISM_ATTESTATION_SCHEMA_VERSION: u8 = 1;
 
@@ -3038,7 +3038,7 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             );
         }
 
-        let trace_id = Uuid::now_v7().to_string();
+        let trace_id = TypedId::new(IdPrefix::Trc).to_string();
 
         let mut trace_sink = if let Some(trace_db) = self.trace_db.as_mut() {
             let start = TraceStart {

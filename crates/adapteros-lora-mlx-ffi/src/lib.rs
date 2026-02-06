@@ -204,19 +204,17 @@ fn sample_token_impl(
 ) -> Result<u32> {
     validate_sampling_params(temperature, top_p)?;
 
-    let mut sampled_token: u32 = 0;
-
-    let success = unsafe {
-        mlx_sample_token(
-            logits.inner,
-            temperature,
-            top_k as i32,
-            top_p,
-            &mut sampled_token,
-        )
+    let config = MlxSamplerConfig {
+        temperature,
+        top_p,
+        top_k: top_k as i32,
+        repetition_penalty: 1.0,
+        seed: 0,
     };
 
-    if !success {
+    let token = unsafe { mlx_sample_token(logits.inner, &config) };
+
+    if token < 0 {
         let error = ffi_error::get_ffi_error_or("Unknown error");
         // Classify error: RNG/sampling failures are determinism violations
         let error_lower = error.to_lowercase();
@@ -231,6 +229,8 @@ fn sample_token_impl(
         }
         return Err(AosError::Mlx(format!("Token sampling failed: {}", error)));
     }
+
+    let sampled_token = token as u32;
 
     tracing::debug!(
         sampled_token = sampled_token,
@@ -350,13 +350,21 @@ pub fn mlx_sample_token_with_metadata_safe(
 
         let confidence = metadata.confidence;
 
-        // Extract alternatives
+        // Extract alternatives with bounds check on FFI-provided size.
+        // Cap at a reasonable maximum to prevent memory safety issues from
+        // corrupted/malicious FFI data.
+        const MAX_ALTERNATIVES: usize = 1024;
         let mut alternatives = Vec::new();
         if !metadata.alternatives.is_null() && metadata.num_alternatives > 0 {
-            let alts_slice = std::slice::from_raw_parts(
-                metadata.alternatives,
-                metadata.num_alternatives as usize,
-            );
+            let num_alts = (metadata.num_alternatives as usize).min(MAX_ALTERNATIVES);
+            if metadata.num_alternatives as usize > MAX_ALTERNATIVES {
+                tracing::warn!(
+                    requested = metadata.num_alternatives,
+                    capped = MAX_ALTERNATIVES,
+                    "FFI num_alternatives exceeded maximum, capping"
+                );
+            }
+            let alts_slice = std::slice::from_raw_parts(metadata.alternatives, num_alts);
             for alt in alts_slice {
                 alternatives.push((alt.token_id, alt.prob));
             }
@@ -1303,7 +1311,7 @@ extern "C" {
     fn mlx_array_from_ints(data: *const i32, size: i32) -> *mut mlx_array_t;
     fn mlx_array_from_uints(data: *const u32, size: i32) -> *mut mlx_array_t;
     fn mlx_array_data(array: *mut mlx_array_t) -> *mut f32;
-    fn mlx_array_size(array: *mut mlx_array_t) -> usize;
+    fn mlx_array_size(array: *mut mlx_array_t) -> usize; // C returns int; benign on ARM64 (zero-extended)
     fn mlx_array_free(array: *mut mlx_array_t);
     fn mlx_array_copy(array: *mut mlx_array_t) -> *mut mlx_array_t;
 
@@ -1344,13 +1352,11 @@ extern "C" {
     fn mlx_set_seed(data: *const u8, size: usize);
 
     // Token sampling for text generation (legacy)
+    // Returns sampled token index on success, -1 on error
     fn mlx_sample_token(
         logits: *mut mlx_array_t,
-        temperature: f32,
-        top_k: i32,
-        top_p: f32,
-        out_token: *mut u32,
-    ) -> bool;
+        config: *const MlxSamplerConfig,
+    ) -> i32;
 
     // Token sampling with metadata
     fn mlx_sample_token_with_metadata(

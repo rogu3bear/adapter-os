@@ -16,7 +16,7 @@ use axum::{
 };
 use chrono::{Duration, Utc};
 use tracing::{info, warn};
-use uuid::Uuid;
+use adapteros_id::{TypedId, IdPrefix};
 
 use super::audit::{log_auth_event, log_lockout_event, AuthEvent};
 use super::validation::normalize_email;
@@ -213,8 +213,8 @@ pub async fn login_handler(
     }
 
     // 7. Generate Session and Token
-    let session_id = Uuid::new_v4().to_string();
-    let rot_id = format!("rot-{}", Uuid::new_v4());
+    let session_id = TypedId::new(IdPrefix::Ses).to_string();
+    let rot_id = TypedId::new(IdPrefix::Rot).to_string();
     let token_ttl_seconds = auth_cfg.access_ttl();
     let session_ttl_seconds = auth_cfg.effective_ttl();
     let now = Utc::now();
@@ -370,7 +370,7 @@ pub async fn login_handler(
 
     // 11. Attach httpOnly cookies for browser auth
     let mut response_headers = HeaderMap::new();
-    let csrf_token = Uuid::new_v4().to_string();
+    let csrf_token = TypedId::new(IdPrefix::Tok).to_string();
     attach_auth_cookies(
         &mut response_headers,
         &token,

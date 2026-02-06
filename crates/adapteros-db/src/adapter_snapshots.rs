@@ -3,11 +3,11 @@
 //! Records the exact documents and chunking configuration used to train each adapter,
 //! enabling reproducibility and audit trails.
 
-use crate::{Db, Result};
+use crate::{new_id, Db, Result};
 use adapteros_core::AosError;
+use adapteros_id::IdPrefix;
 use serde::{Deserialize, Serialize};
 use sqlx::Error as SqlxError;
-use uuid::Uuid;
 
 /// Adapter training snapshot record
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,7 +62,7 @@ impl Db {
     /// # Returns
     /// The unique ID of the created snapshot record
     pub async fn create_training_snapshot(&self, params: CreateSnapshotParams) -> Result<String> {
-        let id = Uuid::new_v4().to_string();
+        let id = new_id(IdPrefix::Adp);
 
         let tenant_id = if let Some(collection_id) = params.collection_id.as_deref() {
             self.collection_tenant_id(collection_id).await?
@@ -195,7 +195,7 @@ impl Db {
         {
             Ok(id) => Ok(id),
             Err(SqlxError::RowNotFound) => {
-                let auto_name = format!("auto-tenant-{}", Uuid::now_v7());
+                let auto_name = format!("auto-{}", new_id(IdPrefix::Tnt));
                 self.create_tenant(&auto_name, false).await.map_err(|e| {
                     AosError::Database(format!(
                         "Failed to create fallback tenant for training job {}: {}",
@@ -220,7 +220,7 @@ impl Db {
         {
             Ok(id) => Ok(id),
             Err(SqlxError::RowNotFound) => {
-                let auto_name = format!("auto-tenant-{}", Uuid::now_v7());
+                let auto_name = format!("auto-{}", new_id(IdPrefix::Tnt));
                 self.create_tenant(&auto_name, false).await.map_err(|e| {
                     AosError::Database(format!(
                         "Failed to create fallback tenant for collection {}: {}",

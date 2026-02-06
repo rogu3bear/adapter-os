@@ -1,5 +1,6 @@
-use crate::{Db, StorageMode};
+use crate::{new_id, Db, StorageMode};
 use adapteros_core::{AosError, Result};
+use adapteros_id::IdPrefix;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
@@ -55,7 +56,7 @@ impl Db {
         let pool = pool_or_err(self)?;
         let scopes_json =
             serde_json::to_string(scopes).map_err(|e| AosError::Parse(e.to_string()))?;
-        let id = uuid::Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Tok);
         let created_at = time_now_rfc3339();
 
         sqlx::query(

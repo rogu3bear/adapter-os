@@ -334,6 +334,7 @@ pub async fn load_adapter(
         stream_session_id: None,
         versioning_threshold: None,
         coreml_package_hash: None,
+        display_name: None,
     }))
 }
 

@@ -186,7 +186,7 @@ pub async fn create_discrepancy(
     // tenant_id directly accessible. The claims.tenant_id is used for the new case.
 
     // Generate ID
-    let id = crate::id_generator::readable_id(adapteros_core::ids::IdKind::Event, "discrepancy");
+    let id = crate::id_generator::readable_id(adapteros_id::IdPrefix::Evt, "discrepancy");
     let now = chrono::Utc::now().to_rfc3339();
 
     // Clear content if store_content is false
@@ -243,8 +243,7 @@ pub async fn create_discrepancy(
         return Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
-                ErrorResponse::new("Failed to create discrepancy case")
-                    .with_code("INTERNAL_ERROR"),
+                ErrorResponse::new("Failed to create discrepancy case").with_code("INTERNAL_ERROR"),
             ),
         ));
     }

@@ -9,8 +9,8 @@ use crate::api::{
 };
 use crate::components::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, EmptyState, EmptyStateVariant,
-    ErrorDisplay, LoadingDisplay, Spinner, TabButton, Table, TableBody, TableCell, TableHead,
-    TableHeader, TableRow,
+    ErrorDisplay, LoadingDisplay, PageScaffold, PageScaffoldActions, Spinner, TabButton, Table,
+    TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{use_api_resource, use_polling, LoadingState};
 use adapteros_api_types::HealthResponse;
@@ -89,15 +89,11 @@ pub fn Monitoring() -> impl IntoView {
     });
 
     view! {
-        <div class="shell-page space-y-6">
-            // Header
-            <div class="flex items-center justify-between">
-                <div>
-                    <h1 class="text-3xl font-bold tracking-tight">"Metrics"</h1>
-                    <p class="text-muted-foreground mt-1">
-                        "Monitor process health, alerts, and anomalies across workers"
-                    </p>
-                </div>
+        <PageScaffold
+            title="Monitoring"
+            subtitle="Process health, alerts, and anomalies across workers."
+        >
+            <PageScaffoldActions slot>
                 <Button
                     variant=ButtonVariant::Outline
                     on_click=Callback::new(move |_| {
@@ -113,45 +109,46 @@ pub fn Monitoring() -> impl IntoView {
                 >
                     "Refresh"
                 </Button>
-            </div>
+            </PageScaffoldActions>
 
-            // Summary cards
-            <div class="grid gap-4 md:grid-cols-4">
-                <SummaryCard
-                    title="Active Alerts"
-                    count=active_alert_count
-                    variant=BadgeVariant::Destructive
-                />
-                <SummaryCard
-                    title="Unresolved Anomalies"
-                    count=unresolved_anomaly_count
-                    variant=BadgeVariant::Warning
-                />
-                <Card>
-                    <div class="flex items-center justify-between">
-                        <span class="text-sm font-medium text-muted-foreground">"Active Sessions"</span>
-                        {move || {
-                            let count = match system_overview.get() {
-                                LoadingState::Loaded(ref overview) => overview.active_sessions,
-                                _ => 0,
-                            };
-                            view! { <Badge variant=BadgeVariant::Secondary>{count.to_string()}</Badge> }
-                        }}
-                    </div>
-                </Card>
-                <Card>
-                    <div class="flex items-center justify-between">
-                        <span class="text-sm font-medium text-muted-foreground">"Health Status"</span>
-                        {move || match healthz.get() {
-                            LoadingState::Loaded((status_code, data)) => {
-                                let variant = health_status_variant(status_code, &data.status);
-                                view! { <Badge variant=variant>{data.status}</Badge> }.into_any()
-                            }
-                            LoadingState::Loading | LoadingState::Idle => view! { <Spinner/> }.into_any(),
-                            LoadingState::Error(_) => view! { <Badge variant=BadgeVariant::Destructive>"Error"</Badge> }.into_any(),
-                        }}
-                    </div>
-                </Card>
+            // Inline status bar
+            <div class="flex items-center gap-6 px-4 py-2 glass-tier-1 rounded-lg text-sm">
+                <span class="flex items-center gap-2">
+                    <span class="text-muted-foreground">"Alerts"</span>
+                    <Badge variant=BadgeVariant::Destructive>
+                        {move || active_alert_count.get().to_string()}
+                    </Badge>
+                </span>
+                <span class="border-l border-border h-4"></span>
+                <span class="flex items-center gap-2">
+                    <span class="text-muted-foreground">"Anomalies"</span>
+                    <Badge variant=BadgeVariant::Warning>
+                        {move || unresolved_anomaly_count.get().to_string()}
+                    </Badge>
+                </span>
+                <span class="border-l border-border h-4"></span>
+                <span class="flex items-center gap-2">
+                    <span class="text-muted-foreground">"Sessions"</span>
+                    {move || {
+                        let count = match system_overview.get() {
+                            LoadingState::Loaded(ref overview) => overview.active_sessions,
+                            _ => 0,
+                        };
+                        view! { <Badge variant=BadgeVariant::Secondary>{count.to_string()}</Badge> }
+                    }}
+                </span>
+                <span class="border-l border-border h-4"></span>
+                <span class="flex items-center gap-2">
+                    <span class="text-muted-foreground">"Health"</span>
+                    {move || match healthz.get() {
+                        LoadingState::Loaded((status_code, data)) => {
+                            let variant = health_status_variant(status_code, &data.status);
+                            view! { <Badge variant=variant>{data.status}</Badge> }.into_any()
+                        }
+                        LoadingState::Loading | LoadingState::Idle => view! { <Spinner/> }.into_any(),
+                        LoadingState::Error(_) => view! { <Badge variant=BadgeVariant::Destructive>"Error"</Badge> }.into_any(),
+                    }}
+                </span>
             </div>
 
             // Health endpoints
@@ -334,7 +331,7 @@ pub fn Monitoring() -> impl IntoView {
                                     view! {
                                         <ErrorDisplay
                                             error=e
-                                            on_retry=refetch_anomalies
+                                            on_retry=refetch_anomalies.as_callback()
                                         />
                                     }.into_any()
                                 }
@@ -375,7 +372,7 @@ pub fn Monitoring() -> impl IntoView {
                                     view! {
                                         <ErrorDisplay
                                             error=e
-                                            on_retry=refetch_health
+                                            on_retry=refetch_health.as_callback()
                                         />
                                     }.into_any()
                                 }
@@ -384,22 +381,7 @@ pub fn Monitoring() -> impl IntoView {
                     }
                 }}
             </div>
-        </div>
-    }
-}
-
-/// Summary card component
-#[component]
-fn SummaryCard(title: &'static str, count: Signal<usize>, variant: BadgeVariant) -> impl IntoView {
-    view! {
-        <Card>
-            <div class="flex items-center justify-between">
-                <span class="text-sm font-medium text-muted-foreground">{title}</span>
-                <Badge variant=variant>
-                    {move || count.get().to_string()}
-                </Badge>
-            </div>
-        </Card>
+        </PageScaffold>
     }
 }
 

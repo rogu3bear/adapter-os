@@ -217,16 +217,24 @@ pub fn MiniHeatmap(
                 view! {
                     <div class="mini-heatmap-grid" style:gap={format!("{}px", gap)}>
                         {d.rows.iter().take(rows_to_show).map(|row| {
+                            let row_label = row.label.clone();
                             view! {
                                 <div class="mini-heatmap-row" style:gap={format!("{}px", gap)}>
-                                    {row.cells.iter().map(|cell| {
+                                    {row.cells.iter().enumerate().map(|(col_idx, cell)| {
+                                        let tooltip = cell.tooltip.clone().unwrap_or_else(|| {
+                                            format!("{:.0}%", cell.value * 100.0)
+                                        });
+                                        let aria_label = format!("{} column {}: {}", row_label, col_idx + 1, tooltip);
                                         view! {
                                             <div
                                                 class="mini-heatmap-cell"
                                                 style:width={format!("{}px", cell_size)}
                                                 style:height={format!("{}px", cell_size)}
                                                 style:background-color={cell.status.color()}
-                                                title={cell.tooltip.clone().unwrap_or_default()}
+                                                title={tooltip.clone()}
+                                                tabindex="0"
+                                                role="gridcell"
+                                                aria-label={aria_label}
                                             />
                                         }
                                     }).collect_view()}

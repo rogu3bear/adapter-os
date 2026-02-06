@@ -1426,7 +1426,7 @@ pub async fn check_dataset_safety(
             let pause_id = format!(
                 "dataset-safety-{}-{}",
                 dataset_id,
-                adapteros_core::ids::generate_suffix(6)
+                &uuid::Uuid::now_v7().simple().to_string()[..6]
             );
             let context = format!(
                 "Dataset '{}' (version {}) failed safety check. Trust state: {}. Blocking reasons: {}",
@@ -1568,7 +1568,7 @@ pub async fn check_dataset_version_safety(
                 "dataset-safety-{}-{}-{}",
                 dataset_id,
                 version_id,
-                adapteros_core::ids::generate_suffix(6)
+                &uuid::Uuid::now_v7().simple().to_string()[..6]
             );
             let context = format!(
                 "Dataset '{}' version '{}' failed safety check. Trust state: {}. Blocking reasons: {}",

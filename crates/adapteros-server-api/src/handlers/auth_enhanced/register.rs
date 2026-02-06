@@ -23,7 +23,7 @@ use axum::{
 };
 use chrono::{Duration, Utc};
 use tracing::{info, warn};
-use uuid::Uuid;
+use adapteros_id::{TypedId, IdPrefix};
 
 use super::audit::{log_auth_event, log_rate_limit_event, AuthEvent};
 use super::types::{RegisterRequest, RegisterResponse};
@@ -156,7 +156,7 @@ pub async fn register_handler(
 
     // Generate IDs
     let tenant_id = crate::id_generator::readable_id(
-        adapteros_core::ids::IdKind::Tenant,
+        adapteros_id::IdPrefix::Tnt,
         req.display_name.as_deref().unwrap_or("tenant"),
     );
     let display_name = req
@@ -219,7 +219,7 @@ pub async fn register_handler(
     info!(user_id = %user_id, email = %email, tenant_id = %tenant_id, "User created successfully");
 
     // Create default workspace for user
-    let ws_id = crate::id_generator::readable_id(adapteros_core::ids::IdKind::Workspace, "default");
+    let ws_id = crate::id_generator::readable_id(adapteros_id::IdPrefix::Wsp, "default");
     if let Err(e) = sqlx::query(
         "INSERT INTO workspaces (id, name, description, created_by, created_at, updated_at) VALUES (?, 'Default Workspace', 'Auto-created workspace', ?, datetime('now'), datetime('now'))",
     )
@@ -278,7 +278,7 @@ pub async fn register_handler(
         .map(|s| s.to_string());
 
     // Generate tokens
-    let session_id = format!("sess-{}", Uuid::now_v7());
+    let session_id = TypedId::new(IdPrefix::Ses).to_string();
     let role = "admin".to_string();
     let roles_vec = vec![role.clone()];
     let admin_tenants = vec![tenant_id.clone()];
@@ -303,7 +303,7 @@ pub async fn register_handler(
             )
         })?;
 
-    let rot_id = format!("rot-{}", Uuid::now_v7());
+    let rot_id = TypedId::new(IdPrefix::Rot).to_string();
     let refresh_params = RefreshTokenParams {
         user_id: &user_id,
         tenant_id: &tenant_id,

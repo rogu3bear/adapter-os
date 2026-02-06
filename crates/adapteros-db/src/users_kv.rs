@@ -14,7 +14,8 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 /// Key patterns for user storage
 ///
@@ -303,7 +304,7 @@ impl<B: KvBackend> UserKvOps for UserKvRepository<B> {
         role: Role,
         tenant_id: &str,
     ) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Usr);
 
         let user = UserKv {
             id: id.clone(),

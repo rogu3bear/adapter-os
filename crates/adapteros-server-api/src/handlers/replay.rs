@@ -30,7 +30,9 @@ use crate::inference_core::InferenceCore;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
-use crate::types::{new_run_envelope_no_tick, ErrorResponse, InferenceRequestInternal};
+use crate::types::{
+    new_run_envelope_no_tick, ErrorResponse, InferenceRequestInternal, MAX_TOKENS_LIMIT,
+};
 
 /// Replay verification response
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -222,12 +224,23 @@ pub async fn create_replay_session(
     let mut merkle_roots: Vec<String> = Vec::new();
 
     for bundle_id in &req.telemetry_bundle_ids {
-        if let Ok(Some(bundle)) = state
+        match state
             .db
             .get_telemetry_bundle(&req.tenant_id, bundle_id)
             .await
         {
-            merkle_roots.push(bundle.merkle_root_b3.clone());
+            Ok(Some(bundle)) => merkle_roots.push(bundle.merkle_root_b3.clone()),
+            Ok(None) => tracing::warn!(
+                bundle_id = %bundle_id,
+                tenant_id = %req.tenant_id,
+                "Telemetry bundle not found for tenant"
+            ),
+            Err(e) => tracing::warn!(
+                bundle_id = %bundle_id,
+                tenant_id = %req.tenant_id,
+                error = %e,
+                "Failed to fetch telemetry bundle"
+            ),
         }
     }
 
@@ -552,6 +565,15 @@ pub async fn execute_replay_session(
     Json(req): Json<ExecuteReplayRequest>,
 ) -> ApiResult<ExecuteReplayResponse> {
     require_permission(&claims, Permission::ReplayManage)?;
+
+    // Validate max_tokens to prevent resource exhaustion
+    if req.max_tokens > MAX_TOKENS_LIMIT {
+        return Err(ApiError::bad_request(format!(
+            "max_tokens ({}) exceeds maximum allowed ({})",
+            req.max_tokens, MAX_TOKENS_LIMIT
+        )));
+    }
+
     let session_id = crate::id_resolver::resolve_any_id(&state.db, &session_id).await?;
 
     let session = state

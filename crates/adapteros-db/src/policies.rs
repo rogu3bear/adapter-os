@@ -46,7 +46,7 @@ impl Db {
 
         // Compute hash using BLAKE3
         let hash_b3 = blake3::hash(body_json.as_bytes()).to_hex().to_string();
-        let id = uuid::Uuid::now_v7().to_string();
+        let id = crate::new_id(adapteros_id::IdPrefix::Pol);
 
         // Deactivate existing policies for this tenant
         sqlx::query("UPDATE policies SET active = 0 WHERE tenant_id = ?")

@@ -16,7 +16,7 @@ use axum::{
 };
 use chrono::{Duration, Utc};
 use tracing::{info, warn};
-use uuid::Uuid;
+use adapteros_id::{TypedId, IdPrefix};
 
 fn extract_cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
     headers
@@ -205,7 +205,7 @@ pub async fn refresh_token_handler(
 
     // 6. Rotate Refresh Token
     // Generate new rot_id and issue new refresh token
-    let new_rot_id = Uuid::new_v4().to_string();
+    let new_rot_id = TypedId::new(IdPrefix::Rot).to_string();
     let refresh_ttl = auth_cfg.effective_ttl();
     let refresh_expires_at = Utc::now() + Duration::seconds(refresh_ttl as i64);
     let session_expires_at = refresh_expires_at.timestamp();
@@ -259,7 +259,7 @@ pub async fn refresh_token_handler(
 
     // 7. Prepare Response
     let mut headers = HeaderMap::new();
-    let csrf_token = Uuid::new_v4().to_string();
+    let csrf_token = TypedId::new(IdPrefix::Tok).to_string();
     attach_auth_cookies(
         &mut headers,
         &new_access_token,

@@ -3,6 +3,7 @@ use axum::{
     extract::{Path, State},
     Extension, Json,
 };
+use std::path::Component;
 
 use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
@@ -12,6 +13,72 @@ use crate::types::{ErrorResponse, GoldenCompareRequest, GoldenRunSummary};
 use adapteros_verify::{
     verify_against_golden, ComparisonConfig, GoldenRunArchive, StrictnessLevel,
 };
+
+/// Validate a golden run name to prevent path traversal attacks.
+///
+/// Checks for:
+/// - Parent directory references (..)
+/// - URL-encoded traversal patterns
+/// - Null bytes
+/// - Absolute paths
+fn validate_golden_name(name: &str) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+    // Check for URL-encoded and other traversal patterns
+    let patterns = [
+        "..",
+        "%2e%2e",
+        "%2E%2E",
+        "%252e%252e",
+        "%c0%ae",
+        "%c1%9c",
+        "..%2f",
+        "..%5c",
+        "%00", // Null byte attack
+    ];
+
+    let lower = name.to_lowercase();
+    for pattern in patterns {
+        if lower.contains(&pattern.to_lowercase()) {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(
+                    ErrorResponse::new("invalid golden run name")
+                        .with_code("PATH_TRAVERSAL")
+                        .with_string_details("Name contains forbidden path traversal pattern"),
+                ),
+            ));
+        }
+    }
+
+    // Check path components for parent directory or absolute references
+    let path = std::path::Path::new(name);
+    for component in path.components() {
+        match component {
+            Component::ParentDir => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(
+                        ErrorResponse::new("invalid golden run name")
+                            .with_code("PATH_TRAVERSAL")
+                            .with_string_details("Name contains parent directory reference (..)"),
+                    ),
+                ));
+            }
+            Component::RootDir => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(
+                        ErrorResponse::new("invalid golden run name")
+                            .with_code("PATH_TRAVERSAL")
+                            .with_string_details("Name cannot be an absolute path"),
+                    ),
+                ));
+            }
+            _ => {}
+        }
+    }
+
+    Ok(())
+}
 
 /// GET /v1/golden/runs — list golden baseline names
 #[utoipa::path(
@@ -68,9 +135,28 @@ pub async fn get_golden_run(
 ) -> Result<Json<GoldenRunSummary>, (StatusCode, Json<ErrorResponse>)> {
     require_permission(&claims, Permission::PromotionManage)?;
 
-    let dir = std::path::Path::new("golden_runs")
-        .join("baselines")
-        .join(&name);
+    // Validate name to prevent path traversal attacks
+    validate_golden_name(&name)?;
+
+    let base_dir = std::path::Path::new("golden_runs").join("baselines");
+    let dir = base_dir.join(&name);
+
+    // Verify the resolved path is still under baselines directory
+    // (defense in depth after validation)
+    if let Ok(canonical_base) = base_dir.canonicalize() {
+        if let Ok(canonical_dir) = dir.canonicalize() {
+            if !canonical_dir.starts_with(&canonical_base) {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(
+                        ErrorResponse::new("invalid golden run name")
+                            .with_code("PATH_TRAVERSAL")
+                            .with_string_details("Resolved path escapes baselines directory"),
+                    ),
+                ));
+            }
+        }
+    }
     match GoldenRunArchive::load(&dir) {
         Ok(archive) => {
             let layer_count = archive.epsilon_stats.layer_stats.len();
@@ -126,10 +212,30 @@ pub async fn golden_compare(
 > {
     require_permission(&claims, Permission::PromotionManage)?;
 
+    // Validate golden name to prevent path traversal attacks
+    validate_golden_name(&req.golden)?;
+
     // Resolve golden path and bundle path
-    let golden_dir = std::path::Path::new("golden_runs")
-        .join("baselines")
-        .join(&req.golden);
+    let base_dir = std::path::Path::new("golden_runs").join("baselines");
+    let golden_dir = base_dir.join(&req.golden);
+
+    // Verify the resolved path is still under baselines directory
+    // (defense in depth after validation)
+    if let Ok(canonical_base) = base_dir.canonicalize() {
+        if let Ok(canonical_dir) = golden_dir.canonicalize() {
+            if !canonical_dir.starts_with(&canonical_base) {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(
+                        ErrorResponse::new("invalid golden name")
+                            .with_code("PATH_TRAVERSAL")
+                            .with_string_details("Resolved path escapes baselines directory"),
+                    ),
+                ));
+            }
+        }
+    }
+
     if !golden_dir.exists() {
         return Err((
             StatusCode::NOT_FOUND,

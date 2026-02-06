@@ -118,6 +118,7 @@ pub async fn list_datasets(
             created_at: d.created_at,
             updated_at: d.updated_at,
             dataset_type: d.dataset_type,
+            display_name: None,
         });
     }
 
@@ -219,6 +220,7 @@ pub async fn get_dataset(
         created_at: dataset.created_at,
         updated_at: dataset.updated_at,
         dataset_type: dataset.dataset_type,
+        display_name: None,
     }))
 }
 

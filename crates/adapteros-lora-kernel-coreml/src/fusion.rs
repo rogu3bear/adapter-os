@@ -26,7 +26,7 @@
 //! ```rust,no_run
 //! use adapteros_core::Result;
 //! use adapteros_lora_kernel_coreml::fusion::{
-//!     AdapterFusionSpec, LoraFusionConfig, fuse_lora_into_model,
+//!     AdapterFusionSpec, FusionOptions, LoraFusionConfig, fuse_lora_into_model,
 //! };
 //! use adapteros_lora_kernel_coreml::ComputeUnits;
 //!
@@ -42,6 +42,7 @@
 //!             rank: 16,
 //!         }],
 //!         compute_units: ComputeUnits::CpuAndNeuralEngine,
+//!         options: FusionOptions::default(),
 //!     };
 //!
 //!     let result = fuse_lora_into_model(&config)?;
@@ -453,7 +454,7 @@ pub struct FusionStats {
 ///
 /// ```rust,no_run
 /// use adapteros_lora_kernel_coreml::fusion::{
-///     LoraFusionConfig, AdapterFusionSpec, fuse_lora_into_model
+///     LoraFusionConfig, AdapterFusionSpec, FusionOptions, fuse_lora_into_model
 /// };
 /// use adapteros_lora_kernel_coreml::ComputeUnits;
 ///
@@ -469,6 +470,7 @@ pub struct FusionStats {
 ///         },
 ///     ],
 ///     compute_units: ComputeUnits::CpuAndNeuralEngine,
+///     options: FusionOptions::default(),
 /// };
 ///
 /// let result = fuse_lora_into_model(&config)?;

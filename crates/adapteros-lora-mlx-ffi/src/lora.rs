@@ -223,12 +223,26 @@ fn tensor_to_nested_vec(tensor: &safetensors::tensor::TensorView) -> Result<Vec<
     let rows = shape[0];
     let cols = shape[1];
 
-    // Convert bytes to f32
-    let float_data: &[f32] = unsafe {
-        std::slice::from_raw_parts(
-            data.as_ptr() as *const f32,
-            data.len() / std::mem::size_of::<f32>(),
-        )
+    // Convert bytes to f32 with alignment check
+    let float_data: &[f32] = {
+        let ptr = data.as_ptr();
+        let align = std::mem::align_of::<f32>();
+        if (ptr as usize) % align != 0 {
+            return Err(AosError::Validation(format!(
+                "Tensor data is not aligned to {} bytes (required for f32)",
+                align
+            )));
+        }
+        if data.len() % std::mem::size_of::<f32>() != 0 {
+            return Err(AosError::Validation(format!(
+                "Tensor data length {} is not a multiple of f32 size ({})",
+                data.len(),
+                std::mem::size_of::<f32>()
+            )));
+        }
+        unsafe {
+            std::slice::from_raw_parts(ptr as *const f32, data.len() / std::mem::size_of::<f32>())
+        }
     };
 
     if float_data.len() != rows * cols {

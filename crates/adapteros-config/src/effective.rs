@@ -120,7 +120,7 @@ pub struct DatabaseSection {
 }
 
 /// Security section configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SecuritySection {
     /// JWT signing secret (sensitive, redacted in logs)
     pub jwt_secret: String,
@@ -136,6 +136,23 @@ pub struct SecuritySection {
     pub dev_bypass: bool,
     /// Ed25519 signing key for manifests (sensitive)
     pub signing_key: Option<String>,
+}
+
+impl std::fmt::Debug for SecuritySection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SecuritySection")
+            .field("jwt_secret", &"[REDACTED]")
+            .field("jwt_mode", &self.jwt_mode)
+            .field("jwt_ttl_hours", &self.jwt_ttl_hours)
+            .field("require_pf_deny", &self.require_pf_deny)
+            .field("dev_login_enabled", &self.dev_login_enabled)
+            .field("dev_bypass", &self.dev_bypass)
+            .field(
+                "signing_key",
+                &self.signing_key.as_ref().map(|_| "[REDACTED]"),
+            )
+            .finish()
+    }
 }
 
 /// Path section configuration
@@ -203,7 +220,7 @@ pub struct RateLimitsSection {
 }
 
 /// Metrics section configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct MetricsSection {
     /// Metrics enabled
     pub enabled: bool,
@@ -211,6 +228,23 @@ pub struct MetricsSection {
     pub bearer_token: String,
     /// Include histogram metrics
     pub include_histogram: bool,
+}
+
+impl std::fmt::Debug for MetricsSection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MetricsSection")
+            .field("enabled", &self.enabled)
+            .field(
+                "bearer_token",
+                &if self.bearer_token.is_empty() {
+                    "(empty)"
+                } else {
+                    "[REDACTED]"
+                },
+            )
+            .field("include_histogram", &self.include_histogram)
+            .finish()
+    }
 }
 
 /// Alerting section configuration
@@ -254,6 +288,8 @@ pub struct InferenceSection {
     pub backend_profile: BackendKind,
     /// Worker identifier used in seed derivation
     pub worker_id: Option<u32>,
+    /// Default sampling temperature when not specified by the client (default: 0.7)
+    pub default_temperature: f32,
 }
 
 /// Health configuration for adapters.
@@ -962,11 +998,37 @@ impl EffectiveConfig {
     }
 
     fn build_security_section(config: &DeterministicConfig) -> Result<SecuritySection> {
+        // JWT secret is required - generate a random one if missing and log a warning
+        let jwt_secret = match config.get("security.jwt.secret").cloned() {
+            Some(secret) if !secret.trim().is_empty() => secret,
+            _ => {
+                // Generate a random 64-byte secret (base64 encoded)
+                use std::time::{SystemTime, UNIX_EPOCH};
+                let timestamp = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_nanos())
+                    .unwrap_or(0);
+                let random_seed = format!(
+                    "{:x}{:x}{:x}",
+                    timestamp,
+                    std::process::id(),
+                    std::ptr::addr_of!(timestamp) as usize
+                );
+                // Create a pseudo-random secret from available entropy
+                let generated = format!(
+                    "GENERATED-{}-{}",
+                    random_seed, "0123456789abcdef0123456789abcdef0123456789abcdef"
+                );
+                warn!(
+                    "JWT secret not configured - generated ephemeral secret. \
+                     This is insecure for production. Set AOS_JWT_SECRET or security.jwt.secret"
+                );
+                generated
+            }
+        };
+
         Ok(SecuritySection {
-            jwt_secret: config
-                .get("security.jwt.secret")
-                .cloned()
-                .unwrap_or_default(),
+            jwt_secret,
             jwt_mode: config
                 .get("security.jwt.mode")
                 .cloned()
@@ -1198,10 +1260,16 @@ impl EffectiveConfig {
             .get("inference.worker.id")
             .and_then(|v| v.parse::<u32>().ok());
 
+        let default_temperature = config
+            .get("inference.default_temperature")
+            .and_then(|v| v.parse::<f32>().ok())
+            .unwrap_or(0.7);
+
         InferenceSection {
             seed_mode,
             backend_profile,
             worker_id,
+            default_temperature,
         }
     }
 
@@ -2008,6 +2076,114 @@ mod tests {
         assert!(
             result.is_err(),
             "dev_bypass should be rejected in release builds"
+        );
+    }
+
+    #[test]
+    fn test_security_section_debug_redacts_secrets() {
+        let section = SecuritySection {
+            jwt_secret: "super-secret-token-value".to_string(),
+            jwt_mode: "hmac".to_string(),
+            jwt_ttl_hours: 8,
+            require_pf_deny: false,
+            dev_login_enabled: false,
+            dev_bypass: false,
+            signing_key: Some("private-signing-key".to_string()),
+        };
+
+        let debug_output = format!("{:?}", section);
+
+        // Sensitive fields should be redacted
+        assert!(
+            !debug_output.contains("super-secret-token-value"),
+            "JWT secret should be redacted in debug output"
+        );
+        assert!(
+            !debug_output.contains("private-signing-key"),
+            "Signing key should be redacted in debug output"
+        );
+        assert!(
+            debug_output.contains("[REDACTED]"),
+            "Debug output should contain [REDACTED] placeholders"
+        );
+
+        // Non-sensitive fields should be visible
+        assert!(
+            debug_output.contains("hmac"),
+            "jwt_mode should be visible in debug output"
+        );
+        assert!(
+            debug_output.contains("jwt_ttl_hours"),
+            "jwt_ttl_hours should be visible in debug output"
+        );
+    }
+
+    #[test]
+    fn test_metrics_section_debug_redacts_bearer_token() {
+        let section = MetricsSection {
+            enabled: true,
+            bearer_token: "secret-bearer-token".to_string(),
+            include_histogram: true,
+        };
+
+        let debug_output = format!("{:?}", section);
+
+        // Bearer token should be redacted
+        assert!(
+            !debug_output.contains("secret-bearer-token"),
+            "Bearer token should be redacted in debug output"
+        );
+        assert!(
+            debug_output.contains("[REDACTED]"),
+            "Debug output should contain [REDACTED] placeholder"
+        );
+
+        // Non-sensitive fields should be visible
+        assert!(
+            debug_output.contains("enabled"),
+            "enabled should be visible in debug output"
+        );
+        assert!(
+            debug_output.contains("include_histogram"),
+            "include_histogram should be visible in debug output"
+        );
+    }
+
+    #[test]
+    fn test_metrics_section_debug_shows_empty_token() {
+        let section = MetricsSection {
+            enabled: true,
+            bearer_token: String::new(),
+            include_histogram: false,
+        };
+
+        let debug_output = format!("{:?}", section);
+
+        // Empty token should show (empty) instead of [REDACTED]
+        assert!(
+            debug_output.contains("(empty)"),
+            "Empty bearer token should show (empty) in debug output"
+        );
+    }
+
+    #[test]
+    fn test_jwt_secret_generates_when_missing() {
+        use crate::precedence::DeterministicConfig;
+
+        // Config with no JWT secret set
+        let values = HashMap::new();
+        let config = DeterministicConfig::new_for_test(values);
+        let result = EffectiveConfig::from_deterministic(config);
+
+        assert!(result.is_ok(), "Should succeed even without JWT secret");
+        let effective = result.unwrap();
+        assert!(
+            !effective.security.jwt_secret.is_empty(),
+            "JWT secret should be generated when missing"
+        );
+        assert!(
+            effective.security.jwt_secret.starts_with("GENERATED-"),
+            "Generated JWT secret should have GENERATED- prefix"
         );
     }
 }

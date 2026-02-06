@@ -151,7 +151,20 @@ impl ConfigLoader {
         let count = flattened.len();
         for (toml_key, value) in flattened {
             // Map TOML key to config_key (e.g., db.path -> database.url)
-            let config_key = toml_key_map.get(&toml_key).cloned().unwrap_or(toml_key);
+            let config_key = if let Some(mapped) = toml_key_map.get(&toml_key) {
+                mapped.clone()
+            } else {
+                // Unknown key - check if we should reject or warn
+                if !self.options.allow_unknown_keys {
+                    tracing::warn!(
+                        toml_key = %toml_key,
+                        manifest = %path,
+                        "Unknown configuration key in manifest (not in schema)"
+                    );
+                }
+                // Still accept the key but log warning - use raw key as fallback
+                toml_key.clone()
+            };
             builder = builder.add_value(
                 config_key,
                 value,

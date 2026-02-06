@@ -68,6 +68,22 @@ pub struct RateLimitConfig {
     pub refill_interval_ms: u64,
     /// Maximum burst capacity (default: 10000)
     pub burst_capacity: u64,
+    /// Maximum number of tenant rate limiters to track (default: 10000)
+    /// Prevents unbounded memory growth from malicious tenant enumeration
+    #[serde(default = "default_max_tenants")]
+    pub max_tenants: usize,
+    /// TTL for inactive tenant buckets in seconds (default: 3600 = 1 hour)
+    /// Buckets not accessed within this period are eligible for eviction
+    #[serde(default = "default_bucket_ttl_secs")]
+    pub bucket_ttl_secs: u64,
+}
+
+fn default_max_tenants() -> usize {
+    10000
+}
+
+fn default_bucket_ttl_secs() -> u64 {
+    3600
 }
 
 impl Default for RateLimitConfig {
@@ -76,6 +92,8 @@ impl Default for RateLimitConfig {
             events_per_second: 1000,
             refill_interval_ms: 100,
             burst_capacity: 10000,
+            max_tenants: default_max_tenants(),
+            bucket_ttl_secs: default_bucket_ttl_secs(),
         }
     }
 }
@@ -87,6 +105,8 @@ struct TokenBucket {
     tokens: AtomicU64,
     /// Last refill time (milliseconds since epoch)
     last_refill: Arc<Mutex<u64>>,
+    /// Last access time (milliseconds since epoch) for stale eviction
+    last_access_ms: AtomicU64,
     /// Events per second rate
     rate: u64,
     /// Maximum tokens (burst capacity)
@@ -102,6 +122,7 @@ impl TokenBucket {
         Self {
             tokens: AtomicU64::new(config.burst_capacity),
             last_refill: Arc::new(Mutex::new(now)),
+            last_access_ms: AtomicU64::new(now),
             rate: config.events_per_second,
             capacity: config.burst_capacity,
             refill_interval_ms: config.refill_interval_ms,
@@ -112,6 +133,9 @@ impl TokenBucket {
     async fn try_consume(&self) -> bool {
         // Refill tokens based on elapsed time
         let now = current_timestamp_ms();
+
+        // Update last access time for stale eviction
+        self.last_access_ms.store(now, Ordering::Relaxed);
 
         let mut last_refill = self.last_refill.lock().await;
         let elapsed_ms = now.saturating_sub(*last_refill);
@@ -142,6 +166,11 @@ impl TokenBucket {
                 Err(actual) => current = actual,
             }
         }
+    }
+
+    /// Get last access time in milliseconds since epoch
+    fn last_access_ms(&self) -> u64 {
+        self.last_access_ms.load(Ordering::Relaxed)
     }
 
     /// Get current token count
@@ -800,10 +829,28 @@ impl TelemetryBuffer {
                         self.rate_limit_config.events_per_second
                     ));
                 }
-                self.rate_limiters
-                    .write()
-                    .await
-                    .insert(tenant_id.clone(), bucket);
+
+                let mut rate_limiters = self.rate_limiters.write().await;
+
+                // Enforce max_tenants limit: evict oldest tenant if at capacity
+                if rate_limiters.len() >= self.rate_limit_config.max_tenants {
+                    // Find and evict the least recently accessed bucket
+                    let oldest_tenant = rate_limiters
+                        .iter()
+                        .min_by_key(|(_, b)| b.last_access_ms())
+                        .map(|(k, _)| k.clone());
+
+                    if let Some(evict_tenant) = oldest_tenant {
+                        rate_limiters.remove(&evict_tenant);
+                        info!(
+                            evicted_tenant = %evict_tenant,
+                            max_tenants = self.rate_limit_config.max_tenants,
+                            "Evicted oldest rate limiter bucket to make room for new tenant"
+                        );
+                    }
+                }
+
+                rate_limiters.insert(tenant_id.clone(), bucket);
             }
         }
 
@@ -860,6 +907,38 @@ impl TelemetryBuffer {
     pub async fn clear(&self) {
         let mut events = self.events.write().await;
         events.clear();
+    }
+
+    /// Clean up stale rate limiter buckets that haven't been accessed within TTL
+    ///
+    /// Returns the number of evicted buckets
+    pub async fn cleanup_stale_rate_limiters(&self) -> usize {
+        let now = current_timestamp_ms();
+        let ttl_ms = self.rate_limit_config.bucket_ttl_secs * 1000;
+
+        let mut rate_limiters = self.rate_limiters.write().await;
+        let before = rate_limiters.len();
+
+        rate_limiters.retain(|_, bucket| {
+            let elapsed = now.saturating_sub(bucket.last_access_ms());
+            elapsed < ttl_ms
+        });
+
+        let removed = before - rate_limiters.len();
+        if removed > 0 {
+            info!(
+                removed_count = removed,
+                remaining_count = rate_limiters.len(),
+                ttl_secs = self.rate_limit_config.bucket_ttl_secs,
+                "Cleaned up stale telemetry rate limiter buckets"
+            );
+        }
+        removed
+    }
+
+    /// Get the current number of rate limiter buckets
+    pub async fn rate_limiter_count(&self) -> usize {
+        self.rate_limiters.read().await.len()
     }
 
     /// Query events with filters (synchronous read-only access)

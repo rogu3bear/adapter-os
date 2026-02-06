@@ -11,6 +11,10 @@ pub struct ClusterDefinition {
     pub description: String,
     pub default_adapter_id: Option<String>,
     pub version: String,
+    /// Human-readable display name derived from the cluster's typed ID word alias.
+    /// Populated when the ID uses the TypedId format.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
 }
 
 /// Per-adapter topology metadata captured from the catalog.
@@ -311,6 +315,7 @@ impl Db {
                 description: row.get("description"),
                 default_adapter_id: row.get("default_adapter_id"),
                 version: row.get("version"),
+                display_name: None,
             })
             .collect();
 

@@ -194,12 +194,23 @@ impl UnifiedTensorBuffer {
 impl Drop for UnifiedTensorBuffer {
     fn drop(&mut self) {
         if !self.base_ptr.is_null() {
-            unsafe {
-                let layout = std::alloc::Layout::from_size_align(self.size, self.alignment)
-                    .expect("Invalid layout during drop");
-                std::alloc::dealloc(self.base_ptr, layout);
+            match std::alloc::Layout::from_size_align(self.size, self.alignment) {
+                Ok(layout) => {
+                    unsafe {
+                        std::alloc::dealloc(self.base_ptr, layout);
+                    }
+                    debug!("Dropped UnifiedTensorBuffer '{}'", self.id);
+                }
+                Err(_) => {
+                    // Invalid layout in drop - leak memory rather than panic.
+                    // Panicking in Drop can cause double-panic and process abort.
+                    // This should never happen if the buffer was constructed properly.
+                    debug!(
+                        "UnifiedTensorBuffer '{}' leaked: invalid layout (size={}, align={})",
+                        self.id, self.size, self.alignment
+                    );
+                }
             }
-            debug!("Dropped UnifiedTensorBuffer '{}'", self.id);
         }
     }
 }

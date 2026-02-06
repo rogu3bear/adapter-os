@@ -13,7 +13,7 @@ use crate::components::{
     EmptyState, Input, LoadingDisplay, Select, TabButton, Table, TableBody, TableCell, TableHead,
     TableHeader, TableRow,
 };
-use crate::hooks::{use_api_resource, LoadingState};
+use crate::hooks::{use_api_resource, use_scope_alive, LoadingState};
 use adapteros_api_types::telemetry::{ClientErrorItem, ClientErrorStatsResponse};
 use leptos::prelude::*;
 use std::collections::VecDeque;
@@ -32,7 +32,7 @@ pub fn Errors() -> impl IntoView {
         <div class="p-6 space-y-6">
             <div class="flex items-center justify-between">
                 <div>
-                    <h1 class="text-3xl font-bold tracking-tight">"Incidents"</h1>
+                    <h1 class="heading-1">"Incidents"</h1>
                     <p class="text-muted-foreground mt-1">"Real-time error monitoring and analysis"</p>
                 </div>
             </div>
@@ -399,19 +399,19 @@ fn StatsDisplay(stats: ClientErrorStatsResponse) -> impl IntoView {
                 <Card>
                     <div class="p-4">
                         <div class="text-sm font-medium text-muted-foreground">"Total Errors (24h)"</div>
-                        <div class="text-3xl font-bold mt-1">{total_count}</div>
+                        <div class="text-2xl font-bold mt-1">{total_count}</div>
                     </div>
                 </Card>
                 <Card>
                     <div class="p-4">
                         <div class="text-sm font-medium text-muted-foreground">"Error Types"</div>
-                        <div class="text-3xl font-bold mt-1">{error_type_count}</div>
+                        <div class="text-2xl font-bold mt-1">{error_type_count}</div>
                     </div>
                 </Card>
                 <Card>
                     <div class="p-4">
                         <div class="text-sm font-medium text-muted-foreground">"HTTP Status Codes"</div>
-                        <div class="text-3xl font-bold mt-1">{http_status_count}</div>
+                        <div class="text-2xl font-bold mt-1">{http_status_count}</div>
                     </div>
                 </Card>
             </div>
@@ -419,7 +419,7 @@ fn StatsDisplay(stats: ClientErrorStatsResponse) -> impl IntoView {
             // Error type breakdown
             <Card>
                 <div class="p-4">
-                    <h3 class="text-lg font-semibold mb-4">"Errors by Type"</h3>
+                    <h3 class="heading-4 mb-4">"Errors by Type"</h3>
                     {if error_types.is_empty() {
                         view! {
                             <div class="text-muted-foreground text-sm">"No errors recorded"</div>
@@ -455,7 +455,7 @@ fn StatsDisplay(stats: ClientErrorStatsResponse) -> impl IntoView {
             // HTTP status breakdown
             <Card>
                 <div class="p-4">
-                    <h3 class="text-lg font-semibold mb-4">"Errors by HTTP Status"</h3>
+                    <h3 class="heading-4 mb-4">"Errors by HTTP Status"</h3>
                     {if http_statuses.is_empty() {
                         view! {
                             <div class="text-muted-foreground text-sm">"No HTTP errors recorded"</div>
@@ -498,7 +498,7 @@ fn StatsDisplay(stats: ClientErrorStatsResponse) -> impl IntoView {
             // Hourly breakdown
             <Card>
                 <div class="p-4">
-                    <h3 class="text-lg font-semibold mb-4">"Errors per Hour (Last 24h)"</h3>
+                    <h3 class="heading-4 mb-4">"Errors per Hour (Last 24h)"</h3>
                     {if hourly_errors.is_empty() {
                         view! {
                             <div class="text-muted-foreground text-sm">"No hourly data available"</div>
@@ -556,7 +556,7 @@ fn AlertHistoryPanel() -> impl IntoView {
         <Card>
             <div class="flex items-center justify-between mb-4">
                 <div>
-                    <h3 class="text-lg font-semibold">"Triggered Alerts"</h3>
+                    <h3 class="heading-4">"Triggered Alerts"</h3>
                     <p class="text-sm text-muted-foreground">
                         "Recent alert rule activations and acknowledgements"
                     </p>
@@ -702,7 +702,7 @@ fn AlertsSection() -> impl IntoView {
                 // Header with create button
                 <div class="flex items-center justify-between">
                     <div>
-                        <h3 class="text-lg font-semibold">"Alert Rules"</h3>
+                        <h3 class="heading-4">"Alert Rules"</h3>
                         <p class="text-sm text-muted-foreground">
                             "Configure threshold-based alerts for error monitoring"
                         </p>
@@ -820,7 +820,7 @@ fn CrashesSection() -> impl IntoView {
         <div class="space-y-4">
             <div class="flex items-center justify-between">
                 <div>
-                    <h3 class="text-lg font-semibold">"Crash Dumps"</h3>
+                    <h3 class="heading-4">"Crash Dumps"</h3>
                     <p class="text-sm text-muted-foreground">
                         "Worker crash reports and recovery details"
                     </p>
@@ -1026,6 +1026,7 @@ fn AlertRulesList(rules: Vec<ErrorAlertRuleResponse>, on_update: Callback<()>) -
 /// Single alert rule row
 #[component]
 fn AlertRuleRow(rule: ErrorAlertRuleResponse, on_update: Callback<()>) -> impl IntoView {
+    let alive = use_scope_alive();
     let rule_id_for_toggle = rule.id.clone();
     let rule_id_for_delete = rule.id.clone();
     let is_active = rule.is_active;
@@ -1034,8 +1035,10 @@ fn AlertRuleRow(rule: ErrorAlertRuleResponse, on_update: Callback<()>) -> impl I
     let (deleting, set_deleting) = signal(false);
 
     // Toggle active state
+    let alive_for_toggle = alive.clone();
     let on_toggle = move |_| {
         let id = rule_id_for_toggle.clone();
+        let alive = alive_for_toggle.clone();
         set_toggling.set(true);
         wasm_bindgen_futures::spawn_local(async move {
             let client = ApiClient::new();
@@ -1044,7 +1047,11 @@ fn AlertRuleRow(rule: ErrorAlertRuleResponse, on_update: Callback<()>) -> impl I
                 ..Default::default()
             };
             match client.update_error_alert_rule(&id, &request).await {
-                Ok(_) => on_update.run(()),
+                Ok(_) => {
+                    if alive.load(std::sync::atomic::Ordering::SeqCst) {
+                        on_update.run(());
+                    }
+                }
                 Err(e) => {
                     report_error_with_toast(
                         &e,
@@ -1061,11 +1068,16 @@ fn AlertRuleRow(rule: ErrorAlertRuleResponse, on_update: Callback<()>) -> impl I
     // Delete rule
     let on_delete = move |_| {
         let id = rule_id_for_delete.clone();
+        let alive = alive.clone();
         set_deleting.set(true);
         wasm_bindgen_futures::spawn_local(async move {
             let client = ApiClient::new();
             match client.delete_error_alert_rule(&id).await {
-                Ok(_) => on_update.run(()),
+                Ok(_) => {
+                    if alive.load(std::sync::atomic::Ordering::SeqCst) {
+                        on_update.run(());
+                    }
+                }
                 Err(e) => {
                     report_error_with_toast(
                         &e,
@@ -1145,6 +1157,7 @@ fn AlertRuleRow(rule: ErrorAlertRuleResponse, on_update: Callback<()>) -> impl I
 /// Create alert rule dialog
 #[component]
 fn CreateAlertRuleDialog(open: RwSignal<bool>, on_created: Callback<()>) -> impl IntoView {
+    let alive = use_scope_alive();
     let name = RwSignal::new(String::new());
     let description = RwSignal::new(String::new());
     let error_pattern = RwSignal::new(String::new());
@@ -1188,10 +1201,15 @@ fn CreateAlertRuleDialog(open: RwSignal<bool>, on_created: Callback<()>) -> impl
             notification_channels: None,
         };
 
+        let alive = alive.clone();
         wasm_bindgen_futures::spawn_local(async move {
             let client = ApiClient::new();
             match client.create_error_alert_rule(&request).await {
-                Ok(_) => on_created.run(()),
+                Ok(_) => {
+                    if alive.load(std::sync::atomic::Ordering::SeqCst) {
+                        on_created.run(());
+                    }
+                }
                 Err(e) => {
                     error.set(Some(e.to_string()));
                     submitting.set(false);

@@ -1,44 +1,39 @@
-use adapteros_core::ids::{
-    generate_id, generate_id_with_suffix_len, generate_suffix, slugify, IdKind,
-};
-use chrono::Utc;
+use adapteros_id::{IdPrefix, TypedId};
 
-pub fn date_slug() -> String {
-    Utc::now().format("%Y%m%d").to_string()
-}
-
-pub fn readable_id(kind: IdKind, slug_source: &str) -> String {
-    generate_id(kind, slug_source)
-}
-
-pub fn readable_id_with_len(kind: IdKind, slug_source: &str, suffix_len: usize) -> String {
-    generate_id_with_suffix_len(kind, slug_source, suffix_len)
+/// Generate a typed ID for the given prefix. The `_slug_source` parameter is
+/// retained for call-site compatibility but no longer affects the output.
+pub fn readable_id(prefix: IdPrefix, _slug_source: &str) -> String {
+    TypedId::new(prefix).to_string()
 }
 
 pub fn readable_request_id() -> String {
-    readable_id_with_len(IdKind::Request, &date_slug(), 6)
+    TypedId::new(IdPrefix::Req).to_string()
 }
 
 pub fn readable_trace_id() -> String {
-    readable_id_with_len(IdKind::Trace, &date_slug(), 6)
+    TypedId::new(IdPrefix::Trc).to_string()
 }
 
 pub fn readable_run_id() -> String {
-    readable_id_with_len(IdKind::Run, &date_slug(), 6)
+    TypedId::new(IdPrefix::Run).to_string()
 }
 
-pub fn readable_session_id(slug_source: &str) -> String {
-    readable_id(IdKind::Session, &slugify(slug_source))
+pub fn readable_session_id(_slug_source: &str) -> String {
+    TypedId::new(IdPrefix::Ses).to_string()
 }
 
-pub fn readable_message_id(slug_source: &str) -> String {
-    readable_id(IdKind::Message, &slugify(slug_source))
+pub fn readable_message_id(_slug_source: &str) -> String {
+    TypedId::new(IdPrefix::Msg).to_string()
 }
 
+/// OpenAI chat-completion ID with underscore separator (API contract).
 pub fn readable_openai_chatcmpl_id() -> String {
-    format!("chatcmpl_{}", generate_suffix(8))
+    let id = TypedId::new(IdPrefix::Req);
+    format!("chatcmpl_{}", id.short())
 }
 
+/// OpenAI chat-completion ID with dash separator (API contract).
 pub fn readable_openai_chatcmpl_dash_id() -> String {
-    format!("chatcmpl-{}", generate_suffix(8))
+    let id = TypedId::new(IdPrefix::Req);
+    format!("chatcmpl-{}", id.short())
 }

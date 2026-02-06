@@ -38,6 +38,7 @@ use crate::types::run_envelope::set_policy_mask;
 use crate::types::*;
 use crate::uds_client::{UdsClient, WorkerStreamToken};
 use adapteros_core::identity::IdentityEnvelope;
+use adapteros_id::{TypedId, IdPrefix};
 use adapteros_policy::hooks::PolicyHook;
 use adapteros_types::adapters::metadata::RoutingDeterminismMode;
 use adapteros_types::coreml::CoreMLMode;
@@ -205,7 +206,9 @@ fn default_max_tokens() -> usize {
 }
 
 fn default_temperature() -> f32 {
-    0.0
+    adapteros_config::try_effective_config()
+        .map(|c| c.inference.default_temperature)
+        .unwrap_or(0.7)
 }
 
 /// OpenAI-compatible streaming chunk response
@@ -581,6 +584,13 @@ pub async fn streaming_infer_with_progress(
     if req.prompt.len() > MAX_REPLAY_TEXT_SIZE {
         return Err(ApiError::bad_request("Prompt too long for context window").into());
     }
+    if req.max_tokens > MAX_TOKENS_LIMIT {
+        return Err(ApiError::bad_request(format!(
+            "max_tokens ({}) exceeds maximum allowed ({})",
+            req.max_tokens, MAX_TOKENS_LIMIT
+        ))
+        .into());
+    }
 
     let session_lock = if let Some(token) = session_token.as_ref() {
         ensure_no_adapter_overrides(&[
@@ -817,6 +827,13 @@ pub async fn streaming_infer(
     }
     if req.prompt.len() > MAX_REPLAY_TEXT_SIZE {
         return Err(ApiError::bad_request("Prompt too long for context window").into());
+    }
+    if req.max_tokens > MAX_TOKENS_LIMIT {
+        return Err(ApiError::bad_request(format!(
+            "max_tokens ({}) exceeds maximum allowed ({})",
+            req.max_tokens, MAX_TOKENS_LIMIT
+        ))
+        .into());
     }
 
     let session_lock = if let Some(token) = session_token.as_ref() {
@@ -1603,7 +1620,7 @@ impl LoadingStreamState {
                                 rot_id: None,
                                 exp: 0,
                                 iat: 0,
-                                jti: uuid::Uuid::new_v4().to_string(),
+                                jti: TypedId::new(IdPrefix::Tok).to_string(),
                                 nbf: 0,
                                 iss: JWT_ISSUER.to_string(),
                                 auth_mode: AuthMode::BearerToken,
@@ -1855,7 +1872,7 @@ impl LoadingStreamState {
             rot_id: None,
             exp: 0,
             iat: 0,
-            jti: uuid::Uuid::new_v4().to_string(),
+            jti: TypedId::new(IdPrefix::Tok).to_string(),
             nbf: 0,
             iss: JWT_ISSUER.to_string(),
             auth_mode: AuthMode::BearerToken,
@@ -2377,7 +2394,7 @@ impl StreamState {
                         rot_id: None,
                         exp: 0,
                         iat: 0,
-                        jti: uuid::Uuid::new_v4().to_string(),
+                        jti: TypedId::new(IdPrefix::Tok).to_string(),
                         nbf: 0,
                         iss: JWT_ISSUER.to_string(),
                         auth_mode: AuthMode::BearerToken,
@@ -3287,7 +3304,7 @@ mod tests {
             rot_id: None,
             exp: 0,
             iat: 0,
-            jti: uuid::Uuid::new_v4().to_string(),
+            jti: TypedId::new(IdPrefix::Tok).to_string(),
             nbf: 0,
             iss: JWT_ISSUER.to_string(),
             auth_mode: AuthMode::BearerToken,
@@ -3344,7 +3361,7 @@ mod tests {
             rot_id: None,
             exp: 0,
             iat: 0,
-            jti: uuid::Uuid::new_v4().to_string(),
+            jti: TypedId::new(IdPrefix::Tok).to_string(),
             nbf: 0,
             iss: JWT_ISSUER.to_string(),
             auth_mode: AuthMode::BearerToken,

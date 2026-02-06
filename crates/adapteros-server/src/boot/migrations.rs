@@ -70,18 +70,6 @@ pub async fn run_migrations(
             return Err(e.into());
         }
 
-        // Optional one-time backfill for readable IDs
-        let do_backfill = std::env::var("AOS_READABLE_IDS_BACKFILL")
-            .ok()
-            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-            .unwrap_or(false);
-        if do_backfill {
-            info!("Backfilling readable IDs...");
-            if let Err(e) = db.backfill_readable_ids().await {
-                warn!(error = %e, "Readable ID backfill failed");
-            }
-        }
-
         // Recover from any previous crash (orphaned adapters, stale state)
         info!("Running crash recovery checks...");
         db.recover_from_crash()

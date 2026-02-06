@@ -111,7 +111,12 @@ pub fn validate_adapter_id(id: &str) -> Result<(), AosError> {
         ));
     }
 
-    if crate::ids::is_readable_id(id) {
+    if adapteros_id::is_readable_id(id) {
+        return Ok(());
+    }
+
+    // New TypedId format
+    if adapteros_id::TypedId::parse(id).is_some() {
         return Ok(());
     }
 

@@ -54,7 +54,7 @@ pub fn StackDetail() -> impl IntoView {
             ]/>
 
             <div class="flex items-center justify-between">
-                <h1 class="text-3xl font-bold tracking-tight">"Stack Details"</h1>
+                <h1 class="heading-1">"Stack Details"</h1>
                 <div class="flex items-center gap-2">
                     <RefreshButton on_click=Callback::new(move |_| trigger_refresh())/>
                     <Button

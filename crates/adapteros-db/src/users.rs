@@ -4,7 +4,8 @@ use adapteros_core::error_helpers::DbErrorExt;
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 /// User role enum - simplified 3-role model
 ///
@@ -172,7 +173,7 @@ impl Db {
         role: Role,
         tenant_id: &str,
     ) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Usr);
         let role_str = role.to_string();
 
         // SQL write if enabled

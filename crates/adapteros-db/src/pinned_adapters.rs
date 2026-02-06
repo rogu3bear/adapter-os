@@ -3,7 +3,8 @@ use adapteros_core::{AosError, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct PinnedAdapter {
@@ -65,7 +66,7 @@ impl Db {
             }
         }
 
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Adp);
         sqlx::query(
             "INSERT INTO pinned_adapters (id, tenant_id, adapter_pk, pinned_until, reason, pinned_by)
              VALUES (?, ?, ?, ?, ?, ?)

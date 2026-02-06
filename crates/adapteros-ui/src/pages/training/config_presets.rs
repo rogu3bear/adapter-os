@@ -261,7 +261,7 @@ pub fn TrainingConfigPresets(
             // Preset selector
             <div>
                 <label class="text-sm font-medium mb-3 block">"Training Preset"</label>
-                <div class="grid grid-cols-3 gap-3">
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <PresetCard
                         preset=TrainingPreset::Identity
                         selected=Signal::derive(move || current_preset.get() == TrainingPreset::Identity)

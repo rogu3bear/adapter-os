@@ -13,7 +13,8 @@ use super::helpers::{
 };
 use super::manifest::{cache_manifest, fetch_manifest_from_cp, parse_manifest, LoadedManifest};
 use super::registration::{
-    notify_cp_status, register_with_cp_with_retry, RegistrationParams, RegistrationResult,
+    notify_cp_status, notify_cp_status_with_retry, register_with_cp_with_retry,
+    RegistrationParams, RegistrationResult,
 };
 use adapteros_boot::jti_cache::JtiCacheStore;
 use adapteros_config::{
@@ -300,6 +301,16 @@ pub async fn run_worker() -> Result<()> {
     // Initialize tracing
     let _log_guard = init_worker_logging()?;
 
+    // Startup preamble: first structured log identifying this build
+    info!(
+        build_id = adapteros_core::version::BUILD_ID,
+        git_commit = adapteros_core::version::GIT_COMMIT_HASH,
+        version = adapteros_core::version::VERSION,
+        run_id = %std::env::var("AOS_RUN_ID").unwrap_or_else(|_| "none".into()),
+        profile = adapteros_core::version::BUILD_PROFILE,
+        "aos-worker starting"
+    );
+
     let args = Args::parse();
 
     // Early validation: check model cache budget BEFORE any expensive operations
@@ -337,7 +348,7 @@ pub async fn run_worker() -> Result<()> {
     let worker_id = args
         .worker_id
         .clone()
-        .unwrap_or_else(|| format!("worker-{}", uuid::Uuid::now_v7()));
+        .unwrap_or_else(|| adapteros_id::TypedId::new(adapteros_id::IdPrefix::Wrk).to_string());
 
     // Store worker identity for panic hook access
     let _ = WORKER_IDENTITY.set(WorkerIdentity {
@@ -571,7 +582,6 @@ pub async fn run_worker() -> Result<()> {
     // Retry lightly on transient I/O errors (e.g., slow network FS) but fail-fast on schema/logic issues.
     let tokenizer_meta = {
         let mut attempt = 0;
-        let mut last_err: Option<AosError> = None;
         loop {
             attempt += 1;
             match SpecialTokenMap::validate_tokenizer(
@@ -601,7 +611,6 @@ pub async fn run_worker() -> Result<()> {
                         "Tokenizer validation transient error; retrying with backoff"
                     );
                     tokio::time::sleep(Duration::from_millis(200 * attempt as u64)).await;
-                    last_err = Some(e);
                 }
             }
         }
@@ -1295,7 +1304,8 @@ pub async fn run_worker() -> Result<()> {
         .map_err(|e| AosError::Lifecycle(e.to_string()))?;
     if cp_enabled {
         // Publish healthy after UDS bind so CP only routes to a listening socket.
-        notify_cp_status(
+        // Retry up to 5 times: a missed healthy notification silently blackholes traffic.
+        notify_cp_status_with_retry(
             &args.cp_url,
             &worker_id,
             WorkerStatus::Healthy.as_str(),
@@ -1305,6 +1315,7 @@ pub async fn run_worker() -> Result<()> {
             &manifest_hash_hex,
             &tokenizer_hash_hex,
             manifest.base.vocab_size,
+            5,
         );
     }
     log_boot_phase("uds-listening");

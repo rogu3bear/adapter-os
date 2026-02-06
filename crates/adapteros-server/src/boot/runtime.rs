@@ -158,7 +158,8 @@ pub async fn initialize_runtime(
                 session_id: session_id.clone(),
                 config_hash: snapshot.hash.clone(),
                 binary_version: env!("CARGO_PKG_VERSION").to_string(),
-                binary_commit: option_env!("GIT_COMMIT").map(|s| s.to_string()),
+                binary_commit: Some(adapteros_core::version::GIT_COMMIT_HASH.to_string())
+                    .filter(|s| s != "unknown"),
                 started_at: chrono::Utc::now().to_rfc3339(),
                 ended_at: None,
                 end_reason: None,

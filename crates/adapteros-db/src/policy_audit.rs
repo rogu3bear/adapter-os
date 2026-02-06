@@ -12,7 +12,8 @@ use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::warn;
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 /// Error code used when the policy audit chain diverges
 pub const AUDIT_CHAIN_DIVERGED_CODE: &str = "AUDIT_CHAIN_DIVERGED";
@@ -307,7 +308,7 @@ impl Db {
         };
         let chain_sequence = previous_seq + 1;
 
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Aud);
         let timestamp = chrono::Utc::now().to_rfc3339();
 
         // Ensure KV is aligned before writing when KV is enabled.
@@ -1305,7 +1306,7 @@ mod tests {
              (id, tenant_id, policy_pack_id, hook, decision, timestamp, entry_hash, previous_hash, chain_sequence)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
-        .bind(uuid::Uuid::now_v7().to_string())
+        .bind(new_id(IdPrefix::Aud))
         .bind("tenant-a")
         .bind("policy-gap")
         .bind("adapter.load")

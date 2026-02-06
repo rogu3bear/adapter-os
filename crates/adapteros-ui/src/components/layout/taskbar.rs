@@ -67,7 +67,8 @@ pub fn Taskbar() -> impl IntoView {
                             let href = item.href;
                             let label = item.label;
                             let icon_path = item.icon;
-                            let routes = item.routes;
+                            // Use StoredValue for routes so the closure can be Copy
+                            let routes = StoredValue::new(item.routes);
 
                             view! {
                                 <ModuleButton
@@ -77,15 +78,17 @@ pub fn Taskbar() -> impl IntoView {
                                     is_active=move || {
                                         let path = location.pathname.get();
                                         // Check if current path matches any route in this module
-                                        routes.iter().any(|r| {
-                                            if *r == "/" {
-                                                path == "/" || path == "/dashboard"
-                                            } else if r.ends_with('/') {
-                                                // Pattern like "/runs/" matches "/runs/abc"
-                                                path.starts_with(r)
-                                            } else {
-                                                path == *r || path.starts_with(&format!("{}/", r))
-                                            }
+                                        routes.with_value(|routes| {
+                                            routes.iter().any(|r| {
+                                                if *r == "/" {
+                                                    path == "/" || path == "/dashboard"
+                                                } else if r.ends_with('/') {
+                                                    // Pattern like "/runs/" matches "/runs/abc"
+                                                    path.starts_with(r)
+                                                } else {
+                                                    path == *r || path.starts_with(&format!("{}/", r))
+                                                }
+                                            })
                                         })
                                     }
                                 />

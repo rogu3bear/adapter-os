@@ -519,7 +519,7 @@ impl DatasetDomain for DatasetDomainService {
         }
 
         let version_id =
-            crate::id_generator::readable_id(adapteros_core::ids::IdKind::Version, "dataset");
+            crate::id_generator::readable_id(adapteros_id::IdPrefix::Ver, "dataset");
         let version_dir =
             self.resolve_version_dir(&request.tenant_id, &request.dataset_id, &version_id)?;
         ensure_dirs([version_dir.as_path()])

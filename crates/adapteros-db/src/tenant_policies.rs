@@ -8,7 +8,8 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
 use tracing::{debug, error, info, warn};
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 /// Status of a tenant policy customization
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -109,7 +110,7 @@ impl TenantPolicyCustomizationOps {
         &self,
         req: CreateCustomizationRequest,
     ) -> Result<TenantPolicyCustomization> {
-        let id = Uuid::new_v4().to_string();
+        let id = new_id(IdPrefix::Pol);
         let now = Utc::now().to_rfc3339();
         let status = CustomizationStatus::Draft;
 
@@ -657,7 +658,7 @@ impl TenantPolicyCustomizationOps {
         notes: Option<&str>,
         changes_json: Option<&str>,
     ) -> Result<()> {
-        let id = Uuid::new_v4().to_string();
+        let id = new_id(IdPrefix::Pol);
         let now = Utc::now().to_rfc3339();
 
         sqlx::query(

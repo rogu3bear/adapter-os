@@ -463,12 +463,12 @@ impl Db {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use uuid::Uuid;
+    use adapteros_id::{IdPrefix, TypedId};
 
     async fn create_test_db() -> Db {
         let path = std::env::temp_dir().join(format!(
             "adapteros-lifecycle-test-{}.sqlite3",
-            Uuid::new_v4()
+            TypedId::new(IdPrefix::Evt)
         ));
         let db = Db::connect(&path.to_string_lossy()).await.unwrap();
         db.migrate().await.unwrap();

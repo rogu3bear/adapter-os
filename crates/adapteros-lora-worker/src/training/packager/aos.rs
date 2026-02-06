@@ -1211,7 +1211,7 @@ mod tests {
         CoreMLOpKind, CoreMLPlacementBinding, CoreMLPlacementShape, CoreMLProjection,
         CoreMLTargetRef,
     };
-    use std::collections::HashMap;
+    use std::collections::{BTreeMap, HashMap};
 
     #[tokio::test]
     async fn test_compute_hash() {

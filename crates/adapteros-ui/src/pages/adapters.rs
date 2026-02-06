@@ -19,19 +19,24 @@
 use crate::api::ApiClient;
 use crate::components::{
     AdapterDetailPanel, AsyncBoundary, AsyncBoundaryWithErrorRender, Badge, BadgeVariant,
-    BreadcrumbItem, BreadcrumbTrail, Button, ButtonVariant, Card, CopyableId, EmptyState,
-    EmptyStateVariant, ErrorDisplay, Link, SplitPanel, SplitRatio, Table, TableBody, TableCell,
-    TableHead, TableHeader, TableRow,
+    BreadcrumbItem, BreadcrumbTrail, Button, ButtonSize, ButtonVariant, Card, CopyableId,
+    EmptyState, EmptyStateVariant, ErrorDisplay, Link, PageBreadcrumbItem, PageScaffold,
+    PageScaffoldActions, SplitPanel, SplitRatio, Table, TableBody, TableCell, TableHead,
+    TableHeader, TableRow,
 };
 use crate::constants::urls::docs_link;
 use crate::contexts::use_in_flight;
 use crate::hooks::{use_api_resource, LoadingState};
 use crate::signals::refetch::{use_refetch_signal, RefetchTopic};
 use crate::signals::{try_use_route_context, SelectedEntity};
+use crate::utils::chat_path_with_adapter;
 use adapteros_api_types::AdapterResponse;
 use leptos::prelude::*;
-use leptos_router::hooks::use_params_map;
+use leptos_router::hooks::{use_navigate, use_params_map};
 use std::sync::Arc;
+
+/// Path to open the training wizard for new adapter creation
+const NEW_ADAPTER_PATH: &str = "/training?open_wizard=1";
 
 /// Adapters list page with split-panel detail drawer
 #[component]
@@ -111,16 +116,33 @@ pub fn Adapters() -> impl IntoView {
     });
 
     view! {
-        <div class="shell-page space-y-6">
-            <div class="flex items-center justify-between">
-                <h1 class="text-3xl font-bold tracking-tight">"Adapters"</h1>
+        <PageScaffold
+            title="Adapters"
+            breadcrumbs=vec![
+                PageBreadcrumbItem::new("Deploy", "/adapters"),
+                PageBreadcrumbItem::current("Adapters"),
+            ]
+        >
+            <PageScaffoldActions slot>
+                {
+                    let navigate = use_navigate();
+                    view! {
+                        <Button
+                            variant=ButtonVariant::Primary
+                            on_click=Callback::new(move |_| {
+                                navigate(NEW_ADAPTER_PATH, Default::default());
+                            })
+                        >
+                            "New Adapter"
+                        </Button>
+                    }
+                }
                 <Button
-                    variant=ButtonVariant::Primary
                     on_click=Callback::new(move |_| refetch.run(()))
                 >
                     "Refresh"
                 </Button>
-            </div>
+            </PageScaffoldActions>
 
             <AsyncBoundary
                 state=adapters
@@ -156,7 +178,7 @@ pub fn Adapters() -> impl IntoView {
                     }
                 }
             />
-        </div>
+        </PageScaffold>
     }
 }
 
@@ -172,8 +194,10 @@ fn AdaptersListInteractive(
 ) -> impl IntoView {
     let total = adapters.len();
     let in_flight = use_in_flight();
+    let navigate = use_navigate();
 
     if adapters.is_empty() {
+        let navigate = navigate.clone();
         return view! {
             <Card>
                 <EmptyState
@@ -181,10 +205,8 @@ fn AdaptersListInteractive(
                     title="No adapters found"
                     description="Adapters enable specialized inference capabilities. Train your first adapter to get started."
                     action_label="Train Adapter"
-                    on_action=Callback::new(|_| {
-                        if let Some(window) = web_sys::window() {
-                            let _ = window.location().set_href("/training");
-                        }
+                    on_action=Callback::new(move |_| {
+                        navigate(NEW_ADAPTER_PATH, Default::default());
                     })
                     secondary_label="View Documentation"
                     secondary_href=docs_link("adapters")
@@ -206,6 +228,7 @@ fn AdaptersListInteractive(
 
     // Clone adapters once for the closure
     let adapters_for_rows = adapters.clone();
+    let nav_stored = StoredValue::new(navigate.clone());
 
     view! {
         <Card>
@@ -215,6 +238,7 @@ fn AdaptersListInteractive(
                         <TableHead>"Name"</TableHead>
                         <TableHead>"Lifecycle"</TableHead>
                         <TableHead>"Tier"</TableHead>
+                        <TableHead>""</TableHead>
                     </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -267,6 +291,25 @@ fn AdaptersListInteractive(
                                     <TableCell>
                                         <span class="text-sm text-muted-foreground">{tier}</span>
                                     </TableCell>
+                                    <TableCell>
+                                        {
+                                            let chat_id = id.clone();
+                                            view! {
+                                                <div on:click=move |ev: web_sys::MouseEvent| ev.stop_propagation()>
+                                                    <Button
+                                                        variant=ButtonVariant::Ghost
+                                                        size=ButtonSize::Sm
+                                                        on_click=Callback::new(move |_| {
+                                                            let path = chat_path_with_adapter(&chat_id);
+                                                            nav_stored.with_value(|nav| nav(&path, Default::default()));
+                                                        })
+                                                    >
+                                                        "Chat"
+                                                    </Button>
+                                                </div>
+                                            }
+                                        }
+                                    </TableCell>
                                 </tr>
                             }
                         }).collect::<Vec<_>>()
@@ -279,10 +322,16 @@ fn AdaptersListInteractive(
                 let count = visible_count.get();
                 let remaining = total.saturating_sub(count);
                 if remaining > 0 {
+                    let aria_label = if remaining == 1 {
+                        "Show 1 more adapter".to_string()
+                    } else {
+                        format!("Show {} more adapters", remaining)
+                    };
                     view! {
                         <div class="flex items-center justify-center py-4 border-t">
                             <button
                                 class="text-sm text-primary hover:underline"
+                                aria-label=aria_label
                                 on:click=show_more
                             >
                                 {format!("Show more ({} remaining)", remaining)}
@@ -396,13 +445,30 @@ pub fn AdapterDetail() -> impl IntoView {
             ]/>
 
             <div class="flex items-center justify-between">
-                <h1 class="text-3xl font-bold tracking-tight">"Adapter Details"</h1>
-                <Button
-                    variant=ButtonVariant::Primary
-                    on_click=Callback::new(move |_| refetch.run(()))
-                >
-                    "Refresh"
-                </Button>
+                <h1 class="heading-1">"Adapter Details"</h1>
+                <div class="flex items-center gap-2">
+                    {
+                        let navigate = use_navigate();
+                        let id_for_chat = adapter_id.clone();
+                        view! {
+                            <Button
+                                variant=ButtonVariant::Primary
+                                on_click=Callback::new(move |_| {
+                                    let path = chat_path_with_adapter(&id_for_chat.get_untracked());
+                                    navigate(&path, Default::default());
+                                })
+                            >
+                                "Open Chat"
+                            </Button>
+                        }
+                    }
+                    <Button
+                        variant=ButtonVariant::Secondary
+                        on_click=Callback::new(move |_| refetch.run(()))
+                    >
+                        "Refresh"
+                    </Button>
+                </div>
             </div>
 
             <AsyncBoundaryWithErrorRender
@@ -415,7 +481,7 @@ pub fn AdapterDetail() -> impl IntoView {
                         view! {
                             <div class="flex items-center justify-center py-12">
                                 <div class="text-center">
-                                    <h2 class="text-xl font-semibold mb-2 text-destructive">"Invalid Adapter ID"</h2>
+                                    <h2 class="heading-3 mb-2 text-destructive">"Invalid Adapter ID"</h2>
                                     <p class="text-muted-foreground mb-4">{error_msg}</p>
                                     <Link href="/adapters">
                                         "← Back to Adapters"
@@ -489,7 +555,7 @@ fn AdapterDetailContent(adapter: AdapterResponse) -> impl IntoView {
         return view! {
             <div class="flex items-center justify-center py-12">
                 <div class="text-center">
-                    <h2 class="text-xl font-semibold mb-2 text-destructive">"Invalid Adapter Data"</h2>
+                    <h2 class="heading-3 mb-2 text-destructive">"Invalid Adapter Data"</h2>
                     <p class="text-muted-foreground mb-2">{validation_error}</p>
                     <Link href="/adapters">
                         "← Back to Adapters"
@@ -508,7 +574,15 @@ fn AdapterDetailContent(adapter: AdapterResponse) -> impl IntoView {
         _ => BadgeVariant::Secondary,
     };
 
+    // Extract values needed before moving into closures
+    let adapter_name_for_link = adapter.name.clone();
+    let languages = adapter.languages.clone();
+    let framework = adapter.framework.clone();
+    let framework_id = adapter.framework_id.clone();
+    let framework_version = adapter.framework_version.clone();
+
     view! {
+        // Row 1: Basic Info + Status (2-column grid)
         <div class="grid gap-6 md:grid-cols-2">
             // Basic Info
             <Card title="Basic Information".to_string()>
@@ -551,72 +625,84 @@ fn AdapterDetailContent(adapter: AdapterResponse) -> impl IntoView {
                         <span class="font-medium">{adapter.category.clone().unwrap_or_else(|| "N/A".to_string())}</span>
                     </div>
                 </div>
+                <div class="mt-3 pt-3 border-t border-border/50">
+                    <p class="text-xs text-muted-foreground mb-1">"Provenance"</p>
+                    <Link
+                        href=format!("/training?adapter_name={}", adapter_name_for_link)
+                        class="text-sm text-primary hover:underline"
+                    >
+                        "View Training History →"
+                    </Link>
+                </div>
             </Card>
-
         </div>
 
-        // Languages
-        <Card title="Languages".to_string() class="mt-6".to_string()>
-            <div class="flex flex-wrap gap-2">
-                {if adapter.languages.is_empty() {
-                    view! { <span class="text-muted-foreground">"No languages specified"</span> }.into_any()
-                } else {
-                    view! {
-                        {adapter.languages.clone().into_iter().map(|lang| view! {
-                            <Badge variant=BadgeVariant::Secondary>{lang}</Badge>
-                        }).collect::<Vec<_>>()}
-                    }.into_any()
-                }}
-            </div>
-        </Card>
-
-        // Metadata
-        <Card title="Metadata".to_string() class="mt-6".to_string()>
-            <div class="grid gap-4 md:grid-cols-4">
-                <div>
-                    <p class="text-sm text-muted-foreground">"Rank"</p>
-                    <p class="font-medium">{adapter.rank}</p>
-                </div>
-                <div>
-                    <p class="text-sm text-muted-foreground">"Version"</p>
-                    <p class="font-medium">{adapter.version.clone()}</p>
-                </div>
-                <div>
-                    <p class="text-sm text-muted-foreground">"Created At"</p>
-                    <p class="font-medium">{adapter.created_at.clone()}</p>
-                </div>
-                <div>
-                    <p class="text-sm text-muted-foreground">"Updated At"</p>
-                    <p class="font-medium">{adapter.updated_at.clone().unwrap_or_else(|| "N/A".to_string())}</p>
-                </div>
-            </div>
-        </Card>
-
-        // Framework (if available)
-        {adapter.framework.clone().map(|fw| view! {
-            <Card title="Framework".to_string() class="mt-6".to_string()>
-                <div class="grid gap-4 md:grid-cols-3">
+        // Row 2: Tech Stack + Metadata (2-column grid)
+        <div class="grid gap-6 md:grid-cols-2 mt-6">
+            // Tech Stack: Languages + Framework combined (mirrors AdapterDetailPanel pattern)
+            <Card title="Tech Stack".to_string()>
+                <div class="space-y-3">
                     <div>
-                        <p class="text-sm text-muted-foreground">"Framework"</p>
-                        <p class="font-medium">{fw}</p>
-                    </div>
-                    {adapter.framework_id.clone().map(|fid| view! {
-                        <div>
-                            <p class="text-sm text-muted-foreground">"Framework ID"</p>
-                            <p class="font-mono text-sm">{fid}</p>
+                        <p class="text-sm text-muted-foreground mb-1">"Languages"</p>
+                        <div class="flex flex-wrap gap-2">
+                            {if languages.is_empty() {
+                                view! { <span class="text-muted-foreground text-sm">"No languages specified"</span> }.into_any()
+                            } else {
+                                view! {
+                                    {languages.into_iter().map(|lang| view! {
+                                        <Badge variant=BadgeVariant::Secondary>{lang}</Badge>
+                                    }).collect::<Vec<_>>()}
+                                }.into_any()
+                            }}
                         </div>
-                    })}
-                    {adapter.framework_version.clone().map(|fv| view! {
-                        <div>
-                            <p class="text-sm text-muted-foreground">"Framework Version"</p>
-                            <p class="font-medium">{fv}</p>
+                    </div>
+                    {framework.map(|fw| view! {
+                        <div class="space-y-2">
+                            <div>
+                                <p class="text-sm text-muted-foreground">"Framework"</p>
+                                <p class="font-medium">{fw}</p>
+                            </div>
+                            {framework_id.clone().map(|fid| view! {
+                                <div>
+                                    <p class="text-sm text-muted-foreground">"Framework ID"</p>
+                                    <p class="font-mono text-sm">{fid}</p>
+                                </div>
+                            })}
+                            {framework_version.clone().map(|fv| view! {
+                                <div>
+                                    <p class="text-sm text-muted-foreground">"Framework Version"</p>
+                                    <p class="font-medium">{fv}</p>
+                                </div>
+                            })}
                         </div>
                     })}
                 </div>
             </Card>
-        })}
 
-        // Stats (if available)
+            // Metadata
+            <Card title="Metadata".to_string()>
+                <div class="grid gap-4 grid-cols-2">
+                    <div>
+                        <p class="text-sm text-muted-foreground">"Rank"</p>
+                        <p class="font-medium">{adapter.rank}</p>
+                    </div>
+                    <div>
+                        <p class="text-sm text-muted-foreground">"Version"</p>
+                        <p class="font-medium">{adapter.version.clone()}</p>
+                    </div>
+                    <div>
+                        <p class="text-sm text-muted-foreground">"Created At"</p>
+                        <p class="font-medium">{adapter.created_at.clone()}</p>
+                    </div>
+                    <div>
+                        <p class="text-sm text-muted-foreground">"Updated At"</p>
+                        <p class="font-medium">{adapter.updated_at.clone().unwrap_or_else(|| "N/A".to_string())}</p>
+                    </div>
+                </div>
+            </Card>
+        </div>
+
+        // Row 3: Statistics - full width (content-heavy with large metrics)
         {adapter.stats.clone().map(|stats| view! {
             <Card title="Statistics".to_string() class="mt-6".to_string()>
                 <div class="grid gap-4 md:grid-cols-4">

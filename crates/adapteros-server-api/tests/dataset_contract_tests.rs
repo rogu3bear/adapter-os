@@ -70,6 +70,7 @@ fn test_dataset_response_required_fields() {
         created_at: "2025-01-15T00:00:00Z".to_string(),
         updated_at: "2025-01-15T00:00:00Z".to_string(),
         dataset_type: None,
+        display_name: None,
     };
 
     let json = serde_json::to_value(&response).unwrap();
@@ -115,6 +116,7 @@ fn test_validation_errors_is_array() {
         created_at: "2025-01-15T00:00:00Z".to_string(),
         updated_at: "2025-01-15T00:00:00Z".to_string(),
         dataset_type: None,
+        display_name: None,
     };
 
     let json = serde_json::to_value(&response).unwrap();
@@ -149,6 +151,7 @@ fn test_validation_errors_null_when_none() {
         created_at: "2025-01-15T00:00:00Z".to_string(),
         updated_at: "2025-01-15T00:00:00Z".to_string(),
         dataset_type: None,
+        display_name: None,
     };
 
     let json = serde_json::to_value(&response).unwrap();

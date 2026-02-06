@@ -7,7 +7,8 @@ use serde_json;
 use sqlx::FromRow;
 use std::sync::Arc;
 use tracing::warn;
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 /// Routing decision chain entry (per token)
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -259,7 +260,7 @@ pub fn make_chain_record_from_api(
         .map_err(|e| AosError::validation(format!("gates_q15 at step {}: {}", entry.step, e)))?;
 
     Ok(RoutingDecisionChainRecord {
-        id: Uuid::now_v7().to_string(),
+        id: new_id(IdPrefix::Dec),
         tenant_id: tenant_id.to_string(),
         inference_id: inference_id.to_string(),
         request_id: request_id.map(|s| s.to_string()),
@@ -338,7 +339,7 @@ mod tests {
             .expect("insert tenant");
 
         let entry = RoutingDecisionChainRecord {
-            id: Uuid::now_v7().to_string(),
+            id: new_id(IdPrefix::Dec),
             tenant_id: tenant_id.clone(),
             inference_id: "req-123".to_string(),
             request_id: Some("req-123".to_string()),

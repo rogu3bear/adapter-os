@@ -33,10 +33,10 @@ impl ChartLayout {
         Self {
             width,
             height,
-            padding_left: 50.0, // Y-axis labels
-            padding_right: 20.0,
-            padding_top: 20.0,
-            padding_bottom: 30.0, // X-axis labels
+            padding_left: 48.0, // Y-axis labels
+            padding_right: 16.0,
+            padding_top: 16.0,
+            padding_bottom: 24.0, // X-axis labels (AM/PM format)
         }
     }
 
@@ -162,15 +162,15 @@ pub fn XAxis(
     layout: ChartLayout,
     /// Time scale for mapping values to positions
     x_scale: TimeScale,
-    /// Number of ticks
-    #[prop(default = 6)]
+    /// Target number of ticks
+    #[prop(default = 5)]
     tick_count: usize,
     /// Label formatter function
     #[prop(optional)]
     format_label: Option<fn(u64) -> String>,
 ) -> impl IntoView {
     let y = layout.bottom();
-    let ticks = x_scale.ticks(tick_count);
+    let ticks = x_scale.nice_ticks(tick_count);
     let (time_min, time_max) = x_scale.time_range();
     let range_ms = time_max.saturating_sub(time_min);
 
@@ -205,7 +205,7 @@ pub fn XAxis(
                             />
                             <text
                                 x={x}
-                                y={y + 18.0}
+                                y={y + 15.0}
                                 text-anchor="middle"
                                 class="chart-tick-label"
                             >

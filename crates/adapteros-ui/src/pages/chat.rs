@@ -22,10 +22,9 @@ use crate::api::{api_base_url, ApiClient};
 use crate::components::inference_guidance::guidance_for;
 use crate::components::status_center::use_status_center;
 use crate::components::{
-    AdapterBar, AdapterHeat, AdapterMagnet, Badge, BadgeVariant, Button, ButtonSize, ButtonVariant,
-    Card, Checkbox, ConfirmationDialog, ConfirmationSeverity, Dialog, EmptyState,
-    EmptyStateVariant, Spinner, SuggestedAdapterView, SuggestedAdaptersBar, Textarea, TraceButton,
-    TracePanel,
+    use_is_tablet_or_smaller, AdapterHeat, AdapterMagnet, Badge, BadgeVariant, Button, ButtonSize,
+    ButtonVariant, ChatAdaptersRegion, Checkbox, ConfirmationDialog, ConfirmationSeverity, Dialog,
+    Input, Spinner, SuggestedAdapterView, Textarea, TraceButton, TracePanel,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use crate::signals::chat::load_pinned_adapters;
@@ -53,22 +52,303 @@ enum AttachMode {
     Chat,
 }
 
-/// Chat sessions landing page with recent sessions
+/// Chat landing page - redirects to the most recent session or shows empty state.
+/// Route: /chat
 #[component]
 pub fn Chat() -> impl IntoView {
-    let (chat_state, chat_action) = use_chat();
-    let sessions = RwSignal::new(ChatSessionsManager::load_sessions());
     let navigate = use_navigate();
+    let sessions = ChatSessionsManager::load_sessions();
 
-    // Delete confirmation state
-    let pending_delete_id = RwSignal::new(Option::<String>::None);
-    let show_delete_confirm = RwSignal::new(false);
+    // Redirect to the most recent session so the URL always reflects what's shown.
+    if let Some(recent) = sessions.first() {
+        // Preserve query params (?prompt=, ?adapter=) across the redirect.
+        let search = web_sys::window()
+            .and_then(|w| w.location().search().ok())
+            .unwrap_or_default();
+        let path = format!("/chat/{}{}", recent.id, search);
+        // Replace (not push) so /chat doesn't sit in the back-button stack.
+        navigate(&path, leptos_router::NavigateOptions {
+            replace: true,
+            ..Default::default()
+        });
+    }
 
-    // Check if dock has messages
+    // Render empty-state workspace while redirect fires (or if no sessions exist).
+    let selected_signal = Signal::derive(|| None);
+    view! { <ChatWorkspace selected_session_id=selected_signal /> }
+}
+
+/// Chat session page - renders workspace with session from route param.
+/// Route: /chat/:session_id
+#[component]
+pub fn ChatSession() -> impl IntoView {
+    let params = use_params_map();
+    let selected_id = Signal::derive(move || {
+        let id = params.get().get("session_id").unwrap_or_default();
+        if id.is_empty() { None } else { Some(id) }
+    });
+
+    view! { <ChatWorkspace selected_session_id=selected_id handle_query_params=true /> }
+}
+
+// ---------------------------------------------------------------------------
+// ChatWorkspace - two-column layout with session list + conversation
+// ---------------------------------------------------------------------------
+
+/// Chat workspace with session list sidebar (desktop) and conversation panel.
+/// On mobile, session list is available via a slide-out overlay.
+#[component]
+fn ChatWorkspace(
+    /// The currently selected session ID. None means no session selected.
+    selected_session_id: Signal<Option<String>>,
+    /// Whether to handle ?prompt= and ?adapter= query parameters
+    #[prop(default = false)]
+    handle_query_params: bool,
+) -> impl IntoView {
+    let is_compact = use_is_tablet_or_smaller();
+    let show_mobile_sessions = RwSignal::new(false);
+    let navigate = use_navigate();
+    let sessions = RwSignal::new(ChatSessionsManager::load_sessions());
+
+    // Derive a non-optional session ID for the conversation panel
+    let session_id_for_panel = Signal::derive(move || {
+        selected_session_id.get().unwrap_or_default()
+    });
+    let has_selection = Signal::derive(move || {
+        selected_session_id
+            .get()
+            .map(|s| !s.is_empty())
+            .unwrap_or(false)
+    });
+
+    // Refresh sessions list when selection changes (picks up auto-saved sessions)
+    {
+        Effect::new(move |_| {
+            let _ = selected_session_id.get();
+            sessions.set(ChatSessionsManager::load_sessions());
+        });
+    }
+
+    // Handle session deletion
+    let on_delete_session = {
+        let navigate = navigate.clone();
+        Callback::new(move |deleted_id: String| {
+            ChatSessionsManager::delete_session(&deleted_id);
+            sessions.set(ChatSessionsManager::load_sessions());
+            // If deleted session was selected, go to /chat to auto-select next
+            if selected_session_id.get_untracked().as_deref() == Some(deleted_id.as_str()) {
+                navigate("/chat", Default::default());
+            }
+        })
+    };
+
+    // Close mobile overlay when a session is clicked (navigates via <a> href)
+    {
+        Effect::new(move |_| {
+            let _ = selected_session_id.get();
+            show_mobile_sessions.set(false);
+        });
+    }
+
+    view! {
+        <div class="flex h-full min-h-0">
+            // Desktop: persistent session list sidebar
+            {move || {
+                if !is_compact.get() {
+                    Some(view! {
+                        <div class="w-72 xl:w-80 border-r border-border flex-shrink-0 flex flex-col h-full overflow-hidden">
+                            <SessionListPanel
+                                selected_id=selected_session_id
+                                sessions=sessions
+                                on_delete=on_delete_session
+                            />
+                        </div>
+                    })
+                } else {
+                    None
+                }
+            }}
+
+            // Conversation area
+            <div class="flex-1 min-w-0 flex flex-col h-full">
+                // Mobile: sessions toggle button
+                {move || {
+                    if is_compact.get() {
+                        Some(view! {
+                            <div class="flex items-center gap-2 px-4 py-2 border-b border-border bg-background/80 shrink-0">
+                                <button
+                                    class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-border hover:bg-muted/50 transition-colors"
+                                    on:click=move |_| show_mobile_sessions.update(|v| *v = !*v)
+                                    aria-label="Toggle session list"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
+                                    </svg>
+                                    "Sessions"
+                                </button>
+                            </div>
+                        })
+                    } else {
+                        None
+                    }
+                }}
+
+                // Conversation panel or empty state
+                <div class="flex-1 min-h-0">
+                    {move || {
+                        if has_selection.get() {
+                            view! {
+                                <ChatConversationPanel
+                                    session_id_signal=session_id_for_panel
+                                    handle_query_params=handle_query_params
+                                />
+                            }.into_any()
+                        } else {
+                            view! { <ChatEmptyWorkspace/> }.into_any()
+                        }
+                    }}
+                </div>
+            </div>
+
+            // Mobile: session list overlay (slide-in from left)
+            {move || {
+                if is_compact.get() && show_mobile_sessions.get() {
+                    Some(view! {
+                        <div
+                            class="fixed inset-0 z-40 bg-background/80 backdrop-blur-sm"
+                            on:click=move |_| show_mobile_sessions.set(false)
+                        />
+                        <div class="fixed inset-y-0 left-0 z-50 w-80 bg-background border-r border-border shadow-xl flex flex-col overflow-hidden">
+                            <div class="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
+                                <h2 class="text-sm font-semibold">"Sessions"</h2>
+                                <button
+                                    class="p-1.5 rounded hover:bg-muted/50 text-muted-foreground"
+                                    on:click=move |_| show_mobile_sessions.set(false)
+                                    aria-label="Close session list"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                                    </svg>
+                                </button>
+                            </div>
+                            <SessionListPanel
+                                selected_id=selected_session_id
+                                sessions=sessions
+                                on_delete=on_delete_session
+                            />
+                        </div>
+                    })
+                } else {
+                    None
+                }
+            }}
+        </div>
+    }
+}
+
+/// Empty state shown when no session is selected in the workspace
+#[component]
+fn ChatEmptyWorkspace() -> impl IntoView {
+    let navigate = use_navigate();
+    let create_session = {
+        let navigate = navigate.clone();
+        Callback::new(move |_: ()| {
+            let session_id = generate_readable_id("session", "chat");
+            let path = format!("/chat/{}", session_id);
+            navigate(&path, Default::default());
+        })
+    };
+    let go_to_training = {
+        let navigate = navigate.clone();
+        Callback::new(move |_: ()| {
+            navigate("/training?open_wizard=1&return_to=/chat", Default::default());
+        })
+    };
+
+    let go_to_adapters = {
+        Callback::new(move |_: ()| {
+            navigate("/adapters", Default::default());
+        })
+    };
+
+    view! {
+        <div class="flex h-full items-center justify-center p-6">
+            <div class="text-center space-y-4 max-w-md">
+                <div class="mx-auto w-14 h-14 rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center shadow-sm">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+                    </svg>
+                </div>
+                <h3 class="heading-3">"Start a conversation"</h3>
+                <p class="text-sm text-muted-foreground leading-relaxed">
+                    "Create a new chat session to begin reasoning over your data with adaptive routing."
+                </p>
+                <div class="flex items-center justify-center gap-3">
+                    <Button on_click=create_session>
+                        "New Chat"
+                    </Button>
+                    <Button variant=ButtonVariant::Secondary on_click=go_to_training>
+                        "Create Adapter"
+                    </Button>
+                </div>
+                <p class="text-xs text-muted-foreground">
+                    "or "
+                    <a
+                        href="/adapters"
+                        class="underline hover:text-foreground transition-colors"
+                        on:click=move |e: web_sys::MouseEvent| {
+                            e.prevent_default();
+                            go_to_adapters.run(());
+                        }
+                    >
+                        "browse existing adapters"
+                    </a>
+                </p>
+            </div>
+        </div>
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SessionListPanel - left sidebar with session list, search, and actions
+// ---------------------------------------------------------------------------
+
+/// Session list panel for the workspace sidebar
+#[component]
+fn SessionListPanel(
+    /// Currently selected session ID for highlighting
+    selected_id: Signal<Option<String>>,
+    /// All sessions (reactive)
+    #[prop(into)]
+    sessions: Signal<Vec<ChatSessionMeta>>,
+    /// Callback when a session is deleted (passes deleted session ID)
+    on_delete: Callback<String>,
+) -> impl IntoView {
+    let navigate = use_navigate();
+    let search_query = RwSignal::new(String::new());
+    let (chat_state, chat_action) = use_chat();
+
+    // Filtered sessions based on search
+    let filtered_sessions = Memo::new(move |_| {
+        let query = search_query.get().to_lowercase();
+        let all = sessions.get();
+        if query.is_empty() {
+            all
+        } else {
+            all.into_iter()
+                .filter(|s| {
+                    s.title.to_lowercase().contains(&query)
+                        || s.preview.to_lowercase().contains(&query)
+                })
+                .collect()
+        }
+    });
+
+    // Check if dock has unsaved messages
     let dock_has_messages = Memo::new(move |_| !chat_state.get().messages.is_empty());
     let dock_message_count = Memo::new(move |_| chat_state.get().messages.len());
 
-    // Create new session - uses client-side navigation for faster transition
+    // Create new session
     let create_session = {
         let navigate = navigate.clone();
         Callback::new(move |_: ()| {
@@ -78,7 +358,7 @@ pub fn Chat() -> impl IntoView {
         })
     };
 
-    // Save dock to session and navigate - wrap in Callback for reuse in reactive closures
+    // Save dock messages to a new session
     let save_dock_and_navigate = {
         let action = chat_action.clone();
         let navigate = navigate.clone();
@@ -87,101 +367,113 @@ pub fn Chat() -> impl IntoView {
             let session_id = generate_readable_id("session", "chat");
             let session = ChatSessionsManager::session_from_state(&session_id, &state);
             ChatSessionsManager::save_session(&session);
-            // Clear dock messages after saving
             action.clear_messages();
             let path = format!("/chat/{}", session_id);
             navigate(&path, Default::default());
         })
     };
 
-    // Request delete confirmation
+    // Delete confirmation state
+    let pending_delete_id = RwSignal::new(Option::<String>::None);
+    let show_delete_confirm = RwSignal::new(false);
+
     let request_delete = move |id: String| {
         pending_delete_id.set(Some(id));
         show_delete_confirm.set(true);
     };
 
-    // Confirm delete handler
     let confirm_delete = move |_| {
         if let Some(id) = pending_delete_id.get() {
-            ChatSessionsManager::delete_session(&id);
-            sessions.set(ChatSessionsManager::load_sessions());
+            on_delete.run(id);
         }
         pending_delete_id.set(None);
         show_delete_confirm.set(false);
     };
 
-    // Cancel delete
     let cancel_delete = move |_| {
         pending_delete_id.set(None);
         show_delete_confirm.set(false);
     };
 
     view! {
-        <div class="p-6 space-y-6">
-            // Header
-            <div class="flex items-center justify-between">
-                <h1 class="text-3xl font-bold tracking-tight">"Chat"</h1>
-                <Button on_click=create_session.clone()>
-                    "New Session"
-                </Button>
+        <div class="flex flex-col h-full">
+            // Header with search and new button
+            <div class="p-3 space-y-2 border-b border-border shrink-0">
+                <div class="flex items-center justify-between">
+                    <h2 class="text-sm font-semibold">"Sessions"</h2>
+                    <button
+                        class="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                        on:click=move |_| create_session.run(())
+                        title="New chat session"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+                        </svg>
+                        "New"
+                    </button>
+                </div>
+                <Input
+                    value=search_query
+                    placeholder="Search sessions...".to_string()
+                />
             </div>
-            <p class="text-sm text-muted-foreground">
-                "Use the system to reason, generate, and run inference against your active context."
-            </p>
 
-            // Continue from dock (if dock has messages)
+            // Continue from dock banner
             {move || {
                 if dock_has_messages.get() {
                     Some(view! {
-                        <Card class="border-primary/30 bg-primary/5".to_string()>
-                            <div class="flex items-center justify-between p-4">
-                                <div>
-                                    <h3 class="font-medium">"Continue current conversation"</h3>
-                                    <p class="text-sm text-muted-foreground">
-                                        {move || format!("{} messages in dock", dock_message_count.get())}
+                        <div class="px-3 py-2 border-b border-primary/20 bg-primary/5 shrink-0">
+                            <div class="flex items-center justify-between gap-2">
+                                <div class="min-w-0">
+                                    <p class="text-xs font-medium truncate">"Continue conversation"</p>
+                                    <p class="text-2xs text-muted-foreground">
+                                        {move || format!("{} messages", dock_message_count.get())}
                                     </p>
                                 </div>
-                                <Button on_click=save_dock_and_navigate.clone()>
+                                <button
+                                    class="shrink-0 px-2 py-1 text-xs font-medium rounded border border-primary/30 text-primary hover:bg-primary/10 transition-colors"
+                                    on:click=move |_| save_dock_and_navigate.run(())
+                                >
                                     "Save & Open"
-                                </Button>
+                                </button>
                             </div>
-                        </Card>
+                        </div>
                     })
                 } else {
                     None
                 }
             }}
 
-            // Recent sessions
-            <Card title="Recent Sessions".to_string()>
+            // Session list (scrollable)
+            <div class="flex-1 overflow-y-auto">
                 {move || {
-                    let session_list = sessions.get();
-                    let on_new = create_session.clone();
-                    if session_list.is_empty() {
+                    let list = filtered_sessions.get();
+                    if list.is_empty() {
                         view! {
-                            <div class="p-6">
-                                <EmptyState
-                                    title="Start your first conversation"
-                                    description="Ask questions, explore ideas, and reason over your data. Each session is automatically saved so you can pick up where you left off."
-                                    variant=EmptyStateVariant::Empty
-                                    // Sparkle/lightning icon for inspiration
-                                    icon="M13 10V3L4 14h7v7l9-11h-7z"
-                                    action_label="New Session"
-                                    on_action=on_new
-                                    secondary_label="Learn about adapters"
-                                    secondary_href="/adapters"
-                                />
+                            <div class="p-6 text-center">
+                                <p class="text-xs text-muted-foreground">
+                                    {move || if search_query.get().is_empty() {
+                                        "No sessions yet"
+                                    } else {
+                                        "No matching sessions"
+                                    }}
+                                </p>
                             </div>
                         }.into_any()
                     } else {
                         view! {
-                            <div class="divide-y">
-                                {session_list.into_iter().map(|session| {
+                            <div class="divide-y divide-border">
+                                {list.into_iter().map(|session| {
                                     let id = session.id.clone();
+                                    let is_selected = {
+                                        let id = id.clone();
+                                        Signal::derive(move || selected_id.get().as_deref() == Some(id.as_str()))
+                                    };
                                     let delete_id = id.clone();
                                     view! {
-                                        <SessionCard
+                                        <SessionListItem
                                             session=session
+                                            selected=is_selected
                                             on_delete=Callback::new(move |_: ()| {
                                                 request_delete(delete_id.clone());
                                             })
@@ -192,7 +484,7 @@ pub fn Chat() -> impl IntoView {
                         }.into_any()
                     }
                 }}
-            </Card>
+            </div>
 
             // Delete confirmation dialog
             <ConfirmationDialog
@@ -208,31 +500,39 @@ pub fn Chat() -> impl IntoView {
     }
 }
 
-/// Session card component
+/// Session list item in the workspace sidebar
 #[component]
-fn SessionCard(session: ChatSessionMeta, on_delete: Callback<()>) -> impl IntoView {
+fn SessionListItem(
+    session: ChatSessionMeta,
+    /// Whether this session is currently selected
+    #[prop(into)]
+    selected: Signal<bool>,
+    on_delete: Callback<()>,
+) -> impl IntoView {
     let id = session.id.clone();
     let href = format!("/chat/{}", id);
 
     view! {
         <a
             href=href
-            class="block group p-4 hover:bg-muted/50 transition-colors"
+            class=move || format!(
+                "block group p-3 transition-colors {}",
+                if selected.get() {
+                    "bg-primary/10 border-l-2 border-l-primary"
+                } else {
+                    "hover:bg-muted/50 border-l-2 border-l-transparent"
+                }
+            )
         >
-            <div class="flex items-start justify-between gap-4">
+            <div class="flex items-start justify-between gap-2">
                 <div class="flex-1 min-w-0">
-                    // Title row
-                    <div class="flex items-center gap-2">
-                        <h3 class="font-medium truncate">{session.title}</h3>
-                        <Badge variant=BadgeVariant::Outline>
-                            {session.target}
-                        </Badge>
-                    </div>
+                    // Title
+                    <h3 class="text-sm font-medium truncate">{session.title}</h3>
 
                     // Preview
                     {if !session.preview.is_empty() {
                         Some(view! {
-                            <p class="text-sm text-muted-foreground mt-1 line-clamp-2">
+                            <p class="text-xs text-muted-foreground mt-0.5 line-clamp-2">
                                 {session.preview}
                             </p>
                         })
@@ -240,17 +540,17 @@ fn SessionCard(session: ChatSessionMeta, on_delete: Callback<()>) -> impl IntoVi
                         None
                     }}
 
-                    // Metadata row
-                    <div class="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
+                    // Metadata
+                    <div class="flex items-center gap-2 mt-1 text-2xs text-muted-foreground">
                         <span>{format_relative_time(&session.updated_at)}</span>
                         <span>"·"</span>
-                        <span>{format!("{} messages", session.message_count)}</span>
+                        <span>{format!("{} msgs", session.message_count)}</span>
                     </div>
                 </div>
 
-                // Delete button
+                // Delete button (hover-revealed)
                 <button
-                    class="p-2 rounded opacity-0 group-hover:opacity-100 hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all"
+                    class="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all shrink-0"
                     on:click=move |ev: web_sys::MouseEvent| {
                         ev.prevent_default();
                         ev.stop_propagation();
@@ -259,19 +559,8 @@ fn SessionCard(session: ChatSessionMeta, on_delete: Callback<()>) -> impl IntoVi
                     title="Delete session"
                     aria-label="Delete session"
                 >
-                    <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        class="h-4 w-4"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        stroke-width="2"
-                    >
-                        <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                        />
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
                     </svg>
                 </button>
             </div>
@@ -303,48 +592,21 @@ fn format_relative_time(timestamp: &str) -> String {
     }
 }
 
-fn generate_readable_id(prefix: &str, slug_source: &str) -> String {
-    let slug = slugify(slug_source);
-    let suffix = random_suffix(6);
-    format!("{}.{}.{}", prefix, slug, suffix)
+fn generate_readable_id(_prefix: &str, _slug_source: &str) -> String {
+    adapteros_id::TypedId::new(adapteros_id::IdPrefix::Ses).to_string()
 }
 
-fn slugify(input: &str) -> String {
-    let mut out = String::with_capacity(input.len());
-    let mut prev_dash = false;
-    for ch in input.chars() {
-        let lower = ch.to_ascii_lowercase();
-        if lower.is_ascii_alphanumeric() {
-            out.push(lower);
-            prev_dash = false;
-        } else if !prev_dash {
-            out.push('-');
-            prev_dash = true;
-        }
-    }
-    let trimmed = out.trim_matches('-').to_string();
-    if trimmed.is_empty() {
-        "item".to_string()
-    } else {
-        trimmed
-    }
-}
-
-fn random_suffix(len: usize) -> String {
-    const ALPHABET: &[u8; 32] = b"abcdefghijklmnopqrstuvwxyz234567";
-    let mut out = String::with_capacity(len);
-    for _ in 0..len {
-        let idx = (js_sys::Math::random() * 32.0).floor() as usize;
-        out.push(ALPHABET[idx] as char);
-    }
-    out
-}
-
-/// Chat session page using global state with SSE streaming
+/// Chat conversation panel - renders the full conversation experience for a session.
+/// Used by both /chat and /chat/:session_id routes through the ChatWorkspace layout.
 #[component]
-pub fn ChatSession() -> impl IntoView {
-    let params = use_params_map();
-    let session_id = move || params.get().get("session_id").unwrap_or_default();
+fn ChatConversationPanel(
+    /// Reactive session ID signal
+    session_id_signal: Signal<String>,
+    /// Whether to process ?prompt= and ?adapter= query parameters
+    #[prop(default = false)]
+    handle_query_params: bool,
+) -> impl IntoView {
+    let session_id = move || session_id_signal.get();
     let session_label = move || {
         let id = session_id();
         if id.is_empty() {
@@ -379,6 +641,7 @@ pub fn ChatSession() -> impl IntoView {
     let selected_msg_indices = RwSignal::new(std::collections::HashSet::<usize>::new());
     // Cancellation signal to abort in-flight uploads when dialog is closed
     let upload_cancelled = RwSignal::new(false);
+    #[cfg(target_arch = "wasm32")]
     let navigate = use_navigate();
 
     // Load session from localStorage when session ID changes
@@ -453,7 +716,7 @@ pub fn ChatSession() -> impl IntoView {
             }
 
             // Check for ?prompt= and ?adapter= query parameters (only on first load)
-            if prev_session_id.is_none() {
+            if handle_query_params && prev_session_id.is_none() {
                 if let Some(window) = web_sys::window() {
                     if let Ok(search) = window.location().search() {
                         if let Ok(params) = web_sys::UrlSearchParams::new_with_str(&search) {
@@ -619,6 +882,13 @@ pub fn ChatSession() -> impl IntoView {
             .collect::<Vec<_>>()
     });
 
+    // Pinned adapter IDs signal for ChatAdaptersRegion
+    let pinned_adapters = Signal::derive(move || chat_state.get().pinned_adapters.clone());
+
+    // Adapter selection pending flag (set on pin toggle, cleared on SSE update)
+    let adapter_selection_pending =
+        Signal::derive(move || chat_state.get().adapter_selection_pending);
+
     // Convert suggested_adapters for the SuggestedAdaptersBar
     // Name/purpose are populated from topology; other fields remain optional
     let suggested_adapters = Memo::new(move |_| {
@@ -684,6 +954,14 @@ pub fn ChatSession() -> impl IntoView {
         })
     };
 
+    // Set full pinned adapter list (from manage dialog)
+    let on_set_pinned = {
+        let action = chat_action.clone();
+        Callback::new(move |adapter_ids: Vec<String>| {
+            action.set_pinned_adapters(adapter_ids);
+        })
+    };
+
     // Send message handler
     let do_send = {
         let action = chat_action.clone();
@@ -726,24 +1004,28 @@ pub fn ChatSession() -> impl IntoView {
 
     // Attach data -> dataset draft
     let create_draft = {
+        #[cfg(target_arch = "wasm32")]
         let navigate = navigate.clone();
         let chat_state = chat_state.clone();
         Callback::new(move |_: ()| {
             attach_error.set(None);
             let mode = attach_mode.get();
-            let base_model_id = match chat_state.get().target.clone() {
-                ChatTarget::Model(name) => Some(name),
-                _ => None,
+            #[cfg(target_arch = "wasm32")]
+            let base_model_param = {
+                let base_model_id = match chat_state.get().target.clone() {
+                    ChatTarget::Model(name) => Some(name),
+                    _ => None,
+                };
+                base_model_id
+                    .as_ref()
+                    .map(|val| {
+                        let encoded = js_sys::encode_uri_component(val)
+                            .as_string()
+                            .unwrap_or_else(|| val.clone());
+                        format!("&base_model_id={}", encoded)
+                    })
+                    .unwrap_or_default()
             };
-            let base_model_param = base_model_id
-                .as_ref()
-                .map(|val| {
-                    let encoded = js_sys::encode_uri_component(val)
-                        .as_string()
-                        .unwrap_or_else(|| val.clone());
-                    format!("&base_model_id={}", encoded)
-                })
-                .unwrap_or_default();
 
             match mode {
                 AttachMode::Upload => {
@@ -1076,7 +1358,7 @@ pub fn ChatSession() -> impl IntoView {
             // Header
             <div class="flex flex-wrap items-start justify-between gap-3 border-b border-border pb-4">
                 <div class="space-y-1">
-                    <h1 class="text-xl font-semibold tracking-tight">"Chat Session"</h1>
+                    <h2 class="heading-3">"Chat Session"</h2>
                     <div class="flex items-center gap-2 text-xs text-muted-foreground">
                         <span class="uppercase tracking-wider text-2xs font-medium">"Session"</span>
                         <span class="font-mono bg-muted/30 px-1.5 py-0.5 rounded text-2xs">{session_label}</span>
@@ -1089,38 +1371,42 @@ pub fn ChatSession() -> impl IntoView {
                         {move || format!("Base model: {}", base_model_label.get())}
                     </Badge>
                     <div class="flex items-center rounded-full border border-border bg-muted/30 p-0.5 text-xs">
-                        <button
-                            class=move || {
-                                if verified_mode.get() {
-                                    "px-2 py-1 rounded-full text-muted-foreground".to_string()
-                                } else {
-                                    "px-2 py-1 rounded-full bg-background text-foreground shadow-sm".to_string()
-                                }
+                        {
+                            let action = chat_action.clone();
+                            view! {
+                                <button
+                                    class=move || {
+                                        if verified_mode.get() {
+                                            "px-2 py-1 rounded-full text-muted-foreground".to_string()
+                                        } else {
+                                            "px-2 py-1 rounded-full bg-background text-foreground shadow-sm".to_string()
+                                        }
+                                    }
+                                    on:click=move |_| action.set_verified_mode(false)
+                                    type="button"
+                                >
+                                    "Fast"
+                                </button>
                             }
-                            on:click={
-                                let action = chat_action.clone();
-                                move |_| action.set_verified_mode(false)
+                        }
+                        {
+                            let action = chat_action.clone();
+                            view! {
+                                <button
+                                    class=move || {
+                                        if verified_mode.get() {
+                                            "px-2 py-1 rounded-full bg-background text-foreground shadow-sm".to_string()
+                                        } else {
+                                            "px-2 py-1 rounded-full text-muted-foreground".to_string()
+                                        }
+                                    }
+                                    on:click=move |_| action.set_verified_mode(true)
+                                    type="button"
+                                >
+                                    "Verified"
+                                </button>
                             }
-                            type="button"
-                        >
-                            "Fast"
-                        </button>
-                        <button
-                            class=move || {
-                                if verified_mode.get() {
-                                    "px-2 py-1 rounded-full bg-background text-foreground shadow-sm".to_string()
-                                } else {
-                                    "px-2 py-1 rounded-full text-muted-foreground".to_string()
-                                }
-                            }
-                            on:click={
-                                let action = chat_action.clone();
-                                move |_| action.set_verified_mode(true)
-                            }
-                            type="button"
-                        >
-                            "Verified"
-                        </button>
+                        }
                     </div>
                     // Status badge
                     {move || {
@@ -1165,8 +1451,17 @@ pub fn ChatSession() -> impl IntoView {
                 })
             }}
 
-            // Adapter Bar - shows active adapters as colored magnets
-            <AdapterBar adapters=adapter_magnets on_toggle_pin=on_toggle_pin/>
+            // Unified Adapters Region: Active, Pinned, Suggested + Manage
+            <ChatAdaptersRegion
+                active_adapters=adapter_magnets
+                pinned_adapters=pinned_adapters
+                suggestions=suggested_adapters
+                pending=adapter_selection_pending
+                on_select_override=on_select_override.clone()
+                on_toggle_pin=on_toggle_pin.clone()
+                on_set_pinned=on_set_pinned
+                loading=is_streaming
+            />
 
             // Messages
             <div
@@ -1200,7 +1495,7 @@ pub fn ChatSession() -> impl IntoView {
                                             </svg>
                                         </div>
                                         <div class="space-y-2">
-                                            <h3 class="text-lg font-medium text-foreground">"What would you like to explore?"</h3>
+                                            <h3 class="heading-4 text-foreground">"What would you like to explore?"</h3>
                                             <p class="text-sm text-muted-foreground leading-relaxed">
                                                 "Ask a question to begin. The system will automatically route your request to the best adapters for the task."
                                             </p>
@@ -1617,26 +1912,6 @@ pub fn ChatSession() -> impl IntoView {
                     _ => view! {}.into_any(),
                 }
             }}
-
-            // Suggested Adapters Tray - inline dock near composer
-            <div class="flex justify-end">
-                <div class="w-full max-w-md">
-                    <SuggestedAdaptersBar
-                        suggestions=suggested_adapters
-                        on_select_override=on_select_override
-                        on_toggle_pin=on_toggle_pin
-                        loading=is_streaming
-                    />
-                    <div class="flex justify-end mt-1">
-                        <a
-                            href="/training?open_wizard=1&return_to=/chat"
-                            class="text-xs text-muted-foreground hover:text-primary transition-colors"
-                        >
-                            "Create adapter \u{2192}"
-                        </a>
-                    </div>
-                </div>
-            </div>
 
             // Input
             <div class="border-t border-border pt-4">

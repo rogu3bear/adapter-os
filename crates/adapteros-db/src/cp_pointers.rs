@@ -3,7 +3,8 @@ use crate::{
     Db,
 };
 use adapteros_core::{AosError, Result};
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 impl Db {
     pub async fn get_cp_pointer_by_name(&self, name: &str) -> Result<Option<CpPointer>> {
@@ -71,7 +72,7 @@ impl Db {
         signature_hex: &str,
         public_key_hex: &str,
     ) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Ver);
         sqlx::query(
             "INSERT INTO bundle_signatures (id, bundle_hash_b3, cpid, signature_hex, public_key_hex) VALUES (?, ?, ?, ?, ?)"
         )

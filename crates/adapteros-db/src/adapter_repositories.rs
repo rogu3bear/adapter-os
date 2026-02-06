@@ -29,7 +29,8 @@ static TIER_PROMOTION_TOCTOU_DETECTED: AtomicU64 = AtomicU64::new(0);
 pub fn tier_promotion_toctou_count() -> u64 {
     TIER_PROMOTION_TOCTOU_DETECTED.load(Ordering::Relaxed)
 }
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 use crate::Db;
 
@@ -459,7 +460,7 @@ impl Db {
 
         validate_release_transition(old_state.as_deref(), &new_state)?;
 
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Rep);
 
         tx.execute(
             sqlx::query(
@@ -732,7 +733,7 @@ impl Db {
         &self,
         params: CreateRepositoryParams<'_>,
     ) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Rep);
         let default_branch = params.default_branch.unwrap_or("main");
 
         sqlx::query(
@@ -946,7 +947,7 @@ impl Db {
 
         validate_release_transition(None, params.release_state)?;
 
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Rep);
         let mut tx = self.begin_write_tx().await?;
 
         if normalize_release_state(params.release_state) == "active" {
@@ -1130,7 +1131,7 @@ impl Db {
                 .await?;
         }
 
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Rep);
         // Draft versions get a deterministic placeholder version string to satisfy uniqueness.
         let version_label = format!("draft-{}", &id[..8]);
         let branch = if params.branch.is_empty() {
@@ -2356,7 +2357,7 @@ impl Db {
             }
         };
 
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Rep);
 
         sqlx::query(
             r#"

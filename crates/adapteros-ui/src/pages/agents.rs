@@ -5,8 +5,9 @@
 
 use crate::api::{ApiClient, ApiError};
 use crate::components::{
-    Card, EmptyState, EmptyStateVariant, ErrorDisplay, LoadingDisplay, PageHeader, RefreshButton,
-    Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    Card, EmptyState, EmptyStateVariant, ErrorDisplay, LoadingDisplay, PageScaffold,
+    PageScaffoldActions, RefreshButton, Table, TableBody, TableCell, TableHead, TableHeader,
+    TableRow,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use adapteros_api_types::orchestration::OrchestrationConfig;
@@ -43,12 +44,7 @@ impl OrchestrationSessionsResponse {
 }
 
 fn short_id(id: &str) -> String {
-    let trimmed = id.trim();
-    if trimmed.len() > 12 {
-        format!("{}...", &trimmed[..12])
-    } else {
-        trimmed.to_string()
-    }
+    adapteros_id::short_id(id)
 }
 
 #[component]
@@ -76,13 +72,13 @@ pub fn Agents() -> impl IntoView {
     };
 
     view! {
-        <div class="shell-page space-y-6">
-            <PageHeader
-                title="Agent Orchestration"
-                subtitle="Manage multi-agent sessions and worker executors"
-            >
+        <PageScaffold
+            title="Agent Orchestration"
+            subtitle="Manage multi-agent sessions and worker executors"
+        >
+            <PageScaffoldActions slot>
                 <RefreshButton on_click=refetch_all/>
-            </PageHeader>
+            </PageScaffoldActions>
 
             <div class="grid gap-6 md:grid-cols-3">
                 <Card class="md:col-span-1">
@@ -305,7 +301,7 @@ pub fn Agents() -> impl IntoView {
                                         description="Orchestration sessions endpoint is not available on this backend."
                                         variant=EmptyStateVariant::Unavailable
                                         action_label="Retry"
-                                        on_action=refetch_sessions.clone()
+                                        on_action=refetch_sessions.as_callback()
                                     />
                                 }.into_any(),
                                 ApiError::Structured { code, .. } if code == "NOT_FOUND" => view! {
@@ -314,17 +310,17 @@ pub fn Agents() -> impl IntoView {
                                         description="Orchestration sessions endpoint is not available on this backend."
                                         variant=EmptyStateVariant::Unavailable
                                         action_label="Retry"
-                                        on_action=refetch_sessions.clone()
+                                        on_action=refetch_sessions.as_callback()
                                     />
                                 }.into_any(),
                                 other => view! {
-                                    <ErrorDisplay error=other on_retry=refetch_sessions.clone()/>
+                                    <ErrorDisplay error=other on_retry=refetch_sessions.as_callback()/>
                                 }.into_any(),
                             }
                         }}
                     </Card>
                 </div>
             </div>
-        </div>
+        </PageScaffold>
     }
 }

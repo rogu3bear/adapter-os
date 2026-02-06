@@ -12,7 +12,7 @@ use crate::types::{
     BatchInferItemRequest, BatchInferItemResponse, BatchInferRequest, BatchInferResponse,
     BatchItemResultResponse, BatchItemsQuery, BatchItemsResponse, BatchJobResponse,
     BatchStatusResponse, CreateBatchJobRequest, ErrorResponse, InferResponse,
-    InferenceRequestInternal, MAX_REPLAY_TEXT_SIZE,
+    InferenceRequestInternal, MAX_REPLAY_TEXT_SIZE, MAX_TOKENS_LIMIT,
 };
 use adapteros_db::{CreateBatchItemParams, CreateBatchJobParams};
 use axum::{
@@ -27,8 +27,19 @@ use tokio::sync::Semaphore;
 use tokio::time::{timeout, Instant};
 use tracing::{debug, error, info, warn};
 
+/// Maximum number of items allowed in a single batch request.
+/// This limit prevents resource exhaustion attacks while allowing efficient
+/// bulk processing. Combined with the general rate limit (60 req/min),
+/// this caps inferences at 1920/min through the batch endpoint.
+///
+/// For tighter control, tenants can have reduced limits applied via policy.
 const MAX_BATCH_SIZE: usize = 32;
+
+/// Timeout for the entire batch operation
 const BATCH_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Maximum concurrent items processed within a single batch.
+/// Limits parallelism to prevent overwhelming workers.
 const MAX_CONCURRENT_BATCH_ITEMS: usize = 6;
 
 #[utoipa::path(
@@ -131,6 +142,25 @@ pub async fn batch_infer(
                             ErrorResponse::new("prompt too long for context window")
                                 .with_code("BAD_REQUEST")
                                 .with_string_details("Prompt exceeds maximum size"),
+                        ),
+                    };
+                }
+                // Validate max_tokens to prevent resource exhaustion
+                if item
+                    .request
+                    .max_tokens
+                    .map_or(false, |t| t > MAX_TOKENS_LIMIT)
+                {
+                    return BatchInferItemResponse {
+                        id: item.id,
+                        response: None,
+                        error: Some(
+                            ErrorResponse::new("max_tokens exceeds limit")
+                                .with_code("BAD_REQUEST")
+                                .with_string_details(format!(
+                                    "max_tokens exceeds maximum allowed ({})",
+                                    MAX_TOKENS_LIMIT
+                                )),
                         ),
                     };
                 }
@@ -919,6 +949,23 @@ async fn process_batch_job(
                             None,
                             Some("BAD_REQUEST"),
                             Some("prompt cannot be empty"),
+                            None,
+                        )
+                        .await;
+                    let _ = state.db.increment_batch_failed(&batch_id).await;
+                    return Some(());
+                }
+
+                // Validate max_tokens to prevent resource exhaustion
+                if batch_item_request.request.max_tokens.map_or(false, |t| t > MAX_TOKENS_LIMIT) {
+                    let _ = state
+                        .db
+                        .update_batch_item_result(
+                            &item.id,
+                            "failed",
+                            None,
+                            Some("BAD_REQUEST"),
+                            Some(&format!("max_tokens exceeds maximum allowed ({})", MAX_TOKENS_LIMIT)),
                             None,
                         )
                         .await;

@@ -3,7 +3,7 @@ use adapteros_core::{AosError, Result};
 use adapteros_types::coreml::CoreMLPlacementSpec;
 use adapteros_types::training::{TrainingBackendPolicy, TRAINING_DATA_CONTRACT_VERSION};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::path::PathBuf;
 
 /// Optimizer type selection for training.
@@ -976,17 +976,19 @@ impl ModuleOptimizerState {
 /// Multi-module optimizer state container.
 ///
 /// Holds per-module optimizer states and configuration for multi-module training.
+/// Uses BTreeMap for deterministic iteration order during gradient updates.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct MultiModuleOptimizerState {
     /// Per-module optimizer states keyed by module name (q_proj, k_proj, etc.)
-    pub module_states: HashMap<String, ModuleOptimizerState>,
+    /// Uses BTreeMap for deterministic iteration order.
+    pub module_states: BTreeMap<String, ModuleOptimizerState>,
 }
 
 impl MultiModuleOptimizerState {
     /// Create new multi-module optimizer state
     pub fn new() -> Self {
         Self {
-            module_states: HashMap::new(),
+            module_states: BTreeMap::new(),
         }
     }
 
@@ -1022,8 +1024,9 @@ impl MultiModuleOptimizerState {
 pub struct LoRAWeights {
     /// Per-module weights for multi-layer training (q_proj, k_proj, etc.)
     /// When populated, these take precedence over legacy single-module weights.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub modules: HashMap<String, ModuleWeights>,
+    /// Uses BTreeMap for deterministic iteration order during training/serialization.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub modules: BTreeMap<String, ModuleWeights>,
     /// Down-projection matrix (rank × hidden_dim) - legacy single-module
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub lora_a: Vec<Vec<f32>>,
@@ -1042,7 +1045,7 @@ impl LoRAWeights {
     /// Create new LoRA weights with given dimensions (single-module mode)
     pub fn new(rank: usize, hidden_dim: usize) -> Self {
         Self {
-            modules: HashMap::new(),
+            modules: BTreeMap::new(),
             lora_a: vec![vec![0.0; hidden_dim]; rank],
             lora_b: vec![vec![0.0; rank]; hidden_dim],
             moe_config: None,
@@ -1052,7 +1055,7 @@ impl LoRAWeights {
 
     /// Create new multi-module LoRA weights for specified targets
     pub fn new_multi_module(rank: usize, hidden_dim: usize, targets: &[String]) -> Self {
-        let mut modules = HashMap::new();
+        let mut modules = BTreeMap::new();
         for target in targets {
             modules.insert(target.clone(), ModuleWeights::new(rank, hidden_dim));
         }
@@ -1081,7 +1084,7 @@ impl LoRAWeights {
         targets: &[String],
         layer_indices: &[usize],
     ) -> Self {
-        let mut modules = HashMap::new();
+        let mut modules = BTreeMap::new();
         for layer_idx in layer_indices {
             for target in targets {
                 let key = format!("layer_{}.{}", layer_idx, target);
@@ -1100,7 +1103,7 @@ impl LoRAWeights {
     /// Create new LoRA weights for MoE model
     pub fn new_moe(rank: usize, hidden_dim: usize, moe_config: MoETrainingConfig) -> Self {
         Self {
-            modules: HashMap::new(),
+            modules: BTreeMap::new(),
             lora_a: vec![vec![0.0; hidden_dim]; rank],
             lora_b: vec![vec![0.0; rank]; hidden_dim],
             moe_config: Some(moe_config),
@@ -1140,8 +1143,10 @@ impl LoRAWeights {
             .or_insert_with(|| ModuleWeights::new(rank, hidden_dim))
     }
 
-    /// Get list of all module names in multi-module mode
+    /// Get list of all module names in multi-module mode.
+    /// Returns names in deterministic sorted order (BTreeMap provides this inherently).
     pub fn module_names(&self) -> Vec<&str> {
+        // BTreeMap iterates in sorted key order, ensuring deterministic output
         self.modules.keys().map(|s| s.as_str()).collect()
     }
 

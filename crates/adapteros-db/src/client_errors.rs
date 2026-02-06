@@ -7,7 +7,8 @@ use crate::Db;
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 // =============================================================================
 // Client Error Types
@@ -128,7 +129,7 @@ impl Db {
     /// Insert a new client error record
     pub async fn insert_client_error(&self, error: &ClientError) -> Result<String> {
         let id = if error.id.is_empty() {
-            Uuid::now_v7().to_string()
+            new_id(IdPrefix::Err)
         } else {
             error.id.clone()
         };
@@ -531,7 +532,7 @@ impl Db {
 
     /// Create a new alert rule
     pub async fn create_error_alert_rule(&self, params: &CreateAlertRuleParams) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Err);
 
         sqlx::query(
             r#"
@@ -635,7 +636,7 @@ impl Db {
         error_count: i32,
         sample_error_ids: Option<&[String]>,
     ) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Err);
         let sample_ids_json = sample_error_ids
             .map(|ids| serde_json::to_string(ids))
             .transpose()

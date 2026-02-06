@@ -3,7 +3,8 @@ use adapteros_core::Result;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 /// Batch job record stored in database
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -118,7 +119,7 @@ impl Db {
     /// ## Security: Tenant Isolation
     /// The tenant_id is bound as a parameter to ensure proper tenant isolation.
     pub async fn create_batch_job(&self, params: CreateBatchJobParams) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Bat);
         let now = Utc::now().to_rfc3339();
 
         sqlx::query(
@@ -258,7 +259,7 @@ impl Db {
         let now = Utc::now().to_rfc3339();
 
         for item in items {
-            let id = Uuid::now_v7().to_string();
+            let id = new_id(IdPrefix::Bat);
 
             sqlx::query(
                 "INSERT INTO batch_items (

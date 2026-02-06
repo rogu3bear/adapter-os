@@ -19,7 +19,7 @@ impl Db {
         &self,
         req: CreatePrefixTemplateRequest,
     ) -> Result<PrefixTemplate> {
-        let id = uuid::Uuid::new_v4().to_string();
+        let id = crate::new_id(adapteros_id::IdPrefix::Pol);
         let template_hash = B3Hash::hash(req.template_text.as_bytes());
         let mode_str = req.mode.as_str();
 

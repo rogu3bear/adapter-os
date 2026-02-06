@@ -37,7 +37,7 @@ impl RoutingRule {
         pool: &SqlitePool,
         params: &CreateRoutingRuleParams,
     ) -> Result<Self, sqlx::Error> {
-        let id = uuid::Uuid::new_v4().to_string();
+        let id = crate::new_id(adapteros_id::IdPrefix::Dec);
 
         // Validate JSON
         if serde_json::from_str::<serde_json::Value>(&params.condition_logic).is_err() {

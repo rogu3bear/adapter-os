@@ -1340,7 +1340,7 @@ impl Db {
         description: Option<&str>,
         created_by: Option<&str>,
     ) -> Result<ChatTag> {
-        let id = uuid::Uuid::new_v4().to_string();
+        let id = crate::new_id(adapteros_id::IdPrefix::Ses);
 
         sqlx::query(
             r#"
@@ -1511,7 +1511,7 @@ impl Db {
         icon: Option<&str>,
         color: Option<&str>,
     ) -> Result<ChatCategory> {
-        let id = uuid::Uuid::new_v4().to_string();
+        let id = crate::new_id(adapteros_id::IdPrefix::Ses);
 
         // Calculate path and depth
         let (path, depth) = if let Some(pid) = parent_id {
@@ -2048,7 +2048,7 @@ impl Db {
         shared_by: &str,
         expires_at: Option<&str>,
     ) -> Result<String> {
-        let id = uuid::Uuid::new_v4().to_string();
+        let id = crate::new_id(adapteros_id::IdPrefix::Ses);
 
         sqlx::query(
             r#"
@@ -2090,7 +2090,7 @@ impl Db {
         shared_by: &str,
         expires_at: Option<&str>,
     ) -> Result<String> {
-        let id = uuid::Uuid::new_v4().to_string();
+        let id = crate::new_id(adapteros_id::IdPrefix::Ses);
 
         sqlx::query(
             r#"
@@ -2357,7 +2357,7 @@ impl Db {
         }
 
         // Generate new session ID
-        let new_session_id = format!("session-{}", uuid::Uuid::now_v7());
+        let new_session_id = crate::new_id(adapteros_id::IdPrefix::Ses);
         let name = new_name
             .map(|s| s.to_string())
             .unwrap_or_else(|| format!("{} (forked)", source.name));
@@ -2408,7 +2408,7 @@ impl Db {
             let messages = self.get_chat_messages(source_session_id, None).await?;
             for msg in messages {
                 let add_params = AddMessageParams {
-                    id: format!("msg-{}", uuid::Uuid::now_v7()),
+                    id: crate::new_id(adapteros_id::IdPrefix::Msg),
                     session_id: new_session_id.clone(),
                     tenant_id: Some(tenant_id.to_string()),
                     role: msg.role,

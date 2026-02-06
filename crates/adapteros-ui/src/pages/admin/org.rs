@@ -39,7 +39,7 @@ pub fn OrgSection() -> impl IntoView {
                                     description="Tenant metadata is not available for this account."
                                     variant=EmptyStateVariant::Empty
                                     action_label="Retry"
-                                    on_action=refetch.clone()
+                                    on_action=refetch.as_callback()
                                 />
                             }.into_any()
                         } else {
@@ -90,11 +90,11 @@ pub fn OrgSection() -> impl IntoView {
                                 description="This server does not expose tenant metadata yet."
                                 variant=EmptyStateVariant::Unavailable
                                 action_label="Retry"
-                                on_action=refetch.clone()
+                                on_action=refetch.as_callback()
                             />
                         }.into_any(),
                         other => view! {
-                            <ErrorDisplay error=other on_retry=refetch.clone()/>
+                            <ErrorDisplay error=other on_retry=refetch.as_callback()/>
                         }.into_any(),
                     },
                 }}

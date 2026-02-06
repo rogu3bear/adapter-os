@@ -13,12 +13,12 @@ use crate::api::{
     DocumentListParams, DocumentListResponse,
 };
 use crate::components::{
-    async_state::AsyncBoundary, Badge, BadgeVariant, BreadcrumbItem, BreadcrumbTrail, Button,
-    ButtonSize, ButtonVariant, Card, Checkbox, ConfirmationDialog, ConfirmationSeverity,
-    CopyableId, Dialog, Input, PageHeader, RefreshButton, Select, Spinner, Table, TableBody,
-    TableCell, TableHead, TableHeader, TableRow, Textarea,
+    async_state::AsyncBoundary, Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card,
+    Checkbox, ConfirmationDialog, ConfirmationSeverity, CopyableId, Dialog, Input,
+    PageBreadcrumbItem, PageScaffold, PageScaffoldActions, RefreshButton, Select, Spinner, Table,
+    TableBody, TableCell, TableHead, TableHeader, TableRow, Textarea,
 };
-use crate::hooks::{use_api_resource, LoadingState};
+use crate::hooks::{use_api_resource, use_scope_alive, LoadingState};
 use crate::signals::use_notifications;
 use crate::utils::{format_bytes, format_date};
 use leptos::prelude::*;
@@ -99,11 +99,11 @@ pub fn Collections() -> impl IntoView {
     };
 
     view! {
-        <div class="shell-page space-y-6">
-            <PageHeader
-                title="Collections"
-                subtitle="Organize documents into collections for RAG-enabled inference"
-            >
+        <PageScaffold
+            title="Collections"
+            subtitle="Organize documents into collections for RAG-enabled inference"
+        >
+            <PageScaffoldActions slot>
                 <RefreshButton
                     on_click=Callback::new({
                         let refetch = refetch.clone();
@@ -116,7 +116,7 @@ pub fn Collections() -> impl IntoView {
                 >
                     "New Collection"
                 </Button>
-            </PageHeader>
+            </PageScaffoldActions>
 
             // Main content
             <AsyncBoundary
@@ -178,7 +178,7 @@ pub fn Collections() -> impl IntoView {
                     </Button>
                 </div>
             </Dialog>
-        </div>
+        </PageScaffold>
     }
 }
 
@@ -198,7 +198,7 @@ fn CollectionsList(
                     <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="mx-auto text-muted-foreground mb-4">
                         <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>
                     </svg>
-                    <h3 class="text-lg font-medium mb-1">"No collections yet"</h3>
+                    <h3 class="heading-4 mb-1">"No collections yet"</h3>
                     <p class="text-muted-foreground">"Create your first collection to start organizing documents."</p>
                 </div>
             </Card>
@@ -390,15 +390,14 @@ pub fn CollectionDetail() -> impl IntoView {
     };
 
     view! {
-        <div class="space-y-6">
-            // Breadcrumb navigation
-            <BreadcrumbTrail items=vec![
-                BreadcrumbItem::link("Collections", "/collections"),
-                BreadcrumbItem::current(collection_id.get()),
-            ]/>
-
-            // Header
-            <PageHeader title="Collection Details">
+        <PageScaffold
+            title="Collection Details"
+            breadcrumbs=vec![
+                PageBreadcrumbItem::new("Collections", "/collections"),
+                PageBreadcrumbItem::current(collection_id.get()),
+            ]
+        >
+            <PageScaffoldActions slot>
                 <RefreshButton
                     on_click=Callback::new({
                         let refetch = refetch.clone();
@@ -417,7 +416,7 @@ pub fn CollectionDetail() -> impl IntoView {
                 >
                     "Delete"
                 </Button>
-            </PageHeader>
+            </PageScaffoldActions>
 
             // Main content
             {
@@ -456,7 +455,7 @@ pub fn CollectionDetail() -> impl IntoView {
                 on_confirm=Callback::new(on_delete)
                 loading=Signal::derive(move || deleting.get())
             />
-        </div>
+        </PageScaffold>
     }
 }
 
@@ -632,6 +631,7 @@ fn AddDocumentsDialog(
     existing_documents: Vec<String>,
     on_added: Callback<()>,
 ) -> impl IntoView {
+    let alive = use_scope_alive();
     let existing_set: Arc<HashSet<String>> =
         Arc::new(existing_documents.into_iter().collect::<HashSet<_>>());
 
@@ -707,6 +707,7 @@ fn AddDocumentsDialog(
         let selected_ids = selected_ids.clone();
         let collection_id = collection_id.clone();
         let on_added = on_added.clone();
+        let alive = alive.clone();
         move |_| {
             let ids = selected_ids.get();
             if ids.is_empty() {
@@ -720,6 +721,7 @@ fn AddDocumentsDialog(
             let open = open;
             let selected_ids = selected_ids.clone();
             let collection_id = collection_id.clone();
+            let alive = alive.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 let mut failures = Vec::new();
                 for doc_id in ids.iter() {
@@ -734,7 +736,9 @@ fn AddDocumentsDialog(
                 if failures.is_empty() {
                     selected_ids.set(Vec::new());
                     open.set(false);
-                    on_added.run(());
+                    if alive.load(std::sync::atomic::Ordering::SeqCst) {
+                        on_added.run(());
+                    }
                 } else {
                     let first = failures.first().map(|(_, e)| e.clone()).unwrap_or_default();
                     error_msg.set(Some(format!(

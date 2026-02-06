@@ -4,7 +4,8 @@ use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use std::str::FromStr;
 use tracing::info;
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -120,7 +121,7 @@ impl Db {
         description: Option<&str>,
         created_by: &str,
     ) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Wsp);
         sqlx::query(
             "INSERT INTO workspaces (id, name, description, created_by) VALUES (?, ?, ?, ?)",
         )
@@ -268,7 +269,7 @@ impl Db {
         permissions_json: Option<&str>,
         added_by: &str,
     ) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Wsp);
         let role_str = role.to_string();
         sqlx::query(
             r#"
@@ -458,7 +459,7 @@ impl Db {
         shared_by: &str,
         shared_by_tenant_id: &str,
     ) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Wsp);
         let resource_type_str = resource_type.to_string();
         sqlx::query(
             r#"

@@ -1,7 +1,8 @@
 use crate::Db;
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Audit {
@@ -25,7 +26,7 @@ impl Db {
         result_json: &str,
         status: &str,
     ) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Aud);
         sqlx::query(
             "INSERT INTO audits (id, tenant_id, cpid, suite_name, bundle_id, result_json, status) VALUES (?, ?, ?, ?, ?, ?, ?)"
         )

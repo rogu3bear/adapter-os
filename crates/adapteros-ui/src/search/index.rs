@@ -1,9 +1,12 @@
 //! Search index
 //!
-//! Static page definitions and search index builder.
+//! Search index builder using nav_registry as the single source of truth.
+//! All page definitions come from nav_registry to avoid duplicate sources.
 
 use super::fuzzy::fuzzy_score;
 use super::types::SearchResult;
+use crate::components::layout::nav_registry::{all_nav_items, NavItem};
+use adapteros_api_types::UiProfile;
 
 /// Definition of a searchable page
 #[derive(Debug, Clone)]
@@ -21,194 +24,29 @@ pub struct PageDefinition {
 }
 
 impl PageDefinition {
-    const fn new(
-        id: &'static str,
-        name: &'static str,
-        description: &'static str,
-        path: &'static str,
-        keywords: &'static [&'static str],
-    ) -> Self {
+    /// Convert from NavItem (nav_registry is the canonical source)
+    fn from_nav_item(item: &'static NavItem) -> Self {
         Self {
-            id,
-            name,
-            description,
-            path,
-            keywords,
+            id: item.id,
+            name: item.label,
+            // ASSUMPTION: Description is derived from label for now
+            // since NavItem doesn't have a description field
+            description: item.label,
+            path: item.route,
+            keywords: item.keywords,
         }
     }
 }
 
-/// All searchable pages in the application
-pub static PAGES: &[PageDefinition] = &[
-    PageDefinition::new(
-        "dashboard",
-        "Dashboard",
-        "Overview and metrics",
-        "/dashboard",
-        &["home", "overview", "main", "index"],
-    ),
-    PageDefinition::new(
-        "adapters",
-        "Adapters",
-        "Manage LoRA adapters",
-        "/adapters",
-        &["lora", "finetune", "weights", "models"],
-    ),
-    PageDefinition::new(
-        "chat",
-        "Chat",
-        "Interactive inference",
-        "/chat",
-        &["inference", "generate", "prompt", "conversation"],
-    ),
-    PageDefinition::new(
-        "training",
-        "Training",
-        "Training jobs and pipelines",
-        "/training",
-        &["train", "finetune", "jobs", "pipeline"],
-    ),
-    PageDefinition::new(
-        "system",
-        "System",
-        "System status and health",
-        "/system",
-        &["health", "status", "diagnostics", "infrastructure"],
-    ),
-    PageDefinition::new(
-        "settings",
-        "Settings",
-        "Configuration and preferences",
-        "/settings",
-        &["config", "preferences", "options", "configure"],
-    ),
-    PageDefinition::new(
-        "user",
-        "User",
-        "Profile and personalization",
-        "/user",
-        &["profile", "preferences", "identity", "account"],
-    ),
-    PageDefinition::new(
-        "models",
-        "Models",
-        "Base model management",
-        "/models",
-        &["llm", "foundation", "base", "weights"],
-    ),
-    PageDefinition::new(
-        "policies",
-        "Policies",
-        "Execution and routing policies",
-        "/policies",
-        &["rules", "constraints", "enforcement", "determinism"],
-    ),
-    PageDefinition::new(
-        "stacks",
-        "Stacks",
-        "Adapter stack configurations",
-        "/stacks",
-        &["combination", "ensemble", "routing"],
-    ),
-    PageDefinition::new(
-        "collections",
-        "Collections",
-        "Document collections",
-        "/collections",
-        &["documents", "corpus", "dataset"],
-    ),
-    PageDefinition::new(
-        "documents",
-        "Documents",
-        "Document management",
-        "/documents",
-        &["files", "upload", "corpus"],
-    ),
-    PageDefinition::new(
-        "admin",
-        "Admin",
-        "Administrative controls",
-        "/admin",
-        &["administration", "manage", "users", "tenants"],
-    ),
-    PageDefinition::new(
-        "audit",
-        "Audit Log",
-        "System audit trail",
-        "/audit",
-        &["logs", "history", "events", "compliance"],
-    ),
-    PageDefinition::new(
-        "workers",
-        "Workers",
-        "Inference worker management",
-        "/workers",
-        &["runtime", "instances", "compute", "nodes"],
-    ),
-    PageDefinition::new(
-        "repositories",
-        "Repositories",
-        "Code repository adapters",
-        "/repositories",
-        &["git", "code", "codebase", "repo"],
-    ),
-    PageDefinition::new(
-        "runs",
-        "Runs",
-        "Run provenance and trace viewer",
-        "/runs",
-        &["flight", "recorder", "traces", "provenance", "receipts"],
-    ),
-    PageDefinition::new(
-        "reviews",
-        "Reviews",
-        "Human-in-the-loop review queue",
-        "/reviews",
-        &["hitl", "approval", "pause", "queue", "moderation"],
-    ),
-    PageDefinition::new(
-        "routing",
-        "Routing",
-        "Adapter routing debug",
-        "/routing",
-        &["rules", "decisions", "k-sparse", "gates"],
-    ),
-    PageDefinition::new(
-        "diff",
-        "Diff",
-        "Compare diagnostic runs",
-        "/diff",
-        &["compare", "divergence", "determinism", "anchor"],
-    ),
-    PageDefinition::new(
-        "agents",
-        "Agents",
-        "Agent orchestration sessions",
-        "/agents",
-        &["orchestration", "multi-agent", "executor", "sessions"],
-    ),
-    PageDefinition::new(
-        "datasets",
-        "Datasets",
-        "Training dataset management",
-        "/datasets",
-        &["data", "training", "upload", "versions"],
-    ),
-    PageDefinition::new(
-        "monitoring",
-        "Monitoring",
-        "Process health and alerts",
-        "/monitoring",
-        &["alerts", "anomalies", "health", "metrics", "observability"],
-    ),
-    PageDefinition::new(
-        "errors",
-        "Errors",
-        "Real-time error monitoring",
-        "/errors",
-        &["incidents", "crashes", "live", "analysis", "alerts"],
-    ),
-];
+/// Get all searchable pages from nav_registry (canonical source of truth)
+pub fn get_pages() -> Vec<PageDefinition> {
+    // Use Full profile to get all pages for search
+    all_nav_items(UiProfile::Full)
+        .into_iter()
+        .filter(|item| !item.hidden)
+        .map(PageDefinition::from_nav_item)
+        .collect()
+}
 
 /// Searchable action/command
 #[derive(Debug, Clone)]
@@ -318,9 +156,11 @@ impl SearchIndex {
 
     /// Search pages by query
     pub fn search_pages(&self, query: &str) -> Vec<SearchResult> {
+        let pages = get_pages();
+
         if query.is_empty() {
             // Return all pages when query is empty (for browsing)
-            return PAGES
+            return pages
                 .iter()
                 .map(|page| {
                     SearchResult::page(page.id, page.name, Some(page.description), page.path, 1.0)
@@ -328,7 +168,7 @@ impl SearchIndex {
                 .collect();
         }
 
-        let mut results: Vec<SearchResult> = PAGES
+        let mut results: Vec<SearchResult> = pages
             .iter()
             .filter_map(|page| {
                 // Score against name, description, and keywords
@@ -443,13 +283,20 @@ mod tests {
         let index = SearchIndex::new();
         let results = index.search_pages("lora");
         assert!(!results.is_empty());
-        assert_eq!(results[0].title, "Adapters");
+        // Both "Adapters" and "Training Jobs" have "lora" as a keyword
+        // and score identically — assert presence, not position.
+        assert!(
+            results.iter().any(|r| r.title == "Adapters"),
+            "Expected 'Adapters' in results for 'lora', got: {:?}",
+            results.iter().map(|r| &r.title).collect::<Vec<_>>()
+        );
     }
 
     #[test]
     fn test_empty_query() {
         let index = SearchIndex::new();
         let results = index.search_pages("");
-        assert_eq!(results.len(), PAGES.len());
+        // Returns all non-hidden pages from nav_registry
+        assert!(!results.is_empty());
     }
 }

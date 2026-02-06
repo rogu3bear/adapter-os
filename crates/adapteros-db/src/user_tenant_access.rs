@@ -2,9 +2,9 @@
 //!
 //! Manages which tenants admin users can access (for tenant isolation security)
 
-use crate::{Db, Result};
+use crate::{new_id, Db, Result};
+use adapteros_id::IdPrefix;
 use chrono::Utc;
-use uuid::Uuid;
 
 /// Grant a user access to a tenant
 ///
@@ -18,7 +18,7 @@ pub async fn grant_user_tenant_access(
     reason: Option<&str>,
     expires_at: Option<&str>,
 ) -> Result<()> {
-    let id = Uuid::now_v7().to_string();
+    let id = new_id(IdPrefix::Usr);
     let granted_at = Utc::now().to_rfc3339();
 
     sqlx::query(

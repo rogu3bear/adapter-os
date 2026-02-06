@@ -853,7 +853,7 @@ pub fn ComplianceTab(
 
                                 // Controls list
                                 <div>
-                                    <h3 class="text-lg font-semibold mb-4">"Compliance Controls"</h3>
+                                    <h3 class="heading-4 mb-4">"Compliance Controls"</h3>
                                     <Table>
                                         <TableHeader>
                                             <TableRow>

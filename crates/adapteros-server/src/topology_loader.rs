@@ -70,6 +70,7 @@ pub async fn ingest_catalog_topology(db: &Db, adapters_root: &Path) -> Result<()
             description: c.description,
             default_adapter_id: c.default_adapter,
             version: catalog.clusters_version.clone(),
+            display_name: None,
         })
         .collect();
 

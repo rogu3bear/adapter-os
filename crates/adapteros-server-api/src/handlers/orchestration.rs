@@ -425,7 +425,7 @@ pub async fn analyze_orchestration_prompt(
             .map(|s| s.to_string());
     }
 
-    let analysis_id = crate::id_generator::readable_id(adapteros_core::ids::IdKind::Job, "orch");
+    let analysis_id = crate::id_generator::readable_id(adapteros_id::IdPrefix::Job, "orch");
 
     Ok(Json(serde_json::json!({
         "analysis_id": analysis_id,

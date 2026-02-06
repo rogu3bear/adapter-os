@@ -2,7 +2,8 @@ use crate::query_helpers::db_err;
 use crate::Db;
 use adapteros_core::Result;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct StorageReconciliationIssue {
@@ -39,7 +40,7 @@ impl Db {
         &self,
         params: StorageIssueParams<'_>,
     ) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Fil);
         sqlx::query(
             r#"
             INSERT INTO storage_reconciliation_issues (

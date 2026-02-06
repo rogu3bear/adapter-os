@@ -41,8 +41,11 @@ pub async fn meta(State(state): State<AppState>) -> Json<MetaResponse> {
 
     Json(MetaResponse {
         version: env!("CARGO_PKG_VERSION").to_string(),
-        build_hash: option_env!("BUILD_HASH").unwrap_or("dev").to_string(),
-        build_date: option_env!("BUILD_DATE").unwrap_or("unknown").to_string(),
+        build_hash: {
+            let hash = adapteros_core::version::GIT_COMMIT_HASH;
+            if hash == "unknown" { "dev" } else { hash }
+        }.to_string(),
+        build_date: adapteros_core::version::BUILD_TIMESTAMP.to_string(),
         environment,
         production_mode,
         dev_login_enabled,

@@ -69,7 +69,8 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn};
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 use crate::adapters_kv::{AdapterKvOps, AdapterKvRepository};
 use crate::kv_metrics::global_kv_metrics;
@@ -3168,9 +3169,9 @@ impl Db {
             return Ok(existing.id);
         }
 
-        let id = Uuid::now_v7().to_string();
-        // Get next stable_id for deterministic routing tie-breaking
-        let stable_id = self.get_next_adapter_stable_id(&params.tenant_id).await?;
+        let id = new_id(IdPrefix::Adp);
+        // NOTE: stable_id is computed atomically in the INSERT statement using a subquery
+        // to prevent race conditions. See INSERT ... (COALESCE((SELECT MAX(stable_id)...
 
         let mut dual_write_completed = false;
         let dual_write_timer =
@@ -3200,9 +3201,11 @@ impl Db {
                         .map_err(|e| AosError::database(e.to_string()))?;
 
                     // SQL insert within transaction (don't commit yet)
+                    // CRITICAL: stable_id is computed atomically using a subquery to prevent race conditions
+                    // The subquery runs within the same transaction, ensuring unique stable_ids per tenant
                     sqlx::query(
                         "INSERT INTO adapters (id, tenant_id, adapter_id, name, hash_b3, rank, alpha, lora_strength, tier, targets_json, acl_json, languages_json, framework, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, expires_at, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, aos_file_path, aos_file_hash, base_model_id, recommended_for_moe, manifest_schema_version, content_hash_b3, metadata_json, provenance_json, repo_path, codebase_scope, dataset_version_id, registration_timestamp, manifest_hash, training_dataset_hash_b3, stable_id, version, lifecycle_state, current_state, pinned, memory_bytes, activation_count, load_state, active)
-                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, '1.0.0', 'draft', 'unloaded', 0, 0, 0, 'cold', 1)"
+                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, (COALESCE((SELECT MAX(stable_id) FROM adapters WHERE tenant_id = $2), 0) + 1), '1.0.0', 'draft', 'unloaded', 0, 0, 0, 'cold', 1)"
                     )
                     .bind(&id)
                     .bind(&params.tenant_id)
@@ -3247,7 +3250,6 @@ impl Db {
                     .bind(&params.registration_timestamp)
                     .bind(&params.manifest_hash)
                     .bind(&params.training_dataset_hash_b3)
-                    .bind(stable_id)
                     .execute(&mut *tx)
                     .await
                     .map_err(|e| AosError::database(e.to_string()))?;
@@ -3324,9 +3326,10 @@ impl Db {
                     }
                 } else {
                     // Non-strict mode or SQL-only: use direct execute (auto-commit)
+                    // CRITICAL: stable_id is computed atomically using a subquery to prevent race conditions
                     sqlx::query(
                         "INSERT INTO adapters (id, tenant_id, adapter_id, name, hash_b3, rank, alpha, lora_strength, tier, targets_json, acl_json, languages_json, framework, category, scope, framework_id, framework_version, repo_id, commit_sha, intent, expires_at, adapter_name, tenant_namespace, domain, purpose, revision, parent_id, fork_type, fork_reason, aos_file_path, aos_file_hash, base_model_id, recommended_for_moe, manifest_schema_version, content_hash_b3, metadata_json, provenance_json, repo_path, codebase_scope, dataset_version_id, registration_timestamp, manifest_hash, training_dataset_hash_b3, stable_id, version, lifecycle_state, current_state, pinned, memory_bytes, activation_count, load_state, active)
-                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, '1.0.0', 'draft', 'unloaded', 0, 0, 0, 'cold', 1)"
+                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, (COALESCE((SELECT MAX(stable_id) FROM adapters WHERE tenant_id = $2), 0) + 1), '1.0.0', 'draft', 'unloaded', 0, 0, 0, 'cold', 1)"
                     )
                     .bind(&id)
                     .bind(&params.tenant_id)
@@ -3371,7 +3374,6 @@ impl Db {
                     .bind(&params.registration_timestamp)
                     .bind(&params.manifest_hash)
                     .bind(&params.training_dataset_hash_b3)
-                    .bind(stable_id)
                     .execute(pool)
                     .await
                     .map_err(|e| AosError::database(e.to_string()))?;
@@ -3761,12 +3763,20 @@ impl Db {
     /// Implementation: crates/adapteros-db/src/pinned_adapters.rs
     ///
     /// Citation: Agent G Stability Reinforcement Plan - Patch 1.3
+    /// FIXED: TOCTOU race condition - pin check and delete are now atomic within a transaction
     pub async fn delete_adapter(&self, id: &str) -> Result<()> {
+        // Use a transaction to ensure atomicity of pin check + delete (TOCTOU fix)
+        let mut tx = self
+            .pool()
+            .begin()
+            .await
+            .map_err(|e| AosError::database(e.to_string()))?;
+
         // Get adapter_id and tenant_id for pinning check and KV dual-write
         let adapter_data: Option<(String, String)> =
             sqlx::query_as("SELECT adapter_id, tenant_id FROM adapters WHERE id = ?")
                 .bind(id)
-                .fetch_optional(self.pool())
+                .fetch_optional(&mut *tx)
                 .await
                 .map_err(|e| AosError::database(e.to_string()))?;
 
@@ -3774,20 +3784,28 @@ impl Db {
             Some((aid, tid)) => (aid, tid),
             None => {
                 // Adapter doesn't exist - nothing to delete
+                // Commit empty transaction (no-op but clean)
+                tx.commit()
+                    .await
+                    .map_err(|e| AosError::database(e.to_string()))?;
                 return Ok(());
             }
         };
 
-        // Check active_pinned_adapters view (single source of truth)
+        // Check active_pinned_adapters view (single source of truth) within same transaction
         // View automatically filters expired pins (pinned_until > now())
         let active_pin_count: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM active_pinned_adapters WHERE adapter_id = ?")
                 .bind(&adapter_id)
-                .fetch_one(self.pool())
+                .fetch_one(&mut *tx)
                 .await
                 .unwrap_or(0);
 
         if active_pin_count > 0 {
+            // Rollback transaction before returning error
+            tx.rollback()
+                .await
+                .map_err(|e| AosError::database(e.to_string()))?;
             warn!(
                 id = %id,
                 adapter_id = %adapter_id,
@@ -3820,6 +3838,10 @@ impl Db {
             Err(e) => {
                 let err_msg = e.to_string();
                 if self.dual_write_requires_strict() {
+                    // Rollback SQL transaction on KV failure in strict mode
+                    tx.rollback()
+                        .await
+                        .map_err(|e| AosError::database(e.to_string()))?;
                     error!(
                         error = %err_msg,
                         adapter_id = %adapter_id,
@@ -3844,11 +3866,16 @@ impl Db {
             Ok(_) => true,
         };
 
-        // Now delete from SQL (only if KV succeeded or non-strict mode)
+        // Now delete from SQL within the same transaction (only if KV succeeded or non-strict mode)
         let sql_start = std::time::Instant::now();
         sqlx::query("DELETE FROM adapters WHERE id = ?")
             .bind(id)
-            .execute(self.pool())
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| AosError::database(e.to_string()))?;
+
+        // Commit the transaction (makes pin check + delete atomic)
+        tx.commit()
             .await
             .map_err(|e| AosError::database(e.to_string()))?;
         let sql_latency = sql_start.elapsed();
@@ -4408,7 +4435,7 @@ impl Db {
         gate_value: f64,
         selected: bool,
     ) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Adp);
         sqlx::query(
             "INSERT INTO adapter_activations (id, adapter_id, request_id, gate_value, selected) 
              VALUES (?, ?, ?, ?, ?)",
@@ -6017,12 +6044,27 @@ impl Db {
             }
 
             if kv_error_count > 0 {
+                // FIXED: Propagate error in strict mode instead of just logging
+                if self.dual_write_requires_strict() {
+                    error!(
+                        tenant_id = %tenant_id,
+                        success_count = kv_success_count,
+                        error_count = kv_error_count,
+                        mode = "dual-write-strict",
+                        "KV archive failures in strict mode - SQL already committed, returning error"
+                    );
+                    return Err(AosError::database(format!(
+                        "Strict dual-write failure: {kv_error_count} of {} adapters failed KV archive for tenant '{tenant_id}'. \
+                         SQL writes committed; KV is inconsistent. Manual reconciliation required.",
+                        affected_adapter_ids.len()
+                    )));
+                }
                 warn!(
                     tenant_id = %tenant_id,
                     success_count = kv_success_count,
                     error_count = kv_error_count,
                     mode = "dual-write",
-                    "Partial KV archive failure for tenant adapters"
+                    "Partial KV archive failure for tenant adapters (non-strict mode)"
                 );
             } else if kv_success_count > 0 {
                 debug!(
@@ -6635,7 +6677,7 @@ impl Db {
             })?;
 
         // Generate new identifiers
-        let new_adapter_id = format!("adapter-{}", Uuid::now_v7());
+        let new_adapter_id = new_id(IdPrefix::Adp);
         let name = new_name
             .map(|s| s.to_string())
             .unwrap_or_else(|| format!("{} (copy)", source.name));

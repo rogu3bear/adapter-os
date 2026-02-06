@@ -15,7 +15,8 @@ use sqlx::Row;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 /// Core policies enabled by default for new tenants
 const CORE_POLICIES: &[&str] = &["egress", "determinism", "isolation", "evidence"];
@@ -126,7 +127,7 @@ impl Db {
     }
 
     pub async fn create_tenant(&self, name: &str, itar_flag: bool) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Tnt);
 
         // SQL write if enabled
         if self.storage_mode().write_to_sql() {
@@ -223,7 +224,7 @@ impl Db {
                 for policy_id in all_policies {
                     let enabled = CORE_POLICIES.contains(&policy_id);
                     let binding = crate::tenant_policy_bindings_kv::TenantPolicyBindingKv {
-                        id: Uuid::now_v7().to_string(),
+                        id: new_id(IdPrefix::Pol),
                         tenant_id: tenant_id.to_string(),
                         policy_pack_id: policy_id.to_string(),
                         scope: "global".to_string(),
@@ -245,7 +246,7 @@ impl Db {
                 let mut tx = self.begin_write_tx().await?;
 
                 for policy_id in all_policies {
-                    let id = Uuid::new_v4().to_string();
+                    let id = new_id(IdPrefix::Pol);
                     let enabled = CORE_POLICIES.contains(&policy_id);
 
                     if let Err(e) = sqlx::query(

@@ -11,9 +11,9 @@
 use crate::api::{ApiClient, UiInferenceTraceDetailResponse};
 use crate::components::{
     ActionCard, ActionCardVariant, AsyncBoundary, Badge, BadgeVariant, BreadcrumbItem,
-    BreadcrumbTrail, Button, ButtonVariant, Card, CopyableId, DiffResults, Link, Select, Spinner,
-    Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TokenDecisionsPaged,
-    TraceViewerWithData,
+    BreadcrumbTrail, Button, ButtonVariant, Card, CopyableId, DiffResults, Link, PageScaffold,
+    PageScaffoldActions, Select, Spinner, Table, TableBody, TableCell, TableHead, TableHeader,
+    TableRow, TokenDecisionsPaged, TraceViewerWithData,
 };
 use crate::constants::pagination::TOKEN_DECISIONS_PAGE_SIZE;
 use crate::hooks::{use_api_resource, use_polling, LoadingState};
@@ -78,56 +78,57 @@ pub fn FlightRecorder() -> impl IntoView {
     };
 
     view! {
-        <div class="p-6 flex h-full">
-            // Left panel: Run list
-            <div class=left_panel_class>
-                <div class="flex items-center justify-between">
-                    <div>
-                        <h1 class="text-3xl font-bold tracking-tight">"Runs"</h1>
-                        <p class="text-sm text-muted-foreground">"Inference run history and diagnostics"</p>
-                    </div>
-                    <StatusFilter filter=status_filter/>
+        <PageScaffold
+            title="Flight Recorder"
+            subtitle="Inference run history and diagnostics"
+        >
+            <PageScaffoldActions slot>
+                <StatusFilter filter=status_filter/>
+            </PageScaffoldActions>
+
+            <div class="flex h-full">
+                // Left panel: Run list
+                <div class=left_panel_class>
+                    <AsyncBoundary
+                        state=runs
+                        on_retry=Callback::new(move |_| refetch_runs.run(()))
+                        render=move |response: ListDiagRunsResponse| {
+                            if response.runs.is_empty() {
+                                view! {
+                                    <Card>
+                                        <div class="text-center py-8 text-muted-foreground">
+                                            "No runs found"
+                                        </div>
+                                    </Card>
+                                }.into_any()
+                            } else {
+                                view! {
+                                    <RunsTable
+                                        runs=response.runs
+                                        selected_id=selected_run_id
+                                        on_select=Callback::new(on_run_select)
+                                    />
+                                }.into_any()
+                            }
+                        }
+                    />
                 </div>
 
-                <AsyncBoundary
-                    state=runs
-                    on_retry=Callback::new(move |_| refetch_runs.run(()))
-                    render=move |response: ListDiagRunsResponse| {
-                        if response.runs.is_empty() {
-                            view! {
-                                <Card>
-                                    <div class="text-center py-8 text-muted-foreground">
-                                        "No runs found"
-                                    </div>
-                                </Card>
-                            }.into_any()
-                        } else {
-                            view! {
-                                <RunsTable
-                                    runs=response.runs
-                                    selected_id=selected_run_id
-                                    on_select=Callback::new(on_run_select)
+                // Right panel: Run detail (when selected)
+                {move || {
+                    selected_run_id.get().map(|run_id| {
+                        view! {
+                            <div class="w-1/2 border-l border-border pl-4 overflow-auto h-full">
+                                <RunDetailHub
+                                    run_id=run_id
+                                    on_close=Callback::new(move |_| on_close_detail())
                                 />
-                            }.into_any()
+                            </div>
                         }
-                    }
-                />
+                    })
+                }}
             </div>
-
-            // Right panel: Run detail (when selected)
-            {move || {
-                selected_run_id.get().map(|run_id| {
-                    view! {
-                        <div class="w-1/2 border-l border-border pl-4 overflow-auto h-full">
-                            <RunDetailHub
-                                run_id=run_id
-                                on_close=Callback::new(move |_| on_close_detail())
-                            />
-                        </div>
-                    }
-                })
-            }}
-        </div>
+        </PageScaffold>
     }
 }
 
@@ -365,7 +366,7 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
             <div class="flex items-center justify-between">
                 <div>
                     <div class="flex items-center gap-2">
-                        <h2 class="text-xl font-semibold">"Run Detail"</h2>
+                        <h2 class="heading-3">"Run Detail"</h2>
                         <a
                             href=format!("/runs/{}", run_id)
                             class="text-xs text-muted-foreground hover:text-primary"
@@ -995,6 +996,7 @@ fn OverviewTab(
                         {move || {
                             match trace_detail.get() {
                                 LoadingState::Loaded(detail) => {
+                                    // Clone to avoid lifetime issues with view rendering
                                     let adapters = detail.adapters_used.clone();
                                     if adapters.is_empty() {
                                         view! { <p class="font-medium text-sm text-muted-foreground/70 italic">"Unknown"</p> }.into_any()
@@ -1388,6 +1390,7 @@ fn ReceiptsTab(
             </div>
 
             {move || {
+                // Clone captured variables for each reactive call to allow FnMut
                 let run_id = run_id.clone();
                 let trace_id = trace_id.clone();
                 let request_hash = request_hash.clone();
@@ -2190,13 +2193,9 @@ fn EventRow(event: DiagEventResponse) -> impl IntoView {
 // Helper functions
 // ============================================================================
 
-/// Truncate an ID for display
+/// Truncate an ID for display.
 fn truncate_id(id: &str) -> String {
-    if id.len() > 12 {
-        format!("{}...", &id[..12])
-    } else {
-        id.to_string()
-    }
+    adapteros_id::short_id(id)
 }
 
 /// Truncate a hash for display

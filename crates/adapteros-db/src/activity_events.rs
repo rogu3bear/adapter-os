@@ -2,7 +2,8 @@ use crate::query_helpers::{db_err, FilterBuilder};
 use crate::Db;
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -174,7 +175,7 @@ impl Db {
         target_id: Option<&str>,
         metadata_json: Option<&str>,
     ) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Evt);
         let event_type_str = event_type.to_string();
         sqlx::query(
             r#"

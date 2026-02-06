@@ -142,6 +142,10 @@ pub struct AdapterVersionResponse {
     pub is_archived: bool,
     pub published_at: Option<String>,
     pub short_description: Option<String>,
+    /// Human-readable display name derived from the version's typed ID word alias.
+    /// Populated when the ID uses the TypedId format.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
 }
 
 /// Promote version request
@@ -590,6 +594,7 @@ pub async fn list_versions(
             is_archived: v.is_archived,
             published_at: v.published_at,
             short_description: v.short_description,
+            display_name: None,
         })
         .collect();
 
@@ -698,6 +703,7 @@ pub async fn get_version(
         is_archived: version.is_archived,
         published_at: version.published_at,
         short_description: version.short_description,
+        display_name: None,
     }))
 }
 

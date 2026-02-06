@@ -18,7 +18,7 @@ pub fn DiffResults(result: DiagDiffResponse) -> impl IntoView {
             <Card>
                 <div class="space-y-4">
                     <div class="flex items-center justify-between">
-                        <h2 class="text-lg font-semibold">"Comparison Summary"</h2>
+                        <h2 class="heading-4">"Comparison Summary"</h2>
                         {if equivalent {
                             view! { <Badge variant=BadgeVariant::Success>"Equivalent"</Badge> }.into_any()
                         } else {
@@ -96,7 +96,7 @@ fn FirstDivergenceCard(divergence: FirstDivergence) -> impl IntoView {
                         <line x1="12" y1="16" x2="12.01" y2="16"/>
                     </svg>
                     <div>
-                        <h2 class="text-lg font-bold text-destructive">"First Divergence"</h2>
+                        <h2 class="heading-4 text-destructive">"First Divergence"</h2>
                         <div class="flex items-center gap-2 mt-1">
                             <Badge variant=category_badge>{divergence.category.clone()}</Badge>
                             {divergence.stage.clone().map(|s| view! {
@@ -141,7 +141,7 @@ fn AnchorComparisonCard(anchors: AnchorComparison) -> impl IntoView {
         <Card>
             <div class="space-y-4">
                 <div class="flex items-center justify-between">
-                    <h2 class="text-lg font-semibold">"Anchor Comparison"</h2>
+                    <h2 class="heading-4">"Anchor Comparison"</h2>
                     {if anchors.all_anchors_match {
                         view! { <Badge variant=BadgeVariant::Success>"All Match"</Badge> }.into_any()
                     } else {
@@ -267,7 +267,7 @@ fn RouterStepsCard(steps: Vec<RouterStepDiff>) -> impl IntoView {
         <Card>
             <div class="space-y-4">
                 <div class="flex items-center justify-between">
-                    <h2 class="text-lg font-semibold">"Router Steps"</h2>
+                    <h2 class="heading-4">"Router Steps"</h2>
                     <div class="flex items-center gap-2">
                         <span class="text-sm text-muted-foreground">{format!("{} steps", step_count)}</span>
                         {if has_divergence {

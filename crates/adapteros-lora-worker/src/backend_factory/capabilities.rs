@@ -403,18 +403,36 @@ pub fn select_backend_from_execution_profile(
                 if choice == BackendChoice::CoreML {
                     BackendSelection::new(BackendChoice::CoreML)
                 } else {
+                    let detail = if !capabilities.has_coreml && !capabilities.has_ane {
+                        "CoreML framework and Neural Engine both unavailable"
+                    } else if !capabilities.has_coreml {
+                        "CoreML framework unavailable"
+                    } else if !capabilities.has_ane {
+                        "Neural Engine unavailable (CoreML without ANE falls back to CPU)"
+                    } else {
+                        "CoreML available but not selected by priority chain"
+                    };
+                    warn!(
+                        requested = "coreml",
+                        selected = ?choice,
+                        detail,
+                        has_coreml = capabilities.has_coreml,
+                        has_ane = capabilities.has_ane,
+                        "Explicit CoreML request overridden"
+                    );
+                    let reason = match choice {
+                        BackendChoice::Mlx => "coreml_unavailable_fallback_mlx",
+                        BackendChoice::MlxBridge => "coreml_unavailable_fallback_mlxbridge",
+                        BackendChoice::Metal => "coreml_unavailable_fallback_metal",
+                        BackendChoice::CPU => "coreml_unavailable_fallback_cpu",
+                        BackendChoice::CoreML => "coreml_unavailable_fallback_coreml",
+                        BackendChoice::Auto => "coreml_unavailable_fallback_auto",
+                        BackendChoice::ModelServer => "coreml_unavailable_fallback_modelserver",
+                    };
                     BackendSelection {
                         selected: choice,
                         overridden: true,
-                        reason: Some(match choice {
-                            BackendChoice::Mlx => "coreml_unavailable_fallback_mlx",
-                            BackendChoice::MlxBridge => "coreml_unavailable_fallback_mlxbridge",
-                            BackendChoice::Metal => "coreml_unavailable_fallback_metal",
-                            BackendChoice::CPU => "coreml_unavailable_fallback_cpu",
-                            BackendChoice::CoreML => "coreml_unavailable_fallback_coreml",
-                            BackendChoice::Auto => "coreml_unavailable_fallback_auto",
-                            BackendChoice::ModelServer => "coreml_unavailable_fallback_modelserver",
-                        }),
+                        reason: Some(reason),
                     }
                 }
             }

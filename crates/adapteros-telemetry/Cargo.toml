@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 dashmap = { workspace = true }
 adapteros-core = { path = "../adapteros-core" }
+adapteros-id = { path = "../adapteros-id" }
 adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-types = { path = "../adapteros-types" }
 regex = { workspace = true }

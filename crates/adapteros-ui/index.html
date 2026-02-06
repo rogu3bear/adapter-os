@@ -4,6 +4,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700&display=swap" rel="stylesheet">
     <title>adapterOS</title>
     <!-- PRD-UI-000: Build metadata for diagnostics -->
     <meta name="aos-build-hash" content="__TRUNK_HASH__">
@@ -764,6 +767,14 @@
                 var probe = document.getElementById('aos-boot-probe');
                 if (probe) { probe.textContent = 'PANIC'; probe.classList.add('error'); }
             };
+
+            // Clear panic overlay on navigation (fixes persistent panic dialog)
+            window.addEventListener('popstate', function() {
+                var overlay = document.getElementById('aos-panic-overlay');
+                if (overlay) {
+                    overlay.classList.remove('visible');
+                }
+            });
 
             // Expose build info for diagnostics
             window.aosGetBuildInfo = function () {

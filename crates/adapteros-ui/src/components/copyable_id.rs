@@ -2,7 +2,7 @@
 //!
 //! Displays a (potentially truncated) identifier with a copy-to-clipboard button.
 //! Shows "Copied" feedback for 1.2 seconds after a successful copy. Supports optional
-//! labels and legacy ID annotations for migrating between ID schemes.
+//! labels and word aliases.
 
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
@@ -14,20 +14,28 @@ use crate::components::icons::IconCopy;
 pub fn CopyableId(
     id: String,
     #[prop(optional)] label: String,
-    #[prop(optional)] legacy_id: String,
+    #[prop(optional)] display_name: String,
     #[prop(optional)] truncate: usize,
 ) -> impl IntoView {
     let copied = RwSignal::new(false);
     let label = if label.is_empty() { None } else { Some(label) };
-    let legacy_id = if legacy_id.is_empty() {
+    let display_name_opt = if display_name.is_empty() {
         None
     } else {
-        Some(legacy_id)
+        Some(display_name)
     };
     let truncate = if truncate == 0 { None } else { Some(truncate) };
-    let display_id = match truncate {
-        Some(len) if id.len() > len => format!("{}…", &id[..len]),
-        _ => id.clone(),
+
+    // When display_name (word alias) is provided, show it as primary text.
+    // Otherwise fall back to TypedId::short() via adapteros_id, or truncate.
+    let display_id = if let Some(ref alias) = display_name_opt {
+        alias.clone()
+    } else {
+        let short = adapteros_id::short_id(&id);
+        match truncate {
+            Some(len) if short.len() > len => format!("{}…", &short[..len]),
+            _ => short,
+        }
     };
 
     let id_for_title = id.clone();
@@ -69,11 +77,6 @@ pub fn CopyableId(
                     }
                 }}
             </div>
-            {legacy_id.as_ref().map(|legacy| view! {
-                <div class="text-xs text-muted-foreground font-mono" title=legacy.clone()>
-                    {format!("legacy: {}", legacy)}
-                </div>
-            })}
         </div>
     }
 }

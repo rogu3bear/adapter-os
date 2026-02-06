@@ -200,6 +200,7 @@ pub async fn list_adapters(
             stream_session_id: adapter.stream_session_id.clone(),
             versioning_threshold: adapter.versioning_threshold,
             coreml_package_hash: adapter.coreml_package_hash.clone(),
+            display_name: None,
         });
     }
 
@@ -380,6 +381,7 @@ pub async fn get_adapter_repository(
         created_at: repo.created_at,
         description: repo.description,
         training_policy,
+        display_name: None,
     }))
 }
 
@@ -699,6 +701,7 @@ pub async fn list_adapter_repositories(
             created_at: repo.created_at,
             description: repo.description,
             training_policy: None,
+            display_name: None,
         })
         .collect();
 
@@ -989,6 +992,7 @@ pub async fn list_adapter_versions(
             runtime_state,
             serveable,
             serveable_reason,
+            display_name: None,
         });
     }
 
@@ -1220,6 +1224,7 @@ pub async fn get_adapter_version(
         runtime_state: None,
         serveable,
         serveable_reason,
+        display_name: None,
     }))
 }
 
@@ -1318,5 +1323,6 @@ pub async fn promote_adapter_version_handler(
         stream_session_id: adapter.stream_session_id.clone(),
         versioning_threshold: adapter.versioning_threshold,
         coreml_package_hash: adapter.coreml_package_hash.clone(),
+        display_name: None,
     }))
 }

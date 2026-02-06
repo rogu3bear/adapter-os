@@ -305,8 +305,8 @@ pub async fn create_verdict(
     );
 
     // Generate verdict ID (using Decision kind as closest semantic match)
-    use adapteros_core::ids::IdKind;
-    let verdict_id = crate::id_generator::readable_id(IdKind::Decision, "verdict");
+    use adapteros_id::IdPrefix;
+    let verdict_id = crate::id_generator::readable_id(IdPrefix::Dec, "verdict");
 
     // Serialize warnings to JSON string if present
     let warnings_json_str = request
@@ -320,7 +320,9 @@ pub async fn create_verdict(
     let created_at = chrono::Utc::now().to_rfc3339();
 
     // Build verdict params using the DB module's builder pattern
-    use adapteros_db::inference_verdicts::{CreateVerdictParams, Verdict as DbVerdict, EvaluatorType as DbEvaluatorType};
+    use adapteros_db::inference_verdicts::{
+        CreateVerdictParams, EvaluatorType as DbEvaluatorType, Verdict as DbVerdict,
+    };
 
     let db_verdict = match verdict {
         Verdict::High => DbVerdict::High,
@@ -477,10 +479,18 @@ pub async fn list_verdicts(
     let offset = query.offset.unwrap_or(0) as u32;
 
     // Parse filter enums if provided
-    use adapteros_db::inference_verdicts::{Verdict as DbVerdict, EvaluatorType as DbEvaluatorType};
+    use adapteros_db::inference_verdicts::{
+        EvaluatorType as DbEvaluatorType, Verdict as DbVerdict,
+    };
 
-    let verdict_filter = query.verdict.as_ref().and_then(|v| v.parse::<DbVerdict>().ok());
-    let evaluator_filter = query.evaluator_type.as_ref().and_then(|e| e.parse::<DbEvaluatorType>().ok());
+    let verdict_filter = query
+        .verdict
+        .as_ref()
+        .and_then(|v| v.parse::<DbVerdict>().ok());
+    let evaluator_filter = query
+        .evaluator_type
+        .as_ref()
+        .and_then(|e| e.parse::<DbEvaluatorType>().ok());
 
     // If inference_id is provided, get verdicts for that specific inference
     let verdicts = if let Some(ref inference_id) = query.inference_id {
@@ -572,10 +582,12 @@ pub async fn derive_verdict(
     // If store=true and inference_id provided, persist the verdict
     if request.store.unwrap_or(false) {
         if let Some(ref inference_id) = request.inference_id {
-            use adapteros_db::inference_verdicts::{CreateVerdictParams, Verdict as DbVerdict, EvaluatorType as DbEvaluatorType};
+            use adapteros_db::inference_verdicts::{
+                CreateVerdictParams, EvaluatorType as DbEvaluatorType, Verdict as DbVerdict,
+            };
 
-            use adapteros_core::ids::IdKind;
-            let verdict_id = crate::id_generator::readable_id(IdKind::Decision, "verdict");
+            use adapteros_id::IdPrefix;
+            let verdict_id = crate::id_generator::readable_id(IdPrefix::Dec, "verdict");
 
             let warnings_str = warnings_json
                 .as_ref()
@@ -678,7 +690,8 @@ mod tests {
 
     #[test]
     fn test_derive_rule_verdict_needs_approval() {
-        let (verdict, confidence, warning) = derive_rule_verdict(Some(0.95), Some("needs_approval"));
+        let (verdict, confidence, warning) =
+            derive_rule_verdict(Some(0.95), Some("needs_approval"));
         assert_eq!(verdict, Verdict::Paused);
         assert!((confidence - 1.0).abs() < 0.001);
         assert!(warning.is_some());
@@ -724,9 +737,18 @@ mod tests {
 
     #[test]
     fn test_evaluator_type_from_str() {
-        assert_eq!("rule".parse::<EvaluatorType>().unwrap(), EvaluatorType::Rule);
-        assert_eq!("human".parse::<EvaluatorType>().unwrap(), EvaluatorType::Human);
-        assert_eq!("model".parse::<EvaluatorType>().unwrap(), EvaluatorType::Model);
+        assert_eq!(
+            "rule".parse::<EvaluatorType>().unwrap(),
+            EvaluatorType::Rule
+        );
+        assert_eq!(
+            "human".parse::<EvaluatorType>().unwrap(),
+            EvaluatorType::Human
+        );
+        assert_eq!(
+            "model".parse::<EvaluatorType>().unwrap(),
+            EvaluatorType::Model
+        );
         assert!("invalid".parse::<EvaluatorType>().is_err());
     }
 }

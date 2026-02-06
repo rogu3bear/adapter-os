@@ -23,6 +23,7 @@ use adapteros_api_types::review::{
     InferenceState, PauseKind, PauseReason, Review, ReviewContext, ReviewScope, SubmitReviewRequest,
 };
 use adapteros_core::{AosError, Result};
+use adapteros_id::{TypedId, IdPrefix};
 
 // =============================================================================
 // Pause Token
@@ -282,7 +283,7 @@ pub fn pause_for_code_review(
     code: &str,
     question: &str,
 ) -> (InferencePauseToken, ReviewContext) {
-    let pause_id = format!("review_{}", uuid::Uuid::new_v4());
+    let pause_id = TypedId::new(IdPrefix::Rvw).to_string();
     let context = ReviewContext::code_review(code, question);
     let reason = PauseReason::review_needed(&pause_id, context.clone());
 
@@ -297,7 +298,7 @@ pub fn pause_for_threat_escalation(
     severity: &str,
     evidence: Option<serde_json::Value>,
 ) -> (InferencePauseToken, ReviewContext) {
-    let pause_id = format!("threat_{}", uuid::Uuid::new_v4());
+    let pause_id = TypedId::new(IdPrefix::Inc).to_string();
     let question = format!(
         "High-severity threat detected ({}). Human review required before inference can continue.",
         severity

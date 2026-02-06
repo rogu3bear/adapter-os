@@ -159,7 +159,7 @@ pub struct TenantId(String);  // 1-64 chars, alphanumeric
 - No path traversal (`..`, `/`, `\`)
 
 **Special Values:**
-- `"primary"` - Single-tenant default
+- `"default"` - Single-tenant default
 - `"system"` - System operations
 
 ### Tenant Isolation Flow

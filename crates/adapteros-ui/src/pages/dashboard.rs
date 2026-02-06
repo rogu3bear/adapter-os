@@ -6,8 +6,9 @@ use crate::components::inference_guidance::guidance_for;
 use crate::components::status_center::use_status_center;
 use crate::components::{
     Button, ButtonVariant, Card, ChartPoint, DataSeries, EmptyState, EmptyStateVariant,
-    IconCheckCircle, IconPlay, IconServer, LineChart, PageHeader, SparklineMetric, Spinner,
-    StatusColor, StatusIconBox, StatusIndicator, StatusVariant, TimeSeriesData, WorkerStatusBadge,
+    IconCheckCircle, IconPlay, IconServer, LineChart, PageScaffold, PageScaffoldActions,
+    SparklineMetric, Spinner, StatusColor, StatusIconBox, StatusIndicator, StatusVariant,
+    TimeSeriesData, WorkerStatusBadge,
 };
 use crate::hooks::{use_api_resource, use_sse_notifications, LoadingState};
 use crate::signals::use_auth;
@@ -250,7 +251,7 @@ pub fn Dashboard() -> impl IntoView {
             SseState::Error | SseState::CircuitOpen | SseState::Disconnected
         ) {
             // Trigger a refetch - the interval is handled by the resource itself
-            refetch_metrics_fallback_stored.with_value(|f| f.run(()));
+            let _ = refetch_metrics_fallback_stored.try_with_value(|f| f.run(()));
         }
     });
 
@@ -261,17 +262,17 @@ pub fn Dashboard() -> impl IntoView {
 
     // Refetch all data (SSE reconnection handled separately due to non-Send types)
     let refetch_all = move || {
-        refetch_signal.with_value(|f| f.run(()));
-        refetch_workers_signal.with_value(|f| f.run(()));
-        refetch_activity_signal.with_value(|f| f.run(()));
+        let _ = refetch_signal.try_with_value(|f| f.run(()));
+        let _ = refetch_workers_signal.try_with_value(|f| f.run(()));
+        let _ = refetch_activity_signal.try_with_value(|f| f.run(()));
     };
 
     view! {
-        <div class="shell-page space-y-6">
-            <PageHeader
-                title="Dashboard"
-                subtitle="A live system overview of health, activity, and resource usage."
-            >
+        <PageScaffold
+            title="Dashboard"
+            subtitle="A live system overview of health, activity, and resource usage."
+        >
+            <PageScaffoldActions slot>
                 <SseIndicator state=sse_status/>
                 <Button
                     variant=ButtonVariant::Primary
@@ -280,7 +281,7 @@ pub fn Dashboard() -> impl IntoView {
                 >
                     "Refresh"
                 </Button>
-            </PageHeader>
+            </PageScaffoldActions>
 
             {move || {
                 match status.get() {
@@ -316,7 +317,7 @@ pub fn Dashboard() -> impl IntoView {
                     }
                 }
             }}
-        </div>
+        </PageScaffold>
     }
 }
 

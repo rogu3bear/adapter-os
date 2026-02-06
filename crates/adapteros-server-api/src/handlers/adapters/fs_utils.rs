@@ -53,7 +53,7 @@ pub async fn write_temp_bundle(
 
     let temp_path = temp_dir.join(format!(
         "{}.aos.tmp",
-        adapteros_core::ids::generate_suffix(8)
+        &uuid::Uuid::now_v7().simple().to_string()[..8]
     ));
     let file = fs::File::create(&temp_path).await.map_err(|e| {
         ApiError::internal(format!(

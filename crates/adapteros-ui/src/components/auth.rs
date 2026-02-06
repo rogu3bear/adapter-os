@@ -13,7 +13,7 @@ use leptos::prelude::*;
 /// Shows timeout error if auth check takes too long.
 /// Uses pathname check to prevent redirect loops when already on login page.
 #[component]
-pub fn ProtectedRoute(children: Children) -> impl IntoView {
+pub fn ProtectedRoute(children: ChildrenFn) -> impl IntoView {
     web_sys::console::log_1(&"[ProtectedRoute] Rendering...".into());
     let (auth_state, auth_action) = use_auth();
     web_sys::console::log_1(
@@ -23,9 +23,6 @@ pub fn ProtectedRoute(children: Children) -> impl IntoView {
         )
         .into(),
     );
-
-    // Render children once - they'll be shown/hidden based on auth state
-    let rendered_children = children();
 
     // Track if we should show content vs loading/redirect
     let show_content = Memo::new(move |_| matches!(auth_state.get(), AuthState::Authenticated(_)));
@@ -102,7 +99,7 @@ pub fn ProtectedRoute(children: Children) -> impl IntoView {
         >
             <Card class="max-w-md text-center".to_string()>
                 <div class="text-destructive text-4xl mb-4">"!"</div>
-                <h2 class="text-lg font-semibold text-destructive mb-2">"Authentication Timeout"</h2>
+                <h2 class="heading-4 text-destructive mb-2">"Authentication Timeout"</h2>
                 <p class="text-sm text-muted-foreground mb-4">
                     "The authentication check is taking too long. The server may be unavailable."
                 </p>
@@ -140,7 +137,7 @@ pub fn ProtectedRoute(children: Children) -> impl IntoView {
                     view! {
                         <Card class="max-w-md text-center".to_string()>
                             <div class="text-destructive text-4xl mb-4">"!"</div>
-                            <h2 class="text-lg font-semibold text-destructive mb-2">"Authentication Error"</h2>
+                            <h2 class="heading-4 text-destructive mb-2">"Authentication Error"</h2>
                             <p class="text-sm text-muted-foreground mb-4">
                                 {message}
                             </p>
@@ -182,10 +179,11 @@ pub fn ProtectedRoute(children: Children) -> impl IntoView {
             }}
         </div>
 
-        // Protected content
-        <div style:display=move || if show_content.get() { "contents" } else { "none" }>
-            {rendered_children}
-        </div>
+        // Protected content - only render children when authenticated
+        // Using Show ensures children() is only called when auth completes
+        <Show when=move || show_content.get() fallback=|| ()>
+            {children()}
+        </Show>
     }
 }
 

@@ -5,10 +5,10 @@
 use crate::api::ApiClient;
 use crate::components::{
     Badge, BadgeVariant, Button, ButtonVariant, Card, Dialog, EmptyState, EmptyStateVariant,
-    ErrorDisplay, LoadingDisplay, PageHeader, RefreshButton, Select, Table, TableBody, TableCell,
-    TableHead, TableHeader, TableRow, Textarea,
+    ErrorDisplay, LoadingDisplay, PageScaffold, PageScaffoldActions, RefreshButton, Select, Table,
+    TableBody, TableCell, TableHead, TableHeader, TableRow, Textarea,
 };
-use crate::hooks::{use_api_resource, LoadingState};
+use crate::hooks::{use_api_resource, use_scope_alive, LoadingState};
 use adapteros_api_types::review::{
     PauseKind, PausedInferenceInfo, Review, ReviewAssessment, SubmitReviewRequest,
 };
@@ -70,13 +70,13 @@ pub fn Reviews() -> impl IntoView {
     });
 
     view! {
-        <div class="shell-page space-y-6">
-            <PageHeader
-                title="Human Review"
-                subtitle="Human-in-the-loop review management"
-            >
+        <PageScaffold
+            title="Human Review"
+            subtitle="Human-in-the-loop review management".to_string()
+        >
+            <PageScaffoldActions slot>
                 <RefreshButton on_click=Callback::new(move |_| trigger_refresh())/>
-            </PageHeader>
+            </PageScaffoldActions>
 
             {move || {
                 match reviews.get() {
@@ -115,7 +115,7 @@ pub fn Reviews() -> impl IntoView {
                     }
                 })
             }}
-        </div>
+        </PageScaffold>
     }
 }
 
@@ -282,6 +282,8 @@ fn ReviewDetailDialog(
     on_close: Callback<()>,
     on_submit: Callback<()>,
 ) -> impl IntoView {
+    let alive = use_scope_alive();
+
     // Form state
     let assessment = RwSignal::new("approved".to_string());
     let comment = RwSignal::new(String::new());
@@ -312,6 +314,7 @@ fn ReviewDetailDialog(
 
     // Create the submit handler
     let pause_id = review.pause_id.clone();
+    let alive_for_submit = alive.clone();
     let handle_submit = move |_| {
         submitting.set(true);
         submit_error.set(None);
@@ -320,6 +323,7 @@ fn ReviewDetailDialog(
         let assessment_value = assessment.get();
         let comment_value = comment.get();
         let on_submit = on_submit.clone();
+        let alive = alive_for_submit.clone();
 
         // Parse assessment
         let review_assessment = match assessment_value.as_str() {
@@ -354,7 +358,9 @@ fn ReviewDetailDialog(
             match client.submit_review(&request).await {
                 Ok(response) => {
                     if response.accepted {
-                        on_submit.run(());
+                        if alive.load(std::sync::atomic::Ordering::SeqCst) {
+                            on_submit.run(());
+                        }
                     } else {
                         submit_error.set(Some(
                             response
@@ -374,12 +380,14 @@ fn ReviewDetailDialog(
 
     // Quick action buttons
     let pause_id_approve = review.pause_id.clone();
+    let alive_for_approve = alive.clone();
     let handle_approve = move |_| {
         submitting.set(true);
         submit_error.set(None);
 
         let pause_id = pause_id_approve.clone();
         let on_submit = on_submit.clone();
+        let alive = alive_for_approve.clone();
         let request = SubmitReviewRequest {
             pause_id,
             review: Review::approved(None),
@@ -391,7 +399,9 @@ fn ReviewDetailDialog(
             match client.submit_review(&request).await {
                 Ok(response) => {
                     if response.accepted {
-                        on_submit.run(());
+                        if alive.load(std::sync::atomic::Ordering::SeqCst) {
+                            on_submit.run(());
+                        }
                     } else {
                         submit_error.set(Some(
                             response
@@ -416,6 +426,7 @@ fn ReviewDetailDialog(
 
         let pause_id = pause_id_reject.clone();
         let on_submit = on_submit.clone();
+        let alive = alive.clone();
         let request = SubmitReviewRequest {
             pause_id,
             review: Review {
@@ -433,7 +444,9 @@ fn ReviewDetailDialog(
             match client.submit_review(&request).await {
                 Ok(response) => {
                     if response.accepted {
-                        on_submit.run(());
+                        if alive.load(std::sync::atomic::Ordering::SeqCst) {
+                            on_submit.run(());
+                        }
                     } else {
                         submit_error.set(Some(
                             response

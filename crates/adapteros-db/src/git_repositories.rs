@@ -1,8 +1,8 @@
-use crate::Db;
+use crate::{new_id, Db};
 use adapteros_core::{AosError, Result};
+use adapteros_id::IdPrefix;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use uuid::Uuid;
 
 /// Git repository record
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -34,7 +34,7 @@ impl Db {
         analysis_json: &str,
         created_by: &str,
     ) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Rep);
         sqlx::query(
             "INSERT INTO git_repositories 
              (id, repo_id, path, branch, analysis_json, evidence_json, security_scan_json, status, created_by) 

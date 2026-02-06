@@ -204,6 +204,7 @@ pub async fn list_adapter_versions(
             runtime_state,
             serveable,
             serveable_reason,
+            display_name: None,
         });
     }
 
@@ -417,6 +418,7 @@ pub async fn get_adapter_version(
         runtime_state: None,
         serveable,
         serveable_reason,
+        display_name: None,
     }))
 }
 

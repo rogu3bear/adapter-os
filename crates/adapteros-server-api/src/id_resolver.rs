@@ -1,40 +1,32 @@
 use crate::api_error::ApiError;
-use adapteros_core::ids::is_readable_id;
-use adapteros_db::ProtectedDb;
+use adapteros_id::{is_readable_id, TypedId};
 
-/// Resolve incoming IDs to canonical readable IDs.
+/// Resolve incoming IDs to canonical form.
 ///
-/// - If the input is already readable, return as-is.
-/// - If an alias exists, return the readable ID.
-/// - Otherwise, return the input (backward compatibility for legacy IDs).
-pub async fn resolve_id(db: &ProtectedDb, kind: &str, input: &str) -> Result<String, ApiError> {
-    if is_readable_id(input) {
-        return Ok(input.to_string());
-    }
-
-    let resolved: Option<String> =
-        sqlx::query_scalar("SELECT new_id FROM id_aliases WHERE legacy_id = ? AND kind = ?")
-            .bind(input)
-            .bind(kind)
-            .fetch_optional(db.pool())
-            .await
-            .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?;
-
-    Ok(resolved.unwrap_or_else(|| input.to_string()))
+/// Accepts three formats, all returned as-is:
+/// 1. **TypedId** (`{prefix}-{uuid_hex32}`): Current format.
+/// 2. **Old readable** (`kind.slug.suffix`): Legacy format, still accepted.
+/// 3. **Anything else**: Passed through unchanged (best-effort).
+pub async fn resolve_id(_db: &adapteros_db::ProtectedDb, _kind: &str, input: &str) -> Result<String, ApiError> {
+    Ok(normalize_id(input))
 }
 
-/// Resolve incoming IDs to canonical readable IDs without requiring a kind.
-pub async fn resolve_any_id(db: &ProtectedDb, input: &str) -> Result<String, ApiError> {
-    if is_readable_id(input) {
-        return Ok(input.to_string());
+/// Resolve incoming IDs to canonical form without requiring a kind.
+pub async fn resolve_any_id(_db: &adapteros_db::ProtectedDb, input: &str) -> Result<String, ApiError> {
+    Ok(normalize_id(input))
+}
+
+fn normalize_id(input: &str) -> String {
+    // TypedId — canonical
+    if TypedId::parse(input).is_some() {
+        return input.to_string();
     }
 
-    let resolved: Option<String> =
-        sqlx::query_scalar("SELECT new_id FROM id_aliases WHERE legacy_id = ?")
-            .bind(input)
-            .fetch_optional(db.pool())
-            .await
-            .map_err(|e| ApiError::db_error(&e).with_details(e.to_string()))?;
+    // Old readable — accepted for backward compat
+    if is_readable_id(input) {
+        return input.to_string();
+    }
 
-    Ok(resolved.unwrap_or_else(|| input.to_string()))
+    // Pass through anything else unchanged
+    input.to_string()
 }

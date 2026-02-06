@@ -147,7 +147,7 @@ impl FeatureVector {
         self.language()
             .iter()
             .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+            .max_by(|(_, a), (_, b)| a.total_cmp(b))
             .filter(|(_, &val)| val > 0.0)
             .map(|(idx, _)| idx)
     }

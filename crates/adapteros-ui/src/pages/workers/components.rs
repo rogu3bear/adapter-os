@@ -8,7 +8,7 @@ use crate::components::{
     EmptyStateVariant, Spinner, StatusColor, StatusIndicator, Table, TableBody, TableCell,
     TableHead, TableHeader, TableRow,
 };
-use crate::hooks::{use_api_resource, use_navigate, LoadingState};
+use crate::hooks::{use_api_resource, use_navigate, use_scope_alive, LoadingState};
 use adapteros_api_types::WorkerResponse;
 use leptos::prelude::*;
 use std::sync::Arc;
@@ -92,7 +92,7 @@ pub fn WorkersSummary(
 
             <Card title="Healthy".to_string()>
                 <div class="flex items-center gap-2">
-                    <StatusIndicator color=StatusColor::Green pulsing=true/>
+                    <StatusIndicator color=StatusColor::Green/>
                     <span class="text-2xl font-bold">{healthy}</span>
                 </div>
                 <p class="text-xs text-muted-foreground">"Ready for inference"</p>
@@ -129,199 +129,6 @@ pub fn WorkersSummary(
 
             {health_card}
         </div>
-    }
-}
-
-// ============================================================================
-// Health Summary Panel
-// ============================================================================
-
-#[component]
-pub fn WorkerHealthSummaryPanel(
-    health_state: LoadingState<WorkerHealthSummary>,
-    on_retry: Callback<()>,
-) -> impl IntoView {
-    match health_state {
-        LoadingState::Idle | LoadingState::Loading => view! {
-            <Card title="Worker Health Summary".to_string()>
-                <div class="flex items-center gap-2 text-muted-foreground">
-                    <Spinner/>
-                    <span>"Loading health summary..."</span>
-                </div>
-            </Card>
-        }
-        .into_any(),
-        LoadingState::Error(e) => view! {
-            <Card title="Worker Health Summary".to_string()>
-                <div class="flex items-center justify-between gap-4">
-                    <p class="text-sm text-destructive">
-                        {format!("Failed to load health summary: {}", e)}
-                    </p>
-                    <Button
-                        variant=ButtonVariant::Secondary
-                        size=ButtonSize::Sm
-                        on_click=Callback::new(move |_| on_retry.run(()))
-                    >
-                        <IconRefresh/>
-                        "Retry"
-                    </Button>
-                </div>
-            </Card>
-        }
-        .into_any(),
-        LoadingState::Loaded(summary) => {
-            let counts = summary.summary;
-            let updated = format_timestamp(&summary.timestamp);
-            let show_updated = updated != "-";
-            let workers = summary.workers;
-            view! {
-                <Card
-                    title="Worker Health Summary".to_string()
-                    description="Aggregate health across all workers".to_string()
-                >
-                    <div class="grid grid-cols-2 md:grid-cols-5 gap-3 text-xs">
-                        <div class="rounded-md border p-3">
-                            <p class="text-muted-foreground">"Total"</p>
-                            <p class="text-lg font-semibold">{counts.total}</p>
-                        </div>
-                        <div class="rounded-md border p-3">
-                            <p class="text-muted-foreground">"Healthy"</p>
-                            <Badge variant=health_badge_variant("healthy")>{counts.healthy}</Badge>
-                        </div>
-                        <div class="rounded-md border p-3">
-                            <p class="text-muted-foreground">"Degraded"</p>
-                            <Badge variant=health_badge_variant("degraded")>{counts.degraded}</Badge>
-                        </div>
-                        <div class="rounded-md border p-3">
-                            <p class="text-muted-foreground">"Crashed"</p>
-                            <Badge variant=health_badge_variant("crashed")>{counts.crashed}</Badge>
-                        </div>
-                        <div class="rounded-md border p-3">
-                            <p class="text-muted-foreground">"Unknown"</p>
-                            <Badge variant=health_badge_variant("unknown")>{counts.unknown}</Badge>
-                        </div>
-                    </div>
-
-                    {if workers.is_empty() {
-                        view! {
-                            <div class="mt-4 text-sm text-muted-foreground">
-                                "No health records available yet."
-                            </div>
-                        }
-                        .into_any()
-                    } else {
-                        view! {
-                            <div class="mt-4">
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow>
-                                            <TableHead>"Worker"</TableHead>
-                                            <TableHead>"Tenant"</TableHead>
-                                            <TableHead>"Health"</TableHead>
-                                            <TableHead>"Status"</TableHead>
-                                            <TableHead>"Avg Latency"</TableHead>
-                                            <TableHead>"Streaks"</TableHead>
-                                            <TableHead>"Incidents (24h)"</TableHead>
-                                            <TableHead>"Last Response"</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {workers.into_iter().map(|record| {
-                                            let short_worker = short_id(&record.worker_id);
-                                            let tenant = record.tenant_id.clone();
-                                            let tenant_label = if tenant.trim().is_empty() {
-                                                "-".to_string()
-                                            } else {
-                                                short_id(&tenant)
-                                            };
-                                            let health_status = record
-                                                .health_status
-                                                .clone()
-                                                .trim()
-                                                .to_string();
-                                            let health_label = if health_status.is_empty() {
-                                                "unknown".to_string()
-                                            } else {
-                                                health_status
-                                            };
-                                            let status = record.status.clone();
-                                            let status_label = if status.is_empty() {
-                                                "-".to_string()
-                                            } else {
-                                                status
-                                            };
-                                            let avg_latency = record
-                                                .avg_latency_ms
-                                                .map(|v| format!("{:.1} ms", v))
-                                                .unwrap_or_else(|| "-".to_string());
-                                            let slow = record.consecutive_slow;
-                                            let failures = record.consecutive_failures;
-                                            let streaks = match (slow, failures) {
-                                                (None, None) => "-".to_string(),
-                                                _ => format!(
-                                                    "slow {} / fail {}",
-                                                    slow.map(|v| v.to_string()).unwrap_or_else(|| "-".to_string()),
-                                                    failures.map(|v| v.to_string()).unwrap_or_else(|| "-".to_string())
-                                                ),
-                                            };
-                                            let last_response = record
-                                                .last_response_at
-                                                .as_ref()
-                                                .map(|t| format_timestamp(t))
-                                                .unwrap_or_else(|| "-".to_string());
-                                            view! {
-                                                <TableRow>
-                                                    <TableCell>
-                                                        <span class="font-mono text-sm" title=record.worker_id>
-                                                            {short_worker}
-                                                        </span>
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <span class="font-mono text-sm" title=record.tenant_id>
-                                                            {tenant_label}
-                                                        </span>
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <Badge variant=health_badge_variant(&health_label)>
-                                                            {health_label}
-                                                        </Badge>
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <span class="text-sm text-muted-foreground">{status_label}</span>
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <span class="text-sm">{avg_latency}</span>
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <span class="text-sm text-muted-foreground">{streaks}</span>
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <span class="text-sm">{record.recent_incidents_24h}</span>
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <span class="text-sm text-muted-foreground">{last_response}</span>
-                                                    </TableCell>
-                                                </TableRow>
-                                            }
-                                        }).collect::<Vec<_>>()}
-                                    </TableBody>
-                                </Table>
-                            </div>
-                        }
-                        .into_any()
-                    }}
-
-                    {show_updated.then(|| {
-                        view! {
-                            <p class="mt-2 text-2xs text-muted-foreground">
-                                {"Updated: "}{updated}
-                            </p>
-                        }
-                    })}
-                </Card>
-            }
-            .into_any()
-        }
     }
 }
 
@@ -828,6 +635,7 @@ pub fn WorkerDetailView(
     metrics: Option<WorkerMetricsResponse>,
     on_refresh: Callback<()>,
 ) -> impl IntoView {
+    let alive = use_scope_alive();
     let action_loading = RwSignal::new(false);
     let action_error = RwSignal::new(Option::<String>::None);
 
@@ -857,7 +665,7 @@ pub fn WorkerDetailView(
             // Header
             <div class="flex items-center justify-between">
                 <div class="flex items-center gap-4">
-                    <h1 class="text-2xl font-bold font-mono">{short_id(&worker.id)}</h1>
+                    <h2 class="heading-2 font-mono">{short_id(&worker.id)}</h2>
                     <Badge variant=status_badge_variant(&worker.status)>
                         {worker.status.clone()}
                     </Badge>
@@ -881,23 +689,29 @@ pub fn WorkerDetailView(
                             <Button
                                 variant=ButtonVariant::Secondary
                                 disabled=Signal::from(action_loading)
-                                on_click=Callback::new(move |_| {
-                                    action_loading.set(true);
-                                    let client = ApiClient::new();
-                                    let worker_id = worker_id.clone();
-                                    let on_refresh = on_refresh.clone();
-                                    wasm_bindgen_futures::spawn_local(async move {
-                                        match client.drain_worker(&worker_id).await {
-                                            Ok(_) => {
-                                                action_error.set(None);
-                                                on_refresh.run(());
+                                on_click=Callback::new({
+                                    let alive = alive.clone();
+                                    move |_| {
+                                        action_loading.set(true);
+                                        let client = ApiClient::new();
+                                        let worker_id = worker_id.clone();
+                                        let on_refresh = on_refresh.clone();
+                                        let alive = alive.clone();
+                                        wasm_bindgen_futures::spawn_local(async move {
+                                            match client.drain_worker(&worker_id).await {
+                                                Ok(_) => {
+                                                    action_error.set(None);
+                                                    if alive.load(std::sync::atomic::Ordering::SeqCst) {
+                                                        on_refresh.run(());
+                                                    }
+                                                }
+                                                Err(e) => {
+                                                    action_error.set(Some(format!("Failed to drain: {}", e)));
+                                                }
                                             }
-                                            Err(e) => {
-                                                action_error.set(Some(format!("Failed to drain: {}", e)));
-                                            }
-                                        }
-                                        action_loading.set(false);
-                                    });
+                                            action_loading.set(false);
+                                        });
+                                    }
                                 })
                             >
                                 <IconPause/>
@@ -1272,7 +1086,7 @@ pub fn MetricTile(label: &'static str, value: String) -> impl IntoView {
     view! {
         <div class="p-4 rounded-lg border">
             <p class="text-xs text-muted-foreground mb-1">{label}</p>
-            <p class="text-xl font-bold">{value}</p>
+            <p class="text-2xl font-bold">{value}</p>
         </div>
     }
 }

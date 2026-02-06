@@ -53,41 +53,15 @@ fn evict_old_messages(messages: &mut Vec<ChatMessage>, max: usize) {
     }
 }
 
-fn readable_id(prefix: &str, slug_source: &str) -> String {
-    let slug = slugify(slug_source);
-    let suffix = random_suffix(6);
-    format!("{}.{}.{}", prefix, slug, suffix)
-}
-
-fn slugify(input: &str) -> String {
-    let mut out = String::with_capacity(input.len());
-    let mut prev_dash = false;
-    for ch in input.chars() {
-        let lower = ch.to_ascii_lowercase();
-        if lower.is_ascii_alphanumeric() {
-            out.push(lower);
-            prev_dash = false;
-        } else if !prev_dash {
-            out.push('-');
-            prev_dash = true;
-        }
-    }
-    let trimmed = out.trim_matches('-').to_string();
-    if trimmed.is_empty() {
-        "item".to_string()
-    } else {
-        trimmed
-    }
-}
-
-fn random_suffix(len: usize) -> String {
-    const ALPHABET: &[u8; 32] = b"abcdefghijklmnopqrstuvwxyz234567";
-    let mut out = String::with_capacity(len);
-    for _ in 0..len {
-        let idx = (js_sys::Math::random() * 32.0).floor() as usize;
-        out.push(ALPHABET[idx] as char);
-    }
-    out
+fn readable_id(prefix: &str, _slug_source: &str) -> String {
+    use adapteros_id::{IdPrefix, TypedId};
+    let id_prefix = match prefix {
+        "msg" => IdPrefix::Msg,
+        "idem" => IdPrefix::Req,
+        "session" => IdPrefix::Ses,
+        _ => IdPrefix::Evt,
+    };
+    TypedId::new(id_prefix).to_string()
 }
 
 // ============================================================================
@@ -300,6 +274,34 @@ pub struct StreamRecovery {
 // Chat Message Types
 // ============================================================================
 
+/// Message delivery status for queue UX
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MessageStatus {
+    /// Message sent and response complete
+    #[default]
+    Complete,
+    /// Message accepted, waiting for inference to be ready
+    Queued,
+    /// Request in flight to backend
+    Sending,
+    /// Response actively streaming
+    Streaming,
+    /// Message failed after retries
+    Failed,
+}
+
+/// Phase of the pending indicator (progressive disclosure)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PendingPhase {
+    /// 0 → 1.5× typical wait: just "waiting..."
+    #[default]
+    Calm,
+    /// 1.5× → 3× typical wait: shows blocker reason
+    Informative,
+    /// > 3× typical wait: shows time estimate
+    Estimated,
+}
+
 /// A single chat message with optional trace information
 #[derive(Debug, Clone, PartialEq)]
 pub struct ChatMessage {
@@ -311,8 +313,16 @@ pub struct ChatMessage {
     pub content: String,
     /// Timestamp
     pub timestamp: DateTime<Utc>,
-    /// Whether this message is still streaming
+    /// Whether this message is still streaming (legacy, use status instead)
     pub is_streaming: bool,
+    /// Message delivery status (queue UX)
+    pub status: MessageStatus,
+    /// When the message entered queued state (for progressive disclosure timing)
+    pub queued_at: Option<DateTime<Utc>>,
+    /// Current pending phase for UI rendering
+    pub pending_phase: PendingPhase,
+    /// Blocker reason when in Informative/Estimated phase
+    pub pending_reason: Option<String>,
     /// Trace ID for this message (populated on stream completion)
     pub trace_id: Option<String>,
     /// Latency in milliseconds
@@ -335,6 +345,31 @@ impl ChatMessage {
             content,
             timestamp: Utc::now(),
             is_streaming: false,
+            status: MessageStatus::Complete,
+            queued_at: None,
+            pending_phase: PendingPhase::Calm,
+            pending_reason: None,
+            trace_id: None,
+            latency_ms: None,
+            token_count: None,
+            prompt_tokens: None,
+            completion_tokens: None,
+            backend_used: None,
+        }
+    }
+
+    /// Create a user message that's queued (waiting for inference)
+    pub fn user_queued(content: String) -> Self {
+        Self {
+            id: readable_id("msg", "chat"),
+            role: "user".to_string(),
+            content,
+            timestamp: Utc::now(),
+            is_streaming: false,
+            status: MessageStatus::Queued,
+            queued_at: Some(Utc::now()),
+            pending_phase: PendingPhase::Calm,
+            pending_reason: None,
             trace_id: None,
             latency_ms: None,
             token_count: None,
@@ -351,6 +386,10 @@ impl ChatMessage {
             content,
             timestamp: Utc::now(),
             is_streaming: false,
+            status: MessageStatus::Complete,
+            queued_at: None,
+            pending_phase: PendingPhase::Calm,
+            pending_reason: None,
             trace_id: None,
             latency_ms: None,
             token_count: None,
@@ -367,6 +406,10 @@ impl ChatMessage {
             content: String::new(),
             timestamp: Utc::now(),
             is_streaming: true,
+            status: MessageStatus::Streaming,
+            queued_at: None,
+            pending_phase: PendingPhase::Calm,
+            pending_reason: None,
             trace_id: None,
             latency_ms: None,
             token_count: None,
@@ -374,6 +417,11 @@ impl ChatMessage {
             completion_tokens: None,
             backend_used: None,
         }
+    }
+
+    /// Check if this message is in a pending/queued state
+    pub fn is_pending(&self) -> bool {
+        matches!(self.status, MessageStatus::Queued | MessageStatus::Sending)
     }
 }
 
@@ -544,6 +592,12 @@ pub struct SuggestedAdapter {
     pub is_pinned: bool,
 }
 
+/// Maximum queued messages per conversation
+const MAX_QUEUED_MESSAGES: usize = 5;
+
+/// Queue expiry timeout in seconds (30 minutes)
+const QUEUE_EXPIRY_SECS: i64 = 30 * 60;
+
 impl ChatState {
     /// Compute unread count as derived value from last_read_message_id.
     ///
@@ -571,6 +625,75 @@ impl ChatState {
     /// Mark all current messages as read by setting last_read_message_id to the latest message.
     pub fn mark_as_read(&mut self) {
         self.last_read_message_id = self.messages.last().map(|m| m.id.clone());
+    }
+
+    /// Count messages currently in queued state
+    pub fn queued_count(&self) -> usize {
+        self.messages
+            .iter()
+            .filter(|m| m.status == MessageStatus::Queued)
+            .count()
+    }
+
+    /// Check if we can queue another message
+    pub fn can_queue(&self) -> bool {
+        self.queued_count() < MAX_QUEUED_MESSAGES
+    }
+
+    /// Get the oldest queued message (for retry)
+    pub fn oldest_queued_message(&self) -> Option<&ChatMessage> {
+        self.messages
+            .iter()
+            .find(|m| m.status == MessageStatus::Queued)
+    }
+
+    /// Check if any messages have expired and mark them as failed
+    pub fn expire_old_queued_messages(&mut self) {
+        let now = Utc::now();
+        for msg in &mut self.messages {
+            if msg.status == MessageStatus::Queued {
+                if let Some(queued_at) = msg.queued_at {
+                    let elapsed = (now - queued_at).num_seconds();
+                    if elapsed > QUEUE_EXPIRY_SECS {
+                        msg.status = MessageStatus::Failed;
+                        msg.pending_reason = Some("Request timed out".to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    /// Update pending phases based on elapsed time
+    ///
+    /// Thresholds (hardcoded for now, will be adaptive later):
+    /// - Calm: 0-3 seconds
+    /// - Informative: 3-10 seconds
+    /// - Estimated: >10 seconds
+    pub fn update_pending_phases(&mut self, blocker_reason: Option<&str>) {
+        let now = Utc::now();
+        for msg in &mut self.messages {
+            if msg.status == MessageStatus::Queued {
+                if let Some(queued_at) = msg.queued_at {
+                    let elapsed_secs = (now - queued_at).num_seconds();
+
+                    let new_phase = if elapsed_secs < 3 {
+                        PendingPhase::Calm
+                    } else if elapsed_secs < 10 {
+                        PendingPhase::Informative
+                    } else {
+                        PendingPhase::Estimated
+                    };
+
+                    if new_phase != msg.pending_phase {
+                        msg.pending_phase = new_phase;
+                        // Update reason when escalating to Informative or Estimated
+                        if matches!(new_phase, PendingPhase::Informative | PendingPhase::Estimated) {
+                            msg.pending_reason = blocker_reason.map(|s| s.to_string());
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -635,6 +758,9 @@ impl ChatAction {
     }
 
     /// Send a message with SSE streaming (preferred method)
+    ///
+    /// If inference is ready, sends immediately.
+    /// If not ready, queues the message and starts polling for readiness.
     pub fn send_message_streaming(&self, content: String) {
         let content = content.trim().to_string();
         if content.is_empty() {
@@ -649,6 +775,90 @@ impl ChatAction {
             None,
             StreamNotice::info("Waiting for server..."),
         );
+    }
+
+    /// Queue a message for later delivery (when inference becomes ready)
+    pub fn queue_message(&self, content: String) {
+        let content = content.trim().to_string();
+        if content.is_empty() {
+            return;
+        }
+
+        // Check queue limit
+        let can_queue = self.state.get_untracked().can_queue();
+        if !can_queue {
+            self.state.update(|s| {
+                s.error = Some("Queue full. Please wait for pending messages to complete.".to_string());
+            });
+            return;
+        }
+
+        // Add queued user message
+        let user_message = ChatMessage::user_queued(content);
+        self.state.update(|s| {
+            s.messages.push(user_message);
+            evict_old_messages(&mut s.messages, MAX_MESSAGES);
+        });
+    }
+
+    /// Process the next queued message (called when inference becomes ready)
+    pub fn process_queued_message(&self) {
+        let state = self.state.get_untracked();
+
+        // Don't process if already busy
+        if state.loading || state.streaming {
+            return;
+        }
+
+        // Find oldest queued message
+        let queued_msg = state
+            .messages
+            .iter()
+            .find(|m| m.status == MessageStatus::Queued);
+
+        if let Some(msg) = queued_msg {
+            let content = msg.content.clone();
+            let msg_id = msg.id.clone();
+
+            // Update message status to sending
+            self.state.update(|s| {
+                if let Some(m) = s.messages.iter_mut().find(|m| m.id == msg_id) {
+                    m.status = MessageStatus::Sending;
+                }
+            });
+
+            // Start the actual streaming request
+            let idempotency_key = readable_id("idem", "chat");
+            self.start_streaming_request(
+                content,
+                false, // Don't add user message again
+                idempotency_key,
+                Some(msg_id),
+                StreamNotice::info("Processing queued message..."),
+            );
+        }
+    }
+
+    /// Update pending phases for queued messages (call periodically)
+    pub fn tick_pending_phases(&self, blocker_reason: Option<&str>) {
+        self.state.update(|s| {
+            s.update_pending_phases(blocker_reason);
+            s.expire_old_queued_messages();
+        });
+    }
+
+    /// Cancel a specific queued message
+    pub fn cancel_queued_message(&self, message_id: &str) {
+        self.state.update(|s| {
+            s.messages.retain(|m| {
+                !(m.id == message_id && m.status == MessageStatus::Queued)
+            });
+        });
+    }
+
+    /// Check if there are any queued messages
+    pub fn has_queued_messages(&self) -> bool {
+        self.state.get_untracked().queued_count() > 0
     }
 
     /// Set or clear the current chat session ID used for streaming requests.
@@ -1207,6 +1417,10 @@ impl ChatAction {
                         content: m.content,
                         timestamp,
                         is_streaming: false,
+                        status: MessageStatus::Complete,
+                        queued_at: None,
+                        pending_phase: PendingPhase::Calm,
+                        pending_reason: None,
                         trace_id: m.trace_id,
                         latency_ms: m.latency_ms,
                         token_count: m.token_count,
@@ -1341,6 +1555,22 @@ impl ChatAction {
             s.pinned_adapters.clear();
             for adapter in &mut s.suggested_adapters {
                 adapter.is_pinned = false;
+            }
+            s.pin_change_epoch += 1;
+        });
+    }
+
+    /// Replace the full pinned adapter set (from manage dialog)
+    pub fn set_pinned_adapters(&self, adapter_ids: Vec<String>) {
+        self.state.update(|s| {
+            s.pinned_adapters = adapter_ids;
+            // Sync is_pinned on suggested adapters
+            for adapter in &mut s.suggested_adapters {
+                adapter.is_pinned = s.pinned_adapters.contains(&adapter.adapter_id);
+            }
+            // Mark pending until next SSE confirms
+            if !s.pinned_adapters.is_empty() {
+                s.adapter_selection_pending = true;
             }
             s.pin_change_epoch += 1;
         });
@@ -2062,7 +2292,7 @@ async fn stream_inference_to_state(
 // ============================================================================
 
 /// Chat session metadata for the landing page
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ChatSessionMeta {
     pub id: String,
     pub title: String,
@@ -2414,6 +2644,10 @@ mod tests {
                 content: content.to_string(),
                 timestamp: chrono::Utc::now(),
                 is_streaming: false,
+                status: MessageStatus::Complete,
+                queued_at: None,
+                pending_phase: PendingPhase::Calm,
+                pending_reason: None,
                 trace_id: None,
                 latency_ms: None,
                 token_count: None,
@@ -2431,6 +2665,10 @@ mod tests {
                 content: String::new(),
                 timestamp: chrono::Utc::now(),
                 is_streaming: true,
+                status: MessageStatus::Streaming,
+                queued_at: None,
+                pending_phase: PendingPhase::Calm,
+                pending_reason: None,
                 trace_id: None,
                 latency_ms: None,
                 token_count: None,

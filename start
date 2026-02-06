@@ -859,6 +859,10 @@ start_backend() {
 
     echo -e "${FG_CYAN}Starting Backend${FG_RESET}"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    if [ -f target/build_id.txt ]; then
+        echo -e "  Build:  ${FG_GREEN}$(cat target/build_id.txt)${FG_RESET}"
+    fi
+    echo -e "  Run ID: ${FG_CYAN}${AOS_RUN_ID}${FG_RESET}"
     echo ""
 
     ensure_var_dirs
@@ -899,6 +903,10 @@ start_all() {
     echo ""
     echo -e "${FG_CYAN}Starting adapterOS${FG_RESET}"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    if [ -f target/build_id.txt ]; then
+        echo -e "  Build:  ${FG_GREEN}$(cat target/build_id.txt)${FG_RESET}"
+    fi
+    echo -e "  Run ID: ${FG_CYAN}${AOS_RUN_ID}${FG_RESET}"
     echo ""
     print_progress_animated 0 100 "Initializing..."
     sleep 0.2

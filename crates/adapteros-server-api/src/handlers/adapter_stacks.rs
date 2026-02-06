@@ -29,7 +29,7 @@ use tracing::{debug, info, warn};
 use utoipa::ToSchema;
 
 async fn resolve_stack_id(state: &AppState, id: &str) -> Result<String, ApiError> {
-    crate::id_resolver::resolve_id(&state.db, adapteros_core::ids::IdKind::Stack.prefix(), id).await
+    crate::id_resolver::resolve_id(&state.db, adapteros_id::IdPrefix::Stk.as_str(), id).await
 }
 
 /// Request to create a new adapter stack
@@ -291,7 +291,7 @@ pub async fn create_stack(
         );
     }
 
-    let id = crate::id_generator::readable_id(adapteros_core::ids::IdKind::Stack, &req.name);
+    let id = crate::id_generator::readable_id(adapteros_id::IdPrefix::Stk, &req.name);
     let now = chrono::Utc::now().to_rfc3339();
     let adapter_ids_json = serde_json::to_string(&req.adapter_ids).map_err(|e| {
         (

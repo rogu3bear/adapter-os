@@ -17,7 +17,7 @@ use chrono::{Duration, Utc};
 use jsonwebtoken::{encode, Algorithm as JwtAlgorithm, EncodingKey, Header};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-use uuid::Uuid;
+use adapteros_id::{TypedId, IdPrefix};
 
 /// Default session token TTL: 15 minutes (same as access tokens)
 const DEFAULT_SESSION_TOKEN_TTL_SECS: u64 = 15 * 60;
@@ -202,7 +202,7 @@ pub async fn mint_session_token(
     // Generate token ID and timestamps
     let now = Utc::now();
     let exp = now + Duration::seconds(ttl_secs as i64);
-    let jti = Uuid::now_v7().to_string();
+    let jti = TypedId::new(IdPrefix::Tok).to_string();
 
     // Build session token claims
     let token_claims = SessionTokenClaims {

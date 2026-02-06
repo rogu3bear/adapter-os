@@ -7,7 +7,8 @@ use adapteros_core::{AosError, Result};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 /// Builder for creating domain adapter parameters
 #[derive(Debug, Default)]
@@ -235,7 +236,7 @@ impl From<DomainAdapterTestRecord> for TestDomainAdapterResponse {
 impl Db {
     /// Create a new domain adapter
     pub async fn create_domain_adapter(&self, params: DomainAdapterCreateParams) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Adp);
         let config_json = serde_json::to_string(&params.config)
             .map_err(|e| AosError::Validation(format!("Failed to serialize config: {}", e)))?;
         let now = Utc::now().to_rfc3339();
@@ -343,7 +344,7 @@ impl Db {
         execution_time_ms: u64,
         trace_events: &[String],
     ) -> Result<String> {
-        let execution_id = Uuid::now_v7().to_string();
+        let execution_id = new_id(IdPrefix::Adp);
         let trace_events_json = serde_json::to_string(trace_events)
             .map_err(|e| AosError::Validation(format!("Failed to serialize trace_events: {}", e)))?;
         let now = Utc::now().to_rfc3339();
@@ -417,7 +418,7 @@ impl Db {
         iterations: u32,
         execution_time_ms: u64,
     ) -> Result<String> {
-        let test_id = Uuid::now_v7().to_string();
+        let test_id = new_id(IdPrefix::Adp);
         let now = Utc::now().to_rfc3339();
 
         sqlx::query(
