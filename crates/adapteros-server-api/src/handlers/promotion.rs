@@ -220,8 +220,7 @@ pub async fn request_promotion(
     match GoldenRunArchive::load(&golden_dir) {
         Ok(_archive) => {
             // Generate unique request/release IDs
-            let request_id =
-                crate::id_generator::readable_id(adapteros_id::IdPrefix::Req, "promo");
+            let request_id = crate::id_generator::readable_id(adapteros_id::IdPrefix::Req, "promo");
             let release_id =
                 crate::id_generator::readable_id(adapteros_id::IdPrefix::Req, "release");
 
@@ -901,8 +900,7 @@ pub async fn rollback_promotion(
         .await;
 
     // Log rollback in history
-    let request_id =
-        crate::id_generator::readable_id(adapteros_id::IdPrefix::Req, "rollback");
+    let request_id = crate::id_generator::readable_id(adapteros_id::IdPrefix::Req, "rollback");
     let metadata = serde_json::json!({"reason": &req.reason}).to_string();
     let _ = state
         .db

@@ -758,10 +758,7 @@ pub async fn execute_domain_adapter(
 
     let execution = DomainAdapterExecutionResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-        execution_id: crate::id_generator::readable_id(
-            adapteros_id::IdPrefix::Run,
-            "adapter-exec",
-        ),
+        execution_id: crate::id_generator::readable_id(adapteros_id::IdPrefix::Run, "adapter-exec"),
         adapter_id: adapter_id.clone(),
         input_hash,
         output_hash,

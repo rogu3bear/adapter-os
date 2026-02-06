@@ -627,14 +627,15 @@ pub async fn drain_worker(
                     error = %e,
                     "Invalid state transition attempted"
                 );
-                return Err(ApiError::conflict("invalid state transition").with_details(format!(
-                    "Cannot drain worker in '{}' state. Valid source states: healthy, serving",
-                    previous_status
-                )));
+                return Err(
+                    ApiError::conflict("invalid state transition").with_details(format!(
+                        "Cannot drain worker in '{}' state. Valid source states: healthy, serving",
+                        previous_status
+                    )),
+                );
             }
-            return Err(
-                ApiError::internal("failed to transition worker status").with_details(e.to_string())
-            );
+            return Err(ApiError::internal("failed to transition worker status")
+                .with_details(e.to_string()));
         }
     }
 

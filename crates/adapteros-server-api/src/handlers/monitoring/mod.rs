@@ -904,8 +904,7 @@ pub async fn create_process_monitoring_dashboard(
 ) -> Result<Json<ProcessMonitoringDashboardResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
-    let dashboard_id =
-        crate::id_generator::readable_id(adapteros_id::IdPrefix::Rpt, "dashboard");
+    let dashboard_id = crate::id_generator::readable_id(adapteros_id::IdPrefix::Rpt, "dashboard");
     let now = Utc::now().to_rfc3339();
     let config_json = serde_json::to_string(&req.dashboard_config).map_err(|e| {
         (

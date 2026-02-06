@@ -1327,8 +1327,14 @@ pub fn build(state: AppState) -> Router {
             post(handlers::run_troubleshooting_step),
         )
         // Worker stop and drain routes (PRD-RECT: use state-machine-validated handlers)
-        .route("/v1/workers/{worker_id}/stop", post(handlers::workers::stop_worker))
-        .route("/v1/workers/{worker_id}/drain", post(handlers::workers::drain_worker))
+        .route(
+            "/v1/workers/{worker_id}/stop",
+            post(handlers::workers::stop_worker),
+        )
+        .route(
+            "/v1/workers/{worker_id}/drain",
+            post(handlers::workers::drain_worker),
+        )
         // Worker health & incidents (PRD-09)
         .route(
             "/v1/workers/{worker_id}/incidents",

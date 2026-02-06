@@ -9,6 +9,7 @@ use crate::state::AppState;
 use crate::types::ErrorResponse;
 use adapteros_api_types::auth::{LoginRequest, LoginResponse, TenantSummary};
 use adapteros_api_types::API_SCHEMA_VERSION;
+use adapteros_id::{IdPrefix, TypedId};
 use axum::{
     extract::State,
     http::{HeaderMap, StatusCode},
@@ -16,7 +17,6 @@ use axum::{
 };
 use chrono::{Duration, Utc};
 use tracing::{info, warn};
-use adapteros_id::{TypedId, IdPrefix};
 
 use super::audit::{log_auth_event, log_lockout_event, AuthEvent};
 use super::validation::normalize_email;

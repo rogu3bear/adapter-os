@@ -7,12 +7,19 @@ use adapteros_id::{is_readable_id, TypedId};
 /// 1. **TypedId** (`{prefix}-{uuid_hex32}`): Current format.
 /// 2. **Old readable** (`kind.slug.suffix`): Legacy format, still accepted.
 /// 3. **Anything else**: Passed through unchanged (best-effort).
-pub async fn resolve_id(_db: &adapteros_db::ProtectedDb, _kind: &str, input: &str) -> Result<String, ApiError> {
+pub async fn resolve_id(
+    _db: &adapteros_db::ProtectedDb,
+    _kind: &str,
+    input: &str,
+) -> Result<String, ApiError> {
     Ok(normalize_id(input))
 }
 
 /// Resolve incoming IDs to canonical form without requiring a kind.
-pub async fn resolve_any_id(_db: &adapteros_db::ProtectedDb, input: &str) -> Result<String, ApiError> {
+pub async fn resolve_any_id(
+    _db: &adapteros_db::ProtectedDb,
+    input: &str,
+) -> Result<String, ApiError> {
     Ok(normalize_id(input))
 }
 

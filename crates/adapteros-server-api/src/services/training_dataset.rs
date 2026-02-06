@@ -981,8 +981,7 @@ impl TrainingDatasetService for DefaultTrainingDatasetService {
             .into());
         }
 
-        let document_id =
-            crate::id_generator::readable_id(adapteros_id::IdPrefix::Doc, "document");
+        let document_id = crate::id_generator::readable_id(adapteros_id::IdPrefix::Doc, "document");
         let storage_root = match std::env::var("AOS_DOCUMENTS_DIR") {
             Ok(value) => value,
             Err(_) => {

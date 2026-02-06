@@ -12,6 +12,7 @@ use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use adapteros_core::B3Hash;
+use adapteros_id::{IdPrefix, TypedId};
 use axum::{
     extract::{Path, State},
     response::IntoResponse,
@@ -21,7 +22,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use adapteros_id::{TypedId, IdPrefix};
 use tracing::{error, info, warn};
 use utoipa::ToSchema;
 
@@ -43,6 +43,153 @@ struct PreprocessJobState {
     error_message: Option<String>,
     started_at: chrono::DateTime<chrono::Utc>,
     completed_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+// =============================================================================
+// Best-effort Persistence (var/)
+// =============================================================================
+
+/// Persist preprocessing job state under `var/` so status survives process restarts.
+///
+/// We keep the in-memory map for fast updates but mirror state to disk:
+/// `var/preprocess_jobs/<tenant_id>/<dataset_id>/<job_id>.json`
+/// `var/preprocess_jobs/<tenant_id>/<dataset_id>/latest` (job id)
+///
+/// This avoids a schema/migration for what is currently a lightweight background job.
+const PREPROCESS_JOBS_VAR_ROOT: &str = "var/preprocess_jobs";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PersistedPreprocessJobState {
+    job_id: String,
+    tenant_id: String,
+    dataset_id: String,
+    status: PreprocessStatus,
+    pii_scrub: bool,
+    dedupe: bool,
+    lines_processed: usize,
+    lines_removed: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error_message: Option<String>,
+    started_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    completed_at: Option<String>,
+}
+
+fn preprocess_job_dir(tenant_id: &str, dataset_id: &str) -> std::path::PathBuf {
+    std::path::PathBuf::from(PREPROCESS_JOBS_VAR_ROOT)
+        .join(tenant_id)
+        .join(dataset_id)
+}
+
+async fn persist_preprocess_job_state_best_effort(
+    tenant_id: &str,
+    dataset_id: &str,
+    job_id: &str,
+    job_state: &PreprocessJobState,
+) {
+    let dir = preprocess_job_dir(tenant_id, dataset_id);
+    if let Err(e) = tokio::fs::create_dir_all(&dir).await {
+        warn!(
+            tenant_id = %tenant_id,
+            dataset_id = %dataset_id,
+            job_id = %job_id,
+            error = %e,
+            "Failed to create preprocess job state directory; status will be in-memory only"
+        );
+        return;
+    }
+
+    let record = PersistedPreprocessJobState {
+        job_id: job_id.to_string(),
+        tenant_id: tenant_id.to_string(),
+        dataset_id: dataset_id.to_string(),
+        status: job_state.status,
+        pii_scrub: job_state.pii_scrub,
+        dedupe: job_state.dedupe,
+        lines_processed: job_state.lines_processed,
+        lines_removed: job_state.lines_removed,
+        error_message: job_state.error_message.clone(),
+        started_at: job_state.started_at.to_rfc3339(),
+        completed_at: job_state.completed_at.map(|t| t.to_rfc3339()),
+    };
+
+    let json = match serde_json::to_vec_pretty(&record) {
+        Ok(v) => v,
+        Err(e) => {
+            warn!(
+                tenant_id = %tenant_id,
+                dataset_id = %dataset_id,
+                job_id = %job_id,
+                error = %e,
+                "Failed to serialize preprocess job state"
+            );
+            return;
+        }
+    };
+
+    let state_path = dir.join(format!("{}.json", job_id));
+    let tmp_path = dir.join(format!("{}.json.tmp", job_id));
+
+    // Write-and-rename for best-effort atomicity (no /tmp usage).
+    if let Err(e) = tokio::fs::write(&tmp_path, &json).await {
+        warn!(
+            tenant_id = %tenant_id,
+            dataset_id = %dataset_id,
+            job_id = %job_id,
+            error = %e,
+            "Failed to write preprocess job state"
+        );
+        return;
+    }
+    if let Err(e) = tokio::fs::rename(&tmp_path, &state_path).await {
+        warn!(
+            tenant_id = %tenant_id,
+            dataset_id = %dataset_id,
+            job_id = %job_id,
+            error = %e,
+            "Failed to finalize preprocess job state"
+        );
+        return;
+    }
+
+    // Update pointer to the most recent job for this dataset.
+    let latest_tmp = dir.join("latest.tmp");
+    let latest_path = dir.join("latest");
+    if let Err(e) = tokio::fs::write(&latest_tmp, job_id.as_bytes()).await {
+        warn!(
+            tenant_id = %tenant_id,
+            dataset_id = %dataset_id,
+            job_id = %job_id,
+            error = %e,
+            "Failed to write preprocess latest pointer"
+        );
+        return;
+    }
+    if let Err(e) = tokio::fs::rename(&latest_tmp, &latest_path).await {
+        warn!(
+            tenant_id = %tenant_id,
+            dataset_id = %dataset_id,
+            job_id = %job_id,
+            error = %e,
+            "Failed to finalize preprocess latest pointer"
+        );
+    }
+}
+
+async fn load_latest_preprocess_job_state_best_effort(
+    tenant_id: &str,
+    dataset_id: &str,
+) -> Option<PersistedPreprocessJobState> {
+    let dir = preprocess_job_dir(tenant_id, dataset_id);
+    let latest = tokio::fs::read_to_string(dir.join("latest")).await.ok()?;
+    let job_id = latest.trim();
+    if job_id.is_empty() {
+        return None;
+    }
+    let bytes = tokio::fs::read(dir.join(format!("{}.json", job_id)))
+        .await
+        .ok()?;
+    serde_json::from_slice::<PersistedPreprocessJobState>(&bytes).ok()
 }
 
 /// Request to start preprocessing on a dataset
@@ -183,6 +330,10 @@ pub async fn start_preprocess(
         .ok_or_else(|| ApiError::not_found("Dataset"))?;
 
     // Validate tenant isolation
+    let effective_tenant_id = dataset
+        .tenant_id
+        .clone()
+        .unwrap_or_else(|| claims.tenant_id.clone());
     if let Some(ref dataset_tenant_id) = dataset.tenant_id {
         validate_tenant_isolation(&claims, dataset_tenant_id)?;
     } else if claims.role != "admin" {
@@ -243,9 +394,24 @@ pub async fn start_preprocess(
         jobs.insert(job_id.clone(), job_state);
     }
 
+    // Best-effort persistence for restart resilience.
+    {
+        let jobs = PREPROCESS_JOBS.read().await;
+        if let Some(job_state) = jobs.get(&job_id) {
+            persist_preprocess_job_state_best_effort(
+                &effective_tenant_id,
+                &dataset_id,
+                &job_id,
+                job_state,
+            )
+            .await;
+        }
+    }
+
     // Spawn background task
     let job_id_clone = job_id.clone();
     let dataset_id_clone = dataset_id.clone();
+    let tenant_id_clone = effective_tenant_id.clone();
     let state_clone = state.clone();
     let pii_scrub = request.pii_scrub;
     let dedupe = request.dedupe;
@@ -255,6 +421,7 @@ pub async fn start_preprocess(
         if let Err(e) = run_preprocess_job(
             &state_clone,
             &job_id_clone,
+            &tenant_id_clone,
             &dataset_id_clone,
             &storage_path,
             pii_scrub,
@@ -274,6 +441,15 @@ pub async fn start_preprocess(
                 job.status = PreprocessStatus::Failed;
                 job.error_message = Some(e.to_string());
                 job.completed_at = Some(chrono::Utc::now());
+            }
+            if let Some(job) = jobs.get(&job_id_clone) {
+                persist_preprocess_job_state_best_effort(
+                    &tenant_id_clone,
+                    &dataset_id_clone,
+                    &job_id_clone,
+                    job,
+                )
+                .await;
             }
         }
     });
@@ -342,12 +518,34 @@ pub async fn get_preprocess_status(
         .ok_or_else(|| ApiError::not_found("Dataset"))?;
 
     // Validate tenant isolation
+    let effective_tenant_id = dataset
+        .tenant_id
+        .clone()
+        .unwrap_or_else(|| claims.tenant_id.clone());
     if let Some(ref dataset_tenant_id) = dataset.tenant_id {
         validate_tenant_isolation(&claims, dataset_tenant_id)?;
     } else if claims.role != "admin" {
         return Err(ApiError::forbidden(
             "Access denied: dataset has no tenant association",
         ));
+    }
+
+    // Prefer persisted status if available (survives restarts).
+    if let Some(persisted) =
+        load_latest_preprocess_job_state_best_effort(&effective_tenant_id, &dataset_id).await
+    {
+        return Ok(Json(PreprocessStatusResponse {
+            job_id: persisted.job_id,
+            dataset_id,
+            status: persisted.status,
+            pii_scrub: persisted.pii_scrub,
+            dedupe: persisted.dedupe,
+            lines_processed: persisted.lines_processed,
+            lines_removed: persisted.lines_removed,
+            error_message: persisted.error_message,
+            started_at: persisted.started_at,
+            completed_at: persisted.completed_at,
+        }));
     }
 
     // Find the most recent job for this dataset
@@ -386,6 +584,7 @@ pub async fn get_preprocess_status(
 async fn run_preprocess_job(
     state: &AppState,
     job_id: &str,
+    tenant_id: &str,
     dataset_id: &str,
     storage_path: &str,
     pii_scrub: bool,
@@ -398,6 +597,9 @@ async fn run_preprocess_job(
         let mut jobs = PREPROCESS_JOBS.write().await;
         if let Some(job) = jobs.get_mut(job_id) {
             job.status = PreprocessStatus::Running;
+        }
+        if let Some(job) = jobs.get(job_id) {
+            persist_preprocess_job_state_best_effort(tenant_id, dataset_id, job_id, job).await;
         }
     }
 
@@ -521,6 +723,9 @@ async fn run_preprocess_job(
                 job.lines_processed = total_lines_processed;
                 job.lines_removed = total_lines_removed;
             }
+            if let Some(job) = jobs.get(job_id) {
+                persist_preprocess_job_state_best_effort(tenant_id, dataset_id, job_id, job).await;
+            }
         }
     }
 
@@ -532,6 +737,9 @@ async fn run_preprocess_job(
             job.lines_processed = total_lines_processed;
             job.lines_removed = total_lines_removed;
             job.completed_at = Some(chrono::Utc::now());
+        }
+        if let Some(job) = jobs.get(job_id) {
+            persist_preprocess_job_state_best_effort(tenant_id, dataset_id, job_id, job).await;
         }
     }
 
@@ -719,5 +927,30 @@ mod tests {
         assert!(json.contains("\"lines_removed\":10"));
         // error_message should be omitted when None
         assert!(!json.contains("error_message"));
+    }
+
+    #[test]
+    fn persisted_job_state_roundtrip() {
+        let record = PersistedPreprocessJobState {
+            job_id: "job-1".to_string(),
+            tenant_id: "t-1".to_string(),
+            dataset_id: "ds-1".to_string(),
+            status: PreprocessStatus::Running,
+            pii_scrub: true,
+            dedupe: false,
+            lines_processed: 12,
+            lines_removed: 3,
+            error_message: None,
+            started_at: "2024-01-01T00:00:00Z".to_string(),
+            completed_at: None,
+        };
+        let json = serde_json::to_vec(&record).expect("serialize");
+        let parsed: PersistedPreprocessJobState =
+            serde_json::from_slice(&json).expect("deserialize");
+        assert_eq!(parsed.job_id, "job-1");
+        assert_eq!(parsed.dataset_id, "ds-1");
+        assert_eq!(parsed.status, PreprocessStatus::Running);
+        assert!(parsed.pii_scrub);
+        assert!(!parsed.dedupe);
     }
 }

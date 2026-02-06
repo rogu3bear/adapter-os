@@ -29,6 +29,8 @@ use adapteros_db::users::{Role, User};
 #[cfg(all(feature = "dev-bypass", debug_assertions))]
 use adapteros_db::workspaces::WorkspaceRole;
 #[cfg(all(feature = "dev-bypass", debug_assertions))]
+use adapteros_id::{IdPrefix, TypedId};
+#[cfg(all(feature = "dev-bypass", debug_assertions))]
 use axum::{
     extract::State,
     http::{HeaderMap, StatusCode},
@@ -42,8 +44,6 @@ use chrono::{DateTime, Duration, Utc};
 use sqlx;
 #[cfg(all(feature = "dev-bypass", debug_assertions))]
 use tracing::{info, warn};
-#[cfg(all(feature = "dev-bypass", debug_assertions))]
-use adapteros_id::{TypedId, IdPrefix};
 
 #[cfg(all(feature = "dev-bypass", debug_assertions))]
 use super::audit::{log_auth_event, AuthEvent};
@@ -208,8 +208,7 @@ pub async fn dev_bypass_handler(
             }
         }
         Ok(None) => {
-            let ws_id =
-                crate::id_generator::readable_id(adapteros_id::IdPrefix::Wsp, "dev");
+            let ws_id = crate::id_generator::readable_id(adapteros_id::IdPrefix::Wsp, "dev");
             info!(workspace_id = %ws_id, user_id = %user_id, "Creating default workspace for dev user");
             if let Err(e) = sqlx::query(
                 "INSERT INTO workspaces (id, name, description, created_by, created_at, updated_at) VALUES (?, 'Default Workspace', 'Auto-created workspace for development', ?, datetime('now'), datetime('now'))",

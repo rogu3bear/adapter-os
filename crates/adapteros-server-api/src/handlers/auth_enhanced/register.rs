@@ -16,6 +16,7 @@ use crate::state::AppState;
 use crate::types::ErrorResponse;
 use adapteros_db::users::Role;
 use adapteros_db::workspaces::WorkspaceRole;
+use adapteros_id::{IdPrefix, TypedId};
 use axum::{
     extract::State,
     http::{HeaderMap, StatusCode},
@@ -23,7 +24,6 @@ use axum::{
 };
 use chrono::{Duration, Utc};
 use tracing::{info, warn};
-use adapteros_id::{TypedId, IdPrefix};
 
 use super::audit::{log_auth_event, log_rate_limit_event, AuthEvent};
 use super::types::{RegisterRequest, RegisterResponse};
