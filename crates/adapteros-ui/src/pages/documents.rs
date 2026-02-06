@@ -6,9 +6,9 @@ use crate::api::client::{ChunkListResponse, DocumentListParams, DocumentResponse
 use crate::api::ApiClient;
 use crate::components::{
     Badge, BadgeVariant, BreadcrumbItem, BreadcrumbTrail, Button, ButtonSize, ButtonVariant, Card,
-    ConfirmationDialog, ConfirmationSeverity, CopyableId, Dialog, LoadingDisplay, ProgressStage,
-    ProgressStages, RefreshButton, Select, Table, TableBody, TableCell, TableHead, TableHeader,
-    TableRow, InlineProgress, IconExternalLink,
+    ConfirmationDialog, ConfirmationSeverity, CopyableId, Dialog, IconExternalLink, InlineProgress,
+    LoadingDisplay, ProgressStage, ProgressStages, RefreshButton, Select, Table, TableBody,
+    TableCell, TableHead, TableHeader, TableRow,
 };
 use crate::hooks::{
     use_api, use_api_resource, use_conditional_polling, use_delete_dialog, LoadingState,
@@ -530,70 +530,70 @@ fn DocumentsList(
                                                 }
                                             })}
                                             {is_terminal_ready.then(|| {
-                                                let navigate = use_navigate();
                                                 let doc_id_for_train = id.clone();
+                                                view! {
+                                                    <a
+                                                        href=format!(
+                                                            "/documents/{}#train-adapter-cta",
+                                                            doc_id_for_train
+                                                        )
+                                                        class="btn btn-ghost btn-sm"
+                                                        aria_label="Train using this document"
+                                                    >
+                                                        "Train"
+                                                    </a>
+                                                }
+                                            })}
+                                            {(!is_in_flight).then(|| {
+                                                let aria = if is_failed {
+                                                    "Retry document"
+                                                } else {
+                                                    "Reprocess document"
+                                                };
+                                                let label = if is_failed { "Retry" } else { "Reprocess" };
                                                 view! {
                                                     <Button
                                                         variant=ButtonVariant::Ghost
                                                         size=ButtonSize::Sm
-                                                        aria_label="Train using this document"
-                                                        on_click=Callback::new(move |_| {
-                                                            navigate(
-                                                                &format!("/documents/{}#train-adapter-cta", doc_id_for_train),
-                                                                Default::default(),
-                                                            );
+                                                        aria_label=aria
+                                                        disabled=Signal::derive({
+                                                            let id = id_reprocess.clone();
+                                                            move || reprocessing_id.get().as_deref() == Some(id.as_str())
+                                                        })
+                                                        on_click=Callback::new({
+                                                            let client = Arc::clone(&client);
+                                                            let id = id_reprocess.clone();
+                                                            let is_failed = is_failed;
+                                                            move |_| {
+                                                                let client = Arc::clone(&client);
+                                                                let id = id.clone();
+                                                                reprocessing_id.set(Some(id.clone()));
+                                                                wasm_bindgen_futures::spawn_local(async move {
+                                                                    if is_failed {
+                                                                        let _ = client.retry_document(&id).await;
+                                                                    } else {
+                                                                        let _ = client.process_document(&id).await;
+                                                                    }
+                                                                    reprocessing_id.set(None);
+                                                                    on_refetch.run(());
+                                                                });
+                                                            }
                                                         })
                                                     >
-                                                        "Train"
+                                                        <svg
+                                                            xmlns="http://www.w3.org/2000/svg"
+                                                            class="h-4 w-4"
+                                                            viewBox="0 0 24 24"
+                                                            fill="none"
+                                                            stroke="currentColor"
+                                                            stroke-width="2"
+                                                        >
+                                                            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                                                        </svg>
+                                                        <span class="ml-1">{label}</span>
                                                     </Button>
                                                 }
                                             })}
-                                            <Button
-                                                variant=ButtonVariant::Ghost
-                                                size=ButtonSize::Sm
-                                                aria_label=if is_failed {
-                                                    "Retry document"
-                                                } else {
-                                                    "Reprocess document"
-                                                }
-                                                disabled=Signal::derive({
-                                                    let id = id_reprocess.clone();
-                                                    move || reprocessing_id.get().as_deref() == Some(id.as_str())
-                                                        || is_in_flight
-                                                })
-                                                on_click=Callback::new({
-                                                    let client = Arc::clone(&client);
-                                                    let id = id_reprocess.clone();
-                                                    move |_| {
-                                                        let client = Arc::clone(&client);
-                                                        let id = id.clone();
-                                                        reprocessing_id.set(Some(id.clone()));
-                                                        wasm_bindgen_futures::spawn_local(async move {
-                                                            if is_failed {
-                                                                let _ = client.retry_document(&id).await;
-                                                            } else {
-                                                                let _ = client.process_document(&id).await;
-                                                            }
-                                                            reprocessing_id.set(None);
-                                                            on_refetch.run(());
-                                                        });
-                                                    }
-                                                })
-                                            >
-                                                <span class="sr-only">
-                                                    {move || if is_failed { "Retry" } else { "Reprocess" }}
-                                                </span>
-                                                <svg
-                                                    xmlns="http://www.w3.org/2000/svg"
-                                                    class="h-4 w-4"
-                                                    viewBox="0 0 24 24"
-                                                    fill="none"
-                                                    stroke="currentColor"
-                                                    stroke-width="2"
-                                                >
-                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-                                                </svg>
-                                            </Button>
                                             {is_failed.then(|| {
                                                 let error_href = "/errors".to_string();
                                                 view! {
