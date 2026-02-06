@@ -1,0 +1,27 @@
+[package]
+name = "adapteros-id"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Typed ID generation with word aliases for AdapterOS"
+
+[dependencies]
+uuid = { workspace = true }
+blake3 = { workspace = true }
+serde = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+uuid = { version = "1.6", features = ["v7", "serde", "js"] }
+
+[dev-dependencies]
+proptest = { workspace = true }
+serde_json = { workspace = true }
+
+[features]
+default = []
+wasm = []
+
+[lib]
+name = "adapteros_id"
+path = "src/lib.rs"
