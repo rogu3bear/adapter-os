@@ -206,7 +206,11 @@ pub fn write_boot_report(
     let run_id = std::env::var("AOS_RUN_ID").ok();
     let build_id = {
         let id = adapteros_core::version::BUILD_ID;
-        if id == "unknown" { None } else { Some(id.to_string()) }
+        if id == "unknown" {
+            None
+        } else {
+            Some(id.to_string())
+        }
     };
 
     let mut report_builder = BootReport::builder()

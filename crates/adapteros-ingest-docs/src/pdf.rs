@@ -120,7 +120,7 @@ pub fn ingest_pdf_bytes_resilient(
     let mut page_errors = Vec::new();
     let mut successful_pages = 0;
     let mut pages_with_images = 0;
-    let mut pages_with_visual_extraction = 0;
+    let pages_with_visual_extraction = 0;
     let mut normalized_text = String::new();
 
     for (page_number, object_id) in pages.iter() {
