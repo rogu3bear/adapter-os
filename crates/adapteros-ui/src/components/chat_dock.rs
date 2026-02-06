@@ -1023,26 +1023,16 @@ fn ChatInput() -> impl IntoView {
     }
 }
 
-/// Mobile chat overlay (shown on smaller screens)
+/// Mobile chat FAB — navigates to /chat sessions page
 #[component]
 pub fn MobileChatOverlay() -> impl IntoView {
-    let (chat_state, _chat_action) = use_chat();
-    let show_overlay = RwSignal::new(false);
-
-    let toggle_overlay = move |_| {
-        show_overlay.update(|v| *v = !*v);
-    };
-
-    let close_overlay = move |_| {
-        show_overlay.set(false);
-    };
+    let (chat_state, _) = use_chat();
 
     view! {
-        // Floating button for mobile
         <div class="fixed bottom-4 right-4 lg:hidden z-40">
-            <button
+            <a
+                href="/chat"
                 class="relative flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg hover:bg-primary/90 transition-colors"
-                on:click=toggle_overlay
             >
                 <svg
                     xmlns="http://www.w3.org/2000/svg"
@@ -1072,64 +1062,7 @@ pub fn MobileChatOverlay() -> impl IntoView {
                         view! {}.into_any()
                     }
                 }}
-            </button>
+            </a>
         </div>
-
-        // Overlay panel
-        {move || {
-            if show_overlay.get() {
-                view! {
-                    <div class="fixed inset-0 z-50 lg:hidden">
-                        // Backdrop
-                        <div
-                            class="absolute inset-0 bg-black/50"
-                            on:click=close_overlay
-                        />
-
-                        // Panel
-                        <div class="absolute bottom-0 left-0 right-0 h-[80vh] rounded-t-2xl bg-background shadow-2xl flex flex-col">
-                            // Handle
-                            <div class="flex justify-center py-2">
-                                <div class="h-1 w-12 rounded-full bg-muted-foreground/30"/>
-                            </div>
-
-                            // Header
-                            <div class="flex items-center justify-between border-b px-4 py-2">
-                                <h2 class="font-semibold">"Chat"</h2>
-                                <button
-                                    class="p-2 rounded-lg hover:bg-muted"
-                                    on:click=close_overlay
-                                >
-                                    <svg
-                                        xmlns="http://www.w3.org/2000/svg"
-                                        class="h-5 w-5"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                        stroke-width="2"
-                                    >
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
-                                    </svg>
-                                </button>
-                            </div>
-
-                            // Target selector
-                            <TargetSelector/>
-
-                            // Messages
-                            <MessageList/>
-
-                            // Context toggles
-                            <ContextTogglesBar/>
-
-                            // Input
-                            <ChatInput/>
-                        </div>
-                    </div>
-                }.into_any()
-            } else {
-                view! {}.into_any()
-            }
-        }}
     }
 }

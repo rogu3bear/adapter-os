@@ -40,6 +40,9 @@ const CONTEXT_TOGGLES_KEY: &str = "adapteros_chat_context_toggles";
 /// LocalStorage key for chat sessions.
 const SESSIONS_STORAGE_KEY: &str = "adapteros_chat_sessions";
 
+/// LocalStorage key for default pinned adapters (persisted across sessions).
+const PINNED_ADAPTERS_KEY: &str = "adapteros_pinned_adapters";
+
 /// Evict old messages to maintain MAX_MESSAGES limit.
 /// Uses drain() for O(n) single operation instead of O(n²) repeated remove(0).
 #[inline]
@@ -442,6 +445,23 @@ fn save_context_toggles(toggles: &ContextToggles) {
     }
 }
 
+/// Load default pinned adapters from localStorage.
+pub(crate) fn load_pinned_adapters() -> Vec<String> {
+    let Some(window) = web_sys::window() else { return Vec::new() };
+    let Ok(Some(storage)) = window.local_storage() else { return Vec::new() };
+    let Ok(Some(data)) = storage.get_item(PINNED_ADAPTERS_KEY) else { return Vec::new() };
+    serde_json::from_str(&data).unwrap_or_default()
+}
+
+/// Save default pinned adapters to localStorage.
+fn save_pinned_adapters(adapters: &[String]) {
+    let Some(window) = web_sys::window() else { return };
+    let Ok(Some(storage)) = window.local_storage() else { return };
+    if let Ok(json) = serde_json::to_string(adapters) {
+        let _ = storage.set_item(PINNED_ADAPTERS_KEY, &json);
+    }
+}
+
 /// Dock visibility state
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum DockState {
@@ -501,6 +521,12 @@ pub struct ChatState {
     pub stream_recovery: Option<StreamRecovery>,
     /// Assistant message IDs that were cancelled/partial (exclude from prompt + persistence)
     pub partial_assistant_ids: Vec<String>,
+    /// True after a pin toggle until SSE confirms active adapter set post-inference
+    pub adapter_selection_pending: bool,
+    /// Epoch counter — incremented on every pin mutation
+    pub pin_change_epoch: u64,
+    /// Epoch captured when last message was sent
+    pub last_sent_pin_epoch: u64,
 }
 
 /// Suggested adapter from router preview
@@ -580,6 +606,9 @@ impl Default for ChatState {
             stream_notice: None,
             stream_recovery: None,
             partial_assistant_ids: Vec::new(),
+            adapter_selection_pending: false,
+            pin_change_epoch: 0,
+            last_sent_pin_epoch: 0,
         }
     }
 }
@@ -791,8 +820,10 @@ impl ChatAction {
             )
         };
 
-        // Clear one-shot selection immediately after capturing it
+        // Clear one-shot selection and snapshot pin epoch so the SSE handler
+        // knows this message carries the current pin set.
         let _ = self.state.try_update(|s| {
+            s.last_sent_pin_epoch = s.pin_change_epoch;
             s.selected_adapter = None;
         });
 
@@ -1119,6 +1150,9 @@ impl ChatAction {
             s.stream_notice = None;
             s.stream_recovery = None;
             s.partial_assistant_ids.clear();
+            s.adapter_selection_pending = false;
+            s.pin_change_epoch = 0;
+            s.last_sent_pin_epoch = 0;
         });
     }
 
@@ -1294,7 +1328,11 @@ impl ChatAction {
                     adapter.is_pinned = !adapter.is_pinned;
                 }
             }
+            // Mark pending until next SSE adapter state update confirms usage
+            s.adapter_selection_pending = true;
+            s.pin_change_epoch += 1;
         });
+        save_pinned_adapters(&self.state.get_untracked().pinned_adapters);
     }
 
     /// Clear all pinned adapters
@@ -1304,7 +1342,9 @@ impl ChatAction {
             for adapter in &mut s.suggested_adapters {
                 adapter.is_pinned = false;
             }
+            s.pin_change_epoch += 1;
         });
+        save_pinned_adapters(&[]);
     }
 
     /// Clear suggested adapters
@@ -1949,6 +1989,10 @@ async fn stream_inference_to_state(
                             s.active_adapters.push(new_adapter);
                         }
                     }
+                    // Only clear pending if a message sent AFTER the pin change has been confirmed
+                    if s.last_sent_pin_epoch >= s.pin_change_epoch {
+                        s.adapter_selection_pending = false;
+                    }
                 }) {
                     // Signal disposed, bail out early
                     return Ok(trace_info);
@@ -2356,6 +2400,9 @@ mod tests {
                 stream_notice: None,
                 stream_recovery: None,
                 partial_assistant_ids: Vec::new(),
+                adapter_selection_pending: false,
+                pin_change_epoch: 0,
+                last_sent_pin_epoch: 0,
             }
         }
 
