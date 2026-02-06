@@ -59,6 +59,9 @@ pub fn Training() -> impl IntoView {
     // Track initial dataset for training (from query params)
     let initial_dataset_id = RwSignal::new(None::<String>);
 
+    // Adapter name filter (from adapter detail provenance link)
+    let adapter_name_filter = RwSignal::new(None::<String>);
+
     // Return-to path after wizard completion (from cross-page CTAs)
     let return_to = RwSignal::new(None::<String>);
 
@@ -76,6 +79,7 @@ pub fn Training() -> impl IntoView {
             || params.get("dataset_id").is_some()
             || params.get("open_wizard").is_some()
             || params.get("job_id").is_some()
+            || params.get("adapter_name").is_some()
             || params.get("return_to").is_some();
         if !has_params {
             return;
@@ -100,32 +104,36 @@ pub fn Training() -> impl IntoView {
         if let Some(job_id) = params.get("job_id") {
             selected_job_id.set(Some(job_id.clone()));
         }
+        // Adapter provenance workflow (from adapter detail page)
+        if let Some(name) = params.get("adapter_name") {
+            adapter_name_filter.set(Some(name.clone()));
+        }
         // Return-to path for post-wizard navigation
         if let Some(path) = params.get("return_to") {
             return_to.set(Some(path.clone()));
         }
         // Mark consumed and clean URL to prevent re-triggering on browser back
         params_consumed.set(true);
-        navigate(
-            "/training",
-            leptos_router::NavigateOptions {
-                replace: true,
-                ..Default::default()
-            },
-        );
+        navigate("/training", leptos_router::NavigateOptions {
+            replace: true,
+            ..Default::default()
+        });
     });
 
     // Fetch training jobs with server-side filtering
     let (jobs, refetch_jobs) = use_api_resource(move |client: Arc<ApiClient>| {
         let filter = status_filter.get_untracked();
+        let adapter_name = adapter_name_filter.get_untracked();
         async move {
-            let params = if filter.is_empty() {
-                None
-            } else {
+            let has_filter = !filter.is_empty() || adapter_name.is_some();
+            let params = if has_filter {
                 Some(TrainingListParams {
-                    status: Some(filter),
+                    status: if filter.is_empty() { None } else { Some(filter) },
+                    adapter_name,
                     ..Default::default()
                 })
+            } else {
+                None
             };
             client.list_training_jobs(params.as_ref()).await
         }
@@ -209,7 +217,7 @@ pub fn Training() -> impl IntoView {
                         <div class="space-y-6">
                             // Header
                             <div class="flex items-center justify-between">
-                                <h1 class="text-3xl font-bold tracking-tight">"Training Jobs"</h1>
+                                <h1 class="heading-1">"Training Jobs"</h1>
                                 <div class="flex items-center gap-2">
                                     <StatusFilter filter=status_filter/>
                                     <CoremlFilters filter=coreml_filter/>
@@ -255,22 +263,14 @@ pub fn Training() -> impl IntoView {
                 detail_panel=move || {
                     // Detail panel content - job_id comes from selected_job_id
                     let job_id = selected_job_id.get().unwrap_or_default();
-                    match return_to.get_untracked() {
-                        Some(ret) => view! {
-                            <TrainingJobDetail
-                                job_id=job_id
-                                on_close=on_close_detail
-                                on_cancelled=move || refetch_jobs.run(())
-                                return_to=ret
-                            />
-                        }.into_any(),
-                        None => view! {
-                            <TrainingJobDetail
-                                job_id=job_id
-                                on_close=on_close_detail
-                                on_cancelled=move || refetch_jobs.run(())
-                            />
-                        }.into_any(),
+                    let ret = return_to.get_untracked();
+                    view! {
+                        <TrainingJobDetail
+                            job_id=job_id
+                            on_close=on_close_detail
+                            on_cancelled=move || refetch_jobs.run(())
+                            return_to=ret
+                        />
                     }
                 }
             />
@@ -280,6 +280,7 @@ pub fn Training() -> impl IntoView {
                 open=create_dialog_open
                 on_created=on_job_created
                 initial_dataset_id=initial_dataset_id
+                source_document_id=source_document_id
             />
         </div>
     }

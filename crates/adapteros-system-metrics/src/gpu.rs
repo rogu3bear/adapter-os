@@ -5,7 +5,7 @@
 
 use crate::GpuMetrics;
 use adapteros_core::Result;
-use tracing::debug;
+use tracing::{debug, warn};
 
 #[cfg(feature = "mlx")]
 use adapteros_lora_mlx_ffi::{

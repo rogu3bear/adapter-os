@@ -385,7 +385,17 @@ impl Db {
     }
 
     /// Initialize pending gates for a promotion request
+    ///
+    /// FIXED: Wraps all gate insertions in a transaction to prevent partial failures
+    /// leaving the promotion in an inconsistent state (some gates initialized, others not).
     pub async fn init_promotion_gates(&self, request_id: &str, gate_names: &[&str]) -> Result<()> {
+        // Use a transaction to ensure all gates are initialized atomically
+        let mut tx = self
+            .pool()
+            .begin()
+            .await
+            .map_err(db_err("begin transaction for init_promotion_gates"))?;
+
         for gate_name in gate_names {
             sqlx::query(
                 "INSERT OR IGNORE INTO golden_run_promotion_gates
@@ -394,10 +404,14 @@ impl Db {
             )
             .bind(request_id)
             .bind(gate_name)
-            .execute(self.pool())
+            .execute(&mut *tx)
             .await
             .map_err(db_err("init promotion gate"))?;
         }
+
+        tx.commit()
+            .await
+            .map_err(db_err("commit transaction for init_promotion_gates"))?;
 
         Ok(())
     }

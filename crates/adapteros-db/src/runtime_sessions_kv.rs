@@ -10,7 +10,8 @@ use chrono::{Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RuntimeSessionKv {
@@ -54,7 +55,7 @@ impl RuntimeSessionKvRepository {
     pub fn new_session(&self, base: RuntimeSessionKv) -> RuntimeSessionKv {
         RuntimeSessionKv {
             id: if base.id.is_empty() {
-                Uuid::now_v7().to_string()
+                new_id(IdPrefix::Ses)
             } else {
                 base.id
             },

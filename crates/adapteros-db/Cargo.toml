@@ -19,6 +19,7 @@ adapteros-api-types = { path = "../adapteros-api-types" }
 adapteros-types = { path = "../adapteros-types" }
 adapteros-artifacts = { path = "../adapteros-artifacts" }
 adapteros-aos = { path = "../adapteros-aos" }
+adapteros-id = { path = "../adapteros-id" }
 # Workspace dependencies
 anyhow.workspace = true
 thiserror.workspace = true

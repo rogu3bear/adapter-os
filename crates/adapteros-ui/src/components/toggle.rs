@@ -18,8 +18,8 @@ pub fn Toggle(
     id: Option<String>,
     #[prop(optional, into)] class: String,
 ) -> impl IntoView {
-    // Generate a fallback ID if not provided
-    let button_id = id.unwrap_or_else(|| format!("toggle-{}", uuid::Uuid::new_v4()));
+    // Generate a stable ID once per component instance using StoredValue
+    let button_id = StoredValue::new(id.unwrap_or_else(|| format!("toggle-{}", uuid::Uuid::new_v4())));
 
     let toggle = move |_| {
         if !disabled.get() {
@@ -29,13 +29,12 @@ pub fn Toggle(
 
     // Only apply aria-label when no visible label is provided
     let effective_aria_label = aria_label.filter(|_| label.is_none());
-    let label_for = button_id.clone();
 
     view! {
         <div class=format!("flex items-center justify-between {}", class)>
             <div class="space-y-0.5">
                 {label.map(|l| {
-                    let for_id = label_for.clone();
+                    let for_id = button_id.get_value();
                     view! {
                         <label class="label" for=for_id>
                             {l}
@@ -48,7 +47,7 @@ pub fn Toggle(
             </div>
             <button
                 type="button"
-                id=button_id
+                id=button_id.get_value()
                 role="switch"
                 aria-checked=move || checked.get().to_string()
                 aria-label=effective_aria_label
@@ -87,11 +86,17 @@ pub fn Select(
     #[prop(optional, into)] disabled: Signal<bool>,
     #[prop(optional, into)] class: String,
     #[prop(optional)] on_change: Option<Callback<String>>,
+    /// Accessible label for screen readers (used when no visible label is provided)
+    #[prop(optional, into)]
+    aria_label: Option<String>,
 ) -> impl IntoView {
     let full_class = format!("select {}", class);
     let field_ctx = use_form_field_context();
     let input_id = id.or_else(|| field_ctx.as_ref().map(|ctx| ctx.field_id.clone()));
     let described_by = field_ctx.and_then(|ctx| ctx.described_by.clone());
+
+    // Only apply aria-label when no visible label is provided
+    let effective_aria_label = aria_label.filter(|_| label.is_none());
 
     view! {
         <div class="grid w-full gap-1.5">
@@ -106,6 +111,7 @@ pub fn Select(
                 class=full_class
                 disabled=move || disabled.get()
                 aria-describedby=described_by
+                aria-label=effective_aria_label
                 prop:value=move || value.get()
                 on:change=move |ev| {
                     let next = event_target_value(&ev);

@@ -19,10 +19,10 @@ use adapteros_telemetry::MetricsCollector;
 use std::fs;
 use std::sync::{Arc, RwLock};
 use tempfile::Builder as TempDirBuilder;
-use uuid::Uuid;
+use adapteros_id::{TypedId, IdPrefix};
 
 fn stack_name() -> String {
-    format!("stack.test.{}", Uuid::new_v4().simple())
+    TypedId::new(IdPrefix::Stk).to_string()
 }
 
 async fn build_test_state(use_session_stack: bool) -> AppState {

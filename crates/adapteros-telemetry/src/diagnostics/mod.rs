@@ -71,10 +71,7 @@ impl DiagRunId {
 
     /// Generate a new random DiagRunId.
     pub fn new_random() -> Self {
-        Self(adapteros_core::ids::generate_id(
-            adapteros_core::ids::IdKind::Run,
-            "diag",
-        ))
+        Self(adapteros_id::TypedId::new(adapteros_id::IdPrefix::Run).to_string())
     }
 }
 

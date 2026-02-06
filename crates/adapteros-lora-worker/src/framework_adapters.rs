@@ -170,7 +170,7 @@ fn generate_weights(adapter_id: &str, rank: usize, hidden_dim: usize) -> LoRAWei
     LoRAWeights {
         lora_a,
         lora_b,
-        modules: HashMap::new(),
+        modules: BTreeMap::new(),
         moe_config: None,
         precomputed_delta: None,
     }

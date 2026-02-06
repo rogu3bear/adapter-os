@@ -1,7 +1,8 @@
 use crate::Db;
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Job {
@@ -26,7 +27,7 @@ impl Db {
         user_id: Option<&str>,
         payload_json: &str,
     ) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Job);
         sqlx::query(
             "INSERT INTO jobs (id, kind, tenant_id, user_id, payload_json, status) VALUES (?, ?, ?, ?, ?, 'queued')"
         )

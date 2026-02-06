@@ -2,6 +2,14 @@
 //!
 //! Comprehensive worker management with detailed status, metrics,
 //! spawn controls, and lifecycle management.
+//!
+//! ## Layout
+//!
+//! Uses PageScaffold for consistent page structure and SplitPanel for
+//! list-detail layout:
+//! - Left: WorkersList with click-to-select
+//! - Right: WorkerDetailPanel showing full details for selected worker
+//! - Summary cards above the split panel
 
 mod components;
 pub mod dialogs;
@@ -10,6 +18,7 @@ mod utils;
 use crate::api::ApiClient;
 use crate::components::{
     BreadcrumbItem, BreadcrumbTrail, Button, ButtonVariant, ErrorDisplay, LoadingDisplay,
+    PageBreadcrumbItem, PageScaffold, PageScaffoldActions, SplitPanel, SplitRatio,
 };
 use crate::hooks::{use_api_resource, use_polling, LoadingState};
 use adapteros_api_types::SpawnWorkerRequest;
@@ -18,9 +27,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::components::{IconPlus, IconRefresh, IconX};
-use components::{
-    WorkerDetailPanel, WorkerDetailView, WorkerHealthSummaryPanel, WorkersList, WorkersSummary,
-};
+use components::{WorkerDetailPanel, WorkerDetailView, WorkersList, WorkersSummary};
 use dialogs::{PlanOption, SpawnWorkerDialog};
 use utils::{WorkerHealthRecord, WorkerHealthSummary};
 
@@ -53,6 +60,7 @@ pub fn Workers() -> impl IntoView {
     let selected_worker = RwSignal::new(Option::<String>::None);
     let action_loading = RwSignal::new(false);
     let action_error = RwSignal::new(Option::<String>::None);
+
     // Debug logging for list sizes
     #[cfg(debug_assertions)]
     Effect::new(move |_| {
@@ -68,36 +76,41 @@ pub fn Workers() -> impl IntoView {
         refetch_worker_health.run(());
     });
 
+    // Has selection for split panel
+    let has_selection = Signal::derive(move || selected_worker.get().is_some());
+
+    let on_close_detail = Callback::new(move |_: ()| {
+        selected_worker.set(None);
+    });
+
     view! {
-        <div class="shell-page space-y-6">
-            // Header with title and actions
-            <div class="flex items-center justify-between">
-                <div>
-                    <h1 class="text-3xl font-bold tracking-tight">"Workers"</h1>
-                    <p class="text-muted-foreground mt-1">
-                        "Manage inference workers, monitor health, and control lifecycle"
-                    </p>
-                </div>
-                <div class="flex items-center gap-2">
-                    <Button
-                        variant=ButtonVariant::Secondary
-                        on_click=Callback::new(move |_| {
-                            refetch_workers.run(());
-                            refetch_worker_health.run(());
-                        })
-                    >
-                        <IconRefresh/>
-                        "Refresh"
-                    </Button>
-                    <Button
-                        variant=ButtonVariant::Primary
-                        on_click=Callback::new(move |_| show_spawn_dialog.set(true))
-                    >
-                        <IconPlus/>
-                        "Spawn Worker"
-                    </Button>
-                </div>
-            </div>
+        <PageScaffold
+            title="Workers"
+            subtitle="Manage inference workers, monitor health, and control lifecycle".to_string()
+            breadcrumbs=vec![
+                PageBreadcrumbItem::new("Observe", "/workers"),
+                PageBreadcrumbItem::current("Workers"),
+            ]
+        >
+            <PageScaffoldActions slot>
+                <Button
+                    variant=ButtonVariant::Secondary
+                    on_click=Callback::new(move |_| {
+                        refetch_workers.run(());
+                        refetch_worker_health.run(());
+                    })
+                >
+                    <IconRefresh/>
+                    "Refresh"
+                </Button>
+                <Button
+                    variant=ButtonVariant::Primary
+                    on_click=Callback::new(move |_| show_spawn_dialog.set(true))
+                >
+                    <IconPlus/>
+                    "Spawn Worker"
+                </Button>
+            </PageScaffoldActions>
 
             // Error banner
             {move || action_error.get().map(|e| view! {
@@ -147,77 +160,90 @@ pub fn Workers() -> impl IntoView {
                             LoadingState::Loaded(ref summary) => Some(summary.clone()),
                             _ => None,
                         };
+                        let workers_for_list = workers_data.clone();
+                        let workers_for_detail = workers_data.clone();
+                        let health_map_for_detail = health_map.clone();
                         view! {
-                            // Summary cards
+                            // Summary cards (above the split panel)
                             <WorkersSummary
                                 workers=workers_data.clone()
                                 health_summary=health_summary
                             />
 
-                            // Health summary panel
-                            <WorkerHealthSummaryPanel
-                                health_state=health_state
-                                on_retry=Callback::new(move |_| refetch_worker_health.run(()))
-                            />
-
-                            // Workers list
-                            <WorkersList
-                                workers=workers_data.clone()
-                                selected_worker=selected_worker
-                                health_map=health_map.clone()
-                                on_drain=Callback::new({
-                                    move |worker_id: String| {
-                                        action_loading.set(true);
-                                        let client = ApiClient::new();
-                                        let worker_id = worker_id.clone();
-                                        wasm_bindgen_futures::spawn_local(async move {
-                                            match client.drain_worker(&worker_id).await {
-                                                Ok(_) => {
-                                                    action_error.set(None);
-                                                    refetch_workers.run(());
+                            // Split panel: Workers list (left) + Detail panel (right)
+                            <SplitPanel
+                                has_selection=has_selection
+                                on_close=on_close_detail
+                                back_label="Back to Workers"
+                                ratio=SplitRatio::TwoFifthsThreeFifths
+                                list_panel=move || {
+                                    let workers_data = workers_for_list.clone();
+                                    let health_map = health_map.clone();
+                                    view! {
+                                        <WorkersList
+                                            workers=workers_data
+                                            selected_worker=selected_worker
+                                            health_map=health_map
+                                            on_drain=Callback::new({
+                                                move |worker_id: String| {
+                                                    action_loading.set(true);
+                                                    let client = ApiClient::new();
+                                                    let worker_id = worker_id.clone();
+                                                    wasm_bindgen_futures::spawn_local(async move {
+                                                        match client.drain_worker(&worker_id).await {
+                                                            Ok(_) => {
+                                                                action_error.set(None);
+                                                                refetch_workers.run(());
+                                                            }
+                                                            Err(e) => {
+                                                                action_error.set(Some(format!("Failed to drain worker: {}", e)));
+                                                            }
+                                                        }
+                                                        action_loading.set(false);
+                                                    });
                                                 }
-                                                Err(e) => {
-                                                    action_error.set(Some(format!("Failed to drain worker: {}", e)));
+                                            })
+                                            on_stop=Callback::new({
+                                                move |worker_id: String| {
+                                                    action_loading.set(true);
+                                                    let client = ApiClient::new();
+                                                    let worker_id = worker_id.clone();
+                                                    wasm_bindgen_futures::spawn_local(async move {
+                                                        match client.stop_worker(&worker_id).await {
+                                                            Ok(_) => {
+                                                                action_error.set(None);
+                                                                refetch_workers.run(());
+                                                            }
+                                                            Err(e) => {
+                                                                action_error.set(Some(format!("Failed to stop worker: {}", e)));
+                                                            }
+                                                        }
+                                                        action_loading.set(false);
+                                                    });
                                                 }
-                                            }
-                                            action_loading.set(false);
-                                        });
+                                            })
+                                            on_spawn=Callback::new(move |_| show_spawn_dialog.set(true))
+                                        />
                                     }
-                                })
-                                on_stop=Callback::new({
-                                    move |worker_id: String| {
-                                        action_loading.set(true);
-                                        let client = ApiClient::new();
-                                        let worker_id = worker_id.clone();
-                                        wasm_bindgen_futures::spawn_local(async move {
-                                            match client.stop_worker(&worker_id).await {
-                                                Ok(_) => {
-                                                    action_error.set(None);
-                                                    refetch_workers.run(());
-                                                }
-                                                Err(e) => {
-                                                    action_error.set(Some(format!("Failed to stop worker: {}", e)));
-                                                }
-                                            }
-                                            action_loading.set(false);
-                                        });
+                                }
+                                detail_panel=move || {
+                                    let workers_data = workers_for_detail.clone();
+                                    let health_map = health_map_for_detail.clone();
+                                    view! {
+                                        {move || selected_worker.get().and_then(|worker_id| {
+                                            let worker = workers_data.iter().find(|w| w.id == worker_id).cloned();
+                                            let health = health_map.get(&worker_id).cloned();
+                                            worker.map(|w| view! {
+                                                <WorkerDetailPanel
+                                                    worker=w
+                                                    health=health
+                                                    on_close=Callback::new(move |_| selected_worker.set(None))
+                                                />
+                                            })
+                                        })}
                                     }
-                                })
-                                on_spawn=Callback::new(move |_| show_spawn_dialog.set(true))
+                                }
                             />
-
-                            // Worker detail panel
-                            {move || selected_worker.get().and_then(|worker_id| {
-                                let worker = workers_data.iter().find(|w| w.id == worker_id).cloned();
-                                let health = health_map.get(&worker_id).cloned();
-                                worker.map(|w| view! {
-                                    <WorkerDetailPanel
-                                        worker=w
-                                        health=health
-                                        on_close=Callback::new(move |_| selected_worker.set(None))
-                                    />
-                                })
-                            })}
 
                             // Spawn dialog
                             <SpawnWorkerDialog
@@ -250,13 +276,13 @@ pub fn Workers() -> impl IntoView {
                         view! {
                             <ErrorDisplay
                                 error=e
-                                on_retry=refetch_workers
+                                on_retry=refetch_workers.as_callback()
                             />
                         }.into_any()
                     }
                 }
             }}
-        </div>
+        </PageScaffold>
     }
 }
 

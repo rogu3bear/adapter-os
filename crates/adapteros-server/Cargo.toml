@@ -11,7 +11,7 @@ name = "aos-server"
 path = "src/main.rs"
 
 [features]
-default = ["embeddings"]
+default = ["embeddings", "multi-backend", "coreml-backend"]
 # Multi-backend feature flag
 # Enables MLX FFI backend through adapteros-lora-worker
 # For research/training workloads with MLX support
@@ -26,6 +26,8 @@ embeddings = ["adapteros-server-api/embeddings", "dep:adapteros-ingest-docs"]
 # Model Server mode: workers connect to shared Model Server for inference
 # Enables boot phase that verifies Model Server readiness before accepting requests
 model-server = ["adapteros-lora-worker/model-server"]
+# CoreML + ANE backend (propagates to server-api → worker → kernel)
+coreml-backend = ["adapteros-server-api/coreml-backend"]
 [dependencies]
 # Internal crates
 adapteros-boot = { path = "../adapteros-boot" }

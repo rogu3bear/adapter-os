@@ -4,31 +4,24 @@
 //! Provides a command console for interacting with adapterOS.
 
 use crate::api::ApiClient;
-use crate::components::inference_guidance::guidance_for;
-use crate::components::status_center::use_status_center;
 use crate::components::{Button, ButtonSize, Spinner, Textarea};
 use crate::hooks::{use_api_resource, LoadingState};
-use crate::signals::{use_chat, ChatTarget, ContextToggle, DockState};
+use crate::signals::{use_chat, ChatTarget, ContextToggle, DockState, MessageStatus, PendingPhase};
 use adapteros_api_types::InferenceReadyState;
 use leptos::prelude::*;
 use std::sync::Arc;
 
-const INFERENCE_BANNER_DISMISSED_KEY: &str = "adapteros_inference_banner_dismissed";
-
-/// Check if the inference banner has been dismissed this session
-fn is_inference_banner_dismissed() -> bool {
-    web_sys::window()
-        .and_then(|w| w.session_storage().ok().flatten())
-        .and_then(|s| s.get_item(INFERENCE_BANNER_DISMISSED_KEY).ok().flatten())
-        .is_some()
-}
-
-/// Dismiss the inference banner for this session
-fn dismiss_inference_banner() {
-    if let Some(storage) = web_sys::window()
-        .and_then(|w| w.session_storage().ok().flatten())
-    {
-        let _ = storage.set_item(INFERENCE_BANNER_DISMISSED_KEY, "1");
+/// Human-readable blocker reasons for pending messages
+fn humanize_blocker(blocker: &adapteros_api_types::InferenceBlocker) -> &'static str {
+    use adapteros_api_types::InferenceBlocker;
+    match blocker {
+        InferenceBlocker::WorkerMissing => "waiting for worker",
+        InferenceBlocker::NoModelLoaded => "loading model",
+        InferenceBlocker::DatabaseUnavailable => "connecting to database",
+        InferenceBlocker::ActiveModelMismatch => "switching models",
+        InferenceBlocker::TelemetryDegraded => "system warming up",
+        InferenceBlocker::SystemBooting => "system starting",
+        InferenceBlocker::BootFailed => "system error",
     }
 }
 
@@ -525,29 +518,76 @@ fn MessageItem(msg_id: String) -> impl IntoView {
 
     let backend_used = Memo::new(move |_| message.get().and_then(|m| m.backend_used));
 
+    // Queue UX: message status and pending info
+    let is_pending = Memo::new(move |_| {
+        message.get().is_some_and(|m| matches!(m.status, MessageStatus::Queued | MessageStatus::Sending))
+    });
+
+    let is_failed = Memo::new(move |_| {
+        message.get().is_some_and(|m| matches!(m.status, MessageStatus::Failed))
+    });
+
+    let pending_text = Memo::new(move |_| {
+        message.get().map(|m| {
+            match m.pending_phase {
+                PendingPhase::Calm => "waiting...".to_string(),
+                PendingPhase::Informative => {
+                    m.pending_reason.clone()
+                        .map(|r| format!("{}...", r))
+                        .unwrap_or_else(|| "waiting...".to_string())
+                }
+                PendingPhase::Estimated => {
+                    m.pending_reason.clone()
+                        .map(|r| format!("~30s · {}", r))
+                        .unwrap_or_else(|| "~30s".to_string())
+                }
+            }
+        }).unwrap_or_else(|| "waiting...".to_string())
+    });
+
+    let failed_reason = Memo::new(move |_| {
+        message.get()
+            .and_then(|m| m.pending_reason.clone())
+            .unwrap_or_else(|| "Failed".to_string())
+    });
+
     view! {
         {move || {
             message.get().map(|_| {
                 let user = is_user.get();
+
                 view! {
                     <div class=format!(
                         "flex {}",
                         if user { "justify-end" } else { "justify-start" }
                     )>
-                        <div class=format!(
-                            "chat-bubble-compact rounded-lg px-3 py-2 {}",
-                            if user {
-                                "bg-primary text-primary-foreground"
-                            } else {
-                                "bg-muted"
-                            }
+                        <div class=move || format!(
+                            "chat-bubble-compact rounded-lg px-3 py-2 {} {}",
+                            if user { "bg-primary text-primary-foreground" } else { "bg-muted" },
+                            if is_pending.get() { "chat-message-pending" } else { "" }
                         )>
                             <p class="text-sm whitespace-pre-wrap break-words">{move || content.get()}</p>
                             <div class=format!(
                                 "mt-1 text-2xs flex items-center gap-1.5 {}",
                                 if user { "text-primary-foreground/70" } else { "text-muted-foreground" }
                             )>
-                                {move || formatted_time.get()}
+                                // Show pending indicator, failed state, or timestamp
+                                {move || {
+                                    if is_pending.get() {
+                                        view! {
+                                            <span class="chat-message-pending-indicator">
+                                                <span class="chat-pending-dot"></span>
+                                                <span>{pending_text.get()}</span>
+                                            </span>
+                                        }.into_any()
+                                    } else if is_failed.get() {
+                                        view! {
+                                            <span class="text-destructive">{failed_reason.get()}</span>
+                                        }.into_any()
+                                    } else {
+                                        view! { <span>{formatted_time.get()}</span> }.into_any()
+                                    }
+                                }}
                                 {move || {
                                     if is_streaming.get() {
                                         view! { <span class="ml-1 animate-pulse">"..."</span> }.into_any()
@@ -557,7 +597,7 @@ fn MessageItem(msg_id: String) -> impl IntoView {
                                 }}
                                 // Show backend indicator for assistant messages
                                 {move || {
-                                    if !user {
+                                    if !is_user.get() {
                                         backend_used.get().map(|backend| {
                                             let (label, class) = match backend.as_str() {
                                                 "coreml" => ("CoreML".to_string(), "bg-status-warning/20 text-status-warning"),
@@ -865,17 +905,16 @@ fn ClearButton() -> impl IntoView {
     }
 }
 
-/// Chat input component with SSE streaming support
+/// Chat input component with queue UX
+///
+/// Messages are always accepted. If inference isn't ready, they're queued
+/// and automatically submitted when inference becomes available.
 #[component]
 fn ChatInput() -> impl IntoView {
     let (chat_state, chat_action) = use_chat();
     let message = RwSignal::new(String::new());
     let (system_status, _refetch_status) =
         use_api_resource(|client: Arc<ApiClient>| async move { client.system_status().await });
-    let status_center = use_status_center();
-
-    // Track if inference banner has been dismissed this session
-    let banner_dismissed = RwSignal::new(is_inference_banner_dismissed());
 
     // Create derived signals for state tracking
     let is_loading = Memo::new(move |_| chat_state.get().loading);
@@ -884,16 +923,62 @@ fn ChatInput() -> impl IntoView {
         let state = chat_state.get();
         state.loading || state.streaming
     });
-    let can_send = Memo::new(move |_| !message.get().trim().is_empty() && !is_busy.get());
+    let has_queued = Memo::new(move |_| chat_state.get().queued_count() > 0);
+    let can_send = Memo::new(move |_| !message.get().trim().is_empty());
 
+    // Check if inference is ready
+    let inference_ready = Memo::new(move |_| {
+        match system_status.get() {
+            LoadingState::Loaded(status) => {
+                matches!(status.inference_ready, InferenceReadyState::True)
+            }
+            _ => false,
+        }
+    });
+
+    // When inference becomes ready and we have queued messages, process them
+    {
+        let action_for_poll = chat_action.clone();
+        Effect::new(move |_| {
+            let has_q = has_queued.get();
+            let ready = inference_ready.get();
+            let busy = is_busy.get();
+
+            if has_q && ready && !busy {
+                action_for_poll.process_queued_message();
+            }
+        });
+    }
+
+    // Update pending phases when status changes
+    {
+        let action_for_tick = chat_action.clone();
+        Effect::new(move |_| {
+            if let LoadingState::Loaded(status) = system_status.get() {
+                let blocker_text = status.inference_blockers.first().map(humanize_blocker);
+                action_for_tick.tick_pending_phases(blocker_text);
+            }
+        });
+    }
+
+    // Send handler - queue if not ready, send if ready
     let do_send = {
         let action = chat_action.clone();
         move || {
             let msg = message.get();
-            if !msg.trim().is_empty() {
-                message.set(String::new());
-                // Use streaming instead of non-streaming
+            if msg.trim().is_empty() {
+                return;
+            }
+
+            message.set(String::new());
+
+            // Always try to send - the action will handle queuing internally
+            // based on whether inference is ready
+            if inference_ready.get_untracked() && !is_busy.get_untracked() {
                 action.send_message_streaming(msg);
+            } else {
+                // Queue the message for later
+                action.queue_message(msg);
             }
         }
     };
@@ -923,66 +1008,6 @@ fn ChatInput() -> impl IntoView {
                     }
                 }
             >
-                {move || {
-                    // Don't show banner if dismissed this session
-                    if banner_dismissed.get() {
-                        return view! {}.into_any();
-                    }
-
-                    match system_status.get() {
-                        LoadingState::Loaded(status) => {
-                            if matches!(status.inference_ready, InferenceReadyState::True) {
-                                view! {}.into_any()
-                            } else {
-                                let guidance = guidance_for(
-                                    status.inference_ready,
-                                    status.inference_blockers.first(),
-                                );
-                                let action = guidance.action;
-                                view! {
-                                    <div class="rounded-md border border-warning/40 bg-warning/10 p-2 text-xs">
-                                        <div class="flex flex-wrap items-start justify-between gap-2">
-                                            <div>
-                                                <p class="font-medium text-warning-foreground">"Inference isn't ready"</p>
-                                                <p class="text-xs text-muted-foreground">
-                                                    {format!("{}.", guidance.reason)}
-                                                </p>
-                                            </div>
-                                            <div class="flex items-center gap-2">
-                                                <a href=action.href class="btn btn-outline btn-sm">
-                                                    {action.label}
-                                                </a>
-                                                {status_center.map(|ctx| view! {
-                                                        <button
-                                                            type="button"
-                                                            class="text-xs text-muted-foreground hover:text-foreground"
-                                                            on:click=move |_| ctx.open()
-                                                        >
-                                                            "Why?"
-                                                        </button>
-                                                    })}
-                                                <button
-                                                    type="button"
-                                                    class="text-muted-foreground hover:text-foreground"
-                                                    title="Dismiss for this session"
-                                                    on:click=move |_| {
-                                                        dismiss_inference_banner();
-                                                        banner_dismissed.set(true);
-                                                    }
-                                                >
-                                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-                                                    </svg>
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                }.into_any()
-                            }
-                        }
-                        _ => view! {}.into_any(),
-                    }
-                }}
                 <Textarea
                     value=message
                     placeholder="Type a message...".to_string()
@@ -1003,7 +1028,7 @@ fn ChatInput() -> impl IntoView {
                                 </Button>
                             }.into_any()
                         } else {
-                            // Show Send button when not streaming
+                            // Show Send button - always enabled if there's text
                             let disabled = !can_send.get();
                             view! {
                                 <Button
@@ -1023,16 +1048,26 @@ fn ChatInput() -> impl IntoView {
     }
 }
 
-/// Mobile chat FAB — navigates to /chat sessions page
+/// Mobile chat overlay (shown on smaller screens)
 #[component]
 pub fn MobileChatOverlay() -> impl IntoView {
-    let (chat_state, _) = use_chat();
+    let (chat_state, _chat_action) = use_chat();
+    let show_overlay = RwSignal::new(false);
+
+    let toggle_overlay = move |_| {
+        show_overlay.update(|v| *v = !*v);
+    };
+
+    let close_overlay = move |_| {
+        show_overlay.set(false);
+    };
 
     view! {
+        // Floating button for mobile
         <div class="fixed bottom-4 right-4 lg:hidden z-40">
-            <a
-                href="/chat"
+            <button
                 class="relative flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg hover:bg-primary/90 transition-colors"
+                on:click=toggle_overlay
             >
                 <svg
                     xmlns="http://www.w3.org/2000/svg"
@@ -1062,7 +1097,64 @@ pub fn MobileChatOverlay() -> impl IntoView {
                         view! {}.into_any()
                     }
                 }}
-            </a>
+            </button>
         </div>
+
+        // Overlay panel
+        {move || {
+            if show_overlay.get() {
+                view! {
+                    <div class="fixed inset-0 z-50 lg:hidden">
+                        // Backdrop
+                        <div
+                            class="absolute inset-0 bg-black/50"
+                            on:click=close_overlay
+                        />
+
+                        // Panel
+                        <div class="absolute bottom-0 left-0 right-0 h-[80vh] rounded-t-2xl bg-background shadow-2xl flex flex-col">
+                            // Handle
+                            <div class="flex justify-center py-2">
+                                <div class="h-1 w-12 rounded-full bg-muted-foreground/30"/>
+                            </div>
+
+                            // Header
+                            <div class="flex items-center justify-between border-b px-4 py-2">
+                                <h2 class="heading-3">"Chat"</h2>
+                                <button
+                                    class="p-2 rounded-lg hover:bg-muted"
+                                    on:click=close_overlay
+                                >
+                                    <svg
+                                        xmlns="http://www.w3.org/2000/svg"
+                                        class="h-5 w-5"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        stroke-width="2"
+                                    >
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                                    </svg>
+                                </button>
+                            </div>
+
+                            // Target selector
+                            <TargetSelector/>
+
+                            // Messages
+                            <MessageList/>
+
+                            // Context toggles
+                            <ContextTogglesBar/>
+
+                            // Input
+                            <ChatInput/>
+                        </div>
+                    </div>
+                }.into_any()
+            } else {
+                view! {}.into_any()
+            }
+        }}
     }
 }

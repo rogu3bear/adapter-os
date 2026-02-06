@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use std::sync::Arc;
 use tracing::{error, warn};
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Document {
@@ -517,7 +518,7 @@ impl Db {
 
     /// Create a document chunk
     pub async fn create_document_chunk(&self, params: CreateChunkParams) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Doc);
 
         if self.storage_mode().write_to_sql() {
             sqlx::query(

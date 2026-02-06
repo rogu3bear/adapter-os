@@ -61,6 +61,18 @@ async fn push_worker_health_event(
 }
 
 /// Spawn worker via node agent
+#[utoipa::path(
+    post,
+    path = "/v1/workers/spawn",
+    request_body = SpawnWorkerRequest,
+    responses(
+        (status = 200, description = "Worker spawned", body = WorkerResponse),
+        (status = 403, description = "Forbidden - tenant mismatch", body = ErrorResponse),
+        (status = 404, description = "Node not found", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "workers"
+)]
 pub async fn worker_spawn(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -160,7 +172,7 @@ pub async fn worker_spawn(
 
     // Register worker using Db trait method
     use adapteros_db::workers::WorkerInsertBuilder;
-    let worker_id = crate::id_generator::readable_id(adapteros_core::ids::IdKind::Worker, "worker");
+    let worker_id = crate::id_generator::readable_id(adapteros_id::IdPrefix::Wrk, "worker");
     let mut builder = WorkerInsertBuilder::new()
         .id(&worker_id)
         .tenant_id(&req.tenant_id)
@@ -204,6 +216,7 @@ pub async fn worker_spawn(
         cache_active_entries: None,
         coreml_failure_stage: None,
         coreml_failure_reason: None,
+        display_name: None,
     }))
 }
 
@@ -211,6 +224,19 @@ pub async fn worker_spawn(
 ///
 /// PRD-RECT-002: Non-admin users can only list workers from their own tenant.
 /// Admins can list workers from any tenant or list all workers.
+#[utoipa::path(
+    get,
+    path = "/v1/workers",
+    params(
+        ("tenant_id" = Option<String>, Query, description = "Filter by tenant ID")
+    ),
+    responses(
+        (status = 200, description = "Workers list", body = Vec<WorkerResponse>),
+        (status = 403, description = "Forbidden", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    ),
+    tag = "workers"
+)]
 pub async fn list_workers(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -328,6 +354,7 @@ pub async fn list_workers(
             coreml_failure_reason: runtime
                 .as_ref()
                 .and_then(|rt| rt.coreml_failure_reason.clone()),
+            display_name: None,
         });
     }
 
@@ -498,6 +525,140 @@ pub async fn stop_worker(
             .to_string(),
         previous_status,
         stopped_at,
+    }))
+}
+
+/// Drain a worker (transition to draining state without SIGTERM)
+///
+/// Gracefully drains a worker by transitioning it to the 'draining' state.
+/// Unlike `stop_worker`, this does NOT send SIGTERM to the process.
+/// The worker continues processing in-flight requests and should eventually
+/// transition to 'stopped' via the status notification endpoint.
+///
+/// **Use case:** UI-initiated drain where the operator wants to stop new requests
+/// but allow current work to complete before deciding whether to stop the process.
+///
+/// **Permissions:** Requires `WorkerManage` permission (Operator or Admin role).
+///
+/// **Telemetry:** Emits `worker.drain` event.
+///
+/// # Example
+/// ```
+/// POST /v1/workers/{worker_id}/drain
+/// ```
+#[utoipa::path(
+    post,
+    path = "/v1/workers/{worker_id}/drain",
+    params(
+        ("worker_id" = String, Path, description = "Worker ID")
+    ),
+    responses(
+        (status = 200, description = "Worker drain initiated", body = crate::types::WorkerStopResponse),
+        (status = 404, description = "Worker not found", body = ErrorResponse),
+        (status = 409, description = "Invalid state transition", body = ErrorResponse),
+        (status = 500, description = "Failed to drain worker", body = ErrorResponse)
+    ),
+    tag = "workers"
+)]
+pub async fn drain_worker(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(worker_id): Path<String>,
+) -> ApiResult<crate::types::WorkerStopResponse> {
+    // Require worker manage permission
+    crate::permissions::require_permission(&claims, crate::permissions::Permission::WorkerManage)?;
+
+    let worker_id = crate::id_resolver::resolve_any_id(&state.db, &worker_id).await?;
+
+    // PRD-RECT-002: Admins with admin_tenants grants can access workers across tenants.
+    // Returns 404 for both missing and cross-tenant workers (for non-admins).
+    let is_admin = claims.roles.iter().any(|r| r.to_lowercase() == "admin");
+    let worker = if is_admin {
+        let w = state
+            .db
+            .get_worker(&worker_id)
+            .await
+            .map_err(ApiError::db_error)?
+            .ok_or_else(|| {
+                ApiError::not_found("worker").with_details(format!("Worker ID: {}", worker_id))
+            })?;
+        crate::security::validate_tenant_isolation(&claims, &w.tenant_id)?;
+        w
+    } else {
+        state
+            .db
+            .get_worker_for_tenant(&claims.tenant_id, &worker_id)
+            .await
+            .map_err(ApiError::db_error)?
+            .ok_or_else(|| {
+                ApiError::not_found("worker").with_details(format!("Worker ID: {}", worker_id))
+            })?
+    };
+
+    let previous_status = worker.status.clone();
+
+    // Use validated state transition to 'draining'
+    match state
+        .db
+        .transition_worker_status(
+            &worker_id,
+            "draining",
+            "operator drain request",
+            Some(&claims.sub),
+        )
+        .await
+    {
+        Ok(_) => {
+            info!(
+                event = "worker.drain",
+                worker_id = %worker_id,
+                previous_status = %previous_status,
+                actor = %claims.sub,
+                "Worker transitioned to draining"
+            );
+        }
+        Err(e) => {
+            let err_str = e.to_string();
+            if err_str.contains("Lifecycle") || err_str.contains("Invalid") {
+                warn!(
+                    event = "worker.drain.invalid_transition",
+                    worker_id = %worker_id,
+                    previous_status = %previous_status,
+                    error = %e,
+                    "Invalid state transition attempted"
+                );
+                return Err(ApiError::conflict("invalid state transition").with_details(format!(
+                    "Cannot drain worker in '{}' state. Valid source states: healthy, serving",
+                    previous_status
+                )));
+            }
+            return Err(
+                ApiError::internal("failed to transition worker status").with_details(e.to_string())
+            );
+        }
+    }
+
+    let drained_at = chrono::Utc::now().to_rfc3339();
+
+    // Audit log
+    if let Err(e) = crate::audit_helper::log_success(
+        &state.db,
+        &claims,
+        "worker.drain",
+        crate::audit_helper::resources::WORKER,
+        Some(&worker_id),
+    )
+    .await
+    {
+        warn!(error = %e, "Audit log failed");
+    }
+
+    Ok(Json(crate::types::WorkerStopResponse {
+        worker_id,
+        success: true,
+        message: "Worker draining initiated. Worker will stop accepting new requests.".to_string(),
+        previous_status,
+        stopped_at: drained_at,
     }))
 }
 

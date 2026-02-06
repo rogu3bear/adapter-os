@@ -157,6 +157,10 @@ pub struct AdapterResponse {
     /// BLAKE3 hash of fused CoreML package for deployment verification
     #[serde(skip_serializing_if = "Option::is_none")]
     pub coreml_package_hash: Option<String>,
+    /// Human-readable display name derived from the adapter's typed ID word alias.
+    /// Example: "adp-calm-river". Populated when the ID uses the TypedId format.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
 }
 
 /// Adapter statistics
@@ -242,6 +246,10 @@ pub struct AdapterRepositoryResponse {
     #[cfg(feature = "server")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub training_policy: Option<AdapterRepositoryPolicyResponse>,
+    /// Human-readable display name derived from the repository's typed ID word alias.
+    /// Example: "rep-warm-stone". Populated when the ID uses the TypedId format.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
 }
 
 /// Adapter repository policy request (server only - uses adapteros_types)
@@ -323,6 +331,10 @@ pub struct AdapterVersionResponse {
     pub serveable: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub serveable_reason: Option<String>,
+    /// Human-readable display name derived from the version's typed ID word alias.
+    /// Populated when the ID uses the TypedId format.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
 }
 
 /// Create repository request

@@ -5,11 +5,11 @@
 use crate::api::client::{ApiClient, PolicyPackResponse, PolicyValidationResponse};
 use crate::components::{
     Badge, BadgeVariant, Button, ButtonVariant, Card, EmptyState, EmptyStateVariant, ErrorDisplay,
-    Input, Spinner, SplitPanel, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-    Textarea,
+    Input, PageScaffold, PageScaffoldActions, Spinner, SplitPanel, Table, TableBody, TableCell,
+    TableHead, TableHeader, TableRow, Textarea,
 };
 use crate::constants::urls::docs_link;
-use crate::hooks::{use_api_resource, LoadingState};
+use crate::hooks::{use_api_resource, use_scope_alive, LoadingState};
 use crate::utils::format_datetime;
 use leptos::prelude::*;
 use std::sync::Arc;
@@ -51,7 +51,34 @@ pub fn Policies() -> impl IntoView {
     let has_selection = Signal::derive(move || selected_cpid.get().is_some());
 
     view! {
-        <div class="p-6 space-y-6">
+        <PageScaffold
+            title="Policy Packs"
+            subtitle="Manage inference policies and enforcement rules".to_string()
+        >
+            <PageScaffoldActions slot>
+                <Button
+                    variant=ButtonVariant::Outline
+                    on_click=Callback::new(move |_| refetch_policies.run(()))
+                >
+                    "Refresh"
+                </Button>
+                <Button
+                    variant=ButtonVariant::Primary
+                    on_click=Callback::new(move |_| {
+                        if show_create.get() {
+                            show_create.set(false);
+                            new_cpid.set(String::new());
+                            new_description.set(String::new());
+                            new_content.set(String::new());
+                        } else {
+                            show_create.set(true);
+                        }
+                    })
+                >
+                    {move || if show_create.get() { "Cancel" } else { "New Policy Pack" }}
+                </Button>
+            </PageScaffoldActions>
+
             <SplitPanel
                 has_selection=has_selection
                 on_close=Callback::new(move |_| on_close_detail())
@@ -59,37 +86,6 @@ pub fn Policies() -> impl IntoView {
                 list_panel=move || {
                     view! {
                         <div class="space-y-6">
-                            // Header
-                            <div class="flex items-center justify-between">
-                                <div>
-                                    <h1 class="text-3xl font-bold tracking-tight">"Policy Packs"</h1>
-                                    <p class="text-muted-foreground mt-1">"Manage inference policies and enforcement rules"</p>
-                                </div>
-                                <div class="flex items-center gap-2">
-                                    <Button
-                                        variant=ButtonVariant::Outline
-                                        on_click=Callback::new(move |_| refetch_policies.run(()))
-                                    >
-                                        "Refresh"
-                                    </Button>
-                                    <Button
-                                        variant=ButtonVariant::Primary
-                                        on_click=Callback::new(move |_| {
-                                            if show_create.get() {
-                                                show_create.set(false);
-                                                new_cpid.set(String::new());
-                                                new_description.set(String::new());
-                                                new_content.set(String::new());
-                                            } else {
-                                                show_create.set(true);
-                                            }
-                                        })
-                                    >
-                                        {move || if show_create.get() { "Cancel" } else { "New Policy Pack" }}
-                                    </Button>
-                                </div>
-                            </div>
-
                             // Create policy pack
                             {move || {
                                 if show_create.get() {
@@ -170,12 +166,12 @@ pub fn Policies() -> impl IntoView {
                         <PolicyDetail
                             cpid=cpid
                             on_close=on_close_detail
-                            on_updated=refetch_policies.clone()
+                            on_updated=refetch_policies.as_callback()
                         />
                     }
                 }
             />
-        </div>
+        </PageScaffold>
     }
 }
 
@@ -269,7 +265,7 @@ fn PolicyDetail(
         <div class="space-y-4">
             // Header with close button
             <div class="flex items-center justify-between">
-                <h2 class="text-xl font-semibold">"Policy Details"</h2>
+                <h2 class="heading-3">"Policy Details"</h2>
                 <button
                     class="text-muted-foreground hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
                     aria-label="Close"
@@ -413,6 +409,7 @@ fn PolicyActionsCard(
     apply_label: String,
     on_applied: Callback<()>,
 ) -> impl IntoView {
+    let alive = use_scope_alive();
     let (validating, set_validating) = signal(false);
     let (validation_result, set_validation_result) =
         signal(None::<Result<PolicyValidationResponse, String>>);
@@ -447,6 +444,7 @@ fn PolicyActionsCard(
         let content_value = content.get();
         let description_value = description.get();
         let on_applied = on_applied.clone();
+        let alive = alive.clone();
         if cpid_value.trim().is_empty() {
             set_apply_result.set(Some(Err("CPID is required".to_string())));
             return;
@@ -471,7 +469,9 @@ fn PolicyActionsCard(
             match result {
                 Ok(_) => {
                     set_apply_result.set(Some(Ok(())));
-                    on_applied.run(());
+                    if alive.load(std::sync::atomic::Ordering::SeqCst) {
+                        on_applied.run(());
+                    }
                 }
                 Err(e) => {
                     set_apply_result.set(Some(Err(e.to_string())));

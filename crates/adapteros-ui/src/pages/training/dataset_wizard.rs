@@ -11,7 +11,8 @@ use crate::api::ApiClient;
 use crate::api::DatasetManifest;
 use crate::components::spinner::SpinnerSize;
 use crate::components::{
-    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, FormField, Input, Spinner,
+    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Dialog, DialogSize, FormField, Input,
+    Spinner,
 };
 use adapteros_api_types::TRAINING_DATA_CONTRACT_VERSION;
 #[cfg(target_arch = "wasm32")]
@@ -19,41 +20,8 @@ use gloo_file::futures::read_as_text;
 #[cfg(target_arch = "wasm32")]
 use gloo_file::Blob;
 
-fn readable_id(prefix: &str, slug_source: &str) -> String {
-    let slug = slugify(slug_source);
-    let suffix = random_suffix(6);
-    format!("{}.{}.{}", prefix, slug, suffix)
-}
-
-fn slugify(input: &str) -> String {
-    let mut out = String::with_capacity(input.len());
-    let mut prev_dash = false;
-    for ch in input.chars() {
-        let lower = ch.to_ascii_lowercase();
-        if lower.is_ascii_alphanumeric() {
-            out.push(lower);
-            prev_dash = false;
-        } else if !prev_dash {
-            out.push('-');
-            prev_dash = true;
-        }
-    }
-    let trimmed = out.trim_matches('-').to_string();
-    if trimmed.is_empty() {
-        "item".to_string()
-    } else {
-        trimmed
-    }
-}
-
-fn random_suffix(len: usize) -> String {
-    const ALPHABET: &[u8; 32] = b"abcdefghijklmnopqrstuvwxyz234567";
-    let mut out = String::with_capacity(len);
-    for _ in 0..len {
-        let idx = (js_sys::Math::random() * 32.0).floor() as usize;
-        out.push(ALPHABET[idx] as char);
-    }
-    out
+fn readable_id(_prefix: &str, _slug_source: &str) -> String {
+    adapteros_id::TypedId::new(adapteros_id::IdPrefix::Req).to_string()
 }
 use leptos::prelude::*;
 #[cfg(target_arch = "wasm32")]
@@ -837,18 +805,13 @@ pub fn DatasetUploadWizard(
             view! {}.into_any()
         } else {
             view! {
-                <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70" on:click=move |_| close.run(())/>
-                <div class="dialog-content dialog-scrollable max-w-5xl">
-                    <div class="flex items-center justify-between mb-4">
-                        <div>
-                            <h2 class="text-lg font-semibold">"Upload Training Dataset"</h2>
-                            <p class="text-sm text-muted-foreground">
-                                "Pick a format, validate required fields, and preview the parsed samples before upload."
-                            </p>
-                        </div>
-                        <Button variant=ButtonVariant::Ghost on_click=Callback::new(move |_| close.run(()))>"Close"</Button>
-                    </div>
-
+                <Dialog
+                    open=open
+                    title="Upload Training Dataset".to_string()
+                    description="Pick a format, validate required fields, and preview the parsed samples before upload.".to_string()
+                    size=DialogSize::Xl
+                    scrollable=true
+                >
                     <div class="grid gap-6 grid-cols-1 md:grid-cols-3">
                         <div class="space-y-4 md:col-span-1">
                             <FormField label="Dataset Name" name="dataset_name" required=false>
@@ -1176,8 +1139,8 @@ pub fn DatasetUploadWizard(
                             </Button>
                         </div>
                     </div>
-                </div>
-                </div>
+                    </div>
+                </Dialog>
             }.into_any()
         }
     };

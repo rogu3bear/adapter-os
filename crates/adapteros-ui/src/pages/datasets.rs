@@ -10,15 +10,18 @@ use crate::api::{
 use crate::components::{
     Badge, BadgeVariant, BreadcrumbItem, BreadcrumbTrail, Button, ButtonVariant, Card, Checkbox,
     Combobox, ComboboxOption, ConfirmationDialog, ConfirmationSeverity, CopyableId, EmptyState,
-    ErrorDisplay, Input, LoadingDisplay, PageHeader, RefreshButton, Spinner, Table, TableBody,
-    TableCell, TableHead, TableHeader, TableRow, Toggle,
+    ErrorDisplay, Input, LoadingDisplay, PageBreadcrumbItem, PageHeader, PageScaffold,
+    PageScaffoldActions, RefreshButton, Spinner, Table, TableBody, TableCell, TableHead,
+    TableHeader, TableRow, Toggle,
 };
 use crate::hooks::{use_api, use_api_resource, use_delete_dialog, LoadingState};
 use crate::pages::training::dataset_wizard::{DatasetUploadOutcome, DatasetUploadWizard};
 use crate::utils::{format_bytes, format_date};
+#[cfg(target_arch = "wasm32")]
 use adapteros_api_types::TrainingJobResponse;
 use leptos::prelude::*;
 use leptos_router::hooks::{use_navigate, use_params_map, use_query_map};
+#[cfg(target_arch = "wasm32")]
 use serde_json::json;
 use std::sync::Arc;
 
@@ -43,6 +46,7 @@ pub fn Datasets() -> impl IntoView {
     };
 
     let on_upload = Callback::new(move |_| show_upload_dialog.set(true));
+    let navigate_for_view = navigate.clone();
     let on_dataset_uploaded = Callback::new(move |outcome: DatasetUploadOutcome| {
         refetch_trigger.update(|n| *n = n.wrapping_add(1));
         navigate(
@@ -52,11 +56,24 @@ pub fn Datasets() -> impl IntoView {
     });
 
     view! {
-        <div class="p-6 space-y-6">
-            <PageHeader
-                title="Datasets"
-                subtitle="Manage training datasets for adapter fine-tuning"
-            >
+        <PageScaffold
+            title="Datasets"
+            subtitle="Manage training datasets for adapter fine-tuning"
+            breadcrumbs=vec![
+                PageBreadcrumbItem::new("Data", "/datasets"),
+                PageBreadcrumbItem::current("Datasets"),
+            ]
+        >
+            <PageScaffoldActions slot>
+                <Button
+                    variant=ButtonVariant::Ghost
+                    on_click=Callback::new({
+                        let navigate = navigate_for_view.clone();
+                        move |_| navigate("/adapters", Default::default())
+                    })
+                >
+                    "View Adapters"
+                </Button>
                 <RefreshButton on_click=Callback::new(move |_| trigger_refresh())/>
                 <Button
                     variant=ButtonVariant::Primary
@@ -64,7 +81,7 @@ pub fn Datasets() -> impl IntoView {
                 >
                     "Upload Dataset"
                 </Button>
-            </PageHeader>
+            </PageScaffoldActions>
 
             {move || {
                 match datasets.get() {
@@ -95,7 +112,7 @@ pub fn Datasets() -> impl IntoView {
                 open=show_upload_dialog
                 on_complete=on_dataset_uploaded
             />
-        </div>
+        </PageScaffold>
     }
 }
 
@@ -183,10 +200,12 @@ fn DatasetsList(
                     {datasets.datasets.into_iter().map(|dataset| {
                         let id_for_nav = dataset.id.clone();
                         let id_for_delete = dataset.id.clone();
+                        let id_for_train = dataset.id.clone();
                         let name = dataset.name.clone();
                         let name_for_title = name.clone();
                         let name_for_aria = name.clone();
                         let name_for_delete = dataset.name.clone();
+                        let name_for_train_aria = dataset.name.clone();
 
                         let status_variant = match dataset.status.as_str() {
                             "ready" | "indexed" => BadgeVariant::Success,
@@ -197,12 +216,34 @@ fn DatasetsList(
                         let validation_status = dataset.validation_status.clone();
                         let validation_errors = dataset.validation_errors.clone();
 
+                        // Trainability check (mirrors DatasetDetail logic)
+                        let validation_ok = dataset.validation_status.as_deref()
+                            .map(|s| s == "valid")
+                            .unwrap_or(false);
+                        let trust_ok = dataset.trust_state.as_deref()
+                            .map(|s| matches!(s, "allowed" | "trusted" | "approved"))
+                            .unwrap_or(true);
+                        let status_ok = matches!(dataset.status.as_str(), "ready" | "indexed");
+                        let is_trainable = validation_ok && trust_ok && status_ok;
+
+                        let train_tooltip: &str = if !status_ok {
+                            "Dataset must be ready or indexed before training"
+                        } else if !validation_ok {
+                            "Dataset must pass validation before training"
+                        } else if !trust_ok {
+                            "Dataset is blocked or needs approval"
+                        } else {
+                            "Train an adapter from this dataset"
+                        };
+                        let train_tooltip = train_tooltip.to_string();
+
                         let size_display = dataset
                             .total_size_bytes
                             .map(format_bytes)
                             .unwrap_or_else(|| "—".to_string());
 
                         let nav = navigate.clone();
+                        let nav_for_train = navigate.clone();
                         let delete_state = delete_state_for_rows.clone();
 
                         view! {
@@ -265,6 +306,34 @@ fn DatasetsList(
                                     <span class="text-sm text-muted-foreground">{format_date(&dataset.created_at)}</span>
                                 </TableCell>
                                 <TableCell class="text-right">
+                                    <div class="inline-flex items-center gap-1">
+                                    <span title=train_tooltip>
+                                    <Button
+                                        variant=ButtonVariant::Ghost
+                                        aria_label=format!("Train adapter from {}", name_for_train_aria)
+                                        disabled=!is_trainable
+                                        on_click=Callback::new({
+                                            let nav = nav_for_train.clone();
+                                            let id = id_for_train.clone();
+                                            move |_| {
+                                                nav(&format!("/training?open_wizard=1&dataset_id={}", id), Default::default());
+                                            }
+                                        })
+                                    >
+                                        <svg
+                                            xmlns="http://www.w3.org/2000/svg"
+                                            class="h-4 w-4"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            stroke-width="2"
+                                            stroke-linecap="round"
+                                            stroke-linejoin="round"
+                                        >
+                                            <polygon points="5 3 19 12 5 21 5 3"/>
+                                        </svg>
+                                    </Button>
+                                    </span>
                                     <Button
                                         variant=ButtonVariant::Ghost
                                         aria_label=format!("Delete dataset {}", name_for_delete.clone())
@@ -286,6 +355,7 @@ fn DatasetsList(
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                                         </svg>
                                     </Button>
+                                    </div>
                                 </TableCell>
                             </TableRow>
                         }
@@ -339,7 +409,7 @@ pub fn DatasetDetail() -> impl IntoView {
         query.get().get("name").map(|raw| {
             js_sys::decode_uri_component(&raw)
                 .map(|s| s.as_string().unwrap_or_else(|| raw.clone()))
-                .unwrap_or(raw)
+                .unwrap_or_else(|_| raw)
         })
     });
     let draft_document_ids = Signal::derive(move || {
@@ -529,7 +599,7 @@ pub fn DatasetDetail() -> impl IntoView {
                                 } else {
                                     Some(view! {
                                         <Card>
-                                            <h3 class="text-lg font-semibold mb-4">"Validation Errors"</h3>
+                                            <h3 class="heading-4 mb-4">"Validation Errors"</h3>
                                             <ul class="space-y-2 text-sm text-destructive">
                                                 {errors.into_iter().map(|err| {
                                                     view! { <li>{err}</li> }
@@ -543,7 +613,7 @@ pub fn DatasetDetail() -> impl IntoView {
                             let validation_diagnostics_view = validation_diagnostics.map(|diagnostics| {
                                 view! {
                                     <Card>
-                                        <h3 class="text-lg font-semibold mb-4">"Validation Diagnostics"</h3>
+                                        <h3 class="heading-4 mb-4">"Validation Diagnostics"</h3>
                                         <div class="space-y-3 text-sm">
                                             {diagnostics.into_iter().map(|diag| view! {
                                                 <div class="rounded border border-muted p-3">
@@ -630,7 +700,7 @@ pub fn DatasetDetail() -> impl IntoView {
                                 <div class="grid gap-6 md:grid-cols-2">
                                     // Overview card
                                     <Card>
-                                        <h3 class="text-lg font-semibold mb-4">"Overview"</h3>
+                                        <h3 class="heading-4 mb-4">"Overview"</h3>
                                         <dl class="space-y-3">
                                             <CopyableId id=data.id.clone() label="ID".to_string() truncate=24 />
                                             <div class="flex justify-between">
@@ -681,7 +751,7 @@ pub fn DatasetDetail() -> impl IntoView {
 
                                     // Statistics card
                                     <Card>
-                                        <h3 class="text-lg font-semibold mb-4">"Statistics"</h3>
+                                        <h3 class="heading-4 mb-4">"Statistics"</h3>
                                         {move || match stats.get() {
                                             LoadingState::Idle | LoadingState::Loading => {
                                                 view! { <div class="flex justify-center py-4"><Spinner/></div> }.into_any()
@@ -720,7 +790,7 @@ pub fn DatasetDetail() -> impl IntoView {
                                 {validation_errors_view}
 
                                 <Card>
-                                    <h3 class="text-lg font-semibold mb-4">"Versions"</h3>
+                                    <h3 class="heading-4 mb-4">"Versions"</h3>
                                     {move || match versions.get() {
                                         LoadingState::Idle | LoadingState::Loading => {
                                             view! { <div class="flex justify-center py-4"><Spinner/></div> }.into_any()
@@ -805,7 +875,7 @@ pub fn DatasetDetail() -> impl IntoView {
                                             latest_id.map(|id| {
                                                 view! {
                                                     <Card>
-                                                        <h3 class="text-lg font-semibold mb-4">"Usage"</h3>
+                                                        <h3 class="heading-4 mb-4">"Usage"</h3>
                                                         <p class="text-sm text-muted-foreground mb-3">
                                                             "Use a dataset version ID in inference or training to pin the exact data snapshot."
                                                         </p>
@@ -870,6 +940,7 @@ fn DatasetDraftView(
     let training_job_status = RwSignal::new(None::<String>);
     let is_training = RwSignal::new(false);
     let safety_check_result = RwSignal::new(None::<DatasetSafetyCheckResult>);
+    #[cfg(target_arch = "wasm32")]
     let safety_warning_acknowledged = RwSignal::new(false);
     let dataset_id_state = RwSignal::new(dataset_id);
     let document_ids_store = StoredValue::new(document_ids);
@@ -928,7 +999,7 @@ fn DatasetDraftView(
                 });
                 #[cfg(not(target_arch = "wasm32"))]
                 {
-                    let _ = client;
+                    let _ = (client, id);
                 }
             } else {
                 stats_state.set(LoadingState::Idle);
@@ -957,7 +1028,7 @@ fn DatasetDraftView(
                 });
                 #[cfg(not(target_arch = "wasm32"))]
                 {
-                    let _ = client;
+                    let _ = (client, id);
                 }
             } else {
                 safety_check_result.set(None);
@@ -1016,41 +1087,52 @@ fn DatasetDraftView(
         Effect::new(move |_| {
             let job_id = training_job_id.get();
             poll_nonce.update(|v| *v = v.wrapping_add(1));
-            let nonce = poll_nonce.get_untracked();
 
             if let Some(job_id) = job_id {
                 training_job_status.set(Some("pending".to_string()));
                 training_status.set(Some("Training queued".to_string()));
-                let client = Arc::clone(&client);
-                let training_status = training_status.clone();
-                let training_job_status = training_job_status.clone();
-                let training_error = training_error.clone();
-                let poll_nonce = poll_nonce.clone();
 
                 #[cfg(target_arch = "wasm32")]
-                wasm_bindgen_futures::spawn_local(async move {
-                    loop {
-                        if poll_nonce.get_untracked() != nonce {
-                            break;
-                        }
-                        match client.get_training_job(&job_id).await {
-                            Ok(job) => {
-                                let status = job.status.clone();
-                                training_job_status.set(Some(status.clone()));
-                                training_status.set(Some(format!("Training {}", status)));
-                                if matches!(status.as_str(), "completed" | "failed" | "cancelled") {
+                {
+                    let nonce = poll_nonce.get_untracked();
+                    let client = Arc::clone(&client);
+                    let training_status = training_status.clone();
+                    let training_job_status = training_job_status.clone();
+                    let training_error = training_error.clone();
+                    let poll_nonce = poll_nonce.clone();
+                    wasm_bindgen_futures::spawn_local(async move {
+                        loop {
+                            if poll_nonce.get_untracked() != nonce {
+                                break;
+                            }
+                            match client.get_training_job(&job_id).await {
+                                Ok(job) => {
+                                    let status = job.status.clone();
+                                    training_job_status.set(Some(status.clone()));
+                                    training_status.set(Some(format!("Training {}", status)));
+                                    if matches!(
+                                        status.as_str(),
+                                        "completed" | "failed" | "cancelled"
+                                    ) {
+                                        break;
+                                    }
+                                }
+                                Err(e) => {
+                                    training_error.set(Some(format!(
+                                        "Failed to refresh training status: {}",
+                                        e
+                                    )));
                                     break;
                                 }
                             }
-                            Err(e) => {
-                                training_error
-                                    .set(Some(format!("Failed to refresh training status: {}", e)));
-                                break;
-                            }
+                            gloo_timers::future::TimeoutFuture::new(3000).await;
                         }
-                        gloo_timers::future::TimeoutFuture::new(3000).await;
-                    }
-                });
+                    });
+                }
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    let _ = (&client, job_id);
+                }
             }
         });
     }
@@ -1070,27 +1152,24 @@ fn DatasetDraftView(
                 return;
             }
 
-            let adapter_type_val = adapter_type.get();
-            let existing_dataset_id = dataset_id_state.get();
-            let document_ids = document_ids_store.with_value(|ids| ids.clone());
-
-            // Capture training config values
-            let epochs_val: u32 = epochs.get().parse().unwrap_or(10);
-            let learning_rate_val: f64 = learning_rate.get().parse().unwrap_or(0.0001);
-            let batch_size_val: u32 = batch_size.get().parse().unwrap_or(4);
-            let rank_val: u32 = rank.get().parse().unwrap_or(8);
-            let alpha_val: u32 = alpha.get().parse().unwrap_or(16);
-
-            // Capture preprocessing options
-            let pii_scrub_val = pii_scrub.get();
-            let dedupe_val = dedupe.get();
-
             is_training.set(true);
             training_status.set(Some("Preparing training...".to_string()));
 
             #[cfg(target_arch = "wasm32")]
             {
+                let adapter_type_val = adapter_type.get();
+                let existing_dataset_id = dataset_id_state.get();
+                let document_ids = document_ids_store.with_value(|ids| ids.clone());
+                let epochs_val: u32 = epochs.get().parse().unwrap_or(10);
+                let learning_rate_val: f64 = learning_rate.get().parse().unwrap_or(0.0001);
+                let batch_size_val: u32 = batch_size.get().parse().unwrap_or(4);
+                let rank_val: u32 = rank.get().parse().unwrap_or(8);
+                let alpha_val: u32 = alpha.get().parse().unwrap_or(16);
+                let pii_scrub_val = pii_scrub.get();
+                let dedupe_val = dedupe.get();
+
                 let client = Arc::clone(&client);
+                let name_label = name_label.clone();
                 let dataset_id_state = dataset_id_state.clone();
                 let training_status = training_status.clone();
                 let training_error = training_error.clone();
@@ -1099,14 +1178,13 @@ fn DatasetDraftView(
                 let safety_check_result = safety_check_result.clone();
                 let safety_warning_acknowledged = safety_warning_acknowledged.clone();
 
-                let name_label = name_label.clone();
                 wasm_bindgen_futures::spawn_local(async move {
                     let dataset_id = if let Some(id) = existing_dataset_id {
                         id
                     } else if !document_ids.is_empty() {
                         training_status.set(Some("Creating dataset...".to_string()));
                         match client
-                            .create_dataset_from_documents(document_ids, Some(name_label))
+                            .create_dataset_from_documents(document_ids, Some(name_label.clone()))
                             .await
                         {
                             Ok(ds) => {
@@ -1283,15 +1361,15 @@ fn DatasetDraftView(
 
             #[cfg(not(target_arch = "wasm32"))]
             {
+                // Reference captured variables to silence unused warnings without moving
                 let _ = (
-                    client,
-                    adapter_type_val,
-                    base_model_val,
-                    name_label,
-                    dataset_id_state,
-                    training_status,
-                    training_job_id,
-                    training_error,
+                    &client,
+                    &base_model_val,
+                    &name_label,
+                    &dataset_id_state,
+                    &training_status,
+                    &training_job_id,
+                    &training_error,
                 );
                 training_error.set(Some(
                     "Training is only available in the web UI.".to_string(),
@@ -1302,11 +1380,11 @@ fn DatasetDraftView(
     };
 
     view! {
-        <div class="space-y-6">
-            <PageHeader
-                title="Dataset Draft"
-                subtitle="Review draft data before training an adapter."
-            >
+        <PageScaffold
+            title="Dataset Draft"
+            subtitle="Review draft data before training an adapter."
+        >
+            <PageScaffoldActions slot>
                 <div>
                     <Button
                         variant=ButtonVariant::Primary
@@ -1320,7 +1398,7 @@ fn DatasetDraftView(
                         <p class="text-xs text-muted-foreground mt-1">{reason}</p>
                     })}
                 </div>
-            </PageHeader>
+            </PageScaffoldActions>
 
             {move || training_error.get().map(|msg| {
                 // Determine heading based on error phase (Dataset vs Training)
@@ -1334,7 +1412,7 @@ fn DatasetDraftView(
                     <Card>
                         <div class="flex items-center justify-between">
                             <div>
-                                <h3 class="text-lg font-semibold text-destructive">{heading}</h3>
+                                <h3 class="heading-4 text-destructive">{heading}</h3>
                                 <p class="text-sm text-muted-foreground">{msg}</p>
                             </div>
                             <Badge variant=BadgeVariant::Destructive>"Error"</Badge>
@@ -1347,7 +1425,7 @@ fn DatasetDraftView(
                 <Card>
                     <div class="flex items-center justify-between gap-4">
                         <div>
-                            <h3 class="text-lg font-semibold">{status.clone()}</h3>
+                            <h3 class="heading-4">{status.clone()}</h3>
                             <p class="text-sm text-muted-foreground">
                                 "Track training progress in the Training Jobs view."
                             </p>
@@ -1381,7 +1459,7 @@ fn DatasetDraftView(
                 view! {
                     <Card>
                         <div class="flex items-center justify-between mb-4">
-                            <h3 class="text-lg font-semibold">"Safety Gate"</h3>
+                            <h3 class="heading-4">"Safety Gate"</h3>
                             <Badge variant=badge_variant>{trust_state.clone()}</Badge>
                         </div>
 
@@ -1454,7 +1532,7 @@ fn DatasetDraftView(
 
             <div class="grid gap-6 md:grid-cols-2">
                 <Card>
-                    <h3 class="text-lg font-semibold mb-4">"Draft Summary"</h3>
+                    <h3 class="heading-4 mb-4">"Draft Summary"</h3>
                     <dl class="space-y-3 text-sm">
                         <div class="flex justify-between">
                             <dt class="text-muted-foreground">"Name"</dt>
@@ -1496,7 +1574,7 @@ fn DatasetDraftView(
                 </Card>
 
                 <Card>
-                    <h3 class="text-lg font-semibold mb-4">"Training"</h3>
+                    <h3 class="heading-4 mb-4">"Training"</h3>
                     <div class="space-y-4 text-sm">
                         <div class="space-y-2">
                             <label class="text-xs text-muted-foreground">"Base model"</label>
@@ -1580,7 +1658,7 @@ fn DatasetDraftView(
             // Statistics card - only shown when dataset_id is available
             {move || dataset_id_state.get().map(|_| view! {
                 <Card>
-                    <h3 class="text-lg font-semibold mb-4">"Statistics"</h3>
+                    <h3 class="heading-4 mb-4">"Statistics"</h3>
                     {move || match stats_state.get() {
                         LoadingState::Idle => {
                             view! { <p class="text-sm text-muted-foreground">"No dataset selected"</p> }.into_any()
@@ -1620,7 +1698,7 @@ fn DatasetDraftView(
             })}
 
             <Card>
-                <h3 class="text-lg font-semibold mb-4">"Training Configuration"</h3>
+                <h3 class="heading-4 mb-4">"Training Configuration"</h3>
                 <div class="space-y-4 text-sm">
                     // Basic config: epochs and learning_rate
                     <div class="grid gap-4 md:grid-cols-2">
@@ -1700,7 +1778,7 @@ fn DatasetDraftView(
             </Card>
 
             <Card>
-                <h3 class="text-lg font-semibold mb-4">"Preprocessing"</h3>
+                <h3 class="heading-4 mb-4">"Preprocessing"</h3>
                 <div class="space-y-3 text-sm">
                     <Checkbox
                         checked=Signal::derive(move || pii_scrub.get())
@@ -1717,7 +1795,7 @@ fn DatasetDraftView(
                     </p>
                 </div>
             </Card>
-        </div>
+        </PageScaffold>
     }
 }
 

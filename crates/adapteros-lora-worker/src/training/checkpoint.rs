@@ -8,7 +8,7 @@ use super::trainer::{LoRAWeights, MultiModuleOptimizerState, TrainingConfig};
 use adapteros_core::{AosError, Result};
 use adapteros_types::training::TRAINING_DATA_CONTRACT_VERSION;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use tracing::{debug, info};
 
@@ -463,7 +463,7 @@ mod tests {
         let weights = LoRAWeights {
             lora_a: vec![vec![1.0, 2.0], vec![3.0, 4.0]],
             lora_b: vec![vec![5.0, 6.0], vec![7.0, 8.0]],
-            modules: HashMap::new(),
+            modules: BTreeMap::new(),
             moe_config: None,
             precomputed_delta: None,
         };
@@ -493,7 +493,7 @@ mod tests {
         let weights = LoRAWeights {
             lora_a: vec![vec![1.0]],
             lora_b: vec![vec![2.0]],
-            modules: HashMap::new(),
+            modules: BTreeMap::new(),
             moe_config: None,
             precomputed_delta: None,
         };

@@ -13,7 +13,8 @@ use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use tracing::{debug, info};
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 /// Tenant policy binding record
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -211,7 +212,7 @@ impl Db {
 
         // If no rows were updated, insert a new binding
         if result.rows_affected() == 0 {
-            let id = Uuid::new_v4().to_string();
+            let id = new_id(IdPrefix::Pol);
             sqlx::query(
                 r#"
                 INSERT INTO tenant_policy_bindings

@@ -150,7 +150,7 @@ pub fn Audit() -> impl IntoView {
                 // Header
                 <div class="flex items-center justify-between">
                     <div>
-                        <h1 class="text-3xl font-bold tracking-tight">"Audit Log"</h1>
+                        <h1 class="heading-1">"Audit Log"</h1>
                         <p class="text-muted-foreground mt-1">
                             "Immutable record of all system events with cryptographic verification"
                         </p>
@@ -197,7 +197,7 @@ pub fn Audit() -> impl IntoView {
                     action_filter=action_filter
                     status_filter=status_filter
                     resource_filter=resource_filter
-                    on_filters_changed=refetch_logs.clone()
+                    on_filters_changed=refetch_logs.as_callback()
                 />
 
                 // Tab content

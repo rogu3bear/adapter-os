@@ -23,7 +23,7 @@ use utoipa::ToSchema;
 async fn resolve_collection_id(state: &AppState, id: &str) -> Result<String, ApiError> {
     crate::id_resolver::resolve_id(
         &state.db,
-        adapteros_core::ids::IdKind::Collection.prefix(),
+        adapteros_id::IdPrefix::Col.as_str(),
         id,
     )
     .await

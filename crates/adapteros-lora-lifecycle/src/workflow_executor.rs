@@ -484,7 +484,10 @@ fn canonicalize_model_path(model_path: &Path) -> Result<PathBuf> {
 }
 
 impl RealBackendAdapterBackend {
-    /// Create a new real backend with automatic selection (CoreML -> Metal -> MLX)
+    /// Create a new real backend with automatic selection
+    ///
+    /// Follows the canonical priority from `BackendKind::inference_priority()`:
+    /// MLX → CoreML → Metal. This matches the worker's `auto_select_backend()`.
     ///
     /// # Arguments
     /// * `adapter_names` - List of adapter names in routing order
@@ -494,7 +497,18 @@ impl RealBackendAdapterBackend {
     /// * If no suitable backend is available on the system
     /// * If kernel initialization fails
     pub async fn new_auto(adapter_names: Vec<String>, vocab_size: usize) -> Result<Self> {
-        // Try CoreML first (most power-efficient)
+        // Try MLX first (primary: flexible, HKDF-seeded determinism)
+        #[cfg(feature = "multi-backend")]
+        {
+            match Self::new_mlx("/dev/null".to_string(), adapter_names.clone(), vocab_size).await {
+                Ok(backend) => return Ok(backend),
+                Err(e) => {
+                    warn!(error = %e, "MLX initialization failed, trying CoreML");
+                }
+            }
+        }
+
+        // Try CoreML (ANE acceleration)
         #[cfg(all(target_os = "macos", feature = "coreml-backend"))]
         {
             match Self::new_coreml(adapter_names.clone(), vocab_size).await {
@@ -505,28 +519,21 @@ impl RealBackendAdapterBackend {
             }
         }
 
-        // Try Metal (production, deterministic)
+        // Try Metal (GPU compute primitives)
         #[cfg(target_os = "macos")]
         {
             match Self::new_metal(adapter_names.clone(), vocab_size).await {
                 Ok(backend) => return Ok(backend),
                 Err(e) => {
-                    warn!(error = %e, "Metal initialization failed, trying MLX");
-                    // Continue to MLX fallback
+                    warn!(error = %e, "Metal initialization failed, no backends remaining");
                 }
             }
-        }
-
-        // Try MLX (experimental)
-        #[cfg(feature = "multi-backend")]
-        {
-            return Self::new_mlx("/dev/null".to_string(), adapter_names, vocab_size).await;
         }
 
         // If we reach here, no backend was available
         #[allow(unreachable_code)]
         Err(AosError::Config(
-            "No suitable backend available. Ensure Metal GPU, CoreML with ANE, or MLX is present."
+            "No suitable backend available. Checked priority MLX → CoreML → Metal."
                 .to_string(),
         ))
     }

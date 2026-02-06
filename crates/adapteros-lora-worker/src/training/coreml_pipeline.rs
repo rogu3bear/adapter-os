@@ -9,7 +9,7 @@ use super::limits::DatasetSizeLimits;
 use adapteros_types::training::{ExampleMetadataV1, TrainingExampleV1};
 type TrainingExample = TrainingExampleV1;
 use adapteros_core::{AosError, Result};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 /// Input specification for preparing CoreML-friendly tensors.
 #[derive(Debug, Clone)]

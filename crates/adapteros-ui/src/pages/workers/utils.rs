@@ -8,7 +8,7 @@ use serde::Deserialize;
 /// Page size for client-side pagination (reduces initial DOM nodes)
 pub const WORKERS_PAGE_SIZE: usize = 25;
 
-/// Format an ISO timestamp for display (extracts time portion)
+/// Format an ISO timestamp for display (extracts time in 12-hour AM/PM format)
 pub fn format_timestamp(timestamp: &str) -> String {
     if timestamp == "-" || timestamp.is_empty() {
         return "-".to_string();
@@ -16,6 +16,20 @@ pub fn format_timestamp(timestamp: &str) -> String {
     if timestamp.contains('T') {
         if let Some(time_part) = timestamp.split('T').nth(1) {
             let time = time_part.split('.').next().unwrap_or(time_part);
+            // Convert HH:MM:SS to 12-hour AM/PM
+            let parts: Vec<&str> = time.split(':').collect();
+            if parts.len() >= 2 {
+                if let Ok(h24) = parts[0].parse::<u32>() {
+                    let mins = parts[1];
+                    let (h12, period) = match h24 {
+                        0 => (12, "AM"),
+                        1..=11 => (h24, "AM"),
+                        12 => (12, "PM"),
+                        _ => (h24 - 12, "PM"),
+                    };
+                    return format!("{}:{} {}", h12, mins, period);
+                }
+            }
             return time.to_string();
         }
     }
@@ -37,14 +51,9 @@ pub fn format_uptime(seconds: u64) -> String {
     }
 }
 
-/// Truncate an ID for display (first 12 chars)
+/// Truncate an ID for display.
 pub fn short_id(id: &str) -> String {
-    let trimmed = id.trim();
-    if trimmed.len() > 12 {
-        format!("{}...", &trimmed[..12])
-    } else {
-        trimmed.to_string()
-    }
+    adapteros_id::short_id(id)
 }
 
 /// Truncate a hash for display (first 8 chars)
@@ -151,6 +160,7 @@ pub struct WorkerHealthSummaryCounts {
 
 /// Per-worker health record (subset of /v1/workers/health/summary)
 #[derive(Debug, Clone, Deserialize, Default)]
+#[allow(dead_code)]
 pub struct WorkerHealthRecord {
     #[serde(default)]
     pub worker_id: String,

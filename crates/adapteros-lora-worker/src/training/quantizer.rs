@@ -4,7 +4,7 @@
 
 use super::trainer::{LoRAWeights, ModuleWeights};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use tracing::info;
 
 /// Q15 constants for LoRA weight quantization
@@ -143,7 +143,7 @@ impl LoRAQuantizer {
                 weights.modules.len()
             );
 
-            let mut modules = HashMap::new();
+            let mut modules = BTreeMap::new();
             for (name, quantized) in &weights.modules {
                 let dequantized = Self::dequantize_module_weights(quantized);
                 modules.insert(name.clone(), dequantized);
@@ -163,7 +163,7 @@ impl LoRAQuantizer {
             let lora_b = Self::dequantize_matrix(&weights.lora_b_q15, &weights.scale_b);
 
             LoRAWeights {
-                modules: HashMap::new(),
+                modules: BTreeMap::new(),
                 lora_a,
                 lora_b,
                 moe_config: None,
@@ -366,7 +366,7 @@ mod tests {
         let original = LoRAWeights {
             lora_a: vec![vec![0.1, -0.2, 0.3], vec![-0.1, 0.2, -0.3]],
             lora_b: vec![vec![0.5, -0.5], vec![0.4, -0.4], vec![0.3, -0.3]],
-            modules: HashMap::new(),
+            modules: BTreeMap::new(),
             moe_config: None,
             precomputed_delta: None,
         };
@@ -420,7 +420,7 @@ mod tests {
 
         // Create multi-module weights
         let mut original = LoRAWeights {
-            modules: HashMap::new(),
+            modules: BTreeMap::new(),
             lora_a: Vec::new(),
             lora_b: Vec::new(),
             moe_config: None,

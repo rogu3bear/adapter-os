@@ -319,6 +319,7 @@ pub async fn import_adapter(
             stream_session_id: None,
             versioning_threshold: None,
             coreml_package_hash: None,
+            display_name: None,
         }));
     }
 
@@ -741,7 +742,7 @@ pub async fn import_adapter(
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
         .unwrap_or_else(|| {
-            crate::id_generator::readable_id(adapteros_core::ids::IdKind::Adapter, "imported")
+            crate::id_generator::readable_id(adapteros_id::IdPrefix::Adp, "imported")
         });
 
     let adapter_name = manifest
@@ -1030,5 +1031,6 @@ pub async fn import_adapter(
         stream_session_id: None,
         versioning_threshold: None,
         coreml_package_hash: None,
+        display_name: None,
     }))
 }

@@ -120,7 +120,7 @@ pub fn StyleAudit() -> impl IntoView {
             <div class="max-w-6xl mx-auto">
                 <div class="flex items-center justify-between mb-8 pb-4 border-b">
                     <div>
-                        <h1 class="text-3xl font-bold">"Style Audit"</h1>
+                        <h1 class="heading-1">"Style Audit"</h1>
                         <p class="text-muted-foreground mt-1">"PRD-UI-003: Visual Component Gallery"</p>
                     </div>
                     <div class="flex items-center gap-4">
@@ -714,7 +714,7 @@ fn build_metric_series(metrics: &[ProcessHealthMetricResponse]) -> (TimeSeriesDa
 fn ComponentSection(title: &'static str, children: Children) -> impl IntoView {
     view! {
         <section class="space-y-6">
-            <h2 class="text-2xl font-semibold border-b pb-2">{title}</h2>
+            <h2 class="heading-2 border-b pb-2">{title}</h2>
             <div class="space-y-6">
                 {children()}
             </div>

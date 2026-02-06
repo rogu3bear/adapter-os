@@ -8,7 +8,8 @@ use crate::{Db, Result};
 use adapteros_core::AosError;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 /// Replay execution record
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -98,7 +99,7 @@ impl Db {
         &self,
         params: CreateReplayExecutionParams,
     ) -> Result<String> {
-        let id = Uuid::new_v4().to_string();
+        let id = new_id(IdPrefix::Rpl);
 
         // Serialize adapter IDs to JSON
         let adapter_ids_json = params

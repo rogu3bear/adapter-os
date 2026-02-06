@@ -17,7 +17,7 @@ use futures_util::stream::Stream;
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
 use std::time::Duration;
-use uuid::Uuid;
+use adapteros_id::{TypedId, IdPrefix};
 
 /// Maximum message length (2000 chars)
 const MAX_MESSAGE_LENGTH: usize = 2000;
@@ -171,7 +171,7 @@ pub async fn report_client_error(
     // Validate payload
     validate_report(&report)?;
 
-    let error_id = Uuid::now_v7().to_string();
+    let error_id = TypedId::new(IdPrefix::Err).to_string();
     let received_at = chrono::Utc::now().to_rfc3339();
 
     // Build client error for database storage
@@ -266,7 +266,7 @@ pub async fn report_client_error_anonymous(
     // Validate payload
     validate_report(&report)?;
 
-    let error_id = Uuid::now_v7().to_string();
+    let error_id = TypedId::new(IdPrefix::Err).to_string();
     let received_at = chrono::Utc::now().to_rfc3339();
 
     // Build client error for database storage (anonymous tenant)

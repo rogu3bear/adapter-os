@@ -9,7 +9,8 @@ use crate::Db;
 use adapteros_core::error_helpers::DbErrorExt;
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct AuditLog {
@@ -88,7 +89,7 @@ impl Db {
         ip_address: Option<&str>,
         metadata_json: Option<&str>,
     ) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Aud);
         let timestamp = chrono::Utc::now().to_rfc3339();
 
         // Get the latest audit log entry to link to it (chain-of-custody)
@@ -1464,7 +1465,7 @@ mod tests {
               status, previous_hash, entry_hash, chain_sequence)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
-        .bind(uuid::Uuid::now_v7().to_string())
+        .bind(new_id(IdPrefix::Aud))
         .bind(chrono::Utc::now().to_rfc3339())
         .bind("user-1")
         .bind("admin")

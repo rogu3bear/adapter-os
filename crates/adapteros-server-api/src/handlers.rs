@@ -52,8 +52,8 @@ pub mod debugging;
 pub mod dev_contracts;
 pub mod diag_bundle;
 pub mod diagnostics;
-pub mod discrepancies;
 pub mod discovery;
+pub mod discrepancies;
 pub mod documents;
 pub mod domain_adapters;
 pub mod embeddings;
@@ -560,7 +560,7 @@ pub async fn cp_promote(
 
     // 3. Insert promotion record with signature
     let promotion_id =
-        crate::id_generator::readable_id(adapteros_core::ids::IdKind::Run, "promotion");
+        crate::id_generator::readable_id(adapteros_id::IdPrefix::Run, "promotion");
     let promotion_timestamp = chrono::Utc::now();
 
     sqlx::query(
@@ -618,483 +618,7 @@ pub async fn cp_promote(
     }))
 }
 
-/// Spawn worker via node agent
-#[utoipa::path(
-    post,
-    path = "/v1/workers/spawn",
-    request_body = SpawnWorkerRequest,
-    responses(
-        (status = 200, description = "Worker spawned", body = WorkerResponse),
-        (status = 404, description = "Node not found", body = ErrorResponse),
-        (status = 500, description = "Internal error", body = ErrorResponse)
-    ),
-    tag = "workers"
-)]
-pub async fn worker_spawn(
-    State(state): State<AppState>,
-    Extension(claims): Extension<Claims>,
-    Json(req): Json<SpawnWorkerRequest>,
-) -> Result<Json<WorkerResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Operator])?;
-
-    // Look up node by ID
-    let node = state
-        .db
-        .get_node(&req.node_id)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(
-                    ErrorResponse::new("node not found")
-                        .with_code("NOT_FOUND")
-                        .with_string_details(format!("Node ID: {}", req.node_id)),
-                ),
-            )
-        })?;
-
-    // Prepare spawn request for node agent
-    let spawn_req = serde_json::json!({
-        "tenant_id": req.tenant_id,
-        "plan_id": req.plan_id,
-    });
-
-    // Send HTTP POST to node agent
-    let client = reqwest::Client::builder()
-        .connect_timeout(std::time::Duration::from_millis(500))
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to create HTTP client")
-                        .with_code("INTERNAL_SERVER_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
-    let spawn_url = format!("{}/spawn_worker", node.agent_endpoint);
-
-    let max_attempts = 3u32;
-    let mut attempt = 0u32;
-    let mut backoff = std::time::Duration::from_millis(100);
-    let response = loop {
-        attempt += 1;
-        match client.post(&spawn_url).json(&spawn_req).send().await {
-            Ok(response) => break Ok(response),
-            Err(e) => {
-                if attempt >= max_attempts {
-                    break Err(e);
-                }
-                tokio::time::sleep(backoff).await;
-                backoff = (backoff * 2).min(std::time::Duration::from_millis(800));
-            }
-        }
-    }
-    .map_err(|e| {
-        (
-            StatusCode::BAD_GATEWAY,
-            Json(
-                ErrorResponse::new("failed to contact node agent")
-                    .with_code("INTERNAL_SERVER_ERROR")
-                    .with_string_details(format!("{} (after {} attempts)", e, max_attempts)),
-            ),
-        )
-    })?;
-
-    if !response.status().is_success() {
-        let error_text = response.text().await.unwrap_or_default();
-        return Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("node agent spawn failed")
-                    .with_code("INTERNAL_SERVER_ERROR")
-                    .with_string_details(error_text),
-            ),
-        ));
-    }
-
-    let spawn_response: serde_json::Value = response.json().await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("failed to parse node agent response")
-                    .with_code("INTERNAL_SERVER_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
-
-    let pid = spawn_response["pid"]
-        .as_i64()
-        .map(|p| p as i32)
-        .ok_or_else(|| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("invalid response from node agent")
-                        .with_code("BAD_REQUEST")
-                        .with_string_details("missing or invalid PID field"),
-                ),
-            )
-        })?;
-
-    // Create UDS path for worker
-    let uds_path = format!("/var/run/aos/{}/worker.sock", req.tenant_id);
-
-    // Register worker using Db trait method
-    use adapteros_db::workers::WorkerInsertBuilder;
-    let worker_id = crate::id_generator::readable_id(adapteros_core::ids::IdKind::Worker, "worker");
-    let mut builder = WorkerInsertBuilder::new()
-        .id(&worker_id)
-        .tenant_id(&req.tenant_id)
-        .node_id(&req.node_id)
-        .plan_id(&req.plan_id)
-        .uds_path(&uds_path)
-        .status(adapteros_core::WorkerStatus::Created.as_str());
-    builder = builder.pid(pid);
-    let params = builder.build().map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("failed to build worker parameters")
-                    .with_code("INTERNAL_SERVER_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
-    state.db.insert_worker(params).await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("failed to register worker in database")
-                    .with_code("INTERNAL_SERVER_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
-
-    // Return worker info
-    Ok(Json(WorkerResponse {
-        schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-        id: worker_id,
-        tenant_id: req.tenant_id,
-        node_id: req.node_id,
-        plan_id: req.plan_id,
-        uds_path,
-        pid: Some(pid),
-        status: "starting".to_string(),
-        started_at: chrono::Utc::now().to_rfc3339(),
-        last_seen_at: None,
-        capabilities: Vec::new(),
-        capabilities_detail: None,
-        backend: None,
-        model_id: None,
-        model_hash: None,
-        tokenizer_hash_b3: None,
-        tokenizer_vocab_size: None,
-        coreml_failure_stage: None,
-        coreml_failure_reason: None,
-        model_loaded: false,
-        cache_used_mb: None,
-        cache_max_mb: None,
-        cache_pinned_entries: None,
-        cache_active_entries: None,
-    }))
-}
-
-#[derive(Deserialize)]
-pub struct ListWorkersQuery {
-    tenant_id: Option<String>,
-}
-
-/// List workers with optional tenant filter
-#[utoipa::path(
-    get,
-    path = "/v1/workers",
-    params(
-        ("tenant_id" = Option<String>, Query, description = "Filter by tenant ID")
-    ),
-    responses(
-        (status = 200, description = "Workers list", body = Vec<WorkerResponse>),
-        (status = 403, description = "Forbidden", body = ErrorResponse),
-        (status = 500, description = "Internal error", body = ErrorResponse)
-    ),
-    tag = "workers"
-)]
-pub async fn list_workers(
-    State(state): State<AppState>,
-    Extension(claims): Extension<Claims>,
-    Query(query): Query<ListWorkersQuery>,
-) -> Result<Json<Vec<WorkerResponse>>, (StatusCode, Json<ErrorResponse>)> {
-    require_any_role(&claims, &[Role::Operator, Role::Admin])?;
-
-    let workers = if let Some(tenant_id) = query.tenant_id {
-        state
-            .db
-            .list_workers_by_tenant(&tenant_id)
-            .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(
-                        ErrorResponse::new("database error")
-                            .with_code("INTERNAL_SERVER_ERROR")
-                            .with_string_details(e.to_string()),
-                    ),
-                )
-            })?
-    } else {
-        state.db.list_all_workers().await.map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-    };
-
-    async fn resolve_plan_model_info(
-        db: &adapteros_db::Db,
-        plan_id: &str,
-    ) -> (Option<String>, Option<String>) {
-        let plan = match db.get_plan(plan_id).await {
-            Ok(Some(p)) => p,
-            _ => return (None, None),
-        };
-
-        // Manifest lookup by content hash - tenant isolation is enforced upstream:
-        // 1. The worker list is tenant-scoped (list_workers_by_tenant or admin-only list_all_workers)
-        // 2. The plan_id comes from the worker record which is already tenant-scoped
-        // 3. Manifests are content-addressed; knowing the hash implies having access to the plan
-        let manifest_row = match db.get_manifest_by_hash(&plan.manifest_hash_b3).await {
-            Ok(Some(m)) => m,
-            _ => return (None, None),
-        };
-
-        let parsed = serde_json::from_str::<adapteros_model_hub::manifest::ManifestV3>(
-            &manifest_row.body_json,
-        )
-        .or_else(|_| {
-            serde_yaml::from_str::<adapteros_model_hub::manifest::ManifestV3>(
-                &manifest_row.body_json,
-            )
-        });
-
-        match parsed {
-            Ok(manifest) => (
-                Some(manifest.base.model_id),
-                Some(manifest.base.model_hash.to_hex()),
-            ),
-            Err(_) => (None, None),
-        }
-    }
-
-    let mut plan_model_cache: HashMap<String, (Option<String>, Option<String>)> = HashMap::new();
-    let mut response: Vec<WorkerResponse> = Vec::with_capacity(workers.len());
-
-    for w in workers {
-        let runtime = state
-            .worker_runtime
-            .get(&w.id)
-            .map(|entry| entry.value().clone())
-            .unwrap_or_default();
-
-        let (model_id, resolved_model_hash) = match plan_model_cache.get(&w.plan_id) {
-            Some(cached) => cached.clone(),
-            None => {
-                let resolved = resolve_plan_model_info(&state.db, &w.plan_id).await;
-                plan_model_cache.insert(w.plan_id.clone(), resolved.clone());
-                resolved
-            }
-        };
-
-        let model_hash = resolved_model_hash.or(runtime.model_hash);
-        let model_loaded = matches!(w.status.as_str(), "healthy" | "draining" | "serving");
-
-        response.push(WorkerResponse {
-            schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-            id: w.id,
-            tenant_id: w.tenant_id,
-            node_id: w.node_id,
-            plan_id: w.plan_id,
-            uds_path: w.uds_path,
-            pid: w.pid,
-            status: w.status,
-            started_at: w.started_at,
-            last_seen_at: w.last_seen_at,
-            capabilities: runtime.capabilities,
-            capabilities_detail: runtime.capabilities_detail,
-            backend: runtime.backend,
-            model_id,
-            model_hash,
-            tokenizer_hash_b3: runtime.tokenizer_hash_b3,
-            tokenizer_vocab_size: runtime.tokenizer_vocab_size,
-            coreml_failure_stage: runtime.coreml_failure_stage,
-            coreml_failure_reason: runtime.coreml_failure_reason,
-            model_loaded,
-            cache_used_mb: runtime.cache_used_mb,
-            cache_max_mb: runtime.cache_max_mb,
-            cache_pinned_entries: runtime.cache_pinned_entries,
-            cache_active_entries: runtime.cache_active_entries,
-        });
-    }
-
-    Ok(Json(response))
-}
-
-/// Stop a worker process
-///
-/// Gracefully stops a worker process by updating its status and optionally
-/// terminating the underlying process.
-///
-/// **Permissions:** Requires `WorkerManage` permission (Operator or Admin role).
-///
-/// **Telemetry:** Emits `worker.stop` event.
-///
-/// # Example
-/// ```
-/// POST /v1/workers/{worker_id}/stop
-/// ```
-#[utoipa::path(
-    post,
-    path = "/v1/workers/{worker_id}/stop",
-    params(
-        ("worker_id" = String, Path, description = "Worker ID")
-    ),
-    responses(
-        (status = 200, description = "Worker stopped successfully", body = crate::types::WorkerStopResponse),
-        (status = 404, description = "Worker not found", body = ErrorResponse),
-        (status = 500, description = "Failed to stop worker", body = ErrorResponse)
-    ),
-    tag = "workers"
-)]
-pub async fn stop_worker(
-    State(state): State<AppState>,
-    Extension(claims): Extension<Claims>,
-    Path(worker_id): Path<String>,
-) -> Result<Json<crate::types::WorkerStopResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // Require worker manage permission
-    crate::permissions::require_permission(&claims, crate::permissions::Permission::WorkerManage)?;
-    let worker_id = crate::id_resolver::resolve_any_id(&state.db, &worker_id)
-        .await
-        .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
-
-    // Get worker from database
-    let worker = state
-        .db
-        .get_worker(&worker_id)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(
-                    ErrorResponse::new("worker not found")
-                        .with_code("NOT_FOUND")
-                        .with_string_details(format!("Worker ID: {}", worker_id)),
-                ),
-            )
-        })?;
-
-    let previous_status = worker.status.clone();
-
-    // Update worker status to 'stopping' using Db trait method
-    state
-        .db
-        .update_worker_status(&worker_id, "stopping")
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to update worker status")
-                        .with_code("INTERNAL_SERVER_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
-
-    // If worker has a PID, attempt to terminate the process
-    if let Some(pid) = worker.pid {
-        // Note: In production, this would send a signal to the worker process
-        // For now, we just update the status
-        tracing::info!(
-            event = "worker.stop.signal",
-            worker_id = %worker_id,
-            pid = %pid,
-            "Signaling worker process to stop"
-        );
-    }
-
-    // Update worker status to 'stopped' using Db trait method
-    state
-        .db
-        .update_worker_status(&worker_id, "stopped")
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("failed to update worker status")
-                        .with_code("INTERNAL_SERVER_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
-
-    let stopped_at = chrono::Utc::now().to_rfc3339();
-
-    // Emit telemetry event
-    tracing::info!(
-        event = "worker.stop",
-        worker_id = %worker_id,
-        previous_status = %previous_status,
-        actor = %claims.sub,
-        "Worker stopped"
-    );
-
-    // Audit log
-    crate::audit_helper::log_success_or_warn(
-        &state.db,
-        &claims,
-        "worker.stop",
-        crate::audit_helper::resources::WORKER,
-        Some(&worker_id),
-    )
-    .await;
-
-    Ok(Json(crate::types::WorkerStopResponse {
-        worker_id,
-        success: true,
-        message: "Worker stopped successfully".to_string(),
-        previous_status,
-        stopped_at,
-    }))
-}
+// Note: worker_spawn, list_workers, stop_worker moved to handlers/workers.rs (PRD-RECT topology fix)
 
 // Note: list_plans, get_plan_details, rebuild_plan, compare_plans, export_plan_manifest, promotion_gates
 // have been moved to handlers/plans.rs
@@ -1421,7 +945,7 @@ pub async fn propose_patch(
                 .as_ref()
                 .map(|p| p.proposal_id.clone())
                 .unwrap_or_else(|| {
-                    crate::id_generator::readable_id(adapteros_core::ids::IdKind::Run, "promotion")
+                    crate::id_generator::readable_id(adapteros_id::IdPrefix::Run, "promotion")
                 });
 
             let status = if worker_response.patch_proposal.is_some() {
@@ -1991,6 +1515,7 @@ pub async fn list_adapters(
             stream_session_id: None,
             versioning_threshold: None,
             coreml_package_hash: None,
+            display_name: None,
         });
     }
 
@@ -2165,6 +1690,7 @@ pub async fn get_adapter(
         stream_session_id: None,
         versioning_threshold: None,
         coreml_package_hash: None,
+        display_name: None,
     }))
 }
 /// Register new adapter
@@ -2467,6 +1993,7 @@ pub async fn register_adapter(
             stream_session_id: None,
             versioning_threshold: None,
             coreml_package_hash: None,
+            display_name: None,
         }),
     ))
 }

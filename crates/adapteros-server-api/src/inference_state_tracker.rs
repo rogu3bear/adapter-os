@@ -564,6 +564,32 @@ impl InferenceStateTracker {
         removed
     }
 
+    /// Start a background cleanup task that periodically removes expired terminal entries
+    ///
+    /// Returns a JoinHandle that can be used to cancel the task.
+    /// The task runs every `interval` and calls `cleanup_expired()`.
+    pub fn start_cleanup_task(
+        tracker: std::sync::Arc<Self>,
+        interval: Duration,
+    ) -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(interval);
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+            loop {
+                ticker.tick().await;
+                let removed = tracker.cleanup_expired();
+                if removed > 0 {
+                    info!(
+                        removed_count = removed,
+                        remaining_count = tracker.count(),
+                        "Inference state tracker cleanup completed"
+                    );
+                }
+            }
+        })
+    }
+
     /// Emit state change diagnostic event
     fn emit_state_changed(
         &self,

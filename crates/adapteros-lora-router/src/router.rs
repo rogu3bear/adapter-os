@@ -635,13 +635,14 @@ impl Router {
     fn check_abstain_conditions(&mut self, entropy: f32, gates: &[f32]) {
         use adapteros_telemetry::events::AbstainEvent;
 
+        // Always clear previous events at the start of each routing step
+        // to prevent stale events from being reported for subsequent requests
+        self.abstain_events.clear();
+
         // Skip abstain checks for empty decisions (already abstained via policy/no adapters)
         if gates.is_empty() {
             return;
         }
-
-        // Reset previous events for this routing step
-        self.abstain_events.clear();
         let mut events = Vec::new();
         let context = self.abstain_context.clone();
 
@@ -947,7 +948,7 @@ impl Router {
             let detected_lang_idx = features[0..8]
                 .iter()
                 .enumerate()
-                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                .max_by(|(_, a), (_, b)| a.total_cmp(b))
                 .map(|(idx, _)| idx);
 
             if let Some(lang_idx) = detected_lang_idx {
@@ -1760,8 +1761,17 @@ impl Router {
             }
         }
 
-        // Renormalize
+        // Renormalize (guard against zero/empty sum for defensive safety)
         let sum_gates: f32 = gates.iter().sum();
+        if sum_gates <= 0.0 || gates.is_empty() {
+            tracing::warn!(
+                target: "determinism",
+                sum_gates = sum_gates,
+                gates_len = gates.len(),
+                "Gate normalization denominator is zero or gates empty; returning empty decision"
+            );
+            return Ok(Self::empty_decision_with_mask(policy_mask));
+        }
         for g in &mut gates {
             *g /= sum_gates;
         }
@@ -2196,7 +2206,7 @@ impl Router {
             .lang_one_hot
             .iter()
             .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+            .max_by(|(_, a), (_, b)| a.total_cmp(b))
             .map(|(idx, _)| idx);
 
         if let Some(lang_idx) = lang_idx {

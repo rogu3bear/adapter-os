@@ -66,7 +66,7 @@ pub fn Login() -> impl IntoView {
             // Navigate to returnUrl if present, otherwise dashboard
             let target = return_url
                 .get_value()
-                .unwrap_or_else(|| "/dashboard".to_string());
+                .unwrap_or_else(|| "/chat".to_string());
             if let Some(window) = web_sys::window() {
                 let _ = window.location().set_href(&target);
             }
@@ -119,7 +119,7 @@ pub fn Login() -> impl IntoView {
                         // Navigate to returnUrl if present, otherwise dashboard
                         let target = return_url
                             .get_value()
-                            .unwrap_or_else(|| "/dashboard".to_string());
+                            .unwrap_or_else(|| "/chat".to_string());
                         if let Some(window) = web_sys::window() {
                             let _ = window.location().set_href(&target);
                         }

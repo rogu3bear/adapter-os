@@ -17,7 +17,7 @@ use adapteros_core::{derive_seed, AosError, B3Hash, Result};
 use adapteros_telemetry::TelemetryWriter;
 use adapteros_types::training::{sample_role_from_metadata, TrainingExampleV1 as TrainingExample};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::time::Instant;
 use tracing::{debug, info, warn};
 
@@ -590,7 +590,7 @@ impl SeparatedLoRATrainer {
         LoRAWeights {
             lora_a,
             lora_b,
-            modules: HashMap::new(),
+            modules: BTreeMap::new(),
             moe_config: None,
             precomputed_delta: None,
         }

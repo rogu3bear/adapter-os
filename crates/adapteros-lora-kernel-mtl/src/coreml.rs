@@ -338,6 +338,10 @@ pub struct ModelMetadata {
 /// Safe wrapper for CoreML array
 pub struct Array {
     ptr: *mut CoreMLArray,
+    /// Whether this Array owns its pointer and should free it on drop.
+    /// Arrays created via constructors own their pointers.
+    /// Arrays returned from Prediction::get_output() are borrowed and must not free.
+    owned: bool,
 }
 
 impl Array {
@@ -376,7 +380,7 @@ impl Array {
 
         debug!(shape = ?shape, "Created CoreML float32 array");
 
-        Ok(Array { ptr })
+        Ok(Array { ptr, owned: true })
     }
 
     /// Create a new int8 array (quantized)
@@ -412,7 +416,7 @@ impl Array {
 
         debug!(shape = ?shape, "Created CoreML int8 array");
 
-        Ok(Array { ptr })
+        Ok(Array { ptr, owned: true })
     }
 
     /// Create a new float16 array
@@ -448,7 +452,7 @@ impl Array {
 
         debug!(shape = ?shape, "Created CoreML float16 array");
 
-        Ok(Array { ptr })
+        Ok(Array { ptr, owned: true })
     }
 
     /// Get float32 data as slice (returns None if not float32)
@@ -498,8 +502,13 @@ impl Array {
 
 impl Drop for Array {
     fn drop(&mut self) {
-        unsafe {
-            coreml_array_free(self.ptr);
+        // Only free the pointer if this Array owns it.
+        // Arrays returned from Prediction::get_output() are borrowed
+        // and owned by the Prediction, so they must not be freed here.
+        if self.owned {
+            unsafe {
+                coreml_array_free(self.ptr);
+            }
         }
     }
 }
@@ -530,10 +539,9 @@ impl Prediction {
             )));
         }
 
-        // Note: We don't own this pointer, it's owned by the Prediction
-        // But we need to create an Array wrapper without freeing it
-        // This is a limitation of the current design
-        Ok(Array { ptr })
+        // This array is borrowed from the Prediction - it does not own the pointer.
+        // The pointer will be freed when the Prediction is dropped.
+        Ok(Array { ptr, owned: false })
     }
 
     /// Get number of outputs

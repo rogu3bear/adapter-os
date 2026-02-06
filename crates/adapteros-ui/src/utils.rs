@@ -6,9 +6,9 @@
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
 
-/// Format an ISO 8601 date string for display, showing date and time.
+/// Format an ISO 8601 date string for display, showing date and time in 12-hour AM/PM.
 ///
-/// Extracts the date (YYYY-MM-DD) and time (HH:MM) portions from an ISO timestamp.
+/// Extracts the date (YYYY-MM-DD) and time (h:MM AM/PM) portions from an ISO timestamp.
 /// Falls back to the original string if it's too short.
 ///
 /// # Examples
@@ -16,12 +16,27 @@ use wasm_bindgen_futures::JsFuture;
 /// ```
 /// use adapteros_ui::utils::format_datetime;
 ///
-/// assert_eq!(format_datetime("2024-01-15T14:30:00Z"), "2024-01-15 14:30");
+/// assert_eq!(format_datetime("2024-01-15T14:30:00Z"), "2024-01-15 2:30 PM");
 /// assert_eq!(format_datetime("2024-01-15"), "2024-01-15");
 /// ```
 pub fn format_datetime(date_str: &str) -> String {
     if date_str.len() >= 16 {
-        format!("{} {}", &date_str[0..10], &date_str[11..16])
+        let date_part = &date_str[0..10];
+        let time_24h = &date_str[11..16]; // "HH:MM"
+        let parts: Vec<&str> = time_24h.split(':').collect();
+        if parts.len() == 2 {
+            if let Ok(h24) = parts[0].parse::<u32>() {
+                let mins = parts[1];
+                let (h12, period) = match h24 {
+                    0 => (12, "AM"),
+                    1..=11 => (h24, "AM"),
+                    12 => (12, "PM"),
+                    _ => (h24 - 12, "PM"),
+                };
+                return format!("{} {}:{} {}", date_part, h12, mins, period);
+            }
+        }
+        format!("{} {}", date_part, time_24h)
     } else {
         date_str.to_string()
     }
@@ -245,30 +260,13 @@ pub fn random_suffix(len: usize) -> String {
     out
 }
 
-/// Generate a readable identifier with a prefix, slugified name, and random suffix.
+/// Build a chat URL that creates a new session with an adapter pre-pinned.
 ///
-/// Combines a prefix, a slugified version of the source string, and a random
-/// 6-character suffix to create a unique, human-readable identifier.
-///
-/// # Format
-///
-/// `{prefix}.{slug}.{random_suffix}`
-///
-/// # Examples
-///
-/// ```ignore
-/// use adapteros_ui::utils::generate_readable_id;
-///
-/// let id = generate_readable_id("chat", "My Conversation");
-/// // e.g., "chat.my-conversation.abc234"
-///
-/// let id = generate_readable_id("adapter", "Test Model v2");
-/// // e.g., "adapter.test-model-v2.xyz789"
-/// ```
-pub fn generate_readable_id(prefix: &str, slug_source: &str) -> String {
-    let slug = slugify(slug_source);
-    let suffix = random_suffix(6);
-    format!("{}.{}.{}", prefix, slug, suffix)
+/// Returns a path like `/chat/ses_xxxx?adapter=my-adapter-id` that the
+/// `ChatSession` component will parse on mount, auto-pinning the adapter.
+pub fn chat_path_with_adapter(adapter_id: &str) -> String {
+    let session_id = adapteros_id::TypedId::new(adapteros_id::IdPrefix::Ses).to_string();
+    format!("/chat/{}?adapter={}", session_id, adapter_id)
 }
 
 #[cfg(test)]
@@ -277,10 +275,10 @@ mod tests {
 
     #[test]
     fn format_datetime_with_full_timestamp() {
-        assert_eq!(format_datetime("2024-01-15T14:30:00Z"), "2024-01-15 14:30");
+        assert_eq!(format_datetime("2024-01-15T14:30:00Z"), "2024-01-15 2:30 PM");
         assert_eq!(
             format_datetime("2024-12-31T23:59:59.999Z"),
-            "2024-12-31 23:59"
+            "2024-12-31 11:59 PM"
         );
     }
 

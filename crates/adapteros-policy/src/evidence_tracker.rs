@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use uuid::Uuid;
+use adapteros_id::{TypedId, IdPrefix};
 
 /// Builder for creating evidence records
 #[derive(Debug, Default)]
@@ -227,7 +227,7 @@ impl EvidenceTracker {
                 );
             }
             EvidenceSink::Database(db) => {
-                let id = Uuid::now_v7().to_string();
+                let id = TypedId::new(IdPrefix::Evt).to_string();
                 let tenant_id = tenant_id.unwrap_or("default");
 
                 let active_loras_json =

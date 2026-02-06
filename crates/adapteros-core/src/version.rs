@@ -357,12 +357,30 @@ pub const GIT_COMMIT_HASH: &str = match option_env!("CARGO_GIT_HASH") {
     None => "unknown",
 };
 
-/// Build timestamp in ISO 8601 format
+/// Build timestamp in compact format (YYYYMMDDHHmmss)
 ///
 /// Set via `BUILD_TIMESTAMP` environment variable during build.
 /// Falls back to "unknown" if not available.
 pub const BUILD_TIMESTAMP: &str = match option_env!("BUILD_TIMESTAMP") {
     Some(ts) => ts,
+    None => "unknown",
+};
+
+/// Combined build identifier: `{git_hash}-{timestamp}`
+///
+/// Set via `AOS_BUILD_ID` environment variable during build.
+/// Example: "a6922d2-20260205143045"
+pub const BUILD_ID: &str = match option_env!("AOS_BUILD_ID") {
+    Some(id) => id,
+    None => "unknown",
+};
+
+/// Rust compiler version used for compilation
+///
+/// Set via `RUSTC_VERSION` environment variable during build.
+/// Example: "rustc 1.84.0 (9fc6b4312 2025-01-07)"
+pub const RUSTC_VERSION: &str = match option_env!("RUSTC_VERSION") {
+    Some(v) => v,
     None => "unknown",
 };
 
@@ -424,8 +442,12 @@ pub struct VersionInfo {
     pub rng_module: String,
     /// Git commit hash (short)
     pub git_commit: String,
-    /// Build timestamp (ISO 8601)
+    /// Build timestamp
     pub build_timestamp: String,
+    /// Combined build identifier ({hash}-{timestamp})
+    pub build_id: String,
+    /// Rust compiler version
+    pub rustc_version: String,
     /// Build profile (debug/release)
     pub build_profile: String,
     /// Target architecture
@@ -455,6 +477,8 @@ impl VersionInfo {
             rng_module: RNG_MODULE_VERSION.to_string(),
             git_commit: GIT_COMMIT_HASH.to_string(),
             build_timestamp: BUILD_TIMESTAMP.to_string(),
+            build_id: BUILD_ID.to_string(),
+            rustc_version: RUSTC_VERSION.to_string(),
             build_profile: BUILD_PROFILE.to_string(),
             target_arch: TARGET_ARCH.to_string(),
             target_os: TARGET_OS.to_string(),
@@ -466,16 +490,20 @@ impl VersionInfo {
         &self.release
     }
 
-    /// Get full version string with git commit (e.g., "1.0.0-alpha (abc1234)")
+    /// Get full version string with build ID (e.g., "1.0.0-alpha (a6922d2-20260205)")
     pub fn full(&self) -> String {
-        if self.git_commit == "unknown" {
-            self.release.clone()
+        if self.build_id == "unknown" {
+            if self.git_commit == "unknown" {
+                self.release.clone()
+            } else {
+                format!(
+                    "{} ({})",
+                    self.release,
+                    &self.git_commit[..7.min(self.git_commit.len())]
+                )
+            }
         } else {
-            format!(
-                "{} ({})",
-                self.release,
-                &self.git_commit[..7.min(self.git_commit.len())]
-            )
+            format!("{} ({})", self.release, self.build_id)
         }
     }
 
@@ -514,11 +542,13 @@ impl VersionInfo {
 impl fmt::Display for VersionInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "adapterOS {}", self.release)?;
+        writeln!(f, "Build ID:        {}", self.build_id)?;
         writeln!(f, "API Schema:      v{}", self.api_schema)?;
         writeln!(f, "Database Schema: v{}", self.database_schema)?;
         writeln!(f, "RNG Module:      v{}", self.rng_module)?;
         writeln!(f, "Git Commit:      {}", self.git_commit)?;
         writeln!(f, "Build Time:      {}", self.build_timestamp)?;
+        writeln!(f, "Rustc:           {}", self.rustc_version)?;
         writeln!(f, "Build Profile:   {}", self.build_profile)?;
         writeln!(
             f,
@@ -602,6 +632,22 @@ mod tests {
 
         let full = info.full();
         assert!(full.contains(VERSION));
+    }
+
+    #[test]
+    fn test_build_metadata_populated() {
+        // After build.rs changes, these should no longer be "unknown"
+        assert_ne!(GIT_COMMIT_HASH, "unknown", "GIT_COMMIT_HASH should be set by build.rs");
+        assert_ne!(BUILD_TIMESTAMP, "unknown", "BUILD_TIMESTAMP should be set by build.rs");
+        assert_ne!(BUILD_ID, "unknown", "BUILD_ID should be set by build.rs");
+        assert_ne!(RUSTC_VERSION, "unknown", "RUSTC_VERSION should be set by build.rs");
+
+        // BUILD_ID should contain a dash (hash-timestamp format)
+        assert!(BUILD_ID.contains('-'), "BUILD_ID should be in hash-timestamp format: {}", BUILD_ID);
+
+        let info = VersionInfo::current();
+        assert_eq!(info.build_id, BUILD_ID);
+        assert_eq!(info.rustc_version, RUSTC_VERSION);
     }
 
     #[test]

@@ -9,7 +9,8 @@ use adapteros_storage::KvBackend;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PluginConfigKv {
@@ -181,7 +182,7 @@ impl PluginConfigKvRepository {
         let (id, created_at) = if let Some(existing) = existing {
             (existing.id, existing.created_at)
         } else {
-            (Uuid::now_v7().to_string(), now.clone())
+            (new_id(IdPrefix::Pol), now.clone())
         };
 
         PluginConfigKv {
@@ -206,7 +207,7 @@ impl PluginConfigKvRepository {
         let (id, created_at) = if let Some(existing) = existing {
             (existing.id, existing.created_at)
         } else {
-            (Uuid::now_v7().to_string(), now.clone())
+            (new_id(IdPrefix::Pol), now.clone())
         };
 
         PluginTenantEnableKv {

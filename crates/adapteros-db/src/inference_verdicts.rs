@@ -146,7 +146,7 @@ impl CreateVerdictParams {
         evaluator_type: EvaluatorType,
     ) -> Self {
         Self {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: crate::new_id(adapteros_id::IdPrefix::Dec),
             tenant_id: tenant_id.into(),
             inference_id: inference_id.into(),
             verdict,
@@ -639,10 +639,7 @@ impl Db {
     }
 
     /// Get verdict summary statistics
-    pub async fn get_inference_verdict_summary(
-        &self,
-        tenant_id: &str,
-    ) -> Result<VerdictSummary> {
+    pub async fn get_inference_verdict_summary(&self, tenant_id: &str) -> Result<VerdictSummary> {
         get_verdict_summary(self.pool(), tenant_id).await
     }
 
@@ -686,7 +683,10 @@ mod tests {
 
     #[test]
     fn test_evaluator_type_parse() {
-        assert_eq!("rule".parse::<EvaluatorType>().unwrap(), EvaluatorType::Rule);
+        assert_eq!(
+            "rule".parse::<EvaluatorType>().unwrap(),
+            EvaluatorType::Rule
+        );
         assert_eq!(
             "human".parse::<EvaluatorType>().unwrap(),
             EvaluatorType::Human
@@ -700,11 +700,17 @@ mod tests {
 
     #[test]
     fn test_create_verdict_params_builder() {
-        let params = CreateVerdictParams::new("tenant-1", "inference-1", Verdict::High, 0.95, EvaluatorType::Rule)
-            .with_evaluator_id("rule-001")
-            .with_warnings_json(r#"["warning1"]"#)
-            .with_extraction_confidence(0.87)
-            .with_trust_state("trusted");
+        let params = CreateVerdictParams::new(
+            "tenant-1",
+            "inference-1",
+            Verdict::High,
+            0.95,
+            EvaluatorType::Rule,
+        )
+        .with_evaluator_id("rule-001")
+        .with_warnings_json(r#"["warning1"]"#)
+        .with_extraction_confidence(0.87)
+        .with_trust_state("trusted");
 
         assert_eq!(params.tenant_id, "tenant-1");
         assert_eq!(params.inference_id, "inference-1");
@@ -769,7 +775,9 @@ mod tests {
         )
         .with_evaluator_id("rule-001");
 
-        let id = create_verdict(&pool, &params).await.expect("create verdict");
+        let id = create_verdict(&pool, &params)
+            .await
+            .expect("create verdict");
 
         // Get the verdict
         let verdict = get_verdict_by_inference(&pool, "tenant-1", "inference-1")
@@ -789,7 +797,10 @@ mod tests {
         let other_tenant = get_verdict_by_inference(&pool, "tenant-2", "inference-1")
             .await
             .expect("get verdict");
-        assert!(other_tenant.is_none(), "tenant-2 should not see tenant-1's verdict");
+        assert!(
+            other_tenant.is_none(),
+            "tenant-2 should not see tenant-1's verdict"
+        );
     }
 
     #[tokio::test]
@@ -839,7 +850,9 @@ mod tests {
             0.75,
             EvaluatorType::Rule,
         );
-        create_verdict(&pool, &params1).await.expect("create first verdict");
+        create_verdict(&pool, &params1)
+            .await
+            .expect("create first verdict");
 
         // Create replacement verdict (same inference_id + evaluator_type)
         let params2 = CreateVerdictParams::new(
@@ -849,7 +862,9 @@ mod tests {
             0.95,
             EvaluatorType::Rule,
         );
-        create_verdict(&pool, &params2).await.expect("create replacement verdict");
+        create_verdict(&pool, &params2)
+            .await
+            .expect("create replacement verdict");
 
         // Should only have one verdict
         let verdicts = list_verdicts_by_inference(&pool, "tenant-1", "inference-1")

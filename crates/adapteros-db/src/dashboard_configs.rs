@@ -39,7 +39,7 @@ impl Db {
         enabled: bool,
         position: i32,
     ) -> Result<()> {
-        let id = uuid::Uuid::new_v4().to_string();
+        let id = crate::new_id(adapteros_id::IdPrefix::Pol);
         let now = chrono::Utc::now().to_rfc3339();
 
         sqlx::query(
@@ -75,7 +75,7 @@ impl Db {
         let mut updated_count = 0;
 
         for (widget_id, enabled, position) in widgets {
-            let id = uuid::Uuid::new_v4().to_string();
+            let id = crate::new_id(adapteros_id::IdPrefix::Pol);
             let now = chrono::Utc::now().to_rfc3339();
 
             sqlx::query(

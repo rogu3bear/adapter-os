@@ -22,6 +22,7 @@ use crate::components::{
 };
 use crate::hooks::{use_api_resource, use_polling, LoadingState};
 use crate::signals::{use_notifications, use_refetch};
+use crate::utils::chat_path_with_adapter;
 use adapteros_api_types::TrainingJobResponse;
 use leptos::prelude::*;
 use std::sync::Arc;
@@ -174,7 +175,7 @@ pub fn TrainingJobDetail(
             <div class="flex items-start justify-between gap-4">
                 <div>
                     <p class="text-sm text-muted-foreground">"Training job"</p>
-                    <h2 class="text-xl font-semibold leading-tight">{job_id.clone()}</h2>
+                    <h2 class="heading-3 leading-tight">{job_id.clone()}</h2>
                 </div>
                 <div class="flex items-center gap-2">
                     {return_button.map(|(label, href)| view! {
@@ -355,49 +356,74 @@ pub fn JobDetailContent(
                         </div>
                     })}
 
-                    // Prominent action buttons for completed jobs
+                    // Completion banner with handoff actions
                     {(is_completed && adapter_id_for_detail.is_some()).then(|| {
                         let adapter_id = adapter_id_for_detail.clone().unwrap();
                         let adapter_href = format!("/adapters/{}", adapter_id);
-                        let chat_href = format!("/chat?adapter={}", adapter_id);
+                        let chat_href = chat_path_with_adapter(&adapter_id);
                         view! {
-                            <div class="flex flex-wrap items-center gap-3 mt-4 pt-4 border-t">
-                                <Link href=adapter_href class="btn btn-primary">
+                            <div class="rounded-lg border border-status-success bg-status-success/10 p-4 mt-4">
+                                <div class="flex items-start gap-3">
                                     <svg
                                         xmlns="http://www.w3.org/2000/svg"
-                                        width="16"
-                                        height="16"
+                                        width="20"
+                                        height="20"
                                         viewBox="0 0 24 24"
                                         fill="none"
                                         stroke="currentColor"
                                         stroke-width="2"
                                         stroke-linecap="round"
                                         stroke-linejoin="round"
-                                        class="mr-2"
+                                        class="text-status-success mt-0.5 shrink-0"
                                     >
-                                        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
-                                        <polyline points="3.29 7 12 12 20.71 7"/>
-                                        <line x1="12" y1="22" x2="12" y2="12"/>
+                                        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                                        <polyline points="22 4 12 14.01 9 11.01"/>
                                     </svg>
-                                    "View Adapter"
-                                </Link>
-                                <Link href=chat_href class="btn btn-secondary">
-                                    <svg
-                                        xmlns="http://www.w3.org/2000/svg"
-                                        width="16"
-                                        height="16"
-                                        viewBox="0 0 24 24"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        stroke-width="2"
-                                        stroke-linecap="round"
-                                        stroke-linejoin="round"
-                                        class="mr-2"
-                                    >
-                                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-                                    </svg>
-                                    "Try in Chat"
-                                </Link>
+                                    <div class="space-y-3 flex-1">
+                                        <div>
+                                            <p class="font-medium text-sm">"Training complete"</p>
+                                            <p class="text-xs text-muted-foreground">"Your adapter is ready for inference."</p>
+                                        </div>
+                                        <div class="flex flex-wrap items-center gap-2">
+                                            <Link href=adapter_href class="btn btn-primary btn-sm">
+                                                <svg
+                                                    xmlns="http://www.w3.org/2000/svg"
+                                                    width="14"
+                                                    height="14"
+                                                    viewBox="0 0 24 24"
+                                                    fill="none"
+                                                    stroke="currentColor"
+                                                    stroke-width="2"
+                                                    stroke-linecap="round"
+                                                    stroke-linejoin="round"
+                                                    class="mr-1.5"
+                                                >
+                                                    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                                                    <polyline points="3.29 7 12 12 20.71 7"/>
+                                                    <line x1="12" y1="22" x2="12" y2="12"/>
+                                                </svg>
+                                                "View Adapter"
+                                            </Link>
+                                            <Link href=chat_href class="btn btn-secondary btn-sm">
+                                                <svg
+                                                    xmlns="http://www.w3.org/2000/svg"
+                                                    width="14"
+                                                    height="14"
+                                                    viewBox="0 0 24 24"
+                                                    fill="none"
+                                                    stroke="currentColor"
+                                                    stroke-width="2"
+                                                    stroke-linecap="round"
+                                                    stroke-linejoin="round"
+                                                    class="mr-1.5"
+                                                >
+                                                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                                                </svg>
+                                                "Try in Chat"
+                                            </Link>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         }
                     })}

@@ -112,9 +112,9 @@ pub struct IngestRouterDecisionRequest {
 }
 
 /// Query parameters for routing decisions endpoint
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Default)]
 pub struct RoutingDecisionsQuery {
-    pub tenant: String,
+    pub tenant: Option<String>,
     pub limit: Option<usize>,
     pub offset: Option<usize>,
     pub since: Option<String>,
@@ -295,7 +295,7 @@ pub async fn ingest_router_decision(
     };
 
     let decision = DbRoutingDecision {
-        id: crate::id_generator::readable_id(adapteros_core::ids::IdKind::Decision, "routing"),
+        id: crate::id_generator::readable_id(adapteros_id::IdPrefix::Dec, "routing"),
         tenant_id: request.tenant_id.clone(),
         timestamp: chrono::Utc::now().to_rfc3339(),
         request_id: request.request_id.clone(),
@@ -465,17 +465,20 @@ pub async fn get_routing_decisions(
     Query(query): Query<RoutingDecisionsQuery>,
 ) -> Result<Json<RoutingDecisionsResponse>, (StatusCode, Json<ErrorResponse>)> {
     require_any_role(&claims, &[Role::Admin, Role::Operator, Role::Viewer])?;
-    validate_tenant_isolation(&claims, &query.tenant)?;
+
+    // Default to claims.tenant_id if not provided (matches get_routing_history pattern)
+    let tenant = query.tenant.as_ref().unwrap_or(&claims.tenant_id);
+    validate_tenant_isolation(&claims, tenant)?;
 
     debug!(
-        tenant_id = %query.tenant,
+        tenant_id = %tenant,
         limit = ?query.limit,
         "Querying routing decisions"
     );
 
     // Build filters
     let mut filters = RoutingDecisionFilters {
-        tenant_id: Some(query.tenant.clone()),
+        tenant_id: Some(tenant.clone()),
         limit: query.limit,
         offset: query.offset,
         since: query.since.clone(),

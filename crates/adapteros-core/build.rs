@@ -1,9 +1,11 @@
 //! Build script for adapteros-core
 //!
 //! Automatically computes DATABASE_SCHEMA_VERSION from migrations directory.
-//! This ensures the version constant stays in sync with actual migrations.
+//! Also emits build metadata (git hash, timestamp, rustc version, build ID)
+//! as the single source of truth for the entire workspace.
 
 use std::path::PathBuf;
+use std::process::Command;
 
 fn main() {
     // Find workspace root (contains migrations/)
@@ -12,6 +14,12 @@ fn main() {
 
     // Watch the migrations directory for changes
     println!("cargo:rerun-if-changed={}", migrations_dir.display());
+
+    // Watch .git/HEAD for rebuild on branch switch (not .git/index which changes on every add/commit)
+    let git_head = workspace_root.join(".git/HEAD");
+    if git_head.exists() {
+        println!("cargo:rerun-if-changed={}", git_head.display());
+    }
 
     // Compute highest migration number
     let max_migration = compute_max_migration_number(&migrations_dir)
@@ -27,6 +35,87 @@ fn main() {
             migrations_dir.display()
         );
     }
+
+    // --- Build metadata ---
+    let git_hash = get_git_hash();
+    let timestamp = get_build_timestamp();
+    let build_id = format!("{}-{}", git_hash, timestamp);
+    let rustc_version = get_rustc_version();
+
+    println!("cargo:rustc-env=CARGO_GIT_HASH={}", git_hash);
+    println!("cargo:rustc-env=BUILD_TIMESTAMP={}", timestamp);
+    println!("cargo:rustc-env=AOS_BUILD_ID={}", build_id);
+    println!("cargo:rustc-env=RUSTC_VERSION={}", rustc_version);
+
+    // Write build_id.txt to workspace target for cross-crate/script access
+    if let Some(workspace_target) = find_workspace_target() {
+        let _ = std::fs::write(workspace_target.join("build_id.txt"), &build_id);
+    }
+}
+
+/// Get short git commit hash via `git describe --tags --always --dirty=-dirty`
+fn get_git_hash() -> String {
+    if let Ok(output) = Command::new("git")
+        .args(["describe", "--tags", "--always", "--dirty=-dirty"])
+        .output()
+    {
+        if output.status.success() {
+            let desc = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            // If it's just a bare hash (no tag), truncate to 7 chars
+            if !desc.contains('-') && desc.len() >= 7 && desc.chars().all(|c| c.is_ascii_hexdigit())
+            {
+                return desc.chars().take(7).collect();
+            }
+            return desc;
+        }
+    }
+
+    // Fallback to rev-parse
+    if let Ok(output) = Command::new("git")
+        .args(["rev-parse", "--short=7", "HEAD"])
+        .output()
+    {
+        if output.status.success() {
+            return String::from_utf8_lossy(&output.stdout).trim().to_string();
+        }
+    }
+
+    "unknown".to_string()
+}
+
+/// Get build timestamp in compact format: YYYYMMDDHHmmss
+fn get_build_timestamp() -> String {
+    // Use SOURCE_DATE_EPOCH for reproducible builds if set
+    if let Ok(epoch) = std::env::var("SOURCE_DATE_EPOCH") {
+        if let Ok(secs) = epoch.parse::<i64>() {
+            if let Ok(output) = Command::new("date")
+                .args(["-u", "-r", &secs.to_string(), "+%Y%m%d%H%M%S"])
+                .output()
+            {
+                if output.status.success() {
+                    return String::from_utf8_lossy(&output.stdout).trim().to_string();
+                }
+            }
+        }
+    }
+
+    if let Ok(output) = Command::new("date").args(["-u", "+%Y%m%d%H%M%S"]).output() {
+        if output.status.success() {
+            return String::from_utf8_lossy(&output.stdout).trim().to_string();
+        }
+    }
+
+    "00000000000000".to_string()
+}
+
+/// Get rustc version string
+fn get_rustc_version() -> String {
+    if let Ok(output) = Command::new("rustc").arg("--version").output() {
+        if output.status.success() {
+            return String::from_utf8_lossy(&output.stdout).trim().to_string();
+        }
+    }
+    "unknown".to_string()
 }
 
 /// Find workspace root by walking up from CARGO_MANIFEST_DIR
@@ -48,6 +137,11 @@ fn find_workspace_root() -> Option<PathBuf> {
     }
 
     None
+}
+
+/// Find workspace target directory for cross-crate build artifact sharing
+fn find_workspace_target() -> Option<PathBuf> {
+    find_workspace_root().map(|root| root.join("target"))
 }
 
 /// Compute the highest migration number from the migrations directory

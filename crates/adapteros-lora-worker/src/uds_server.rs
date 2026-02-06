@@ -1509,10 +1509,26 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
         let (tx, mut rx) = mpsc::channel::<WorkerStreamEvent>(64);
         let worker_clone = worker.clone();
 
-        tokio::spawn(async move {
+        let inference_handle = tokio::spawn(async move {
             let mut worker_guard = worker_clone.lock().await;
-            let _ = worker_guard.infer_stream(inference_req, tx).await;
+            if let Err(e) = worker_guard.infer_stream(inference_req, tx).await {
+                tracing::error!(error = %e, "Streaming inference failed");
+            }
         });
+
+        // Guard to abort the spawned task on early exit (e.g., client disconnect)
+        struct AbortOnDrop(Option<tokio::task::JoinHandle<()>>);
+        impl Drop for AbortOnDrop {
+            fn drop(&mut self) {
+                if let Some(handle) = self.0.take() {
+                    if !handle.is_finished() {
+                        handle.abort();
+                        tracing::debug!("Aborted orphaned inference task on handler exit");
+                    }
+                }
+            }
+        }
+        let _abort_guard = AbortOnDrop(Some(inference_handle));
 
         while let Some(event) = rx.recv().await {
             let payload = match &event {

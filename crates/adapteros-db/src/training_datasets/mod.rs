@@ -70,7 +70,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use sqlx::{Sqlite, Transaction};
 use std::collections::{HashMap, HashSet};
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 // Normalization functions imported from adapteros_core (via adapteros-infra-common)
 
@@ -735,7 +736,7 @@ impl Db {
         dataset_hash_b3: Option<&str>,
         repo_slug: Option<&str>,
     ) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Dst);
         let final_status = status.unwrap_or("uploaded");
         let final_dataset_hash = dataset_hash_b3.unwrap_or(hash_b3);
         let repo_slug = sanitize_repo_slug(repo_slug).map(|slug| normalize_repo_slug(&slug));
@@ -833,7 +834,7 @@ impl Db {
         let id = params
             .id
             .clone()
-            .unwrap_or_else(|| Uuid::now_v7().to_string());
+            .unwrap_or_else(|| new_id(IdPrefix::Dst));
         let final_dataset_hash = params.dataset_hash_b3.as_deref().unwrap_or(&params.hash_b3);
         let metadata_json = merge_metadata_with_category(
             params.metadata_json.as_deref(),
@@ -1337,7 +1338,7 @@ impl Db {
         operation_type: Option<&str>,
         ordinal: Option<i32>,
     ) -> Result<u64> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Dst);
         let operation_type = operation_type.unwrap_or("created");
         let ordinal = ordinal.unwrap_or(0);
 
@@ -1378,7 +1379,7 @@ impl Db {
         operation_type: Option<&str>,
         ordinal: Option<i32>,
     ) -> Result<u64> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Dst);
         let operation_type = operation_type.unwrap_or("trained");
         let ordinal = ordinal.unwrap_or(0);
 
@@ -1457,7 +1458,7 @@ impl Db {
     ) -> Result<String> {
         validate_hash_b3(&params.content_hash_b3)?;
 
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Dst);
         let include_private_flag = params
             .include_private
             .map(|value| if value { 1 } else { 0 });
@@ -1794,7 +1795,7 @@ impl Db {
         .await
         .map_err(db_err("next dataset version number"))?;
 
-        let version_id = Uuid::now_v7().to_string();
+        let version_id = new_id(IdPrefix::Dst);
 
         sqlx::query(
             "INSERT INTO training_dataset_versions (
@@ -2669,7 +2670,7 @@ impl Db {
         hash_b3: &str,
         mime_type: Option<&str>,
     ) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Dst);
         sqlx::query(
             "INSERT INTO dataset_files (id, dataset_id, file_name, file_path, size_bytes, hash_b3, mime_type)
              VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -2741,7 +2742,7 @@ impl Db {
                 continue;
             }
 
-            let id = Uuid::now_v7().to_string();
+            let id = new_id(IdPrefix::Dst);
             sqlx::query(
                 "INSERT INTO dataset_files (id, dataset_id, file_name, file_path, size_bytes, hash_b3, mime_type)
                  VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -3180,7 +3181,7 @@ impl Db {
         determinism_mode: Option<&str>,
         validation_hash_b3: Option<&str>,
     ) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Dst);
         let is_deterministic = validation_seed_hex.is_some() as i32;
         sqlx::query(
             "INSERT INTO dataset_version_validations (
@@ -3217,7 +3218,7 @@ impl Db {
     ) -> Result<String> {
         let prev_effective = self.get_effective_trust_state(dataset_version_id).await?;
 
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Dst);
         sqlx::query(
             "INSERT INTO dataset_version_overrides (
                 id, dataset_version_id, override_state, reason, created_by
@@ -3727,7 +3728,7 @@ impl Db {
         created_by: Option<&str>,
         metadata_json: Option<&str>,
     ) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Dst);
         sqlx::query(
             "INSERT INTO evidence_entries (
                 id, dataset_id, adapter_id, evidence_type, reference,
@@ -3907,7 +3908,7 @@ impl Db {
         adapter_id: &str,
         link_type: &str,
     ) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Dst);
         sqlx::query(
             "INSERT INTO dataset_adapter_links (id, dataset_id, adapter_id, link_type)
              VALUES (?, ?, ?, ?)
@@ -5560,7 +5561,7 @@ impl Db {
         &self,
         params: &CreateCodebaseDatasetRowParams,
     ) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Dst);
 
         // Compute content hash for deduplication
         let hash_input = format!("{}:{}:{}", params.prompt, params.response, params.weight);
@@ -5697,7 +5698,7 @@ impl Db {
         let mut count = 0;
 
         for params in rows {
-            let id = Uuid::now_v7().to_string();
+            let id = new_id(IdPrefix::Dst);
 
             // Compute content hash for deduplication
             let hash_input = format!("{}:{}:{}", params.prompt, params.response, params.weight);
@@ -6300,7 +6301,7 @@ impl Db {
         dataset_hash_b3: Option<&str>,
         tenant_id: Option<&str>,
     ) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Dst);
 
         sqlx::query(
             "INSERT INTO adapter_training_lineage (

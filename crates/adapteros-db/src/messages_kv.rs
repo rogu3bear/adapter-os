@@ -9,7 +9,8 @@ use adapteros_storage::KvBackend;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MessageKv {
@@ -174,7 +175,7 @@ impl MessageKvRepository {
         thread_id: Option<&str>,
     ) -> MessageKv {
         MessageKv {
-            id: Uuid::now_v7().to_string(),
+            id: new_id(IdPrefix::Msg),
             workspace_id: workspace_id.to_string(),
             from_user_id: from_user_id.to_string(),
             from_tenant_id: from_tenant_id.to_string(),

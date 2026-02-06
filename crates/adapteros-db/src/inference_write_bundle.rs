@@ -15,7 +15,8 @@ use crate::{Db, Result};
 use adapteros_core::AosError;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tracing::{debug, error, info};
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 /// AUDIT: Global counter for successful bundle commits
 static BUNDLE_COMMIT_SUCCESS: AtomicU64 = AtomicU64::new(0);
@@ -122,7 +123,7 @@ impl Db {
 
         // Write evidence entries
         for params in &bundle.evidence_params {
-            let id = Uuid::new_v4().to_string();
+            let id = new_id(IdPrefix::Trc);
 
             // Serialize RAG fields to JSON
             let rag_doc_ids_json = params
@@ -187,7 +188,7 @@ impl Db {
 
         // Write replay metadata if present
         let replay_id = if let Some(params) = &bundle.replay_metadata_params {
-            let id = Uuid::new_v4().to_string();
+            let id = new_id(IdPrefix::Trc);
 
             // Serialize adapter IDs and RAG doc IDs to JSON
             let adapter_ids_json = params

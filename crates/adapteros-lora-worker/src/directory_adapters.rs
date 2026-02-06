@@ -173,7 +173,7 @@ fn generate_weights(fingerprint: &B3Hash, rank: usize, hidden_dim: usize) -> LoR
     }
 
     LoRAWeights {
-        modules: std::collections::HashMap::new(),
+        modules: std::collections::BTreeMap::new(),
         lora_a,
         lora_b,
         moe_config: None,

@@ -428,7 +428,7 @@ impl StackKvRepository {
 #[async_trait]
 impl StackKvOps for StackKvRepository {
     async fn create_stack(&self, req: &CreateStackRequest) -> Result<String> {
-        let id = uuid::Uuid::new_v4().to_string();
+        let id = crate::new_id(adapteros_id::IdPrefix::Stk);
         let now = Utc::now();
 
         let workflow_type = req

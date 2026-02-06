@@ -21,7 +21,7 @@
 //! - WAL checkpoint (database health)
 //! - TTL cleanup (prevents DB bloat)
 //!
-//! ## Production Mode Tasks (10 tasks)
+//! ## Production Mode Tasks (14 tasks)
 //!
 //! 1. Status writer task (5s interval)
 //! 2. KV metrics alert monitor task (5s interval)
@@ -33,6 +33,10 @@
 //! 8. Telemetry bundle GC task (6h interval)
 //! 9. Orphaned training job cleanup task (1h interval)
 //! 10. Rate limiter eviction task (60s interval)
+//! 11. Inference cache cleanup task (5m interval)
+//! 12. Idempotency store cleanup task (5m interval)
+//! 13. Inference state tracker cleanup task (5m interval)
+//! 14. Telemetry rate limiter cleanup task (60s interval)
 //!
 //! Each task uses the `BackgroundTaskSpawner` to integrate with the shutdown coordinator
 //! and task tracking system.
@@ -1134,6 +1138,137 @@ pub async fn spawn_all_background_tasks(
             .is_ok()
         {
             info!("Inference cache cleanup task started (5 minute interval)");
+        }
+        shutdown_coordinator = spawner.into_coordinator();
+    }
+
+    // Spawn idempotency store cleanup task (5 minute interval)
+    // Cleans up expired entries to reclaim memory (RESOURCE EXHAUSTION FIX)
+    {
+        let idempotency_store = state.idempotency_store.clone();
+        let mut spawner = BackgroundTaskSpawner::new(shutdown_coordinator)
+            .with_task_tracker(Arc::clone(&background_tasks));
+        let mut shutdown_rx = spawner.coordinator().subscribe_shutdown();
+        if spawner
+            .spawn_optional(
+                "Idempotency store cleanup",
+                async move {
+                    let mut interval = tokio::time::interval(Duration::from_secs(300)); // 5 minutes
+                    interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+                    loop {
+                        tokio::select! {
+                            biased;
+                            _ = shutdown_rx.recv() => {
+                                info!("Idempotency store cleanup received shutdown signal, exiting gracefully");
+                                break;
+                            }
+                            _ = interval.tick() => {
+                                let removed = idempotency_store.cleanup_expired();
+                                if removed > 0 {
+                                    debug!(
+                                        removed_count = removed,
+                                        remaining_entries = idempotency_store.len(),
+                                        "Cleaned up expired idempotency entries"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                },
+                "Expired idempotency entries may accumulate",
+            )
+            .is_ok()
+        {
+            info!("Idempotency store cleanup task started (5 minute interval)");
+        }
+        shutdown_coordinator = spawner.into_coordinator();
+    }
+
+    // Spawn inference state tracker cleanup task (5 minute interval)
+    // Cleans up terminal states older than TTL (RESOURCE EXHAUSTION FIX)
+    if let Some(ref tracker) = state.inference_state_tracker {
+        let tracker = Arc::clone(tracker);
+        let mut spawner = BackgroundTaskSpawner::new(shutdown_coordinator)
+            .with_task_tracker(Arc::clone(&background_tasks));
+        let mut shutdown_rx = spawner.coordinator().subscribe_shutdown();
+        if spawner
+            .spawn_optional(
+                "Inference state tracker cleanup",
+                async move {
+                    let mut interval = tokio::time::interval(Duration::from_secs(300)); // 5 minutes
+                    interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+                    loop {
+                        tokio::select! {
+                            biased;
+                            _ = shutdown_rx.recv() => {
+                                info!("Inference state tracker cleanup received shutdown signal, exiting gracefully");
+                                break;
+                            }
+                            _ = interval.tick() => {
+                                let removed = tracker.cleanup_expired();
+                                if removed > 0 {
+                                    debug!(
+                                        removed_count = removed,
+                                        remaining_entries = tracker.count(),
+                                        "Cleaned up expired inference state entries"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                },
+                "Expired inference state entries may accumulate",
+            )
+            .is_ok()
+        {
+            info!("Inference state tracker cleanup task started (5 minute interval)");
+        }
+        shutdown_coordinator = spawner.into_coordinator();
+    }
+
+    // Spawn telemetry rate limiter cleanup task (60s interval)
+    // Cleans up stale tenant rate limiter buckets (RESOURCE EXHAUSTION FIX)
+    // SKIPPED in dev mode - production cleanup only
+    if !dev_mode {
+        let telemetry_buffer = state.telemetry_buffer.clone();
+        let mut spawner = BackgroundTaskSpawner::new(shutdown_coordinator)
+            .with_task_tracker(Arc::clone(&background_tasks));
+        let mut shutdown_rx = spawner.coordinator().subscribe_shutdown();
+        if spawner
+            .spawn_optional(
+                "Telemetry rate limiter cleanup",
+                async move {
+                    let mut interval = tokio::time::interval(Duration::from_secs(60));
+                    interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+                    loop {
+                        tokio::select! {
+                            biased;
+                            _ = shutdown_rx.recv() => {
+                                info!("Telemetry rate limiter cleanup received shutdown signal, exiting gracefully");
+                                break;
+                            }
+                            _ = interval.tick() => {
+                                let removed = telemetry_buffer.cleanup_stale_rate_limiters().await;
+                                if removed > 0 {
+                                    let remaining = telemetry_buffer.rate_limiter_count().await;
+                                    debug!(
+                                        removed_count = removed,
+                                        remaining_buckets = remaining,
+                                        "Cleaned up stale telemetry rate limiter buckets"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                },
+                "Stale telemetry rate limiter buckets may accumulate",
+            )
+            .is_ok()
+        {
+            info!("Telemetry rate limiter cleanup task started (60s interval)");
         }
         shutdown_coordinator = spawner.into_coordinator();
     }

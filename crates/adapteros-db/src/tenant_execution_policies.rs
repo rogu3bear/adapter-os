@@ -167,7 +167,7 @@ impl Db {
     ) -> Result<String> {
         debug!(tenant_id = %tenant_id, "Creating execution policy");
 
-        let id = uuid::Uuid::new_v4().to_string();
+        let id = crate::new_id(adapteros_id::IdPrefix::Pol);
 
         // Get the next version number
         let version = self.get_next_policy_version(tenant_id).await?;

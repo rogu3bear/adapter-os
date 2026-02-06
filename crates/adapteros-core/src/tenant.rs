@@ -14,7 +14,7 @@
 //!
 //! // Use default for single-tenant mode
 //! let default = TenantId::single_tenant_default();
-//! assert_eq!(default.as_str(), "primary");
+//! assert_eq!(default.as_str(), "default");
 //!
 //! // Create tenant context for request handling
 //! let ctx = TenantContext::new(tenant);
@@ -133,10 +133,10 @@ impl TenantId {
 
     /// Get the default tenant ID for single-tenant deployments
     ///
-    /// Returns a TenantId with value "primary". Use this as the default
+    /// Returns a TenantId with value "default". Use this as the default
     /// when `single_tenant_mode` is enabled in configuration.
     pub fn single_tenant_default() -> Self {
-        Self("primary".to_string())
+        Self("default".to_string())
     }
 
     /// Get the system tenant ID for internal operations
@@ -165,7 +165,7 @@ impl TenantId {
     /// // With TENANT_ID unset or invalid
     /// std::env::remove_var("TENANT_ID");
     /// let tenant = TenantId::from_env();
-    /// assert_eq!(tenant.as_str(), "primary");
+    /// assert_eq!(tenant.as_str(), "default");
     /// ```
     pub fn from_env() -> Self {
         std::env::var("TENANT_ID")
@@ -486,7 +486,7 @@ mod tests {
     #[test]
     fn test_tenant_id_special_values() {
         let default = TenantId::single_tenant_default();
-        assert_eq!(default.as_str(), "primary");
+        assert_eq!(default.as_str(), "default");
 
         let system = TenantId::system();
         assert_eq!(system.as_str(), "system");
@@ -602,7 +602,7 @@ mod tests {
     #[test]
     fn test_tenant_context_single_tenant() {
         let ctx = TenantContext::single_tenant();
-        assert_eq!(ctx.tenant.as_str(), "primary");
+        assert_eq!(ctx.tenant.as_str(), "default");
         assert!(ctx.workspace.is_none());
     }
 

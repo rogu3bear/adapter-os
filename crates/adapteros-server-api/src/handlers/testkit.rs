@@ -22,6 +22,7 @@ use serde_json::json;
 
 const E2E_ENV: &str = "E2E_MODE";
 const DEV_BYPASS_ENV: &str = "VITE_ENABLE_DEV_BYPASS";
+const PRODUCTION_MODE_ENV: &str = "AOS_PRODUCTION_MODE";
 
 // Deterministic fixture constants shared across endpoints
 const TENANT_ID: &str = "tenant-test";
@@ -67,12 +68,43 @@ fn flag_enabled(env: &str) -> bool {
     )
 }
 
+/// Check if production mode is enabled via AOS_PRODUCTION_MODE env var.
+///
+/// SECURITY: Production mode blocks testkit endpoints regardless of other env vars.
+fn is_production_mode() -> bool {
+    flag_enabled(PRODUCTION_MODE_ENV)
+}
+
 fn e2e_env_enabled() -> bool {
     flag_enabled(E2E_ENV) || flag_enabled(DEV_BYPASS_ENV)
 }
 
 fn ensure_e2e_mode() -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+    // SECURITY: Production mode takes precedence - testkit is NEVER available in production
+    if is_production_mode() {
+        tracing::warn!(
+            "Testkit endpoint called in production mode - rejecting request. \
+             Testkit endpoints are disabled when AOS_PRODUCTION_MODE=1"
+        );
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(
+                ErrorResponse::new("testkit unavailable in production")
+                    .with_code("TESTKIT_PRODUCTION_BLOCKED")
+                    .with_string_details(
+                        "Testkit endpoints are disabled in production mode (AOS_PRODUCTION_MODE=1). \
+                         This is a security measure to prevent data loss.",
+                    ),
+            ),
+        ));
+    }
+
     if e2e_env_enabled() {
+        tracing::warn!(
+            e2e_mode = flag_enabled(E2E_ENV),
+            dev_bypass = flag_enabled(DEV_BYPASS_ENV),
+            "Testkit endpoint enabled - this allows destructive operations (reset, seed)"
+        );
         return Ok(());
     }
 

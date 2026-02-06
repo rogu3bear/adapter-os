@@ -3,39 +3,9 @@ use crate::repositories_kv::{
     CodeGraphMetadataKv, RepositoryKv, RepositoryKvRepository, ScanJobKv,
 };
 use crate::{Db, StorageMode};
-use adapteros_core::{derive_seed, AosError, B3Hash, Result};
+use adapteros_core::{AosError, Result};
 use chrono::Utc;
-use rand::SeedableRng;
-use rand_chacha::ChaCha20Rng;
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::{AtomicU64, Ordering};
-
-// Global counter for deterministic ID generation
-static ID_COUNTER: AtomicU64 = AtomicU64::new(0);
-
-/// Generate deterministic ID using HKDF-derived seed
-///
-/// Per Determinism Policy: All randomness must be seeded via HKDF.
-/// This replaces the previous rand::random() implementation which violated the policy.
-fn generate_id() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_micros();
-
-    // Derive deterministic seed for ID generation
-    let global_seed = B3Hash::hash(b"adapteros-db-id-generation");
-    let counter = ID_COUNTER.fetch_add(1, Ordering::SeqCst);
-    let seed = derive_seed(&global_seed, &format!("repo_id:{}", counter));
-
-    // Use seeded RNG instead of rand::random()
-    let mut rng = ChaCha20Rng::from_seed(seed);
-    let random_suffix: u32 = rand::Rng::gen(&mut rng);
-
-    format!("{:016x}{:08x}", timestamp, random_suffix)
-}
 
 /// Repository information
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -213,7 +183,7 @@ impl Db {
         languages: &[String],
         default_branch: &str,
     ) -> Result<Repository> {
-        let id = generate_id();
+        let id = crate::new_id(adapteros_id::IdPrefix::Rep);
         let languages_json = serde_json::to_string(&languages)
             .map_err(|e| AosError::Validation(format!("Failed to serialize languages: {}", e)))?;
 
@@ -582,7 +552,7 @@ impl Db {
         vector_index_hash: Option<&str>,
         test_map_hash: Option<&str>,
     ) -> Result<String> {
-        let id = generate_id();
+        let id = crate::new_id(adapteros_id::IdPrefix::Rep);
         let languages_json = serde_json::to_string(&languages)
             .map_err(|e| AosError::Validation(format!("Failed to serialize languages: {}", e)))?;
         let frameworks_json = frameworks.map(|f| f.to_string());
@@ -726,7 +696,7 @@ impl Db {
 
     /// Create scan job
     pub async fn create_scan_job(&self, repo_id: &str, commit_sha: &str) -> Result<String> {
-        let id = generate_id();
+        let id = crate::new_id(adapteros_id::IdPrefix::Job);
 
         let started_at = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
 

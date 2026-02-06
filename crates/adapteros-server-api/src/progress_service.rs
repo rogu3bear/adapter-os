@@ -727,7 +727,7 @@ impl ProgressService {
 
         let event = ProgressEvent {
             event_id: crate::id_generator::readable_id(
-                adapteros_core::ids::IdKind::Event,
+                adapteros_id::IdPrefix::Evt,
                 "progress",
             ),
             operation_id,

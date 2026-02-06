@@ -14,7 +14,7 @@
 
 #[cfg(target_arch = "wasm32")]
 use crate::api::ApiClient;
-use crate::components::{Button, ButtonVariant, FormField, Input, Spinner};
+use crate::components::{Button, ButtonVariant, Dialog, DialogSize, FormField, Input, Spinner};
 use adapteros_api_types::training::{GenerateDatasetResponse, GeneratedSample};
 use leptos::prelude::*;
 
@@ -216,34 +216,14 @@ pub fn GenerateDatasetWizard(
     };
 
     view! {
-        <Show when=move || open.get()>
-            // Backdrop
-            <div
-                class="fixed inset-0 z-50 bg-black/80"
-                on:click=move |_| close(())
-            />
-
-            // Modal
-            <div class="fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 w-full max-w-2xl max-h-[85vh] overflow-y-auto">
-                <div class="card rounded-lg border shadow-lg p-6 space-y-4">
-                    // Header
-                    <div class="flex items-center justify-between">
-                        <div>
-                            <h2 class="text-lg font-semibold">"Generate Dataset from File"</h2>
-                            <p class="text-sm text-muted-foreground">
-                                "Upload a text file to generate training data using local inference"
-                            </p>
-                        </div>
-                        <button
-                            class="rounded-sm opacity-70 hover:opacity-100"
-                            on:click=move |_| close(())
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M18 6 6 18"/>
-                                <path d="m6 6 12 12"/>
-                            </svg>
-                        </button>
-                    </div>
+        <Dialog
+            open=open
+            title="Generate Dataset from File".to_string()
+            description="Upload a text file to generate training data using local inference".to_string()
+            size=DialogSize::Lg
+            scrollable=true
+        >
+                <div class="space-y-4">
 
                     // Error message
                     {move || error.get().map(|e| view! {
@@ -539,7 +519,6 @@ pub fn GenerateDatasetWizard(
                         </Show>
                     </div>
                 </div>
-            </div>
-        </Show>
+        </Dialog>
     }
 }

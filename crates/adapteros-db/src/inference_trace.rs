@@ -13,7 +13,6 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use sqlx::{QueryBuilder, Row};
 use std::sync::Arc;
-use uuid::Uuid;
 
 #[derive(Debug, Clone)]
 pub struct TraceStart {
@@ -931,7 +930,7 @@ impl TraceSink for SqlTraceSink {
                 receipt_signing_kid,
                 receipt_signed_at,
                 created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
             "#,
         )
         .bind(&self.start.trace_id)
@@ -1105,7 +1104,7 @@ impl TraceSink for SqlTraceSink {
         let receipt = builder.finalize();
 
         // Generate a unique ID for the cancellation receipt
-        let receipt_id = uuid::Uuid::new_v4().to_string();
+        let receipt_id = crate::new_id(adapteros_id::IdPrefix::Trc);
 
         // Store in database
         sqlx::query(

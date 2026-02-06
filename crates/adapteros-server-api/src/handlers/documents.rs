@@ -116,7 +116,7 @@ fn upsert_metadata_json(
 async fn resolve_document_id(state: &AppState, id: &str) -> Result<String, ApiError> {
     crate::id_resolver::resolve_id(
         &state.db,
-        adapteros_core::ids::IdKind::Document.prefix(),
+        adapteros_id::IdPrefix::Doc.as_str(),
         id,
     )
     .await
@@ -335,7 +335,7 @@ pub async fn upload_document(
             &document_name
         };
         document_id =
-            crate::id_generator::readable_id(adapteros_core::ids::IdKind::Document, slug_source);
+            crate::id_generator::readable_id(adapteros_id::IdPrefix::Doc, slug_source);
     }
 
     let file_data = file_data.ok_or_else(|| ApiError::bad_request("No file uploaded"))?;
@@ -1003,7 +1003,7 @@ async fn process_document_inner(
     for chunk in &ingested_doc.chunks {
         // Generate chunk UUID for document_chunks table
         let chunk_db_id =
-            crate::id_generator::readable_id(adapteros_core::ids::IdKind::Chunk, "chunk");
+            crate::id_generator::readable_id(adapteros_id::IdPrefix::Chk, "chunk");
 
         // Generate embedding with retry/backoff so one bad chunk does not abort the batch
         let embedding = embed_with_backoff(embedding_model, &chunk.text).await;
@@ -1090,7 +1090,7 @@ async fn process_document_inner(
                 ))
             })?)
             .bind(crate::id_generator::readable_id(
-                adapteros_core::ids::IdKind::Chunk,
+                adapteros_id::IdPrefix::Chk,
                 "chunk",
             ))
             .execute(&mut *tx)

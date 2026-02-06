@@ -7,7 +7,8 @@ use crate::Db;
 use adapteros_core::Result;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 /// Progress event record stored in database
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -77,7 +78,7 @@ impl Db {
         message: Option<&str>,
         metadata: Option<&str>,
     ) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Evt);
         let now = Utc::now().to_rfc3339();
 
         sqlx::query(

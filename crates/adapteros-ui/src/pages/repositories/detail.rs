@@ -31,7 +31,7 @@ pub fn RepositoryDetailPanel(
         <div class="space-y-4">
             // Header with close button
             <div class="flex items-center justify-between">
-                <h2 class="text-xl font-semibold">"Repository Details"</h2>
+                <h2 class="heading-3">"Repository Details"</h2>
                 <Button
                     variant=ButtonVariant::Ghost
                     size=ButtonSize::IconSm

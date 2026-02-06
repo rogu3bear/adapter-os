@@ -192,7 +192,7 @@ impl Db {
     /// # use adapteros_db::{Db, RuntimeSession};
     /// # async fn example(db: &Db) -> Result<(), Box<dyn std::error::Error>> {
     /// let session = RuntimeSession {
-    ///     id: uuid::Uuid::new_v4().to_string(),
+    ///     id: adapteros_id::TypedId::new(adapteros_id::IdPrefix::Ses).to_string(),
     ///     session_id: "session-123".to_string(),
     ///     config_hash: "abc123".to_string(),
     ///     binary_version: "0.3.0-alpha".to_string(),

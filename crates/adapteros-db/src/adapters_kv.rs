@@ -430,7 +430,7 @@ impl From<AdapterKv> for Adapter {
 #[async_trait::async_trait]
 impl AdapterKvOps for AdapterKvRepository {
     async fn register_adapter_kv(&self, params: AdapterRegistrationParams) -> Result<String> {
-        let id = uuid::Uuid::now_v7().to_string();
+        let id = crate::new_id(adapteros_id::IdPrefix::Adp);
         self.register_adapter_kv_with_id(&id, params).await
     }
 

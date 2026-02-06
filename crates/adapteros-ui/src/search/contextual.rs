@@ -5,6 +5,7 @@
 
 use crate::search::{SearchAction, SearchResult, SearchResultType};
 use crate::signals::page_context::RouteContext;
+use crate::utils::chat_path_with_adapter;
 use leptos::prelude::GetUntracked;
 
 /// Generate contextual actions based on current page context.
@@ -88,7 +89,7 @@ pub fn generate_contextual_actions(ctx: &RouteContext) -> Vec<SearchResult> {
                     title: "Test adapter in chat".to_string(),
                     subtitle: Some(sel.entity_name.clone()),
                     score: 2.0,
-                    action: SearchAction::Navigate(format!("/chat?adapter={}", sel.entity_id)),
+                    action: SearchAction::Navigate(chat_path_with_adapter(&sel.entity_id)),
                     shortcut: None,
                 });
 

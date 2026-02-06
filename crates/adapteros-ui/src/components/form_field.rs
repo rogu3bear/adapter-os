@@ -30,8 +30,15 @@ pub fn use_form_field_context() -> Option<FormFieldContext> {
 /// Help tooltip icon.
 #[component]
 pub fn HelpTooltip(#[prop(into)] text: String) -> impl IntoView {
+    let aria_label = format!("Help: {}", text);
     view! {
-        <span class="help-tooltip" title=text aria-label="Help">
+        <span
+            class="help-tooltip"
+            title=text
+            aria-label=aria_label
+            tabindex="0"
+            role="button"
+        >
             "?"
         </span>
     }

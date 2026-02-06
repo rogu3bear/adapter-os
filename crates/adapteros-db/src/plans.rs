@@ -2,7 +2,8 @@ use crate::plans_kv::{kv_to_plan, plan_to_kv, PlanKvRepository};
 use crate::{models::Plan, Db, StorageMode};
 use adapteros_core::{AosError, Result};
 use chrono::Utc;
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 impl Db {
     fn get_plan_kv_repo(&self) -> Option<PlanKvRepository> {
@@ -25,7 +26,7 @@ impl Db {
         kernel_hashes_json: &str,
         layout_hash_b3: &str,
     ) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Pln);
         let now = Utc::now().to_rfc3339();
 
         if self.storage_mode().write_to_sql() {

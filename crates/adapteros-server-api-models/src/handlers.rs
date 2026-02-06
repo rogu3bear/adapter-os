@@ -428,7 +428,7 @@ pub async fn load_model(
         let op_id = op_id.clone();
         let now = now.clone();
         async move {
-            let _ = state
+            if let Err(e) = state
                 .db
                 .update_base_model_status(
                     tenant_id,
@@ -437,11 +437,25 @@ pub async fn load_model(
                     Some(&err_msg),
                     None,
                 )
-                .await;
-            let _ = state
+                .await
+            {
+                error!(
+                    model_id = %model_id,
+                    error = %e,
+                    "Failed to update model status to error during cleanup"
+                );
+            }
+            if let Err(e) = state
                 .db
                 .update_model_operation(&op_id, "failed", Some(&err_msg), Some(&now), None)
-                .await;
+                .await
+            {
+                error!(
+                    op_id = %op_id,
+                    error = %e,
+                    "Failed to update model operation to failed during cleanup"
+                );
+            }
             log_failure_or_warn(
                 &state.db,
                 &claims,
@@ -612,10 +626,17 @@ pub async fn load_model(
             "Failed to update model status after worker response"
         );
         // Log operation failure
-        let _ = state
+        if let Err(op_err) = state
             .db
             .update_model_operation(&op_id, "failed", Some(&e.to_string()), Some(&now), None)
-            .await;
+            .await
+        {
+            error!(
+                op_id = %op_id,
+                error = %op_err,
+                "Failed to update model operation status after status update failure"
+            );
+        }
         // Audit log: model load failure
         log_failure_or_warn(
             &state.db,
@@ -646,10 +667,17 @@ pub async fn load_model(
 
     // If worker returned an error, report it
     if let Some(error_msg) = load_error {
-        let _ = state
+        if let Err(e) = state
             .db
             .update_model_operation(&op_id, "failed", Some(&error_msg), Some(&now), None)
-            .await;
+            .await
+        {
+            error!(
+                op_id = %op_id,
+                error = %e,
+                "Failed to update model operation status for worker error"
+            );
+        }
         log_failure_or_warn(
             &state.db,
             &claims,
@@ -679,10 +707,17 @@ pub async fn load_model(
 
     // Log successful operation
     let completion_time = chrono::Utc::now().to_rfc3339();
-    let _ = state
+    if let Err(e) = state
         .db
         .update_model_operation(&op_id, "completed", None, Some(&completion_time), Some(100))
-        .await;
+        .await
+    {
+        error!(
+            op_id = %op_id,
+            error = %e,
+            "Failed to update model operation status to completed"
+        );
+    }
 
     // Audit log: model load success
     log_success_or_warn(
@@ -920,10 +955,17 @@ pub async fn unload_model(
         .await
     {
         error!("Failed to update model status to unloading: {}", e);
-        let _ = state
+        if let Err(op_err) = state
             .db
             .update_model_operation(&op_id, "failed", Some(&e.to_string()), Some(&now), None)
-            .await;
+            .await
+        {
+            error!(
+                op_id = %op_id,
+                error = %op_err,
+                "Failed to update model operation status after unloading status failure"
+            );
+        }
         log_failure_or_warn(
             &state.db,
             &claims,
@@ -964,10 +1006,17 @@ pub async fn unload_model(
     {
         error!("Failed to update model status to no-model: {}", e);
         // Log operation failure
-        let _ = state
+        if let Err(op_err) = state
             .db
             .update_model_operation(&op_id, "failed", Some(&e.to_string()), Some(&now), None)
-            .await;
+            .await
+        {
+            error!(
+                op_id = %op_id,
+                error = %op_err,
+                "Failed to update model operation status after no-model status failure"
+            );
+        }
         // Audit log: model unload failure
         log_failure_or_warn(
             &state.db,
@@ -998,10 +1047,17 @@ pub async fn unload_model(
 
     // Log successful operation
     let completion_time = chrono::Utc::now().to_rfc3339();
-    let _ = state
+    if let Err(e) = state
         .db
         .update_model_operation(&op_id, "completed", None, Some(&completion_time), Some(100))
-        .await;
+        .await
+    {
+        error!(
+            op_id = %op_id,
+            error = %e,
+            "Failed to update model operation status to completed for unload"
+        );
+    }
 
     // Audit log: model unload success
     log_success_or_warn(

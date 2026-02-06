@@ -8,9 +8,86 @@ pub mod use_sse_notifications;
 pub use use_delete_dialog::{use_delete_dialog, DeleteDialogState};
 pub use use_sse_notifications::use_sse_notifications;
 
+// Re-export the Refetch type since it's part of the use_api_resource return type
+// (Callers already import from `crate::hooks`).
+
 use crate::api::{report_error, ApiClient, ApiError, ApiResult};
 use leptos::prelude::*;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+
+// ---------------------------------------------------------------------------
+// Refetch — a scope-safe handle for re-triggering API resource fetches
+// ---------------------------------------------------------------------------
+
+/// A scope-safe handle for re-fetching API data.
+///
+/// Unlike [`Callback`], calling [`Refetch::run`] after the owning reactive
+/// scope has been disposed is a silent no-op instead of a panic.  This makes
+/// it safe to call from `spawn_local` async blocks or `Effect`s that may
+/// outlive the component that created them.
+///
+/// `Refetch` is [`Copy`] and can be moved into closures freely.
+#[derive(Clone, Copy)]
+pub struct Refetch(StoredValue<Arc<dyn Fn() + Send + Sync>>);
+
+impl Refetch {
+    /// Create a new refetch handle from the given closure.
+    pub fn new(f: impl Fn() + Send + Sync + 'static) -> Self {
+        Self(StoredValue::new(Arc::new(f) as Arc<dyn Fn() + Send + Sync>))
+    }
+
+    /// Run the refetch.  No-op if the reactive scope has been disposed.
+    pub fn run(&self, _input: ()) {
+        let _ = self.0.try_with_value(|f| f());
+    }
+
+    /// Convert to a [`Callback<()>`] for use as a component prop.
+    ///
+    /// The returned `Callback` internally delegates to `Refetch::run`,
+    /// so it is safe even if the *original* scope is disposed — though the
+    /// `Callback` itself must still be alive (true for synchronous prop usage
+    /// like button clicks).
+    pub fn as_callback(self) -> Callback<()> {
+        Callback::new(move |_| self.run(()))
+    }
+}
+
+impl From<Refetch> for Callback<()> {
+    fn from(r: Refetch) -> Self {
+        r.as_callback()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Scope-alive guard — prevents panics when calling Callback from spawn_local
+// ---------------------------------------------------------------------------
+
+/// Returns an `Arc<AtomicBool>` that reads `true` while the current reactive
+/// scope is alive and flips to `false` on cleanup.
+///
+/// Use this to guard `Callback.run()` calls inside `spawn_local` blocks:
+///
+/// ```rust,ignore
+/// let alive = use_scope_alive();
+/// spawn_local(async move {
+///     // ... async work ...
+///     if alive.load(Ordering::SeqCst) {
+///         on_submit.run(());
+///     }
+/// });
+/// ```
+///
+/// In WASM's single-threaded execution model there is no race between the
+/// check and the call.
+pub fn use_scope_alive() -> Arc<AtomicBool> {
+    let alive = Arc::new(AtomicBool::new(true));
+    let alive_for_cleanup = Arc::clone(&alive);
+    on_cleanup(move || {
+        alive_for_cleanup.store(false, Ordering::SeqCst);
+    });
+    alive
+}
 
 /// Get the current page path for error reporting
 #[allow(dead_code)] // Reserved for future error reporting enhancements
@@ -58,7 +135,7 @@ impl<T> LoadingState<T> {
 ///
 /// Automatically reports API errors to the server for persistent logging.
 /// Uses a version counter to invalidate stale requests on component unmount.
-pub fn use_api_resource<T, F, Fut>(fetch: F) -> (ReadSignal<LoadingState<T>>, Callback<()>)
+pub fn use_api_resource<T, F, Fut>(fetch: F) -> (ReadSignal<LoadingState<T>>, Refetch)
 where
     T: Clone + Send + Sync + 'static,
     F: Fn(Arc<ApiClient>) -> Fut + Clone + Send + Sync + 'static,
@@ -154,7 +231,7 @@ where
         });
     });
 
-    (state, Callback::new(move |_| refetch()))
+    (state, Refetch::new(move || refetch()))
 }
 
 /// Simple polling hook with automatic cleanup

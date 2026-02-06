@@ -40,7 +40,7 @@ use std::sync::OnceLock;
 use tracing::error;
 #[cfg(debug_assertions)]
 use tracing::warn;
-use uuid::Uuid;
+use adapteros_id::{IdPrefix, TypedId};
 
 const ARGON2_MEMORY_KIB: u32 = 64 * 1024; // 64 MiB
 const ARGON2_ITERATIONS: u32 = 3;
@@ -162,6 +162,18 @@ pub struct DevBypassStatus {
     pub env_requested: bool,
 }
 
+/// Check if production mode is enabled via AOS_PRODUCTION_MODE env var.
+///
+/// SECURITY: Production mode blocks dev bypass even in debug builds.
+fn is_production_mode() -> bool {
+    env::var("AOS_PRODUCTION_MODE")
+        .map(|v| {
+            let lower = v.to_ascii_lowercase();
+            matches!(lower.as_str(), "1" | "true")
+        })
+        .unwrap_or(false)
+}
+
 fn dev_bypass_requested() -> (bool, bool) {
     let env_present = env::var("AOS_DEV_NO_AUTH").is_ok();
     let requested = env::var("AOS_DEV_NO_AUTH")
@@ -179,8 +191,24 @@ pub(crate) fn dev_bypass_status() -> &'static DevBypassStatus {
     STATUS.get_or_init(|| {
         #[cfg_attr(not(debug_assertions), allow(unused_variables))]
         let (env_present, requested) = dev_bypass_requested();
+        let production_mode = is_production_mode();
+
         #[cfg(debug_assertions)]
         {
+            // SECURITY: Production mode blocks dev bypass even in debug builds
+            if production_mode && requested {
+                warn!(
+                    "AOS_DEV_NO_AUTH requested but AOS_PRODUCTION_MODE=1 is set - \
+                     dev bypass is BLOCKED in production mode even for debug builds. \
+                     This is a security measure to prevent accidental auth bypass in production."
+                );
+                return DevBypassStatus {
+                    active: false,
+                    build: "debug",
+                    env_requested: true,
+                };
+            }
+
             if requested {
                 warn!(
                     "Dev auth bypass ENABLED via AOS_DEV_NO_AUTH (debug build only) — auth_mode=dev_bypass; unsafe for production"
@@ -534,8 +562,8 @@ pub fn generate_token_ed25519_with_admin_tenants_mfa(
         hasher.update(&now.timestamp().to_le_bytes());
         hasher.update(tenant_id.as_bytes());
         // Add a per-token nonce to avoid collisions when tokens are minted in the same second
-        let nonce = Uuid::now_v7();
-        hasher.update(nonce.as_bytes());
+        let nonce = TypedId::new(IdPrefix::Tok);
+        hasher.update(nonce.as_str().as_bytes());
         hex::encode(hasher.finalize().as_bytes())
     };
 

@@ -726,6 +726,7 @@ pub async fn workers_stream(
                     cache_max_mb: None,
                     cache_pinned_entries: None,
                     cache_active_entries: None,
+                    display_name: None,
                 })
                 .collect();
 

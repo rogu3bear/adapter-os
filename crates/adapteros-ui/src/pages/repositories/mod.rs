@@ -61,7 +61,7 @@ pub fn Repositories() -> impl IntoView {
             <div class=left_panel_class>
                 <div class="flex items-center justify-between">
                     <div>
-                        <h1 class="text-3xl font-bold tracking-tight">"Repositories"</h1>
+                        <h1 class="heading-1">"Repositories"</h1>
                         <p class="text-sm text-muted-foreground">
                             "Register and scan codebases to power code intelligence."
                         </p>
@@ -150,7 +150,7 @@ pub fn RepositoryDetail() -> impl IntoView {
                 BreadcrumbItem::current(repo_id.get()),
             ]/>
 
-            <h1 class="text-3xl font-bold tracking-tight">"Repository Details"</h1>
+            <h1 class="heading-1">"Repository Details"</h1>
 
             <RepositoryDetailStandalone repo_id=repo_id.get()/>
         </div>

@@ -43,7 +43,7 @@ use sqlx;
 #[cfg(all(feature = "dev-bypass", debug_assertions))]
 use tracing::{info, warn};
 #[cfg(all(feature = "dev-bypass", debug_assertions))]
-use uuid::Uuid;
+use adapteros_id::{TypedId, IdPrefix};
 
 #[cfg(all(feature = "dev-bypass", debug_assertions))]
 use super::audit::{log_auth_event, AuthEvent};
@@ -209,7 +209,7 @@ pub async fn dev_bypass_handler(
         }
         Ok(None) => {
             let ws_id =
-                crate::id_generator::readable_id(adapteros_core::ids::IdKind::Workspace, "dev");
+                crate::id_generator::readable_id(adapteros_id::IdPrefix::Wsp, "dev");
             info!(workspace_id = %ws_id, user_id = %user_id, "Creating default workspace for dev user");
             if let Err(e) = sqlx::query(
                 "INSERT INTO workspaces (id, name, description, created_by, created_at, updated_at) VALUES (?, 'Default Workspace', 'Auto-created workspace for development', ?, datetime('now'), datetime('now'))",
@@ -351,7 +351,7 @@ pub async fn dev_bypass_handler(
         ctx.admin_tenants = vec![ADMIN_TENANT_WILDCARD.to_string()];
     }
 
-    let session_id = format!("sess-dev-{}", Uuid::now_v7());
+    let session_id = TypedId::new(IdPrefix::Ses).to_string();
     let roles_vec = vec![ctx.role.to_string()];
 
     let token = if state.use_ed25519 {
@@ -397,7 +397,7 @@ pub async fn dev_bypass_handler(
         )
     })?;
 
-    let rot_id = format!("rot-{}", Uuid::now_v7());
+    let rot_id = TypedId::new(IdPrefix::Rot).to_string();
     let refresh_token = if state.use_ed25519 {
         issue_refresh_token_ed25519(
             &ctx.user.id,

@@ -32,7 +32,7 @@ pub fn Settings() -> impl IntoView {
             // Header with title and auto-save indicator
             <div class="flex items-center justify-between">
                 <div>
-                    <h1 class="text-3xl font-bold tracking-tight">"Settings"</h1>
+                    <h1 class="heading-1">"Settings"</h1>
                     <p class="text-sm text-muted-foreground">
                         "Manage your profile, preferences, and API configuration."
                     </p>

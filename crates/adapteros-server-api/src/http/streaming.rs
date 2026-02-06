@@ -67,7 +67,9 @@ fn default_max_tokens() -> usize {
 }
 
 fn default_temperature() -> f32 {
-    0.0
+    adapteros_config::try_effective_config()
+        .map(|c| c.inference.default_temperature)
+        .unwrap_or(0.7)
 }
 
 fn default_stream() -> bool {

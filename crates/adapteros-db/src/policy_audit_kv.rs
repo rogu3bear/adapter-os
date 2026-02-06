@@ -9,9 +9,9 @@ use adapteros_storage::KvBackend;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use uuid::Uuid;
-
+use crate::new_id;
 use crate::policy_audit::{ChainVerificationResult, PolicyAuditDecision, PolicyDecisionFilters};
+use adapteros_id::IdPrefix;
 
 pub struct PolicyAuditKvRepository {
     backend: Arc<dyn KvBackend>,
@@ -81,7 +81,7 @@ impl PolicyAuditKvRepository {
         resource_id: Option<&str>,
         metadata_json: Option<&str>,
     ) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Aud);
         let timestamp = Self::now_ts();
 
         let latest = self.latest_for_tenant(tenant_id).await?;

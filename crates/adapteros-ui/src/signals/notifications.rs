@@ -10,41 +10,8 @@ const WARNING_TOAST_DURATION_MS: u32 = 15000;
 #[cfg(target_arch = "wasm32")]
 const ERROR_TOAST_DURATION_MS: u32 = 20000;
 
-fn readable_id(prefix: &str, slug_source: &str) -> String {
-    let slug = slugify(slug_source);
-    let suffix = random_suffix(6);
-    format!("{}.{}.{}", prefix, slug, suffix)
-}
-
-fn slugify(input: &str) -> String {
-    let mut out = String::with_capacity(input.len());
-    let mut prev_dash = false;
-    for ch in input.chars() {
-        let lower = ch.to_ascii_lowercase();
-        if lower.is_ascii_alphanumeric() {
-            out.push(lower);
-            prev_dash = false;
-        } else if !prev_dash {
-            out.push('-');
-            prev_dash = true;
-        }
-    }
-    let trimmed = out.trim_matches('-').to_string();
-    if trimmed.is_empty() {
-        "item".to_string()
-    } else {
-        trimmed
-    }
-}
-
-fn random_suffix(len: usize) -> String {
-    const ALPHABET: &[u8; 32] = b"abcdefghijklmnopqrstuvwxyz234567";
-    let mut out = String::with_capacity(len);
-    for _ in 0..len {
-        let idx = (js_sys::Math::random() * 32.0).floor() as usize;
-        out.push(ALPHABET[idx] as char);
-    }
-    out
+fn readable_id(_prefix: &str, _slug_source: &str) -> String {
+    adapteros_id::TypedId::new(adapteros_id::IdPrefix::Evt).to_string()
 }
 
 /// Severity levels for notifications.

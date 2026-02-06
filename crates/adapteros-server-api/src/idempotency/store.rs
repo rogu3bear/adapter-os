@@ -172,6 +172,32 @@ impl IdempotencyStore {
     pub fn is_empty(&self) -> bool {
         self.cache.is_empty()
     }
+
+    /// Start a background cleanup task that periodically removes expired entries
+    ///
+    /// Returns a JoinHandle that can be used to cancel the task.
+    /// The task runs every `interval` and calls `cleanup_expired()`.
+    pub fn start_cleanup_task(
+        store: std::sync::Arc<Self>,
+        interval: std::time::Duration,
+    ) -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(interval);
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+            loop {
+                ticker.tick().await;
+                let removed = store.cleanup_expired();
+                if removed > 0 {
+                    info!(
+                        removed_count = removed,
+                        remaining_count = store.len(),
+                        "Idempotency store cleanup completed"
+                    );
+                }
+            }
+        })
+    }
 }
 
 #[cfg(test)]

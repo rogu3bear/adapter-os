@@ -3,10 +3,10 @@
 //! Provides database operations for policy packs, policy assignments, violations,
 //! and compliance scoring. Supports the 23 canonical policy packs with Ed25519 signing.
 
-use crate::{query_helpers::db_err, Db};
+use crate::{new_id, query_helpers::db_err, Db};
 use adapteros_core::{AosError, Result};
+use adapteros_id::IdPrefix;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 /// Policy pack record
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -227,7 +227,7 @@ impl Db {
         priority: Option<i32>,
         enforced: Option<bool>,
     ) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Pol);
         let assigned_at = chrono::Utc::now().to_rfc3339();
         let priority = priority.unwrap_or(100);
         let enforced = enforced.unwrap_or(true);
@@ -311,7 +311,7 @@ impl Db {
         violation_message: &str,
         violation_details_json: Option<&str>,
     ) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Pol);
         let detected_at = chrono::Utc::now().to_rfc3339();
 
         sqlx::query(
@@ -433,7 +433,7 @@ impl Db {
         period_start: Option<&str>,
         period_end: Option<&str>,
     ) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Pol);
         let calculated_at = chrono::Utc::now().to_rfc3339();
 
         sqlx::query(

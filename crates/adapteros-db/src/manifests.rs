@@ -1,6 +1,6 @@
-use crate::{models::Manifest, Db};
+use crate::{models::Manifest, new_id, Db};
 use adapteros_core::{AosError, Result};
-use uuid::Uuid;
+use adapteros_id::IdPrefix;
 
 impl Db {
     pub async fn create_manifest(
@@ -9,7 +9,7 @@ impl Db {
         hash_b3: &str,
         body_json: &str,
     ) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Ver);
         sqlx::query(
             "INSERT INTO manifests (id, tenant_id, hash_b3, body_json) VALUES (?, ?, ?, ?)",
         )

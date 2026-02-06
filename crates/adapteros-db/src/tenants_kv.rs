@@ -266,7 +266,7 @@ impl TenantKvRepository {
 #[async_trait]
 impl TenantKvOps for TenantKvRepository {
     async fn create_tenant_kv(&self, params: &CreateTenantParams) -> Result<String> {
-        let id = uuid::Uuid::now_v7().to_string();
+        let id = crate::new_id(adapteros_id::IdPrefix::Tnt);
 
         self.create_tenant_kv_with_id(&id, params).await?;
         Ok(id)

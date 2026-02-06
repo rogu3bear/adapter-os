@@ -1,7 +1,7 @@
-use crate::{Db, Result};
+use crate::{new_id, Db, Result};
 use adapteros_core::AosError;
+use adapteros_id::IdPrefix;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct CoremlFusionPair {
@@ -35,7 +35,7 @@ impl Db {
         &self,
         params: CreateCoremlFusionPairParams,
     ) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Mdl);
 
         sqlx::query(
             r#"

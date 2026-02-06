@@ -189,7 +189,7 @@ pub fn System() -> impl IntoView {
             // Header with title and action buttons
                 <div class="flex items-center justify-between">
                     <div class="flex items-center gap-4">
-                        <h1 class="text-3xl font-bold tracking-tight">"Infrastructure"</h1>
+                        <h1 class="heading-1">"Infrastructure"</h1>
                         <SseIndicator state=sse_status/>
                     </div>
                     <div class="flex items-center gap-2">

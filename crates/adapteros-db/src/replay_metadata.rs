@@ -11,7 +11,8 @@ use crate::{Db, Result};
 use adapteros_core::AosError;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 /// Inference replay metadata record
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -159,7 +160,7 @@ impl Db {
         &self,
         params: CreateReplayMetadataParams,
     ) -> Result<String> {
-        let id = Uuid::new_v4().to_string();
+        let id = new_id(IdPrefix::Rpl);
 
         // Serialize adapter IDs and RAG doc IDs to JSON
         let adapter_ids_json = params

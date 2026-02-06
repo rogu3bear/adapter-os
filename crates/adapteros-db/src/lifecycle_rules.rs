@@ -38,7 +38,8 @@ use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use tracing::{debug, info, warn};
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 /// Action type for lifecycle rule actions
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -431,7 +432,7 @@ impl Db {
             )));
         }
 
-        let rule_id = Uuid::new_v4().to_string();
+        let rule_id = new_id(IdPrefix::Pol);
         let conditions_json = serde_json::to_string(&params.conditions)
             .map_err(|e| AosError::Validation(format!("Failed to serialize conditions: {}", e)))?;
         let actions_json = serde_json::to_string(&params.actions)

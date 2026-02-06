@@ -197,6 +197,17 @@ pub async fn initialize_config(cli: &Cli) -> Result<ConfigContext> {
         logging::init_logging(&cfg.logging, &cfg.otel)
             .map_err(|e| anyhow::anyhow!("Failed to initialize logging: {}", e))?
     };
+    // Startup preamble: first structured log identifying this build
+    info!(
+        build_id = adapteros_core::version::BUILD_ID,
+        git_commit = adapteros_core::version::GIT_COMMIT_HASH,
+        version = adapteros_core::version::VERSION,
+        run_id = %std::env::var("AOS_RUN_ID").unwrap_or_else(|_| "none".into()),
+        profile = adapteros_core::version::BUILD_PROFILE,
+        rustc = adapteros_core::version::RUSTC_VERSION,
+        "adapterOS starting"
+    );
+
     info!(
         aos_var_dir = %preferred_var_dir.display(),
         effective_var_base = %effective_var_base.display(),

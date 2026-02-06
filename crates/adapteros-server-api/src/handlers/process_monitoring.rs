@@ -188,7 +188,7 @@ pub async fn start_debug_session(
         .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     let id = crate::id_generator::readable_id(
-        adapteros_core::ids::IdKind::Run,
+        adapteros_id::IdPrefix::Run,
         "process",
     );
     let started_at = Utc::now().to_rfc3339();
@@ -254,7 +254,7 @@ pub async fn run_troubleshooting_step(
         .map_err(|e| <(StatusCode, Json<ErrorResponse>)>::from(e))?;
 
     let id = crate::id_generator::readable_id(
-        adapteros_core::ids::IdKind::Run,
+        adapteros_id::IdPrefix::Run,
         "process",
     );
     let started_at = Utc::now().to_rfc3339();
@@ -464,18 +464,13 @@ pub async fn list_process_alerts(
         offset: None,
     };
 
+    // Return empty list on database error (graceful degradation for empty/missing tables)
     let alerts = ProcessAlert::list(state.db.pool(), filters)
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("database error")
-                        .with_code("DATABASE_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+        .unwrap_or_else(|e| {
+            tracing::warn!(error = %e, "Failed to list process alerts, returning empty list");
+            vec![]
+        });
 
     let response: Vec<ProcessAlertResponse> = alerts
         .into_iter()
@@ -789,7 +784,7 @@ pub async fn create_process_monitoring_dashboard(
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
     let id = crate::id_generator::readable_id(
-        adapteros_core::ids::IdKind::Run,
+        adapteros_id::IdPrefix::Run,
         "process",
     );
     let now = Utc::now().to_rfc3339();
@@ -1002,7 +997,7 @@ pub async fn create_process_monitoring_report(
     require_any_role(&claims, &[Role::Operator, Role::Admin])?;
 
     let id = crate::id_generator::readable_id(
-        adapteros_core::ids::IdKind::Run,
+        adapteros_id::IdPrefix::Run,
         "process",
     );
     let now = Utc::now().to_rfc3339();

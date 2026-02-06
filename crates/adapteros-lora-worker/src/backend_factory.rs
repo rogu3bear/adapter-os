@@ -1246,7 +1246,7 @@ fn create_model_server_backend(model_path: &Path) -> Result<KernelBox> {
     let client_config = ModelServerClientConfig::with_addr(&server_addr);
 
     // Generate a session ID for KV cache management
-    let session_id = uuid::Uuid::new_v4().to_string();
+    let session_id = adapteros_id::TypedId::new(adapteros_id::IdPrefix::Ses).to_string();
 
     // Create the Model Server kernels wrapper
     let kernels = ModelServerKernels::new(client_config, session_id, vocab_size);

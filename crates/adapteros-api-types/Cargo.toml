@@ -11,6 +11,8 @@ server = ["dep:axum", "dep:utoipa", "dep:adapteros-core", "dep:adapteros-telemet
 # WASM-compatible build (serde types only, no server deps)
 wasm = ["adapteros-types/wasm", "adapteros-telemetry-types/wasm"]
 [dependencies]
+# ID system (works in both server and WASM)
+adapteros-id = { path = "../adapteros-id" }
 # Serialization (always required)
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

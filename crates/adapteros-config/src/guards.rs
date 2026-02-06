@@ -302,13 +302,18 @@ impl ConfigGuards {
     }
 
     /// Check if an environment variable is set (freeze-aware)
+    ///
+    /// Returns `false` after configuration is frozen to prevent information leakage
+    /// about environment state. A violation is recorded for auditing.
     pub fn env_var_exists(key: &str) -> bool {
         if Self::is_frozen() {
             let _ = Self::record_violation(
                 "env_var_check",
                 &format!("Checked existence of {} after freeze", key),
             );
-            tracing::warn!(key = %key, "Environment variable check after freeze");
+            tracing::warn!(key = %key, "Environment variable check after freeze - returning false");
+            // Return false after freeze to prevent information leakage
+            return false;
         }
         std::env::var(key).is_ok()
     }

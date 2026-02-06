@@ -9,8 +9,10 @@
 //! - Dashboard configurations (CRUD)
 //! - Notification tracking
 
+use crate::new_id;
 use crate::query_helpers::db_err;
 use adapteros_core::{AosError, Result};
+use adapteros_id::IdPrefix;
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
 
@@ -300,7 +302,7 @@ pub struct MetricsAggregation {
 impl ProcessMonitoringRule {
     /// Create a new monitoring rule
     pub async fn create(pool: &SqlitePool, rule: CreateMonitoringRuleRequest) -> Result<String> {
-        let id = uuid::Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Run);
 
         let rule_type_str = rule.rule_type.to_string();
         let threshold_operator_str = rule.threshold_operator.to_string();
@@ -481,7 +483,7 @@ impl ProcessMonitoringRule {
 impl ProcessHealthMetric {
     /// Insert a health metric
     pub async fn insert(pool: &SqlitePool, metric: CreateHealthMetricRequest) -> Result<String> {
-        let id = uuid::Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Run);
 
         let tags_json = metric.tags.map(|v| serde_json::to_string(&v).unwrap());
         sqlx::query(
@@ -656,7 +658,7 @@ impl ProcessHealthMetric {
 impl ProcessAlert {
     /// Create a new alert
     pub async fn create(pool: &SqlitePool, alert: CreateAlertRequest) -> Result<String> {
-        let id = uuid::Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Run);
 
         let severity_str = alert.severity.to_string();
         let status_str = alert.status.to_string();
@@ -813,7 +815,7 @@ impl ProcessAlert {
 impl ProcessAnomaly {
     /// Insert a new anomaly
     pub async fn insert(pool: &SqlitePool, anomaly: CreateAnomalyRequest) -> Result<String> {
-        let id = uuid::Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Run);
 
         let severity_str = anomaly.severity.to_string();
         let status_str = anomaly.status.to_string();
@@ -939,7 +941,7 @@ impl PerformanceBaseline {
         .await
         .map_err(db_err("check existing baseline"))?;
 
-        let id = existing_id.unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
+        let id = existing_id.unwrap_or_else(|| new_id(IdPrefix::Run));
 
         sqlx::query(
             r#"

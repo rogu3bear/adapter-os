@@ -107,13 +107,14 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::cp_rollback,
         handlers::cp_dry_run_promote,
         handlers::get_promotion_history,
-        handlers::list_workers,
-        handlers::worker_spawn,
+        handlers::workers::list_workers,
+        handlers::workers::worker_spawn,
+        handlers::workers::stop_worker,
+        handlers::workers::drain_worker,
         handlers::list_process_logs,
         handlers::list_process_crashes,
         handlers::start_debug_session,
         handlers::run_troubleshooting_step,
-        handlers::stop_worker,
         handlers::list_worker_incidents,
         handlers::get_worker_health_summary,
         handlers::workers::get_worker_history,
@@ -1307,8 +1308,8 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/cp/rollback", post(handlers::cp_rollback))
         .route("/v1/cp/promote/dry-run", post(handlers::cp_dry_run_promote))
         .route("/v1/cp/promotions", get(handlers::get_promotion_history))
-        .route("/v1/workers", get(handlers::list_workers))
-        .route("/v1/workers/spawn", post(handlers::worker_spawn))
+        .route("/v1/workers", get(handlers::workers::list_workers))
+        .route("/v1/workers/spawn", post(handlers::workers::worker_spawn))
         .route(
             "/v1/workers/{worker_id}/logs",
             get(handlers::list_process_logs),
@@ -1325,8 +1326,9 @@ pub fn build(state: AppState) -> Router {
             "/v1/workers/{worker_id}/troubleshoot",
             post(handlers::run_troubleshooting_step),
         )
-        // Worker stop route
-        .route("/v1/workers/{worker_id}/stop", post(handlers::stop_worker))
+        // Worker stop and drain routes (PRD-RECT: use state-machine-validated handlers)
+        .route("/v1/workers/{worker_id}/stop", post(handlers::workers::stop_worker))
+        .route("/v1/workers/{worker_id}/drain", post(handlers::workers::drain_worker))
         // Worker health & incidents (PRD-09)
         .route(
             "/v1/workers/{worker_id}/incidents",

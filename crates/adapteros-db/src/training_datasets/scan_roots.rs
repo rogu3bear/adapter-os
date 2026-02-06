@@ -10,7 +10,8 @@ use adapteros_core::Result;
 use adapteros_core::{normalize_repo_slug, sanitize_repo_slug};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 use crate::constants::DATASET_SCAN_ROOT_COLUMNS;
 
@@ -317,7 +318,7 @@ impl Db {
         &self,
         params: &CreateDatasetScanRootParams,
     ) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Dst);
         let file_count = params.file_count.map(|v| v as i64);
         let byte_count = params.byte_count.map(|v| v as i64);
 
@@ -372,7 +373,7 @@ impl Db {
 
         let mut count = 0;
         for params in roots {
-            let id = Uuid::now_v7().to_string();
+            let id = new_id(IdPrefix::Dst);
             let file_count = params.file_count.map(|v| v as i64);
             let byte_count = params.byte_count.map(|v| v as i64);
 

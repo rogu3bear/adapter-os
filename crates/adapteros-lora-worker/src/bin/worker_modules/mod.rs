@@ -26,7 +26,8 @@ pub use init::run_worker;
 pub use manifest::{cache_manifest, fetch_manifest_from_cp, parse_manifest, LoadedManifest};
 #[allow(unused_imports)]
 pub use registration::{
-    notify_cp_status, register_with_cp_with_retry, RegistrationParams, RegistrationResult,
+    notify_cp_status, notify_cp_status_with_retry, register_with_cp_with_retry,
+    RegistrationParams, RegistrationResult,
 };
 
 #[cfg(all(target_os = "macos", feature = "coreml-backend"))]

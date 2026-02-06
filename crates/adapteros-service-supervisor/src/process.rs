@@ -9,7 +9,7 @@ use std::sync::Arc;
 use tokio::process::{Child, Command};
 use tokio::sync::RwLock;
 use tokio::time::Duration;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 /// Process manager for handling service processes
 pub struct ProcessManager {
@@ -141,7 +141,23 @@ impl ManagedProcess {
         if let Some(mut child) = child_guard.take() {
             // Try graceful shutdown first
             if let Some(pid) = child.id() {
-                let _ = kill(Pid::from_raw(pid as i32), Signal::SIGTERM);
+                if let Err(e) = kill(Pid::from_raw(pid as i32), Signal::SIGTERM) {
+                    error!(
+                        process_id = %self.id,
+                        pid = pid,
+                        error = %e,
+                        "Failed to send SIGTERM, attempting SIGKILL"
+                    );
+                    // SIGTERM failed, try SIGKILL immediately
+                    if let Err(kill_err) = kill(Pid::from_raw(pid as i32), Signal::SIGKILL) {
+                        error!(
+                            process_id = %self.id,
+                            pid = pid,
+                            error = %kill_err,
+                            "Failed to send SIGKILL - process may be orphaned"
+                        );
+                    }
+                }
             }
 
             // Wait for process to exit
@@ -153,8 +169,16 @@ impl ManagedProcess {
                 Err(_) => {
                     // Force kill if timeout
                     if let Some(pid) = child.id() {
-                        let _ = kill(Pid::from_raw(pid as i32), Signal::SIGKILL);
-                        warn!("Force killed process {} after timeout", self.id);
+                        if let Err(e) = kill(Pid::from_raw(pid as i32), Signal::SIGKILL) {
+                            error!(
+                                process_id = %self.id,
+                                pid = pid,
+                                error = %e,
+                                "Failed to send SIGKILL after timeout - process may be orphaned"
+                            );
+                        } else {
+                            warn!("Force killed process {} after timeout", self.id);
+                        }
                     }
                 }
             }

@@ -33,7 +33,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::broadcast;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 use utoipa::ToSchema;
 
 fn env_truthy(key: &str) -> bool {
@@ -562,7 +562,7 @@ impl LifecycleManager {
 
             // Emit telemetry
             if let Some(ref telemetry) = self.telemetry {
-                let _ = telemetry.log(
+                if let Err(e) = telemetry.log(
                     "k_reduction_executed",
                     serde_json::json!({
                         "request_id": request.request_id,
@@ -572,7 +572,13 @@ impl LifecycleManager {
                         "pressure_level": request.pressure_level,
                         "memory_freed": response.estimated_freed,
                     }),
-                );
+                ) {
+                    debug!(
+                        request_id = %request.request_id,
+                        error = %e,
+                        "Failed to emit k_reduction_executed telemetry (audit trail gap)"
+                    );
+                }
             }
         }
 
@@ -645,7 +651,7 @@ impl LifecycleManager {
 
         // Emit rollback telemetry with K value restoration
         if let Some(ref telemetry) = self.telemetry {
-            let _ = telemetry.log(
+            if let Err(e) = telemetry.log(
                 "k_reduction_rollback",
                 serde_json::json!({
                     "request_id": request_id,
@@ -654,7 +660,13 @@ impl LifecycleManager {
                     "k_restored": old_k,
                     "timestamp": std::time::SystemTime::now(),
                 }),
-            );
+            ) {
+                debug!(
+                    request_id = %request_id,
+                    error = %e,
+                    "Failed to emit k_reduction_rollback telemetry (audit trail gap)"
+                );
+            }
         }
 
         warn!(
@@ -2931,7 +2943,7 @@ impl LifecycleManager {
 
         // Emit telemetry
         if let Some(ref telemetry) = self.telemetry {
-            let _ = telemetry.log(
+            if let Err(e) = telemetry.log(
                 "model_acquisition_state_change",
                 serde_json::json!({
                     "model_id": model_id,
@@ -2944,7 +2956,13 @@ impl LifecycleManager {
                     },
                     "details": state,
                 }),
-            );
+            ) {
+                debug!(
+                    model_id = %model_id,
+                    error = %e,
+                    "Failed to emit model_acquisition_state_change telemetry (audit trail gap)"
+                );
+            }
         }
 
         // Emit download progress if in downloading state

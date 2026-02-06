@@ -89,6 +89,7 @@ pub async fn get_topology(
                 description: c.description,
                 default_adapter_id: c.default_adapter_id,
                 version: c.version,
+                display_name: None,
             })
             .collect(),
         adapters,
@@ -135,7 +136,13 @@ pub async fn get_topology(
 }
 
 fn should_skip_adapter(adapter: &adapteros_db::adapters::Adapter) -> bool {
-    adapter.active == 0 || adapter.archived_at.is_some() || adapter.purged_at.is_some()
+    adapter.active == 0
+        || adapter.archived_at.is_some()
+        || adapter.purged_at.is_some()
+        || !matches!(
+            adapter.lifecycle_state.as_str(),
+            "ready" | "active" | "deprecated"
+        )
 }
 
 fn parse_languages(raw: Option<&str>) -> Vec<usize> {

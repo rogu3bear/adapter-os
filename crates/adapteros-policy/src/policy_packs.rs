@@ -13,7 +13,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tracing::{debug, error, info, warn};
-use uuid::Uuid;
+use adapteros_id::{TypedId, IdPrefix};
 
 use crate::hooks::PolicyHook;
 use crate::unified_enforcement::{PolicyViolation, ViolationSeverity};
@@ -671,7 +671,7 @@ impl PolicyPackManager {
                         );
 
                         violations.push(PolicyViolation {
-                            violation_id: Uuid::new_v4().to_string(),
+                            violation_id: TypedId::new(IdPrefix::Inc).to_string(),
                             policy_pack: pack_id.name().to_string(),
                             severity: ViolationSeverity::High,
                             message: format!("Policy pack validation failed: {}", e),
@@ -902,7 +902,7 @@ impl PolicyPackManager {
                 return Ok(PolicyValidationResult {
                     valid: false,
                     violations: vec![PolicyViolation {
-                        violation_id: Uuid::new_v4().to_string(),
+                        violation_id: TypedId::new(IdPrefix::Inc).to_string(),
                         policy_pack: policy_id.to_string(),
                         severity: ViolationSeverity::High,
                         message: format!(
@@ -1037,7 +1037,7 @@ impl PolicyPackValidator for EgressValidator {
                 let msg = "DNS resolution requests are not allowed";
                 if should_block {
                     violations.push(PolicyViolation {
-                        violation_id: Uuid::new_v4().to_string(),
+                        violation_id: TypedId::new(IdPrefix::Inc).to_string(),
                         policy_pack: "Egress Ruleset".to_string(),
                         severity: ViolationSeverity::High,
                         message: msg.to_string(),
@@ -1050,7 +1050,7 @@ impl PolicyPackValidator for EgressValidator {
                     });
                 } else {
                     warnings.push(PolicyWarning {
-                        warning_id: Uuid::new_v4().to_string(),
+                        warning_id: TypedId::new(IdPrefix::Inc).to_string(),
                         policy_pack: "Egress Ruleset".to_string(),
                         message: format!(
                             "{} (runtime_mode: {})",
@@ -1072,7 +1072,7 @@ impl PolicyPackValidator for EgressValidator {
                         let msg = "TCP/UDP connections are not allowed".to_string();
                         if should_block {
                             violations.push(PolicyViolation {
-                                violation_id: Uuid::new_v4().to_string(),
+                                violation_id: TypedId::new(IdPrefix::Inc).to_string(),
                                 policy_pack: "Egress Ruleset".to_string(),
                                 severity: ViolationSeverity::Critical,
                                 message: msg.clone(),
@@ -1085,7 +1085,7 @@ impl PolicyPackValidator for EgressValidator {
                             });
                         } else {
                             warnings.push(PolicyWarning {
-                                warning_id: Uuid::new_v4().to_string(),
+                                warning_id: TypedId::new(IdPrefix::Inc).to_string(),
                                 policy_pack: "Egress Ruleset".to_string(),
                                 message: format!(
                                     "{} (runtime_mode: {})",
@@ -1154,7 +1154,7 @@ impl PolicyPackValidator for DeterminismValidator {
         // Check for runtime kernel compilation
         if request.context.operation == "kernel_compile" {
             violations.push(PolicyViolation {
-                violation_id: Uuid::new_v4().to_string(),
+                violation_id: TypedId::new(IdPrefix::Inc).to_string(),
                 policy_pack: "Determinism Ruleset".to_string(),
                 severity: ViolationSeverity::High,
                 message: "Runtime kernel compilation is not allowed".to_string(),
@@ -1169,7 +1169,7 @@ impl PolicyPackValidator for DeterminismValidator {
             if let Some(rng_type) = data.get("rng_type") {
                 if rng_type != "hkdf_seeded" {
                     violations.push(PolicyViolation {
-                        violation_id: Uuid::new_v4().to_string(),
+                        violation_id: TypedId::new(IdPrefix::Inc).to_string(),
                         policy_pack: "Determinism Ruleset".to_string(),
                         severity: ViolationSeverity::High,
                         message: "Non-HKDF RNG usage detected".to_string(),
@@ -1242,7 +1242,7 @@ impl PolicyPackValidator for RouterValidator {
                 if let Some(k) = k_value.as_u64() {
                     if k > 4 {
                         violations.push(PolicyViolation {
-                            violation_id: Uuid::new_v4().to_string(),
+                            violation_id: TypedId::new(IdPrefix::Inc).to_string(),
                             policy_pack: "Router Ruleset".to_string(),
                             severity: ViolationSeverity::High,
                             message: "K-sparse value exceeds maximum".to_string(),
@@ -1260,7 +1260,7 @@ impl PolicyPackValidator for RouterValidator {
             if let Some(quant_type) = data.get("gate_quant") {
                 if quant_type != "q15" {
                     violations.push(PolicyViolation {
-                        violation_id: Uuid::new_v4().to_string(),
+                        violation_id: TypedId::new(IdPrefix::Inc).to_string(),
                         policy_pack: "Router Ruleset".to_string(),
                         severity: ViolationSeverity::High,
                         message: "Gate quantization must be Q15".to_string(),
@@ -1326,7 +1326,7 @@ impl PolicyPackValidator for EvidenceValidator {
                     if let Some(spans) = evidence_spans.as_array() {
                         if spans.is_empty() {
                             violations.push(PolicyViolation {
-                                violation_id: Uuid::new_v4().to_string(),
+                                violation_id: TypedId::new(IdPrefix::Inc).to_string(),
                                 policy_pack: "Evidence Ruleset".to_string(),
                                 severity: ViolationSeverity::High,
                                 message: "Evidence spans are required for inference".to_string(),
@@ -1397,7 +1397,7 @@ impl PolicyPackValidator for RefusalValidator {
                 if let Some(conf) = confidence.as_f64() {
                     if conf < 0.55 {
                         violations.push(PolicyViolation {
-                            violation_id: Uuid::new_v4().to_string(),
+                            violation_id: TypedId::new(IdPrefix::Inc).to_string(),
                             policy_pack: "Refusal Ruleset".to_string(),
                             severity: ViolationSeverity::Medium,
                             message: "Low confidence response should be refused".to_string(),
@@ -1468,7 +1468,7 @@ impl PolicyPackValidator for NumericUnitsValidator {
                         if let Some(unit) = value.get("unit") {
                             if unit.is_null() {
                                 violations.push(PolicyViolation {
-                                    violation_id: Uuid::new_v4().to_string(),
+                                    violation_id: TypedId::new(IdPrefix::Inc).to_string(),
                                     policy_pack: "Numeric & Units Ruleset".to_string(),
                                     severity: ViolationSeverity::High,
                                     message: "Units are required for numeric values".to_string(),
@@ -1539,7 +1539,7 @@ impl PolicyPackValidator for RagIndexValidator {
                 if let Some(cross_tenant) = data.get("cross_tenant_access") {
                     if cross_tenant.as_bool().unwrap_or(false) {
                         violations.push(PolicyViolation {
-                            violation_id: Uuid::new_v4().to_string(),
+                            violation_id: TypedId::new(IdPrefix::Inc).to_string(),
                             policy_pack: "RAG Index Ruleset".to_string(),
                             severity: ViolationSeverity::Critical,
                             message: "Cross-tenant access detected".to_string(),
@@ -1604,7 +1604,7 @@ impl PolicyPackValidator for IsolationValidator {
             if let Some(use_shm) = data.get("use_shared_memory") {
                 if use_shm.as_bool().unwrap_or(false) {
                     violations.push(PolicyViolation {
-                        violation_id: Uuid::new_v4().to_string(),
+                        violation_id: TypedId::new(IdPrefix::Inc).to_string(),
                         policy_pack: "Isolation Ruleset".to_string(),
                         severity: ViolationSeverity::High,
                         message: "Shared memory usage is forbidden".to_string(),
@@ -1669,7 +1669,7 @@ impl PolicyPackValidator for TelemetryValidator {
                 if let Some(rate) = sampling_rate.as_f64() {
                     if rate > 1.0 {
                         violations.push(PolicyViolation {
-                            violation_id: Uuid::new_v4().to_string(),
+                            violation_id: TypedId::new(IdPrefix::Inc).to_string(),
                             policy_pack: "Telemetry Ruleset".to_string(),
                             severity: ViolationSeverity::Medium,
                             message: "Sampling rate exceeds maximum".to_string(),
@@ -1735,7 +1735,7 @@ impl PolicyPackValidator for RetentionValidator {
                 if let Some(count) = bundle_count.as_u64() {
                     if count > 12 {
                         warnings.push(PolicyWarning {
-                            warning_id: Uuid::new_v4().to_string(),
+                            warning_id: TypedId::new(IdPrefix::Inc).to_string(),
                             policy_pack: "Retention Ruleset".to_string(),
                             message: "Bundle count exceeds retention limit".to_string(),
                             details: Some(serde_json::json!({"bundle_count": count})),
@@ -1798,7 +1798,7 @@ impl PolicyPackValidator for PerformanceValidator {
                 if let Some(latency) = latency_p95.as_f64() {
                     if latency > 24.0 {
                         violations.push(PolicyViolation {
-                            violation_id: Uuid::new_v4().to_string(),
+                            violation_id: TypedId::new(IdPrefix::Inc).to_string(),
                             policy_pack: "Performance Ruleset".to_string(),
                             severity: ViolationSeverity::High,
                             message: "Latency exceeds p95 budget".to_string(),
@@ -1865,7 +1865,7 @@ impl PolicyPackValidator for MemoryValidator {
                 if let Some(headroom) = headroom_pct.as_f64() {
                     if headroom < 15.0 {
                         violations.push(PolicyViolation {
-                            violation_id: Uuid::new_v4().to_string(),
+                            violation_id: TypedId::new(IdPrefix::Inc).to_string(),
                             policy_pack: "Memory Ruleset".to_string(),
                             severity: ViolationSeverity::High,
                             message: "Memory headroom below minimum threshold".to_string(),
@@ -1936,7 +1936,7 @@ impl PolicyPackValidator for ArtifactsValidator {
                 if let Some(signature) = artifact.get("signature") {
                     if signature.is_null() {
                         violations.push(PolicyViolation {
-                            violation_id: Uuid::new_v4().to_string(),
+                            violation_id: TypedId::new(IdPrefix::Inc).to_string(),
                             policy_pack: "Artifacts Ruleset".to_string(),
                             severity: ViolationSeverity::Critical,
                             message: "Artifact signature is required".to_string(),
@@ -2003,7 +2003,7 @@ impl PolicyPackValidator for SecretsValidator {
                         if let Some(plaintext) = secret.get("plaintext") {
                             if plaintext.as_bool().unwrap_or(false) {
                                 violations.push(PolicyViolation {
-                                    violation_id: Uuid::new_v4().to_string(),
+                                    violation_id: TypedId::new(IdPrefix::Inc).to_string(),
                                     policy_pack: "Secrets Ruleset".to_string(),
                                     severity: ViolationSeverity::Critical,
                                     message: "Plaintext secrets are not allowed".to_string(),
@@ -2073,7 +2073,7 @@ impl PolicyPackValidator for BuildReleaseValidator {
                 if let Some(diff) = replay_diff.as_f64() {
                     if diff > 0.0 {
                         violations.push(PolicyViolation {
-                            violation_id: Uuid::new_v4().to_string(),
+                            violation_id: TypedId::new(IdPrefix::Inc).to_string(),
                             policy_pack: "Build & Release Ruleset".to_string(),
                             severity: ViolationSeverity::Critical,
                             message: "Replay shows non-zero diff".to_string(),
@@ -2138,7 +2138,7 @@ impl PolicyPackValidator for ComplianceValidator {
                 if let Some(evidence_links) = compliance.get("evidence_links") {
                     if evidence_links.is_null() {
                         violations.push(PolicyViolation {
-                            violation_id: Uuid::new_v4().to_string(),
+                            violation_id: TypedId::new(IdPrefix::Inc).to_string(),
                             policy_pack: "Compliance Ruleset".to_string(),
                             severity: ViolationSeverity::High,
                             message: "Compliance evidence links are required".to_string(),
@@ -2204,7 +2204,7 @@ impl PolicyPackValidator for IncidentValidator {
                 if let Some(procedures) = data.get("procedures") {
                     if procedures.is_null() {
                         violations.push(PolicyViolation {
-                            violation_id: Uuid::new_v4().to_string(),
+                            violation_id: TypedId::new(IdPrefix::Inc).to_string(),
                             policy_pack: "Incident Ruleset".to_string(),
                             severity: ViolationSeverity::High,
                             message: "Incident response procedures are required".to_string(),
@@ -2270,7 +2270,7 @@ impl PolicyPackValidator for LlmOutputValidator {
             if let Some(output_format) = data.get("output_format") {
                 if output_format != "json" {
                     violations.push(PolicyViolation {
-                        violation_id: Uuid::new_v4().to_string(),
+                        violation_id: TypedId::new(IdPrefix::Inc).to_string(),
                         policy_pack: "LLM Output Ruleset".to_string(),
                         severity: ViolationSeverity::High,
                         message: "Output format must be JSON".to_string(),
@@ -2334,7 +2334,7 @@ impl PolicyPackValidator for AdapterLifecycleValidator {
                 if let Some(activation) = activation_pct.as_f64() {
                     if activation < 2.0 {
                         warnings.push(PolicyWarning {
-                            warning_id: Uuid::new_v4().to_string(),
+                            warning_id: TypedId::new(IdPrefix::Inc).to_string(),
                             policy_pack: "Adapter Lifecycle Ruleset".to_string(),
                             message: "Adapter activation below minimum threshold".to_string(),
                             details: Some(serde_json::json!({"activation_pct": activation})),
@@ -2415,7 +2415,7 @@ impl PolicyPackValidator for FullPackValidator {
             if let Some(schema) = data.get("schema") {
                 if schema != "adapteros.policy.v1" {
                     violations.push(PolicyViolation {
-                        violation_id: Uuid::new_v4().to_string(),
+                        violation_id: TypedId::new(IdPrefix::Inc).to_string(),
                         policy_pack: "Full Pack Example".to_string(),
                         severity: ViolationSeverity::High,
                         message: "Invalid policy schema version".to_string(),

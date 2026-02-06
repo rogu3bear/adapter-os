@@ -5,6 +5,7 @@ use base64::Engine;
 use ed25519_dalek::{Signer, Verifier};
 use rand::rngs::OsRng;
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroizing;
 
 pub use ed25519_dalek::{
     Signature as Ed25519Signature, SigningKey, VerifyingKey as Ed25519PublicKey,
@@ -21,11 +22,16 @@ pub struct Keypair {
 
 impl Keypair {
     /// Generate a new random keypair
+    ///
+    /// Uses OS entropy for key generation. The seed is automatically
+    /// zeroized when dropped to prevent sensitive data lingering in memory.
     pub fn generate() -> Self {
         use rand::RngCore;
-        let mut seed = [0u8; 32];
-        OsRng.fill_bytes(&mut seed);
+        // Wrap seed in Zeroizing to ensure it's cleared from memory on drop
+        let mut seed = Zeroizing::new([0u8; 32]);
+        OsRng.fill_bytes(&mut *seed);
         let signing_key = SigningKey::from_bytes(&seed);
+        // seed is automatically zeroized here when Zeroizing<T> drops
         Self { signing_key }
     }
 
@@ -196,12 +202,17 @@ pub fn verify_signature(
 }
 
 /// Generate a new Ed25519 keypair
+///
+/// Uses OS entropy for key generation. The seed is automatically
+/// zeroized when dropped to prevent sensitive data lingering in memory.
 pub fn generate_keypair() -> (SigningKey, Ed25519PublicKey) {
     use rand::RngCore;
-    let mut seed = [0u8; 32];
-    OsRng.fill_bytes(&mut seed);
+    // Wrap seed in Zeroizing to ensure it's cleared from memory on drop
+    let mut seed = Zeroizing::new([0u8; 32]);
+    OsRng.fill_bytes(&mut *seed);
     let signing_key = SigningKey::from_bytes(&seed);
     let verifying_key = signing_key.verifying_key();
+    // seed is automatically zeroized here when Zeroizing<T> drops
     (signing_key, verifying_key)
 }
 

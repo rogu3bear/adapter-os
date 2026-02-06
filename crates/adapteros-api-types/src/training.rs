@@ -927,6 +927,10 @@ pub struct TrainingJobResponse {
     pub data_spec: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hyperparameters: Option<String>,
+    /// Human-readable display name derived from the job's typed ID word alias.
+    /// Example: "job-swift-moon". Populated when the ID uses the TypedId format.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
 }
 
 #[cfg(feature = "server")]
@@ -1142,6 +1146,7 @@ impl From<TrainingJob> for TrainingJobResponse {
             signature_status: job.signature_status,
             metrics_snapshot_id: None,
             hyperparameters: None,
+            display_name: None,
         }
     }
 }
@@ -1495,6 +1500,10 @@ pub struct DatasetResponse {
     pub created_at: String,
     pub updated_at: String,
     pub dataset_type: Option<String>,
+    /// Human-readable display name derived from the dataset's typed ID word alias.
+    /// Example: "dst-quiet-lake". Populated when the ID uses the TypedId format.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
 }
 
 /// Response for listing datasets

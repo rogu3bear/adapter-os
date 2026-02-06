@@ -10,7 +10,8 @@ use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use std::sync::Arc;
 use tracing::warn;
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct DocumentCollection {
@@ -59,7 +60,7 @@ impl Db {
 
     /// Create a new document collection
     pub async fn create_collection(&self, params: CreateCollectionParams) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Col);
         if self.storage_mode().write_to_sql() {
             sqlx::query(
                 "INSERT INTO document_collections (

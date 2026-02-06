@@ -2,13 +2,18 @@
 //!
 //! Enabled via `AOS_WORKER_CHAOS_MODE=1` (or `true/yes`). Optional
 //! `AOS_CHAOS_SEED=<u64>` makes the jitter deterministic for tests.
+//!
+//! **IMPORTANT**: Chaos mode is automatically disabled in production environments
+//! (`AOS_PRODUCTION=1`) to prevent non-deterministic behavior. The shared RNG
+//! means thread scheduling affects the sequence of delays, which would break
+//! reproducibility guarantees.
 
 use adapteros_core::{derive_seed, B3Hash};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
-use tracing::debug;
+use tracing::{debug, warn};
 
 #[derive(Debug, Clone, Copy)]
 struct ChaosConfig {
@@ -20,13 +25,35 @@ struct ChaosConfig {
 
 impl ChaosConfig {
     fn from_env() -> Self {
-        let enabled = std::env::var("AOS_WORKER_CHAOS_MODE")
+        // Check if production mode is enabled - chaos mode is forbidden in production
+        // because the shared RNG makes thread scheduling affect the delay sequence,
+        // breaking determinism guarantees.
+        let is_production = std::env::var("AOS_PRODUCTION")
             .map(|v| {
                 v.eq_ignore_ascii_case("1")
                     || v.eq_ignore_ascii_case("true")
                     || v.eq_ignore_ascii_case("yes")
             })
             .unwrap_or(false);
+
+        let chaos_requested = std::env::var("AOS_WORKER_CHAOS_MODE")
+            .map(|v| {
+                v.eq_ignore_ascii_case("1")
+                    || v.eq_ignore_ascii_case("true")
+                    || v.eq_ignore_ascii_case("yes")
+            })
+            .unwrap_or(false);
+
+        // Refuse to enable chaos mode in production
+        let enabled = if is_production && chaos_requested {
+            warn!(
+                "Chaos mode requested but AOS_PRODUCTION=1 is set. \
+                 Chaos mode disabled to preserve determinism guarantees."
+            );
+            false
+        } else {
+            chaos_requested
+        };
 
         let seed = std::env::var("AOS_CHAOS_SEED")
             .ok()

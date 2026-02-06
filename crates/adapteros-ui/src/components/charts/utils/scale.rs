@@ -142,13 +142,75 @@ impl TimeScale {
         self.inner.invert(pixel) as u64
     }
 
-    /// Generate tick timestamps.
+    /// Generate tick timestamps (evenly spaced, not aligned to clock boundaries).
     pub fn ticks(&self, count: usize) -> Vec<u64> {
         self.inner
             .ticks(count)
             .into_iter()
             .map(|v| v as u64)
             .collect()
+    }
+
+    /// Generate nice time ticks aligned to sensible clock boundaries.
+    ///
+    /// Picks an interval (e.g. 5 min, 15 min, 1 hour) that gives close to
+    /// `target_count` ticks, then aligns ticks to that interval from the epoch
+    /// (midnight UTC), producing labels like "2 PM", "2:30 PM" instead of "2:17 PM".
+    pub fn nice_ticks(&self, target_count: usize) -> Vec<u64> {
+        if target_count == 0 {
+            return Vec::new();
+        }
+
+        let (time_min, time_max) = self.time_range();
+        let range_ms = time_max.saturating_sub(time_min);
+
+        if range_ms == 0 {
+            return vec![time_min];
+        }
+
+        // Sensible intervals in milliseconds
+        const INTERVALS: &[u64] = &[
+            1_000,             // 1 second
+            5_000,             // 5 seconds
+            15_000,            // 15 seconds
+            30_000,            // 30 seconds
+            60_000,            // 1 minute
+            5 * 60_000,        // 5 minutes
+            15 * 60_000,       // 15 minutes
+            30 * 60_000,       // 30 minutes
+            3_600_000,         // 1 hour
+            2 * 3_600_000,     // 2 hours
+            4 * 3_600_000,     // 4 hours
+            6 * 3_600_000,     // 6 hours
+            12 * 3_600_000,    // 12 hours
+            86_400_000,        // 1 day
+        ];
+
+        let ideal_interval = range_ms / target_count as u64;
+
+        let interval = INTERVALS
+            .iter()
+            .copied()
+            .min_by_key(|&i| (i as i64 - ideal_interval as i64).unsigned_abs())
+            .unwrap_or(ideal_interval)
+            .max(1); // prevent division by zero
+
+        // Align first tick to interval boundary (from epoch = midnight UTC)
+        let first_tick = ((time_min + interval - 1) / interval) * interval;
+
+        let mut ticks = Vec::new();
+        let mut t = first_tick;
+        while t <= time_max {
+            ticks.push(t);
+            t += interval;
+        }
+
+        // Fall back to even spacing if alignment produced too few ticks
+        if ticks.len() < 2 {
+            return self.ticks(target_count);
+        }
+
+        ticks
     }
 
     /// Get the time range.

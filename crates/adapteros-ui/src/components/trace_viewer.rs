@@ -150,9 +150,9 @@ fn TraceList(
     #[prop(optional)] compact: bool,
 ) -> impl IntoView {
     let heading_class = if compact {
-        "text-sm font-semibold mb-2"
+        "heading-4 mb-2"
     } else {
-        "text-lg font-semibold mb-4"
+        "heading-3 mb-4"
     };
 
     view! {
@@ -234,9 +234,9 @@ fn TraceDetail(
     #[prop(optional)] compact: bool,
 ) -> impl IntoView {
     let heading_class = if compact {
-        "text-sm font-semibold"
+        "heading-4"
     } else {
-        "text-lg font-semibold"
+        "heading-3"
     };
 
     view! {
@@ -797,7 +797,7 @@ pub fn TracePanel(
             <div class="bg-card border border-border rounded-xl shadow-xl w-full max-w-2xl max-h-[80vh] overflow-auto">
                 <div class="sticky top-0 bg-card border-b border-border p-4 flex items-center justify-between">
                     <div class="flex items-center gap-3">
-                        <h2 class="text-lg font-semibold">"Trace Viewer"</h2>
+                        <h2 class="heading-4">"Trace Viewer"</h2>
                         <a
                             href=full_page_url
                             class="text-xs text-primary hover:underline flex items-center gap-1"
@@ -911,9 +911,9 @@ pub fn TraceDetailStandalone(
     #[prop(optional)] compact: bool,
 ) -> impl IntoView {
     let heading_class = if compact {
-        "text-sm font-semibold"
+        "heading-4"
     } else {
-        "text-lg font-semibold"
+        "heading-3"
     };
 
     view! {

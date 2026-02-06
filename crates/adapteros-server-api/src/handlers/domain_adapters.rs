@@ -165,7 +165,7 @@ pub async fn create_domain_adapter(
 
     // Generate adapter ID
     let adapter_id =
-        crate::id_generator::readable_id(adapteros_core::ids::IdKind::Adapter, req.name.as_str());
+        crate::id_generator::readable_id(adapteros_id::IdPrefix::Adp, req.name.as_str());
 
     // Build registration parameters
     let params = AdapterRegistrationBuilder::new()
@@ -581,7 +581,7 @@ pub async fn test_domain_adapter(
 
     let test_result = TestDomainAdapterResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-        test_id: crate::id_generator::readable_id(adapteros_core::ids::IdKind::Run, "adapter-test"),
+        test_id: crate::id_generator::readable_id(adapteros_id::IdPrefix::Run, "adapter-test"),
         adapter_id: adapter_id.clone(),
         input_data: req.input_data,
         actual_output,
@@ -759,7 +759,7 @@ pub async fn execute_domain_adapter(
     let execution = DomainAdapterExecutionResponse {
         schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
         execution_id: crate::id_generator::readable_id(
-            adapteros_core::ids::IdKind::Run,
+            adapteros_id::IdPrefix::Run,
             "adapter-exec",
         ),
         adapter_id: adapter_id.clone(),

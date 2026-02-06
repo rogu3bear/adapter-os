@@ -6,10 +6,11 @@ use crate::api::client::{ChunkListResponse, DocumentListParams, DocumentResponse
 use crate::api::ApiClient;
 use crate::components::{
     Badge, BadgeVariant, BreadcrumbItem, BreadcrumbTrail, Button, ButtonSize, ButtonVariant, Card,
-    ConfirmationDialog, ConfirmationSeverity, CopyableId, Dialog, LoadingDisplay, RefreshButton,
-    Select, Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    ConfirmationDialog, ConfirmationSeverity, CopyableId, Dialog, LoadingDisplay, ProgressStage,
+    ProgressStages, RefreshButton, Select, Table, TableBody, TableCell, TableHead, TableHeader,
+    TableRow,
 };
-use crate::hooks::{use_api_resource, LoadingState};
+use crate::hooks::{use_api, use_api_resource, use_delete_dialog, LoadingState};
 use crate::signals::{try_use_route_context, SelectedEntity};
 use crate::utils::format_bytes;
 use leptos::prelude::*;
@@ -27,6 +28,42 @@ fn status_badge_variant(status: &str) -> BadgeVariant {
         "failed" => BadgeVariant::Destructive,
         _ => BadgeVariant::Secondary,
     }
+}
+
+/// Compute progress stage state from document status.
+///
+/// Returns (current_stage, completed_stages, error_stages).
+fn document_processing_state(status: &str) -> (Option<String>, Vec<String>, Vec<String>) {
+    let stage_order = ["uploaded", "processing", "chunked", "embedded", "indexed", "ready"];
+
+    if status == "failed" {
+        return (
+            None,
+            vec!["uploaded".to_string()],
+            vec!["processing".to_string()],
+        );
+    }
+
+    let position = match status {
+        "uploaded" => 0,
+        "processing" => 1,
+        "chunked" => 2,
+        "embedded" => 3,
+        "indexed" | "ready" => stage_order.len(),
+        _ => 0,
+    };
+
+    let completed: Vec<String> = stage_order[..position.min(stage_order.len())]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let current = if position < stage_order.len() {
+        Some(stage_order[position].to_string())
+    } else {
+        None
+    };
+
+    (current, completed, vec![])
 }
 
 /// Documents list page
@@ -70,7 +107,7 @@ pub fn Documents() -> impl IntoView {
     view! {
         <div class="shell-page space-y-6">
             <div class="flex items-center justify-between">
-                <h1 class="text-3xl font-bold tracking-tight">"Documents"</h1>
+                <h1 class="heading-1">"Documents"</h1>
                 <div class="flex items-center gap-4">
                     // Status filter
                     <Select
@@ -83,6 +120,16 @@ pub fn Documents() -> impl IntoView {
                         ]
                         class="w-40".to_string()
                     />
+                    <Button
+                        variant=ButtonVariant::Ghost
+                        size=ButtonSize::Sm
+                        on_click=Callback::new({
+                            let navigate = navigate.clone();
+                            move |_| navigate("/training", Default::default())
+                        })
+                    >
+                        "Go to Training"
+                    </Button>
                     <RefreshButton
                         on_click=Callback::new({
                             let refetch = refetch.clone();
@@ -112,6 +159,7 @@ pub fn Documents() -> impl IntoView {
                             <DocumentsList
                                 documents=data.data.clone()
                                 on_upload=Callback::new(move |_| show_upload_dialog.set(true))
+                                on_refetch=Callback::new(move |_| set_refetch_trigger.update(|t| *t += 1))
                             />
 
                             // Pagination
@@ -169,7 +217,11 @@ pub fn Documents() -> impl IntoView {
 }
 
 #[component]
-fn DocumentsList(documents: Vec<DocumentResponse>, on_upload: Callback<()>) -> impl IntoView {
+fn DocumentsList(
+    documents: Vec<DocumentResponse>,
+    on_upload: Callback<()>,
+    on_refetch: Callback<()>,
+) -> impl IntoView {
     if documents.is_empty() {
         return view! {
             <Card>
@@ -192,6 +244,41 @@ fn DocumentsList(documents: Vec<DocumentResponse>, on_upload: Callback<()>) -> i
         .into_any();
     }
 
+    let client = use_api();
+    let delete_state = use_delete_dialog();
+    let reprocessing_id = RwSignal::new(Option::<String>::None);
+
+    let delete_state_for_cancel = delete_state.clone();
+    let on_cancel_delete = Callback::new(move |_| {
+        delete_state_for_cancel.cancel();
+    });
+
+    let delete_state_for_confirm = delete_state.clone();
+    let on_confirm_delete = {
+        let client = Arc::clone(&client);
+        Callback::new(move |_| {
+            if let Some(id) = delete_state_for_confirm.get_pending_id() {
+                delete_state_for_confirm.start_delete();
+                let client = Arc::clone(&client);
+                let delete_state = delete_state_for_confirm.clone();
+                wasm_bindgen_futures::spawn_local(async move {
+                    match client.delete_document(&id).await {
+                        Ok(_) => {
+                            delete_state.finish_delete(Ok(()));
+                            on_refetch.run(());
+                        }
+                        Err(e) => {
+                            delete_state.finish_delete(Err(format!("Delete failed: {}", e)));
+                        }
+                    }
+                });
+            }
+        })
+    };
+
+    let delete_state_for_rows = delete_state.clone();
+    let delete_state_for_loading = delete_state.clone();
+
     view! {
         <Card>
             <Table>
@@ -203,7 +290,7 @@ fn DocumentsList(documents: Vec<DocumentResponse>, on_upload: Callback<()>) -> i
                         <TableHead>"Chunks"</TableHead>
                         <TableHead>"Type"</TableHead>
                         <TableHead>"Created"</TableHead>
-                        <TableHead>"Actions"</TableHead>
+                        <TableHead class="text-right">"Actions"</TableHead>
                     </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -212,8 +299,10 @@ fn DocumentsList(documents: Vec<DocumentResponse>, on_upload: Callback<()>) -> i
                         .map(|doc| {
                             let id = doc.document_id.clone();
                             let id_link = id.clone();
-                            let id_view = id.clone();
+                            let id_reprocess = id.clone();
+                            let id_delete = id.clone();
                             let name = doc.name.clone();
+                            let name_for_delete = name.clone();
                             let status = doc.status.clone();
                             let status_variant = status_badge_variant(&status);
                             let size = format_bytes(doc.size_bytes);
@@ -221,6 +310,8 @@ fn DocumentsList(documents: Vec<DocumentResponse>, on_upload: Callback<()>) -> i
                             let mime = doc.mime_type.clone();
                             let created = doc.created_at.clone();
                             let error = doc.error_message.clone();
+                            let delete_state = delete_state_for_rows.clone();
+                            let client = Arc::clone(&client);
 
                             view! {
                                 <TableRow>
@@ -262,13 +353,65 @@ fn DocumentsList(documents: Vec<DocumentResponse>, on_upload: Callback<()>) -> i
                                     <TableCell>
                                         <span class="text-sm text-muted-foreground">{created}</span>
                                     </TableCell>
-                                    <TableCell>
-                                        <a
-                                            href=format!("/documents/{}", id_view)
-                                            class="text-sm text-primary hover:underline"
-                                        >
-                                            "View"
-                                        </a>
+                                    <TableCell class="text-right">
+                                        <div class="flex items-center justify-end gap-1">
+                                            <Button
+                                                variant=ButtonVariant::Ghost
+                                                size=ButtonSize::Sm
+                                                aria_label="Reprocess document"
+                                                disabled=Signal::derive({
+                                                    let id = id_reprocess.clone();
+                                                    move || reprocessing_id.get().as_deref() == Some(id.as_str())
+                                                })
+                                                on_click=Callback::new({
+                                                    let client = Arc::clone(&client);
+                                                    let id = id_reprocess.clone();
+                                                    move |_| {
+                                                        let client = Arc::clone(&client);
+                                                        let id = id.clone();
+                                                        reprocessing_id.set(Some(id.clone()));
+                                                        wasm_bindgen_futures::spawn_local(async move {
+                                                            let _ = client.process_document(&id).await;
+                                                            reprocessing_id.set(None);
+                                                            on_refetch.run(());
+                                                        });
+                                                    }
+                                                })
+                                            >
+                                                <svg
+                                                    xmlns="http://www.w3.org/2000/svg"
+                                                    class="h-4 w-4"
+                                                    viewBox="0 0 24 24"
+                                                    fill="none"
+                                                    stroke="currentColor"
+                                                    stroke-width="2"
+                                                >
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                                                </svg>
+                                            </Button>
+                                            <Button
+                                                variant=ButtonVariant::Ghost
+                                                size=ButtonSize::Sm
+                                                aria_label="Delete document"
+                                                on_click=Callback::new({
+                                                    let delete_state = delete_state.clone();
+                                                    move |_| {
+                                                        delete_state.confirm(id_delete.clone(), name_for_delete.clone());
+                                                    }
+                                                })
+                                            >
+                                                <svg
+                                                    xmlns="http://www.w3.org/2000/svg"
+                                                    class="h-4 w-4 text-destructive"
+                                                    viewBox="0 0 24 24"
+                                                    fill="none"
+                                                    stroke="currentColor"
+                                                    stroke-width="2"
+                                                >
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                                                </svg>
+                                            </Button>
+                                        </div>
                                     </TableCell>
                                 </TableRow>
                             }
@@ -277,6 +420,17 @@ fn DocumentsList(documents: Vec<DocumentResponse>, on_upload: Callback<()>) -> i
                 </TableBody>
             </Table>
         </Card>
+        <ConfirmationDialog
+            open=delete_state.show
+            title="Delete Document"
+            description="Are you sure you want to delete this document and all associated chunks? This action cannot be undone."
+            severity=ConfirmationSeverity::Destructive
+            confirm_text="Delete"
+            cancel_text="Cancel"
+            on_confirm=on_confirm_delete
+            on_cancel=on_cancel_delete
+            loading=Signal::derive(move || delete_state_for_loading.is_deleting())
+        />
     }
     .into_any()
 }
@@ -534,7 +688,7 @@ pub fn DocumentDetail() -> impl IntoView {
             ]/>
 
             <div class="flex items-center justify-between">
-                <h1 class="text-3xl font-bold tracking-tight">"Document Details"</h1>
+                <h1 class="heading-1">"Document Details"</h1>
                 <div class="flex items-center gap-2">
                     <RefreshButton
                         on_click=Callback::new({
@@ -601,6 +755,7 @@ fn DocumentDetailContent(
     set_action_error: WriteSignal<Option<String>>,
     refetch_trigger: WriteSignal<u32>,
 ) -> impl IntoView {
+    let navigate = use_navigate();
     let status_variant = status_badge_variant(&document.status);
     let doc_id = document.document_id.clone();
     let doc_id_for_delete = doc_id.clone();
@@ -625,9 +780,11 @@ fn DocumentDetailContent(
     // Delete action (called from confirmation dialog)
     let delete_action = {
         let doc_id_for_delete = doc_id_for_delete.clone();
+        let navigate = navigate.clone();
         Callback::new(move |_: ()| {
             let client = Arc::new(ApiClient::new());
             let id = doc_id_for_delete.clone();
+            let navigate = navigate.clone();
             set_deleting.set(true);
             set_action_error.set(None);
 
@@ -636,10 +793,7 @@ fn DocumentDetailContent(
                     Ok(_) => {
                         set_deleting.set(false);
                         show_delete_dialog.set(false);
-                        // Navigate back to documents list
-                        if let Some(window) = web_sys::window() {
-                            let _ = window.location().set_href("/documents");
-                        }
+                        navigate("/documents", Default::default());
                     }
                     Err(e) => {
                         set_action_error.set(Some(format!("Delete failed: {}", e)));
@@ -694,6 +848,9 @@ fn DocumentDetailContent(
 
     let is_failed = document.status == "failed";
     let is_indexed = document.status == "indexed";
+    let status_for_stages = document.status.clone();
+    let issue_error_message = document.error_message.clone();
+    let issue_error_code = document.error_code.clone();
 
     view! {
         <div class="grid gap-6 md:grid-cols-2">
@@ -778,16 +935,16 @@ fn DocumentDetailContent(
                         </Button>
                         {is_indexed.then(|| {
                             let doc_id_for_train = doc_id.clone();
+                            let navigate = navigate.clone();
                             view! {
                                 <Button
                                     variant=ButtonVariant::Secondary
                                     size=ButtonSize::Sm
                                     on_click=Callback::new(move |_| {
-                                        if let Some(window) = web_sys::window() {
-                                            let _ = window.location().set_href(
-                                                &format!("/training?source=document&document_id={}", doc_id_for_train)
-                                            );
-                                        }
+                                        navigate(
+                                            &format!("/training?source=document&document_id={}", doc_id_for_train),
+                                            Default::default(),
+                                        );
                                     })
                                 >
                                     "Train Adapter"
@@ -822,6 +979,73 @@ fn DocumentDetailContent(
                 loading=Signal::derive(move || deleting.get())
             />
         </div>
+
+        // Processing stages (shown when not yet indexed)
+        {(!is_indexed).then(|| {
+            let stages = vec![
+                ProgressStage::new("uploaded", "Uploaded"),
+                ProgressStage::new("processing", "Processing"),
+                ProgressStage::new("chunked", "Chunked"),
+                ProgressStage::new("embedded", "Embedded"),
+                ProgressStage::new("indexed", "Indexed"),
+                ProgressStage::new("ready", "Ready"),
+            ];
+            let (current, completed, errors) = document_processing_state(&status_for_stages);
+            let current_signal = Signal::derive({
+                let current = current.clone();
+                move || current.clone()
+            });
+            let completed_signal = Signal::derive({
+                let completed = completed.clone();
+                move || completed.clone()
+            });
+            let error_signal = Signal::derive({
+                let errors = errors.clone();
+                move || errors.clone()
+            });
+            view! {
+                <Card title="Processing Progress".to_string() class="mt-6".to_string()>
+                    <ProgressStages
+                        stages=stages
+                        current_stage=current_signal
+                        completed_stages=completed_signal
+                        error_stages=error_signal
+                    />
+                </Card>
+            }
+        })}
+
+        // Issue section (shown when document processing failed)
+        {is_failed.then(|| {
+            view! {
+                <Card title="Issue".to_string() class="mt-6".to_string()>
+                    <div class="space-y-3">
+                        <div class="flex items-center gap-2">
+                            <Badge variant=BadgeVariant::Destructive>
+                                "Failed"
+                            </Badge>
+                        </div>
+                        {issue_error_message.clone().map(|msg| view! {
+                            <div>
+                                <p class="text-sm text-muted-foreground">"Error Message"</p>
+                                <p class="text-sm">{msg}</p>
+                            </div>
+                        })}
+                        {issue_error_code.clone().map(|code| view! {
+                            <div>
+                                <p class="text-sm text-muted-foreground">"Error Code"</p>
+                                <p class="font-mono text-sm">{code}</p>
+                            </div>
+                        })}
+                        <p class="text-sm text-muted-foreground">
+                            "Check the "
+                            <a href="/errors" class="text-primary hover:underline">"Errors page"</a>
+                            " for more details and investigation tools."
+                        </p>
+                    </div>
+                </Card>
+            }
+        })}
 
         // File Details
         <Card title="File Details".to_string() class="mt-6".to_string()>

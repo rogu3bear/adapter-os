@@ -2,7 +2,8 @@ use crate::Db;
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 /// Builder for creating contact upsert parameters
 #[derive(Debug, Default)]
@@ -191,7 +192,7 @@ impl Db {
             Ok(id)
         } else {
             // Insert new contact
-            let id = Uuid::now_v7().to_string();
+            let id = new_id(IdPrefix::Usr);
             sqlx::query(
                 "INSERT INTO contacts (id, tenant_id, name, email, category, role, metadata_json, discovered_by)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -303,7 +304,7 @@ impl Db {
         };
 
         // Insert interaction entry
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Usr);
         let context_json = context
             .map(serde_json::to_string)
             .transpose()

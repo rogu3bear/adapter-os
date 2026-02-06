@@ -273,6 +273,11 @@ impl AuthAction {
         let my_attempt = self.next_attempt();
         boot_log("auth", &format!("started (attempt {})", my_attempt));
 
+        // Reset timeout/error state when starting new check (fixes persistent dialog)
+        let current = self.state.get_untracked();
+        if matches!(current, AuthState::Timeout | AuthState::Error(_)) {
+            boot_log("auth", "resetting timeout/error state for retry");
+        }
         self.state.set(AuthState::Loading);
 
         // Try to get user info - will succeed if we have valid auth cookies

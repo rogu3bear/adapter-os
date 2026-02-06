@@ -27,12 +27,12 @@ use adapteros_types::training::{
 use chrono::Utc;
 use parking_lot::RwLock;
 use rand::Rng;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 use tracing::{debug, error, info, warn};
-use uuid::Uuid;
+use adapteros_id::{TypedId, IdPrefix};
 
 use std::path::Path;
 
@@ -124,13 +124,15 @@ pub struct MicroLoRATrainer {
     /// Per-module optimizer state for multi-module training (step counts, CPU-side state)
     multi_module_optimizer: MultiModuleOptimizerState,
     /// Per-module GPU optimizers for multi-layer training (keyed by module_key)
+    /// Uses BTreeMap for deterministic iteration order across gradient updates.
     #[cfg(feature = "multi-backend")]
-    module_optimizers: HashMap<String, MlxOptimizer>,
+    module_optimizers: BTreeMap<String, MlxOptimizer>,
     /// Learning rate scheduler for warmup and decay
     lr_scheduler: Option<LRScheduler>,
     /// Accumulated gradients for gradient accumulation (keyed by module_key)
     /// Each entry is (grad_a_sum, grad_b_sum, accumulation_count)
-    accumulated_gradients: HashMap<String, (Vec<f32>, Vec<f32>, usize)>,
+    /// Uses BTreeMap for deterministic iteration order during gradient application.
+    accumulated_gradients: BTreeMap<String, (Vec<f32>, Vec<f32>, usize)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -340,9 +342,9 @@ impl MicroLoRATrainer {
             optimizer: None,
             multi_module_optimizer: MultiModuleOptimizerState::new(),
             #[cfg(feature = "multi-backend")]
-            module_optimizers: HashMap::new(),
+            module_optimizers: BTreeMap::new(),
             lr_scheduler: None, // Initialized when training starts
-            accumulated_gradients: HashMap::new(),
+            accumulated_gradients: BTreeMap::new(),
         };
 
         // Load base model when required (GPU backward, validation, or multi-module training).
@@ -445,9 +447,9 @@ impl MicroLoRATrainer {
             optimizer: None,
             multi_module_optimizer: MultiModuleOptimizerState::new(),
             #[cfg(feature = "multi-backend")]
-            module_optimizers: HashMap::new(),
+            module_optimizers: BTreeMap::new(),
             lr_scheduler: None, // Initialized when training starts
-            accumulated_gradients: HashMap::new(),
+            accumulated_gradients: BTreeMap::new(),
         })
     }
 
@@ -1859,7 +1861,7 @@ impl MicroLoRATrainer {
 
         let metrics = vec![
             TrainingMetricRow {
-                id: Uuid::now_v7().to_string(),
+                id: TypedId::new(IdPrefix::Evt).to_string(),
                 training_job_id: job_id.clone(),
                 step: step as i64,
                 epoch: Some(epoch as i64),
@@ -1868,7 +1870,7 @@ impl MicroLoRATrainer {
                 metric_timestamp: Some(timestamp.clone()),
             },
             TrainingMetricRow {
-                id: Uuid::now_v7().to_string(),
+                id: TypedId::new(IdPrefix::Evt).to_string(),
                 training_job_id: job_id.clone(),
                 step: step as i64,
                 epoch: Some(epoch as i64),
@@ -1877,7 +1879,7 @@ impl MicroLoRATrainer {
                 metric_timestamp: Some(timestamp),
             },
             TrainingMetricRow {
-                id: Uuid::now_v7().to_string(),
+                id: TypedId::new(IdPrefix::Evt).to_string(),
                 training_job_id: job_id.clone(),
                 step: step as i64,
                 epoch: Some(epoch as i64),
@@ -1886,7 +1888,7 @@ impl MicroLoRATrainer {
                 metric_timestamp: Some(Utc::now().to_rfc3339()),
             },
             TrainingMetricRow {
-                id: Uuid::now_v7().to_string(),
+                id: TypedId::new(IdPrefix::Evt).to_string(),
                 training_job_id: job_id.clone(),
                 step: step as i64,
                 epoch: Some(epoch as i64),
@@ -2735,7 +2737,7 @@ Use --force-resume to override (may produce incorrect results).",
         Ok(LoRAWeights {
             lora_a,
             lora_b,
-            modules: HashMap::new(),
+            modules: BTreeMap::new(),
             moe_config: self.config.moe_config.clone(),
             precomputed_delta: None,
         })

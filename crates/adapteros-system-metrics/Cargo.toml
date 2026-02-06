@@ -9,13 +9,14 @@ description = "System resource monitoring and metrics collection for adapterOS"
 
 [features]
 mlx = ["dep:adapteros-lora-mlx-ffi"]
-coreml = []
+coreml = ["dep:adapteros-lora-kernel-coreml"]
 # SMS notifications via external providers (Twilio, AWS SNS, etc.)
 # When enabled, requires configuration of SMS provider credentials
 sms = []
 [dependencies]
 # Internal crates
 adapteros-core = { path = "../adapteros-core" }
+adapteros-id = { path = "../adapteros-id" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
 adapteros-model-hub = { path = "../adapteros-model-hub" }
 adapteros-policy = { path = "../adapteros-policy" }
@@ -42,8 +43,9 @@ uuid.workspace = true
 rand = { workspace = true }
 rand_chacha = "0.3"
 utoipa = { version = "5.4", features = ["axum_extras"] }
-# macOS-specific dependencies for Metal GPU support
+# macOS-specific dependencies for Metal GPU and CoreML ANE support
 [target.'cfg(target_os = "macos")'.dependencies]
 metal.workspace = true
+adapteros-lora-kernel-coreml = { path = "../adapteros-lora-kernel-coreml", optional = true }
 [dev-dependencies]
 tempfile = { workspace = true }

@@ -359,7 +359,7 @@ async fn apply_stack_created(
         .filter(|id| !id.trim().is_empty())
         .map(|id| id.to_string())
         .unwrap_or_else(|| {
-            crate::id_generator::readable_id(adapteros_core::ids::IdKind::Stack, &payload.name)
+            crate::id_generator::readable_id(adapteros_id::IdPrefix::Stk, &payload.name)
         });
 
     let mut adapter_ids = payload.adapter_ids.clone();

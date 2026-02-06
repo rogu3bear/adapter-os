@@ -120,7 +120,7 @@ pub fn BreadcrumbTrail(
                         }.into_any()
                     } else {
                         view! {
-                            <span class="text-foreground font-medium">{crumb.label}</span>
+                            <span class="text-foreground font-medium" aria-current="page">{crumb.label}</span>
                         }.into_any()
                     }}
                 }

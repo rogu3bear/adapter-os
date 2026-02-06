@@ -72,7 +72,7 @@ pub fn RoutingDecisions() -> impl IntoView {
                             // Header
                             <div class="flex items-center justify-between">
                                 <div>
-                                    <h2 class="text-2xl font-semibold tracking-tight">"Routing Decisions"</h2>
+                                    <h2 class="heading-2">"Routing Decisions"</h2>
                                     <p class="text-muted-foreground mt-1">
                                         "K-sparse adapter routing decisions and debugging"
                                     </p>
@@ -86,7 +86,7 @@ pub fn RoutingDecisions() -> impl IntoView {
                                     </Button>
                                     <Button
                                         variant=ButtonVariant::Outline
-                                        on_click=refetch_decisions
+                                        on_click=refetch_decisions.as_callback()
                                     >
                                         "Refresh"
                                     </Button>
@@ -108,7 +108,7 @@ pub fn RoutingDecisions() -> impl IntoView {
                             <FilterBar
                                 filter_anomalies=filter_anomalies
                                 filter_stack=filter_stack
-                                on_filter_change=refetch_decisions
+                                on_filter_change=refetch_decisions.as_callback()
                             />
 
                             // Summary stats
@@ -137,7 +137,7 @@ pub fn RoutingDecisions() -> impl IntoView {
                                         view! {
                                             <ErrorDisplay
                                                 error=e
-                                                on_retry=refetch_decisions
+                                                on_retry=refetch_decisions.as_callback()
                                             />
                                         }.into_any()
                                     }
@@ -404,7 +404,7 @@ fn DecisionDetail(decision_id: String, on_close: impl Fn() + Copy + 'static) -> 
         <div class="space-y-4">
             // Header with close button
             <div class="flex items-center justify-between">
-                <h2 class="text-xl font-semibold">"Decision Details"</h2>
+                <h2 class="heading-3">"Decision Details"</h2>
                 <button
                     class="text-muted-foreground hover:text-foreground"
                     on:click=move |_| on_close()
@@ -444,7 +444,7 @@ fn DecisionDetail(decision_id: String, on_close: impl Fn() + Copy + 'static) -> 
                         view! {
                             <ErrorDisplay
                                 error=e
-                                on_retry=refetch
+                                on_retry=refetch.as_callback()
                             />
                         }.into_any()
                     }

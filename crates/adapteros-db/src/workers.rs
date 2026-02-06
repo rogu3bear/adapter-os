@@ -258,15 +258,8 @@ impl Db {
         Ok(workers)
     }
 
-    pub async fn update_worker_status(&self, worker_id: &str, status: &str) -> Result<()> {
-        sqlx::query("UPDATE workers SET status = ?, last_seen_at = datetime('now') WHERE id = ?")
-            .bind(status)
-            .bind(worker_id)
-            .execute(self.pool())
-            .await
-            .map_err(|e| AosError::Database(e.to_string()))?;
-        Ok(())
-    }
+    // NOTE: update_worker_status() was removed in PRD-RECT topology fix.
+    // Use transition_worker_status() for all status changes - it enforces the state machine.
 
     /// List all active workers (status = 'active')
     pub async fn list_active_workers(&self) -> Result<Vec<Worker>> {
@@ -693,7 +686,7 @@ impl Db {
         backtrace_snippet: Option<&str>,
         latency_at_incident_ms: Option<f64>,
     ) -> Result<String> {
-        let id = uuid::Uuid::new_v4().to_string();
+        let id = crate::new_id(adapteros_id::IdPrefix::Wrk);
 
         sqlx::query(
             "INSERT INTO worker_incidents
@@ -1131,7 +1124,7 @@ impl Db {
         }
 
         // Generate history record ID
-        let history_id = uuid::Uuid::now_v7().to_string();
+        let history_id = crate::new_id(adapteros_id::IdPrefix::Wrk);
 
         // Insert history record (regardless of validity)
         sqlx::query(
@@ -1153,7 +1146,7 @@ impl Db {
 
         if !is_valid {
             // Log invalid transition to audit_logs as security/compliance event
-            let audit_id = uuid::Uuid::now_v7().to_string();
+            let audit_id = crate::new_id(adapteros_id::IdPrefix::Aud);
             let metadata = serde_json::json!({
                 "worker_id": worker_id,
                 "from_status": current_status,

@@ -29,7 +29,8 @@ use crate::Db;
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 // ============================================================================
 // Type Definitions
@@ -498,11 +499,14 @@ impl Db {
     /// Create a new discrepancy case
     ///
     /// Returns the ID of the newly created case.
-    pub async fn create_discrepancy_case(&self, params: &CreateDiscrepancyParams) -> Result<String> {
+    pub async fn create_discrepancy_case(
+        &self,
+        params: &CreateDiscrepancyParams,
+    ) -> Result<String> {
         let id = params
             .id
             .clone()
-            .unwrap_or_else(|| Uuid::now_v7().to_string());
+            .unwrap_or_else(|| new_id(IdPrefix::Dec));
 
         // Apply privacy rule: only store content if explicitly opted-in
         let user_question = if params.store_content {
@@ -623,9 +627,10 @@ impl Db {
         }
         q = q.bind(limit).bind(offset);
 
-        let cases = q.fetch_all(self.pool()).await.map_err(|e| {
-            AosError::Database(format!("Failed to list discrepancy cases: {}", e))
-        })?;
+        let cases = q
+            .fetch_all(self.pool())
+            .await
+            .map_err(|e| AosError::Database(format!("Failed to list discrepancy cases: {}", e)))?;
 
         Ok(cases)
     }
@@ -738,9 +743,7 @@ impl Db {
         .bind(tenant_id)
         .fetch_all(self.pool())
         .await
-        .map_err(|e| {
-            AosError::Database(format!("Failed to count discrepancy cases: {}", e))
-        })?;
+        .map_err(|e| AosError::Database(format!("Failed to count discrepancy cases: {}", e)))?;
 
         let mut counts = std::collections::HashMap::new();
         for (status, count) in rows {

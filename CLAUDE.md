@@ -78,12 +78,11 @@ Defined at workspace level in root `Cargo.toml` and propagate to crates:
 ```bash
 # Backend flags (macOS only)
 --features coreml-backend    # CoreML ANE acceleration layer
---features metal-backend     # Metal GPU kernels
---features mlx               # MLX C++ FFI (Homebrew MLX)
-
-# Combined profiles
---features production-macos  # Full Apple Silicon stack (MLX + CoreML + Metal)
 --features multi-backend     # MLX primary backend (C++ FFI)
+--features production-macos  # Explicit full Apple Silicon stack (MLX + CoreML)
+
+# Note: Metal always compiles on macOS via target_os gate (no feature flag needed)
+# Note: cargo build -p adapteros-server includes MLX + CoreML by default
 
 # Testing flags
 --features extended-tests    # Extended test suite
@@ -91,7 +90,7 @@ Defined at workspace level in root `Cargo.toml` and propagate to crates:
 --features loom              # Concurrency testing with loom
 ```
 
-Default features: `deterministic-only`, `multi-backend`, `coreml-backend`
+Default features: `multi-backend`, `coreml-backend`
 
 ## Testing
 

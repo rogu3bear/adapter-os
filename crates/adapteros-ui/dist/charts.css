@@ -170,6 +170,118 @@
     opacity: 1;
 }
 
+/* ===== Heatmap Container ===== */
+.heatmap-container {
+    position: relative;
+    padding: 1rem;
+    border-radius: var(--radius);
+    border: 1px solid var(--color-border);
+    background-color: var(--color-card);
+}
+
+.heatmap-scroll {
+    overflow-x: auto;
+}
+
+.heatmap-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.heatmap-column-labels {
+    position: relative;
+    height: 2rem;
+    margin-bottom: 0.25rem;
+}
+
+.heatmap-column-label {
+    position: absolute;
+    font-size: 0.5625rem;
+    color: var(--color-muted-foreground);
+    transform: rotate(-45deg);
+    transform-origin: left bottom;
+    white-space: nowrap;
+}
+
+.heatmap-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.heatmap-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.heatmap-row-label {
+    font-size: 0.625rem;
+    color: var(--color-muted-foreground);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.heatmap-cells {
+    display: flex;
+    align-items: center;
+}
+
+.heatmap-empty {
+    padding: 2rem;
+    text-align: center;
+}
+
+.heatmap-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    padding-top: 0.75rem;
+    justify-content: center;
+}
+
+.heatmap-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-size: 0.6875rem;
+    color: var(--color-muted-foreground);
+}
+
+.heatmap-legend-color {
+    width: 0.625rem;
+    height: 0.625rem;
+    border-radius: 0.125rem;
+    flex-shrink: 0;
+}
+
+.heatmap-legend-label {
+    font-weight: 500;
+}
+
+/* Mini heatmap */
+.mini-heatmap-grid {
+    display: flex;
+    flex-direction: column;
+}
+
+.mini-heatmap-row {
+    display: flex;
+}
+
+.mini-heatmap-cell {
+    border-radius: 1px;
+}
+
+.mini-heatmap-more {
+    font-size: 0.625rem;
+    color: var(--color-muted-foreground);
+    padding-top: 0.25rem;
+}
+
 /* ===== Chart Legend ===== */
 .chart-legend {
     display: flex;
@@ -276,13 +388,13 @@
 }
 
 .chart-tick-label {
-    font-size: 0.6875rem;
+    font-size: 0.5rem;
     fill: var(--color-muted-foreground);
     font-family: var(--font-sans);
 }
 
 .chart-axis-label {
-    font-size: 0.6875rem;
+    font-size: 0.5rem;
     fill: var(--color-muted-foreground);
     font-weight: 500;
 }

@@ -3,7 +3,8 @@ use adapteros_core::error_helpers::DbErrorExt;
 use adapteros_core::{AosError, Result};
 use adapteros_types::nodes::{Node, NodeDetail as NodeDetailType};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 struct NodeRow {
@@ -32,7 +33,7 @@ impl From<NodeRow> for Node {
 
 impl Db {
     pub async fn register_node(&self, hostname: &str, agent_endpoint: &str) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Nod);
         sqlx::query(
             "INSERT INTO nodes (id, hostname, agent_endpoint, status) VALUES (?, ?, ?, 'active')",
         )

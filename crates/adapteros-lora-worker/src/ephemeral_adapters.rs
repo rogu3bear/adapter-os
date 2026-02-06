@@ -175,7 +175,7 @@ fn generate_weights(adapter_id: &str, rank: usize, hidden_dim: usize) -> LoRAWei
     }
 
     LoRAWeights {
-        modules: std::collections::HashMap::new(),
+        modules: std::collections::BTreeMap::new(),
         lora_a,
         lora_b,
         moe_config: None,

@@ -14,6 +14,11 @@ pub const MAX_REPLAY_TEXT_SIZE: usize = 64 * 1024;
 /// Default maximum tokens to generate when not specified by request
 pub const DEFAULT_MAX_TOKENS: usize = 512;
 
+/// Maximum allowed max_tokens value to prevent resource exhaustion.
+/// This is a reasonable upper bound based on typical model context limits.
+/// Requests exceeding this will be rejected with a clear error message.
+pub const MAX_TOKENS_LIMIT: usize = 16384;
+
 /// Placement decision trace entry (per token)
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq)]
 pub struct PlacementTraceEntry {

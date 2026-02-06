@@ -7,7 +7,7 @@ use crate::api_error::ApiError;
 use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
 use crate::state::AppState;
-use crate::types::ErrorResponse;
+use crate::types::{ErrorResponse, MAX_TOKENS_LIMIT};
 use adapteros_core::B3Hash;
 use adapteros_orchestrator::synthesis::{
     create_synthesis_request, SynthesisBatchStats, SynthesisEngine, SynthesisEngineConfig,
@@ -224,8 +224,15 @@ pub async fn synthesize_dataset(
         .into());
     }
 
-    // Get synthesis config
+    // Get synthesis config and validate max_tokens
     let config = request.config.unwrap_or_default();
+    if config.max_tokens > MAX_TOKENS_LIMIT {
+        return Err(ApiError::bad_request(format!(
+            "max_tokens ({}) exceeds maximum allowed ({})",
+            config.max_tokens, MAX_TOKENS_LIMIT
+        ))
+        .into());
+    }
 
     // Get or initialize the cached synthesis engine (model loaded once)
     let engine = get_or_init_synthesis_engine(&state).await?;
@@ -460,7 +467,7 @@ async fn persist_synthesis_results(
     use adapteros_core::AosError;
 
     // Generate dataset ID
-    let dataset_id = crate::id_generator::readable_id(adapteros_core::ids::IdKind::Dataset, name);
+    let dataset_id = crate::id_generator::readable_id(adapteros_id::IdPrefix::Dst, name);
 
     // Resolve storage path
     let config = state.config.read().map_err(|e| {

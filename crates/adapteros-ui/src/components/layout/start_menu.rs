@@ -1,17 +1,18 @@
-//! StartMenu - Module-based navigation
+//! StartMenu - Workflow-based navigation
 //!
-//! Navigation structure for the control plane:
-//! - Core workflow: Operate, Build, Configure, Data, Verify
-//! - Organization: Org (users, roles, API keys) - admin functions
-//! - Interactive: Tools (Chat, Routing Debug, Run Diff)
-//! - Personal: Account (Profile, Preferences) - collapsed by default
+//! Navigation structure follows the workflow spine:
+//! Dashboard (pinned) → Data → Train → Deploy → Route → Infer → Observe → Govern → Org
+//!
+//! Each group shows Alt+N shortcut hint and can be expanded/collapsed.
 
-use crate::components::layout::nav_registry::{build_start_menu_modules, StartMenuModule};
+use crate::components::layout::nav_registry::{
+    build_start_menu_modules, StartMenuModule, DASHBOARD_ITEM,
+};
 use crate::signals::use_ui_profile;
 use leptos::html;
 use leptos::prelude::*;
 
-/// Module launcher menu with six-module navigation structure
+/// Module launcher menu with workflow-based navigation structure
 #[component]
 pub fn StartMenu(on_close: impl Fn() + Clone + Send + Sync + 'static) -> impl IntoView {
     let ui_profile = use_ui_profile();
@@ -44,18 +45,21 @@ pub fn StartMenu(on_close: impl Fn() + Clone + Send + Sync + 'static) -> impl In
         }
     };
 
-    let on_close_overlay = on_close.clone();
+    let on_close_click = on_close.clone();
+    let on_close_dashboard = on_close.clone();
+    let on_close_modules = on_close;
+
     view! {
         <div class="fixed inset-0 z-50">
             <button
                 class="absolute inset-0 bg-background/60 backdrop-blur-sm"
                 aria-label="Close start menu"
-                on:click=move |_| on_close_overlay()
+                on:click=move |_| on_close_click()
             />
             <div
                 node_ref=menu_ref
                 class="absolute left-0 w-80 bg-background border border-border rounded-lg shadow-xl"
-                style="bottom: 100%; margin-bottom: 0.5rem; max-height: calc(100vh - 6rem);"
+                style="bottom: 3.5rem; left: 0.5rem; max-height: calc(100vh - 6rem);"
                 role="dialog"
                 aria-modal="true"
                 tabindex="0"
@@ -63,24 +67,61 @@ pub fn StartMenu(on_close: impl Fn() + Clone + Send + Sync + 'static) -> impl In
             >
                 // Header
                 <div class="p-4 border-b border-border">
-                    <h2 class="text-lg font-semibold">"adapterOS"</h2>
+                    <h2 class="heading-4">"adapterOS"</h2>
                     <p class="text-xs text-muted-foreground">"Control Plane"</p>
                 </div>
 
+                // Command Palette hint
+                <div class="px-4 py-2 border-b border-border">
+                    <div class="flex items-center gap-2 text-sm text-muted-foreground">
+                        <kbd class="px-1.5 py-0.5 rounded bg-muted border border-border font-mono text-xs">"⌘K"</kbd>
+                        <span>"Command Palette"</span>
+                    </div>
+                </div>
+
                 // Module list
-                <div class="p-2 overflow-y-auto" style="max-height: calc(100vh - 12rem);">
+                <div class="p-2 overflow-y-auto" style="max-height: calc(100vh - 16rem);">
+                    // Dashboard - pinned at top
+                    {
+                        let on_close = on_close_dashboard.clone();
+                        view! {
+                            <a
+                                href=DASHBOARD_ITEM.route
+                                class="flex items-center gap-2 px-3 py-2 rounded-md hover:bg-muted/50 transition-colors mb-2"
+                                on:click=move |_| on_close()
+                            >
+                                <svg
+                                    class="w-4 h-4 text-primary shrink-0"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                    stroke-width="2"
+                                >
+                                    <path stroke-linecap="round" stroke-linejoin="round" d=DASHBOARD_ITEM.icon.unwrap_or("")/>
+                                </svg>
+                                <span class="text-sm font-medium">{DASHBOARD_ITEM.label}</span>
+                            </a>
+                        }
+                    }
+
+                    <div class="border-t border-border/50 my-2"></div>
+
+                    // Workflow groups
                     {move || {
                         modules
                             .get()
                             .into_iter()
                             .enumerate()
                             .map(|(idx, module)| {
-                                let on_close = on_close.clone();
+                                let on_close = on_close_modules.clone();
+                                // Alt shortcut is idx+1 for full profile
+                                let alt_hint = idx + 1;
                                 view! {
                                     <ModuleSection
                                         module=module
                                         expanded=expanded_modules
                                         index=idx
+                                        alt_hint=alt_hint
                                         on_navigate=on_close
                                     />
                                 }
@@ -99,6 +140,7 @@ fn ModuleSection(
     module: StartMenuModule,
     expanded: RwSignal<Vec<bool>>,
     index: usize,
+    alt_hint: usize,
     on_navigate: impl Fn() + Clone + Send + Sync + 'static,
 ) -> impl IntoView {
     let is_expanded = move || expanded.get().get(index).copied().unwrap_or(true);
@@ -132,6 +174,10 @@ fn ModuleSection(
                     <path stroke-linecap="round" stroke-linejoin="round" d=icon/>
                 </svg>
                 <span class="text-sm font-medium flex-1 text-left">{name}</span>
+                // Alt shortcut hint
+                <kbd class="px-1 py-0.5 rounded bg-muted/50 border border-border/50 font-mono text-xs text-muted-foreground">
+                    {format!("Alt+{}", alt_hint)}
+                </kbd>
                 <svg
                     class=move || format!(
                         "w-3 h-3 text-muted-foreground transition-transform {}",

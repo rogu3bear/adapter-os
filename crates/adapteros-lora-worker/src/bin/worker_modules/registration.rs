@@ -250,6 +250,62 @@ pub fn notify_cp_status(
     tokenizer_hash_b3: &str,
     tokenizer_vocab_size: u32,
 ) {
+    notify_cp_status_inner(
+        cp_url,
+        worker_id,
+        status,
+        reason,
+        backend,
+        model_hash,
+        manifest_hash,
+        tokenizer_hash_b3,
+        tokenizer_vocab_size,
+        1, // single attempt for non-critical notifications
+    );
+}
+
+/// Notify control plane of worker status change with retry.
+///
+/// Use this for critical transitions (e.g. `healthy`) where a missed notification
+/// causes the worker to be silently excluded from routing.
+pub fn notify_cp_status_with_retry(
+    cp_url: &str,
+    worker_id: &str,
+    status: &str,
+    reason: &str,
+    backend: &str,
+    model_hash: &str,
+    manifest_hash: &str,
+    tokenizer_hash_b3: &str,
+    tokenizer_vocab_size: u32,
+    max_attempts: u32,
+) {
+    notify_cp_status_inner(
+        cp_url,
+        worker_id,
+        status,
+        reason,
+        backend,
+        model_hash,
+        manifest_hash,
+        tokenizer_hash_b3,
+        tokenizer_vocab_size,
+        max_attempts,
+    );
+}
+
+fn notify_cp_status_inner(
+    cp_url: &str,
+    worker_id: &str,
+    status: &str,
+    reason: &str,
+    backend: &str,
+    model_hash: &str,
+    manifest_hash: &str,
+    tokenizer_hash_b3: &str,
+    tokenizer_vocab_size: u32,
+    max_attempts: u32,
+) {
     let notification = serde_json::json!({
         "worker_id": worker_id,
         "status": status,
@@ -262,21 +318,45 @@ pub fn notify_cp_status(
     });
 
     let url = format!("{}/v1/workers/status", cp_url);
-    let agent = ureq::Agent::config_builder()
-        .timeout_global(Some(std::time::Duration::from_secs(5)))
-        .build()
-        .new_agent();
+    let body = notification.to_string();
 
-    match agent
-        .post(&url)
-        .header("Content-Type", "application/json")
-        .send(notification.to_string().as_bytes())
-    {
-        Ok(_) => {
-            info!(status = %status, reason = %reason, "Status notification sent to CP");
-        }
-        Err(e) => {
-            warn!(status = %status, error = %e, "Failed to notify CP of status change");
+    for attempt in 1..=max_attempts {
+        let agent = ureq::Agent::config_builder()
+            .timeout_global(Some(std::time::Duration::from_secs(5)))
+            .build()
+            .new_agent();
+
+        match agent
+            .post(&url)
+            .header("Content-Type", "application/json")
+            .send(body.as_bytes())
+        {
+            Ok(_) => {
+                info!(status = %status, reason = %reason, attempt, "Status notification sent to CP");
+                return;
+            }
+            Err(e) => {
+                if attempt < max_attempts {
+                    let backoff = std::time::Duration::from_millis(500 * 2u64.pow(attempt - 1));
+                    warn!(
+                        status = %status,
+                        error = %e,
+                        attempt,
+                        max_attempts,
+                        backoff_ms = backoff.as_millis() as u64,
+                        "Failed to notify CP of status change, retrying"
+                    );
+                    std::thread::sleep(backoff);
+                } else {
+                    error!(
+                        status = %status,
+                        error = %e,
+                        attempt,
+                        "Failed to notify CP of status change after all attempts — \
+                         worker may not receive routed traffic"
+                    );
+                }
+            }
         }
     }
 }

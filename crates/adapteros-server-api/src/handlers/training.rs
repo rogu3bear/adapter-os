@@ -1342,7 +1342,7 @@ pub async fn create_training_job(
         format!(
             "ws-{}-{}",
             workspace_id,
-            adapteros_core::ids::generate_suffix(6)
+            &uuid::Uuid::now_v7().simple().to_string()[..6]
         )
     });
 

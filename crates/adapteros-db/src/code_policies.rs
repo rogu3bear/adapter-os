@@ -1,7 +1,8 @@
 use crate::Db;
 use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct CodePolicy {
@@ -51,7 +52,7 @@ impl Db {
             .map_err(|e| AosError::Database(e.to_string()))?;
 
         // Insert new policy
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Pol);
         sqlx::query(
             "INSERT INTO code_policies
              (id, tenant_id, evidence_config_json, auto_apply_config_json,

@@ -118,7 +118,7 @@ pub fn TableHead(#[prop(optional, into)] class: String, children: Children) -> i
     let full_class = format!("table-header-cell {}", class);
 
     view! {
-        <th class=full_class>
+        <th class=full_class scope="col">
             {children()}
         </th>
     }
@@ -143,7 +143,7 @@ pub fn TableHeadSortable(
     );
 
     view! {
-        <th class=full_class aria-sort=sort.aria_sort() role="columnheader">
+        <th class=full_class scope="col" aria-sort=sort.aria_sort() role="columnheader">
             <button class="table-sort-button" on:click=move |_| on_sort.run(()) type="button">
                 <span class="table-sort-label">{children()}</span>
                 <span class="table-sort-icon" aria-hidden="true">

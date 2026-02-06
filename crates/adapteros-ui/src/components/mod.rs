@@ -55,8 +55,8 @@ pub mod workspace;
 
 pub use action_card::{ActionCard, ActionCardVariant};
 pub use adapter_bar::{
-    AdapterBar, AdapterChipState, AdapterHeat, AdapterMagnet, SuggestedAdapterView,
-    SuggestedAdaptersBar,
+    AdapterBar, AdapterChipState, AdapterHeat, AdapterMagnet, AdapterManageDialog,
+    ChatAdaptersRegion, SuggestedAdapterView, SuggestedAdaptersBar,
 };
 pub use adapter_detail_panel::{AdapterDetailPanel, AdapterSuggestionContext};
 pub use adapter_lifecycle_controls::AdapterLifecycleControls;
@@ -92,7 +92,10 @@ pub use form_field::{FormField, HelpTooltip, LabelWithHelp};
 pub use glass_toggle::GlassThemeToggle;
 pub use global_search::{GlobalSearchBox, SearchTriggerButton};
 pub use input::{Input, Textarea};
-pub use layout::{Header, Shell, Sidebar, Taskbar, TopBar};
+pub use layout::{
+    BreadcrumbItem as PageBreadcrumbItem, Header, PageScaffold, PageScaffoldActions,
+    PageScaffoldInspector, Shell, Sidebar, Taskbar, TopBar,
+};
 pub use lifecycle_transition_dialog::{LifecycleTransitionDialog, LifecycleTransitionInfo};
 pub use link::{Link, LinkVariant};
 pub use offline_banner::OfflineBanner;

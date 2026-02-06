@@ -497,8 +497,12 @@ impl BootAttestation {
             boot_successful: !chain.has_blocking_phase(),
             checks_passed: chain.total_passed_checks() as u32,
             checks_failed: chain.total_failed_checks() as u32,
-            git_commit: option_env!("GIT_SHA").map(String::from),
-            build_timestamp: option_env!("BUILD_TIME").and_then(|s| s.parse().ok()),
+            git_commit: Some(adapteros_core::version::GIT_COMMIT_HASH.to_string())
+                .filter(|s| s != "unknown"),
+            build_timestamp: {
+                let ts = adapteros_core::version::BUILD_TIMESTAMP;
+                if ts != "unknown" { ts.parse().ok() } else { None }
+            },
             attested_at_us,
             signature: String::new(),
             public_key: String::new(),

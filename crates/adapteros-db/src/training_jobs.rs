@@ -14,7 +14,8 @@ use sqlx::FromRow;
 use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::{info, warn};
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 const DEFAULT_SEED_MODE: &str = "best_effort";
 const DATASET_LINK_CONFLICT_MARKER: &str = "already linked to job";
@@ -526,7 +527,7 @@ impl Db {
         training_config_json: &str,
         created_by: &str,
     ) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Job);
         let progress = TrainingProgress {
             progress_pct: 0.0,
             current_epoch: 0,
@@ -1441,7 +1442,7 @@ impl Db {
     ) -> Result<String> {
         let id = job_id
             .map(|s| s.to_string())
-            .unwrap_or_else(|| Uuid::now_v7().to_string());
+            .unwrap_or_else(|| new_id(IdPrefix::Job));
         let progress = TrainingProgress {
             progress_pct: 0.0,
             current_epoch: 0,
@@ -1822,7 +1823,7 @@ impl Db {
         metric_name: &str,
         value: f64,
     ) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Job);
 
         sqlx::query(
             "INSERT INTO repository_training_metrics
@@ -2940,7 +2941,7 @@ impl Db {
         params: &LinkDatasetParams,
         tenant_id: Option<&str>,
     ) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Job);
         let role = params.role.as_deref().unwrap_or("primary");
         let ordinal = params.ordinal.unwrap_or(0);
         let weight = params.weight.unwrap_or(1.0);
@@ -3019,7 +3020,7 @@ impl Db {
         let mut link_ids = Vec::with_capacity(params_list.len());
 
         for (idx, params) in params_list.iter().enumerate() {
-            let id = Uuid::now_v7().to_string();
+            let id = new_id(IdPrefix::Job);
             let role = params.role.as_deref().unwrap_or("primary");
             // Use provided ordinal or fall back to index position
             let ordinal = params.ordinal.unwrap_or(idx as i32);

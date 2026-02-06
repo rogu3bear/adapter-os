@@ -30,7 +30,7 @@ use axum::{
 };
 use chrono::Utc;
 use tracing::warn;
-use uuid::Uuid;
+use adapteros_id::{TypedId, IdPrefix};
 
 /// Switch the authenticated user's active tenant context
 ///
@@ -187,7 +187,7 @@ pub async fn switch_tenant_handler(
     let token_ttl_seconds = auth_cfg.access_ttl();
     let session_ttl_seconds = auth_cfg.effective_ttl();
     let roles_vec = vec![user.role.clone()];
-    let rot_id = format!("rot-{}", Uuid::new_v4());
+    let rot_id = TypedId::new(IdPrefix::Rot).to_string();
 
     // Issue new access token with the TARGET tenant as the active tenant
     let access_params = AccessTokenParams {
@@ -280,7 +280,7 @@ pub async fn switch_tenant_handler(
 
     // 10. Attach cookies for browser auth
     let mut response_headers = HeaderMap::new();
-    let csrf_token = Uuid::new_v4().to_string();
+    let csrf_token = TypedId::new(IdPrefix::Tok).to_string();
     attach_auth_cookies(
         &mut response_headers,
         &new_access_token,

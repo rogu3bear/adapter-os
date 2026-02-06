@@ -72,6 +72,7 @@ async fn ingest_catalog_builds_topology_graph() -> anyhow::Result<()> {
             description: c.description.clone(),
             default_adapter_id: c.default_adapter.clone(),
             version: clusters_version.clone(),
+            display_name: None,
         })
         .collect();
 

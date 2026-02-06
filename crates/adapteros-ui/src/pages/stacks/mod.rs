@@ -17,7 +17,8 @@ pub use detail::StackDetail;
 
 use crate::api::ApiClient;
 use crate::components::{
-    Button, ButtonVariant, ErrorDisplay, LoadingDisplay, PageHeader, RefreshButton,
+    Button, ButtonVariant, ErrorDisplay, LoadingDisplay, PageScaffold, PageScaffoldActions,
+    RefreshButton,
 };
 use crate::hooks::{use_api_resource, LoadingState};
 use crate::signals::refetch::{use_refetch_signal, RefetchTopic};
@@ -58,11 +59,11 @@ pub fn Stacks() -> impl IntoView {
     };
 
     view! {
-        <div class="p-6 space-y-6">
-            <PageHeader
-                title="Runtime Stacks"
-                subtitle="Compose adapter stacks for inference"
-            >
+        <PageScaffold
+            title="Runtime Stacks"
+            subtitle="Compose adapter stacks for inference"
+        >
+            <PageScaffoldActions slot>
                 <RefreshButton on_click=Callback::new(move |_| trigger_refresh())/>
                 <Button
                     variant=ButtonVariant::Primary
@@ -70,7 +71,7 @@ pub fn Stacks() -> impl IntoView {
                 >
                     "Create Stack"
                 </Button>
-            </PageHeader>
+            </PageScaffoldActions>
 
             {move || {
                 match stacks.get() {
@@ -95,6 +96,6 @@ pub fn Stacks() -> impl IntoView {
                 open=show_create_dialog
                 refetch_trigger=refetch_trigger
             />
-        </div>
+        </PageScaffold>
     }
 }

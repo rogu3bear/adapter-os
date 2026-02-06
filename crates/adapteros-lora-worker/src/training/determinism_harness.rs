@@ -9,7 +9,7 @@ use super::{
 };
 use adapteros_core::Result;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use tracing::info;
 
 /// Hyperparameters used by the drift/determinism harness.
@@ -290,7 +290,7 @@ mod tests {
             weights: LoRAWeights {
                 lora_a: vec![vec![loss]],
                 lora_b: vec![vec![loss * 2.0]],
-                modules: HashMap::new(),
+                modules: BTreeMap::new(),
                 moe_config: None,
                 precomputed_delta: None,
             },

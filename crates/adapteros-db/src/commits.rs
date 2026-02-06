@@ -1,7 +1,8 @@
 use crate::Db;
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+use crate::new_id;
+use adapteros_id::IdPrefix;
 
 /// Builder for creating commit metadata parameters
 #[derive(Debug, Default)]
@@ -161,7 +162,7 @@ impl Db {
     /// # }
     /// ```
     pub async fn save_commit(&self, params: CommitParams) -> Result<String> {
-        let id = Uuid::now_v7().to_string();
+        let id = new_id(IdPrefix::Ver);
         sqlx::query(
             "INSERT INTO commits 
              (id, repo_id, sha, author, date, message, branch, changed_files_json, 

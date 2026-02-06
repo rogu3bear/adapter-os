@@ -94,6 +94,7 @@ members = [
     "crates/adapteros-server-api-admin",  # Admin and policy endpoints
     "crates/adapteros-server-api-models",  # Model management endpoints
     "crates/adapteros-model-server",  # Shared model server for worker memory efficiency
+    "crates/adapteros-id",  # Typed ID generation with word aliases
 ]
 
 [workspace.package]
@@ -106,62 +107,49 @@ repository = "https://github.com/rogu3bear/mplora"
 [features]
 # Default configuration: MLX primary with CoreML as ANE acceleration layer
 # MLX handles inference/training, CoreML provides ANE-accelerated ops for specific layers
-default = ["deterministic-only", "multi-backend", "coreml-backend"]
-
-# Core capability flags
-deterministic-only = []
-telemetry = []
-metrics = []
-replay = []
+default = ["multi-backend", "coreml-backend"]
 
 # =============================================================================
 # BACKEND FEATURE FLAGS
 # =============================================================================
 #
-# ARCHITECTURE: Features are defined at WORKSPACE level and propagate to crates
-# via optional dependencies. Each crate re-exports its backend feature.
+# ARCHITECTURE: Features defined at workspace level propagate to crates via
+# optional dependencies. Each crate re-exports its backend feature.
 #
-# MLX BACKEND (Apple Silicon, PRIMARY):
-#   mlx            - C++ FFI (Homebrew MLX) primary backend
-#   mlx-backend    - Legacy stub backend (deprecated)
-#   real-mlx       - Legacy alias for mlx (deprecated)
-#
-# ADDITIONAL BACKENDS (macOS):
-#   coreml-backend - CoreML + Neural Engine (macOS 13+, ANE acceleration)
-#   metal-backend  - Metal GPU (fallback for non-ANE systems)
+# MLX (primary):  multi-backend → worker/mlx → mlx-ffi C++ backend
+# CoreML (ANE):   coreml-backend → server → server-api → worker → kernel
+# Metal:          Always compiled on macOS via target_os gate (no feature needed)
 #
 # ACTIVATION:
-#   cargo build                             # Default: MLX (C++ FFI) + coreml
-#   cargo build --features production-macos # Full Apple Silicon stack
+#   cargo build                             # Default: MLX + CoreML
+#   cargo build --features production-macos # Explicit full Apple Silicon stack
+#   cargo build -p adapteros-server         # Server defaults include MLX + CoreML
 #
 # =============================================================================
 
-# Workspace-level Metal flag (enables Metal code paths across crates)
-metal = []
-
 # Real backends (macOS-only, require frameworks)
-# These propagate to per-crate features via optional dependencies
-coreml-backend = []  # CoreML + ANE (production primary)
-metal-backend = []   # Metal GPU (production fallback)
+coreml-backend = ["adapteros-server/coreml-backend"]  # CoreML + ANE (production primary)
 
 # MLX backend - C++ FFI (Homebrew MLX)
-mlx = []                             # MLX C++ FFI (primary backend)
 mlx-bridge = ["adapteros-lora-worker/mlx-bridge", "adapteros-core/mlx-bridge"]  # MLX Python subprocess bridge
 
 # Combined feature sets
 multi-backend = ["adapteros-lora-worker/mlx"]  # MLX primary backend via FFI
-full = ["telemetry", "metrics", "replay"]
-no-metal = []  # Explicitly disable Metal (for Linux/CI)
-# Production-oriented profiles (macOS Apple Silicon)
-production-macos = ["coreml-backend", "metal-backend", "mlx"]
-dev-macos-real = ["coreml-backend", "metal-backend", "mlx"]
 
-# Testing features - used in 157+ test files and test infrastructure
+# Production-oriented profiles (macOS Apple Silicon)
+production-macos = ["coreml-backend", "multi-backend"]
+dev-macos-real = ["coreml-backend", "multi-backend"]
+
+# Core capability flags (propagated to crates that have guards)
+metrics = ["adapteros-server-api/metrics"]
+replay = []
+
+# Testing features
 extended-tests = []  # Extended test suite with intensive tests
 hardware-residency = ["adapteros-lora-worker/hardware-residency"]  # Enable hardware residency integration tests
 integration_tests = []  # Integration test suite
 security_tests = []  # Security unit and integration tests
-loom = []  # Concurrency testing with loom (thread model verification)
+loom = ["adapteros-lora-worker/loom"]  # Concurrency testing with loom (thread model verification)
 
 # Experimental features - opt-in unstable functionality
 domain-experimental = []  # Domain adapter experimental features
