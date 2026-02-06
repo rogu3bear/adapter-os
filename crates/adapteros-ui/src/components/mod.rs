@@ -29,6 +29,7 @@ pub mod form_field;
 pub mod glass_toggle;
 pub mod global_search;
 pub mod icons;
+pub mod inference_banner;
 pub mod inference_guidance;
 pub mod input;
 pub mod layout;
@@ -91,6 +92,7 @@ pub use form_dialog::{FormDialog, StepFormDialog};
 pub use form_field::{FormField, HelpTooltip, LabelWithHelp};
 pub use glass_toggle::GlassThemeToggle;
 pub use global_search::{GlobalSearchBox, SearchTriggerButton};
+pub use inference_banner::InferenceBanner;
 pub use input::{Input, Textarea};
 pub use layout::{
     BreadcrumbItem as PageBreadcrumbItem, Header, PageScaffold, PageScaffoldActions,

@@ -139,7 +139,16 @@ fn ModelList(
                         </svg>
                     </div>
                     <p class="text-muted-foreground">"No models found."</p>
-                    <p class="text-sm text-muted-foreground mt-1">"Import a model to get started."</p>
+                    <p class="text-sm text-muted-foreground mt-1">
+                        "Models must be registered, then loaded into a worker to enable chat/inference."
+                    </p>
+                    <p class="text-xs text-muted-foreground mt-2">
+                        "If you expected to see models here, check "
+                        <a class="link link-default" href="/system">"System"</a>
+                        " for readiness and "
+                        <a class="link link-default" href="/workers">"Workers"</a>
+                        " for a connected worker."
+                    </p>
                 </div>
             </Card>
         }
@@ -421,7 +430,7 @@ fn ModelDetailContent(
                 } else if !model.is_loaded {
                     Some(view! {
                         <p class="text-xs text-muted-foreground">
-                            "Load this model to enable inference and chat."
+                            "Load makes this model active in memory on a worker so chat/inference can run."
                         </p>
                     })
                 } else {

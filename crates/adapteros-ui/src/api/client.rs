@@ -1324,6 +1324,19 @@ impl ApiClient {
         self.get(&format!("/v1/datasets/{}/statistics", id)).await
     }
 
+    /// Get a preview of dataset contents (first N examples, capped server-side).
+    pub async fn preview_dataset(
+        &self,
+        dataset_id: &str,
+        limit: Option<usize>,
+    ) -> ApiResult<crate::api::types::DatasetPreviewResponse> {
+        let path = match limit {
+            Some(n) => format!("/v1/datasets/{}/preview?limit={}", dataset_id, n),
+            None => format!("/v1/datasets/{}/preview", dataset_id),
+        };
+        self.get(&path).await
+    }
+
     /// Stream normalized dataset rows for a version
     pub async fn list_dataset_rows(
         &self,

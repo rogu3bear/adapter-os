@@ -48,7 +48,6 @@ pub fn TrainingJobDetail(
     on_close: impl Fn() + Copy + 'static,
     on_cancelled: impl Fn() + Copy + Send + Sync + 'static,
     /// Optional return-to path (e.g., "/chat") — renders a "Back to ..." link in the header
-    #[prop(optional)]
     return_to: Option<String>,
 ) -> impl IntoView {
     let job_id_for_fetch = job_id.clone();
@@ -155,7 +154,11 @@ pub fn TrainingJobDetail(
         })
     };
 
-    // Derive return button label from path
+    // Derive return button label and optional "training started" banner from path
+    let return_banner = return_to
+        .as_ref()
+        .filter(|p| p == &"/chat" || p.starts_with("/chat/"))
+        .map(|p| p.clone());
     let return_button = return_to.map(|path| {
         let label = if path == "/chat" || path.starts_with("/chat/") {
             "Back to Chat"
@@ -220,6 +223,33 @@ pub fn TrainingJobDetail(
                     </button>
                 </div>
             </div>
+
+            // "Training started" banner when navigating from chat
+            {return_banner.map(|href| view! {
+                <div class="training-return-banner">
+                    <div class="flex items-center gap-3">
+                        <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            class="w-5 h-5 text-green-600 flex-shrink-0"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            stroke-width="2"
+                        >
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                        <div>
+                            <p class="font-semibold text-sm">"Training started"</p>
+                            <p class="text-xs text-muted-foreground">
+                                "Your job is now running. You can monitor progress here or return later."
+                            </p>
+                        </div>
+                    </div>
+                    <Link href=href class="btn btn-primary btn-sm">
+                        "Back to Chat"
+                    </Link>
+                </div>
+            })}
 
             {move || {
                 match job.get() {

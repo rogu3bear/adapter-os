@@ -10,6 +10,7 @@ use super::taskbar::Taskbar;
 use super::topbar::TopBar;
 use crate::components::chat_dock::{ChatDockPanel, MobileChatOverlay, NarrowChatDock};
 use crate::components::error_history_panel::ErrorHistory;
+use crate::components::inference_banner::InferenceBanner;
 use crate::components::offline_banner::OfflineBanner;
 use crate::components::status_center::StatusCenterProvider;
 use crate::components::telemetry_overlay::TelemetryOverlay;
@@ -138,6 +139,8 @@ pub fn Shell(children: Children) -> impl IntoView {
 
                 // PRD-UI-000: Offline banner for API connectivity status
                 <OfflineBanner/>
+                // Inference readiness banner (e.g., no model loaded / no workers)
+                <InferenceBanner/>
                 // Streaming health indicator (SSE) could go here if needed
 
                 // Top bar

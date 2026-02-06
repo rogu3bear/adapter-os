@@ -266,7 +266,11 @@ pub fn random_suffix(len: usize) -> String {
 /// `ChatSession` component will parse on mount, auto-pinning the adapter.
 pub fn chat_path_with_adapter(adapter_id: &str) -> String {
     let session_id = adapteros_id::TypedId::new(adapteros_id::IdPrefix::Ses).to_string();
-    format!("/chat/{}?adapter={}", session_id, adapter_id)
+    // Keep this URL-safe even if adapter ids ever include non-url characters.
+    let encoded = js_sys::encode_uri_component(adapter_id)
+        .as_string()
+        .unwrap_or_else(|| adapter_id.to_string());
+    format!("/chat/{}?adapter={}", session_id, encoded)
 }
 
 #[cfg(test)]
@@ -275,7 +279,10 @@ mod tests {
 
     #[test]
     fn format_datetime_with_full_timestamp() {
-        assert_eq!(format_datetime("2024-01-15T14:30:00Z"), "2024-01-15 2:30 PM");
+        assert_eq!(
+            format_datetime("2024-01-15T14:30:00Z"),
+            "2024-01-15 2:30 PM"
+        );
         assert_eq!(
             format_datetime("2024-12-31T23:59:59.999Z"),
             "2024-12-31 11:59 PM"

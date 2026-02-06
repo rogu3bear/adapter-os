@@ -997,6 +997,19 @@ pub struct DatasetStatisticsResponse {
     pub computed_at: String,
 }
 
+/// Dataset preview response (first N examples).
+///
+/// Returned from `GET /v1/datasets/{dataset_id}/preview`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DatasetPreviewResponse {
+    pub dataset_id: String,
+    pub format: String,
+    #[serde(default)]
+    pub total_examples: usize,
+    #[serde(default)]
+    pub examples: Vec<serde_json::Value>,
+}
+
 /// Preprocessed cache count response
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PreprocessedCacheCountResponse {

@@ -233,11 +233,7 @@ fn TraceDetail(
     on_back: impl Fn() + 'static,
     #[prop(optional)] compact: bool,
 ) -> impl IntoView {
-    let heading_class = if compact {
-        "heading-4"
-    } else {
-        "heading-3"
-    };
+    let heading_class = if compact { "heading-4" } else { "heading-3" };
 
     view! {
         <div class="space-y-4">
@@ -910,11 +906,7 @@ pub fn TraceDetailStandalone(
     set_expanded_tokens: WriteSignal<bool>,
     #[prop(optional)] compact: bool,
 ) -> impl IntoView {
-    let heading_class = if compact {
-        "heading-4"
-    } else {
-        "heading-3"
-    };
+    let heading_class = if compact { "heading-4" } else { "heading-3" };
 
     view! {
         <div class="space-y-4">
