@@ -389,88 +389,114 @@ pub struct RunReceipt<Hash = String> {
     // =========================================================================
     // V7: Tokenizer identity
     // =========================================================================
+    /// BLAKE3 hash of the tokenizer binary used for this inference
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tokenizer_hash_b3: Option<Hash>,
+    /// Version string of the tokenizer (e.g. "3.2")
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tokenizer_version: Option<String>,
+    /// Normalization scheme applied by the tokenizer (e.g. "NFC", "NFKC")
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tokenizer_normalization: Option<String>,
 
     // =========================================================================
     // V7: Model/build provenance
     // =========================================================================
+    /// BLAKE3 hash of the base model build artifact
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_build_hash_b3: Option<Hash>,
+    /// BLAKE3 hash of the adapter build artifact
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub adapter_build_hash_b3: Option<Hash>,
 
     // =========================================================================
     // V7: Decoder config
     // =========================================================================
+    /// Decoding algorithm used (e.g. "greedy", "sample", "beam")
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decode_algo: Option<String>,
+    /// Temperature in Q15 fixed-point representation
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub temperature_q15: Option<i16>,
+    /// Top-p (nucleus) threshold in Q15 fixed-point representation
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub top_p_q15: Option<i16>,
+    /// Top-k token count for sampling
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub top_k: Option<u32>,
+    /// BLAKE3 digest of the seed used for sampling randomness
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seed_digest_b3: Option<Hash>,
+    /// Sampling backend identifier (e.g. "mlx", "metal")
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sampling_backend: Option<String>,
 
     // =========================================================================
     // V7: Concurrency determinism
     // =========================================================================
+    /// Number of threads used for inference compute
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_count: Option<u32>,
+    /// Reduction strategy for deterministic multi-thread aggregation
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reduction_strategy: Option<String>,
 
     // =========================================================================
     // V7: Stop controller inputs
     // =========================================================================
+    /// EOS token probability threshold in Q15 fixed-point
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stop_eos_q15: Option<i16>,
+    /// BLAKE3 digest of the stop-sequence sliding window state
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stop_window_digest_b3: Option<Hash>,
 
     // =========================================================================
     // V7: Cache proof
     // =========================================================================
+    /// Scope of the KV cache entry (e.g. "tenant", "global")
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache_scope: Option<String>,
+    /// BLAKE3 digest of the cached prefix KV tensors
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cached_prefix_digest_b3: Option<Hash>,
+    /// Length of the cached prefix in tokens
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cached_prefix_len: Option<u32>,
+    /// BLAKE3 cache key used for prefix lookup
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache_key_b3: Option<Hash>,
 
     // =========================================================================
     // V7: Retrieval/tool binding
     // =========================================================================
+    /// Merkle root of retrieved context documents
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retrieval_merkle_root_b3: Option<Hash>,
+    /// BLAKE3 digest of the retrieval ordering
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retrieval_order_digest_b3: Option<Hash>,
+    /// BLAKE3 digest of tool call input payloads
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_call_inputs_digest_b3: Option<Hash>,
+    /// BLAKE3 digest of tool call output payloads
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_call_outputs_digest_b3: Option<Hash>,
 
     // =========================================================================
     // V7: Disclosure level
     // =========================================================================
+    /// Disclosure level controlling receipt field visibility (e.g. "full", "redacted")
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub disclosure_level: Option<String>,
 
     // =========================================================================
     // V7: Receipt signing metadata
     // =========================================================================
+    /// Key ID of the signing key used for this receipt
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub receipt_signing_kid: Option<String>,
+    /// ISO 8601 timestamp when the receipt was signed
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub receipt_signed_at: Option<String>,
 }
