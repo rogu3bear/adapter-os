@@ -276,8 +276,7 @@ pub async fn start_debug_session(
 
     ensure_worker_access(&state, &claims, &worker_id).await?;
 
-    let session_id =
-        crate::id_generator::readable_id(adapteros_id::IdPrefix::Ses, "debug");
+    let session_id = crate::id_generator::readable_id(adapteros_id::IdPrefix::Ses, "debug");
     let now = Utc::now().to_rfc3339();
 
     sqlx::query(

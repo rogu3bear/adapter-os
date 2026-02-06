@@ -138,8 +138,7 @@ pub async fn upload_dataset(
 ) -> Result<impl IntoResponse, ApiError> {
     require_permission(&claims, Permission::DatasetUpload)?;
 
-    let dataset_id =
-        crate::id_generator::readable_id(adapteros_id::IdPrefix::Dst, "dataset");
+    let dataset_id = crate::id_generator::readable_id(adapteros_id::IdPrefix::Dst, "dataset");
     let correlation_id = request_id
         .map(|r| r.0 .0)
         .unwrap_or_else(crate::id_generator::readable_request_id);
@@ -1467,8 +1466,7 @@ pub async fn initiate_chunked_upload(
     .await?
     .0;
 
-    let dataset_id =
-        crate::id_generator::readable_id(adapteros_id::IdPrefix::Dst, "dataset");
+    let dataset_id = crate::id_generator::readable_id(adapteros_id::IdPrefix::Dst, "dataset");
     let session_record = UploadSessionRecord {
         schema_version: UPLOAD_SESSION_DB_SCHEMA_VERSION,
         session_id: session.session_id.clone(),

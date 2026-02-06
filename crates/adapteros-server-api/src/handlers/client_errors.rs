@@ -9,6 +9,7 @@ use crate::state::AppState;
 use crate::types::ErrorResponse;
 use adapteros_api_types::telemetry::{ClientErrorReport, ClientErrorResponse};
 use adapteros_db::client_errors::{ClientError, ClientErrorQuery, ClientErrorStats};
+use adapteros_id::{IdPrefix, TypedId};
 use axum::extract::{Extension, Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::sse::{Event, KeepAlive, Sse};
@@ -17,7 +18,6 @@ use futures_util::stream::Stream;
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
 use std::time::Duration;
-use adapteros_id::{TypedId, IdPrefix};
 
 /// Maximum message length (2000 chars)
 const MAX_MESSAGE_LENGTH: usize = 2000;

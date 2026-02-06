@@ -559,8 +559,7 @@ pub async fn cp_promote(
         })?;
 
     // 3. Insert promotion record with signature
-    let promotion_id =
-        crate::id_generator::readable_id(adapteros_id::IdPrefix::Run, "promotion");
+    let promotion_id = crate::id_generator::readable_id(adapteros_id::IdPrefix::Run, "promotion");
     let promotion_timestamp = chrono::Utc::now();
 
     sqlx::query(

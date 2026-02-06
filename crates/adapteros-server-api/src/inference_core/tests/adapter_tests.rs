@@ -14,12 +14,12 @@ use adapteros_db::chat_sessions::CreateChatSessionParams;
 use adapteros_db::traits::CreateStackRequest;
 use adapteros_db::workers::WorkerRegistrationParams;
 use adapteros_db::Db;
+use adapteros_id::{IdPrefix, TypedId};
 use adapteros_metrics_exporter::MetricsExporter;
 use adapteros_telemetry::MetricsCollector;
 use std::fs;
 use std::sync::{Arc, RwLock};
 use tempfile::Builder as TempDirBuilder;
-use adapteros_id::{TypedId, IdPrefix};
 
 fn stack_name() -> String {
     TypedId::new(IdPrefix::Stk).to_string()

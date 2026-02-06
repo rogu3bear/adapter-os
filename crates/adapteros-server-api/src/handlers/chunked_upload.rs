@@ -250,8 +250,7 @@ impl UploadSessionManager {
         temp_base_dir: &Path,
         workspace_id: Option<String>,
     ) -> Result<UploadSession> {
-        let session_id =
-            crate::id_generator::readable_id(adapteros_id::IdPrefix::Upl, "upload");
+        let session_id = crate::id_generator::readable_id(adapteros_id::IdPrefix::Upl, "upload");
 
         // Check if workspace_id is missing/empty
         let workspace_is_default = workspace_id

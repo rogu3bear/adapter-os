@@ -9,6 +9,7 @@ use crate::state::AppState;
 use crate::types::ErrorResponse;
 use adapteros_api_types::auth::LoginResponse;
 use adapteros_api_types::API_SCHEMA_VERSION;
+use adapteros_id::{IdPrefix, TypedId};
 use axum::{
     extract::State,
     http::{header, HeaderMap, StatusCode},
@@ -16,7 +17,6 @@ use axum::{
 };
 use chrono::{Duration, Utc};
 use tracing::{info, warn};
-use adapteros_id::{TypedId, IdPrefix};
 
 fn extract_cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
     headers

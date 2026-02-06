@@ -1172,6 +1172,10 @@ pub struct TrainingJobStubRequest {
     pub repo_id: Option<String>,
     pub status: Option<String>,
     pub tenant_id: Option<String>,
+    pub adapter_id: Option<String>,
+    pub adapter_name: Option<String>,
+    pub base_model_id: Option<String>,
+    pub stack_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1189,10 +1193,10 @@ pub async fn create_training_job_stub(
     let repo_id = req.repo_id.unwrap_or_else(|| "repo-e2e".to_string());
     let status = req.status.unwrap_or_else(|| "completed".to_string());
     let tenant_id = req.tenant_id.unwrap_or_else(|| TENANT_ID.to_string());
-    let adapter_id = ADAPTER_ID.to_string();
-    let adapter_name = ADAPTER_NAME.to_string();
-    let base_model_id = MODEL_ID.to_string();
-    let stack_id = STACK_ID.to_string();
+    let adapter_id = req.adapter_id.unwrap_or_else(|| ADAPTER_ID.to_string());
+    let adapter_name = req.adapter_name.unwrap_or_else(|| ADAPTER_NAME.to_string());
+    let base_model_id = req.base_model_id.unwrap_or_else(|| MODEL_ID.to_string());
+    let stack_id = req.stack_id.unwrap_or_else(|| STACK_ID.to_string());
     let progress_json = serde_json::json!({
         "progress_pct": if status == "completed" { 100.0 } else { 0.0 },
         "current_epoch": 1,
@@ -1204,17 +1208,121 @@ pub async fn create_training_job_stub(
     })
     .to_string();
 
+    // Only reference models that belong to the same tenant, otherwise adapters inserts
+    // will fail tenant-isolation triggers.
+    let base_model_id_fk = match sqlx::query(
+        "SELECT 1 FROM models WHERE id = ? AND tenant_id = ? LIMIT 1",
+    )
+    .bind(&base_model_id)
+    .bind(&tenant_id)
+    .fetch_optional(state.db.pool())
+    .await
+    {
+        Ok(Some(_)) => Some(base_model_id.as_str()),
+        Ok(None) => None,
+        Err(e) => {
+            tracing::warn!(error = %e, "Failed to check base model existence for training job stub; continuing without base_model_id");
+            None
+        }
+    };
+
+    // Same tenant guard as models: avoid referencing stacks from another tenant.
+    let stack_id_fk = match sqlx::query(
+        "SELECT 1 FROM adapter_stacks WHERE id = ? AND tenant_id = ? LIMIT 1",
+    )
+    .bind(&stack_id)
+    .bind(&tenant_id)
+    .fetch_optional(state.db.pool())
+    .await
+    {
+        Ok(Some(_)) => Some(stack_id.as_str()),
+        Ok(None) => None,
+        Err(e) => {
+            tracing::warn!(error = %e, "Failed to check stack existence for training job stub; continuing without stack_id");
+            None
+        }
+    };
+
+    // Make sure the adapter referenced by the stub job exists, so UI handoff actions
+    // ("View Adapter" / "Try in Chat") don't 404 during demo flows.
+    //
+    // IMPORTANT: `repository_training_jobs.adapter_id` is matched against `adapters.id` by triggers,
+    // so for demo determinism we set `adapters.id == adapter_id` and also populate `adapters.adapter_id`
+    // for external lookups.
+    //
+    // Best-effort: if this fails we still want the job row for troubleshooting.
+    let adapter_hash_b3 = format!(
+        "b3_testkit_{}",
+        B3Hash::hash(format!("testkit-adapter:{tenant_id}:{adapter_id}").as_bytes()).to_hex()
+    );
+    if let Err(e) = sqlx::query(
+        r#"
+        INSERT INTO adapters (
+            id, tenant_id, name, tier, hash_b3, rank, alpha, targets_json,
+            adapter_id, category, scope, base_model_id, manifest_schema_version, content_hash_b3,
+            metadata_json, updated_at
+        )
+        VALUES (
+            ?, ?, ?, 'warm', ?, 8, 16.0, ?,
+            ?, 'code', 'global', ?, '1.0.0', ?,
+            ?, datetime('now')
+        )
+        ON CONFLICT(id) DO UPDATE SET
+            tenant_id = excluded.tenant_id,
+            name = excluded.name,
+            tier = excluded.tier,
+            hash_b3 = excluded.hash_b3,
+            rank = excluded.rank,
+            alpha = excluded.alpha,
+            targets_json = excluded.targets_json,
+            adapter_id = excluded.adapter_id,
+            category = excluded.category,
+            scope = excluded.scope,
+            base_model_id = excluded.base_model_id,
+            manifest_schema_version = excluded.manifest_schema_version,
+            content_hash_b3 = excluded.content_hash_b3,
+            metadata_json = excluded.metadata_json,
+            updated_at = excluded.updated_at
+        "#,
+    )
+    .bind(&adapter_id) // id
+    .bind(&tenant_id)
+    .bind(&adapter_name)
+    .bind(&adapter_hash_b3)
+    .bind(r#"["attn.q_proj","attn.v_proj"]"#)
+    .bind(&adapter_id) // external adapter_id
+    .bind(base_model_id_fk)
+    .bind("b3_testkit_adapter_content")
+    .bind(serde_json::json!({"description": "Testkit adapter for training stub demo"}).to_string())
+    .execute(state.db.pool())
+    .await
+    {
+        tracing::warn!(error = %e, "Failed to seed adapter for training job stub");
+    }
+
     sqlx::query(
         r#"
-        INSERT OR IGNORE INTO git_repositories (
+        INSERT INTO git_repositories (
             id, repo_id, path, branch, analysis_json, evidence_json, security_scan_json, status, created_by
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, 'ready', ?)
+        ON CONFLICT(repo_id) DO UPDATE SET
+            path = excluded.path,
+            branch = excluded.branch,
+            analysis_json = excluded.analysis_json,
+            evidence_json = excluded.evidence_json,
+            security_scan_json = excluded.security_scan_json,
+            status = excluded.status,
+            created_by = excluded.created_by
         "#,
     )
-    .bind("git-repo-e2e")
+    .bind(format!(
+        "git-{}",
+        &B3Hash::hash(format!("testkit-git-repo:{repo_id}").as_bytes()).to_hex()[..16]
+    ))
     .bind(&repo_id)
-    .bind("var/tmp/repo-e2e")
+    // Keep runtime/test fixtures under var/testkit (var/tmp is discouraged and often cleaned).
+    .bind("var/testkit/repo-e2e")
     .bind("main")
     .bind("{}")
     .bind("{}")
@@ -1248,13 +1356,134 @@ pub async fn create_training_job_stub(
     .bind(POLICY_ACTOR)
     .bind(&adapter_name)
     .bind(&adapter_id)
-    .bind(&base_model_id)
-    .bind(&stack_id)
+    .bind(base_model_id_fk)
+    .bind(stack_id_fk)
     .execute(state.db.pool())
     .await
     .map_err(map_err)?;
 
     Ok(Json(TrainingJobStubResponse { job_id }))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DocumentFixtureRequest {
+    pub document_id: Option<String>,
+    pub tenant_id: Option<String>,
+    pub status: Option<String>, // "failed" | "pending" | "processing" | "indexed" | "ready"
+    pub name: Option<String>,
+    pub mime_type: Option<String>, // default "application/pdf"
+    pub error_message: Option<String>,
+    pub error_code: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DocumentFixtureResponse {
+    pub document_id: String,
+    pub tenant_id: String,
+    pub status: String,
+}
+
+#[axum::debug_handler]
+pub async fn create_document_fixture(
+    State(state): State<AppState>,
+    Json(req): Json<DocumentFixtureRequest>,
+) -> Result<Json<DocumentFixtureResponse>, (StatusCode, Json<ErrorResponse>)> {
+    ensure_e2e_mode()?;
+
+    let tenant_id = req.tenant_id.unwrap_or_else(|| TENANT_ID.to_string());
+    let document_id = req
+        .document_id
+        .unwrap_or_else(|| "doc-fixture-demo".to_string());
+    let status = req.status.unwrap_or_else(|| "failed".to_string());
+    let name = req
+        .name
+        .unwrap_or_else(|| "Demo Fixture Document".to_string());
+    let mime_type = req
+        .mime_type
+        .unwrap_or_else(|| "application/pdf".to_string());
+
+    // The documents table enforces (tenant_id, content_hash) uniqueness.
+    // For fixtures we want stable-but-distinct hashes per (tenant_id, document_id).
+    let content_hash =
+        B3Hash::hash(format!("testkit-doc:{tenant_id}:{document_id}").as_bytes()).to_hex();
+
+    // Create a small on-disk fixture file so download/processing flows have a real path.
+    let dir = std::path::Path::new("var/testkit");
+    if let Err(e) = tokio::fs::create_dir_all(dir).await {
+        return Err(map_err(e));
+    }
+    let file_path = format!("var/testkit/{}.pdf", document_id);
+    // Prefer a real fixture PDF with a text layer (so ingest succeeds), but fall back to a minimal
+    // valid PDF if the repo fixture is unavailable.
+    //
+    // NOTE: The minimal PDF is byte-for-byte identical to the ingest-docs integration test fixture.
+    const FALLBACK_PDF_BYTES: &[u8] = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R >>\nendobj\n4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\nxref\n0 5\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \n0000000202 00000 n \ntrailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n251\n%%EOF\n";
+    let pdf_bytes = match tokio::fs::read("tests/fixtures/docs/training_overview.pdf").await {
+        Ok(bytes) => bytes,
+        Err(_) => FALLBACK_PDF_BYTES.to_vec(),
+    };
+    if let Err(e) = tokio::fs::write(&file_path, &pdf_bytes).await {
+        return Err(map_err(e));
+    }
+
+    // Ensure row exists in SQL documents table for list/detail views.
+    sqlx::query(
+        r#"
+        INSERT INTO documents (
+            id, tenant_id, name, content_hash, file_path, file_size, mime_type, page_count,
+            status, created_at, updated_at, metadata_json,
+            error_message, error_code, retry_count, max_retries, processing_started_at, processing_completed_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 3, NULL, NULL)
+        ON CONFLICT(id) DO UPDATE SET
+            tenant_id = excluded.tenant_id,
+            name = excluded.name,
+            content_hash = excluded.content_hash,
+            file_path = excluded.file_path,
+            file_size = excluded.file_size,
+            mime_type = excluded.mime_type,
+            status = excluded.status,
+            updated_at = excluded.updated_at,
+            error_message = excluded.error_message,
+            error_code = excluded.error_code,
+            retry_count = 0,
+            max_retries = excluded.max_retries,
+            processing_started_at = NULL,
+            processing_completed_at = NULL
+        "#,
+    )
+    .bind(&document_id)
+    .bind(&tenant_id)
+    .bind(&name)
+    .bind(&content_hash)
+    .bind(&file_path)
+    .bind(pdf_bytes.len() as i64)
+    .bind(&mime_type)
+    .bind(1_i64)
+    .bind(&status)
+    .bind(FIXED_TS)
+    .bind(FIXED_TS)
+    .bind(r#"{"source":"testkit","fixture":"document"}"#)
+    .bind(req.error_message.as_deref())
+    .bind(req.error_code.as_deref())
+    .execute(state.db.pool())
+    .await
+    .map_err(map_err)?;
+
+    // Re-creating a fixture should be idempotent: clear any existing chunks so a subsequent
+    // reprocess doesn't trip UNIQUE(document_id, chunk_index).
+    sqlx::query("DELETE FROM document_chunks WHERE tenant_id = ? AND document_id = ?")
+        .bind(&tenant_id)
+        .bind(&document_id)
+        .execute(state.db.pool())
+        .await
+        .map_err(map_err)?;
+
+    Ok(Json(DocumentFixtureResponse {
+        document_id,
+        tenant_id,
+        status,
+    }))
 }
 
 #[derive(Debug, Deserialize)]
@@ -1539,6 +1768,10 @@ pub fn register_routes() -> axum::Router<AppState> {
         .route(
             "/testkit/create_training_job_stub",
             post(create_training_job_stub),
+        )
+        .route(
+            "/testkit/create_document_fixture",
+            post(create_document_fixture),
         )
         .route("/testkit/inference_stub", post(inference_stub))
         .route("/testkit/audit/diverge", post(diverge_policy_audit_chain))

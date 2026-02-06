@@ -1,12 +1,12 @@
-//! Codebase adapter API types
+//! Codebase adapter types (legacy / internal).
 //!
-//! Types for codebase adapter management endpoints:
-//! - POST /v1/adapters/codebase - Create a codebase adapter
-//! - GET /v1/adapters/codebase/:id - Get codebase adapter details
-//! - POST /v1/adapters/codebase/:id/bind - Bind to session
-//! - POST /v1/adapters/codebase/:id/unbind - Unbind from session
-//! - POST /v1/adapters/codebase/:id/version - Create new version
-//! - POST /v1/adapters/codebase/:id/verify - Verify deployment readiness
+//! AdapterOS previously exposed a public `/v1/adapters/codebase/*` endpoint surface for managing
+//! stream-scoped “codebase adapters”. The server no longer exposes those routes; readiness gating
+//! is enforced during activation (`POST /v1/adapters/{adapter_id}/activate`) and CoreML export is
+//! performed via training job export (`POST /v1/training/jobs/{job_id}/export/coreml`).
+//!
+//! These types remain for backward compatibility and internal wiring. Do not add new public
+//! routes referencing `/v1/adapters/codebase/*` without updating the server route map + OpenAPI.
 //!
 //! 【2025-01-29†prd-adapters†codebase_api_types】
 

@@ -18,6 +18,7 @@
 
 use adapteros_crypto::Keypair;
 use adapteros_db::auth_sessions_kv::AuthSessionKvRepository;
+use adapteros_id::{IdPrefix, TypedId};
 use anyhow::{anyhow, Result};
 use argon2::{
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
@@ -40,7 +41,6 @@ use std::sync::OnceLock;
 use tracing::error;
 #[cfg(debug_assertions)]
 use tracing::warn;
-use adapteros_id::{IdPrefix, TypedId};
 
 const ARGON2_MEMORY_KIB: u32 = 64 * 1024; // 64 MiB
 const ARGON2_ITERATIONS: u32 = 3;

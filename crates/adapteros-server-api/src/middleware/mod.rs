@@ -25,6 +25,7 @@ use adapteros_core::identity::IdentityEnvelope;
 use adapteros_core::tenant::TenantId;
 use adapteros_db::auth_sessions_kv::AuthSessionKvRepository;
 use adapteros_db::users::Role;
+use adapteros_id::{IdPrefix, TypedId};
 use axum::{
     extract::State,
     http::{header, HeaderMap, Request, StatusCode},
@@ -36,7 +37,6 @@ use blake3::Hasher;
 use chrono::{Duration, Utc};
 use serde_json;
 use std::str::FromStr;
-use adapteros_id::{TypedId, IdPrefix};
 
 /// Raw ApiKey token attached to the request for downstream use (e.g., worker UDS)
 #[derive(Clone)]

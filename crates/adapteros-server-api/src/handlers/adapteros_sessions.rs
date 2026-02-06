@@ -11,13 +11,13 @@ use crate::session_tokens::{SessionTokenLockPayload, SESSION_TOKEN_PREFIX};
 use crate::state::AppState;
 use crate::types::ErrorResponse;
 use adapteros_core::{B3Hash, BackendKind};
+use adapteros_id::{IdPrefix, TypedId};
 use adapteros_types::coreml::CoreMLMode;
 use axum::{extract::State, Extension, Json};
 use chrono::{Duration, Utc};
 use jsonwebtoken::{encode, Algorithm as JwtAlgorithm, EncodingKey, Header};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-use adapteros_id::{TypedId, IdPrefix};
 
 /// Default session token TTL: 15 minutes (same as access tokens)
 const DEFAULT_SESSION_TOKEN_TTL_SECS: u64 = 15 * 60;

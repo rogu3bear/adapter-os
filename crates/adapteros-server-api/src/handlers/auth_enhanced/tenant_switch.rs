@@ -23,6 +23,7 @@ use crate::state::AppState;
 use crate::types::ErrorResponse;
 use adapteros_api_types::auth::{SwitchTenantRequest, SwitchTenantResponse, TenantSummary};
 use adapteros_api_types::API_SCHEMA_VERSION;
+use adapteros_id::{IdPrefix, TypedId};
 use axum::{
     extract::State,
     http::{HeaderMap, StatusCode},
@@ -30,7 +31,6 @@ use axum::{
 };
 use chrono::Utc;
 use tracing::warn;
-use adapteros_id::{TypedId, IdPrefix};
 
 /// Switch the authenticated user's active tenant context
 ///
