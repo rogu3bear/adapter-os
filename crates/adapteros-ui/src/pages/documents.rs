@@ -8,7 +8,7 @@ use crate::components::{
     Badge, BadgeVariant, BreadcrumbItem, BreadcrumbTrail, Button, ButtonSize, ButtonVariant, Card,
     ConfirmationDialog, ConfirmationSeverity, CopyableId, Dialog, LoadingDisplay, ProgressStage,
     ProgressStages, RefreshButton, Select, Table, TableBody, TableCell, TableHead, TableHeader,
-    TableRow,
+    TableRow, InlineProgress, IconExternalLink,
 };
 use crate::hooks::{
     use_api, use_api_resource, use_conditional_polling, use_delete_dialog, LoadingState,
@@ -18,17 +18,18 @@ use crate::utils::format_bytes;
 use leptos::prelude::*;
 use leptos_router::hooks::{use_navigate, use_params_map};
 use serde::Deserialize;
-use serde_json::Value;
 use std::sync::Arc;
 
 #[cfg(target_arch = "wasm32")]
 use send_wrapper::SendWrapper;
+#[cfg(target_arch = "wasm32")]
+use serde_json::Value;
 
 /// Get badge variant based on document status
 fn status_badge_variant(status: &str) -> BadgeVariant {
     match status {
-        "indexed" => BadgeVariant::Success,
-        "processing" => BadgeVariant::Secondary,
+        "indexed" | "ready" => BadgeVariant::Success,
+        "processing" | "uploaded" | "chunked" | "embedded" => BadgeVariant::Warning,
         "failed" => BadgeVariant::Destructive,
         _ => BadgeVariant::Secondary,
     }
@@ -85,6 +86,8 @@ fn slugify_id(raw: &str) -> String {
 
 #[derive(Clone, Debug, Default)]
 struct DocumentStatusCounts {
+    // Kept for API forward-compat; some backends return an `all` count even if the UI doesn't use it.
+    #[allow(dead_code)]
     all: u64,
     indexed: u64,
     processing: u64,
@@ -158,8 +161,9 @@ pub fn Documents() -> impl IntoView {
         }
 
         seeded_demo_fixtures.set(true);
-        let set_refetch_trigger = set_refetch_trigger;
 
+        #[cfg(target_arch = "wasm32")]
+        let set_refetch_trigger = set_refetch_trigger;
         #[cfg(target_arch = "wasm32")]
         wasm_bindgen_futures::spawn_local(async move {
             let client = Arc::new(ApiClient::new());
@@ -224,49 +228,12 @@ pub fn Documents() -> impl IntoView {
             <div class="flex items-center justify-between">
                 <h1 class="heading-1">"Documents"</h1>
                 <div class="flex items-center gap-4">
-                    // Quick status counts (click to filter)
-                    <div class="hidden md:flex items-center gap-1.5">
-                        {move || {
-                            let active = status_filter.get();
-                            let pill = |label: &'static str, count: Option<u64>, value: &'static str| {
-                                let is_active = (value.is_empty() && active.is_empty()) || (!value.is_empty() && active == value);
-                                let count_str = count.map(|c| format!(" ({})", c)).unwrap_or_default();
-                                view! {
-                                    <Button
-                                        variant=if is_active { ButtonVariant::Secondary } else { ButtonVariant::Ghost }
-                                        size=ButtonSize::Sm
-                                        on_click=Callback::new({
-                                            let status_filter = status_filter;
-                                            move |_| status_filter.set(value.to_string())
-                                        })
-                                    >
-                                        {format!("{label}{count_str}")}
-                                    </Button>
-                                }
-                            };
-
-                            match status_counts.get() {
-                                LoadingState::Loaded(counts) => view! {
-                                    {pill("All", Some(counts.all), "")}
-                                    {pill("Indexed", Some(counts.indexed), "indexed")}
-                                    {pill("Processing", Some(counts.processing), "processing")}
-                                    {pill("Failed", Some(counts.failed), "failed")}
-                                }.into_any(),
-                                _ => view! {
-                                    {pill("All", None, "")}
-                                    {pill("Indexed", None, "indexed")}
-                                    {pill("Processing", None, "processing")}
-                                    {pill("Failed", None, "failed")}
-                                }.into_any(),
-                            }
-                        }}
-                    </div>
                     // Status filter
                     <Select
                         value=status_filter
                         options=vec![
                             ("".to_string(), "All Statuses".to_string()),
-                            ("indexed".to_string(), "Indexed".to_string()),
+                            ("indexed".to_string(), "Ready/Indexed".to_string()),
                             ("processing".to_string(), "Processing".to_string()),
                             ("failed".to_string(), "Failed".to_string()),
                         ]
@@ -308,6 +275,51 @@ pub fn Documents() -> impl IntoView {
                         let total_pages = data.pages;
                         let current = current_page.get();
                         view! {
+                            // Pipeline summary (click to filter)
+                            <div class="rounded-lg border bg-card p-3">
+                                <div class="flex flex-wrap items-center gap-2">
+                                    {move || {
+                                        let active = status_filter.get();
+                                        let button = |label: &'static str,
+                                                      count: Option<u64>,
+                                                      value: &'static str,
+                                                      badge_variant: BadgeVariant| {
+                                            let is_active = !value.is_empty() && active == value;
+                                            view! {
+                                                <Button
+                                                    variant=if is_active { ButtonVariant::Secondary } else { ButtonVariant::Ghost }
+                                                    size=ButtonSize::Sm
+                                                    on_click=Callback::new({
+                                                        let status_filter = status_filter;
+                                                        move |_| status_filter.set(value.to_string())
+                                                    })
+                                                >
+                                                    <span class="flex items-center gap-2">
+                                                        <span class="text-sm">{label}</span>
+                                                        <Badge variant=badge_variant>
+                                                            {count.map(|c| c.to_string()).unwrap_or_else(|| "…".to_string())}
+                                                        </Badge>
+                                                    </span>
+                                                </Button>
+                                            }
+                                        };
+
+                                        match status_counts.get() {
+                                            LoadingState::Loaded(counts) => view! {
+                                                {button("Ready/Indexed", Some(counts.indexed), "indexed", BadgeVariant::Success)}
+                                                {button("Processing", Some(counts.processing), "processing", BadgeVariant::Warning)}
+                                                {button("Failed", Some(counts.failed), "failed", BadgeVariant::Destructive)}
+                                            }.into_any(),
+                                            _ => view! {
+                                                {button("Ready/Indexed", None, "indexed", BadgeVariant::Success)}
+                                                {button("Processing", None, "processing", BadgeVariant::Warning)}
+                                                {button("Failed", None, "failed", BadgeVariant::Destructive)}
+                                            }.into_any(),
+                                        }
+                                    }}
+                                </div>
+                            </div>
+
                             <DocumentsList
                                 documents=data.data.clone()
                                 on_upload=Callback::new(move |_| show_upload_dialog.set(true))
@@ -464,6 +476,9 @@ fn DocumentsList(
                             let error = doc.error_message.clone();
                             let delete_state = delete_state_for_rows.clone();
                             let client = Arc::clone(&client);
+                            let is_terminal_ready = matches!(status.as_str(), "indexed" | "ready");
+                            let is_failed = status == "failed";
+                            let is_in_flight = !is_terminal_ready && !is_failed;
 
                             view! {
                                 <TableRow>
@@ -506,14 +521,45 @@ fn DocumentsList(
                                         <span class="text-sm text-muted-foreground">{created}</span>
                                     </TableCell>
                                     <TableCell class="text-right">
-                                        <div class="flex items-center justify-end gap-1">
+                                        <div class="flex items-center justify-end gap-1.5">
+                                            {is_in_flight.then(|| {
+                                                view! {
+                                                    <InlineProgress
+                                                        label=Signal::derive(|| "Processing".to_string())
+                                                    />
+                                                }
+                                            })}
+                                            {is_terminal_ready.then(|| {
+                                                let navigate = use_navigate();
+                                                let doc_id_for_train = id.clone();
+                                                view! {
+                                                    <Button
+                                                        variant=ButtonVariant::Ghost
+                                                        size=ButtonSize::Sm
+                                                        aria_label="Train using this document"
+                                                        on_click=Callback::new(move |_| {
+                                                            navigate(
+                                                                &format!("/documents/{}#train-adapter-cta", doc_id_for_train),
+                                                                Default::default(),
+                                                            );
+                                                        })
+                                                    >
+                                                        "Train"
+                                                    </Button>
+                                                }
+                                            })}
                                             <Button
                                                 variant=ButtonVariant::Ghost
                                                 size=ButtonSize::Sm
-                                                aria_label="Reprocess document"
+                                                aria_label=if is_failed {
+                                                    "Retry document"
+                                                } else {
+                                                    "Reprocess document"
+                                                }
                                                 disabled=Signal::derive({
                                                     let id = id_reprocess.clone();
                                                     move || reprocessing_id.get().as_deref() == Some(id.as_str())
+                                                        || is_in_flight
                                                 })
                                                 on_click=Callback::new({
                                                     let client = Arc::clone(&client);
@@ -523,13 +569,20 @@ fn DocumentsList(
                                                         let id = id.clone();
                                                         reprocessing_id.set(Some(id.clone()));
                                                         wasm_bindgen_futures::spawn_local(async move {
-                                                            let _ = client.process_document(&id).await;
+                                                            if is_failed {
+                                                                let _ = client.retry_document(&id).await;
+                                                            } else {
+                                                                let _ = client.process_document(&id).await;
+                                                            }
                                                             reprocessing_id.set(None);
                                                             on_refetch.run(());
                                                         });
                                                     }
                                                 })
                                             >
+                                                <span class="sr-only">
+                                                    {move || if is_failed { "Retry" } else { "Reprocess" }}
+                                                </span>
                                                 <svg
                                                     xmlns="http://www.w3.org/2000/svg"
                                                     class="h-4 w-4"
@@ -541,6 +594,19 @@ fn DocumentsList(
                                                     <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
                                                 </svg>
                                             </Button>
+                                            {is_failed.then(|| {
+                                                let error_href = "/errors".to_string();
+                                                view! {
+                                                    <a
+                                                        href=error_href
+                                                        class="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-accent text-muted-foreground"
+                                                        title="Open incidents/errors"
+                                                        aria-label="Open incidents/errors"
+                                                    >
+                                                        <IconExternalLink class="h-4 w-4".to_string() aria_label="".to_string() />
+                                                    </a>
+                                                }
+                                            })}
                                             <Button
                                                 variant=ButtonVariant::Ghost
                                                 size=ButtonSize::Sm
@@ -914,7 +980,7 @@ fn DocumentDetailContent(
     set_processing: WriteSignal<bool>,
     set_action_error: WriteSignal<Option<String>>,
     refetch_trigger: WriteSignal<u32>,
-) -> impl IntoView {
+) -> AnyView {
     let navigate = use_navigate();
     let status_variant = status_badge_variant(&document.status);
     let doc_id = document.document_id.clone();
@@ -1011,6 +1077,23 @@ fn DocumentDetailContent(
     let status_for_stages = document.status.clone();
     let issue_error_message = document.error_message.clone();
     let issue_error_code = document.error_code.clone();
+    let status_for_eligibility = document.status.clone();
+    let eligible_chunks = {
+        let from_doc = document.chunk_count.unwrap_or(0);
+        let from_chunks = chunks.as_ref().map(|c| c.total_chunks).unwrap_or(0);
+        from_chunks.max(from_doc)
+    };
+    let is_eligible_for_training = is_indexed && eligible_chunks > 0;
+    let not_eligible_reason = match status_for_eligibility.as_str() {
+        "failed" => "Document failed processing.",
+        "processing" | "uploaded" | "chunked" | "embedded" => "Document is still processing.",
+        "indexed" | "ready" => "No chunks available yet.",
+        other => {
+            // Keep the reason anchored to the backend status string.
+            // This avoids inventing pipeline states not guaranteed by the API.
+            return view! { <span>{format!("Status: {}", other)}</span> }.into_any();
+        }
+    };
 
     #[derive(Debug, Deserialize)]
     struct TrainingJobStubResponse {
@@ -1076,32 +1159,12 @@ fn DocumentDetailContent(
                         </div>
                     })}
 
-                    // Action buttons
-                    <div class="flex gap-2 mt-4">
-                        {is_failed.then(|| {
-                            view! {
-                                <Button
-                                    variant=ButtonVariant::Secondary
-                                    size=ButtonSize::Sm
-                                    disabled=Signal::derive(move || processing.get())
-                                    on_click=Callback::new(retry_action)
-                                >
-                                    {move || if processing.get() { "Retrying..." } else { "Retry" }}
-                                </Button>
-                            }
-                        })}
-                        <Button
-                            variant=ButtonVariant::Secondary
-                            size=ButtonSize::Sm
-                            disabled=Signal::derive(move || processing.get())
-                            on_click=Callback::new(process_action)
-                        >
-                            {move || if processing.get() { "Processing..." } else { "Reprocess" }}
-                        </Button>
-                        {is_indexed.then(|| {
-                            let doc_id_for_train = doc_id.clone();
-                            let navigate = navigate.clone();
-                            view! {
+                    // Training entry point (unchanged behavior)
+                    {is_indexed.then(|| {
+                        let doc_id_for_train = doc_id.clone();
+                        let navigate = navigate.clone();
+                        view! {
+                            <div id="train-adapter-cta" class="pt-2">
                                 <Button
                                     variant=ButtonVariant::Secondary
                                     size=ButtonSize::Sm
@@ -1159,17 +1222,76 @@ fn DocumentDetailContent(
                                 >
                                     "Train Adapter"
                                 </Button>
-                            }
-                        })}
-                        <Button
-                            variant=ButtonVariant::Destructive
-                            size=ButtonSize::Sm
-                            disabled=Signal::derive(move || deleting.get())
-                            on_click=Callback::new(open_delete_dialog)
-                        >
-                            {move || if deleting.get() { "Deleting..." } else { "Delete" }}
-                        </Button>
+                            </div>
+                        }
+                    })}
+
+                    // Recovery actions
+                    <div class="pt-2 border-t">
+                        <p class="text-xs font-medium text-muted-foreground mt-3">"Recovery actions"</p>
+                        <div class="flex flex-wrap gap-2 mt-2">
+                            {is_failed.then(|| {
+                                view! {
+                                    <Button
+                                        variant=ButtonVariant::Secondary
+                                        size=ButtonSize::Sm
+                                        disabled=Signal::derive(move || processing.get())
+                                        on_click=Callback::new(retry_action)
+                                    >
+                                        {move || if processing.get() { "Retrying..." } else { "Retry" }}
+                                    </Button>
+                                }
+                            })}
+                            <Button
+                                variant=ButtonVariant::Secondary
+                                size=ButtonSize::Sm
+                                disabled=Signal::derive(move || processing.get())
+                                on_click=Callback::new(process_action)
+                            >
+                                {move || if processing.get() { "Processing..." } else { "Reprocess" }}
+                            </Button>
+                            <Button
+                                variant=ButtonVariant::Destructive
+                                size=ButtonSize::Sm
+                                disabled=Signal::derive(move || deleting.get())
+                                on_click=Callback::new(open_delete_dialog)
+                            >
+                                {move || if deleting.get() { "Deleting..." } else { "Delete" }}
+                            </Button>
+                            {is_failed.then(|| {
+                                // Current /errors UI does not expose a document-id filter, so keep this as a plain link.
+                                view! {
+                                    <a href="/errors" class="text-sm text-primary hover:underline self-center">
+                                        "View error context"
+                                    </a>
+                                }
+                            })}
+                        </div>
                     </div>
+                </div>
+            </Card>
+
+            // Eligibility (informational only; does not gate actions)
+            <Card title="Eligibility".to_string()>
+                <div class="space-y-2">
+                    {is_eligible_for_training.then(|| view! {
+                        <div class="flex items-center gap-2">
+                            <Badge variant=BadgeVariant::Success>"Eligible"</Badge>
+                            <span class="text-sm">"Eligible for training"</span>
+                        </div>
+                        <p class="text-sm text-muted-foreground">
+                            {format!("Chunks available: {}", eligible_chunks)}
+                        </p>
+                    })}
+                    {(!is_eligible_for_training).then(|| view! {
+                        <div class="flex items-center gap-2">
+                            <Badge variant=BadgeVariant::Secondary>"Not yet eligible"</Badge>
+                            <span class="text-sm">{not_eligible_reason}</span>
+                        </div>
+                        <p class="text-sm text-muted-foreground">
+                            {format!("Status: {}", status_for_eligibility)}
+                        </p>
+                    })}
                 </div>
             </Card>
 
@@ -1337,4 +1459,5 @@ fn DocumentDetailContent(
             }
         })}
     }
+    .into_any()
 }
