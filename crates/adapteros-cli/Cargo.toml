@@ -28,7 +28,7 @@ adapteros-types = { path = "../adapteros-types" }
 # adapteros-server = { path = "../adapteros-server" }  # Temporarily disabled
 adapteros-api-types = { path = "../adapteros-api-types" }
 adapteros-api = { path = "../adapteros-api" }
-adapteros-lora-worker = { path = "../adapteros-lora-worker" }
+adapteros-lora-worker = { path = "../adapteros-lora-worker", default-features = false }
 adapteros-embeddings = { path = "../adapteros-embeddings", features = ["training"] }
 adapteros-aos = { path = "../adapteros-aos" }  # Unified binary .aos format
 adapteros-lora-router = { path = "../adapteros-lora-router" }

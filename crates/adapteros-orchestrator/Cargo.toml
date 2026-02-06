@@ -32,7 +32,7 @@ adapteros-federation = { path = "../adapteros-federation" }
 adapteros-policy = { path = "../adapteros-policy" }
 adapteros-retrieval = { path = "../adapteros-retrieval" }
 bincode = "1.3"
-adapteros-lora-worker = { path = "../adapteros-lora-worker" }
+adapteros-lora-worker = { path = "../adapteros-lora-worker", default-features = false }
 adapteros-lora-router = { path = "../adapteros-lora-router" }
 adapteros-ingest-docs = { path = "../adapteros-ingest-docs" }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }

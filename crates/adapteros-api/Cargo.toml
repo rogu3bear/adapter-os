@@ -8,7 +8,7 @@ license.workspace = true
 [dependencies]
 adapteros-core = { path = "../adapteros-core" }
 adapteros-api-types = { path = "../adapteros-api-types" }
-adapteros-lora-worker = { path = "../adapteros-lora-worker" }
+adapteros-lora-worker = { path = "../adapteros-lora-worker", default-features = false }
 adapteros-lora-kernel-mtl = { path = "../adapteros-lora-kernel-mtl" }
 adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }

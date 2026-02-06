@@ -18,7 +18,10 @@ fn main() {
 
     // Only rerun on branch changes
     if let Some(root) = find_workspace_root() {
-        println!("cargo:rerun-if-changed={}", root.join(".git/HEAD").display());
+        println!(
+            "cargo:rerun-if-changed={}",
+            root.join(".git/HEAD").display()
+        );
     }
 }
 
@@ -26,7 +29,11 @@ fn read_workspace_build_id() -> Option<String> {
     let target = find_workspace_root()?.join("target").join("build_id.txt");
     let content = std::fs::read_to_string(target).ok()?;
     let trimmed = content.trim().to_string();
-    if trimmed.is_empty() { None } else { Some(trimmed) }
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    }
 }
 
 fn get_git_hash() -> String {

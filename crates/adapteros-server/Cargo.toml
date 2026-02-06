@@ -45,7 +45,7 @@ adapteros-metrics-exporter = { path = "../adapteros-metrics-exporter" }
 adapteros-deterministic-exec = { path = "../adapteros-deterministic-exec" }
 adapteros-verify = { path = "../adapteros-verify" }
 adapteros-telemetry = { path = "../adapteros-telemetry" }
-adapteros-lora-worker = { path = "../adapteros-lora-worker" }
+adapteros-lora-worker = { path = "../adapteros-lora-worker", default-features = false }
 adapteros-crypto = { path = "../adapteros-crypto" }
 adapteros-federation = { path = "../adapteros-federation" }
 adapteros-orchestrator = { path = "../adapteros-orchestrator" }

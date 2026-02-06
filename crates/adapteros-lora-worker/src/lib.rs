@@ -84,6 +84,7 @@ use adapteros_core::{
 use adapteros_db::{
     Db, SqlTraceSink, TraceCancellation, TraceFinalization, TraceSink, TraceStart, TraceTokenInput,
 };
+use adapteros_id::{IdPrefix, TypedId};
 use adapteros_lora_kernel_api::{attestation::DeterminismLevel, FusedKernels, IoBuffers};
 use adapteros_lora_router::{
     constants::PINNED_BOOST, features::CodeFeatures, policy_mask::PolicyMask, AbstainContext,
@@ -105,7 +106,6 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use tokio::sync::watch;
 use tracing::{debug, error, info, warn};
-use adapteros_id::{TypedId, IdPrefix};
 
 const DETERMINISM_ATTESTATION_SCHEMA_VERSION: u8 = 1;
 

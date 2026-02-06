@@ -5,7 +5,11 @@
 
 use crate::GpuMetrics;
 use adapteros_core::Result;
-use tracing::{debug, warn};
+use tracing::debug;
+
+// `warn` is only used on non-macOS builds or when MLX probing is enabled.
+#[cfg(any(not(target_os = "macos"), feature = "mlx"))]
+use tracing::warn;
 
 #[cfg(feature = "mlx")]
 use adapteros_lora_mlx_ffi::{
