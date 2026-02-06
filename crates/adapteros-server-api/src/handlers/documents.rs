@@ -114,12 +114,7 @@ fn upsert_metadata_json(
 }
 
 async fn resolve_document_id(state: &AppState, id: &str) -> Result<String, ApiError> {
-    crate::id_resolver::resolve_id(
-        &state.db,
-        adapteros_id::IdPrefix::Doc.as_str(),
-        id,
-    )
-    .await
+    crate::id_resolver::resolve_id(&state.db, adapteros_id::IdPrefix::Doc.as_str(), id).await
 }
 
 /// Query parameters for listing documents
@@ -334,8 +329,7 @@ pub async fn upload_document(
         } else {
             &document_name
         };
-        document_id =
-            crate::id_generator::readable_id(adapteros_id::IdPrefix::Doc, slug_source);
+        document_id = crate::id_generator::readable_id(adapteros_id::IdPrefix::Doc, slug_source);
     }
 
     let file_data = file_data.ok_or_else(|| ApiError::bad_request("No file uploaded"))?;
@@ -464,6 +458,81 @@ pub async fn upload_document(
     )
     .await;
 
+    // The DB row is created as `pending`. If embeddings are enabled, we immediately kick off
+    // background processing so the UI can show "Processing" right after upload (demo flow).
+    let effective_status = {
+        #[cfg(feature = "embeddings")]
+        {
+            let mut status = "pending".to_string();
+            match state
+                .db
+                .try_acquire_processing_lock(&claims.tenant_id, &document_id)
+                .await
+            {
+                Ok(true) => {
+                    status = "processing".to_string();
+
+                    let state_for_task = state.clone();
+                    let claims_for_task = claims.clone();
+                    let document_id_for_task = document_id.clone();
+                    tokio::spawn(async move {
+                        let doc = state_for_task
+                            .db
+                            .get_document(&claims_for_task.tenant_id, &document_id_for_task)
+                            .await
+                            .ok()
+                            .flatten();
+
+                        let Some(doc) = doc else {
+                            return;
+                        };
+
+                        if let Err((_code, Json(err))) = process_document_inner(
+                            &state_for_task,
+                            &claims_for_task,
+                            &document_id_for_task,
+                            &doc,
+                        )
+                        .await
+                        {
+                            let msg = format!("Background processing failed: {}", err.message);
+                            let code = if err.code.is_empty() {
+                                "PROCESSING_ERROR"
+                            } else {
+                                err.code.as_str()
+                            };
+                            let _ = state_for_task
+                                .db
+                                .mark_document_failed(
+                                    &claims_for_task.tenant_id,
+                                    &document_id_for_task,
+                                    &msg,
+                                    code,
+                                )
+                                .await;
+                        }
+                    });
+                }
+                Ok(false) => {
+                    // Leave as pending; another request may be processing it.
+                }
+                Err(e) => {
+                    warn!(
+                        document_id = %document_id,
+                        error = %e,
+                        "Failed to acquire processing lock after upload; leaving document pending"
+                    );
+                }
+            }
+            status
+        }
+
+        #[cfg(not(feature = "embeddings"))]
+        {
+            "pending".to_string()
+        }
+    };
+
     Ok(Json(DocumentResponse {
         schema_version: "1.0".to_string(),
         document_id: document_id.clone(),
@@ -472,7 +541,7 @@ pub async fn upload_document(
         size_bytes: file_data.len() as i64,
         mime_type,
         storage_path: file_path.to_string_lossy().to_string(),
-        status: "processing".to_string(),
+        status: effective_status,
         chunk_count: None,
         tenant_id: claims.tenant_id,
         created_at: chrono::Utc::now().to_rfc3339(),
@@ -1002,8 +1071,7 @@ async fn process_document_inner(
     // Process each chunk within transaction
     for chunk in &ingested_doc.chunks {
         // Generate chunk UUID for document_chunks table
-        let chunk_db_id =
-            crate::id_generator::readable_id(adapteros_id::IdPrefix::Chk, "chunk");
+        let chunk_db_id = crate::id_generator::readable_id(adapteros_id::IdPrefix::Chk, "chunk");
 
         // Generate embedding with retry/backoff so one bad chunk does not abort the batch
         let embedding = embed_with_backoff(embedding_model, &chunk.text).await;

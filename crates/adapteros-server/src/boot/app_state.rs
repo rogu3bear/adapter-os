@@ -37,6 +37,54 @@ use crate::shutdown::ShutdownCoordinator;
 const DEFAULT_MANIFEST_HASH: &str =
     "07578bfa5014183755ff8fb1ae2d91cf3544a28903bf5c483f38292d6a0fadf7";
 
+#[cfg(feature = "embeddings")]
+fn init_embedding_model_and_status(state: AppState) -> AppState {
+    use adapteros_config::{resolve_embedding_model_path, resolve_tokenizer_path};
+    use adapteros_ingest_docs::{load_tokenizer, EmbeddingModel, ProductionEmbeddingModel};
+    use adapteros_server_api::state::RagStatus;
+
+    // Tokenizer is required even for the simple embedding fallback.
+    let tokenizer_path = match resolve_tokenizer_path(None) {
+        Ok(p) => p,
+        Err(e) => {
+            let reason = format!("Tokenizer not configured: {e}");
+            warn!(reason = %reason, "RAG/embeddings disabled");
+            return state.with_rag_status(RagStatus::Disabled { reason });
+        }
+    };
+
+    let tokenizer = match load_tokenizer(&tokenizer_path) {
+        Ok(tok) => tok,
+        Err(e) => {
+            let reason = format!(
+                "Failed to load tokenizer ({}): {e}",
+                tokenizer_path.display()
+            );
+            warn!(reason = %reason, "RAG/embeddings disabled");
+            return state.with_rag_status(RagStatus::Disabled { reason });
+        }
+    };
+
+    let model_path = resolve_embedding_model_path().ok().map(|rp| rp.path);
+    let model = ProductionEmbeddingModel::load(model_path.as_ref(), tokenizer);
+    let model_hash = model.model_hash().to_hex();
+    let dimension = model.dimension();
+
+    info!(
+        embedding_model_hash = %model_hash,
+        embedding_dimension = dimension,
+        tokenizer_path = %tokenizer_path.display(),
+        "Embedding model initialized"
+    );
+
+    state
+        .with_embedding_model(Arc::new(model))
+        .with_rag_status(RagStatus::Enabled {
+            model_hash,
+            dimension,
+        })
+}
+
 /// Build the AppState with all its dependencies.
 ///
 /// This function handles:
@@ -238,6 +286,18 @@ pub async fn build_app_state(
 
     let plugin_registry = Arc::new(adapteros_server_api::PluginRegistry::new(state.db.clone()));
     state = state.with_plugin_registry(plugin_registry);
+
+    // Embeddings are used by:
+    // - document ingestion/indexing (for later dataset construction),
+    // - RAG retrieval (vector search),
+    // and can indirectly affect worker/model loading via UMA memory pressure.
+    //
+    // Without this, dataset upload/indexing will fail at runtime with
+    // "Embedding model not configured" even when the `embeddings` feature is enabled.
+    #[cfg(feature = "embeddings")]
+    {
+        state = init_embedding_model_and_status(state);
+    }
 
     // Start self-hosting agent if enabled
     let _self_hosting_handle =
