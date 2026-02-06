@@ -520,33 +520,39 @@ fn MessageItem(msg_id: String) -> impl IntoView {
 
     // Queue UX: message status and pending info
     let is_pending = Memo::new(move |_| {
-        message.get().is_some_and(|m| matches!(m.status, MessageStatus::Queued | MessageStatus::Sending))
+        message
+            .get()
+            .is_some_and(|m| matches!(m.status, MessageStatus::Queued | MessageStatus::Sending))
     });
 
     let is_failed = Memo::new(move |_| {
-        message.get().is_some_and(|m| matches!(m.status, MessageStatus::Failed))
+        message
+            .get()
+            .is_some_and(|m| matches!(m.status, MessageStatus::Failed))
     });
 
     let pending_text = Memo::new(move |_| {
-        message.get().map(|m| {
-            match m.pending_phase {
+        message
+            .get()
+            .map(|m| match m.pending_phase {
                 PendingPhase::Calm => "waiting...".to_string(),
-                PendingPhase::Informative => {
-                    m.pending_reason.clone()
-                        .map(|r| format!("{}...", r))
-                        .unwrap_or_else(|| "waiting...".to_string())
-                }
-                PendingPhase::Estimated => {
-                    m.pending_reason.clone()
-                        .map(|r| format!("~30s · {}", r))
-                        .unwrap_or_else(|| "~30s".to_string())
-                }
-            }
-        }).unwrap_or_else(|| "waiting...".to_string())
+                PendingPhase::Informative => m
+                    .pending_reason
+                    .clone()
+                    .map(|r| format!("{}...", r))
+                    .unwrap_or_else(|| "waiting...".to_string()),
+                PendingPhase::Estimated => m
+                    .pending_reason
+                    .clone()
+                    .map(|r| format!("~30s · {}", r))
+                    .unwrap_or_else(|| "~30s".to_string()),
+            })
+            .unwrap_or_else(|| "waiting...".to_string())
     });
 
     let failed_reason = Memo::new(move |_| {
-        message.get()
+        message
+            .get()
             .and_then(|m| m.pending_reason.clone())
             .unwrap_or_else(|| "Failed".to_string())
     });
@@ -927,13 +933,11 @@ fn ChatInput() -> impl IntoView {
     let can_send = Memo::new(move |_| !message.get().trim().is_empty());
 
     // Check if inference is ready
-    let inference_ready = Memo::new(move |_| {
-        match system_status.get() {
-            LoadingState::Loaded(status) => {
-                matches!(status.inference_ready, InferenceReadyState::True)
-            }
-            _ => false,
+    let inference_ready = Memo::new(move |_| match system_status.get() {
+        LoadingState::Loaded(status) => {
+            matches!(status.inference_ready, InferenceReadyState::True)
         }
+        _ => false,
     });
 
     // When inference becomes ready and we have queued messages, process them

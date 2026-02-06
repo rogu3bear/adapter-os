@@ -41,6 +41,7 @@ const CONTEXT_TOGGLES_KEY: &str = "adapteros_chat_context_toggles";
 const SESSIONS_STORAGE_KEY: &str = "adapteros_chat_sessions";
 
 /// LocalStorage key for default pinned adapters (persisted across sessions).
+#[allow(dead_code)]
 const PINNED_ADAPTERS_KEY: &str = "adapteros_pinned_adapters";
 
 /// Evict old messages to maintain MAX_MESSAGES limit.
@@ -493,21 +494,41 @@ fn save_context_toggles(toggles: &ContextToggles) {
     }
 }
 
-/// Load default pinned adapters from localStorage.
-pub(crate) fn load_pinned_adapters() -> Vec<String> {
-    let Some(window) = web_sys::window() else { return Vec::new() };
-    let Ok(Some(storage)) = window.local_storage() else { return Vec::new() };
-    let Ok(Some(data)) = storage.get_item(PINNED_ADAPTERS_KEY) else { return Vec::new() };
-    serde_json::from_str(&data).unwrap_or_default()
-}
-
 /// Save default pinned adapters to localStorage.
+#[cfg(target_arch = "wasm32")]
 fn save_pinned_adapters(adapters: &[String]) {
-    let Some(window) = web_sys::window() else { return };
-    let Ok(Some(storage)) = window.local_storage() else { return };
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let Ok(Some(storage)) = window.local_storage() else {
+        return;
+    };
     if let Ok(json) = serde_json::to_string(adapters) {
         let _ = storage.set_item(PINNED_ADAPTERS_KEY, &json);
     }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn save_pinned_adapters(_adapters: &[String]) {}
+
+/// Load default pinned adapters from localStorage.
+#[cfg(target_arch = "wasm32")]
+fn load_pinned_adapters() -> Vec<String> {
+    let Some(window) = web_sys::window() else {
+        return Vec::new();
+    };
+    let Ok(Some(storage)) = window.local_storage() else {
+        return Vec::new();
+    };
+    let Ok(Some(data)) = storage.get_item(PINNED_ADAPTERS_KEY) else {
+        return Vec::new();
+    };
+    serde_json::from_str::<Vec<String>>(&data).unwrap_or_default()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn load_pinned_adapters() -> Vec<String> {
+    Vec::new()
 }
 
 /// Dock visibility state
@@ -561,6 +582,10 @@ pub struct ChatState {
     pub selected_adapter: Option<String>,
     /// User-pinned adapters to include in next request
     pub pinned_adapters: Vec<String>,
+    /// Session-only pinned adapters (e.g. from `?adapter=` deep links).
+    ///
+    /// These are NOT persisted to localStorage and are cleared on session change.
+    pub session_pinned_adapters: Vec<String>,
     /// Session-local mode toggle (Fast/Verified)
     pub verified_mode: bool,
     /// Streaming status notice for the UI
@@ -575,6 +600,9 @@ pub struct ChatState {
     pub pin_change_epoch: u64,
     /// Epoch captured when last message was sent
     pub last_sent_pin_epoch: u64,
+    /// Set when an AdapterStateUpdate confirms the current pin epoch during a stream;
+    /// pending is only cleared once the stream completes (not mid-stream).
+    pub adapter_state_confirmed: bool,
 }
 
 /// Suggested adapter from router preview
@@ -687,7 +715,10 @@ impl ChatState {
                     if new_phase != msg.pending_phase {
                         msg.pending_phase = new_phase;
                         // Update reason when escalating to Informative or Estimated
-                        if matches!(new_phase, PendingPhase::Informative | PendingPhase::Estimated) {
+                        if matches!(
+                            new_phase,
+                            PendingPhase::Informative | PendingPhase::Estimated
+                        ) {
                             msg.pending_reason = blocker_reason.map(|s| s.to_string());
                         }
                     }
@@ -724,7 +755,8 @@ impl Default for ChatState {
             active_adapters: Vec::new(),
             suggested_adapters: Vec::new(),
             selected_adapter: None,
-            pinned_adapters: Vec::new(),
+            pinned_adapters: load_pinned_adapters(),
+            session_pinned_adapters: Vec::new(),
             verified_mode: false,
             stream_notice: None,
             stream_recovery: None,
@@ -732,6 +764,7 @@ impl Default for ChatState {
             adapter_selection_pending: false,
             pin_change_epoch: 0,
             last_sent_pin_epoch: 0,
+            adapter_state_confirmed: false,
         }
     }
 }
@@ -788,7 +821,8 @@ impl ChatAction {
         let can_queue = self.state.get_untracked().can_queue();
         if !can_queue {
             self.state.update(|s| {
-                s.error = Some("Queue full. Please wait for pending messages to complete.".to_string());
+                s.error =
+                    Some("Queue full. Please wait for pending messages to complete.".to_string());
             });
             return;
         }
@@ -850,9 +884,8 @@ impl ChatAction {
     /// Cancel a specific queued message
     pub fn cancel_queued_message(&self, message_id: &str) {
         self.state.update(|s| {
-            s.messages.retain(|m| {
-                !(m.id == message_id && m.status == MessageStatus::Queued)
-            });
+            s.messages
+                .retain(|m| !(m.id == message_id && m.status == MessageStatus::Queued));
         });
     }
 
@@ -998,7 +1031,7 @@ impl ChatAction {
         let abort_controller = self.abort_controller;
 
         // Build context request from current state (PRD-002 Phase 2)
-        // Also capture pinned adapters, next-message override, and reasoning mode for the request
+        // Also capture pinned adapters (persistent + session), next-message override, and reasoning mode.
         let (context_request, pinned_adapters, selected_adapter, reasoning_mode, session_id) = {
             let current = self.state.get_untracked();
             let context = ContextRequest {
@@ -1015,11 +1048,17 @@ impl ChatAction {
                     .as_ref()
                     .and_then(|c| c.entity_id.clone()),
             };
-            // Capture pinned adapters if any
-            let pinned = if current.pinned_adapters.is_empty() {
+            // Capture effective pinned adapters (persistent + session) if any.
+            let mut pinned = current.pinned_adapters.clone();
+            for id in &current.session_pinned_adapters {
+                if !pinned.contains(id) {
+                    pinned.push(id.clone());
+                }
+            }
+            let pinned = if pinned.is_empty() {
                 None
             } else {
-                Some(current.pinned_adapters.clone())
+                Some(pinned)
             };
             (
                 context,
@@ -1035,6 +1074,7 @@ impl ChatAction {
         let _ = self.state.try_update(|s| {
             s.last_sent_pin_epoch = s.pin_change_epoch;
             s.selected_adapter = None;
+            s.adapter_state_confirmed = false; // Reset for new stream
         });
 
         wasm_bindgen_futures::spawn_local(async move {
@@ -1147,6 +1187,8 @@ impl ChatAction {
             let _ = state.try_update(|s| {
                 s.loading = false;
                 s.streaming = false;
+                // Pending is cleared on AdapterStateUpdate confirmation (mid-stream).
+                s.adapter_state_confirmed = false;
             });
 
             // Clear the abort controller - use try_get to avoid panic if disposed
@@ -1356,13 +1398,49 @@ impl ChatAction {
             s.active_adapters.clear();
             s.suggested_adapters.clear();
             s.selected_adapter = None;
-            s.pinned_adapters.clear();
+            // Keep persistent pins; they represent user intent across sessions.
+            // Clear session-only pins since they're tied to the current session.
+            s.session_pinned_adapters.clear();
             s.stream_notice = None;
             s.stream_recovery = None;
             s.partial_assistant_ids.clear();
             s.adapter_selection_pending = false;
             s.pin_change_epoch = 0;
             s.last_sent_pin_epoch = 0;
+            s.adapter_state_confirmed = false;
+        });
+    }
+
+    /// Replace the full session-only pinned adapter set.
+    ///
+    /// This is used for deep links like `/chat/<id>?adapter=<adapter_id>`.
+    /// It does not persist to localStorage.
+    pub fn set_session_pinned_adapters(&self, adapter_ids: Vec<String>) {
+        self.state.update(|s| {
+            s.session_pinned_adapters = adapter_ids;
+            // Sync pinned flags on suggestions (effective pin set).
+            for adapter in &mut s.suggested_adapters {
+                adapter.is_pinned = s.pinned_adapters.contains(&adapter.adapter_id)
+                    || s.session_pinned_adapters.contains(&adapter.adapter_id);
+            }
+            s.pin_change_epoch += 1;
+            s.adapter_selection_pending = true;
+        });
+    }
+
+    /// Clear session-only pins (called on session change).
+    pub fn clear_session_pins(&self) {
+        self.state.update(|s| {
+            if s.session_pinned_adapters.is_empty() {
+                return;
+            }
+            s.session_pinned_adapters.clear();
+            // Sync pinned flags on suggestions back to persistent set only.
+            for adapter in &mut s.suggested_adapters {
+                adapter.is_pinned = s.pinned_adapters.contains(&adapter.adapter_id);
+            }
+            s.pin_change_epoch += 1;
+            s.adapter_selection_pending = true;
         });
     }
 
@@ -1458,7 +1536,16 @@ impl ChatAction {
 
         let client = self.client.clone();
         let state = self.state;
-        let pinned = self.state.get_untracked().pinned_adapters.clone();
+        let pinned = {
+            let current = self.state.get_untracked();
+            let mut out = current.pinned_adapters.clone();
+            for id in &current.session_pinned_adapters {
+                if !out.contains(id) {
+                    out.push(id.clone());
+                }
+            }
+            out
+        };
 
         wasm_bindgen_futures::spawn_local(async move {
             match client.get_topology_preview(Some(&text)).await {
@@ -1530,16 +1617,20 @@ impl ChatAction {
         let id = adapter_id.to_string();
         self.state.update(|s| {
             if let Some(pos) = s.pinned_adapters.iter().position(|a| a == &id) {
-                // Unpin
+                // Unpin persistent
                 s.pinned_adapters.remove(pos);
+            } else if let Some(pos) = s.session_pinned_adapters.iter().position(|a| a == &id) {
+                // Unpin session-only (does not persist)
+                s.session_pinned_adapters.remove(pos);
             } else {
-                // Pin
+                // Pin persistent
                 s.pinned_adapters.push(id.clone());
             }
-            // Update is_pinned in suggested adapters
+            // Update is_pinned in suggested adapters based on effective pin set
             for adapter in &mut s.suggested_adapters {
                 if adapter.adapter_id == id {
-                    adapter.is_pinned = !adapter.is_pinned;
+                    adapter.is_pinned =
+                        s.pinned_adapters.contains(&id) || s.session_pinned_adapters.contains(&id);
                 }
             }
             // Mark pending until next SSE adapter state update confirms usage
@@ -1554,10 +1645,11 @@ impl ChatAction {
         self.state.update(|s| {
             s.pinned_adapters.clear();
             for adapter in &mut s.suggested_adapters {
-                adapter.is_pinned = false;
+                adapter.is_pinned = s.session_pinned_adapters.contains(&adapter.adapter_id);
             }
             s.pin_change_epoch += 1;
         });
+        save_pinned_adapters(&[]);
     }
 
     /// Replace the full pinned adapter set (from manage dialog)
@@ -1566,7 +1658,8 @@ impl ChatAction {
             s.pinned_adapters = adapter_ids;
             // Sync is_pinned on suggested adapters
             for adapter in &mut s.suggested_adapters {
-                adapter.is_pinned = s.pinned_adapters.contains(&adapter.adapter_id);
+                adapter.is_pinned = s.pinned_adapters.contains(&adapter.adapter_id)
+                    || s.session_pinned_adapters.contains(&adapter.adapter_id);
             }
             // Mark pending until next SSE confirms
             if !s.pinned_adapters.is_empty() {
@@ -1574,7 +1667,7 @@ impl ChatAction {
             }
             s.pin_change_epoch += 1;
         });
-        save_pinned_adapters(&[]);
+        save_pinned_adapters(&self.state.get_untracked().pinned_adapters);
     }
 
     /// Clear suggested adapters
@@ -2219,9 +2312,11 @@ async fn stream_inference_to_state(
                             s.active_adapters.push(new_adapter);
                         }
                     }
-                    // Only clear pending if a message sent AFTER the pin change has been confirmed
+                    // Clear adapter-selection pending as soon as we have confirmation
+                    // for the pin epoch sent with this request.
                     if s.last_sent_pin_epoch >= s.pin_change_epoch {
                         s.adapter_selection_pending = false;
+                        s.adapter_state_confirmed = false;
                     }
                 }) {
                     // Signal disposed, bail out early
@@ -2265,6 +2360,16 @@ async fn stream_inference_to_state(
     }
 
     slow_timer.cancel();
+
+    // Fallback: if the backend never emitted an AdapterStateUpdate during this stream,
+    // pending could stay stuck. Clear it once the request is complete, but only if
+    // no newer pin changes happened after the request started.
+    let _ = state.try_update(|s| {
+        if s.adapter_selection_pending && s.last_sent_pin_epoch >= s.pin_change_epoch {
+            s.adapter_selection_pending = false;
+            s.adapter_state_confirmed = false;
+        }
+    });
 
     // Warn if buffer has unprocessed data (indicates incomplete event)
     if !buffer.is_empty() {
@@ -2313,6 +2418,11 @@ pub struct StoredChatSession {
     /// Session-local mode toggle (Fast/Verified)
     #[serde(default)]
     pub verified_mode: bool,
+    /// Placeholder session created eagerly when navigating to a new `/chat/:session_id`.
+    ///
+    /// Placeholders are pruned if the user leaves without sending any messages.
+    #[serde(default)]
+    pub placeholder: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -2348,6 +2458,21 @@ pub struct StoredMessage {
 pub struct ChatSessionsManager;
 
 impl ChatSessionsManager {
+    /// Validate that a session id is safe to create eagerly.
+    ///
+    /// - Must start with `ses_`
+    /// - After prefix, only `[A-Za-z0-9_-]` is allowed
+    pub fn is_valid_session_id(id: &str) -> bool {
+        let Some(rest) = id.strip_prefix("ses_") else {
+            return false;
+        };
+        if rest.is_empty() {
+            return false;
+        }
+        rest.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    }
+
     /// Load all session metadata from localStorage
     pub fn load_sessions() -> Vec<ChatSessionMeta> {
         let Some(window) = web_sys::window() else {
@@ -2360,26 +2485,38 @@ impl ChatSessionsManager {
             return Vec::new();
         };
 
-        serde_json::from_str::<Vec<StoredChatSession>>(&data)
-            .map(|sessions| {
-                sessions
-                    .into_iter()
-                    .map(|s| ChatSessionMeta {
-                        id: s.id,
-                        title: s.title,
-                        target: s.target,
-                        message_count: s.messages.len(),
-                        preview: s
-                            .messages
-                            .last()
-                            .map(|m| truncate_string(&m.content, 100))
-                            .unwrap_or_default(),
-                        created_at: s.created_at,
-                        updated_at: s.updated_at,
-                    })
-                    .collect()
+        let Ok(mut sessions) = serde_json::from_str::<Vec<StoredChatSession>>(&data) else {
+            return Vec::new();
+        };
+
+        // Prune stale placeholders to avoid accumulating abandoned empty sessions.
+        let before_len = sessions.len();
+        Self::prune_stale_placeholders_in_memory(&mut sessions, chrono::Duration::hours(24));
+        if sessions.len() != before_len {
+            if let Ok(json) = serde_json::to_string(&sessions) {
+                let _ = storage.set_item(SESSIONS_STORAGE_KEY, &json);
+            }
+        }
+
+        // Deterministic ordering: most recently updated first.
+        sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+
+        sessions
+            .into_iter()
+            .map(|s| ChatSessionMeta {
+                id: s.id,
+                title: s.title,
+                target: s.target,
+                message_count: s.messages.len(),
+                preview: s
+                    .messages
+                    .last()
+                    .map(|m| truncate_string(&m.content, 100))
+                    .unwrap_or_default(),
+                created_at: s.created_at,
+                updated_at: s.updated_at,
             })
-            .unwrap_or_default()
+            .collect()
     }
 
     /// Load a specific session by ID
@@ -2390,6 +2527,21 @@ impl ChatSessionsManager {
 
         let sessions: Vec<StoredChatSession> = serde_json::from_str(&data).ok()?;
         sessions.into_iter().find(|s| s.id == id)
+    }
+
+    /// Create a new placeholder session (empty conversation) for a known-good session id.
+    pub fn create_placeholder_session(id: &str) -> StoredChatSession {
+        let now = chrono::Utc::now().to_rfc3339();
+        StoredChatSession {
+            id: id.to_string(),
+            title: "New Chat".to_string(),
+            target: ChatTarget::Default.display_name(),
+            messages: Vec::new(),
+            verified_mode: false,
+            placeholder: true,
+            created_at: now.clone(),
+            updated_at: now,
+        }
     }
 
     /// Save or update a session
@@ -2409,6 +2561,9 @@ impl ChatSessionsManager {
             .and_then(|d| serde_json::from_str(&d).ok())
             .unwrap_or_default();
 
+        // Keep storage hygienic even if callers don't go through load_sessions().
+        Self::prune_stale_placeholders_in_memory(&mut sessions, chrono::Duration::hours(24));
+
         // Find and update or append
         if let Some(pos) = sessions.iter().position(|s| s.id == session.id) {
             sessions[pos] = session.clone();
@@ -2425,6 +2580,20 @@ impl ChatSessionsManager {
         // Save back
         if let Ok(json) = serde_json::to_string(&sessions) {
             let _ = storage.set_item(SESSIONS_STORAGE_KEY, &json);
+        }
+    }
+
+    /// Convenience alias for save_session.
+    pub fn upsert_session(session: &StoredChatSession) {
+        Self::save_session(session);
+    }
+
+    /// Delete a placeholder session if it is still empty.
+    pub fn prune_placeholder_session(id: &str) {
+        if let Some(session) = Self::load_session(id) {
+            if session.placeholder && session.messages.is_empty() {
+                Self::delete_session(id);
+            }
         }
     }
 
@@ -2511,10 +2680,30 @@ impl ChatSessionsManager {
                 })
                 .collect(),
             verified_mode: state.verified_mode,
+            placeholder: false,
             // Preserve original created_at if updating an existing session
             created_at: created_at.unwrap_or(&now).to_string(),
             updated_at: now,
         }
+    }
+
+    fn prune_stale_placeholders_in_memory(
+        sessions: &mut Vec<StoredChatSession>,
+        ttl: chrono::Duration,
+    ) {
+        use chrono::{DateTime, Utc};
+        let now = Utc::now();
+        sessions.retain(|s| {
+            if !s.placeholder || !s.messages.is_empty() {
+                return true;
+            }
+            // Parse created_at; if it's malformed, be conservative and keep it.
+            let Ok(dt) = DateTime::parse_from_rfc3339(&s.created_at) else {
+                return true;
+            };
+            let age = now.signed_duration_since(dt.with_timezone(&Utc));
+            age <= ttl
+        });
     }
 }
 
@@ -2554,6 +2743,32 @@ mod tests {
         let json = serde_json::to_string(&req).expect("serialize");
         assert!(json.contains("\"session_id\":\"session-123\""));
         assert!(json.contains("\"reasoning_mode\":true"));
+    }
+
+    #[test]
+    fn stored_chat_session_placeholder_defaults_false() {
+        let json = r#"{
+            "id": "ses_abc123",
+            "title": "New Chat",
+            "target": "Default",
+            "messages": [],
+            "verified_mode": false,
+            "created_at": "2024-01-01T00:00:00Z",
+            "updated_at": "2024-01-01T00:00:00Z"
+        }"#;
+        let session: StoredChatSession = serde_json::from_str(json).expect("deserialize");
+        assert!(!session.placeholder);
+    }
+
+    #[test]
+    fn validates_session_id_format() {
+        assert!(ChatSessionsManager::is_valid_session_id("ses_abc123"));
+        assert!(ChatSessionsManager::is_valid_session_id("ses_ABC_123-xyz"));
+        assert!(!ChatSessionsManager::is_valid_session_id(""));
+        assert!(!ChatSessionsManager::is_valid_session_id("ses_"));
+        assert!(!ChatSessionsManager::is_valid_session_id("foo"));
+        assert!(!ChatSessionsManager::is_valid_session_id("ses_../evil"));
+        assert!(!ChatSessionsManager::is_valid_session_id("ses_abc 123"));
     }
 
     /// Tests for is_abort_error string-based detection
@@ -2626,6 +2841,7 @@ mod tests {
                 suggested_adapters: Vec::new(),
                 selected_adapter: None,
                 pinned_adapters: Vec::new(),
+                session_pinned_adapters: Vec::new(),
                 verified_mode: false,
                 stream_notice: None,
                 stream_recovery: None,
@@ -2633,6 +2849,7 @@ mod tests {
                 adapter_selection_pending: false,
                 pin_change_epoch: 0,
                 last_sent_pin_epoch: 0,
+                adapter_state_confirmed: false,
             }
         }
 

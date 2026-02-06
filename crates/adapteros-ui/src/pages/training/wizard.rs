@@ -159,8 +159,10 @@ pub fn CreateJobWizard(
     if let Some(src_doc) = source_document_id {
         Effect::new(move || {
             if let Some(doc_id) = src_doc.get() {
-                dataset_message
-                    .set(Some(format!("From document: {} — generate or upload a dataset", doc_id)));
+                dataset_message.set(Some(format!(
+                    "From document: {} — generate or upload a dataset",
+                    doc_id
+                )));
             }
         });
     }

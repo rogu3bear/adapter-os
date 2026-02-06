@@ -114,10 +114,13 @@ pub fn Training() -> impl IntoView {
         }
         // Mark consumed and clean URL to prevent re-triggering on browser back
         params_consumed.set(true);
-        navigate("/training", leptos_router::NavigateOptions {
-            replace: true,
-            ..Default::default()
-        });
+        navigate(
+            "/training",
+            leptos_router::NavigateOptions {
+                replace: true,
+                ..Default::default()
+            },
+        );
     });
 
     // Fetch training jobs with server-side filtering
@@ -128,7 +131,11 @@ pub fn Training() -> impl IntoView {
             let has_filter = !filter.is_empty() || adapter_name.is_some();
             let params = if has_filter {
                 Some(TrainingListParams {
-                    status: if filter.is_empty() { None } else { Some(filter) },
+                    status: if filter.is_empty() {
+                        None
+                    } else {
+                        Some(filter)
+                    },
                     adapter_name,
                     ..Default::default()
                 })

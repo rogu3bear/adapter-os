@@ -19,7 +19,8 @@ pub fn Toggle(
     #[prop(optional, into)] class: String,
 ) -> impl IntoView {
     // Generate a stable ID once per component instance using StoredValue
-    let button_id = StoredValue::new(id.unwrap_or_else(|| format!("toggle-{}", uuid::Uuid::new_v4())));
+    let button_id =
+        StoredValue::new(id.unwrap_or_else(|| format!("toggle-{}", uuid::Uuid::new_v4())));
 
     let toggle = move |_| {
         if !disabled.get() {

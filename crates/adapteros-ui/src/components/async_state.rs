@@ -233,7 +233,8 @@ pub fn ErrorDisplay(
     on_retry: Option<Callback<()>>,
 ) -> impl IntoView {
     let error_code = error.code().map(|s| s.to_string());
-    let error_message = error.to_string();
+    let error_message = error.user_message();
+    let raw_error_message = error.to_string();
     let failure_code = error.failure_code();
     let show_copy_action = is_copyable_error(&error);
     let error_for_copy = error.clone();
@@ -272,8 +273,13 @@ pub fn ErrorDisplay(
                         "Error"
                     </p>
                     <p class="text-sm text-destructive/80 break-words">
-                        {error_message}
+                        {error_message.clone()}
                     </p>
+                    {(!raw_error_message.is_empty() && raw_error_message != error_message).then(|| view! {
+                        <p class="text-xs text-muted-foreground break-words">
+                            {raw_error_message.clone()}
+                        </p>
+                    })}
 
                     // Failure code badge
                     {failure_code.map(|fc| {

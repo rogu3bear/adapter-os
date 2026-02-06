@@ -309,5 +309,6 @@ fn RulesTable(rules: Vec<RoutingRuleResponse>, on_delete: Callback<()>) -> impl 
                 </TableBody>
             </Table>
         </Card>
-    }.into_any()
+    }
+    .into_any()
 }

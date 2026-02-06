@@ -170,20 +170,20 @@ impl TimeScale {
 
         // Sensible intervals in milliseconds
         const INTERVALS: &[u64] = &[
-            1_000,             // 1 second
-            5_000,             // 5 seconds
-            15_000,            // 15 seconds
-            30_000,            // 30 seconds
-            60_000,            // 1 minute
-            5 * 60_000,        // 5 minutes
-            15 * 60_000,       // 15 minutes
-            30 * 60_000,       // 30 minutes
-            3_600_000,         // 1 hour
-            2 * 3_600_000,     // 2 hours
-            4 * 3_600_000,     // 4 hours
-            6 * 3_600_000,     // 6 hours
-            12 * 3_600_000,    // 12 hours
-            86_400_000,        // 1 day
+            1_000,          // 1 second
+            5_000,          // 5 seconds
+            15_000,         // 15 seconds
+            30_000,         // 30 seconds
+            60_000,         // 1 minute
+            5 * 60_000,     // 5 minutes
+            15 * 60_000,    // 15 minutes
+            30 * 60_000,    // 30 minutes
+            3_600_000,      // 1 hour
+            2 * 3_600_000,  // 2 hours
+            4 * 3_600_000,  // 4 hours
+            6 * 3_600_000,  // 6 hours
+            12 * 3_600_000, // 12 hours
+            86_400_000,     // 1 day
         ];
 
         let ideal_interval = range_ms / target_count as u64;

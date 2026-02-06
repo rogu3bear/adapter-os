@@ -562,7 +562,8 @@ fn AdapterDetailContent(adapter: AdapterResponse) -> impl IntoView {
                     </Link>
                 </div>
             </div>
-        }.into_any();
+        }
+        .into_any();
     }
     web_sys::console::log_1(&"[AdapterDetailContent] Validation passed".into());
 

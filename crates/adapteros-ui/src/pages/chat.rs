@@ -27,7 +27,6 @@ use crate::components::{
     Input, Spinner, SuggestedAdapterView, Textarea, TraceButton, TracePanel,
 };
 use crate::hooks::{use_api_resource, LoadingState};
-use crate::signals::chat::load_pinned_adapters;
 use crate::signals::{
     use_chat, ChatSessionMeta, ChatSessionsManager, ChatTarget, StreamNoticeTone,
 };
@@ -67,10 +66,13 @@ pub fn Chat() -> impl IntoView {
             .unwrap_or_default();
         let path = format!("/chat/{}{}", recent.id, search);
         // Replace (not push) so /chat doesn't sit in the back-button stack.
-        navigate(&path, leptos_router::NavigateOptions {
-            replace: true,
-            ..Default::default()
-        });
+        navigate(
+            &path,
+            leptos_router::NavigateOptions {
+                replace: true,
+                ..Default::default()
+            },
+        );
     }
 
     // Render empty-state workspace while redirect fires (or if no sessions exist).
@@ -85,7 +87,11 @@ pub fn ChatSession() -> impl IntoView {
     let params = use_params_map();
     let selected_id = Signal::derive(move || {
         let id = params.get().get("session_id").unwrap_or_default();
-        if id.is_empty() { None } else { Some(id) }
+        if id.is_empty() {
+            None
+        } else {
+            Some(id)
+        }
     });
 
     view! { <ChatWorkspace selected_session_id=selected_id handle_query_params=true /> }
@@ -109,11 +115,16 @@ fn ChatWorkspace(
     let show_mobile_sessions = RwSignal::new(false);
     let navigate = use_navigate();
     let sessions = RwSignal::new(ChatSessionsManager::load_sessions());
+    let refresh_sessions = {
+        let sessions = sessions.clone();
+        Callback::new(move |_: ()| {
+            sessions.set(ChatSessionsManager::load_sessions());
+        })
+    };
 
     // Derive a non-optional session ID for the conversation panel
-    let session_id_for_panel = Signal::derive(move || {
-        selected_session_id.get().unwrap_or_default()
-    });
+    let session_id_for_panel =
+        Signal::derive(move || selected_session_id.get().unwrap_or_default());
     let has_selection = Signal::derive(move || {
         selected_session_id
             .get()
@@ -201,6 +212,7 @@ fn ChatWorkspace(
                                 <ChatConversationPanel
                                     session_id_signal=session_id_for_panel
                                     handle_query_params=handle_query_params
+                                    refresh_sessions=refresh_sessions
                                 />
                             }.into_any()
                         } else {
@@ -261,7 +273,10 @@ fn ChatEmptyWorkspace() -> impl IntoView {
     let go_to_training = {
         let navigate = navigate.clone();
         Callback::new(move |_: ()| {
-            navigate("/training?open_wizard=1&return_to=/chat", Default::default());
+            navigate(
+                "/training?open_wizard=1&return_to=/chat",
+                Default::default(),
+            );
         })
     };
 
@@ -605,6 +620,8 @@ fn ChatConversationPanel(
     /// Whether to process ?prompt= and ?adapter= query parameters
     #[prop(default = false)]
     handle_query_params: bool,
+    /// Callback to refresh the session list sidebar.
+    refresh_sessions: Callback<()>,
 ) -> impl IntoView {
     let session_id = move || session_id_signal.get();
     let session_label = move || {
@@ -628,6 +645,22 @@ fn ChatConversationPanel(
     let session_loaded = RwSignal::new(false);
     let current_session_id = RwSignal::new(String::new());
     let session_error = RwSignal::new(Option::<String>::None);
+    // Guard so deep-link query params are processed once per session ID.
+    // This fixes in-app navigations like `/chat/<newid>?adapter=...` while already on /chat.
+    let query_params_consumed_for_session = RwSignal::new(Option::<String>::None);
+
+    // Auto-prune untouched placeholder sessions if the conversation panel unmounts.
+    {
+        let current_session_id = current_session_id.clone();
+        let refresh_sessions = refresh_sessions.clone();
+        on_cleanup(move || {
+            let id = current_session_id.get_untracked();
+            if !id.is_empty() {
+                ChatSessionsManager::prune_placeholder_session(&id);
+                refresh_sessions.run(());
+            }
+        });
+    }
     let verified_mode = Signal::derive(move || chat_state.get().verified_mode);
     let show_attach_dialog = RwSignal::new(false);
     let attach_mode = RwSignal::new(AttachMode::Upload);
@@ -670,8 +703,31 @@ fn ChatConversationPanel(
             // Clear any existing messages from a different session before loading
             if let Some(ref prev) = prev_session_id {
                 if !prev.is_empty() && prev != &id {
+                    // Auto-prune untouched placeholder sessions when leaving.
+                    ChatSessionsManager::prune_placeholder_session(prev);
+                    refresh_sessions.run(());
                     action.clear_messages();
                 }
+            }
+
+            // Validate session id before creating any placeholder state.
+            if !ChatSessionsManager::is_valid_session_id(&id) {
+                web_sys::console::warn_1(
+                    &format!(
+                        "[ChatSession] Invalid session ID '{}', redirecting to /chat",
+                        id
+                    )
+                    .into(),
+                );
+                let navigate = use_navigate();
+                navigate(
+                    "/chat",
+                    leptos_router::NavigateOptions {
+                        replace: true,
+                        ..Default::default()
+                    },
+                );
+                return id;
             }
 
             current_session_id.set(id.clone());
@@ -687,36 +743,22 @@ fn ChatConversationPanel(
                     &format!("[Chat] Restored session {} with {} messages", id, msg_count).into(),
                 );
             } else {
-                // Session not found - check if this is a stale link or a new session
-                // A "new session" is one the user just created (no history expected)
-                // A "stale link" is one that references a deleted/expired session
-                if let Some(window) = web_sys::window() {
-                    if let Ok(search) = window.location().search() {
-                        // If no prompt param, user navigated to an existing session URL
-                        // that no longer exists - show a helpful message
-                        if !search.contains("prompt=") {
-                            // Check if ID looks like a stored session format (session.slug.xxxxx)
-                            // If it matches our format but doesn't exist, it was deleted
-                            if id.starts_with("session.") && id.matches('.').count() >= 2 {
-                                session_error.set(Some(
-                                    "Session not found. It may have been deleted or expired."
-                                        .to_string(),
-                                ));
-                            }
-                            // Otherwise it's a fresh session with custom ID, no error needed
-                        }
-                    }
-                }
-
-                // For new sessions, apply default pinned adapters from localStorage
-                let defaults = load_pinned_adapters();
-                for adapter_id in &defaults {
-                    action.toggle_pin_adapter(adapter_id);
-                }
+                // Session not found — create an empty placeholder so the URL is stable
+                // and the session list can show it immediately.
+                let placeholder = ChatSessionsManager::create_placeholder_session(&id);
+                ChatSessionsManager::save_session(&placeholder);
+                refresh_sessions.run(());
+                action.restore_session(placeholder);
+                session_error.set(None);
             }
 
-            // Check for ?prompt= and ?adapter= query parameters (only on first load)
-            if handle_query_params && prev_session_id.is_none() {
+            // Check for ?prompt= and ?adapter= query parameters once per session ID.
+            if handle_query_params
+                && query_params_consumed_for_session.get_untracked().as_deref() != Some(&id)
+            {
+                let mut consumed_any = false;
+                #[cfg(target_arch = "wasm32")]
+                let mut adapter_for_url: Option<String> = None;
                 if let Some(window) = web_sys::window() {
                     if let Ok(search) = window.location().search() {
                         if let Ok(params) = web_sys::UrlSearchParams::new_with_str(&search) {
@@ -726,8 +768,19 @@ fn ChatConversationPanel(
                                     .map(|s| s.as_string().unwrap_or_default())
                                     .unwrap_or(adapter_id);
                                 if !decoded_adapter.is_empty() {
-                                    // Pin the adapter for this chat session
-                                    action.toggle_pin_adapter(&decoded_adapter);
+                                    let adapter = decoded_adapter;
+                                    // Session-only pin (does not persist to localStorage)
+                                    action.set_session_pinned_adapters(vec![adapter.clone()]);
+                                    // Also set one-shot selected adapter so the first send definitely uses it.
+                                    let state = chat_state.get_untracked();
+                                    if state.selected_adapter.as_deref() != Some(adapter.as_str()) {
+                                        action.select_next_adapter(&adapter);
+                                    }
+                                    #[cfg(target_arch = "wasm32")]
+                                    {
+                                        adapter_for_url = Some(adapter);
+                                    }
+                                    consumed_any = true;
                                 }
                             }
 
@@ -750,9 +803,33 @@ fn ChatConversationPanel(
                                 }
                                 if !decoded.is_empty() {
                                     action.send_message_streaming(decoded);
+                                    consumed_any = true;
                                 }
                             }
                         }
+                    }
+                }
+                if consumed_any {
+                    query_params_consumed_for_session.set(Some(id.clone()));
+                    // If a prompt was consumed, drop it from the URL to avoid accidental re-send
+                    // on refresh/back-button. Keep ?adapter= so a reload can re-apply session-only pins.
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        let navigate = use_navigate();
+                        let mut path = format!("/chat/{}", id);
+                        if let Some(adapter) = adapter_for_url {
+                            let encoded = js_sys::encode_uri_component(&adapter)
+                                .as_string()
+                                .unwrap_or(adapter);
+                            path = format!("{}?adapter={}", path, encoded);
+                        }
+                        navigate(
+                            &path,
+                            leptos_router::NavigateOptions {
+                                replace: true,
+                                ..Default::default()
+                            },
+                        );
                     }
                 }
             }
@@ -789,6 +866,7 @@ fn ChatConversationPanel(
                     {
                         let session = ChatSessionsManager::session_from_state(&id, &state);
                         ChatSessionsManager::save_session(&session);
+                        refresh_sessions.run(());
                         web_sys::console::log_1(
                             &format!("[Chat] Auto-saved session {} ({} messages)", id, msg_count)
                                 .into(),
@@ -862,7 +940,15 @@ fn ChatConversationPanel(
     // Convert active_adapters to AdapterMagnets for the AdapterBar
     let adapter_magnets = Memo::new(move |_| {
         let state = chat_state.get();
-        let pinned = &state.pinned_adapters;
+        let pinned = {
+            let mut out = state.pinned_adapters.clone();
+            for id in &state.session_pinned_adapters {
+                if !out.contains(id) {
+                    out.push(id.clone());
+                }
+            }
+            out
+        };
         state
             .active_adapters
             .iter()
@@ -883,7 +969,16 @@ fn ChatConversationPanel(
     });
 
     // Pinned adapter IDs signal for ChatAdaptersRegion
-    let pinned_adapters = Signal::derive(move || chat_state.get().pinned_adapters.clone());
+    let pinned_adapters = Signal::derive(move || {
+        let state = chat_state.get();
+        let mut out = state.pinned_adapters.clone();
+        for id in &state.session_pinned_adapters {
+            if !out.contains(id) {
+                out.push(id.clone());
+            }
+        }
+        out
+    });
 
     // Adapter selection pending flag (set on pin toggle, cleared on SSE update)
     let adapter_selection_pending =

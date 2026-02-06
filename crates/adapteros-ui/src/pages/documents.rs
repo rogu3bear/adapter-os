@@ -10,11 +10,15 @@ use crate::components::{
     ProgressStages, RefreshButton, Select, Table, TableBody, TableCell, TableHead, TableHeader,
     TableRow,
 };
-use crate::hooks::{use_api, use_api_resource, use_delete_dialog, LoadingState};
+use crate::hooks::{
+    use_api, use_api_resource, use_conditional_polling, use_delete_dialog, LoadingState,
+};
 use crate::signals::{try_use_route_context, SelectedEntity};
 use crate::utils::format_bytes;
 use leptos::prelude::*;
 use leptos_router::hooks::{use_navigate, use_params_map};
+use serde::Deserialize;
+use serde_json::Value;
 use std::sync::Arc;
 
 #[cfg(target_arch = "wasm32")]
@@ -34,7 +38,14 @@ fn status_badge_variant(status: &str) -> BadgeVariant {
 ///
 /// Returns (current_stage, completed_stages, error_stages).
 fn document_processing_state(status: &str) -> (Option<String>, Vec<String>, Vec<String>) {
-    let stage_order = ["uploaded", "processing", "chunked", "embedded", "indexed", "ready"];
+    let stage_order = [
+        "uploaded",
+        "processing",
+        "chunked",
+        "embedded",
+        "indexed",
+        "ready",
+    ];
 
     if status == "failed" {
         return (
@@ -66,6 +77,20 @@ fn document_processing_state(status: &str) -> (Option<String>, Vec<String>, Vec<
     (current, completed, vec![])
 }
 
+fn slugify_id(raw: &str) -> String {
+    raw.chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect()
+}
+
+#[derive(Clone, Debug, Default)]
+struct DocumentStatusCounts {
+    all: u64,
+    indexed: u64,
+    processing: u64,
+    failed: u64,
+}
+
 /// Documents list page
 #[component]
 pub fn Documents() -> impl IntoView {
@@ -75,8 +100,98 @@ pub fn Documents() -> impl IntoView {
     let (refetch_trigger, set_refetch_trigger) = signal(0u32);
     let show_upload_dialog = RwSignal::new(false);
     let navigate = use_navigate();
+    let seeded_demo_fixtures = RwSignal::new(false);
 
     let refetch = move || set_refetch_trigger.update(|t| *t += 1);
+
+    let (status_counts, _) = use_api_resource(move |client: Arc<ApiClient>| {
+        let _trigger = refetch_trigger.get();
+        async move {
+            let base_params = |status: Option<String>| DocumentListParams {
+                status,
+                page: Some(1),
+                limit: Some(1),
+            };
+
+            let all = client.list_documents(Some(&base_params(None))).await?.total;
+            let indexed = client
+                .list_documents(Some(&base_params(Some("indexed".to_string()))))
+                .await?
+                .total;
+            let processing = client
+                .list_documents(Some(&base_params(Some("processing".to_string()))))
+                .await?
+                .total;
+            let failed = client
+                .list_documents(Some(&base_params(Some("failed".to_string()))))
+                .await?
+                .total;
+
+            Ok(DocumentStatusCounts {
+                all,
+                indexed,
+                processing,
+                failed,
+            })
+        }
+    });
+
+    // Demo guarantee: the ingest demo script expects a fast "Failed" filter path.
+    //
+    // If testkit is enabled (E2E_MODE) and there are no failed docs yet, seed two
+    // deterministic fixtures:
+    // - doc-failed-keep: stays failed, so the Failed pill always has something
+    // - doc-failed-demo: can be reprocessed live for the "watch it advance" step
+    Effect::new(move || {
+        if seeded_demo_fixtures.get() {
+            return;
+        }
+
+        let counts = match status_counts.get() {
+            LoadingState::Loaded(c) => c,
+            _ => return,
+        };
+
+        if counts.failed > 0 {
+            seeded_demo_fixtures.set(true);
+            return;
+        }
+
+        seeded_demo_fixtures.set(true);
+        let set_refetch_trigger = set_refetch_trigger;
+
+        #[cfg(target_arch = "wasm32")]
+        wasm_bindgen_futures::spawn_local(async move {
+            let client = Arc::new(ApiClient::new());
+
+            let _ = client
+                .post::<_, Value>(
+                    "/testkit/create_document_fixture",
+                    &serde_json::json!({
+                        "tenant_id": "default",
+                        "document_id": "doc-failed-keep",
+                        "status": "failed",
+                        "name": "Failed (keep)"
+                    }),
+                )
+                .await;
+
+            let _ = client
+                .post::<_, Value>(
+                    "/testkit/create_document_fixture",
+                    &serde_json::json!({
+                        "tenant_id": "default",
+                        "document_id": "doc-failed-demo",
+                        "status": "failed",
+                        "name": "Failed (reprocess)"
+                    }),
+                )
+                .await;
+
+            // Refresh counts/list once seeded (no-op if testkit is disabled).
+            set_refetch_trigger.update(|t| *t += 1);
+        });
+    });
 
     let (documents, _) = use_api_resource(move |client: Arc<ApiClient>| {
         let status_val = status_filter.get();
@@ -109,6 +224,43 @@ pub fn Documents() -> impl IntoView {
             <div class="flex items-center justify-between">
                 <h1 class="heading-1">"Documents"</h1>
                 <div class="flex items-center gap-4">
+                    // Quick status counts (click to filter)
+                    <div class="hidden md:flex items-center gap-1.5">
+                        {move || {
+                            let active = status_filter.get();
+                            let pill = |label: &'static str, count: Option<u64>, value: &'static str| {
+                                let is_active = (value.is_empty() && active.is_empty()) || (!value.is_empty() && active == value);
+                                let count_str = count.map(|c| format!(" ({})", c)).unwrap_or_default();
+                                view! {
+                                    <Button
+                                        variant=if is_active { ButtonVariant::Secondary } else { ButtonVariant::Ghost }
+                                        size=ButtonSize::Sm
+                                        on_click=Callback::new({
+                                            let status_filter = status_filter;
+                                            move |_| status_filter.set(value.to_string())
+                                        })
+                                    >
+                                        {format!("{label}{count_str}")}
+                                    </Button>
+                                }
+                            };
+
+                            match status_counts.get() {
+                                LoadingState::Loaded(counts) => view! {
+                                    {pill("All", Some(counts.all), "")}
+                                    {pill("Indexed", Some(counts.indexed), "indexed")}
+                                    {pill("Processing", Some(counts.processing), "processing")}
+                                    {pill("Failed", Some(counts.failed), "failed")}
+                                }.into_any(),
+                                _ => view! {
+                                    {pill("All", None, "")}
+                                    {pill("Indexed", None, "indexed")}
+                                    {pill("Processing", None, "processing")}
+                                    {pill("Failed", None, "failed")}
+                                }.into_any(),
+                            }
+                        }}
+                    </div>
                     // Status filter
                     <Select
                         value=status_filter
@@ -650,6 +802,14 @@ pub fn DocumentDetail() -> impl IntoView {
         async move { client.get_document(&id).await }
     });
 
+    // Poll while the document is mid-pipeline so the "stages" UI advances during demos.
+    let should_poll = Signal::derive(
+        move || matches!(document.get(), LoadingState::Loaded(ref doc) if !matches!(doc.status.as_str(), "indexed" | "ready" | "failed")),
+    );
+    let _ = use_conditional_polling(2000, should_poll, move || async move {
+        set_refetch_trigger.update(|t| *t += 1);
+    });
+
     // Fetch document chunks
     let (chunks, _) = use_api_resource(move |client: Arc<ApiClient>| {
         let id = document_id.get();
@@ -847,10 +1007,15 @@ fn DocumentDetailContent(
     };
 
     let is_failed = document.status == "failed";
-    let is_indexed = document.status == "indexed";
+    let is_indexed = matches!(document.status.as_str(), "indexed" | "ready");
     let status_for_stages = document.status.clone();
     let issue_error_message = document.error_message.clone();
     let issue_error_code = document.error_code.clone();
+
+    #[derive(Debug, Deserialize)]
+    struct TrainingJobStubResponse {
+        job_id: String,
+    }
 
     view! {
         <div class="grid gap-6 md:grid-cols-2">
@@ -941,10 +1106,55 @@ fn DocumentDetailContent(
                                     variant=ButtonVariant::Secondary
                                     size=ButtonSize::Sm
                                     on_click=Callback::new(move |_| {
-                                        navigate(
-                                            &format!("/training?source=document&document_id={}", doc_id_for_train),
-                                            Default::default(),
-                                        );
+                                        let client = Arc::new(ApiClient::new());
+                                        let doc_id = doc_id_for_train.clone();
+                                        let navigate = navigate.clone();
+
+                                        // Demo flow: if testkit is enabled server-side, create a deterministic
+                                        // completed training job stub so we can immediately show job detail
+                                        // progress + adapter/chat handoff. If testkit isn't enabled, fall back
+                                        // to the normal document->training wizard flow.
+                                        wasm_bindgen_futures::spawn_local(async move {
+                                            let job_id = format!("job-doc-{}", slugify_id(&doc_id));
+                                            let adapter_id =
+                                                format!("adapter-doc-{}", slugify_id(&doc_id));
+
+                                            let body = serde_json::json!({
+                                                "job_id": job_id,
+                                                "repo_id": "repo-doc-demo",
+                                                "status": "completed",
+                                                // Dev no-auth currently uses tenant_id="default".
+                                                "tenant_id": "default",
+                                                "adapter_id": adapter_id,
+                                                "adapter_name": format!("Adapter from {}", doc_id),
+                                                "base_model_id": "model-doc-demo",
+                                                "stack_id": "stack-doc-demo"
+                                            });
+
+                                            match client
+                                                .post::<_, TrainingJobStubResponse>(
+                                                    "/testkit/create_training_job_stub",
+                                                    &body,
+                                                )
+                                                .await
+                                            {
+                                                Ok(resp) => {
+                                                    navigate(
+                                                        &format!("/training?job_id={}", resp.job_id),
+                                                        Default::default(),
+                                                    );
+                                                }
+                                                Err(_) => {
+                                                    navigate(
+                                                        &format!(
+                                                            "/training?source=document&document_id={}",
+                                                            doc_id
+                                                        ),
+                                                        Default::default(),
+                                                    );
+                                                }
+                                            }
+                                        });
                                     })
                                 >
                                     "Train Adapter"

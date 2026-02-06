@@ -11,7 +11,9 @@ pub use use_sse_notifications::use_sse_notifications;
 // Re-export the Refetch type since it's part of the use_api_resource return type
 // (Callers already import from `crate::hooks`).
 
-use crate::api::{report_error, ApiClient, ApiError, ApiResult};
+#[cfg(target_arch = "wasm32")]
+use crate::api::report_error;
+use crate::api::{ApiClient, ApiError, ApiResult};
 use leptos::prelude::*;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;

@@ -50,10 +50,10 @@ fn fallback_action() -> InferenceAction {
 
 fn blocker_reason(blocker: &InferenceBlocker) -> &'static str {
     match blocker {
-        InferenceBlocker::DatabaseUnavailable => "Database unavailable",
-        InferenceBlocker::WorkerMissing => "No workers running",
-        InferenceBlocker::NoModelLoaded => "No model loaded",
-        InferenceBlocker::ActiveModelMismatch => "Active model mismatch",
+        InferenceBlocker::DatabaseUnavailable => "Database is unavailable",
+        InferenceBlocker::WorkerMissing => "No workers are connected",
+        InferenceBlocker::NoModelLoaded => "No model is loaded on any worker",
+        InferenceBlocker::ActiveModelMismatch => "Active model does not match the loaded runtime",
         InferenceBlocker::TelemetryDegraded => "Telemetry degraded",
         InferenceBlocker::SystemBooting => "System booting",
         InferenceBlocker::BootFailed => "Boot failed",
@@ -78,8 +78,12 @@ fn blocker_action(blocker: &InferenceBlocker) -> InferenceAction {
             label: "Open monitoring",
             href: "/monitoring",
         },
-        InferenceBlocker::DatabaseUnavailable
-        | InferenceBlocker::SystemBooting
-        | InferenceBlocker::BootFailed => fallback_action(),
+        InferenceBlocker::BootFailed => InferenceAction {
+            label: "View errors",
+            href: "/errors",
+        },
+        InferenceBlocker::DatabaseUnavailable | InferenceBlocker::SystemBooting => {
+            fallback_action()
+        }
     }
 }
