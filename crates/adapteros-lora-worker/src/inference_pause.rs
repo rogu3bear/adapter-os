@@ -23,7 +23,7 @@ use adapteros_api_types::review::{
     InferenceState, PauseKind, PauseReason, Review, ReviewContext, ReviewScope, SubmitReviewRequest,
 };
 use adapteros_core::{AosError, Result};
-use adapteros_id::{TypedId, IdPrefix};
+use adapteros_id::{IdPrefix, TypedId};
 
 // =============================================================================
 // Pause Token

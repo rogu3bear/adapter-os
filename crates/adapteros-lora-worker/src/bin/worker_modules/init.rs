@@ -13,8 +13,8 @@ use super::helpers::{
 };
 use super::manifest::{cache_manifest, fetch_manifest_from_cp, parse_manifest, LoadedManifest};
 use super::registration::{
-    notify_cp_status, notify_cp_status_with_retry, register_with_cp_with_retry,
-    RegistrationParams, RegistrationResult,
+    notify_cp_status, notify_cp_status_with_retry, register_with_cp_with_retry, RegistrationParams,
+    RegistrationResult,
 };
 use adapteros_boot::jti_cache::JtiCacheStore;
 use adapteros_config::{

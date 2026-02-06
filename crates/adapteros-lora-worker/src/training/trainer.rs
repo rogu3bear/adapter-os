@@ -15,6 +15,7 @@ use super::perplexity::compute_perplexity;
 use super::preprocessing::{preprocess_examples, PreprocessResult};
 use adapteros_core::{derive_seed, AosError, Result};
 use adapteros_db::{Db, TrainingMetricRow};
+use adapteros_id::{IdPrefix, TypedId};
 use adapteros_lora_kernel_api::FusedKernels;
 use adapteros_lora_router::ROUTER_GATE_Q15_MAX;
 use adapteros_telemetry::TelemetryWriter;
@@ -32,7 +33,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 use tracing::{debug, error, info, warn};
-use adapteros_id::{TypedId, IdPrefix};
 
 use std::path::Path;
 
@@ -2907,10 +2907,14 @@ Use --force-resume to override (may produce incorrect results).",
         let mut validation_loss_curve = Vec::with_capacity(curve_capacity);
         let mut validation_perplexity_curve = Vec::with_capacity(curve_capacity);
         let mut best_validation: Option<(f32, u32)> = None;
+        #[cfg(feature = "multi-backend")]
         let mut epochs_without_improvement: u32 = 0;
+        #[cfg(feature = "multi-backend")]
         let early_stopping_enabled =
             validation_enabled && self.config.early_stopping.unwrap_or(false);
+        #[cfg(feature = "multi-backend")]
         let patience = self.config.patience.unwrap_or(5);
+        #[cfg(feature = "multi-backend")]
         let min_delta = self.config.min_delta.unwrap_or(0.001);
         let training_loss_spec = if self.use_cross_entropy_loss {
             loss::training_loss_spec(self.config.ignore_index)
@@ -3008,10 +3012,18 @@ Use --force-resume to override (may produce incorrect results).",
             let mut should_stop_early = false;
 
             if validation_enabled {
-                let mut total_validation_loss = 0.0;
-                let mut validation_warnings = HashSet::new();
+                #[cfg(not(feature = "multi-backend"))]
+                {
+                    return Err(AosError::Training(
+                        "Validation loss requires multi-backend (MLX) support".to_string(),
+                    ));
+                }
+
                 #[cfg(feature = "multi-backend")]
                 {
+                    let mut total_validation_loss = 0.0;
+                    let mut validation_warnings: HashSet<String> = HashSet::new();
+
                     let output_proj = validation_output_proj.as_ref().ok_or_else(|| {
                         AosError::Training(
                             "Validation output projection missing for loss computation".to_string(),
@@ -3029,54 +3041,49 @@ Use --force-resume to override (may produce incorrect results).",
                         total_validation_loss += report.loss;
                         loss::merge_loss_warnings(&mut validation_warnings, &report);
                     }
-                }
-                #[cfg(not(feature = "multi-backend"))]
-                {
-                    return Err(AosError::Training(
-                        "Validation loss requires multi-backend (MLX) support".to_string(),
-                    ));
-                }
 
-                if !validation_warnings.is_empty() {
-                    for warning in validation_warnings {
-                        warn!("Validation loss warning: {}", warning);
-                    }
-                }
-
-                let val_loss = total_validation_loss / self.validation_examples.len() as f32;
-                let val_perplexity = compute_perplexity(val_loss);
-                validation_loss_curve.push(val_loss);
-                validation_perplexity_curve.push(val_perplexity);
-                validation_loss = Some(val_loss);
-                validation_perplexity = Some(val_perplexity);
-
-                let previous_best = best_validation.map(|(loss, _)| loss);
-                if previous_best.is_none_or(|best| val_loss < best) {
-                    best_validation = Some((val_loss, (epoch + 1) as u32));
-                }
-
-                if early_stopping_enabled {
-                    if let Some(best_loss) = previous_best {
-                        let improvement = best_loss - val_loss;
-                        if improvement > min_delta {
-                            epochs_without_improvement = 0;
-                        } else {
-                            epochs_without_improvement =
-                                epochs_without_improvement.saturating_add(1);
-                            if epochs_without_improvement >= patience {
-                                should_stop_early = true;
-                                info!(
-                                    epoch = epoch + 1,
-                                    best_validation_loss =
-                                        best_validation.map(|(loss, _)| loss).unwrap_or(val_loss),
-                                    patience,
-                                    min_delta,
-                                    "Early stopping triggered: validation loss plateaued"
-                                );
-                            }
+                    if !validation_warnings.is_empty() {
+                        for warning in validation_warnings {
+                            warn!("Validation loss warning: {}", warning);
                         }
-                    } else {
-                        epochs_without_improvement = 0;
+                    }
+
+                    let val_loss = total_validation_loss / self.validation_examples.len() as f32;
+                    let val_perplexity = compute_perplexity(val_loss);
+                    validation_loss_curve.push(val_loss);
+                    validation_perplexity_curve.push(val_perplexity);
+                    validation_loss = Some(val_loss);
+                    validation_perplexity = Some(val_perplexity);
+
+                    let previous_best = best_validation.map(|(loss, _)| loss);
+                    if previous_best.is_none_or(|best| val_loss < best) {
+                        best_validation = Some((val_loss, (epoch + 1) as u32));
+                    }
+
+                    if early_stopping_enabled {
+                        if let Some(best_loss) = previous_best {
+                            let improvement = best_loss - val_loss;
+                            if improvement > min_delta {
+                                epochs_without_improvement = 0;
+                            } else {
+                                epochs_without_improvement =
+                                    epochs_without_improvement.saturating_add(1);
+                                if epochs_without_improvement >= patience {
+                                    should_stop_early = true;
+                                    info!(
+                                        epoch = epoch + 1,
+                                        best_validation_loss = best_validation
+                                            .map(|(loss, _)| loss)
+                                            .unwrap_or(val_loss),
+                                        patience,
+                                        min_delta,
+                                        "Early stopping triggered: validation loss plateaued"
+                                    );
+                                }
+                            }
+                        } else {
+                            epochs_without_improvement = 0;
+                        }
                     }
                 }
             }
@@ -3767,6 +3774,21 @@ Use --force-resume to override (may produce incorrect results).",
         Ok(())
     }
 
+    #[cfg(not(feature = "multi-backend"))]
+    /// Train one batch on GPU (using FusedKernels)
+    fn train_batch_gpu(
+        &mut self,
+        _weights: &mut LoRAWeights,
+        _batch: &[PreparedExample],
+        _epoch_seed: u64,
+    ) -> Result<f32> {
+        Err(AosError::Training(
+            "GPU backward is required for correct training. Enable multi-backend (MLX) support."
+                .to_string(),
+        ))
+    }
+
+    #[cfg(feature = "multi-backend")]
     /// Train one batch on GPU (using FusedKernels)
     fn train_batch_gpu(
         &mut self,
@@ -3856,54 +3878,56 @@ Use --force-resume to override (may produce incorrect results).",
             // Backward pass and update weights using cross-entropy loss
             // GPU backward is always used with base model (now required)
             #[cfg(feature = "multi-backend")]
-            let loss = if self.should_use_gpu_backward() {
-                // GPU-accelerated backward pass via MLX autograd with cross-entropy loss
-                let backward_start = Instant::now();
+            {
+                let loss = if self.should_use_gpu_backward() {
+                    // GPU-accelerated backward pass via MLX autograd with cross-entropy loss
+                    let backward_start = Instant::now();
 
-                // Clone the Arc to allow &mut self access in backward pass
-                let model = self.base_model.clone().ok_or_else(|| {
-                    AosError::Training(
-                        "Base model required for GPU backward pass with cross-entropy loss"
-                            .to_string(),
-                    )
-                })?;
-
-                if example.target_tokens.is_empty() {
-                    return Err(AosError::Training(
-                        "Training example missing target tokens".to_string(),
-                    ));
-                }
-                let mut target_tokens = example.target_tokens.as_slice();
-                let mut target_token_buf = [0u32; 1];
-                if target_tokens.len() > 1 {
-                    target_token_buf[0] = *target_tokens.last().ok_or_else(|| {
-                        AosError::Training("Training example missing target tokens".to_string())
+                    // Clone the Arc to allow &mut self access in backward pass
+                    let model = self.base_model.clone().ok_or_else(|| {
+                        AosError::Training(
+                            "Base model required for GPU backward pass with cross-entropy loss"
+                                .to_string(),
+                        )
                     })?;
-                    target_tokens = &target_token_buf;
-                }
 
-                let gpu_loss = self.backward_and_update_gpu_ce(
-                    weights,
-                    hidden_slice,
-                    target_tokens,
-                    &model,
-                    epoch_seed,
-                )?;
+                    if example.target_tokens.is_empty() {
+                        return Err(AosError::Training(
+                            "Training example missing target tokens".to_string(),
+                        ));
+                    }
+                    let mut target_tokens = example.target_tokens.as_slice();
+                    let mut target_token_buf = [0u32; 1];
+                    if target_tokens.len() > 1 {
+                        target_token_buf[0] = *target_tokens.last().ok_or_else(|| {
+                            AosError::Training("Training example missing target tokens".to_string())
+                        })?;
+                        target_tokens = &target_token_buf;
+                    }
 
-                gpu_time_us += backward_start.elapsed().as_micros() as u64;
+                    let gpu_loss = self.backward_and_update_gpu_ce(
+                        weights,
+                        hidden_slice,
+                        target_tokens,
+                        &model,
+                        epoch_seed,
+                    )?;
 
-                // Step LR scheduler after each training step
-                self.step_lr_scheduler();
+                    gpu_time_us += backward_start.elapsed().as_micros() as u64;
 
-                gpu_loss
-            } else {
-                return Err(AosError::Training(
-                    "GPU backward is required for correct training. Enable MLX GPU backward."
-                        .to_string(),
-                ));
-            };
+                    // Step LR scheduler after each training step
+                    self.step_lr_scheduler();
 
-            batch_loss += loss;
+                    gpu_loss
+                } else {
+                    return Err(AosError::Training(
+                        "GPU backward is required for correct training. Enable MLX GPU backward."
+                            .to_string(),
+                    ));
+                };
+
+                batch_loss += loss;
+            }
         }
 
         // Update performance metrics

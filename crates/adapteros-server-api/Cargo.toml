@@ -20,7 +20,7 @@ adapteros-retrieval = { path = "../adapteros-retrieval" }
 adapteros-git = { path = "../adapteros-git" }
 adapteros-lora-kernel-api = { path = "../adapteros-lora-kernel-api" }
 adapteros-lora-lifecycle = { path = "../adapteros-lora-lifecycle" }
-adapteros-lora-worker = { path = "../adapteros-lora-worker" }
+adapteros-lora-worker = { path = "../adapteros-lora-worker", default-features = false }
 adapteros-model-hub = { path = "../adapteros-model-hub" }
 adapteros-orchestrator = { path = "../adapteros-orchestrator" }
 adapteros-policy = { path = "../adapteros-policy" }
@@ -129,11 +129,11 @@ result_large_err = "warn"
 [features]
 default = []
 # MLX backend support - enables MLX capability detection and reporting
-mlx-ffi-backend = ["adapteros-lora-mlx-ffi", "adapteros-system-metrics/mlx"]
+mlx-ffi-backend = ["adapteros-lora-mlx-ffi", "adapteros-system-metrics/mlx", "adapteros-lora-worker/multi-backend"]
 # Standalone MLX flag for capability gating
 mlx = []
 coreml-backend = ["adapteros-lora-worker/coreml-backend", "adapteros-orchestrator/coreml-backend", "adapteros-system-metrics/coreml"]
-embeddings = ["adapteros-ingest-docs/multi-backend"]
+embeddings = ["dep:adapteros-ingest-docs"]
 redis = ["dep:redis"]
 metrics = []
 dev-bypass = []

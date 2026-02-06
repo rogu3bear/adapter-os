@@ -14,7 +14,7 @@ path = "src/main.rs"
 # Internal crates
 adapteros-core = { path = "../adapteros-core" }
 adapteros-id = { path = "../adapteros-id" }
-adapteros-lora-worker = { path = "../adapteros-lora-worker" }
+adapteros-lora-worker = { path = "../adapteros-lora-worker", default-features = false }
 adapteros-artifacts = { path = "../adapteros-artifacts" }
 adapteros-policy = { path = "../adapteros-policy" }
 adapteros-crypto = { path = "../adapteros-crypto" }
