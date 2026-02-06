@@ -7,15 +7,15 @@ use libfuzzer_sys::fuzz_target;
 // Import from worker crate
 use adapteros_lora_worker::stop_controller::StopController;
 
-/// Fuzz the stop controller decision logic
-///
-/// Tests:
-/// - Budget enforcement with various token counts
-/// - EOS probability detection with different logit distributions
-/// - Repetition detection with various n-gram patterns
-/// - EOS token detection
-/// - Determinism: same inputs produce same outputs
-/// - Edge cases: empty logits, extreme values, boundary conditions
+// Fuzz the stop controller decision logic.
+//
+// Tests:
+// - Budget enforcement with various token counts
+// - EOS probability detection with different logit distributions
+// - Repetition detection with various n-gram patterns
+// - EOS token detection
+// - Determinism: same inputs produce same outputs
+// - Edge cases: empty logits, extreme values, boundary conditions
 fuzz_target!(|data: &[u8]| {
     let mut u = Unstructured::new(data);
 

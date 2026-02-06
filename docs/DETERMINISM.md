@@ -834,21 +834,27 @@ For production deployments requiring strict determinism:
 **Production Workflow:**
 
 ```bash
-# 1. Freeze codebase adapter (unbind from session)
-curl -X POST "$AOS_BASE_URL/v1/adapters/codebase/$ADAPTER_ID/unbind"
+# Option A (in-product): trigger CoreML export for a completed training job
+curl -X POST "$AOS_BASE_URL/v1/training/jobs/$JOB_ID/export/coreml" \
+  -H "Authorization: Bearer $AOS_TOKEN"
 
-# 2. Pre-fuse into base model
+# Option B (manual): export the adapter and convert offline
+curl -X GET "$AOS_BASE_URL/v1/adapters/$ADAPTER_ID/export" \
+  -H "Authorization: Bearer $AOS_TOKEN" \
+  -o ./frozen-codebase.aos
+
+# Pre-fuse into base model
 cargo run --bin aosctl -- coreml fuse \
   --adapter ./frozen-codebase.aos \
   --base ./base-model.safetensors \
   --output ./fused.safetensors
 
-# 3. Convert to CoreML package
+# Convert to CoreML package
 python scripts/convert_mlx_to_coreml.py \
   --input ./fused.safetensors \
   --output ./fused.mlpackage
 
-# 4. Deploy with ANE for guaranteed determinism
+# Deploy with ANE for guaranteed determinism
 export AOS_MODEL_BACKEND=coreml
 export AOS_MODEL_PATH=./fused.mlpackage
 ```

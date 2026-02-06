@@ -1271,96 +1271,25 @@ curl -X POST "$AOS_BASE_URL/v1/adapters/code.myproject.new123/activate" \
 
 ### Create Codebase Adapter
 
-**Endpoint:** `POST /v1/adapters/codebase`
+**Status:** Historical (no public `/v1/adapters/codebase/*` endpoints)
 
-```bash
-curl -X POST "$AOS_BASE_URL/v1/adapters/codebase" \
-  -H "Authorization: Bearer $AOS_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "adapter_id": "code.myproject.a1b2c3d4",
-    "base_adapter_id": "core-rust-expert-v2",
-    "repo_id": "acme-corp/backend-service",
-    "commit_sha": "a1b2c3d4e5f6g7h8i9j0",
-    "manifest_hash": "blake3:f1e2d3c4...",
-    "session_id": "session-xyz789",
-    "versioning_threshold": 100
-  }'
-```
-
-**Response (201 Created):**
-
-```json
-{
-  "adapter_id": "code.myproject.a1b2c3d4",
-  "base_adapter_id": "core-rust-expert-v2",
-  "version": "0.0.1",
-  "stream_session_id": "session-xyz789",
-  "frozen": false,
-  "created_at": "2025-12-24T10:30:00Z"
-}
-```
+Codebase adapter creation/binding is handled via training + session workflows. For readiness gating, use
+adapter activation (`POST /v1/adapters/{adapter_id}/activate`), which runs preflight checks.
 
 ### Verify Deployment Readiness
 
-**Endpoint:** `POST /v1/adapters/codebase/{adapter_id}/verify`
+Use adapter activation, which runs preflight gating:
 
 ```bash
-curl -X POST "$AOS_BASE_URL/v1/adapters/codebase/code.myproject.a1b2c3d4/verify" \
+curl -X POST "$AOS_BASE_URL/v1/adapters/code.myproject.a1b2c3d4/activate" \
   -H "Authorization: Bearer $AOS_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{
-    "repo_path": "/path/to/repo",
-    "expected_manifest_hash": "blake3:f1e2d3c4...",
-    "session_id": "session-xyz789"
-  }'
-```
-
-**Response (200 OK):**
-
-```json
-{
-  "adapter_id": "code.myproject.a1b2c3d4",
-  "ready": true,
-  "checks": [
-    { "name": "repo_clean", "passed": true, "details": "No uncommitted changes" },
-    { "name": "manifest_hash", "passed": true, "details": "Hash matches" },
-    { "name": "session_conflict", "passed": true, "details": "No conflicts" },
-    { "name": "coreml_hash", "passed": true, "details": "Skipped: not frozen" }
-  ],
-  "verified_at": "2025-12-24T16:00:00Z"
-}
+  -d '{ "workspace_id": "TENANT_OR_WORKSPACE_ID" }'
 ```
 
 ### Bind/Unbind Session
 
-**Bind to Session:**
-
-```bash
-curl -X POST "$AOS_BASE_URL/v1/adapters/codebase/code.myproject.a1b2c3d4/bind" \
-  -H "Authorization: Bearer $AOS_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"session_id": "session-xyz789"}'
-```
-
-**Unbind from Session (triggers versioning):**
-
-```bash
-curl -X POST "$AOS_BASE_URL/v1/adapters/codebase/code.myproject.a1b2c3d4/unbind" \
-  -H "Authorization: Bearer $AOS_TOKEN"
-```
-
-**Response:**
-
-```json
-{
-  "adapter_id": "code.myproject.a1b2c3d4",
-  "previous_session_id": "session-xyz789",
-  "new_version": "1.2.4",
-  "frozen": true,
-  "unbound_at": "2025-12-24T17:00:00Z"
-}
-```
+Session binding/unbinding is not exposed via a public `/v1/adapters/codebase/*` API surface.
 
 ---
 

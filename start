@@ -131,6 +131,19 @@ BOOT_PROGRESS_STEPS=()
 # Animation & Progress Helpers
 # =============================================================================
 
+# If stdout is a TTY, we can safely animate using in-place row updates.
+# If not (CI, redirected output), suppress in-place animations to avoid log spam.
+AOS_CAN_ANIMATE=0
+if [ -t 1 ] && [ "${AOS_NO_ANIMATION:-0}" != "1" ]; then
+    AOS_CAN_ANIMATE=1
+fi
+
+# Clear exactly one terminal row (current line) and return carriage to column 0.
+term_clear_row() {
+    [ "$AOS_CAN_ANIMATE" -eq 1 ] || return 0
+    printf "\r\033[2K"
+}
+
 # Print the adapterOS banner
 print_banner() {
     echo ""
@@ -152,10 +165,17 @@ EOF
 SPINNER_PID=""
 start_spinner() {
     local msg="$1"
+    if [ "$AOS_CAN_ANIMATE" -ne 1 ]; then
+        # Non-interactive output: emit a single line and skip background animation.
+        echo "  $msg"
+        SPINNER_PID=""
+        return 0
+    fi
     (
         local i=0
         while true; do
-            printf "\r  ${FG_CYAN}${SPINNER_CHARS:$i:1}${FG_RESET} %s" "$msg"
+            term_clear_row
+            printf "  ${FG_CYAN}${SPINNER_CHARS:$i:1}${FG_RESET} %s" "$msg"
             i=$(( (i + 1) % ${#SPINNER_CHARS} ))
             sleep 0.1
         done
@@ -169,7 +189,7 @@ stop_spinner() {
         kill "$SPINNER_PID" 2>/dev/null || true
         wait "$SPINNER_PID" 2>/dev/null || true
         SPINNER_PID=""
-        printf "\r"
+        term_clear_row
     fi
 }
 
@@ -177,6 +197,10 @@ stop_spinner() {
 print_step() {
     local status="$1"  # pending, running, success, error
     local msg="$2"
+
+    # If a progress/spinner line was just rendered without a newline, make sure
+    # this step starts on a clean single row.
+    term_clear_row
 
     case "$status" in
         pending)
@@ -198,7 +222,14 @@ print_step() {
 update_step() {
     local status="$1"
     local msg="$2"
-    printf "\033[1A\033[2K"  # Move up and clear line
+    if [ "$AOS_CAN_ANIMATE" -ne 1 ]; then
+        # Non-interactive output: don't emit cursor movement/clear escapes.
+        print_step "$status" "$msg"
+        return 0
+    fi
+
+    # Move up one row (the previously printed step) and clear exactly that row.
+    printf "\033[1A\033[2K"
     print_step "$status" "$msg"
 }
 
@@ -214,7 +245,8 @@ print_progress() {
     [ $filled -gt $width ] && filled=$width  # Cap at width
     local empty=$((width - filled))
 
-    printf "\r  ${FG_CYAN}[${FG_RESET}"
+    term_clear_row
+    printf "  ${FG_CYAN}[${FG_RESET}"
     if [ $filled -gt 0 ]; then
         printf "${FG_GREEN}%${filled}s${FG_RESET}" | tr ' ' '█'
     fi
@@ -229,6 +261,7 @@ print_progress_animated() {
     local current="$1"
     local total="$2"
     local msg="${3:-}"
+    [ "$AOS_CAN_ANIMATE" -eq 1 ] || return 0
     [ "$total" -eq 0 ] && total=1  # Avoid division by zero
     local width=40
     local pct=$((current * 100 / total))
@@ -241,7 +274,8 @@ print_progress_animated() {
     local spinner_idx=$((current % ${#SPINNER_CHARS}))
     local spinner_char="${SPINNER_CHARS:$spinner_idx:1}"
 
-    printf "\r  ${FG_CYAN}${spinner_char}${FG_RESET} ${FG_CYAN}[${FG_RESET}"
+    term_clear_row
+    printf "  ${FG_CYAN}${spinner_char}${FG_RESET} ${FG_CYAN}[${FG_RESET}"
     printf "${FG_GREEN}%${filled}s${FG_RESET}" | tr ' ' '█'
     printf "%${empty}s" | tr ' ' '░'
     printf "${FG_CYAN}]${FG_RESET} ${FG_BOLD}%3d%%${FG_RESET}" "$pct"
@@ -298,6 +332,7 @@ print_progress_with_time() {
     local total="$2"
     local elapsed="$3"
     local msg="${4:-}"
+    [ "$AOS_CAN_ANIMATE" -eq 1 ] || return 0
     [ "$total" -eq 0 ] && total=1  # Avoid division by zero
     local width=40
     local pct=$((current * 100 / total))
@@ -322,7 +357,8 @@ print_progress_with_time() {
         fi
     fi
 
-    printf "\r  ${FG_CYAN}[${FG_RESET}"
+    term_clear_row
+    printf "  ${FG_CYAN}[${FG_RESET}"
     printf "${FG_GREEN}%${filled}s${FG_RESET}" | tr ' ' '█'
     printf "%${empty}s" | tr ' ' '░'
     printf "${FG_CYAN}]${FG_RESET} ${FG_BOLD}%3d%%${FG_RESET}" "$pct"
@@ -409,11 +445,12 @@ check_aosctl_installation() {
             echo ""
             print_step "running" "Installing aosctl to /usr/local/bin..."
             if sudo ln -sf "$(pwd)/$aosctl_bin" /usr/local/bin/aosctl 2>/dev/null; then
-                update_step "success" "Installed aosctl to /usr/local/bin"
+                # sudo may prompt; avoid cursor-up rewrites which can corrupt the prompt line.
+                print_step "success" "Installed aosctl to /usr/local/bin"
                 echo ""
                 echo "  You can now run: ${FG_GREEN}aosctl --help${FG_RESET}"
             else
-                update_step "error" "Failed to install (try option 2 or 3)"
+                print_step "error" "Failed to install (try option 2 or 3)"
             fi
             ;;
         2)
@@ -736,20 +773,18 @@ do_preflight() {
 
 # Start backend with progress animation
 start_backend_animated() {
-    print_step "running" "Starting Backend API..."
     log_line INFO "backend:start requested (port=$AOS_SERVER_PORT verbose=$VERBOSE trace=$TRACE)"
 
     ensure_var_dirs
 
-    # Run preflight silently
-    start_spinner "Checking port availability..."
+    # Port checks may print diagnostics and/or prompt; never run them while an animation is active.
     if ! freeze_check_port "$AOS_SERVER_PORT" "Backend API" 2>/dev/null; then
-        stop_spinner
-        update_step "error" "Backend API - port $AOS_SERVER_PORT in use"
+        print_step "error" "Backend API - port $AOS_SERVER_PORT in use"
         log_line ERROR "backend:start blocked (port-in-use $AOS_SERVER_PORT)"
         return 1
     fi
-    stop_spinner
+
+    print_step "running" "Starting Backend API..."
 
     # Delegate to service-manager
     if [ -x scripts/service-manager.sh ]; then
@@ -774,7 +809,7 @@ start_backend_animated() {
             while [ $waited -lt "$health_timeout" ]; do
                 # Early crash detection: check if process is still alive
                 if [ -n "$backend_pid" ] && ! kill -0 "$backend_pid" 2>/dev/null; then
-                    printf "\r"
+                    term_clear_row
                     update_step "error" "Backend API     ${FG_RED}CRASHED${FG_RESET} (process died during startup)"
                     log_line ERROR "backend:early_crash pid=$backend_pid"
                     [ "${AOS_BOOT_VERBOSE:-0}" = "1" ] && tail -30 "$AOS_VAR_DIR/logs/backend.log" 2>/dev/null
@@ -788,7 +823,7 @@ start_backend_animated() {
                 fi
                 print_progress_animated $waited $health_timeout "Waiting for backend health..."
                 if curl -sf --max-time 2 "http://localhost:$AOS_SERVER_PORT/healthz" >/dev/null 2>&1; then
-                    printf "\r"
+                    term_clear_row
                     local pid
                     pid=$(cat "$AOS_VAR_DIR/backend.pid" 2>/dev/null)
                     update_step "success" "Backend API     ${FG_GREEN}READY${FG_RESET}  (PID $pid, port $AOS_SERVER_PORT)"
@@ -806,7 +841,7 @@ start_backend_animated() {
                 sleep 1
                 ((waited++))
             done
-            printf "\r"
+            term_clear_row
             # Health check timeout - this is a failure, not success
             local pid
             pid=$(cat "$AOS_VAR_DIR/backend.pid" 2>/dev/null)
@@ -870,16 +905,15 @@ start_backend() {
     check_stale_artifacts
 
     # Preflight
-    print_step "running" "Running preflight checks..."
     if ! freeze_check_port "$AOS_SERVER_PORT" "Backend API"; then
-        update_step "error" "Preflight failed"
+        print_step "error" "Preflight failed (see details above)"
         return 1
     fi
     if ! freeze_check_pid_file "$AOS_VAR_DIR/backend.pid" "Backend"; then
-        update_step "error" "Preflight failed"
+        print_step "error" "Preflight failed (see details above)"
         return 1
     fi
-    update_step "success" "Preflight checks passed"
+    print_step "success" "Preflight checks passed"
 
     # Start
     start_backend_animated
@@ -914,7 +948,11 @@ start_all() {
     # Check for stale build cache (warns if >48h or >50GB; do not fail boot)
     update_boot_progress "preflight"
     if [ -x "scripts/check_cache_staleness.sh" ]; then
-        scripts/check_cache_staleness.sh 2>&1 || true
+        cache_warn="$(scripts/check_cache_staleness.sh 2>&1 || true)"
+        if [ -n "${cache_warn:-}" ]; then
+            term_clear_row
+            printf "%s\n" "$cache_warn"
+        fi
     elif command -v cargo >/dev/null 2>&1 && [ -f "xtask/src/check_cache.rs" ]; then
         cargo xtask check-cache 2>/dev/null || true
     fi
@@ -936,24 +974,22 @@ start_all() {
     local preflight_failed=0
     local preflight_start=$(date +%s)
 
-    # Port checks with progress
-    print_progress_animated 5 10 "Checking ports..."
+    # Port checks (avoid printing progress here; freeze_check_port may emit diagnostics/prompts)
     if ! freeze_check_port "$AOS_SERVER_PORT" "Backend API"; then
         preflight_failed=1
         log_line WARN "preflight:backend_port_busy port=$AOS_SERVER_PORT"
     fi
-    print_progress_animated 10 10 "Preflight complete"
 
     log_line INFO "preflight:complete status=$preflight_failed"
 
     if [ $preflight_failed -eq 1 ]; then
-        update_step "error" "Preflight checks failed (see above)"
+        print_step "error" "Preflight checks failed (see above)"
         echo ""
         echo "  Run ${FG_CYAN}./start preflight${FG_RESET} for details"
         return 1
     fi
 
-    update_step "success" "Preflight checks passed"
+    print_step "success" "Preflight checks passed"
     echo ""
 
     # Start services
@@ -1005,12 +1041,10 @@ start_all() {
         local worker_timeout=15
         local worker_pid
         worker_pid=$(cat "$AOS_VAR_DIR/worker.pid" 2>/dev/null)
-        start_spinner "Waiting for worker socket..."
         while [ $waited -lt $worker_timeout ]; do
             # Early crash detection: check if worker process is still alive
             if [ -n "$worker_pid" ] && ! kill -0 "$worker_pid" 2>/dev/null; then
-                stop_spinner
-                printf "\r"
+                term_clear_row
                 update_step "error" "Worker          ${FG_RED}CRASHED${FG_RESET} (process died during startup)"
                 log_line ERROR "worker:early_crash pid=$worker_pid"
                 [ "${AOS_BOOT_VERBOSE:-0}" = "1" ] && tail -30 "$AOS_VAR_DIR/logs/worker.log" 2>/dev/null
@@ -1027,8 +1061,7 @@ start_all() {
             fi
             print_progress_animated $waited $worker_timeout "Worker starting..."
             if [ -S "$AOS_VAR_DIR/run/worker.sock" ]; then
-                stop_spinner
-                printf "\r"
+                term_clear_row
                 update_step "success" "Worker          ${FG_GREEN}READY${FG_RESET}  (socket created)"
                 worker_ok=1
                 update_boot_progress "worker_ready"
@@ -1037,9 +1070,8 @@ start_all() {
             sleep 1
             ((waited++))
         done
-        stop_spinner
         if [ $worker_ok -eq 0 ]; then
-            printf "\r"
+            term_clear_row
             update_step "pending" "Worker          ${FG_YELLOW}STARTING${FG_RESET} (socket pending)"
         fi
     else
@@ -1110,7 +1142,7 @@ start_all() {
             fi
             log_readyz_timeline "$readyz_status" "$readyz_body"
             if [ "$readyz_status" = "200" ]; then
-                printf "\r"
+                term_clear_row
                 update_step "success" "Inference       ${FG_GREEN}READY${FG_RESET}  (/readyz check passed)"
                 inference_ready=1
                 update_boot_progress "complete"
@@ -1119,7 +1151,7 @@ start_all() {
             sleep 1
             ((readyz_waited++))
         done
-        printf "\r"
+        term_clear_row
         if [ $inference_ready -eq 0 ]; then
             update_step "error" "Inference       ${FG_RED}NOT READY${FG_RESET} (/readyz timeout after ${readyz_timeout}s)"
             echo ""
@@ -1280,7 +1312,7 @@ do_shutdown() {
                 sleep 1
                 ((waited++))
             done
-            printf "\r"
+            term_clear_row
 
             if ! kill -0 "$backend_pid" 2>/dev/null; then
                 update_step "success" "Backend stopped"
@@ -1323,7 +1355,7 @@ cleanup() {
     stop_spinner
 
     # Clear progress line
-    printf "\r\033[K"
+    term_clear_row
 
     if [ "$BOOT_IN_PROGRESS" -eq 1 ]; then
         echo ""
@@ -1433,6 +1465,12 @@ main() {
     done
 
     set -- "${parsed_args[@]}"
+
+    # If verbose/trace is enabled, output may include streaming logs (e.g. tail -F).
+    # Disable in-place animations to avoid cursor corruption and scrolling jitter.
+    if [ "${VERBOSE:-0}" -eq 1 ] || [ "${TRACE:-0}" -eq 1 ]; then
+        AOS_CAN_ANIMATE=0
+    fi
 
     local cmd="${1:-up}"
 
