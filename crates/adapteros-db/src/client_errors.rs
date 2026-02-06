@@ -3,12 +3,12 @@
 //! This module provides database operations for client-side error events
 //! reported from the WASM UI, along with alert rules and alert history.
 
+use crate::new_id;
 use crate::Db;
 use adapteros_core::{AosError, Result};
+use adapteros_id::IdPrefix;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use crate::new_id;
-use adapteros_id::IdPrefix;
 
 // =============================================================================
 // Client Error Types

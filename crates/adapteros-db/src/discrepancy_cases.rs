@@ -25,12 +25,12 @@
 //! let case_id = db.create_discrepancy_case(&params).await?;
 //! ```
 
+use crate::new_id;
 use crate::Db;
 use adapteros_core::{AosError, Result};
+use adapteros_id::IdPrefix;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use crate::new_id;
-use adapteros_id::IdPrefix;
 
 // ============================================================================
 // Type Definitions
@@ -503,10 +503,7 @@ impl Db {
         &self,
         params: &CreateDiscrepancyParams,
     ) -> Result<String> {
-        let id = params
-            .id
-            .clone()
-            .unwrap_or_else(|| new_id(IdPrefix::Dec));
+        let id = params.id.clone().unwrap_or_else(|| new_id(IdPrefix::Dec));
 
         // Apply privacy rule: only store content if explicitly opted-in
         let user_question = if params.store_content {

@@ -1,14 +1,14 @@
 #![allow(clippy::cloned_ref_to_slice_refs)]
 
+use crate::new_id;
 use crate::{Db, KvBackend};
 use adapteros_core::{AosError, B3Hash, Result};
+use adapteros_id::IdPrefix;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use sqlx::FromRow;
 use std::sync::Arc;
 use tracing::warn;
-use crate::new_id;
-use adapteros_id::IdPrefix;
 
 /// Routing decision chain entry (per token)
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]

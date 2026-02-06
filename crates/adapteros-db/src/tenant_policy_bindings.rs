@@ -4,17 +4,17 @@
 
 #![allow(clippy::borrow_deref_ref)]
 
+use crate::new_id;
 use crate::policy_audit::is_audit_chain_divergence;
 use crate::tenant_policy_bindings_kv::{
     kv_to_binding, PolicyBindingKvRepository, TenantPolicyBindingKv,
 };
 use crate::Db;
 use adapteros_core::{AosError, Result};
+use adapteros_id::IdPrefix;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use tracing::{debug, info};
-use crate::new_id;
-use adapteros_id::IdPrefix;
 
 /// Tenant policy binding record
 #[derive(Debug, Clone, Serialize, Deserialize)]

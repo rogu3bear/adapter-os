@@ -4,13 +4,13 @@
 //! KV-primary and dual-write modes. Indexing is kept minimal; read paths
 //! filter in-memory after prefix scans to preserve correctness.
 
+use crate::new_id;
 use adapteros_core::{AosError, Result};
+use adapteros_id::IdPrefix;
 use adapteros_storage::KvBackend;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use crate::new_id;
-use adapteros_id::IdPrefix;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MessageKv {

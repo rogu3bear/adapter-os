@@ -59,6 +59,7 @@ use trust::{derive_overall_safety_status, derive_trust_state};
 use crate::constants::{
     DATASET_SCAN_ROOT_COLUMNS, TRAINING_DATASET_COLUMNS, TRAINING_DATASET_ROW_COLUMNS,
 };
+use crate::new_id;
 use crate::query_helpers::db_err;
 use crate::Db;
 use adapteros_core::{
@@ -66,12 +67,11 @@ use adapteros_core::{
     sanitize_optional, sanitize_repo_identifier, sanitize_repo_slug,
 };
 use adapteros_core::{AosError, B3Hash, Result};
+use adapteros_id::IdPrefix;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use sqlx::{Sqlite, Transaction};
 use std::collections::{HashMap, HashSet};
-use crate::new_id;
-use adapteros_id::IdPrefix;
 
 // Normalization functions imported from adapteros_core (via adapteros-infra-common)
 
@@ -831,10 +831,7 @@ impl Db {
         &self,
         params: &CreateDatasetParams,
     ) -> Result<String> {
-        let id = params
-            .id
-            .clone()
-            .unwrap_or_else(|| new_id(IdPrefix::Dst));
+        let id = params.id.clone().unwrap_or_else(|| new_id(IdPrefix::Dst));
         let final_dataset_hash = params.dataset_hash_b3.as_deref().unwrap_or(&params.hash_b3);
         let metadata_json = merge_metadata_with_category(
             params.metadata_json.as_deref(),

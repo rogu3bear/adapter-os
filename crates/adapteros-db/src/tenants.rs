@@ -1,11 +1,13 @@
 use crate::adapters::Adapter; // assume
 use crate::kv_backend::KvBackend;
+use crate::new_id;
 use crate::tenants_kv::{CreateTenantParams, TenantKvOps, TenantKvRepository};
 use crate::traits::StackRecord;
 use crate::Db;
 use adapteros_core::error_helpers::DbErrorExt;
 use adapteros_core::tenant_snapshot::{AdapterInfo, PolicyInfo, StackInfo, TenantStateSnapshot};
 use adapteros_core::{AosError, B3Hash, Result};
+use adapteros_id::IdPrefix;
 use adapteros_storage::entities::tenant::TenantKv;
 pub use adapteros_types::tenants::{Tenant, TenantUsage};
 use chrono::Utc;
@@ -15,8 +17,6 @@ use sqlx::Row;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
-use crate::new_id;
-use adapteros_id::IdPrefix;
 
 /// Core policies enabled by default for new tenants
 const CORE_POLICIES: &[&str] = &["egress", "determinism", "isolation", "evidence"];

@@ -6,7 +6,9 @@
 use crate::query_helpers::kv_err;
 use crate::users::User;
 // Use storage Role type for KV operations, local Role for SQL compatibility
+use crate::new_id;
 use adapteros_core::{AosError, Result};
+use adapteros_id::IdPrefix;
 pub use adapteros_storage::entities::user::Role;
 use adapteros_storage::entities::user::UserKv;
 use adapteros_storage::KvBackend;
@@ -14,8 +16,6 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
-use crate::new_id;
-use adapteros_id::IdPrefix;
 
 /// Key patterns for user storage
 ///

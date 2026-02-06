@@ -533,8 +533,7 @@ impl RealBackendAdapterBackend {
         // If we reach here, no backend was available
         #[allow(unreachable_code)]
         Err(AosError::Config(
-            "No suitable backend available. Checked priority MLX → CoreML → Metal."
-                .to_string(),
+            "No suitable backend available. Checked priority MLX → CoreML → Metal.".to_string(),
         ))
     }
 

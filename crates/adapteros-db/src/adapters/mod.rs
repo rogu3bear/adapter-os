@@ -53,10 +53,12 @@ use aos_parser::{
     ParsedAosManifestMetadata, SingleFileAdapterMetadata,
 };
 
+use crate::new_id;
 use crate::{Db, WriteCapableDb};
 use adapteros_aos::{compute_scope_hash, open_aos, BackendTag};
 use adapteros_core::extract_repo_identifier_from_metadata;
 use adapteros_core::{AdapterName, AosError, B3Hash, LifecycleState, Result};
+use adapteros_id::IdPrefix;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -69,8 +71,6 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn};
-use crate::new_id;
-use adapteros_id::IdPrefix;
 
 use crate::adapters_kv::{AdapterKvOps, AdapterKvRepository};
 use crate::kv_metrics::global_kv_metrics;
@@ -2699,23 +2699,6 @@ impl Db {
         .await?;
 
         Ok(())
-    }
-
-    /// Get the next stable_id for a tenant's adapters.
-    ///
-    /// Returns a monotonically increasing ID for deterministic tie-breaking
-    /// in the router. The stable_id is unique per-tenant and assigned at
-    /// registration time in the order adapters are created.
-    async fn get_next_adapter_stable_id(&self, tenant_id: &str) -> Result<i64> {
-        let max_stable_id: Option<i64> =
-            sqlx::query_scalar("SELECT MAX(stable_id) FROM adapters WHERE tenant_id = ?")
-                .bind(tenant_id)
-                .fetch_one(self.pool())
-                .await
-                .map_err(|e| AosError::database(format!("get max stable_id: {e}")))?;
-
-        // Start from 1 if no existing adapters
-        Ok(max_stable_id.unwrap_or(0) + 1)
     }
 
     pub async fn register_adapter(&self, params: AdapterRegistrationParams) -> Result<String> {

@@ -1,9 +1,9 @@
 use crate::constants::MODEL_COLUMNS;
+use crate::new_id;
 use crate::Db;
+use adapteros_id::IdPrefix;
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
-use crate::new_id;
-use adapteros_id::IdPrefix;
 
 /// The shared/system tenant ID that is visible to all tenants.
 /// Models with this tenant_id are considered base models and accessible by any tenant.

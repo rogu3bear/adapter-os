@@ -104,16 +104,12 @@ impl Default for BuildInfo {
         use adapteros_core::version;
 
         Self {
-            git_sha: Some(version::GIT_COMMIT_HASH.to_string())
-                .filter(|s| s != "unknown"),
-            build_time: Some(version::BUILD_TIMESTAMP.to_string())
-                .filter(|s| s != "unknown"),
+            git_sha: Some(version::GIT_COMMIT_HASH.to_string()).filter(|s| s != "unknown"),
+            build_time: Some(version::BUILD_TIMESTAMP.to_string()).filter(|s| s != "unknown"),
             version: version::VERSION.to_string(),
-            rustc_version: Some(version::RUSTC_VERSION.to_string())
-                .filter(|s| s != "unknown"),
+            rustc_version: Some(version::RUSTC_VERSION.to_string()).filter(|s| s != "unknown"),
             target: Some(format!("{}-{}", version::TARGET_ARCH, version::TARGET_OS)),
-            build_id: Some(version::BUILD_ID.to_string())
-                .filter(|s| s != "unknown"),
+            build_id: Some(version::BUILD_ID.to_string()).filter(|s| s != "unknown"),
         }
     }
 }

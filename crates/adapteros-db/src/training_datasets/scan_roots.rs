@@ -4,14 +4,14 @@
 //! which represents the file system locations that were scanned to produce
 //! a training dataset's content.
 
+use crate::new_id;
 use crate::query_helpers::db_err;
 use crate::Db;
 use adapteros_core::Result;
 use adapteros_core::{normalize_repo_slug, sanitize_repo_slug};
+use adapteros_id::IdPrefix;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
-use crate::new_id;
-use adapteros_id::IdPrefix;
 
 use crate::constants::DATASET_SCAN_ROOT_COLUMNS;
 

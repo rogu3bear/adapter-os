@@ -1,11 +1,11 @@
+use crate::new_id;
 use crate::users_kv::{Role as KvRole, UserKvOps, UserKvRepository};
 use crate::{Db, StorageMode};
 use adapteros_core::error_helpers::DbErrorExt;
 use adapteros_core::{AosError, Result};
+use adapteros_id::IdPrefix;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
-use crate::new_id;
-use adapteros_id::IdPrefix;
 
 /// User role enum - simplified 3-role model
 ///

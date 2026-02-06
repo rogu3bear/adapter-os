@@ -10,13 +10,13 @@
 //! - **RECTIFY**: On failure, entire transaction rolls back - caller can retry
 
 use crate::inference_evidence::CreateEvidenceParams;
+use crate::new_id;
 use crate::replay_metadata::CreateReplayMetadataParams;
 use crate::{Db, Result};
 use adapteros_core::AosError;
+use adapteros_id::IdPrefix;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tracing::{debug, error, info};
-use crate::new_id;
-use adapteros_id::IdPrefix;
 
 /// AUDIT: Global counter for successful bundle commits
 static BUNDLE_COMMIT_SUCCESS: AtomicU64 = AtomicU64::new(0);

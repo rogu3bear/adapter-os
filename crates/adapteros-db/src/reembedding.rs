@@ -6,11 +6,11 @@
 //! - Resume capability for interrupted jobs
 //! - Per-document failure tolerance
 
+use crate::new_id;
 use crate::{AosError, Db, Result};
+use adapteros_id::IdPrefix;
 use sqlx::Row;
 use tracing::{info, warn};
-use crate::new_id;
-use adapteros_id::IdPrefix;
 
 /// Status of a re-embedding job
 #[derive(Debug, Clone, PartialEq, Eq)]

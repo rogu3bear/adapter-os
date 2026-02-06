@@ -546,7 +546,7 @@ impl PolicyHashWatcher {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use adapteros_id::{TypedId, IdPrefix};
+    use adapteros_id::{IdPrefix, TypedId};
     use tempfile::TempDir;
 
     fn new_test_tempdir() -> TempDir {
@@ -556,7 +556,9 @@ mod tests {
     async fn setup_test_watcher() -> (PolicyHashWatcher, TempDir) {
         let temp_dir = new_test_tempdir();
         // Use unique database name per test to avoid migration conflicts
-        let db_path = temp_dir.path().join(format!("test-{}.db", TypedId::new(IdPrefix::Run)));
+        let db_path = temp_dir
+            .path()
+            .join(format!("test-{}.db", TypedId::new(IdPrefix::Run)));
         let db_url = format!("sqlite://{}", db_path.display());
 
         let db = Db::connect(&db_url).await.unwrap();

@@ -1,11 +1,11 @@
 //! Enclave operation audit trail
 
+use crate::new_id;
 use crate::Db;
 use adapteros_core::{AosError, Result};
+use adapteros_id::IdPrefix;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
-use crate::new_id;
-use adapteros_id::IdPrefix;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct EnclaveOperation {

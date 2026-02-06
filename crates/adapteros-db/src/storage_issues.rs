@@ -1,10 +1,10 @@
 //! Storage reconciler issue tracking.
 
+use crate::new_id;
 use crate::Db;
 use adapteros_core::{AosError, Result};
-use serde::{Deserialize, Serialize};
-use crate::new_id;
 use adapteros_id::IdPrefix;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct StorageIssue {

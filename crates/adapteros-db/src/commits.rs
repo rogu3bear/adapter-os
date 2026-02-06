@@ -1,8 +1,8 @@
+use crate::new_id;
 use crate::Db;
+use adapteros_id::IdPrefix;
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
-use crate::new_id;
-use adapteros_id::IdPrefix;
 
 /// Builder for creating commit metadata parameters
 #[derive(Debug, Default)]
