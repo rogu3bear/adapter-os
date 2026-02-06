@@ -44,12 +44,13 @@ pub fn StartMenu(on_close: impl Fn() + Clone + Send + Sync + 'static) -> impl In
         }
     };
 
+    let on_close_overlay = on_close.clone();
     view! {
         <div class="fixed inset-0 z-50">
             <button
                 class="absolute inset-0 bg-background/60 backdrop-blur-sm"
                 aria-label="Close start menu"
-                on:click=move |_| on_close()
+                on:click=move |_| on_close_overlay()
             />
             <div
                 node_ref=menu_ref
