@@ -6,16 +6,16 @@ use libfuzzer_sys::fuzz_target;
 // Import from worker crate
 use adapteros_lora_worker::kv_quota::TenantKvQuotaManager;
 
-/// Fuzz KV quota reservation and enforcement logic
-///
-/// Tests:
-/// - Reservation creation within quota
-/// - Reservation finalization
-/// - Reservation rollback
-/// - Quota overflow detection
-/// - Concurrent reservations
-/// - Eviction tracking
-/// - Edge cases: zero quota, unlimited quota, exact limits
+// Fuzz KV quota reservation and enforcement logic.
+//
+// Tests:
+// - Reservation creation within quota
+// - Reservation finalization
+// - Reservation rollback
+// - Quota overflow detection
+// - Concurrent reservations
+// - Eviction tracking
+// - Edge cases: zero quota, unlimited quota, exact limits
 fuzz_target!(|data: &[u8]| {
     let mut u = Unstructured::new(data);
 

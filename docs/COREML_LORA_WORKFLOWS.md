@@ -336,26 +336,23 @@ Once implemented, use runtime sidecar when:
 
 Codebase adapters have special constraints for CoreML:
 
-1. **Must Be Frozen Before Export**: Codebase adapters bound to live sessions cannot be exported. The session must be unbound first, which triggers automatic versioning.
+1. **Must Be Stable Before Export**: CoreML packages are immutable after compilation, so the adapter weights and manifest must be finalized before export.
 
-2. **Freeze Workflow:**
+2. **Export Workflow:**
 
 ```bash
-# 1. Unbind the codebase adapter from its session
-curl -X POST "$AOS_BASE_URL/v1/adapters/codebase/$ADAPTER_ID/unbind" \
-  -H "Authorization: Bearer $AOS_TOKEN"
+# 1. Export the trained adapter as a `.aos` file
+curl -X GET "$AOS_BASE_URL/v1/adapters/$ADAPTER_ID/export" \
+  -H "Authorization: Bearer $AOS_TOKEN" \
+  -o ./adapters/frozen_codebase.aos
 
-# 2. Verify the adapter is now frozen (lifecycle_state != "live")
-curl "$AOS_BASE_URL/v1/adapters/codebase/$ADAPTER_ID" \
-  -H "Authorization: Bearer $AOS_TOKEN"
-
-# 3. Pre-fuse with base adapter
+# 2. Pre-fuse with base adapter
 cargo run --bin aosctl -- coreml fuse \
   --base ./adapters/core.aos \
   --adapter ./adapters/frozen_codebase.aos \
   --output ./fused.safetensors
 
-# 4. Convert to CoreML
+# 3. Convert to CoreML
 python scripts/convert_mlx_to_coreml.py \
   --input ./fused.safetensors \
   --output ./fused.mlpackage

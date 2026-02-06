@@ -214,6 +214,8 @@ fuzz_target!(|data: &[u8]| {
                 // V6 cross-run lineage
                 previous_receipt_digest: None,
                 session_sequence: 0,
+                // Fill any newer receipt binding fields added over time.
+                ..Default::default()
             };
 
             EvidenceEnvelope::new_inference("tenant-fuzz".to_string(), inference_ref, previous_root)

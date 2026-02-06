@@ -583,15 +583,12 @@ Codebase adapters (`adapter_type: "codebase"`) have additional constraints:
 
 - **Single-Stream Rule**: Only one codebase adapter may be active per `stream_session_id` at a time
 - **Frozen State**: When `frozen=true`, the adapter requires CoreML metadata for deployment
-- **Deployment Verification**: Use `POST /v1/adapters/codebase/{id}/verify` before activation
+- **Deployment Verification**: Enforced during activation (preflight gating), not via a standalone codebase endpoint
 
-**Codebase-Specific Endpoints:**
-- `POST /v1/adapters/codebase` - Create codebase adapter
-- `GET /v1/adapters/codebase/{id}` - Get codebase adapter details
-- `POST /v1/adapters/codebase/{id}/bind` - Bind to session
-- `POST /v1/adapters/codebase/{id}/unbind` - Unbind from session (triggers versioning)
-- `POST /v1/adapters/codebase/{id}/version` - Create new version
-- `POST /v1/adapters/codebase/{id}/verify` - Verify deployment readiness
+**Current API Notes:**
+- There is no public `/v1/adapters/codebase/*` endpoint set.
+- Preflight gating runs on adapter activation: `POST /v1/adapters/{adapter_id}/activate`.
+- CoreML export is triggered for completed training jobs: `POST /v1/training/jobs/{job_id}/export/coreml`.
 
 ### Domain Adapters
 

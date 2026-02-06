@@ -296,7 +296,7 @@ Attempts to bind a second codebase adapter to a stream will fail with a constrai
 Codebase adapters evolve as context grows and must be versioned:
 
 1. **Auto-versioning Trigger**: When `activation_count >= versioning_threshold` (default: 100)
-2. **Manual Versioning**: Via API endpoint `POST /v1/adapters/codebase/:id/version`
+2. **Manual Versioning**: No standalone public API; versioning is managed by the training/orchestrator workflows
 3. **Version Lineage**: New version records `parent_id` pointing to previous version
 
 Versioning creates a new adapter record with incremented version, preserving the lineage chain.
@@ -342,7 +342,7 @@ Before a codebase adapter can transition from Ready → Active, deployment verif
 3. **CoreML Hash Match** (if frozen): Fused package hash matches `coreml_package_hash`
 4. **Session Conflict Check**: No other codebase adapter active on target stream
 
-Verification is performed via `POST /v1/adapters/codebase/:id/verify` and must pass before activation.
+Verification is performed during activation (preflight gating) via `POST /v1/adapters/{adapter_id}/activate`.
 
 ---
 

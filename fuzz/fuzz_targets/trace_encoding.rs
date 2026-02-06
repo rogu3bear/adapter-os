@@ -109,6 +109,41 @@ fuzz_target!(|data: &[u8]| {
                 worker_public_key: None,
                 // UMA telemetry (PRD §5.5)
                 copy_bytes: None,
+                // V7: Tokenizer identity
+                tokenizer_hash_b3: None,
+                tokenizer_version: None,
+                tokenizer_normalization: None,
+                // V7: Model/build provenance
+                model_build_hash_b3: None,
+                adapter_build_hash_b3: None,
+                // V7: Decoder config
+                decode_algo: None,
+                temperature_q15: None,
+                top_p_q15: None,
+                top_k: None,
+                seed_digest_b3: None,
+                sampling_backend: None,
+                // V7: Concurrency determinism
+                thread_count: None,
+                reduction_strategy: None,
+                // V7: Stop controller inputs
+                stop_eos_q15: None,
+                stop_window_digest_b3: None,
+                // V7: Cache proof
+                cache_scope: None,
+                cached_prefix_digest_b3: None,
+                cached_prefix_len: None,
+                cache_key_b3: None,
+                // V7: Retrieval/tool binding
+                retrieval_merkle_root_b3: None,
+                retrieval_order_digest_b3: None,
+                tool_call_inputs_digest_b3: None,
+                tool_call_outputs_digest_b3: None,
+                // V7: Disclosure level
+                disclosure_level: None,
+                // V7: Receipt signing metadata
+                receipt_signing_kid: None,
+                receipt_signed_at: None,
             })
             .await;
 

@@ -372,7 +372,7 @@ pipeline receipt (`pipeline_receipt.json`) captures:
 Resume guards enforce matching receipt inputs. If any guard fails, training stops with
 an error unless `force_resume=true` is explicitly set (logged as unsafe).
 
-### Preprocessing (CoreML)
+### Preprocessing (CoreML Feature Cache)
 
 The preprocessing phase is optional and disabled by default. When enabled, the
 worker runs a CoreML model in inference mode to emit cached feature tensors
@@ -389,9 +389,9 @@ before training.
 - `cache_dir` — optional override for cache root
 - `seed` — optional deterministic seed override
 
-**Cache layout:**
-`<artifacts_root>/datasets/<dataset_id>/preprocessed/<preprocess_id>/`
-- `preprocess_manifest.json` — config + compatibility hashes
+**Cache layout (current):**
+`<datasets_root>/<tenant_id>/<dataset_id>/preprocessed/<preprocess_id>/`
+- `manifest.json` — config + compatibility hashes
 - `features.bin` — contiguous feature storage (f32 or q15)
 - `features.index` — per-example offsets, shapes, hashes
 
@@ -501,17 +501,17 @@ Before a codebase adapter can be deployed/activated, the following preflight che
 | **CoreML Metadata Present** | If frozen, CoreML export metadata must exist | `MISSING_COREML_METADATA` |
 | **Manifest Hash Valid** | Manifest hash matches expected value | `MANIFEST_HASH_MISMATCH` |
 
-**Verification API:**
+**Verification / Gating (Current API):**
+
+Preflight gating checks are enforced when an adapter is activated (and on swap). There is no
+separate `/v1/adapters/codebase/*/verify` endpoint.
 
 ```bash
-curl -X POST "$AOS_BASE_URL/v1/adapters/codebase/$ADAPTER_ID/verify" \
+# Activation runs preflight gating and will fail with actionable error codes when blocked.
+curl -X POST "$AOS_BASE_URL/v1/adapters/$ADAPTER_ID/activate" \
   -H "Authorization: Bearer $AOS_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{
-    "repo_path": "/path/to/repo",
-    "expected_manifest_hash": "blake3:f1e2d3c4...",
-    "session_id": "session-xyz789"
-  }'
+  -d '{ "workspace_id": "TENANT_OR_WORKSPACE_ID" }'
 ```
 
 ### Promotion Rule: Live to Frozen
@@ -528,20 +528,12 @@ live (MLX/Metal) → freeze → CoreML export → deterministic release
 2. **Frozen** (`frozen=true`): Adapter locked for CoreML export, no further updates accepted
 3. **CoreML Exported**: Adapter has a verified CoreML package for ANE deployment
 
-**Freezing a Codebase Adapter:**
+**CoreML Export (Current API):**
 
 ```bash
-# Unbind triggers automatic versioning and freezing
-curl -X POST "$AOS_BASE_URL/v1/adapters/codebase/$ADAPTER_ID/unbind" \
-  -H "Authorization: Bearer $AOS_TOKEN"
-
-# Verify frozen state
-curl "$AOS_BASE_URL/v1/adapters/codebase/$ADAPTER_ID" \
-  -H "Authorization: Bearer $AOS_TOKEN"
-# Response includes: "frozen": true, "coreml_package_hash": null
-
-# Export to CoreML (after freezing)
-curl -X POST "$AOS_BASE_URL/v1/adapters/$ADAPTER_ID/export/coreml" \
+# Export to CoreML for a completed training job
+# (Use the job id returned from /v1/training/jobs create/list APIs.)
+curl -X POST "$AOS_BASE_URL/v1/training/jobs/$JOB_ID/export/coreml" \
   -H "Authorization: Bearer $AOS_TOKEN"
 ```
 
