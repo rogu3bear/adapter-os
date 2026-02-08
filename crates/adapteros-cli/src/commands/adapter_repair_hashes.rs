@@ -513,6 +513,7 @@ mod tests {
             stream_session_id: None,
             versioning_threshold: None,
             training_dataset_hash_b3: None,
+            stable_id: None,
             created_at: "now".to_string(),
             updated_at: "now".to_string(),
         }

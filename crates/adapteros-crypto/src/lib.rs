@@ -9,6 +9,7 @@ pub mod key_provider;
 pub mod policy_enforcement;
 pub mod providers;
 pub mod receipt_signing;
+pub mod receipt_verifier;
 pub mod rotation_daemon;
 pub mod secret;
 pub mod sep_attestation;
@@ -45,6 +46,14 @@ pub use signature::{sign_bytes, verify_signature, Keypair, PublicKey, Signature}
 pub use receipt_signing::{
     sign_receipt_digest, sign_receipt_digest_bytes, SignedReceipt, SigningMode,
 };
+
+pub use receipt_verifier::{
+    verify_bundle_bytes, verify_receipt_payload_bytes, DigestComparison,
+    ReceiptPayloadVerifyResult, ReceiptVerificationReport, VerifyOptions,
+};
+
+// Back-compat alias used by vector tests and callers.
+pub use receipt_verifier::ReasonCode as ReceiptVerifyReasonCode;
 
 pub use decision_chain::{
     verify_bundle_commits, DecisionChainBuilder, EnvironmentIdentity, MerkleBundleCommits,

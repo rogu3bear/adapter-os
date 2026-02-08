@@ -72,10 +72,10 @@ pub struct TraceReceipt {
     pub input_digest_b3: Option<B3Hash>,
     /// Equipment profile capturing processor and engine versions
     pub equipment_profile: Option<EquipmentProfile>,
-    // Phase 3: Crypto Receipt Dual-Write
-    /// Crypto receipt digest from ReceiptGenerator (for parity validation)
+    // Phase 3: Optional crypto binding digest
+    /// Cryptographic binding digest (optional) for offline lookup/verification.
     pub crypto_receipt_digest_b3: Option<B3Hash>,
-    /// Whether parity was verified between legacy and crypto receipts
+    /// Whether canonical receipt recomputation matched the stored receipt digest.
     pub receipt_parity_verified: Option<bool>,
     /// Tenant ID for multi-tenant isolation
     pub tenant_id: Option<String>,
@@ -157,10 +157,10 @@ pub struct TraceFinalization<'a> {
     // Equipment Profile (Patent 3535886.0002: Cryptographic Receipt)
     /// Pre-computed equipment profile from worker initialization
     pub equipment_profile: Option<EquipmentProfile>,
-    // Phase 3: Crypto Receipt Dual-Write
-    /// Crypto receipt digest from ReceiptGenerator (for parity validation)
+    // Phase 3: Optional crypto binding digest
+    /// Cryptographic binding digest (optional) for offline lookup/verification.
     pub crypto_receipt_digest_b3: Option<B3Hash>,
-    /// Whether parity was verified between legacy and crypto receipts
+    /// Whether canonical receipt recomputation matched the stored receipt digest.
     pub receipt_parity_verified: Option<bool>,
     /// Tenant ID for receipt binding (denormalized from inference_traces)
     pub tenant_id: Option<String>,
@@ -709,7 +709,7 @@ impl TraceSink for SqlTraceSink {
 
         let output_digest = Self::output_digest(finalization.output_tokens);
 
-        // Use canonical receipt digest computation (V4 schema)
+        // Use canonical receipt digest computation (V7 schema)
         let receipt_input = ReceiptDigestInput::new(
             self.start.context_digest,
             *self.run_head_hash.as_bytes(),
@@ -741,6 +741,24 @@ impl TraceSink for SqlTraceSink {
             finalization
                 .model_cache_identity_v2_digest_b3
                 .map(|h| *h.as_bytes()),
+        )
+        .with_equipment_profile(
+            finalization
+                .equipment_profile
+                .as_ref()
+                .map(|ep| *ep.digest.as_bytes()),
+            finalization
+                .equipment_profile
+                .as_ref()
+                .map(|ep| ep.processor_id.clone()),
+            finalization
+                .equipment_profile
+                .as_ref()
+                .map(|ep| ep.engine_version.clone()),
+            finalization
+                .equipment_profile
+                .as_ref()
+                .and_then(|ep| ep.ane_version.clone()),
         )
         .with_tokenizer_identity(
             finalization.tokenizer_hash_b3.map(|h| *h.as_bytes()),
@@ -1678,6 +1696,26 @@ pub async fn recompute_receipt(db: &Db, trace_id: &str) -> Result<TraceReceiptVe
         prefix_kv_bytes,
     )
     .with_model_cache_identity(model_cache_identity_v2_digest_b3.map(|h| *h.as_bytes()))
+    .with_equipment_profile(
+        stored
+            .as_ref()
+            .and_then(|s| s.equipment_profile.as_ref().map(|ep| *ep.digest.as_bytes())),
+        stored.as_ref().and_then(|s| {
+            s.equipment_profile
+                .as_ref()
+                .map(|ep| ep.processor_id.clone())
+        }),
+        stored.as_ref().and_then(|s| {
+            s.equipment_profile
+                .as_ref()
+                .map(|ep| ep.engine_version.clone())
+        }),
+        stored.as_ref().and_then(|s| {
+            s.equipment_profile
+                .as_ref()
+                .and_then(|ep| ep.ane_version.clone())
+        }),
+    )
     .with_tokenizer_identity(
         stored
             .as_ref()
@@ -1845,6 +1883,83 @@ pub async fn recompute_receipt(db: &Db, trace_id: &str) -> Result<TraceReceiptVe
         stored,
         recomputed,
     })
+}
+
+/// Recompute a trace receipt and persist verification outputs back into the DB.
+///
+/// This is intended for the `/v1/replay/verify/trace` flow so the UI can reflect
+/// `receipt_parity_verified` (and optional `crypto_receipt_digest_b3`) after a
+/// verification is performed.
+pub async fn recompute_receipt_and_persist(
+    db: &Db,
+    trace_id: &str,
+) -> Result<TraceReceiptVerification> {
+    let verification = recompute_receipt(db, trace_id).await?;
+    persist_receipt_verification(db, trace_id, &verification).await?;
+    Ok(verification)
+}
+
+async fn persist_receipt_verification(
+    db: &Db,
+    trace_id: &str,
+    verification: &TraceReceiptVerification,
+) -> Result<()> {
+    let Some(pool) = db.pool_opt() else {
+        return Err(AosError::Database(
+            "SQL backend unavailable - cannot persist trace receipt verification".to_string(),
+        ));
+    };
+
+    let parity_value: i64 = if verification.matches { 1 } else { 0 };
+
+    // Optional crypto lookup digest: only meaningful when canonical recomputation matches.
+    let crypto_receipt_digest = if verification.matches {
+        match verification
+            .stored
+            .as_ref()
+            .and_then(|s| s.input_digest_b3)
+            .zip(
+                verification
+                    .stored
+                    .as_ref()
+                    .and_then(|s| s.equipment_profile.as_ref().map(|ep| ep.digest)),
+            ) {
+            Some((input_digest, equipment_digest)) => Some(B3Hash::hash_multi(&[
+                &[CRYPTO_RECEIPT_SCHEMA_VERSION],
+                &verification.context_digest[..],
+                input_digest.as_bytes(),
+                verification.recomputed.run_head_hash.as_bytes(),
+                verification.recomputed.output_digest.as_bytes(),
+                equipment_digest.as_bytes(),
+            ])),
+            None => None,
+        }
+    } else {
+        None
+    };
+
+    let crypto_bytes: Option<Vec<u8>> = crypto_receipt_digest
+        .as_ref()
+        .map(|d| d.as_bytes().to_vec());
+
+    sqlx::query(
+        r#"
+        UPDATE inference_trace_receipts
+        SET crypto_receipt_digest_b3 = COALESCE(crypto_receipt_digest_b3, ?),
+            receipt_parity_verified = ?,
+            tenant_id = COALESCE(tenant_id, ?)
+        WHERE trace_id = ?
+        "#,
+    )
+    .bind(crypto_bytes)
+    .bind(parity_value)
+    .bind(&verification.tenant_id)
+    .bind(trace_id)
+    .execute(pool)
+    .await
+    .map_err(|e| AosError::Database(format!("Failed to persist receipt verification: {e}")))?;
+
+    Ok(())
 }
 
 #[derive(Debug, Clone)]
@@ -2543,15 +2658,15 @@ pub async fn get_provenance_chain(db: &Db, trace_id: &str) -> Result<ProvenanceC
 pub struct BackfillResult {
     /// Total receipts processed
     pub processed: u32,
-    /// Receipts where crypto digest matched legacy digest
+    /// Receipts where canonical recomputation matched the stored receipt digest.
     pub matched: u32,
-    /// Receipts where crypto digest did not match legacy digest
+    /// Receipts where canonical recomputation did not match the stored receipt digest.
     pub mismatched: u32,
     /// Receipts that failed to process (missing data, etc.)
     pub failed: u32,
     /// Trace IDs of failed receipts (for debugging)
     pub failed_trace_ids: Vec<String>,
-    /// Trace IDs of mismatched receipts (for investigation)
+    /// Trace IDs that failed canonical receipt verification (for investigation)
     pub mismatched_trace_ids: Vec<String>,
 }
 
@@ -2570,16 +2685,19 @@ impl BackfillResult {
     }
 }
 
-/// Backfill crypto receipt digests for receipts missing the Phase 3 columns.
+/// Backfill Phase 3 receipt verification and optional crypto digest binding.
 ///
-/// This function implements Phase 3 of the cryptographic receipt system
-/// (Patent 3535886.0002). It:
+/// For each receipt that is missing either:
+/// - `crypto_receipt_digest_b3`, or
+/// - `receipt_parity_verified`,
+/// this function:
 ///
-/// 1. Queries receipts where `crypto_receipt_digest_b3 IS NULL`
-/// 2. For each receipt, loads the stored trace data needed to compute the digest
-/// 3. Computes `crypto_receipt_digest_b3` using the canonical algorithm
-/// 4. Compares with the stored legacy `receipt_digest` to determine parity
-/// 5. Updates the record with computed values
+/// 1. Recomputes the canonical receipt digest and routing chain from stored trace tokens
+///    via [`recompute_receipt`].
+/// 2. Sets `receipt_parity_verified` to `1` when recomputation matches the stored receipt,
+///    otherwise `0`.
+/// 3. If `crypto_receipt_digest_b3` is NULL and the required bindings exist, computes and stores
+///    a cryptographic binding digest for offline lookup.
 ///
 /// # Arguments
 ///
@@ -2619,27 +2737,22 @@ pub async fn backfill_receipt_digests(
 
     let mut result = BackfillResult::default();
 
-    // Query receipts missing crypto_receipt_digest_b3
-    // Uses idx_receipts_parity_unverified index for efficiency
+    // Query receipts missing receipt_parity_verified and/or a crypto lookup digest
+    // that is actually computable (requires input_digest_b3 + equipment_profile_digest_b3,
+    // and only computed when canonical recomputation matches the stored receipt digest).
     let limit_clause = limit.map(|l| format!(" LIMIT {}", l)).unwrap_or_default();
     let query = format!(
         r#"
-        SELECT
-            r.trace_id,
-            r.run_head_hash,
-            r.output_digest,
-            r.receipt_digest,
-            r.input_digest_b3,
-            r.equipment_profile_digest_b3,
-            r.processor_id,
-            r.mlx_version,
-            r.ane_version,
-            r.tenant_id,
-            t.context_digest
-        FROM inference_trace_receipts r
-        JOIN inference_traces t ON r.trace_id = t.trace_id
-        WHERE r.crypto_receipt_digest_b3 IS NULL
-        ORDER BY r.created_at ASC
+        SELECT trace_id
+        FROM inference_trace_receipts
+        WHERE receipt_parity_verified IS NULL
+           OR (
+                receipt_parity_verified = 1
+            AND crypto_receipt_digest_b3 IS NULL
+            AND input_digest_b3 IS NOT NULL
+            AND equipment_profile_digest_b3 IS NOT NULL
+           )
+        ORDER BY created_at ASC
         {}
         "#,
         limit_clause
@@ -2653,98 +2766,21 @@ pub async fn backfill_receipt_digests(
     for row in rows {
         let trace_id: String = row.get("trace_id");
 
-        // Extract required fields
-        let run_head_bytes: Vec<u8> = row.get("run_head_hash");
-        let output_digest_bytes: Vec<u8> = row.get("output_digest");
-        let legacy_receipt_bytes: Vec<u8> = row.get("receipt_digest");
-        let input_digest_bytes: Option<Vec<u8>> = row.get("input_digest_b3");
-        let equipment_digest_bytes: Option<Vec<u8>> = row.get("equipment_profile_digest_b3");
-        let context_digest_bytes: Vec<u8> = row.get("context_digest");
-        let tenant_id: Option<String> = row.get("tenant_id");
-
-        // Validate required fields are present
-        if run_head_bytes.len() != 32
-            || output_digest_bytes.len() != 32
-            || legacy_receipt_bytes.len() != 32
-            || context_digest_bytes.len() != 32
-        {
-            result.failed += 1;
-            result.failed_trace_ids.push(trace_id.clone());
-            tracing::warn!(
-                trace_id = %trace_id,
-                "Skipping backfill: invalid digest lengths"
-            );
-            continue;
-        }
-
-        // Check for required Phase 2 fields (input_digest, equipment_profile)
-        let input_digest = match input_digest_bytes {
-            Some(bytes) if bytes.len() == 32 => {
-                let mut arr = [0u8; 32];
-                arr.copy_from_slice(&bytes);
-                B3Hash::from_bytes(arr)
-            }
-            _ => {
-                // Cannot compute crypto receipt without input digest
+        let verification = match recompute_receipt(db, &trace_id).await {
+            Ok(v) => v,
+            Err(e) => {
                 result.failed += 1;
                 result.failed_trace_ids.push(trace_id.clone());
-                tracing::debug!(
+                tracing::warn!(
                     trace_id = %trace_id,
-                    "Skipping backfill: missing input_digest_b3 (pre-Phase 2 receipt)"
+                    error = %e,
+                    "Skipping receipt backfill: recomputation failed"
                 );
                 continue;
             }
         };
 
-        let equipment_digest = match equipment_digest_bytes {
-            Some(bytes) if bytes.len() == 32 => {
-                let mut arr = [0u8; 32];
-                arr.copy_from_slice(&bytes);
-                B3Hash::from_bytes(arr)
-            }
-            _ => {
-                // Cannot compute crypto receipt without equipment profile
-                result.failed += 1;
-                result.failed_trace_ids.push(trace_id.clone());
-                tracing::debug!(
-                    trace_id = %trace_id,
-                    "Skipping backfill: missing equipment_profile_digest_b3 (pre-Phase 2 receipt)"
-                );
-                continue;
-            }
-        };
-
-        // Convert to B3Hash
-        let mut run_head_arr = [0u8; 32];
-        run_head_arr.copy_from_slice(&run_head_bytes);
-        let run_head = B3Hash::from_bytes(run_head_arr);
-
-        let mut output_arr = [0u8; 32];
-        output_arr.copy_from_slice(&output_digest_bytes);
-        let output_digest = B3Hash::from_bytes(output_arr);
-
-        let mut legacy_arr = [0u8; 32];
-        legacy_arr.copy_from_slice(&legacy_receipt_bytes);
-        let legacy_receipt_digest = B3Hash::from_bytes(legacy_arr);
-
-        let mut context_arr = [0u8; 32];
-        context_arr.copy_from_slice(&context_digest_bytes);
-        let context_digest = B3Hash::from_bytes(context_arr);
-
-        // Compute crypto receipt digest using the canonical algorithm
-        // Formula: BLAKE3(schema_version || context_digest || input_digest || run_head || output_digest || equipment_digest)
-        let crypto_receipt_digest = B3Hash::hash_multi(&[
-            &[CRYPTO_RECEIPT_SCHEMA_VERSION],
-            context_digest.as_bytes(),
-            input_digest.as_bytes(),
-            run_head.as_bytes(),
-            output_digest.as_bytes(),
-            equipment_digest.as_bytes(),
-        ]);
-
-        // Compare with legacy receipt digest
-        let parity_verified = crypto_receipt_digest == legacy_receipt_digest;
-
+        let parity_verified = verification.matches;
         result.processed += 1;
         if parity_verified {
             result.matched += 1;
@@ -2753,28 +2789,55 @@ pub async fn backfill_receipt_digests(
             result.mismatched_trace_ids.push(trace_id.clone());
             tracing::warn!(
                 trace_id = %trace_id,
-                legacy_digest = %legacy_receipt_digest.to_hex(),
-                crypto_digest = %crypto_receipt_digest.to_hex(),
-                "Receipt parity mismatch detected during backfill"
+                mismatched_token = ?verification.mismatched_token,
+                "Receipt verification mismatch detected during backfill"
             );
         }
 
-        // Update the database (unless dry run)
+        let crypto_receipt_digest = if parity_verified {
+            match verification
+                .stored
+                .as_ref()
+                .and_then(|s| s.input_digest_b3)
+                .zip(
+                    verification
+                        .stored
+                        .as_ref()
+                        .and_then(|s| s.equipment_profile.as_ref().map(|ep| ep.digest)),
+                ) {
+                Some((input_digest, equipment_digest)) => Some(B3Hash::hash_multi(&[
+                    &[CRYPTO_RECEIPT_SCHEMA_VERSION],
+                    &verification.context_digest[..],
+                    input_digest.as_bytes(),
+                    verification.recomputed.run_head_hash.as_bytes(),
+                    verification.recomputed.output_digest.as_bytes(),
+                    equipment_digest.as_bytes(),
+                ])),
+                None => None,
+            }
+        } else {
+            None
+        };
+
+        // Update the database (unless dry run).
         if !dry_run {
             let parity_value: i64 = if parity_verified { 1 } else { 0 };
+            let crypto_bytes: Option<Vec<u8>> = crypto_receipt_digest
+                .as_ref()
+                .map(|d| d.as_bytes().to_vec());
 
             sqlx::query(
                 r#"
                 UPDATE inference_trace_receipts
-                SET crypto_receipt_digest_b3 = ?,
+                SET crypto_receipt_digest_b3 = COALESCE(crypto_receipt_digest_b3, ?),
                     receipt_parity_verified = ?,
                     tenant_id = COALESCE(tenant_id, ?)
                 WHERE trace_id = ?
                 "#,
             )
-            .bind(crypto_receipt_digest.as_bytes().to_vec())
+            .bind(crypto_bytes)
             .bind(parity_value)
-            .bind(&tenant_id)
+            .bind(&verification.tenant_id)
             .bind(&trace_id)
             .execute(pool)
             .await
@@ -2793,7 +2856,7 @@ pub async fn backfill_receipt_digests(
             matched = result.matched,
             mismatched = result.mismatched,
             failed = result.failed,
-            "Crypto receipt backfill dry run complete"
+            "Receipt backfill dry run complete"
         );
     } else {
         tracing::info!(
@@ -2802,14 +2865,15 @@ pub async fn backfill_receipt_digests(
             mismatched = result.mismatched,
             failed = result.failed,
             parity_rate = format!("{:.2}%", result.parity_rate()),
-            "Crypto receipt backfill complete"
+            "Receipt backfill complete"
         );
     }
 
     Ok(result)
 }
 
-/// Get the count of receipts pending crypto digest backfill.
+/// Get the count of receipts pending receipt verification backfill and/or
+/// a computable crypto lookup digest backfill.
 ///
 /// This is useful for monitoring and progress reporting.
 pub async fn count_pending_receipt_backfill(db: &Db) -> Result<u64> {
@@ -2821,7 +2885,13 @@ pub async fn count_pending_receipt_backfill(db: &Db) -> Result<u64> {
         r#"
         SELECT COUNT(*) as count
         FROM inference_trace_receipts
-        WHERE crypto_receipt_digest_b3 IS NULL
+        WHERE receipt_parity_verified IS NULL
+           OR (
+                receipt_parity_verified = 1
+            AND crypto_receipt_digest_b3 IS NULL
+            AND input_digest_b3 IS NOT NULL
+            AND equipment_profile_digest_b3 IS NOT NULL
+           )
         "#,
     )
     .fetch_one(pool)

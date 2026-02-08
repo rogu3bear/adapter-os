@@ -4,10 +4,12 @@
 //! in `inference_trace_receipts` for records that were created before Phase 3.
 //!
 //! This command:
-//! 1. Finds receipts where crypto_receipt_digest_b3 IS NULL or receipt_parity_verified IS NULL
-//! 2. For each receipt, recomputes the crypto receipt digest using the canonical algorithm
-//! 3. Compares with legacy receipt_digest and sets receipt_parity_verified accordingly
-//! 4. Updates the record with the computed values
+//! 1. Finds receipts missing `receipt_parity_verified`, plus receipts missing a computable
+//!    `crypto_receipt_digest_b3` (requires `input_digest_b3` + `equipment_profile_digest_b3`)
+//! 2. Recomputes the canonical receipt digest + routing chain from stored trace tokens
+//! 3. Sets `receipt_parity_verified` based on recomputation match/mismatch
+//! 4. Optionally computes and stores `crypto_receipt_digest_b3` when required bindings exist
+//! 5. Updates the record with the computed values
 //!
 //! # Usage
 //!
@@ -32,9 +34,8 @@
 //!
 //! After backfill, a summary is printed showing:
 //! - Total receipts processed
-//! - Successfully backfilled count
-//! - Parity matches (legacy == crypto)
-//! - Parity mismatches (legacy != crypto)
+//! - Verified receipts (recompute == stored)
+//! - Verification mismatches
 //! - Failed count (errors during processing)
 
 use crate::output::OutputWriter;
@@ -87,9 +88,9 @@ pub struct BackfillSummary {
     pub total_pending: u64,
     /// Receipts processed in this run
     pub processed: u32,
-    /// Receipts where legacy and crypto digests matched
+    /// Receipts where canonical recomputation matched the stored receipt digest
     pub parity_matched: u32,
-    /// Receipts where legacy and crypto digests did not match
+    /// Receipts where canonical recomputation did not match the stored receipt digest
     pub parity_mismatched: u32,
     /// Receipts that failed to process
     pub failed: u32,
@@ -97,7 +98,7 @@ pub struct BackfillSummary {
     pub parity_rate: f64,
     /// Trace IDs of failed receipts
     pub failed_trace_ids: Vec<String>,
-    /// Trace IDs with parity mismatches (for investigation)
+    /// Trace IDs with canonical receipt verification mismatches (for investigation)
     pub mismatched_trace_ids: Vec<String>,
     /// Whether this was a dry-run
     pub dry_run: bool,
@@ -159,7 +160,9 @@ pub async fn run_backfill(
         .map_err(|e| AosError::Database(format!("Failed to count pending receipts: {}", e)))?;
 
     if pending_count == 0 {
-        output.success("No receipts need backfill - all records already have crypto digest values");
+        output.success(
+            "No receipts need backfill - all records already have receipt verification status (and crypto lookup digests where applicable)",
+        );
         if output.is_json() {
             output.json(&BackfillSummary {
                 total_pending: 0,
@@ -292,10 +295,10 @@ pub async fn run_backfill(
     if summary.parity_mismatched > 0 {
         output.blank();
         output.warning(format!(
-            "{} receipts have parity mismatches between legacy and crypto digests",
+            "{} receipts failed canonical recomputation verification (stored receipt_digest != recomputed)",
             summary.parity_mismatched
         ));
-        output.info("This may indicate schema version differences or data inconsistencies");
+        output.info("This may indicate data corruption, schema drift, or non-deterministic inputs that were not fully captured");
         output.info("Mismatched trace IDs (first 10):");
         for trace_id in summary.mismatched_trace_ids.iter().take(10) {
             output.result(format!("  {}", trace_id));
@@ -307,8 +310,7 @@ pub async fn run_backfill(
             ));
         }
         output.blank();
-        output
-            .info("Run 'aosctl verify receipt --trace-id <id>' to investigate individual receipts");
+        output.info("Run `aosctl verify <trace_id>` to investigate individual receipts");
     }
 
     if output.is_json() {

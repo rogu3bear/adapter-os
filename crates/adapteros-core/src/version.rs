@@ -657,6 +657,22 @@ mod tests {
             "BUILD_ID should be in hash-timestamp format: {}",
             BUILD_ID
         );
+        // BUILD_ID should end with a compact UTC timestamp (YYYYMMDDHHmmss).
+        let (_prefix, ts) = BUILD_ID
+            .rsplit_once('-')
+            .expect("BUILD_ID should contain '-' separating timestamp");
+        assert!(
+            ts.len() == 14 && ts.chars().all(|c| c.is_ascii_digit()),
+            "BUILD_ID should end with YYYYMMDDHHmmss: {}",
+            BUILD_ID
+        );
+        // And the components should be internally consistent.
+        let expected_build_id = format!("{}-{}", GIT_COMMIT_HASH, BUILD_TIMESTAMP);
+        assert_eq!(
+            BUILD_ID, expected_build_id,
+            "BUILD_ID should equal '{}', got '{}'",
+            expected_build_id, BUILD_ID
+        );
 
         let info = VersionInfo::current();
         assert_eq!(info.build_id, BUILD_ID);

@@ -958,7 +958,33 @@ impl Db {
     /// Inserts or updates a worker record with manifest hash and version information,
     /// then transitions lifecycle to `registered`.
     pub async fn register_worker(&self, params: WorkerRegistrationParams) -> Result<()> {
+        // Normalize common path artifacts (e.g. "/./") so we don't treat the same
+        // socket path as different workers across restarts.
+        let uds_path_norm = params.uds_path.replace("/./", "/");
+
         let mut tx = self.begin_write_tx().await?;
+
+        // If a worker re-registers on the same UDS path with a new ID, the older
+        // records become aliases for a single live socket. Retire them so routing
+        // doesn't select a stale worker_id.
+        //
+        // Note: We do this by *exact string match after simple normalization*;
+        // we intentionally avoid filesystem canonicalization because the socket
+        // may not exist yet at registration time.
+        let superseded_worker_ids: Vec<String> = sqlx::query_scalar(
+            "SELECT id FROM workers\n             WHERE tenant_id = ?\n               AND replace(uds_path, '/./', '/') = ?\n               AND id != ?\n               AND status IN ('pending', 'created', 'registered', 'healthy', 'draining')",
+        )
+        .bind(&params.tenant_id)
+        .bind(&uds_path_norm)
+        .bind(&params.worker_id)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|e| {
+            AosError::Database(format!(
+                "Failed to list superseded workers for uds_path {}: {}",
+                uds_path_norm, e
+            ))
+        })?;
 
         let exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM workers WHERE id = ?")
             .bind(&params.worker_id)
@@ -980,7 +1006,7 @@ impl Db {
             .bind(&params.tenant_id)
             .bind(&params.node_id)
             .bind(&params.plan_id)
-            .bind(&params.uds_path)
+            .bind(&uds_path_norm)
             .bind(params.pid)
             .bind(&params.manifest_hash)
             .bind(&params.backend)
@@ -1005,7 +1031,7 @@ impl Db {
             .bind(&params.tenant_id)
             .bind(&params.node_id)
             .bind(&params.plan_id)
-            .bind(&params.uds_path)
+            .bind(&uds_path_norm)
             .bind(params.pid)
             .bind(&params.manifest_hash)
             .bind(&params.backend)
@@ -1039,6 +1065,27 @@ impl Db {
             .execute(self.pool())
             .await
             .map_err(|e| AosError::Database(format!("Failed to stamp registered_at: {}", e)))?;
+
+        // Best-effort: retire superseded workers that share the same UDS path.
+        // This prevents routing from selecting a stale worker_id that happens
+        // to have low latency metrics.
+        for wid in superseded_worker_ids {
+            if let Err(e) = self
+                .transition_worker_status(
+                    &wid,
+                    adapteros_core::WorkerStatus::Error.as_str(),
+                    "superseded_by_new_worker_on_same_uds_path",
+                    None,
+                )
+                .await
+            {
+                warn!(
+                    worker_id = %wid,
+                    error = %e,
+                    "Failed to retire superseded worker; stale routing may persist"
+                );
+            }
+        }
 
         Ok(())
     }
