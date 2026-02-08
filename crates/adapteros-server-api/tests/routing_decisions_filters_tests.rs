@@ -103,7 +103,7 @@ async fn routing_decisions_filter_by_source_type() {
 
     // Filter by source_type=document
     let query = RoutingDecisionsQuery {
-        tenant: claims.tenant_id.clone(),
+        tenant: Some(claims.tenant_id.clone()),
         limit: None,
         offset: None,
         since: None,

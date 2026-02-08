@@ -19,7 +19,6 @@ use adapteros_core::io_utils::get_directory_size;
 use adapteros_db::users::Role;
 use adapteros_lora_worker::memory::UmaStats;
 use adapteros_storage::secure_fs::path_policy::canonicalize_strict_in_allowed_roots;
-use std::fs;
 use std::path::{Path as StdPath, PathBuf};
 use std::time::Duration;
 use tracing::{error, warn};
@@ -52,33 +51,39 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-fn model_allowed_roots() -> Result<Vec<PathBuf>, String> {
+async fn model_allowed_roots() -> Result<Vec<PathBuf>, String> {
     let location = resolve_base_model_location(None, None, false).map_err(|e| e.to_string())?;
     if !location.cache_root.exists() {
-        fs::create_dir_all(&location.cache_root).map_err(|e| {
-            format!(
-                "Failed to create model cache root {}: {}",
-                location.cache_root.display(),
-                e
-            )
-        })?;
+        tokio::fs::create_dir_all(&location.cache_root)
+            .await
+            .map_err(|e| {
+                format!(
+                    "Failed to create model cache root {}: {}",
+                    location.cache_root.display(),
+                    e
+                )
+            })?;
     }
     Ok(vec![location.cache_root])
 }
 
-fn has_safetensors_files(dir: &StdPath) -> bool {
-    fs::read_dir(dir)
-        .ok()
-        .into_iter()
-        .flat_map(|entries| entries.filter_map(|entry| entry.ok()))
-        .any(|entry| {
-            entry
-                .path()
-                .extension()
-                .and_then(|ext| ext.to_str())
-                .map(|ext| ext.eq_ignore_ascii_case("safetensors"))
-                .unwrap_or(false)
-        })
+async fn has_safetensors_files(dir: &StdPath) -> bool {
+    let mut entries = match tokio::fs::read_dir(dir).await {
+        Ok(entries) => entries,
+        Err(_) => return false,
+    };
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        if entry
+            .path()
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| ext.eq_ignore_ascii_case("safetensors"))
+            .unwrap_or(false)
+        {
+            return true;
+        }
+    }
+    false
 }
 
 fn has_coreml_weights(dir: &StdPath) -> bool {
@@ -90,7 +95,7 @@ fn has_coreml_weights(dir: &StdPath) -> bool {
     candidates.iter().any(|path| path.exists())
 }
 
-fn validate_model_compatibility(
+async fn validate_model_compatibility(
     model_path: &StdPath,
     format: Option<&str>,
     backend: &str,
@@ -140,7 +145,7 @@ fn validate_model_compatibility(
                     ));
                 }
             }
-            if !has_safetensors_files(model_dir) {
+            if !has_safetensors_files(model_dir).await {
                 return Err(format!(
                     "No safetensors weights found under '{}'",
                     model_dir.display()
@@ -490,7 +495,7 @@ pub async fn load_model(
         .map(normalize_backend_label)
         .unwrap_or("mlx");
     let format = model.format.as_deref();
-    let allowed_roots = match model_allowed_roots() {
+    let allowed_roots = match model_allowed_roots().await {
         Ok(roots) => roots,
         Err(e) => {
             let err_msg = format!("failed to resolve model roots: {}", e);
@@ -538,7 +543,7 @@ pub async fn load_model(
         };
     let model_path = canonical_path.to_string_lossy().to_string();
 
-    if let Err(e) = validate_model_compatibility(&canonical_path, format, backend) {
+    if let Err(e) = validate_model_compatibility(&canonical_path, format, backend).await {
         let err_msg = format!("model compatibility check failed: {}", e);
         record_failure(err_msg.clone()).await;
         return Err((
@@ -1466,7 +1471,7 @@ pub async fn import_model(
         ));
     }
 
-    let allowed_roots = model_allowed_roots().map_err(|e| {
+    let allowed_roots = model_allowed_roots().await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
@@ -1500,7 +1505,8 @@ pub async fn import_model(
                     ),
                 )
             })?;
-    if let Err(e) = validate_model_compatibility(&canonical_path, Some(&req.format), &backend) {
+    if let Err(e) = validate_model_compatibility(&canonical_path, Some(&req.format), &backend).await
+    {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(
@@ -1696,46 +1702,44 @@ pub async fn list_models_with_stats(
         })?;
 
     let total = models_with_stats.len();
-    let models = models_with_stats
-        .into_iter()
-        .map(|m| {
-            let model = &m.model;
-            let capabilities = model
-                .capabilities
-                .as_ref()
-                .and_then(|c| serde_json::from_str::<Vec<String>>(c).ok());
+    let mut models = Vec::with_capacity(total);
+    for m in models_with_stats {
+        let model = &m.model;
+        let capabilities = model
+            .capabilities
+            .as_ref()
+            .and_then(|c| serde_json::from_str::<Vec<String>>(c).ok());
 
-            ModelWithStatsResponse {
-                id: model.id.clone(),
-                name: model.name.clone(),
-                hash_b3: model.hash_b3.clone(),
-                config_hash_b3: model.config_hash_b3.clone(),
-                tokenizer_hash_b3: model.tokenizer_hash_b3.clone(),
-                format: model.format.clone(),
-                backend: model
-                    .backend
-                    .as_deref()
-                    .map(normalize_backend_label)
-                    .map(|value| value.to_string()),
-                size_bytes: model.size_bytes,
-                import_status: model.import_status.clone(),
-                model_path: model.model_path.clone(),
-                capabilities,
-                quantization: model.quantization.clone(),
-                tenant_id: model.tenant_id.clone(),
-                adapter_count: m.adapter_count,
-                training_job_count: m.training_job_count,
-                imported_at: model.imported_at.clone(),
-                updated_at: model.updated_at.clone(),
-                architecture: parse_architecture_summary(model),
-            }
-        })
-        .collect();
+        models.push(ModelWithStatsResponse {
+            id: model.id.clone(),
+            name: model.name.clone(),
+            hash_b3: model.hash_b3.clone(),
+            config_hash_b3: model.config_hash_b3.clone(),
+            tokenizer_hash_b3: model.tokenizer_hash_b3.clone(),
+            format: model.format.clone(),
+            backend: model
+                .backend
+                .as_deref()
+                .map(normalize_backend_label)
+                .map(|value| value.to_string()),
+            size_bytes: model.size_bytes,
+            import_status: model.import_status.clone(),
+            model_path: model.model_path.clone(),
+            capabilities,
+            quantization: model.quantization.clone(),
+            tenant_id: model.tenant_id.clone(),
+            adapter_count: m.adapter_count,
+            training_job_count: m.training_job_count,
+            imported_at: model.imported_at.clone(),
+            updated_at: model.updated_at.clone(),
+            architecture: parse_architecture_summary(model).await,
+        });
+    }
 
     Ok(Json(ModelListResponse { models, total }))
 }
 
-fn parse_architecture_summary(
+async fn parse_architecture_summary(
     model: &adapteros_db::models::Model,
 ) -> Option<ModelArchitectureSummary> {
     let mut summary = ModelArchitectureSummary {
@@ -1799,7 +1803,7 @@ fn parse_architecture_summary(
             };
 
             if config_path.exists() {
-                if let Ok(contents) = std::fs::read_to_string(&config_path) {
+                if let Ok(contents) = tokio::fs::read_to_string(&config_path).await {
                     if let Ok(value) = serde_json::from_str::<serde_json::Value>(&contents) {
                         if summary.num_layers.is_none() {
                             summary.num_layers = value

@@ -286,6 +286,7 @@ pub async fn initialize_runtime(
                 dev_bypass: false,
                 ci_attestation_public_keys: None,
             },
+            general: adapteros_server_api::config::GeneralConfig::default(),
             auth: adapteros_server_api::config::AuthConfig {
                 dev_algo: "hs256".to_string(),
                 prod_algo: "eddsa".to_string(),
@@ -415,6 +416,7 @@ pub async fn initialize_runtime(
                     dev_bypass: cfg.security.dev_bypass,
                     ci_attestation_public_keys: cfg.security.ci_attestation_public_keys.clone(),
                 },
+                general: cfg.general.clone(),
                 auth: adapteros_server_api::config::AuthConfig {
                     dev_algo: cfg.auth.dev_algo.clone(),
                     prod_algo: cfg.auth.prod_algo.clone(),

@@ -49,8 +49,12 @@ pub struct UiTraceReceiptSummary {
     pub stop_reason_code: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop_reason_token_index: Option<u32>,
-    #[serde(default)]
-    pub verified: bool,
+    /// Receipt verification status:
+    /// - `Some(true)`: server recomputation matched the stored receipt digest
+    /// - `Some(false)`: mismatch detected
+    /// - `None`: not yet recomputed/verified
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verified: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub processor_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

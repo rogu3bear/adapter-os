@@ -287,7 +287,7 @@ pub async fn create_bundle_export(
 
     // Create bundle file
     let exports_dir = std::path::Path::new("var/exports");
-    std::fs::create_dir_all(exports_dir).map_err(|e| {
+    tokio::fs::create_dir_all(exports_dir).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(
@@ -319,33 +319,37 @@ pub async fn create_bundle_export(
     let bundle_hash = B3Hash::hash(&bundle_data);
     let bundle_size = bundle_data.len() as u64;
 
-    std::fs::write(&bundle_path, &bundle_data).map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(
-                ErrorResponse::new("Failed to write bundle")
-                    .with_code("IO_ERROR")
-                    .with_string_details(e.to_string()),
-            ),
-        )
-    })?;
+    tokio::fs::write(&bundle_path, &bundle_data)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    ErrorResponse::new("Failed to write bundle")
+                        .with_code("IO_ERROR")
+                        .with_string_details(e.to_string()),
+                ),
+            )
+        })?;
 
     // Set restrictive file permissions (owner read/write only)
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         let perms = std::fs::Permissions::from_mode(0o600);
-        std::fs::set_permissions(&bundle_path, perms).map_err(|e| {
-            let _ = std::fs::remove_file(&bundle_path); // cleanup
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(
-                    ErrorResponse::new("Failed to secure bundle file")
-                        .with_code("IO_ERROR")
-                        .with_string_details(e.to_string()),
-                ),
-            )
-        })?;
+        tokio::fs::set_permissions(&bundle_path, perms)
+            .await
+            .map_err(|e| {
+                let _ = std::fs::remove_file(&bundle_path); // cleanup (best-effort sync)
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(
+                        ErrorResponse::new("Failed to secure bundle file")
+                            .with_code("IO_ERROR")
+                            .with_string_details(e.to_string()),
+                    ),
+                )
+            })?;
     }
 
     // Sign the bundle

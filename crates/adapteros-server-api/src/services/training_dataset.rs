@@ -30,6 +30,7 @@ use async_trait::async_trait;
 use axum::body::Bytes;
 use axum::http::StatusCode;
 use axum::Json;
+#[cfg(feature = "embeddings")]
 use serde_json::Value;
 use std::collections::HashMap;
 #[cfg(feature = "embeddings")]
@@ -54,6 +55,7 @@ const EMBEDDING_MAX_RETRIES: usize = 3;
 #[cfg(feature = "embeddings")]
 const EMBEDDING_BACKOFF_MS: u64 = 200;
 
+#[cfg(feature = "embeddings")]
 fn upsert_metadata_json(
     existing: Option<&str>,
     updates: &[(&str, Value)],

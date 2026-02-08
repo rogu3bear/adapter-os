@@ -38,6 +38,10 @@ fn header_subset(headers: &HeaderMap, keys: &[&str]) -> BTreeMap<String, String>
 fn redact_pii(value: &mut Value) {
     match value {
         Value::Object(map) => {
+            let looks_like_health = map.contains_key("schema_version")
+                && map.contains_key("status")
+                && map.contains_key("version")
+                && map.contains_key("models");
             for (key, val) in map.iter_mut() {
                 let k = key.as_str();
                 if matches!(
@@ -50,6 +54,7 @@ fn redact_pii(value: &mut Value) {
                         | "ip_address"
                         | "expires_in"
                         | "expires_at"
+                        | "build_id"
                         | "run_head_hash"
                         | "output_digest"
                         | "receipt_digest"
@@ -63,6 +68,12 @@ fn redact_pii(value: &mut Value) {
                     || k.ends_with("_digest")
                 {
                     *val = Value::String("<redacted>".to_string());
+                    continue;
+                }
+
+                // `/healthz` includes a crate version that will change independently of the contract shape.
+                if looks_like_health && k == "version" {
+                    *val = Value::String("<version>".to_string());
                     continue;
                 }
 

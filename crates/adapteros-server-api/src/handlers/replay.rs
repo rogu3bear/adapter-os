@@ -2,12 +2,8 @@
 //!
 //! Provides endpoints for creating, listing, and verifying deterministic replay sessions.
 
-use adapteros_core::receipt_digest::{
-    self, ReceiptDigestInput, RECEIPT_SCHEMA_V1, RECEIPT_SCHEMA_V2, RECEIPT_SCHEMA_V3,
-    RECEIPT_SCHEMA_V4, RECEIPT_SCHEMA_V5, RECEIPT_SCHEMA_V6, RECEIPT_SCHEMA_V7,
-};
 use adapteros_core::{AosError, B3Hash};
-use adapteros_crypto::signature::{Keypair, PublicKey, Signature};
+use adapteros_crypto::signature::Signature;
 use adapteros_db::replay_sessions::ReplaySession;
 use anyhow::{anyhow, bail, Context, Result};
 use axum::{
@@ -15,13 +11,10 @@ use axum::{
     http::StatusCode,
     Extension, Json,
 };
-use base64::Engine as _;
 use chrono;
 use serde::{Deserialize, Serialize};
-use std::io::{Cursor, Read};
 use tracing::{debug, info, warn};
 use utoipa::{IntoParams, ToSchema};
-use zip::ZipArchive;
 
 use crate::api_error::{ApiError, ApiResult};
 use crate::auth::Claims;
@@ -918,12 +911,6 @@ fn session_to_response(
 // Receipt & Trace Verification (UI workflow)
 // ============================================================================
 
-const EVIDENCE_BUNDLE_FILENAMES: &[&str] = &[
-    "receipt_bundle.json",
-    "run_receipt.json",
-    "inference_trace.json",
-];
-
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ReceiptReasonCode {
@@ -933,6 +920,15 @@ pub enum ReceiptReasonCode {
     PolicyMismatch,
     BackendMismatch,
     SignatureInvalid,
+    BackendAttestationMismatch,
+    SchemaVersionUnsupported,
+    SeedDigestMismatch,
+    SeedModeViolation,
+    SeedDigestMissing,
+    ExpectedDigestInvalid,
+    PayloadParseError,
+    NonCanonicalPayload,
+    ReceiptDigestMismatch,
     MissingReceipt,
     TraceNotFound,
 }
@@ -1074,13 +1070,16 @@ pub async fn verify_trace_receipt(
 ) -> ApiResult<ReceiptVerificationResult> {
     require_permission(&claims, Permission::ReplayManage)?;
 
-    let verification = adapteros_db::recompute_receipt(&state.db, &req.trace_id)
-        .await
-        .map_err(|e| match e {
-            AosError::NotFound(_) => ApiError::not_found("Inference trace"),
-            AosError::Database(_) => ApiError::db_error(e),
-            _ => ApiError::internal("Failed to verify trace receipt").with_details(e.to_string()),
-        })?;
+    let verification =
+        adapteros_db::inference_trace::recompute_receipt_and_persist(&state.db, &req.trace_id)
+            .await
+            .map_err(|e| match e {
+                AosError::NotFound(_) => ApiError::not_found("Inference trace"),
+                AosError::Database(_) => ApiError::db_error(e),
+                _ => {
+                    ApiError::internal("Failed to verify trace receipt").with_details(e.to_string())
+                }
+            })?;
 
     validate_tenant_isolation(&claims, &verification.tenant_id)?;
 
@@ -1112,803 +1111,70 @@ pub async fn verify_trace_receipt(
     Ok(Json(report))
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct ReceiptBundle {
-    #[serde(default)]
-    version: Option<String>,
-    trace_id: String,
-    tenant_id: String,
-    #[serde(default)]
-    request_id: Option<String>,
-    #[serde(default)]
-    context_digest_hex: Option<String>,
-    context: ReceiptContext,
-    tokens: Vec<ReceiptToken>,
-    output_tokens: Vec<u32>,
-    receipt: ReceiptDigests,
-    #[serde(default)]
-    expected_backend: Option<String>,
-    #[serde(default)]
-    expected_kernel_version: Option<String>,
-    /// Backend used for inference (v2+)
-    #[serde(default)]
-    backend_used: Option<String>,
-    /// Backend attestation hash for determinism binding (v2+)
-    #[serde(default)]
-    backend_attestation_b3_hex: Option<String>,
-    /// Dataset version ID for deterministic dataset pinning
-    #[serde(default)]
-    dataset_version_id: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct ReceiptContext {
-    tenant_namespace: String,
-    stack_hash_hex: String,
-    prompt_tokens: Vec<u32>,
-    #[serde(default)]
-    policy_mask_digest_hex: Option<String>,
-    #[serde(default)]
-    context_digest_hex: Option<String>,
-    #[serde(default)]
-    tokenizer_hash_b3_hex: Option<String>,
-    #[serde(default)]
-    tokenizer_version: Option<String>,
-    #[serde(default)]
-    tokenizer_normalization: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct ReceiptToken {
-    token_index: u32,
-    adapter_ids: Vec<String>,
-    gates_q15: Vec<i16>,
-    #[serde(default)]
-    policy_mask_digest_hex: Option<String>,
-    #[serde(default)]
-    backend_id: Option<String>,
-    #[serde(default)]
-    kernel_version_id: Option<String>,
-    #[serde(default)]
-    decision_hash_hex: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct ReceiptDigests {
-    run_head_hash_hex: String,
-    output_digest_hex: String,
-    receipt_digest_hex: String,
-    #[serde(default)]
-    signature_b64: Option<String>,
-    #[serde(default)]
-    public_key_hex: Option<String>,
-    #[serde(default)]
-    logical_prompt_tokens: u32,
-    #[serde(default)]
-    prefix_cached_token_count: u32,
-    #[serde(default)]
-    billed_input_tokens: u32,
-    #[serde(default)]
-    logical_output_tokens: u32,
-    #[serde(default)]
-    billed_output_tokens: u32,
-    /// Receipt schema version (defaults to 1 for backward compatibility)
-    #[serde(default = "default_schema_version")]
-    schema_version: u8,
-    /// Backend used for inference (v2+)
-    #[serde(default)]
-    backend_used: Option<String>,
-    /// Backend attestation hash for determinism binding (v2+)
-    #[serde(default)]
-    backend_attestation_b3_hex: Option<String>,
-    /// Root seed digest for determinism binding (v3+)
-    #[serde(default)]
-    root_seed_digest_hex: Option<String>,
-    /// Seed mode used for derivation (v3+)
-    #[serde(default)]
-    seed_mode: Option<String>,
-    /// Whether manifest was used in seed derivation (v3+)
-    #[serde(default)]
-    has_manifest_binding: Option<bool>,
-    // Stop controller fields (PRD: Hard Deterministic Stop Controller)
-    #[serde(default)]
-    stop_reason_code: Option<String>,
-    #[serde(default)]
-    stop_reason_token_index: Option<u32>,
-    #[serde(default)]
-    stop_policy_digest_b3_hex: Option<String>,
-    // KV quota/residency fields (PRD: KvResidencyAndQuotas v1)
-    #[serde(default)]
-    tenant_kv_quota_bytes: u64,
-    #[serde(default)]
-    tenant_kv_bytes_used: u64,
-    #[serde(default)]
-    kv_evictions: u32,
-    #[serde(default)]
-    kv_residency_policy_id: Option<String>,
-    #[serde(default)]
-    kv_quota_enforced: bool,
-    // Prefix KV cache fields (PRD: PrefixKvCache v1)
-    #[serde(default)]
-    prefix_kv_key_b3_hex: Option<String>,
-    #[serde(default)]
-    prefix_cache_hit: bool,
-    #[serde(default)]
-    prefix_kv_bytes: u64,
-    /// PRD-06: Model cache identity v2 digest (hex-encoded BLAKE3)
-    #[serde(default)]
-    model_cache_identity_v2_digest_b3_hex: Option<String>,
-
-    // =========================================================================
-    // V5 fields: Equipment profile + citations
-    // =========================================================================
-    #[serde(default)]
-    equipment_profile_digest_b3_hex: Option<String>,
-    #[serde(default)]
-    processor_id: Option<String>,
-    #[serde(default)]
-    mlx_version: Option<String>,
-    #[serde(default)]
-    ane_version: Option<String>,
-    #[serde(default)]
-    citations_merkle_root_b3_hex: Option<String>,
-    #[serde(default)]
-    citation_count: u32,
-
-    // =========================================================================
-    // V6 fields: Cross-run lineage
-    // =========================================================================
-    #[serde(default)]
-    previous_receipt_digest_hex: Option<String>,
-    #[serde(default)]
-    session_sequence: u64,
-
-    // =========================================================================
-    // V7 fields: Determinism envelope + cache/retrieval bindings
-    // =========================================================================
-    #[serde(default)]
-    tokenizer_hash_b3_hex: Option<String>,
-    #[serde(default)]
-    tokenizer_version: Option<String>,
-    #[serde(default)]
-    tokenizer_normalization: Option<String>,
-    #[serde(default)]
-    model_build_hash_b3_hex: Option<String>,
-    #[serde(default)]
-    adapter_build_hash_b3_hex: Option<String>,
-    #[serde(default)]
-    decode_algo: Option<String>,
-    #[serde(default)]
-    temperature_q15: Option<i16>,
-    #[serde(default)]
-    top_p_q15: Option<i16>,
-    #[serde(default)]
-    top_k: Option<u32>,
-    #[serde(default)]
-    seed_digest_b3_hex: Option<String>,
-    #[serde(default)]
-    sampling_backend: Option<String>,
-    #[serde(default)]
-    thread_count: Option<u32>,
-    #[serde(default)]
-    reduction_strategy: Option<String>,
-    #[serde(default)]
-    stop_eos_q15: Option<i16>,
-    #[serde(default)]
-    stop_window_digest_b3_hex: Option<String>,
-    #[serde(default)]
-    cache_scope: Option<String>,
-    #[serde(default)]
-    cached_prefix_digest_b3_hex: Option<String>,
-    #[serde(default)]
-    cached_prefix_len: Option<u32>,
-    #[serde(default)]
-    cache_key_b3_hex: Option<String>,
-    #[serde(default)]
-    retrieval_merkle_root_b3_hex: Option<String>,
-    #[serde(default)]
-    retrieval_order_digest_b3_hex: Option<String>,
-    #[serde(default)]
-    tool_call_inputs_digest_b3_hex: Option<String>,
-    #[serde(default)]
-    tool_call_outputs_digest_b3_hex: Option<String>,
-    #[serde(default)]
-    disclosure_level: Option<String>,
-    #[serde(default)]
-    receipt_signing_kid: Option<String>,
-    #[serde(default)]
-    receipt_signed_at: Option<String>,
-}
-
-fn default_schema_version() -> u8 {
-    RECEIPT_SCHEMA_V1
-}
-
-fn push_reason(reasons: &mut Vec<ReceiptReasonCode>, code: ReceiptReasonCode) {
-    if !reasons.contains(&code) {
-        reasons.push(code);
+fn map_verifier_reason(code: adapteros_crypto::ReceiptVerifyReasonCode) -> ReceiptReasonCode {
+    use adapteros_crypto::ReceiptVerifyReasonCode as C;
+    match code {
+        C::ContextMismatch => ReceiptReasonCode::ContextMismatch,
+        C::TraceTamper => ReceiptReasonCode::TraceTamper,
+        C::OutputMismatch => ReceiptReasonCode::OutputMismatch,
+        C::PolicyMismatch => ReceiptReasonCode::PolicyMismatch,
+        C::BackendMismatch => ReceiptReasonCode::BackendMismatch,
+        C::SignatureInvalid => ReceiptReasonCode::SignatureInvalid,
+        C::BackendAttestationMismatch => ReceiptReasonCode::BackendAttestationMismatch,
+        C::SchemaVersionUnsupported => ReceiptReasonCode::SchemaVersionUnsupported,
+        C::SeedDigestMismatch => ReceiptReasonCode::SeedDigestMismatch,
+        C::SeedModeViolation => ReceiptReasonCode::SeedModeViolation,
+        C::SeedDigestMissing => ReceiptReasonCode::SeedDigestMissing,
+        C::ExpectedDigestInvalid => ReceiptReasonCode::ExpectedDigestInvalid,
+        C::PayloadParseError => ReceiptReasonCode::PayloadParseError,
+        C::NonCanonicalPayload => ReceiptReasonCode::NonCanonicalPayload,
+        C::ReceiptDigestMismatch => ReceiptReasonCode::ReceiptDigestMismatch,
     }
-}
-
-fn decode_hex_32(label: &str, hex: &str) -> Result<[u8; 32]> {
-    let bytes =
-        hex::decode(hex).with_context(|| format!("Failed to decode {label} hex ({hex})"))?;
-    if bytes.len() != 32 {
-        bail!("{label} must be 32 bytes, got {}", bytes.len());
-    }
-    let mut out = [0u8; 32];
-    out.copy_from_slice(&bytes);
-    Ok(out)
-}
-
-fn encode_adapter_ids(ids: &[String]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(4 + ids.iter().map(|s| s.len() + 4).sum::<usize>());
-    out.extend_from_slice(&(ids.len() as u32).to_le_bytes());
-    for id in ids {
-        let bytes = id.as_bytes();
-        out.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
-        out.extend_from_slice(bytes);
-    }
-    out
-}
-
-fn encode_gates_q15(gates: &[i16]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(4 + gates.len() * 2);
-    out.extend_from_slice(&(gates.len() as u32).to_le_bytes());
-    for g in gates {
-        out.extend_from_slice(&g.to_le_bytes());
-    }
-    out
-}
-
-fn hash_decision(
-    context_digest: &[u8; 32],
-    token_index: u32,
-    adapter_blob: &[u8],
-    gates_blob: &[u8],
-    policy_mask_digest: Option<[u8; 32]>,
-    backend_id: Option<&str>,
-    kernel_version_id: Option<&str>,
-) -> B3Hash {
-    let policy_bytes = policy_mask_digest.map(|d| d.to_vec()).unwrap_or_default();
-    let backend_bytes = backend_id.unwrap_or("").as_bytes().to_vec();
-    let kernel_bytes = kernel_version_id.unwrap_or("").as_bytes().to_vec();
-
-    B3Hash::hash_multi(&[
-        &context_digest[..],
-        &token_index.to_le_bytes(),
-        &(adapter_blob.len() as u32).to_le_bytes(),
-        adapter_blob,
-        &(gates_blob.len() as u32).to_le_bytes(),
-        gates_blob,
-        &(policy_bytes.len() as u32).to_le_bytes(),
-        &policy_bytes,
-        &(backend_bytes.len() as u32).to_le_bytes(),
-        &backend_bytes,
-        &(kernel_bytes.len() as u32).to_le_bytes(),
-        &kernel_bytes,
-    ])
-}
-
-fn update_head(prev: &B3Hash, token_index: u32, decision_hash: &B3Hash) -> B3Hash {
-    B3Hash::hash_multi(&[
-        prev.as_bytes(),
-        decision_hash.as_bytes(),
-        &token_index.to_le_bytes(),
-    ])
-}
-
-fn compute_output_digest(output_tokens: &[u32]) -> B3Hash {
-    let mut buf = Vec::with_capacity(4 + output_tokens.len() * 4);
-    buf.extend_from_slice(&(output_tokens.len() as u32).to_le_bytes());
-    for t in output_tokens {
-        buf.extend_from_slice(&t.to_le_bytes());
-    }
-    B3Hash::hash(&buf)
-}
-
-fn compute_receipt_digest_from_bundle(
-    context_digest: &B3Hash,
-    run_head: &B3Hash,
-    output_digest: &B3Hash,
-    receipt: &ReceiptDigests,
-    bundle: &ReceiptBundle,
-) -> B3Hash {
-    let mut input = ReceiptDigestInput::new(
-        *context_digest.as_bytes(),
-        *run_head.as_bytes(),
-        *output_digest.as_bytes(),
-        receipt.logical_prompt_tokens,
-        receipt.prefix_cached_token_count,
-        receipt.billed_input_tokens,
-        receipt.logical_output_tokens,
-        receipt.billed_output_tokens,
-    );
-
-    if receipt.schema_version >= RECEIPT_SCHEMA_V2 {
-        let attestation_bytes = bundle
-            .backend_attestation_b3_hex
-            .as_ref()
-            .and_then(|h| hex::decode(h).ok())
-            .and_then(|b| <[u8; 32]>::try_from(b).ok());
-
-        input = input.with_backend(bundle.backend_used.clone(), attestation_bytes);
-    }
-
-    if receipt.schema_version >= RECEIPT_SCHEMA_V3 {
-        let seed_digest = receipt
-            .root_seed_digest_hex
-            .as_ref()
-            .and_then(|h| hex::decode(h).ok())
-            .and_then(|b| <[u8; 32]>::try_from(b).ok());
-
-        input = input.with_seed_lineage(
-            seed_digest,
-            receipt.seed_mode.clone(),
-            receipt.has_manifest_binding,
-        );
-    }
-
-    if receipt.schema_version >= RECEIPT_SCHEMA_V4 {
-        let stop_policy_digest = receipt
-            .stop_policy_digest_b3_hex
-            .as_ref()
-            .and_then(|h| hex::decode(h).ok())
-            .and_then(|b| <[u8; 32]>::try_from(b).ok());
-
-        input = input.with_stop_controller(
-            receipt.stop_reason_code.clone(),
-            receipt.stop_reason_token_index,
-            stop_policy_digest,
-        );
-
-        input = input.with_kv_quota(
-            receipt.tenant_kv_quota_bytes,
-            receipt.tenant_kv_bytes_used,
-            receipt.kv_evictions,
-            receipt.kv_residency_policy_id.clone(),
-            receipt.kv_quota_enforced,
-        );
-
-        let prefix_kv_key = receipt
-            .prefix_kv_key_b3_hex
-            .as_ref()
-            .and_then(|h| hex::decode(h).ok())
-            .and_then(|b| <[u8; 32]>::try_from(b).ok());
-
-        input = input.with_prefix_cache(
-            prefix_kv_key,
-            receipt.prefix_cache_hit,
-            receipt.prefix_kv_bytes,
-        );
-
-        let model_cache_identity = receipt
-            .model_cache_identity_v2_digest_b3_hex
-            .as_ref()
-            .and_then(|h| hex::decode(h).ok())
-            .and_then(|b| <[u8; 32]>::try_from(b).ok());
-
-        input = input.with_model_cache_identity(model_cache_identity);
-    }
-
-    if receipt.schema_version >= RECEIPT_SCHEMA_V5 {
-        let equipment_profile = receipt
-            .equipment_profile_digest_b3_hex
-            .as_ref()
-            .and_then(|h| hex::decode(h).ok())
-            .and_then(|b| <[u8; 32]>::try_from(b).ok());
-
-        input = input.with_equipment_profile(
-            equipment_profile,
-            receipt.processor_id.clone(),
-            receipt.mlx_version.clone(),
-            receipt.ane_version.clone(),
-        );
-
-        let citations_root = receipt
-            .citations_merkle_root_b3_hex
-            .as_ref()
-            .and_then(|h| hex::decode(h).ok())
-            .and_then(|b| <[u8; 32]>::try_from(b).ok());
-
-        input = input.with_citations(citations_root, receipt.citation_count);
-    }
-
-    if receipt.schema_version >= RECEIPT_SCHEMA_V6 {
-        let previous_receipt = receipt
-            .previous_receipt_digest_hex
-            .as_ref()
-            .and_then(|h| hex::decode(h).ok())
-            .and_then(|b| <[u8; 32]>::try_from(b).ok());
-
-        input = input.with_cross_run_lineage(previous_receipt, receipt.session_sequence);
-    }
-
-    if receipt.schema_version >= RECEIPT_SCHEMA_V7 {
-        let tokenizer_hash = receipt
-            .tokenizer_hash_b3_hex
-            .as_ref()
-            .and_then(|h| hex::decode(h).ok())
-            .and_then(|b| <[u8; 32]>::try_from(b).ok());
-
-        input = input.with_tokenizer_identity(
-            tokenizer_hash,
-            receipt.tokenizer_version.clone(),
-            receipt.tokenizer_normalization.clone(),
-        );
-
-        let model_build = receipt
-            .model_build_hash_b3_hex
-            .as_ref()
-            .and_then(|h| hex::decode(h).ok())
-            .and_then(|b| <[u8; 32]>::try_from(b).ok());
-        let adapter_build = receipt
-            .adapter_build_hash_b3_hex
-            .as_ref()
-            .and_then(|h| hex::decode(h).ok())
-            .and_then(|b| <[u8; 32]>::try_from(b).ok());
-
-        input = input.with_build_provenance(model_build, adapter_build);
-
-        let seed_digest = receipt
-            .seed_digest_b3_hex
-            .as_ref()
-            .and_then(|h| hex::decode(h).ok())
-            .and_then(|b| <[u8; 32]>::try_from(b).ok());
-
-        input = input.with_decoder_config(
-            receipt.decode_algo.clone(),
-            receipt.temperature_q15,
-            receipt.top_p_q15,
-            receipt.top_k,
-            seed_digest,
-            receipt.sampling_backend.clone(),
-        );
-
-        input = input
-            .with_concurrency_determinism(receipt.thread_count, receipt.reduction_strategy.clone());
-
-        let stop_window = receipt
-            .stop_window_digest_b3_hex
-            .as_ref()
-            .and_then(|h| hex::decode(h).ok())
-            .and_then(|b| <[u8; 32]>::try_from(b).ok());
-
-        input = input.with_stop_controller_inputs(receipt.stop_eos_q15, stop_window);
-
-        let cached_prefix_digest = receipt
-            .cached_prefix_digest_b3_hex
-            .as_ref()
-            .and_then(|h| hex::decode(h).ok())
-            .and_then(|b| <[u8; 32]>::try_from(b).ok());
-        let cache_key = receipt
-            .cache_key_b3_hex
-            .as_ref()
-            .and_then(|h| hex::decode(h).ok())
-            .and_then(|b| <[u8; 32]>::try_from(b).ok());
-
-        input = input.with_cache_proof(
-            receipt.cache_scope.clone(),
-            cached_prefix_digest,
-            receipt.cached_prefix_len,
-            cache_key,
-        );
-
-        let retrieval_merkle = receipt
-            .retrieval_merkle_root_b3_hex
-            .as_ref()
-            .and_then(|h| hex::decode(h).ok())
-            .and_then(|b| <[u8; 32]>::try_from(b).ok());
-        let retrieval_order = receipt
-            .retrieval_order_digest_b3_hex
-            .as_ref()
-            .and_then(|h| hex::decode(h).ok())
-            .and_then(|b| <[u8; 32]>::try_from(b).ok());
-        let tool_inputs = receipt
-            .tool_call_inputs_digest_b3_hex
-            .as_ref()
-            .and_then(|h| hex::decode(h).ok())
-            .and_then(|b| <[u8; 32]>::try_from(b).ok());
-        let tool_outputs = receipt
-            .tool_call_outputs_digest_b3_hex
-            .as_ref()
-            .and_then(|h| hex::decode(h).ok())
-            .and_then(|b| <[u8; 32]>::try_from(b).ok());
-
-        input = input.with_retrieval_tool_binding(
-            retrieval_merkle,
-            retrieval_order,
-            tool_inputs,
-            tool_outputs,
-        );
-
-        input = input.with_disclosure_level(receipt.disclosure_level.clone());
-    }
-
-    receipt_digest::compute_receipt_digest(&input, receipt.schema_version)
-        .unwrap_or_else(B3Hash::zero)
-}
-
-fn compute_context_digest(ctx: &ReceiptContext) -> Result<B3Hash> {
-    let stack_bytes =
-        hex::decode(&ctx.stack_hash_hex).with_context(|| "Failed to decode stack_hash_hex")?;
-    let mut buf = Vec::with_capacity(
-        ctx.tenant_namespace.len() + stack_bytes.len() + 4 + ctx.prompt_tokens.len() * 4 + 96,
-    );
-    buf.extend_from_slice(ctx.tenant_namespace.as_bytes());
-    buf.extend_from_slice(&stack_bytes);
-    if let Some(ref hex) = ctx.tokenizer_hash_b3_hex {
-        if let Ok(bytes) = hex::decode(hex) {
-            buf.extend_from_slice(&bytes);
-        }
-        if let Some(ref version) = ctx.tokenizer_version {
-            buf.extend_from_slice(&(version.len() as u32).to_le_bytes());
-            buf.extend_from_slice(version.as_bytes());
-        }
-        if let Some(ref norm) = ctx.tokenizer_normalization {
-            buf.extend_from_slice(&(norm.len() as u32).to_le_bytes());
-            buf.extend_from_slice(norm.as_bytes());
-        }
-    }
-    buf.extend_from_slice(&(ctx.prompt_tokens.len() as u32).to_le_bytes());
-    for t in &ctx.prompt_tokens {
-        buf.extend_from_slice(&t.to_le_bytes());
-    }
-    Ok(B3Hash::hash(&buf))
-}
-
-fn verify_signature(
-    receipt: &ReceiptDigests,
-    receipt_digest: &B3Hash,
-    reasons: &mut Vec<ReceiptReasonCode>,
-) -> Result<(bool, Option<bool>)> {
-    let Some(signature_b64) = receipt.signature_b64.as_ref() else {
-        return Ok((false, None));
-    };
-    let Some(pubkey_hex) = receipt.public_key_hex.as_ref() else {
-        push_reason(reasons, ReceiptReasonCode::SignatureInvalid);
-        return Ok((true, Some(false)));
-    };
-
-    let sig_bytes = match base64::engine::general_purpose::STANDARD.decode(signature_b64) {
-        Ok(bytes) => bytes,
-        Err(e) => {
-            push_reason(reasons, ReceiptReasonCode::SignatureInvalid);
-            return Err(anyhow!("Invalid base64 signature: {e}"));
-        }
-    };
-    if sig_bytes.len() != 64 {
-        push_reason(reasons, ReceiptReasonCode::SignatureInvalid);
-        return Ok((true, Some(false)));
-    }
-    let mut sig_arr = [0u8; 64];
-    sig_arr.copy_from_slice(&sig_bytes);
-    let signature =
-        Signature::from_bytes(&sig_arr).map_err(|e| anyhow!("Invalid signature bytes: {e}"))?;
-
-    let pub_bytes = decode_hex_32("public_key", pubkey_hex)?;
-    let pubkey =
-        PublicKey::from_bytes(&pub_bytes).map_err(|e| anyhow!("Invalid public key: {e}"))?;
-
-    let verified = pubkey.verify(receipt_digest.as_bytes(), &signature).is_ok();
-    if !verified {
-        push_reason(reasons, ReceiptReasonCode::SignatureInvalid);
-    }
-
-    Ok((true, Some(verified)))
-}
-
-fn verify_bundle(bundle: &ReceiptBundle) -> Result<ReceiptVerificationResult> {
-    let mut reasons: Vec<ReceiptReasonCode> = Vec::new();
-    let computed_context = compute_context_digest(&bundle.context)?;
-
-    let expected_context_hex = bundle
-        .context_digest_hex
-        .as_ref()
-        .or(bundle.context.context_digest_hex.as_ref())
-        .cloned()
-        .unwrap_or_else(|| computed_context.to_hex());
-    let context_expected = B3Hash::from_hex(&expected_context_hex)
-        .with_context(|| "Invalid expected context digest hex")?;
-    if context_expected != computed_context {
-        push_reason(&mut reasons, ReceiptReasonCode::ContextMismatch);
-    }
-
-    let logical_prompt_tokens = bundle.receipt.logical_prompt_tokens;
-    let prompt_token_len = bundle.context.prompt_tokens.len() as u32;
-    if logical_prompt_tokens != prompt_token_len {
-        push_reason(&mut reasons, ReceiptReasonCode::ContextMismatch);
-    }
-
-    let canonical_billed_input =
-        logical_prompt_tokens.saturating_sub(bundle.receipt.prefix_cached_token_count);
-    if canonical_billed_input != bundle.receipt.billed_input_tokens {
-        push_reason(&mut reasons, ReceiptReasonCode::TraceTamper);
-    }
-
-    if bundle.receipt.logical_output_tokens != bundle.output_tokens.len() as u32 {
-        push_reason(&mut reasons, ReceiptReasonCode::TraceTamper);
-    }
-
-    if bundle.receipt.billed_output_tokens != bundle.receipt.logical_output_tokens {
-        push_reason(&mut reasons, ReceiptReasonCode::TraceTamper);
-    }
-
-    if let Some(expected_backend) = bundle.expected_backend.as_ref() {
-        let expected_backend = expected_backend.to_lowercase();
-        if bundle.tokens.iter().any(|t| {
-            t.backend_id
-                .as_ref()
-                .map(|b| b.to_lowercase() != expected_backend)
-                .unwrap_or(true)
-        }) {
-            push_reason(&mut reasons, ReceiptReasonCode::BackendMismatch);
-        }
-    }
-
-    if let Some(expected_kernel) = bundle.expected_kernel_version.as_ref() {
-        let expected_kernel = expected_kernel.to_lowercase();
-        if bundle.tokens.iter().any(|t| {
-            t.kernel_version_id
-                .as_ref()
-                .map(|k| k.to_lowercase() != expected_kernel)
-                .unwrap_or(true)
-        }) {
-            push_reason(&mut reasons, ReceiptReasonCode::BackendMismatch);
-        }
-    }
-
-    if let Some(expected_policy_hex) = bundle.context.policy_mask_digest_hex.as_ref() {
-        let expected_policy = decode_hex_32("policy_mask_digest_hex", expected_policy_hex)?;
-        if bundle.tokens.iter().any(|t| {
-            t.policy_mask_digest_hex
-                .as_ref()
-                .and_then(|p| decode_hex_32("policy_mask_digest_hex", p).ok())
-                .map(|digest| digest != expected_policy)
-                .unwrap_or(true)
-        }) {
-            push_reason(&mut reasons, ReceiptReasonCode::PolicyMismatch);
-        }
-    }
-
-    let mut run_head = B3Hash::zero();
-    let mut mismatched_token = None;
-
-    let mut tokens_sorted = bundle.tokens.clone();
-    tokens_sorted.sort_by_key(|t| t.token_index);
-
-    for token in &tokens_sorted {
-        let adapter_blob = encode_adapter_ids(&token.adapter_ids);
-        let gates_blob = encode_gates_q15(&token.gates_q15);
-        let policy_digest = match &token.policy_mask_digest_hex {
-            Some(hex) => Some(decode_hex_32("policy_mask_digest_hex", hex)?),
-            None => None,
-        };
-        let decision_hash = hash_decision(
-            computed_context.as_bytes(),
-            token.token_index,
-            &adapter_blob,
-            &gates_blob,
-            policy_digest,
-            token.backend_id.as_deref(),
-            token.kernel_version_id.as_deref(),
-        );
-
-        if let Some(expected_hash_hex) = token.decision_hash_hex.as_ref() {
-            let expected_hash =
-                B3Hash::from_hex(expected_hash_hex).with_context(|| "Invalid decision_hash_hex")?;
-            if expected_hash != decision_hash && mismatched_token.is_none() {
-                mismatched_token = Some(token.token_index);
-            }
-        }
-
-        run_head = update_head(&run_head, token.token_index, &decision_hash);
-    }
-
-    let expected_run_head =
-        B3Hash::from_hex(&bundle.receipt.run_head_hash_hex).with_context(|| {
-            format!(
-                "Invalid run_head_hash_hex ({})",
-                bundle.receipt.run_head_hash_hex
-            )
-        })?;
-    if expected_run_head != run_head {
-        push_reason(&mut reasons, ReceiptReasonCode::TraceTamper);
-        mismatched_token.get_or_insert(tokens_sorted.last().map(|t| t.token_index).unwrap_or(0));
-    }
-
-    let output_digest = compute_output_digest(&bundle.output_tokens);
-    let expected_output = B3Hash::from_hex(&bundle.receipt.output_digest_hex)
-        .with_context(|| "Invalid output_digest_hex")?;
-    if expected_output != output_digest {
-        push_reason(&mut reasons, ReceiptReasonCode::OutputMismatch);
-    }
-
-    let receipt_digest = compute_receipt_digest_from_bundle(
-        &computed_context,
-        &run_head,
-        &output_digest,
-        &bundle.receipt,
-        &bundle,
-    );
-    let expected_receipt =
-        B3Hash::from_hex(&bundle.receipt.receipt_digest_hex).with_context(|| {
-            format!(
-                "Invalid receipt_digest_hex ({})",
-                bundle.receipt.receipt_digest_hex
-            )
-        })?;
-    if expected_receipt != receipt_digest {
-        push_reason(&mut reasons, ReceiptReasonCode::TraceTamper);
-    }
-
-    let (signature_checked, signature_valid) =
-        verify_signature(&bundle.receipt, &expected_receipt, &mut reasons)?;
-
-    let pass = reasons.is_empty();
-
-    Ok(ReceiptVerificationResult {
-        trace_id: bundle.trace_id.clone(),
-        tenant_id: Some(bundle.tenant_id.clone()),
-        source: "bundle".to_string(),
-        pass,
-        verified_at: chrono::Utc::now().to_rfc3339(),
-        reasons,
-        mismatched_token,
-        context_digest: ReceiptDigestDiff {
-            field: "context_digest".to_string(),
-            expected_hex: expected_context_hex,
-            computed_hex: computed_context.to_hex(),
-            matches: computed_context == context_expected,
-        },
-        run_head_hash: ReceiptDigestDiff {
-            field: "run_head_hash".to_string(),
-            expected_hex: bundle.receipt.run_head_hash_hex.clone(),
-            computed_hex: run_head.to_hex(),
-            matches: run_head == expected_run_head,
-        },
-        output_digest: ReceiptDigestDiff {
-            field: "output_digest".to_string(),
-            expected_hex: bundle.receipt.output_digest_hex.clone(),
-            computed_hex: output_digest.to_hex(),
-            matches: output_digest == expected_output,
-        },
-        receipt_digest: ReceiptDigestDiff {
-            field: "receipt_digest".to_string(),
-            expected_hex: bundle.receipt.receipt_digest_hex.clone(),
-            computed_hex: receipt_digest.to_hex(),
-            matches: receipt_digest == expected_receipt,
-        },
-        signature_checked,
-        signature_valid,
-    })
-}
-
-fn load_bundle_from_bytes(bytes: &[u8]) -> Result<ReceiptBundle> {
-    if let Ok(bundle) = serde_json::from_slice::<ReceiptBundle>(bytes) {
-        return Ok(bundle);
-    }
-
-    // Fallback: try to read from zip archive
-    let mut cursor = Cursor::new(bytes);
-    let mut archive = ZipArchive::new(&mut cursor)?;
-
-    for name in EVIDENCE_BUNDLE_FILENAMES {
-        if let Ok(mut file) = archive.by_name(name) {
-            let mut buf = String::new();
-            file.read_to_string(&mut buf)?;
-            if let Ok(bundle) = serde_json::from_str::<ReceiptBundle>(&buf) {
-                return Ok(bundle);
-            }
-        }
-    }
-
-    bail!("Unable to parse evidence bundle as JSON or zip");
 }
 
 pub(crate) fn verify_bundle_bytes(bytes: &[u8]) -> Result<ReceiptVerificationResult> {
-    let bundle = load_bundle_from_bytes(bytes)?;
-    verify_bundle(&bundle)
+    let options = adapteros_crypto::VerifyOptions::default();
+    let report = adapteros_crypto::verify_bundle_bytes(bytes, &options)?;
+
+    Ok(ReceiptVerificationResult {
+        trace_id: report.trace_id,
+        tenant_id: report.tenant_id,
+        source: report.source,
+        pass: report.pass,
+        verified_at: report.verified_at,
+        reasons: report
+            .reasons
+            .into_iter()
+            .map(map_verifier_reason)
+            .collect(),
+        mismatched_token: report.mismatched_token,
+        context_digest: ReceiptDigestDiff {
+            field: "context_digest".to_string(),
+            expected_hex: report.context_digest.expected,
+            computed_hex: report.context_digest.computed,
+            matches: report.context_digest.matches,
+        },
+        run_head_hash: ReceiptDigestDiff {
+            field: "run_head_hash".to_string(),
+            expected_hex: report.run_head_hash.expected,
+            computed_hex: report.run_head_hash.computed,
+            matches: report.run_head_hash.matches,
+        },
+        output_digest: ReceiptDigestDiff {
+            field: "output_digest".to_string(),
+            expected_hex: report.output_digest.expected,
+            computed_hex: report.output_digest.computed,
+            matches: report.output_digest.matches,
+        },
+        receipt_digest: ReceiptDigestDiff {
+            field: "receipt_digest".to_string(),
+            expected_hex: report.receipt_digest.expected,
+            computed_hex: report.receipt_digest.computed,
+            matches: report.receipt_digest.matches,
+        },
+        signature_checked: report.signature_checked,
+        signature_valid: report.signature_valid,
+    })
 }
 
 #[utoipa::path(

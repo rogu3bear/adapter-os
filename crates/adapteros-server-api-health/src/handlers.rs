@@ -81,6 +81,25 @@ pub async fn health(State(state): State<AppState>) -> impl IntoResponse {
     )
 }
 
+#[cfg(test)]
+mod build_id_tests {
+    #[test]
+    fn build_id_is_set_and_canonical() {
+        let build_id = option_env!("AOS_BUILD_ID").expect("AOS_BUILD_ID must be set by build.rs");
+        assert!(
+            !build_id.trim().is_empty(),
+            "AOS_BUILD_ID must not be empty"
+        );
+        let (_prefix, ts) = build_id
+            .rsplit_once('-')
+            .expect("AOS_BUILD_ID should contain '-' separating timestamp");
+        assert!(
+            ts.len() == 14 && ts.chars().all(|c| c.is_ascii_digit()),
+            "AOS_BUILD_ID should end with YYYYMMDDHHmmss: {build_id}"
+        );
+    }
+}
+
 /// Readiness mode indicates how strictly checks are enforced.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "mode", rename_all = "snake_case")]

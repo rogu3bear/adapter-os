@@ -46,10 +46,12 @@ const KNOWN_MANIFEST_FIELDS: &[&str] = &[
     "targets",
     "backend_family",
     "base_model",
+    "base_model_hash",
     // Hashes
     "weights_hash",
     "content_hash",
     "manifest_hash",
+    "integrity_hash",
     // Metadata container (nested fields allowed)
     "metadata",
     "description",
@@ -62,6 +64,19 @@ const KNOWN_MANIFEST_FIELDS: &[&str] = &[
     // Security
     "signature",
     "signed_by",
+    // Training and determinism metadata
+    "created_at",
+    "training_config",
+    "training_backend",
+    "determinism",
+    "per_layer_hashes",
+    "quantization",
+    "gate_q15_denominator",
+    "kernel_version",
+    "synthetic_mode",
+    "data_lineage_mode",
+    "recommended_for_moe",
+    "coreml_placement",
     // Optional extension fields (allowed but not required)
     "tags",
     "labels",

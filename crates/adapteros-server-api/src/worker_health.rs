@@ -14,6 +14,7 @@ use adapteros_db::workers::{WorkerIncidentType, WorkerWithBinding};
 use adapteros_db::Db;
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -194,13 +195,31 @@ impl WorkerHealthMonitor {
     /// Poll all workers and update their health status
     async fn poll_all_workers(&self) -> Result<(), adapteros_core::AosError> {
         let workers = self.db.list_all_workers().await?;
-        debug!(count = workers.len(), "Polling workers for health");
 
+        // A single UDS path maps to a single live socket. If the DB accumulates
+        // multiple worker IDs for the same socket across restarts, we must not
+        // "heal" all of them by polling the same socket.
+        //
+        // Pick the newest non-terminal worker per UDS path and only poll that one.
+        let mut by_uds: HashMap<String, adapteros_db::models::Worker> = HashMap::new();
         for worker in workers {
-            if worker.status == "stopped" {
-                continue; // Skip stopped workers
+            if worker.status == "stopped" || worker.status == "error" {
+                continue;
             }
 
+            by_uds
+                .entry(worker.uds_path.clone())
+                .and_modify(|current| {
+                    if worker.started_at > current.started_at {
+                        *current = worker.clone();
+                    }
+                })
+                .or_insert(worker);
+        }
+
+        debug!(count = by_uds.len(), "Polling workers for health");
+
+        for worker in by_uds.values() {
             let uds_path = PathBuf::from(&worker.uds_path);
             let result = self.health_check(&uds_path).await;
 

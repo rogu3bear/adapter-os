@@ -347,7 +347,7 @@ async fn ready_model_happy_path_inference_and_routing() {
         State(state.clone()),
         Extension(claims.clone()),
         axum::extract::Query(RoutingDecisionsQuery {
-            tenant: claims.tenant_id.clone(),
+            tenant: Some(claims.tenant_id.clone()),
             limit: Some(10),
             offset: None,
             since: None,

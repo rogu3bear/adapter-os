@@ -62,7 +62,7 @@ async fn test_q15_conversion_uses_32767_denominator() {
         .expect("insert decision");
 
     let query = RoutingDecisionsQuery {
-        tenant: claims.tenant_id.clone(),
+        tenant: Some(claims.tenant_id.clone()),
         limit: Some(1),
         offset: None,
         since: None,
