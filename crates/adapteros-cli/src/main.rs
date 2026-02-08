@@ -1757,7 +1757,9 @@ async fn execute_command(command: &Commands, cli: &Cli, output: &OutputWriter) -
 
         // Model Management
         Commands::Models(cmd) => {
-            commands::models::handle_models_command(cmd.clone(), &output).await?;
+            let model_path_override = cli.model_path.as_deref().map(PathBuf::from);
+            commands::models::handle_models_command(cmd.clone(), &output, model_path_override)
+                .await?;
         }
 
         // Plan Management

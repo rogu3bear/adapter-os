@@ -23,10 +23,6 @@ pub enum ModelsCommand {
   aosctl models seed --force
 "#)]
     Seed {
-        /// Model directory path (defaults to AOS_MODEL_PATH env var or var/models)
-        #[arg(long = "model-path")]
-        path: Option<PathBuf>,
-
         /// Database path (defaults to DATABASE_URL or var/aos-cp.sqlite3)
         #[arg(long)]
         db_path: Option<PathBuf>,
@@ -66,7 +62,11 @@ pub enum ModelsCommand {
 }
 
 /// Handle models commands
-pub async fn handle_models_command(cmd: ModelsCommand, output: &OutputWriter) -> Result<()> {
+pub async fn handle_models_command(
+    cmd: ModelsCommand,
+    output: &OutputWriter,
+    model_path_override: Option<PathBuf>,
+) -> Result<()> {
     let command_name = get_models_command_name(&cmd);
     info!(command = ?cmd, "Handling models command");
     if let Err(e) = crate::cli_telemetry::emit_cli_command(&command_name, None, true).await {
@@ -74,11 +74,9 @@ pub async fn handle_models_command(cmd: ModelsCommand, output: &OutputWriter) ->
     }
 
     match cmd {
-        ModelsCommand::Seed {
-            path,
-            db_path,
-            force,
-        } => run_seed(path, db_path, force, output).await,
+        ModelsCommand::Seed { db_path, force } => {
+            run_seed(model_path_override, db_path, force, output).await
+        }
         ModelsCommand::List { db_path, json } => run_list(db_path, json, output).await,
         ModelsCommand::CheckTokenizer(args) => args.execute(output).await,
     }
@@ -93,13 +91,13 @@ fn get_models_command_name(cmd: &ModelsCommand) -> String {
 }
 
 async fn run_seed(
-    model_path: Option<PathBuf>,
+    model_path_override: Option<PathBuf>,
     db_path: Option<PathBuf>,
     force: bool,
     output: &OutputWriter,
 ) -> Result<()> {
-    // Resolve model path: CLI arg > AOS_MODEL_PATH env > default
-    let model_path = model_path
+    // Resolve model path: CLI/global override > AOS_MODEL_PATH env > default
+    let model_path = model_path_override
         .or_else(|| std::env::var("AOS_MODEL_PATH").ok().map(PathBuf::from))
         .unwrap_or_else(|| adapteros_core::rebase_var_path("var/models"));
 

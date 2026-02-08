@@ -19,12 +19,32 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 # =============================================================================
 # Load Environment
 # =============================================================================
-# Source .env file if it exists (before configuration section)
-# This ensures DEFAULT_MANIFEST_HASH and AOS_MANIFEST_HASH from .env are respected
-if [ -f "$PROJECT_ROOT/.env" ]; then
+# Load .env file if it exists (before configuration section).
+# IMPORTANT: do not override environment variables already set by the caller
+# (e.g., `./start --worker-manifest ...`), so dev overrides work deterministically.
+if [ -f "$PROJECT_ROOT/scripts/lib/env-loader.sh" ]; then
     # shellcheck disable=SC1091
-    set -a  # Auto-export variables
-    source "$PROJECT_ROOT/.env"
+    source "$PROJECT_ROOT/scripts/lib/env-loader.sh"
+    # env-loader normalizes relative paths relative to SCRIPT_DIR; in this repo,
+    # the canonical base for runtime paths is the workspace root (PROJECT_ROOT).
+    export SCRIPT_DIR="$PROJECT_ROOT"
+    load_env_file "$PROJECT_ROOT/.env" --no-override || true
+elif [ -f "$PROJECT_ROOT/.env" ]; then
+    # Fallback: best-effort source, without overriding already-set vars.
+    set -a
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+        if [[ "$line" =~ ^[^#]*= ]]; then
+            var_name="${line%%=*}"
+            var_name="${var_name// /}"
+            if [[ "$var_name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+                eval "existing_value=\${$var_name:-}"
+                if [ -z "${existing_value:-}" ]; then
+                    eval "export $line" 2>/dev/null || true
+                fi
+            fi
+        fi
+    done < "$PROJECT_ROOT/.env"
     set +a
 fi
 
@@ -149,6 +169,7 @@ ensure_dirs() {
     mkdir -p "$PID_DIR"
     mkdir -p "$LOG_DIR"
     mkdir -p "$QUARANTINE_DIR"
+    mkdir -p "$PROJECT_ROOT/var/tmp"
 }
 
 quarantine_artifact() {
@@ -612,11 +633,10 @@ start_backend() {
 
     # Select binary based on dev mode (dev flags → debug binary, prod → release)
     local server_bin=""
-    # Capture stderr from select_server_binary to ensure error messages are visible
-    local select_binary_stderr
-    select_binary_stderr=$(mktemp)
+    # Capture stderr from select_server_binary without writing to /tmp.
+    local select_binary_stderr="$PROJECT_ROOT/var/tmp/select_server_binary.$$.$RANDOM.stderr"
+    : >"$select_binary_stderr"
     if ! server_bin=$(select_server_binary 2>"$select_binary_stderr"); then
-        # Flush stderr and show error messages
         if [ -s "$select_binary_stderr" ]; then
             cat "$select_binary_stderr" >&2
         fi
@@ -673,10 +693,14 @@ start_backend() {
         drift_flag="--skip-drift-check"
     fi
 
+    # Redirect stdin to avoid any accidental TTY coupling.
+    # Note: We intentionally avoid `setsid` here because it is not available on
+    # some macOS environments by default.
     nohup "$server_bin" --config "${AOS_CONFIG_PATH:-$PROJECT_ROOT/configs/cp.toml}" \
         ${drift_flag:+$drift_flag} \
-        > "$BACKEND_LOG" 2>&1 &
+        > "$BACKEND_LOG" 2>&1 < /dev/null &
     local pid=$!
+    disown "$pid" 2>/dev/null || true
 
     echo "$pid" > "$BACKEND_PID_FILE"
 
@@ -1169,20 +1193,30 @@ start_worker() {
     export AOS_DEV_SKIP_METALLIB_CHECK="${AOS_DEV_SKIP_METALLIB_CHECK:-0}"
     export RUST_LOG="${RUST_LOG:-info,adapteros_lora_worker=info}"
 
-    # Build worker command
-    # Propagate manifest hash so the worker fetches/verifies by hash
-    export AOS_MANIFEST_HASH="$manifest_hash"
+    # Build worker command.
+    # Only pass --manifest-hash when we actually have one; clap treats an empty
+    # string as "Some(...)" and the worker will try to parse it as hex and fail.
+    local -a worker_args=(
+        "$worker_bin"
+        --manifest "$manifest_path"
+        --model-path "$model_path"
+        --uds-path "$uds_path"
+        --backend "$backend"
+    )
+    if [ -n "${manifest_hash:-}" ]; then
+        export AOS_MANIFEST_HASH="$manifest_hash"
+        worker_args+=(--manifest-hash "$manifest_hash")
+    fi
 
-    local worker_cmd="$worker_bin --manifest \"$manifest_path\" --manifest-hash \"$manifest_hash\" --model-path \"$model_path\" --uds-path \"$uds_path\" --backend \"$backend\""
-    
     # Add tokenizer path if found
     if [ -n "$tokenizer_path" ] && [ -f "$tokenizer_path" ]; then
-        worker_cmd="$worker_cmd --tokenizer \"$tokenizer_path\""
+        worker_args+=(--tokenizer "$tokenizer_path")
     fi
-    
-    # Start worker
-    eval "nohup $worker_cmd > \"$WORKER_LOG\" 2>&1 &"
+
+    # Start worker (avoid eval, detach).
+    nohup "${worker_args[@]}" > "$WORKER_LOG" 2>&1 < /dev/null &
     local pid=$!
+    disown "$pid" 2>/dev/null || true
 
     echo "$pid" > "$WORKER_PID_FILE"
 

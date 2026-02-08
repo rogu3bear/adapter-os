@@ -305,9 +305,15 @@ impl SpecialTokenMap {
         let vocab_size = tokenizer.get_vocab_size(true);
 
         if let Some(expected) = expected_vocab_size {
-            if expected != vocab_size {
+            // Some packaged models (and/or tokenizers) report a tokenizer vocab size that is
+            // smaller than the model's embedding vocab size (e.g., reserved/unused IDs).
+            // This is safe as long as the tokenizer never emits IDs >= expected.
+            //
+            // Guard the dangerous direction (tokenizer > model vocab), but allow
+            // tokenizer < model vocab to proceed.
+            if vocab_size > expected {
                 return Err(AosError::Validation(format!(
-                    "Tokenizer vocab_size {} does not match manifest/base config {}",
+                    "Tokenizer vocab_size {} exceeds manifest/base config {}",
                     vocab_size, expected
                 )));
             }

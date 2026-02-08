@@ -476,6 +476,7 @@ mod tests {
             validation_token_count: 0,
             best_validation: None,
             final_validation_loss: None,
+            mlx_version: None,
         };
         let candidate = TrainingResult {
             adapter_id: "cand".into(),
@@ -507,6 +508,7 @@ mod tests {
             validation_token_count: 0,
             best_validation: None,
             final_validation_loss: None,
+            mlx_version: None,
         };
 
         let metrics = compute_drift(&reference, &candidate);

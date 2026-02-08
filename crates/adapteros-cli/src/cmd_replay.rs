@@ -326,6 +326,9 @@ mod tests {
             policy_mask_digest_b3: None,
             backend_used: Some("coreml".to_string()),
             kernel_version_id: Some("kernel-v1".to_string()),
+            tokenizer_hash_b3: None,
+            tokenizer_version: None,
+            tokenizer_normalization: None,
         }
     }
 
