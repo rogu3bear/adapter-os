@@ -148,16 +148,18 @@ impl EmbeddingModel {
         let model_path = match model_path {
             Some(path) => path,
             None => {
-                // No model found - RAG operations require real embeddings
-                tracing::error!(
-                    "No model.safetensors or model.safetensors.index.json found in {:?}. \
-                     RAG and semantic operations require a valid embedding model.",
-                    base_path
+                // No embedding weights were found in the base model directory and no usable
+                // embedding override exists. This can happen for CoreML `.mlpackage` base models
+                // which don't ship `model.safetensors`.
+                //
+                // In that case, we prefer a deterministic, degraded fallback so the worker can
+                // still start and serve normal inference; RAG/semantic quality will be poor.
+                tracing::warn!(
+                    path = %base_path.display(),
+                    "Embedding weights not found; using deterministic initialized embeddings. \
+                     Set AOS_EMBEDDING_MODEL_PATH to enable real RAG/semantic embeddings."
                 );
-                return Err(AosError::Worker(
-                    "Embedding model not found. Set AOS_EMBEDDING_MODEL_PATH to a safetensors directory for RAG/semantic operations."
-                        .into(),
-                ));
+                return Ok(Self::init_random_embeddings(vocab_size, hidden_dim));
             }
         };
 

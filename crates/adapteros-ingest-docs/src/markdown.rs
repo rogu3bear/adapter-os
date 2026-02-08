@@ -69,6 +69,7 @@ pub fn ingest_markdown_bytes(
         source_name: source_name.to_string(),
         source_path,
         doc_hash,
+        ocr_fingerprint: None,
         normalized_text_hash: Some(normalized_text_hash),
         normalized_text_len: Some(normalized_text_len),
         byte_len: bytes.len(),

@@ -258,6 +258,7 @@ mod tests {
             source_name: "test-document.pdf".to_string(),
             source_path: Some(PathBuf::from("var/test.pdf")),
             doc_hash: B3Hash::hash(b"test"),
+            ocr_fingerprint: None,
             normalized_text_hash: None,
             normalized_text_len: None,
             byte_len: 1000,

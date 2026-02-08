@@ -74,12 +74,10 @@ use adapteros_config::{
 use adapteros_core::constants::DEFAULT_ADAPTER_CACHE_SIZE;
 use adapteros_core::prefix_kv_key::compute_tokenizer_manifest_hash;
 use adapteros_core::{
-    compute_adapter_config_hash,
     determinism::{DeterminismContext, DeterminismSource},
     determinism_violation_event, emit_observability_event, AosError, B3Hash, BackendKind,
     CircuitBreaker as CircuitBreakerTrait, CircuitBreakerConfig, DeterminismViolationKind,
-    EquipmentProfile, FusionInterval, ReceiptGenerator, RepoAdapterPaths, Result, RoutingRecord,
-    SeedMode, StandardCircuitBreaker,
+    EquipmentProfile, FusionInterval, RepoAdapterPaths, Result, SeedMode, StandardCircuitBreaker,
 };
 use adapteros_db::{
     Db, SqlTraceSink, TraceCancellation, TraceFinalization, TraceSink, TraceStart, TraceTokenInput,
@@ -331,8 +329,16 @@ impl TraceDb {
         &mut self,
         start: TraceStart,
         trace_flush_every: usize,
+        input_tokens: Option<&[u32]>,
     ) -> Option<SqlTraceSink> {
-        match SqlTraceSink::new(self.db.clone(), start, trace_flush_every).await {
+        match SqlTraceSink::new_with_input_tokens(
+            self.db.clone(),
+            start,
+            trace_flush_every,
+            input_tokens,
+        )
+        .await
+        {
             Ok(sink) => Some(sink),
             Err(e) => {
                 if !self.sink_unavailable_logged {
@@ -3051,7 +3057,9 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 policy_id: request.policy_id.clone(),
             };
 
-            trace_db.create_sink(start, self.trace_flush_every).await
+            trace_db
+                .create_sink(start, self.trace_flush_every, Some(&prompt_tokens))
+                .await
         } else {
             None
         };
@@ -3073,37 +3081,6 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
             ));
             self.trace_sink_missing_warned = true;
         }
-
-        // Phase 2: Create ReceiptGenerator for crypto receipt validation (Patent 3535886.0002)
-        // Runs parallel to SqlTraceSink for parity validation before full migration
-        let mut receipt_generator = if trace_sink.is_some() {
-            // Compute adapter config hash from manifest
-            let adapter_configs: Vec<(String, B3Hash, u32, f32)> = self
-                .manifest
-                .adapters
-                .iter()
-                .map(|a| (a.id.clone(), a.hash, a.rank, a.alpha))
-                .collect();
-            let adapter_config_hash = compute_adapter_config_hash(&adapter_configs);
-
-            let mut gen = ReceiptGenerator::new(self.manifest.base.model_hash, adapter_config_hash);
-
-            // Set equipment profile from worker initialization
-            if let Some(ref profile) = self.equipment_profile {
-                gen = gen.with_equipment_profile(profile.clone());
-            }
-
-            // Bind input tokens
-            gen.bind_input_tokens(&prompt_tokens);
-
-            // Set metadata
-            gen.set_tenant_id(&request.cpid);
-            gen.set_trace_id(&trace_id);
-
-            Some(gen)
-        } else {
-            None
-        };
 
         let mut active_entries: Vec<(usize, _)> = self
             .manifest
@@ -3604,26 +3581,8 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 }
             }
 
-            // Phase 3: Finalize ReceiptGenerator FIRST to get crypto receipt digest for dual-write
-            let crypto_receipt_digest_b3 = if let Some(gen) = receipt_generator.take() {
-                let mut gen = gen;
-                if let Some(stop_code) = stop_reason_code {
-                    gen.set_stop_reason(&stop_code.to_string());
-                }
-                match gen.finalize(&output_token_ids) {
-                    Ok(crypto_receipt) => Some(crypto_receipt.receipt_digest),
-                    Err(e) => {
-                        warn!(
-                            error = %e,
-                            trace_id = %trace_id,
-                            "ReceiptGenerator finalization failed"
-                        );
-                        None
-                    }
-                }
-            } else {
-                None
-            };
+            // Crypto receipt digests are computed/validated independently (DB backfill / offline verification).
+            let crypto_receipt_digest_b3 = None;
 
             let (
                 tenant_kv_quota_bytes,
@@ -3735,23 +3694,6 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                     .await
                 {
                     Ok(receipt) => {
-                        // Phase 3: Validate parity between crypto and legacy receipt digests
-                        if let Some(crypto_digest) = crypto_receipt_digest_b3 {
-                            if crypto_digest != receipt.receipt_digest {
-                                warn!(
-                                    crypto = %crypto_digest.to_hex(),
-                                    legacy = %receipt.receipt_digest.to_hex(),
-                                    trace_id = %trace_id,
-                                    "Receipt digest mismatch between ReceiptGenerator and SqlTraceSink"
-                                );
-                            } else {
-                                debug!(
-                                    trace_id = %trace_id,
-                                    "ReceiptGenerator parity check passed"
-                                );
-                            }
-                        }
-
                         run_receipt = Some(RunReceipt {
                             trace_id: receipt.trace_id.clone(),
                             run_head_hash: receipt.run_head_hash,
@@ -4162,22 +4104,6 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                     kernel_version_id: Some(kernel_version_for_trace.clone()),
                 };
                 sink.record_token(token_input).await?;
-
-                // Record to ReceiptGenerator for parity validation
-                if let Some(ref mut gen) = receipt_generator {
-                    gen.record_routing_step_full(
-                        step_with_free as u32,
-                        input_token_id,
-                        decision.indices.iter().copied().collect(),
-                        adapter_ids_for_trace.clone(),
-                        decision.gates_q15.iter().copied().collect(),
-                        decision.entropy,
-                        policy_mask_digest_b3.map(B3Hash::from_bytes),
-                        Some(backend_label.clone()),
-                        Some(kernel_version_for_trace),
-                        Some(policy_mask.allowed.clone()),
-                    );
-                }
             }
 
             // Convert Decision to RouterRing
@@ -4487,26 +4413,8 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
 
         // PRD-06: model_cache_identity_v2_digest already computed earlier for cache lookup
 
-        // Phase 3: Finalize ReceiptGenerator FIRST to get crypto receipt digest for dual-write
-        let crypto_receipt_digest_b3 = if let Some(gen) = receipt_generator.take() {
-            let mut gen = gen;
-            if let Some(stop_code) = stop_reason_code {
-                gen.set_stop_reason(&stop_code.to_string());
-            }
-            match gen.finalize(&generated_tokens) {
-                Ok(crypto_receipt) => Some(crypto_receipt.receipt_digest),
-                Err(e) => {
-                    warn!(
-                        error = %e,
-                        trace_id = %trace_id,
-                        "ReceiptGenerator finalization failed"
-                    );
-                    None
-                }
-            }
-        } else {
-            None
-        };
+        // Crypto receipt digests are computed/validated independently (DB backfill / offline verification).
+        let crypto_receipt_digest_b3 = None;
 
         let (
             tenant_kv_quota_bytes,
@@ -4618,23 +4526,6 @@ impl<K: FusedKernels + StrictnessControl + Send + Sync + 'static> Worker<K> {
                 .await
             {
                 Ok(receipt) => {
-                    // Phase 3: Validate parity between crypto and legacy receipt digests
-                    if let Some(crypto_digest) = crypto_receipt_digest_b3 {
-                        if crypto_digest != receipt.receipt_digest {
-                            warn!(
-                                crypto = %crypto_digest.to_hex(),
-                                legacy = %receipt.receipt_digest.to_hex(),
-                                trace_id = %trace_id,
-                                "Receipt digest mismatch between ReceiptGenerator and SqlTraceSink"
-                            );
-                        } else {
-                            debug!(
-                                trace_id = %trace_id,
-                                "ReceiptGenerator parity check passed"
-                            );
-                        }
-                    }
-
                     run_receipt = Some(RunReceipt {
                         trace_id: receipt.trace_id.clone(),
                         run_head_hash: receipt.run_head_hash,

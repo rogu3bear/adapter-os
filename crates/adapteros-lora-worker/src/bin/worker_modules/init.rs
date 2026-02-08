@@ -8,8 +8,8 @@ use super::coreml::{
 };
 use super::helpers::{
     build_capabilities_detail, detect_capabilities, dev_no_auth_enabled, mock_capabilities_detail,
-    setup_mock_base_model_cache, setup_panic_hook, WorkerIdentity, WORKER_IDENTITY,
-    WORKER_TELEMETRY,
+    setup_mock_base_model_cache, setup_panic_hook, worker_disable_cp_registration, WorkerIdentity,
+    WORKER_IDENTITY, WORKER_TELEMETRY,
 };
 use super::manifest::{cache_manifest, fetch_manifest_from_cp, parse_manifest, LoadedManifest};
 use super::registration::{
@@ -955,9 +955,12 @@ pub async fn run_worker() -> Result<()> {
     } else {
         backend_choice.as_str()
     };
-    let cp_enabled = !dev_no_auth_enabled();
+    if dev_no_auth_enabled() {
+        warn!("Dev no-auth enabled (AOS_DEV_NO_AUTH=1); worker will still register with control plane");
+    }
+    let cp_enabled = !worker_disable_cp_registration();
     if !cp_enabled {
-        warn!("Dev no-auth enabled; skipping control plane registration and status updates");
+        warn!("Worker control plane integration disabled (AOS_WORKER_DISABLE_CP_REGISTRATION=1); skipping registration and status updates");
     }
 
     // Register with control plane before UDS bind to acquire quotas and publish the socket path.
