@@ -106,7 +106,10 @@ async fn golden_path_inference_over_uds() -> Result<(), Box<dyn std::error::Erro
             api_version: API_SCHEMA_VERSION.to_string(),
         })
         .await?;
-    state.db.update_worker_status(worker_id, "healthy").await?;
+    state
+        .db
+        .transition_worker_status(worker_id, "healthy", "test setup", Some("test"))
+        .await?;
     state
         .db
         .update_worker_health_metrics(worker_id, "healthy", 1.0, 1, 0, 0)

@@ -555,6 +555,7 @@ dependencies = [
  "tracing",
  "x509-parser",
  "zeroize",
+ "zip 1.1.4",
 ]
 
 [[package]]
@@ -1672,6 +1673,7 @@ dependencies = [
  "rust-embed",
  "serde",
  "serde_json",
+ "serde_yaml",
  "sqlx",
  "tempfile",
  "thiserror 2.0.18",

@@ -6,11 +6,19 @@ port = 8080
 bind = "127.0.0.1"
 production_mode = false
 
+[general]
+# Default determinism mode for inference when tenant/stack policies are implicit.
+# In dev, prefer `besteffort` so inference can proceed even if the selected backend
+# cannot attest bounded-tolerance determinism (e.g., CoreML on mixed compute units).
+determinism_mode = "besteffort"
+
 [db]
 # Use explicit scheme so loader maps to database.url correctly
 path = "sqlite://var/aos-cp.sqlite3"
 storage_mode = "sql_only"
-pool_size = 20
+# Raised from 20→50: SQLite WAL mode handles concurrent readers well;
+# 50 avoids pool-exhaustion under multi-tenant load without stressing the file.
+pool_size = 50
 kv_path = "var/aos-kv.redb"
 kv_tantivy_path = "var/aos-kv-index"
 
@@ -57,11 +65,14 @@ circuit_breaker_threshold = 5
 circuit_breaker_timeout_secs = 60
 
 # Resource limits
-max_concurrent_requests = 10
+# Raised from 10→20: allows more parallel inference on Apple Silicon unified memory;
+# still well within typical M-series bandwidth.
+max_concurrent_requests = 20
 max_tokens_per_second = 40
 max_memory_per_request_mb = 50
 max_cpu_time_per_request_secs = 30
-max_requests_per_minute = 100
+# Raised from 100→300: aligned with [rate_limits].requests_per_minute below.
+max_requests_per_minute = 300
 
 # Health monitoring
 health_check_interval_secs = 30
@@ -97,9 +108,14 @@ max_lock_depth = 10
 recovery_timeout_secs = 10
 
 [rate_limits]
-requests_per_minute = 100
-burst_size = 20
-inference_per_minute = 50
+# Raised from 100→300: previous default throttled multi-tenant workloads too
+# aggressively. 300 rpm per tenant is still conservative for a local API.
+requests_per_minute = 300
+# Raised from 20→60: burst bucket should be ~20% of rpm to absorb UI page loads.
+burst_size = 60
+# Raised from 50→150: inference is the hot path; 150 rpm avoids unnecessary 429s
+# while the circuit breaker still protects the GPU from overload.
+inference_per_minute = 150
 
 [capacity_limits]
 # Maximum concurrent training jobs (default: 5)
@@ -148,9 +164,11 @@ capture_panics = true
 # - cpu_and_gpu: CPU + GPU (good for most workloads)
 # - cpu_and_ne: CPU + Neural Engine (best power efficiency)
 # - all: All available compute units (default)
+#
+# NOTE: Strict determinism mode requires CoreML attestation to report a non-`none`
+# determinism level. Keep production_mode=false for dev so the worker can boot
+# (and fall back to mixed compute units) while still allowing inference.
 compute_preference = "cpu_and_gpu"
-# Production mode enforces ANE-only (requires cpu_and_ne)
-# When true, fails if ANE is not available
 production_mode = false
 
 [model_server]
