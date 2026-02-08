@@ -10,7 +10,7 @@ use adapteros_lora_worker::training::{
     LRSchedulerConfig, LoRAWeights, MicroLoRATrainer, TrainingConfig, TrainingExample,
 };
 use adapteros_storage::platform::common::PlatformUtils;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use tempfile::TempDir;
 
 fn new_test_tempdir() -> TempDir {
@@ -104,7 +104,7 @@ async fn test_checkpoint_save_load() {
 
     let config = TrainingConfig::default();
     let weights = LoRAWeights {
-        modules: HashMap::new(),
+        modules: BTreeMap::new(),
         lora_a: vec![vec![1.0, 2.0], vec![3.0, 4.0]],
         lora_b: vec![vec![5.0, 6.0], vec![7.0, 8.0]],
         moe_config: None,
@@ -146,7 +146,7 @@ async fn test_checkpoint_resumption() {
 
     let config = TrainingConfig::default();
     let initial_weights = LoRAWeights {
-        modules: HashMap::new(),
+        modules: BTreeMap::new(),
         lora_a: vec![vec![1.0, 2.0]],
         lora_b: vec![vec![3.0, 4.0]],
         moe_config: None,
@@ -335,7 +335,7 @@ async fn test_checkpoint_cleanup() {
 
     let config = TrainingConfig::default();
     let weights = LoRAWeights {
-        modules: HashMap::new(),
+        modules: BTreeMap::new(),
         lora_a: vec![vec![1.0]],
         lora_b: vec![vec![2.0]],
         moe_config: None,

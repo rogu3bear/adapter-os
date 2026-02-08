@@ -166,6 +166,31 @@ pub fn dev_no_auth_enabled() -> bool {
     }
 }
 
+/// Disable control plane registration/status updates for the worker.
+///
+/// This is intended for local/debug workflows where the control plane is not running.
+/// In release builds, this is always false.
+pub fn worker_disable_cp_registration() -> bool {
+    if !cfg!(debug_assertions) {
+        return false;
+    }
+
+    match std::env::var("AOS_WORKER_DISABLE_CP_REGISTRATION") {
+        Ok(raw) => match parse_bool(&raw) {
+            Ok(value) => value,
+            Err(err) => {
+                warn!(
+                    error = %err,
+                    value = %raw,
+                    "Invalid AOS_WORKER_DISABLE_CP_REGISTRATION value"
+                );
+                false
+            }
+        },
+        Err(_) => false,
+    }
+}
+
 /// Detect backend capabilities based on compiled features
 pub fn detect_capabilities(backend_choice: &str) -> Vec<String> {
     let mut caps = vec![];

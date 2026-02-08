@@ -393,6 +393,12 @@ pub struct MLXFFIModel {
     model: *mut mlx_model_t,
     /// Model configuration
     pub config: ModelConfig,
+    /// Serialize all inference calls into the underlying C++ wrapper.
+    ///
+    /// The C++ model wrapper maintains mutable per-model state during inference
+    /// (e.g., `hidden_states_vec` used by `forward_with_hidden_states`), and is
+    /// not safe to access concurrently from multiple threads.
+    inference_lock: parking_lot::Mutex<()>,
     /// Health status tracking
     health: std::sync::Arc<std::sync::Mutex<ModelHealth>>,
     /// Path to model directory (for loading tokenizer)
@@ -465,6 +471,7 @@ impl MLXFFIModel {
         Self {
             model: std::ptr::null_mut(),
             config,
+            inference_lock: parking_lot::Mutex::new(()),
             health: create_initial_health(),
             model_path: PathBuf::new(),
             tokenizer: None,
@@ -628,6 +635,7 @@ impl MLXFFIModel {
         Ok(Self {
             model,
             config,
+            inference_lock: parking_lot::Mutex::new(()),
             health,
             model_path: model_path.to_path_buf(),
             tokenizer,
@@ -687,6 +695,7 @@ impl MLXFFIModel {
         Ok(Self {
             model,
             config,
+            inference_lock: parking_lot::Mutex::new(()),
             health,
             model_path: PathBuf::new(),
             tokenizer: None,
@@ -760,6 +769,11 @@ impl MLXFFIModel {
         Vec<f32>,
         Option<std::collections::HashMap<String, Vec<f32>>>,
     )> {
+        // IMPORTANT: The MLX C++ wrapper is not safe for concurrent use on the
+        // same model instance (it mutates internal state when capturing hidden
+        // states). Serialize inference to avoid UB / SIGSEGV.
+        let _inference_guard = self.inference_lock.lock();
+
         // Convert token_ids to C array (shared logic)
         let token_ints: Vec<i32> = token_ids.iter().map(|&x| x as i32).collect();
 
@@ -1245,17 +1259,16 @@ unsafe impl Send for MLXFFIModel {}
 
 /// SAFETY: MLXFFIModel is Sync because:
 ///
-/// 1. Concurrent inference calls are safe because MLX uses Metal command buffers
-///    which are synchronized at the GPU driver level. Each inference creates
-///    independent command buffers that are serialized by the GPU.
-/// 2. The raw pointer `model` is never mutated after construction - inference
-///    operations only read model weights and don't modify the model state.
-/// 3. All mutable state (health tracking) is protected by `Arc<Mutex<>>`,
-///    ensuring exclusive access and preventing data races.
+/// 1. All inference entrypoints in this wrapper serialize access via
+///    `inference_lock`, preventing concurrent calls into the underlying C++
+///    model object.
+/// 2. The C++ wrapper maintains mutable per-model state during inference
+///    (e.g. hidden state capture), so this lock is required for safety.
+/// 3. All other mutable state (health tracking) is protected by `Arc<Mutex<>>`,
+///    ensuring exclusive access and preventing Rust-side data races.
 /// 4. Drop is safe from any thread: `mlx_model_free()` handles cleanup correctly
 ///    regardless of which thread calls it, and the null-check prevents double-free.
-/// 5. No interior mutability exists in the model weights - the C++ object uses
-///    immutable weight tensors after model loading.
+/// 5. Model weights are immutable after loading; inference reads weights only.
 ///
 /// Reference: MLX C++ source confirms that `mlx::core::array` operations are
 /// thread-safe through Metal command buffer synchronization and atomic reference

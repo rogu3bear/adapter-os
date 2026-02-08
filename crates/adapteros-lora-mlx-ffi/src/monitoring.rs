@@ -538,6 +538,7 @@ mod tests {
                 max_position_embeddings: 32768,
                 rope_theta: 10000.0,
             },
+            inference_lock: parking_lot::Mutex::new(()),
             health: Arc::new(std::sync::Mutex::new(crate::ModelHealth {
                 operational: true,
                 consecutive_failures: 0,

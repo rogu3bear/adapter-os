@@ -20,6 +20,49 @@ impl DocumentSource {
     }
 }
 
+/// OCR mode for PDF ingestion.
+///
+/// Default is `Off` to keep ingestion deterministic and avoid external tool
+/// dependencies unless explicitly enabled.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OcrMode {
+    Off,
+    External,
+}
+
+impl Default for OcrMode {
+    fn default() -> Self {
+        Self::Off
+    }
+}
+
+/// Fingerprint of the OCR toolchain used (or skipped) for ingestion.
+///
+/// This is intentionally "audit-first": even when OCR is disabled we record a
+/// stable skip reason so downstream systems (UI, pipelines) can explain gaps.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OcrToolFingerprint {
+    pub mode: OcrMode,
+    pub command: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binary_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binary_hash_b3: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skipped_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub args: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OcrFingerprint {
+    pub mode: OcrMode,
+    pub tool: OcrToolFingerprint,
+}
+
 /// A normalized text chunk extracted from a document
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DocumentChunk {
@@ -65,6 +108,9 @@ pub struct IngestedDocument {
     pub source_name: String,
     pub source_path: Option<PathBuf>,
     pub doc_hash: B3Hash,
+    /// OCR fingerprint for PDFs (or None for non-PDF sources).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ocr_fingerprint: Option<OcrFingerprint>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub normalized_text_hash: Option<B3Hash>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

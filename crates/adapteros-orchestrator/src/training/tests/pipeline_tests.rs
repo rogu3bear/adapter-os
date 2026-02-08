@@ -30,7 +30,7 @@ fn sample_training_result() -> TrainingResult {
         final_loss: 0.1,
         training_time_us: 1234,
         weights: LoRAWeights {
-            modules: std::collections::HashMap::new(),
+            modules: std::collections::BTreeMap::new(),
             lora_a: vec![vec![0.1, 0.2]],
             lora_b: vec![vec![0.3, 0.4]],
             moe_config: None,
@@ -61,6 +61,7 @@ fn sample_training_result() -> TrainingResult {
         validation_token_count: 5,
         best_validation: Some((0.2, 1)),
         final_validation_loss: Some(0.2),
+        mlx_version: None,
     }
 }
 

@@ -1769,26 +1769,13 @@ extern "C" int mlx_backend_info(mlx_backend_capabilities_t *capabilities) {
     if (capabilities->gpu_available) {
       // Get device info from Metal
       capabilities->max_threads_per_group = 1024; // Standard Metal limit
-
-      // device_info() returns unordered_map<string, variant<string, size_t>>
-      auto info = mx::metal::device_info();
-      auto it = info.find("max_buffer_length");
-      if (it != info.end()) {
-        capabilities->max_buffer_size = std::get<size_t>(it->second);
-      } else {
-        capabilities->max_buffer_size = 256 * 1024 * 1024; // Default 256MB
-      }
-
-      // Get device name
-      auto name_it = info.find("device_name");
-      if (name_it != info.end()) {
-        std::strncpy(capabilities->device_name,
-                     std::get<std::string>(name_it->second).c_str(),
-                     sizeof(capabilities->device_name) - 1);
-      } else {
-        std::strncpy(capabilities->device_name, "Apple GPU",
-                     sizeof(capabilities->device_name) - 1);
-      }
+      // Avoid `mx::metal::device_info()` here: Homebrew MLX builds may not export
+      // that symbol even if headers declare it, causing link failures.
+      //
+      // These values are informational and safe to approximate.
+      capabilities->max_buffer_size = 256 * 1024 * 1024; // Conservative default
+      std::strncpy(capabilities->device_name, "Apple GPU",
+                   sizeof(capabilities->device_name) - 1);
     }
 
     // Version strings
