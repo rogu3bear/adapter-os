@@ -172,119 +172,6 @@ pub struct RoutingRecord {
 }
 
 impl RoutingRecord {
-    /// Compute hash of this routing record for chain accumulation.
-    ///
-    /// **IMPORTANT**: This method uses a standalone serialization format that is
-    /// NOT compatible with the production trace system (`SqlTraceSink`). For
-    /// replay verification compatibility, use [`compute_hash_canonical`] instead,
-    /// which matches the `receipt_digest::hash_token_decision` algorithm.
-    ///
-    /// The hash includes all fields that affect routing determinism:
-    /// - Step index and input token
-    /// - Adapter indices and string IDs
-    /// - Gate values (Q15)
-    /// - Entropy value
-    /// - Policy mask digest
-    /// - Backend and kernel version
-    /// - Allowed mask (if policy filtering applied)
-    #[deprecated(
-        since = "0.2.0",
-        note = "Use compute_hash_canonical() for replay verification compatibility"
-    )]
-    pub fn compute_hash(&self) -> B3Hash {
-        let mut hasher = blake3::Hasher::new();
-
-        // Step index
-        hasher.update(&self.step.to_le_bytes());
-
-        // Input token (with presence marker)
-        match self.input_token_id {
-            Some(token) => {
-                hasher.update(&[1u8]);
-                hasher.update(&token.to_le_bytes());
-            }
-            None => {
-                hasher.update(&[0u8]);
-            }
-        }
-
-        // Adapter indices (length-prefixed)
-        hasher.update(&(self.adapter_indices.len() as u32).to_le_bytes());
-        for idx in &self.adapter_indices {
-            hasher.update(&idx.to_le_bytes());
-        }
-
-        // Adapter IDs (length-prefixed strings)
-        hasher.update(&(self.adapter_ids.len() as u32).to_le_bytes());
-        for id in &self.adapter_ids {
-            let bytes = id.as_bytes();
-            hasher.update(&(bytes.len() as u32).to_le_bytes());
-            hasher.update(bytes);
-        }
-
-        // Gates (length-prefixed Q15 values)
-        hasher.update(&(self.gates_q15.len() as u32).to_le_bytes());
-        for gate in &self.gates_q15 {
-            hasher.update(&gate.to_le_bytes());
-        }
-
-        // Entropy (as raw f32 bytes for determinism)
-        hasher.update(&self.entropy.to_le_bytes());
-
-        // Policy mask digest (with presence marker)
-        match &self.policy_mask_digest {
-            Some(digest) => {
-                hasher.update(&[1u8]);
-                hasher.update(digest.as_bytes());
-            }
-            None => {
-                hasher.update(&[0u8]);
-            }
-        }
-
-        // Backend ID (with presence marker)
-        match &self.backend_id {
-            Some(id) => {
-                hasher.update(&[1u8]);
-                let bytes = id.as_bytes();
-                hasher.update(&(bytes.len() as u32).to_le_bytes());
-                hasher.update(bytes);
-            }
-            None => {
-                hasher.update(&[0u8]);
-            }
-        }
-
-        // Kernel version ID (with presence marker)
-        match &self.kernel_version_id {
-            Some(id) => {
-                hasher.update(&[1u8]);
-                let bytes = id.as_bytes();
-                hasher.update(&(bytes.len() as u32).to_le_bytes());
-                hasher.update(bytes);
-            }
-            None => {
-                hasher.update(&[0u8]);
-            }
-        }
-
-        // Allowed mask (with presence marker)
-        match &self.allowed_mask {
-            Some(mask) => {
-                hasher.update(&[1u8]);
-                hasher.update(&(mask.len() as u32).to_le_bytes());
-                for &allowed in mask {
-                    hasher.update(&[if allowed { 1u8 } else { 0u8 }]);
-                }
-            }
-            None => {
-                hasher.update(&[0u8]);
-            }
-        }
-
-        B3Hash::from_bytes(hasher.finalize().into())
-    }
-
     /// Compute hash of this routing record using the canonical algorithm.
     ///
     /// This method produces hashes compatible with the production trace system
@@ -393,28 +280,6 @@ impl RoutingDigest {
             decision_count: 0,
             digest: B3Hash::zero(),
         }
-    }
-
-    /// Accumulate a routing record into the chain (legacy format).
-    ///
-    /// **IMPORTANT**: This method uses a non-canonical chain order that is
-    /// NOT compatible with the production trace system. For replay verification
-    /// compatibility, use [`accumulate_canonical`] instead.
-    ///
-    /// Formula: `new_digest = BLAKE3(prev_digest || step || record_hash)`
-    #[deprecated(
-        since = "0.2.0",
-        note = "Use accumulate_canonical() for replay verification compatibility"
-    )]
-    #[allow(deprecated)]
-    pub fn accumulate(&mut self, record: &RoutingRecord) {
-        let record_hash = record.compute_hash();
-        self.digest = B3Hash::hash_multi(&[
-            self.digest.as_bytes(),
-            &record.step.to_le_bytes(),
-            record_hash.as_bytes(),
-        ]);
-        self.decision_count += 1;
     }
 
     /// Accumulate a routing record into the chain using the canonical algorithm.
@@ -1518,26 +1383,30 @@ mod tests {
     }
 
     #[test]
-    #[allow(deprecated)] // Testing deprecated API for backward compatibility
     fn test_routing_record_hash_deterministic() {
         let record = sample_routing_record(0);
+        let context_digest = *ContextId::compute(sample_model_hash(), sample_adapter_config_hash())
+            .digest
+            .as_bytes();
 
-        let h1 = record.compute_hash();
-        let h2 = record.compute_hash();
+        let h1 = record.compute_hash_canonical(&context_digest);
+        let h2 = record.compute_hash_canonical(&context_digest);
 
         assert_eq!(h1, h2);
     }
 
     #[test]
-    #[allow(deprecated)] // Testing deprecated API for backward compatibility
     fn test_routing_digest_accumulation() {
         let mut digest1 = RoutingDigest::new();
         let mut digest2 = RoutingDigest::new();
+        let context_digest = *ContextId::compute(sample_model_hash(), sample_adapter_config_hash())
+            .digest
+            .as_bytes();
 
         for step in 0..5 {
             let record = sample_routing_record(step);
-            digest1.accumulate(&record);
-            digest2.accumulate(&record);
+            digest1.accumulate_canonical(&record, &context_digest);
+            digest2.accumulate_canonical(&record, &context_digest);
         }
 
         // Same records in same order produce same digest
@@ -1546,18 +1415,20 @@ mod tests {
     }
 
     #[test]
-    #[allow(deprecated)] // Testing deprecated API for backward compatibility
     fn test_routing_digest_order_matters() {
         let record0 = sample_routing_record(0);
         let record1 = sample_routing_record(1);
+        let context_digest = *ContextId::compute(sample_model_hash(), sample_adapter_config_hash())
+            .digest
+            .as_bytes();
 
         let mut digest1 = RoutingDigest::new();
-        digest1.accumulate(&record0);
-        digest1.accumulate(&record1);
+        digest1.accumulate_canonical(&record0, &context_digest);
+        digest1.accumulate_canonical(&record1, &context_digest);
 
         let mut digest2 = RoutingDigest::new();
-        digest2.accumulate(&record1);
-        digest2.accumulate(&record0);
+        digest2.accumulate_canonical(&record1, &context_digest);
+        digest2.accumulate_canonical(&record0, &context_digest);
 
         // Different order produces different digest
         assert_ne!(digest1.digest, digest2.digest);
@@ -1769,15 +1640,17 @@ mod tests {
     }
 
     #[test]
-    #[allow(deprecated)] // Testing deprecated API for backward compatibility
     fn test_routing_record_backend_changes_hash() {
         let record1 = RoutingRecord::new(0, vec![0], vec![16384], 0.5);
         let record2 = record1.clone().with_backend("mlx", Some("v1"));
         let record3 = record1.clone().with_backend("metal", Some("v1"));
+        let context_digest = *ContextId::compute(sample_model_hash(), sample_adapter_config_hash())
+            .digest
+            .as_bytes();
 
-        let h1 = record1.compute_hash();
-        let h2 = record2.compute_hash();
-        let h3 = record3.compute_hash();
+        let h1 = record1.compute_hash_canonical(&context_digest);
+        let h2 = record2.compute_hash_canonical(&context_digest);
+        let h3 = record3.compute_hash_canonical(&context_digest);
 
         // Different backend settings produce different hashes
         assert_ne!(h1, h2);
@@ -1785,15 +1658,17 @@ mod tests {
     }
 
     #[test]
-    #[allow(deprecated)] // Testing deprecated API for backward compatibility
     fn test_routing_record_allowed_mask_changes_hash() {
         let record1 = RoutingRecord::new(0, vec![0, 1], vec![16384, 16383], 0.5);
         let record2 = record1.clone().with_allowed_mask(vec![true, false]);
         let record3 = record1.clone().with_allowed_mask(vec![false, true]);
+        let context_digest = *ContextId::compute(sample_model_hash(), sample_adapter_config_hash())
+            .digest
+            .as_bytes();
 
-        let h1 = record1.compute_hash();
-        let h2 = record2.compute_hash();
-        let h3 = record3.compute_hash();
+        let h1 = record1.compute_hash_canonical(&context_digest);
+        let h2 = record2.compute_hash_canonical(&context_digest);
+        let h3 = record3.compute_hash_canonical(&context_digest);
 
         assert_ne!(h1, h2);
         assert_ne!(h2, h3);

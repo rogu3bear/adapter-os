@@ -1,24 +1,15 @@
 //! Offline receipt verification for run evidence bundles.
 //!
-//! Recomputes context/run/output/receipt digests and validates optional signatures.
-//!
-//! This module uses the canonical digest implementation from `adapteros_core::receipt_digest`
-//! to ensure parity with production receipt generation.
+//! This command delegates all verification logic to `adapteros-crypto` so the
+//! server and CLI cannot drift.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use adapteros_core::receipt_digest::{
-    self, ReceiptDigestInput, RECEIPT_SCHEMA_CURRENT, RECEIPT_SCHEMA_V1, RECEIPT_SCHEMA_V2,
-    RECEIPT_SCHEMA_V3, RECEIPT_SCHEMA_V4, RECEIPT_SCHEMA_V5, RECEIPT_SCHEMA_V6, RECEIPT_SCHEMA_V7,
-};
-use adapteros_core::B3Hash;
-use adapteros_crypto::signature::{PublicKey, Signature};
-use anyhow::{anyhow, bail, Context, Result};
-use base64::Engine as _;
+use adapteros_crypto::{verify_bundle_bytes, ReceiptVerificationReport, VerifyOptions};
+use anyhow::{bail, Context, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use crate::http_client::send_with_refresh_from_store;
 use crate::output::OutputWriter;
@@ -29,7 +20,7 @@ const DEFAULT_BUNDLE_FILENAMES: &[&str] = &[
     "inference_trace.json",
 ];
 
-// Re-export schema version constants for backward compatibility
+// Re-export schema version constants for backward compatibility.
 pub use adapteros_core::receipt_digest::{
     RECEIPT_SCHEMA_CURRENT as RECEIPT_SCHEMA_CURRENT_REEXPORT,
     RECEIPT_SCHEMA_V1 as RECEIPT_SCHEMA_V1_REEXPORT,
@@ -40,400 +31,6 @@ pub use adapteros_core::receipt_digest::{
     RECEIPT_SCHEMA_V6 as RECEIPT_SCHEMA_V6_REEXPORT,
     RECEIPT_SCHEMA_V7 as RECEIPT_SCHEMA_V7_REEXPORT,
 };
-
-fn default_schema_version() -> u8 {
-    RECEIPT_SCHEMA_V1
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct ReceiptBundle {
-    #[serde(default)]
-    version: Option<String>,
-    trace_id: String,
-    tenant_id: String,
-    #[serde(default)]
-    request_id: Option<String>,
-    #[serde(default)]
-    context_digest_hex: Option<String>,
-    context: ReceiptContext,
-    tokens: Vec<ReceiptToken>,
-    output_tokens: Vec<u32>,
-    receipt: ReceiptDigests,
-    #[serde(default)]
-    expected_backend: Option<String>,
-    #[serde(default)]
-    expected_kernel_version: Option<String>,
-    /// Backend used for inference (v2+)
-    #[serde(default)]
-    backend_used: Option<String>,
-    /// Backend attestation hash for determinism binding (v2+)
-    #[serde(default)]
-    backend_attestation_b3_hex: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct ReceiptContext {
-    tenant_namespace: String,
-    stack_hash_hex: String,
-    prompt_tokens: Vec<u32>,
-    #[serde(default)]
-    policy_mask_digest_hex: Option<String>,
-    #[serde(default)]
-    context_digest_hex: Option<String>,
-    #[serde(default)]
-    tokenizer_hash_b3_hex: Option<String>,
-    #[serde(default)]
-    tokenizer_version: Option<String>,
-    #[serde(default)]
-    tokenizer_normalization: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct ReceiptToken {
-    token_index: u32,
-    adapter_ids: Vec<String>,
-    gates_q15: Vec<i16>,
-    #[serde(default)]
-    policy_mask_digest_hex: Option<String>,
-    #[serde(default)]
-    backend_id: Option<String>,
-    #[serde(default)]
-    kernel_version_id: Option<String>,
-    #[serde(default)]
-    decision_hash_hex: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct ReceiptDigests {
-    run_head_hash_hex: String,
-    output_digest_hex: String,
-    receipt_digest_hex: String,
-    #[serde(default)]
-    signature_b64: Option<String>,
-    #[serde(default)]
-    public_key_hex: Option<String>,
-    #[serde(default)]
-    logical_prompt_tokens: u32,
-    #[serde(default)]
-    prefix_cached_token_count: u32,
-    #[serde(default)]
-    billed_input_tokens: u32,
-    #[serde(default)]
-    logical_output_tokens: u32,
-    #[serde(default)]
-    billed_output_tokens: u32,
-    /// Receipt schema version (defaults to 1 for backward compatibility)
-    #[serde(default = "default_schema_version")]
-    schema_version: u8,
-    /// Backend used for inference (v2+)
-    #[serde(default)]
-    backend_used: Option<String>,
-    /// Backend attestation hash for determinism binding (v2+)
-    #[serde(default)]
-    backend_attestation_b3_hex: Option<String>,
-    /// Root seed digest for determinism binding (v3+)
-    #[serde(default)]
-    root_seed_digest_hex: Option<String>,
-    /// Seed mode used for derivation (v3+)
-    #[serde(default)]
-    seed_mode: Option<String>,
-    /// Whether manifest was used in seed derivation (v3+)
-    #[serde(default)]
-    has_manifest_binding: Option<bool>,
-
-    // =========================================================================
-    // V4 fields: Production format (stop controller, KV, prefix cache, model cache)
-    // =========================================================================
-    /// Stop reason code (V4+): "EOS", "LENGTH", "REPETITION", etc.
-    #[serde(default)]
-    stop_reason_code: Option<String>,
-    /// Token index where stop decision was made (V4+)
-    #[serde(default)]
-    stop_reason_token_index: Option<u32>,
-    /// BLAKE3 digest of stop policy spec (V4+)
-    #[serde(default)]
-    stop_policy_digest_b3_hex: Option<String>,
-
-    /// Tenant KV cache quota in bytes (V4+)
-    #[serde(default)]
-    tenant_kv_quota_bytes: u64,
-    /// Tenant KV cache bytes used (V4+)
-    #[serde(default)]
-    tenant_kv_bytes_used: u64,
-    /// Number of KV cache evictions (V4+)
-    #[serde(default)]
-    kv_evictions: u32,
-    /// KV residency policy ID (V4+)
-    #[serde(default)]
-    kv_residency_policy_id: Option<String>,
-    /// Whether KV quota enforcement was active (V4+)
-    #[serde(default)]
-    kv_quota_enforced: bool,
-
-    /// Prefix KV cache key hash (V4+)
-    #[serde(default)]
-    prefix_kv_key_b3_hex: Option<String>,
-    /// Whether prefix cache hit occurred (V4+)
-    #[serde(default)]
-    prefix_cache_hit: bool,
-    /// Prefix KV cache bytes (V4+)
-    #[serde(default)]
-    prefix_kv_bytes: u64,
-
-    /// Model cache identity V2 digest (V4+, PRD-06)
-    #[serde(default)]
-    model_cache_identity_v2_digest_b3_hex: Option<String>,
-
-    // =========================================================================
-    // V5 fields: Equipment profile + citations
-    // =========================================================================
-    #[serde(default)]
-    equipment_profile_digest_b3_hex: Option<String>,
-    #[serde(default)]
-    processor_id: Option<String>,
-    #[serde(default)]
-    mlx_version: Option<String>,
-    #[serde(default)]
-    ane_version: Option<String>,
-    #[serde(default)]
-    citations_merkle_root_b3_hex: Option<String>,
-    #[serde(default)]
-    citation_count: u32,
-
-    // =========================================================================
-    // V6 fields: Cross-run lineage
-    // =========================================================================
-    #[serde(default)]
-    previous_receipt_digest_hex: Option<String>,
-    #[serde(default)]
-    session_sequence: u64,
-
-    // =========================================================================
-    // V7 fields: Determinism envelope + cache/retrieval bindings
-    // =========================================================================
-    #[serde(default)]
-    tokenizer_hash_b3_hex: Option<String>,
-    #[serde(default)]
-    tokenizer_version: Option<String>,
-    #[serde(default)]
-    tokenizer_normalization: Option<String>,
-    #[serde(default)]
-    model_build_hash_b3_hex: Option<String>,
-    #[serde(default)]
-    adapter_build_hash_b3_hex: Option<String>,
-    #[serde(default)]
-    decode_algo: Option<String>,
-    #[serde(default)]
-    temperature_q15: Option<i16>,
-    #[serde(default)]
-    top_p_q15: Option<i16>,
-    #[serde(default)]
-    top_k: Option<u32>,
-    #[serde(default)]
-    seed_digest_b3_hex: Option<String>,
-    #[serde(default)]
-    sampling_backend: Option<String>,
-    #[serde(default)]
-    thread_count: Option<u32>,
-    #[serde(default)]
-    reduction_strategy: Option<String>,
-    #[serde(default)]
-    stop_eos_q15: Option<i16>,
-    #[serde(default)]
-    stop_window_digest_b3_hex: Option<String>,
-    #[serde(default)]
-    cache_scope: Option<String>,
-    #[serde(default)]
-    cached_prefix_digest_b3_hex: Option<String>,
-    #[serde(default)]
-    cached_prefix_len: Option<u32>,
-    #[serde(default)]
-    cache_key_b3_hex: Option<String>,
-    #[serde(default)]
-    retrieval_merkle_root_b3_hex: Option<String>,
-    #[serde(default)]
-    retrieval_order_digest_b3_hex: Option<String>,
-    #[serde(default)]
-    tool_call_inputs_digest_b3_hex: Option<String>,
-    #[serde(default)]
-    tool_call_outputs_digest_b3_hex: Option<String>,
-    #[serde(default)]
-    disclosure_level: Option<String>,
-    #[serde(default)]
-    receipt_signing_kid: Option<String>,
-    #[serde(default)]
-    receipt_signed_at: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum ReasonCode {
-    ContextMismatch,
-    TraceTamper,
-    OutputMismatch,
-    PolicyMismatch,
-    BackendMismatch,
-    SignatureInvalid,
-    /// Backend attestation hash mismatch (v2+)
-    BackendAttestationMismatch,
-    /// Unknown or unsupported schema version
-    SchemaVersionUnsupported,
-    /// Seed digest mismatch - seed was substituted (v3+)
-    SeedDigestMismatch,
-    /// Seed mode violation - receipt claims different mode (v3+)
-    SeedModeViolation,
-    /// Missing required seed digest (when --require-seed-digest is set)
-    SeedDigestMissing,
-}
-
-impl ReasonCode {
-    fn as_str(&self) -> &'static str {
-        match self {
-            ReasonCode::ContextMismatch => "CONTEXT_MISMATCH",
-            ReasonCode::TraceTamper => "TRACE_TAMPER",
-            ReasonCode::OutputMismatch => "OUTPUT_MISMATCH",
-            ReasonCode::PolicyMismatch => "POLICY_MISMATCH",
-            ReasonCode::BackendMismatch => "BACKEND_MISMATCH",
-            ReasonCode::SignatureInvalid => "SIGNATURE_INVALID",
-            ReasonCode::BackendAttestationMismatch => "BACKEND_ATTESTATION_MISMATCH",
-            ReasonCode::SchemaVersionUnsupported => "SCHEMA_VERSION_UNSUPPORTED",
-            ReasonCode::SeedDigestMismatch => "SEED_DIGEST_MISMATCH",
-            ReasonCode::SeedModeViolation => "SEED_MODE_VIOLATION",
-            ReasonCode::SeedDigestMissing => "SEED_DIGEST_MISSING",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct DigestComparison {
-    pub computed: String,
-    pub expected: String,
-    pub matches: bool,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct ReceiptVerificationReport {
-    pub trace_id: String,
-    pub reasons: Vec<ReasonCode>,
-    pub mismatched_token: Option<u32>,
-    pub context_digest: DigestComparison,
-    pub run_head_hash: DigestComparison,
-    pub output_digest: DigestComparison,
-    pub receipt_digest: DigestComparison,
-    pub signature_checked: bool,
-    pub signature_valid: Option<bool>,
-}
-
-fn push_reason(reasons: &mut Vec<ReasonCode>, code: ReasonCode) {
-    if !reasons.iter().any(|r| r.as_str() == code.as_str()) {
-        reasons.push(code);
-    }
-}
-
-fn decode_hex_32(label: &str, hex: &str) -> Result<[u8; 32]> {
-    let bytes =
-        hex::decode(hex).with_context(|| format!("Failed to decode {label} hex ({hex})"))?;
-    if bytes.len() != 32 {
-        bail!("{label} must be 32 bytes, got {}", bytes.len());
-    }
-    let mut out = [0u8; 32];
-    out.copy_from_slice(&bytes);
-    Ok(out)
-}
-
-fn encode_adapter_ids(ids: &[String]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(4 + ids.iter().map(|s| s.len() + 4).sum::<usize>());
-    out.extend_from_slice(&(ids.len() as u32).to_le_bytes());
-    for id in ids {
-        let bytes = id.as_bytes();
-        out.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
-        out.extend_from_slice(bytes);
-    }
-    out
-}
-
-fn encode_gates_q15(gates: &[i16]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(4 + gates.len() * 2);
-    out.extend_from_slice(&(gates.len() as u32).to_le_bytes());
-    for g in gates {
-        out.extend_from_slice(&g.to_le_bytes());
-    }
-    out
-}
-
-fn hash_decision(
-    context_digest: &[u8; 32],
-    token_index: u32,
-    adapter_blob: &[u8],
-    gates_blob: &[u8],
-    policy_mask_digest: Option<[u8; 32]>,
-    backend_id: Option<&str>,
-    kernel_version_id: Option<&str>,
-) -> B3Hash {
-    let policy_bytes = policy_mask_digest.map(|d| d.to_vec()).unwrap_or_default();
-    let backend_bytes = backend_id.unwrap_or("").as_bytes().to_vec();
-    let kernel_bytes = kernel_version_id.unwrap_or("").as_bytes().to_vec();
-
-    B3Hash::hash_multi(&[
-        &context_digest[..],
-        &token_index.to_le_bytes(),
-        &(adapter_blob.len() as u32).to_le_bytes(),
-        adapter_blob,
-        &(gates_blob.len() as u32).to_le_bytes(),
-        gates_blob,
-        &(policy_bytes.len() as u32).to_le_bytes(),
-        &policy_bytes,
-        &(backend_bytes.len() as u32).to_le_bytes(),
-        &backend_bytes,
-        &(kernel_bytes.len() as u32).to_le_bytes(),
-        &kernel_bytes,
-    ])
-}
-
-fn update_head(prev: &B3Hash, token_index: u32, decision_hash: &B3Hash) -> B3Hash {
-    B3Hash::hash_multi(&[
-        prev.as_bytes(),
-        decision_hash.as_bytes(),
-        &token_index.to_le_bytes(),
-    ])
-}
-
-fn compute_output_digest(output_tokens: &[u32]) -> B3Hash {
-    let mut buf = Vec::with_capacity(4 + output_tokens.len() * 4);
-    buf.extend_from_slice(&(output_tokens.len() as u32).to_le_bytes());
-    for t in output_tokens {
-        buf.extend_from_slice(&t.to_le_bytes());
-    }
-    B3Hash::hash(&buf)
-}
-
-fn compute_context_digest(ctx: &ReceiptContext) -> Result<B3Hash> {
-    let stack_bytes =
-        hex::decode(&ctx.stack_hash_hex).with_context(|| "Failed to decode stack_hash_hex")?;
-    let mut buf = Vec::with_capacity(
-        ctx.tenant_namespace.len() + stack_bytes.len() + 4 + (ctx.prompt_tokens.len() * 4) + 96,
-    );
-    buf.extend_from_slice(ctx.tenant_namespace.as_bytes());
-    buf.extend_from_slice(&stack_bytes);
-    if let Some(ref hex) = ctx.tokenizer_hash_b3_hex {
-        if let Ok(bytes) = hex::decode(hex) {
-            buf.extend_from_slice(&bytes);
-        }
-        if let Some(ref version) = ctx.tokenizer_version {
-            buf.extend_from_slice(&(version.len() as u32).to_le_bytes());
-            buf.extend_from_slice(version.as_bytes());
-        }
-        if let Some(ref norm) = ctx.tokenizer_normalization {
-            buf.extend_from_slice(&(norm.len() as u32).to_le_bytes());
-            buf.extend_from_slice(norm.as_bytes());
-        }
-    }
-    buf.extend_from_slice(&(ctx.prompt_tokens.len() as u32).to_le_bytes());
-    for t in &ctx.prompt_tokens {
-        buf.extend_from_slice(&t.to_le_bytes());
-    }
-    Ok(B3Hash::hash(&buf))
-}
 
 fn resolve_bundle_path(bundle: &Path) -> Result<PathBuf> {
     if bundle.is_file() {
@@ -452,624 +49,139 @@ fn resolve_bundle_path(bundle: &Path) -> Result<PathBuf> {
     )
 }
 
-fn parse_bundle_from_str(raw: &str) -> Result<ReceiptBundle> {
-    if let Ok(bundle) = serde_json::from_str::<ReceiptBundle>(raw) {
-        return Ok(bundle);
-    }
-
-    let value: Value = serde_json::from_str(raw)?;
-    if let Some(nested) = value
-        .get("receipt_bundle")
-        .or_else(|| value.get("bundle"))
-        .cloned()
-    {
-        return Ok(serde_json::from_value(nested)?);
-    }
-
-    Err(anyhow!("Unexpected receipt payload format"))
+fn load_bundle_bytes(path: &Path) -> Result<Vec<u8>> {
+    fs::read(path).with_context(|| format!("Failed to read bundle file {}", path.display()))
 }
 
-fn load_bundle(path: &Path) -> Result<ReceiptBundle> {
-    let data = fs::read_to_string(path)
-        .with_context(|| format!("Failed to read bundle file {}", path.display()))?;
-    parse_bundle_from_str(&data)
-        .with_context(|| format!("Failed to parse bundle file {}", path.display()))
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct OnlineDigestDiff {
+    field: String,
+    expected_hex: String,
+    computed_hex: String,
+    matches: bool,
 }
 
-fn verify_signature(
-    receipt: &ReceiptDigests,
-    receipt_digest: &B3Hash,
-    reasons: &mut Vec<ReasonCode>,
-) -> Result<(bool, Option<bool>)> {
-    let Some(signature_b64) = receipt.signature_b64.as_ref() else {
-        return Ok((false, None));
-    };
-    let Some(pubkey_hex) = receipt.public_key_hex.as_ref() else {
-        push_reason(reasons, ReasonCode::SignatureInvalid);
-        return Ok((true, Some(false)));
-    };
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct OnlineReceiptVerificationResult {
+    trace_id: String,
+    #[serde(default)]
+    tenant_id: Option<String>,
+    source: String,
+    pass: bool,
+    verified_at: String,
+    #[serde(default)]
+    reasons: Vec<String>,
+    #[serde(default)]
+    mismatched_token: Option<u32>,
+    context_digest: OnlineDigestDiff,
+    run_head_hash: OnlineDigestDiff,
+    output_digest: OnlineDigestDiff,
+    receipt_digest: OnlineDigestDiff,
+    signature_checked: bool,
+    #[serde(default)]
+    signature_valid: Option<bool>,
+}
 
-    let sig_bytes = match base64::engine::general_purpose::STANDARD.decode(signature_b64) {
-        Ok(bytes) => bytes,
-        Err(e) => {
-            push_reason(reasons, ReasonCode::SignatureInvalid);
-            return Err(anyhow!("Invalid base64 signature: {e}"));
+fn base_url_candidates(raw: &str) -> Vec<String> {
+    let trimmed = raw.trim_end_matches('/').trim().to_string();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+
+    let mut out = Vec::new();
+    out.push(trimmed.clone());
+
+    if trimmed.ends_with("/api") {
+        let stripped = trimmed
+            .trim_end_matches("/api")
+            .trim_end_matches('/')
+            .to_string();
+        if !stripped.is_empty() {
+            out.push(stripped);
         }
-    };
-    if sig_bytes.len() != 64 {
-        push_reason(reasons, ReasonCode::SignatureInvalid);
-        return Ok((true, Some(false)));
-    }
-    let mut sig_arr = [0u8; 64];
-    sig_arr.copy_from_slice(&sig_bytes);
-    let signature =
-        Signature::from_bytes(&sig_arr).map_err(|e| anyhow!("Invalid signature bytes: {e}"))?;
-
-    let pub_bytes = decode_hex_32("public_key", pubkey_hex)?;
-    let pubkey =
-        PublicKey::from_bytes(&pub_bytes).map_err(|e| anyhow!("Invalid public key: {e}"))?;
-
-    let verified = pubkey.verify(receipt_digest.as_bytes(), &signature).is_ok();
-    if !verified {
-        push_reason(reasons, ReasonCode::SignatureInvalid);
-    }
-
-    Ok((true, Some(verified)))
-}
-
-/// Verify seed binding if expected seed is provided.
-///
-/// Returns a reason code if verification fails, None if it passes or cannot be verified.
-fn verify_seed_binding(
-    bundle: &ReceiptBundle,
-    expected_seed: Option<&[u8; 32]>,
-) -> Option<ReasonCode> {
-    // Only verify if we have expected seed
-    let expected = expected_seed?;
-
-    let Some(ref claimed_digest) = bundle.receipt.root_seed_digest_hex else {
-        // Receipt doesn't claim a seed - can't verify (might be older schema)
-        return None;
-    };
-
-    // Compute expected digest
-    let expected_digest = B3Hash::hash(expected);
-    let expected_hex = expected_digest.to_hex();
-
-    if &expected_hex != claimed_digest {
-        Some(ReasonCode::SeedDigestMismatch)
     } else {
-        None
+        out.push(format!("{trimmed}/api"));
     }
+
+    out.sort();
+    out.dedup();
+    out
 }
 
-/// Options for receipt verification with seed requirements.
-#[derive(Debug, Default)]
-pub struct VerifyOptions {
-    /// Expected seed for digest verification (32 bytes)
-    pub expected_seed: Option<[u8; 32]>,
-    /// Require seed digest in receipt (fail if missing)
-    pub require_seed_digest: bool,
-    /// Expected seed mode (e.g., "strict", "best_effort")
-    pub expected_seed_mode: Option<String>,
-}
-
-/// Verify a bundle with additional options.
-fn verify_bundle_with_options(
-    bundle: &ReceiptBundle,
-    options: &VerifyOptions,
-) -> Result<ReceiptVerificationReport> {
-    let mut report = verify_bundle(bundle)?;
-
-    // Verify seed binding if expected seed provided
-    if let Some(reason) = verify_seed_binding(bundle, options.expected_seed.as_ref()) {
-        push_reason(&mut report.reasons, reason);
+async fn fetch_online_trace_verification(
+    trace_id: &str,
+    server_url: &str,
+) -> Result<OnlineReceiptVerificationResult> {
+    let client = Client::builder().build()?;
+    let candidates = base_url_candidates(server_url);
+    if candidates.is_empty() {
+        bail!("server url is empty");
     }
 
-    // Check seed digest requirement
-    if options.require_seed_digest && bundle.receipt.root_seed_digest_hex.is_none() {
-        push_reason(&mut report.reasons, ReasonCode::SeedDigestMissing);
-    }
+    let body = serde_json::json!({ "trace_id": trace_id });
 
-    // Check seed mode if expected
-    if let Some(ref expected_mode) = options.expected_seed_mode {
-        if let Some(ref actual_mode) = bundle.receipt.seed_mode {
-            if actual_mode.to_lowercase() != expected_mode.to_lowercase() {
-                push_reason(&mut report.reasons, ReasonCode::SeedModeViolation);
-            }
-        } else if bundle.receipt.schema_version >= RECEIPT_SCHEMA_V3 {
-            // V3+ should have seed mode
-            push_reason(&mut report.reasons, ReasonCode::SeedModeViolation);
-        }
-    }
+    for base in candidates {
+        let url = format!("{}/v1/replay/verify/trace", base);
 
-    Ok(report)
-}
-
-/// Compute receipt digest based on schema version.
-///
-/// Uses the canonical implementation from `adapteros_core::receipt_digest` to ensure
-/// parity with production receipt generation.
-///
-/// # Schema Versions
-/// - V1 (original): context_digest + run_head + output_digest + token counts
-/// - V2 (with backend): V1 fields + schema_version + backend_used + backend_attestation
-/// - V3 (with seed): V2 fields + seed_digest + seed_mode + has_manifest_binding
-/// - V4 (production): core + stop controller + KV quota + prefix cache + model cache
-/// - V5: equipment profile + citations
-/// - V6: cross-run lineage
-/// - V7: determinism envelope + cache/retrieval/tool bindings
-fn compute_receipt_digest_from_bundle(
-    context_digest: &B3Hash,
-    run_head: &B3Hash,
-    output_digest: &B3Hash,
-    receipt: &ReceiptDigests,
-    bundle: &ReceiptBundle,
-) -> B3Hash {
-    // Build ReceiptDigestInput from bundle/receipt
-    let mut input = ReceiptDigestInput::new(
-        *context_digest.as_bytes(),
-        *run_head.as_bytes(),
-        *output_digest.as_bytes(),
-        receipt.logical_prompt_tokens,
-        receipt.prefix_cached_token_count,
-        receipt.billed_input_tokens,
-        receipt.logical_output_tokens,
-        receipt.billed_output_tokens,
-    );
-
-    // V2+ fields: Backend identity
-    if receipt.schema_version >= RECEIPT_SCHEMA_V2 {
-        let attestation_bytes = bundle
-            .backend_attestation_b3_hex
-            .as_ref()
-            .and_then(|h| hex::decode(h).ok())
-            .and_then(|b| <[u8; 32]>::try_from(b).ok());
-
-        input = input.with_backend(bundle.backend_used.clone(), attestation_bytes);
-    }
-
-    // V3+ fields: Seed lineage
-    if receipt.schema_version >= RECEIPT_SCHEMA_V3 {
-        let seed_digest = receipt
-            .root_seed_digest_hex
-            .as_ref()
-            .and_then(|h| hex::decode(h).ok())
-            .and_then(|b| <[u8; 32]>::try_from(b).ok());
-
-        input = input.with_seed_lineage(
-            seed_digest,
-            receipt.seed_mode.clone(),
-            receipt.has_manifest_binding,
-        );
-    }
-
-    // V4 fields: Production format (stop controller, KV, prefix cache, model cache)
-    if receipt.schema_version >= RECEIPT_SCHEMA_V4 {
-        // Stop controller
-        let stop_policy_digest = receipt
-            .stop_policy_digest_b3_hex
-            .as_ref()
-            .and_then(|h| hex::decode(h).ok())
-            .and_then(|b| <[u8; 32]>::try_from(b).ok());
-
-        input = input.with_stop_controller(
-            receipt.stop_reason_code.clone(),
-            receipt.stop_reason_token_index,
-            stop_policy_digest,
-        );
-
-        // KV quota/residency
-        input = input.with_kv_quota(
-            receipt.tenant_kv_quota_bytes,
-            receipt.tenant_kv_bytes_used,
-            receipt.kv_evictions,
-            receipt.kv_residency_policy_id.clone(),
-            receipt.kv_quota_enforced,
-        );
-
-        // Prefix cache
-        let prefix_kv_key = receipt
-            .prefix_kv_key_b3_hex
-            .as_ref()
-            .and_then(|h| hex::decode(h).ok())
-            .and_then(|b| <[u8; 32]>::try_from(b).ok());
-
-        input = input.with_prefix_cache(
-            prefix_kv_key,
-            receipt.prefix_cache_hit,
-            receipt.prefix_kv_bytes,
-        );
-
-        // Model cache identity
-        let model_cache_identity = receipt
-            .model_cache_identity_v2_digest_b3_hex
-            .as_ref()
-            .and_then(|h| hex::decode(h).ok())
-            .and_then(|b| <[u8; 32]>::try_from(b).ok());
-
-        input = input.with_model_cache_identity(model_cache_identity);
-    }
-
-    // V5 fields: Equipment profile + citations
-    if receipt.schema_version >= RECEIPT_SCHEMA_V5 {
-        let equipment_profile = receipt
-            .equipment_profile_digest_b3_hex
-            .as_ref()
-            .and_then(|h| hex::decode(h).ok())
-            .and_then(|b| <[u8; 32]>::try_from(b).ok());
-
-        input = input.with_equipment_profile(
-            equipment_profile,
-            receipt.processor_id.clone(),
-            receipt.mlx_version.clone(),
-            receipt.ane_version.clone(),
-        );
-
-        let citations_root = receipt
-            .citations_merkle_root_b3_hex
-            .as_ref()
-            .and_then(|h| hex::decode(h).ok())
-            .and_then(|b| <[u8; 32]>::try_from(b).ok());
-
-        input = input.with_citations(citations_root, receipt.citation_count);
-    }
-
-    // V6 fields: Cross-run lineage
-    if receipt.schema_version >= RECEIPT_SCHEMA_V6 {
-        let previous_receipt = receipt
-            .previous_receipt_digest_hex
-            .as_ref()
-            .and_then(|h| hex::decode(h).ok())
-            .and_then(|b| <[u8; 32]>::try_from(b).ok());
-
-        input = input.with_cross_run_lineage(previous_receipt, receipt.session_sequence);
-    }
-
-    // V7 fields: Determinism envelope + cache/retrieval bindings
-    if receipt.schema_version >= RECEIPT_SCHEMA_V7 {
-        let tokenizer_hash = receipt
-            .tokenizer_hash_b3_hex
-            .as_ref()
-            .and_then(|h| hex::decode(h).ok())
-            .and_then(|b| <[u8; 32]>::try_from(b).ok());
-
-        input = input.with_tokenizer_identity(
-            tokenizer_hash,
-            receipt.tokenizer_version.clone(),
-            receipt.tokenizer_normalization.clone(),
-        );
-
-        let model_build = receipt
-            .model_build_hash_b3_hex
-            .as_ref()
-            .and_then(|h| hex::decode(h).ok())
-            .and_then(|b| <[u8; 32]>::try_from(b).ok());
-        let adapter_build = receipt
-            .adapter_build_hash_b3_hex
-            .as_ref()
-            .and_then(|h| hex::decode(h).ok())
-            .and_then(|b| <[u8; 32]>::try_from(b).ok());
-
-        input = input.with_build_provenance(model_build, adapter_build);
-
-        let seed_digest = receipt
-            .seed_digest_b3_hex
-            .as_ref()
-            .and_then(|h| hex::decode(h).ok())
-            .and_then(|b| <[u8; 32]>::try_from(b).ok());
-
-        input = input.with_decoder_config(
-            receipt.decode_algo.clone(),
-            receipt.temperature_q15,
-            receipt.top_p_q15,
-            receipt.top_k,
-            seed_digest,
-            receipt.sampling_backend.clone(),
-        );
-
-        input = input
-            .with_concurrency_determinism(receipt.thread_count, receipt.reduction_strategy.clone());
-
-        let stop_window = receipt
-            .stop_window_digest_b3_hex
-            .as_ref()
-            .and_then(|h| hex::decode(h).ok())
-            .and_then(|b| <[u8; 32]>::try_from(b).ok());
-
-        input = input.with_stop_controller_inputs(receipt.stop_eos_q15, stop_window);
-
-        let cached_prefix_digest = receipt
-            .cached_prefix_digest_b3_hex
-            .as_ref()
-            .and_then(|h| hex::decode(h).ok())
-            .and_then(|b| <[u8; 32]>::try_from(b).ok());
-        let cache_key = receipt
-            .cache_key_b3_hex
-            .as_ref()
-            .and_then(|h| hex::decode(h).ok())
-            .and_then(|b| <[u8; 32]>::try_from(b).ok());
-
-        input = input.with_cache_proof(
-            receipt.cache_scope.clone(),
-            cached_prefix_digest,
-            receipt.cached_prefix_len,
-            cache_key,
-        );
-
-        let retrieval_merkle = receipt
-            .retrieval_merkle_root_b3_hex
-            .as_ref()
-            .and_then(|h| hex::decode(h).ok())
-            .and_then(|b| <[u8; 32]>::try_from(b).ok());
-        let retrieval_order = receipt
-            .retrieval_order_digest_b3_hex
-            .as_ref()
-            .and_then(|h| hex::decode(h).ok())
-            .and_then(|b| <[u8; 32]>::try_from(b).ok());
-        let tool_inputs = receipt
-            .tool_call_inputs_digest_b3_hex
-            .as_ref()
-            .and_then(|h| hex::decode(h).ok())
-            .and_then(|b| <[u8; 32]>::try_from(b).ok());
-        let tool_outputs = receipt
-            .tool_call_outputs_digest_b3_hex
-            .as_ref()
-            .and_then(|h| hex::decode(h).ok())
-            .and_then(|b| <[u8; 32]>::try_from(b).ok());
-
-        input = input.with_retrieval_tool_binding(
-            retrieval_merkle,
-            retrieval_order,
-            tool_inputs,
-            tool_outputs,
-        );
-
-        input = input.with_disclosure_level(receipt.disclosure_level.clone());
-    }
-
-    // Use the canonical implementation
-    match receipt_digest::compute_receipt_digest(&input, receipt.schema_version) {
-        Some(digest) => digest,
-        None => {
-            tracing::warn!(
-                schema_version = receipt.schema_version,
-                "Unsupported receipt schema version"
-            );
-            B3Hash::zero()
-        }
-    }
-}
-
-fn verify_bundle(bundle: &ReceiptBundle) -> Result<ReceiptVerificationReport> {
-    let mut reasons: Vec<ReasonCode> = Vec::new();
-
-    // Validate schema version
-    if bundle.receipt.schema_version > RECEIPT_SCHEMA_CURRENT {
-        push_reason(&mut reasons, ReasonCode::SchemaVersionUnsupported);
-    }
-
-    let computed_context = compute_context_digest(&bundle.context)?;
-
-    let expected_context_hex = bundle
-        .context_digest_hex
-        .as_ref()
-        .or(bundle.context.context_digest_hex.as_ref())
-        .cloned()
-        .unwrap_or_else(|| computed_context.to_hex());
-    let context_expected = B3Hash::from_hex(&expected_context_hex)
-        .with_context(|| "Invalid expected context digest hex")?;
-    if context_expected != computed_context {
-        push_reason(&mut reasons, ReasonCode::ContextMismatch);
-    }
-
-    let logical_prompt_tokens = bundle.receipt.logical_prompt_tokens;
-    let prompt_token_len = bundle.context.prompt_tokens.len() as u32;
-    if logical_prompt_tokens != prompt_token_len {
-        push_reason(&mut reasons, ReasonCode::ContextMismatch);
-    }
-
-    let canonical_billed_input =
-        logical_prompt_tokens.saturating_sub(bundle.receipt.prefix_cached_token_count);
-    if canonical_billed_input != bundle.receipt.billed_input_tokens {
-        push_reason(&mut reasons, ReasonCode::TraceTamper);
-    }
-
-    if bundle.receipt.logical_output_tokens != bundle.output_tokens.len() as u32 {
-        push_reason(&mut reasons, ReasonCode::TraceTamper);
-    }
-
-    if bundle.receipt.billed_output_tokens != bundle.receipt.logical_output_tokens {
-        push_reason(&mut reasons, ReasonCode::TraceTamper);
-    }
-
-    if let Some(expected_backend) = bundle.expected_backend.as_ref() {
-        let expected_backend = expected_backend.to_lowercase();
-        if bundle.tokens.iter().any(|t| {
-            t.backend_id
-                .as_ref()
-                .map(|b| b.to_lowercase() != expected_backend)
-                .unwrap_or(true)
-        }) {
-            push_reason(&mut reasons, ReasonCode::BackendMismatch);
-        }
-    }
-
-    if let Some(expected_kernel) = bundle.expected_kernel_version.as_ref() {
-        let expected_kernel = expected_kernel.to_lowercase();
-        if bundle.tokens.iter().any(|t| {
-            t.kernel_version_id
-                .as_ref()
-                .map(|k| k.to_lowercase() != expected_kernel)
-                .unwrap_or(true)
-        }) {
-            push_reason(&mut reasons, ReasonCode::BackendMismatch);
-        }
-    }
-
-    // V2+ backend verification: check bundle.backend_used matches all tokens
-    if bundle.receipt.schema_version >= RECEIPT_SCHEMA_V2 {
-        if let Some(ref expected_backend) = bundle.backend_used {
-            let expected_backend_lower = expected_backend.to_lowercase();
-            if bundle.tokens.iter().any(|t| {
-                t.backend_id
-                    .as_ref()
-                    .map(|b| b.to_lowercase() != expected_backend_lower)
-                    .unwrap_or(false)
-            }) {
-                push_reason(&mut reasons, ReasonCode::BackendMismatch);
-            }
-        }
-
-        // Verify attestation consistency between bundle and receipt
-        if let (Some(ref bundle_att), Some(ref receipt_att)) = (
-            &bundle.backend_attestation_b3_hex,
-            &bundle.receipt.backend_attestation_b3_hex,
-        ) {
-            if bundle_att != receipt_att {
-                push_reason(&mut reasons, ReasonCode::BackendAttestationMismatch);
-            }
-        }
-    }
-
-    if let Some(expected_policy_hex) = bundle.context.policy_mask_digest_hex.as_ref() {
-        let expected_policy = decode_hex_32("policy_mask_digest_hex", expected_policy_hex)?;
-        if bundle.tokens.iter().any(|t| {
-            t.policy_mask_digest_hex
-                .as_ref()
-                .and_then(|p| decode_hex_32("policy_mask_digest_hex", p).ok())
-                .map(|digest| digest != expected_policy)
-                .unwrap_or(true)
-        }) {
-            push_reason(&mut reasons, ReasonCode::PolicyMismatch);
-        }
-    }
-
-    let mut run_head = B3Hash::zero();
-    let mut mismatched_token = None;
-
-    let mut tokens_sorted = bundle.tokens.clone();
-    tokens_sorted.sort_by_key(|t| t.token_index);
-
-    for token in &tokens_sorted {
-        let adapter_blob = encode_adapter_ids(&token.adapter_ids);
-        let gates_blob = encode_gates_q15(&token.gates_q15);
-        let policy_digest = match &token.policy_mask_digest_hex {
-            Some(hex) => Some(decode_hex_32("policy_mask_digest_hex", hex)?),
-            None => None,
+        // Try with stored auth (for protected deployments); fall back to anonymous request.
+        let response = match send_with_refresh_from_store(&client, |c, auth| {
+            let auth_base = auth.base_url.trim_end_matches('/');
+            let target = if server_url.trim().is_empty() {
+                format!("{}/v1/replay/verify/trace", auth_base)
+            } else {
+                url.clone()
+            };
+            c.post(target).bearer_auth(&auth.token).json(&body)
+        })
+        .await
+        {
+            Ok(resp) => resp,
+            Err(_) => client.post(&url).json(&body).send().await?,
         };
-        let decision_hash = hash_decision(
-            computed_context.as_bytes(),
-            token.token_index,
-            &adapter_blob,
-            &gates_blob,
-            policy_digest,
-            token.backend_id.as_deref(),
-            token.kernel_version_id.as_deref(),
-        );
 
-        if let Some(expected_hash_hex) = token.decision_hash_hex.as_ref() {
-            let expected_hash =
-                B3Hash::from_hex(expected_hash_hex).with_context(|| "Invalid decision_hash_hex")?;
-            if expected_hash != decision_hash && mismatched_token.is_none() {
-                mismatched_token = Some(token.token_index);
-            }
+        let status = response.status();
+        let bytes = response.bytes().await.unwrap_or_default();
+
+        if status.as_u16() == 404 {
+            // Common local mismatch: some environments use /api prefix, others don't.
+            continue;
         }
 
-        run_head = update_head(&run_head, token.token_index, &decision_hash);
+        if !status.is_success() {
+            bail!(
+                "failed to verify trace receipt for {}: {} {}",
+                trace_id,
+                status,
+                String::from_utf8_lossy(&bytes)
+            );
+        }
+
+        let report: OnlineReceiptVerificationResult = serde_json::from_slice(&bytes)
+            .with_context(|| "Failed to parse trace verification response")?;
+        return Ok(report);
     }
 
-    let expected_run_head =
-        B3Hash::from_hex(&bundle.receipt.run_head_hash_hex).with_context(|| {
-            format!(
-                "Invalid run_head_hash_hex ({})",
-                bundle.receipt.run_head_hash_hex
-            )
-        })?;
-    if expected_run_head != run_head {
-        push_reason(&mut reasons, ReasonCode::TraceTamper);
-        mismatched_token.get_or_insert(tokens_sorted.last().map(|t| t.token_index).unwrap_or(0));
-    }
-
-    let output_digest = compute_output_digest(&bundle.output_tokens);
-    let expected_output = B3Hash::from_hex(&bundle.receipt.output_digest_hex)
-        .with_context(|| "Invalid output_digest_hex")?;
-    if expected_output != output_digest {
-        push_reason(&mut reasons, ReasonCode::OutputMismatch);
-    }
-
-    // Use schema-aware receipt digest computation (canonical implementation)
-    let receipt_digest = compute_receipt_digest_from_bundle(
-        &computed_context,
-        &run_head,
-        &output_digest,
-        &bundle.receipt,
-        bundle,
-    );
-    let expected_receipt =
-        B3Hash::from_hex(&bundle.receipt.receipt_digest_hex).with_context(|| {
-            format!(
-                "Invalid receipt_digest_hex ({})",
-                bundle.receipt.receipt_digest_hex
-            )
-        })?;
-    if expected_receipt != receipt_digest {
-        push_reason(&mut reasons, ReasonCode::TraceTamper);
-    }
-
-    let (signature_checked, signature_valid) =
-        verify_signature(&bundle.receipt, &expected_receipt, &mut reasons)?;
-
-    let report = ReceiptVerificationReport {
-        trace_id: bundle.trace_id.clone(),
-        reasons,
-        mismatched_token,
-        context_digest: DigestComparison {
-            computed: computed_context.to_hex(),
-            expected: expected_context_hex,
-            matches: computed_context == context_expected,
-        },
-        run_head_hash: DigestComparison {
-            computed: run_head.to_hex(),
-            expected: bundle.receipt.run_head_hash_hex.clone(),
-            matches: run_head == expected_run_head,
-        },
-        output_digest: DigestComparison {
-            computed: output_digest.to_hex(),
-            expected: bundle.receipt.output_digest_hex.clone(),
-            matches: output_digest == expected_output,
-        },
-        receipt_digest: DigestComparison {
-            computed: receipt_digest.to_hex(),
-            expected: bundle.receipt.receipt_digest_hex.clone(),
-            matches: receipt_digest == expected_receipt,
-        },
-        signature_checked,
-        signature_valid,
-    };
-
-    Ok(report)
+    bail!(
+        "trace verification endpoint not found at {} (tried /v1/replay/verify/trace with and without /api)",
+        server_url
+    )
 }
 
 fn render_report(report: &ReceiptVerificationReport, output: &OutputWriter) -> Result<()> {
+    output.json(report)?;
     if output.is_json() {
-        output.json(report)?;
         return Ok(());
     }
 
-    output.section("Receipt Verification");
-    if report.reasons.is_empty() {
+    if report.pass {
         output.success("Verification passed");
     } else {
-        output.error(format!(
-            "Verification failed: {}",
-            report
-                .reasons
-                .iter()
-                .map(|r| r.as_str())
-                .collect::<Vec<_>>()
-                .join(",")
-        ));
+        output.print("Verification failed");
+    }
+
+    output.kv("Trace ID", &report.trace_id);
+    if let Some(tenant) = report.tenant_id.as_ref() {
+        output.kv("Tenant", tenant);
     }
 
     output.kv(
@@ -1104,6 +216,19 @@ fn render_report(report: &ReceiptVerificationReport, output: &OutputWriter) -> R
             "mismatch"
         },
     );
+
+    if !report.reasons.is_empty() {
+        output.kv(
+            "Reasons",
+            &report
+                .reasons
+                .iter()
+                .map(|r| r.as_str())
+                .collect::<Vec<_>>()
+                .join(","),
+        );
+    }
+
     if report.signature_checked {
         output.kv(
             "Signature",
@@ -1114,6 +239,7 @@ fn render_report(report: &ReceiptVerificationReport, output: &OutputWriter) -> R
             },
         );
     }
+
     if let Some(token) = report.mismatched_token {
         output.kv("First mismatched token", &token.to_string());
     }
@@ -1121,39 +247,79 @@ fn render_report(report: &ReceiptVerificationReport, output: &OutputWriter) -> R
     Ok(())
 }
 
-async fn fetch_online_bundle(trace_id: &str, server_url: &str) -> Result<ReceiptBundle> {
-    let client = Client::builder().build()?;
-    let base = server_url.trim_end_matches('/');
-    let url = format!("{}/v1/trace/{}/receipt", base, trace_id);
+fn render_online_report(
+    report: &OnlineReceiptVerificationResult,
+    output: &OutputWriter,
+) -> Result<()> {
+    output.json(report)?;
+    if output.is_json() {
+        return Ok(());
+    }
 
-    // Try with stored auth (for protected deployments); fall back to anonymous request.
-    let response = match send_with_refresh_from_store(&client, |c, auth| {
-        let auth_base = auth.base_url.trim_end_matches('/');
-        let target = if server_url.is_empty() {
-            format!("{}/v1/trace/{}/receipt", auth_base, trace_id)
+    if report.pass {
+        output.success("Verification passed");
+    } else {
+        output.print("Verification failed");
+    }
+
+    output.kv("Trace ID", &report.trace_id);
+    if let Some(tenant) = report.tenant_id.as_ref() {
+        output.kv("Tenant", tenant);
+    }
+
+    output.kv(
+        "Context Digest",
+        if report.context_digest.matches {
+            "match"
         } else {
-            url.clone()
-        };
-        c.get(target).bearer_auth(&auth.token)
-    })
-    .await
-    {
-        Ok(resp) => resp,
-        Err(_) => client.get(&url).send().await?,
-    };
+            "mismatch"
+        },
+    );
+    output.kv(
+        "Run Head Hash",
+        if report.run_head_hash.matches {
+            "match"
+        } else {
+            "mismatch"
+        },
+    );
+    output.kv(
+        "Output Digest",
+        if report.output_digest.matches {
+            "match"
+        } else {
+            "mismatch"
+        },
+    );
+    output.kv(
+        "Receipt Digest",
+        if report.receipt_digest.matches {
+            "match"
+        } else {
+            "mismatch"
+        },
+    );
 
-    let status = response.status();
-    let body = response.text().await.unwrap_or_default();
-    if !status.is_success() {
-        bail!(
-            "failed to fetch receipt for trace {}: {} {}",
-            trace_id,
-            status,
-            body
+    if !report.reasons.is_empty() {
+        output.kv("Reasons", &report.reasons.join(","));
+    }
+
+    if report.signature_checked {
+        output.kv(
+            "Signature",
+            match report.signature_valid {
+                Some(true) => "valid",
+                Some(false) => "invalid",
+                None => "skipped",
+            },
         );
     }
 
-    parse_bundle_from_str(&body).context("Failed to decode receipt payload")
+    if let Some(token) = report.mismatched_token {
+        output.kv("First mismatched token", &token.to_string());
+    }
+
+    Ok(())
 }
 
 /// Parse a hex string into a 32-byte seed array.
@@ -1202,7 +368,6 @@ pub async fn run_with_seed_options(
         bail!("provide --bundle or --online <trace_id> to verify a receipt");
     }
 
-    // Parse expected seed if provided
     let expected_seed = match expected_seed_hex {
         Some(hex) => Some(parse_seed_hex(hex)?),
         None => None,
@@ -1214,22 +379,37 @@ pub async fn run_with_seed_options(
         expected_seed_mode: expected_seed_mode.map(|s| s.to_string()),
     };
 
-    let bundle = if let Some(trace_id) = online_trace {
+    if let Some(trace_id) = online_trace {
         if output.is_verbose() {
             output.progress(format!(
-                "Fetching receipt for trace {} from {}",
+                "Verifying receipt for trace {} via {}",
                 trace_id, server_url
             ));
         }
-        fetch_online_bundle(trace_id, server_url).await?
-    } else {
-        let bundle_path = resolve_bundle_path(
-            bundle.expect("BUG: bundle path argument must be provided when --online-trace is not set. This is a CLI argument parsing error that should have been caught by clap validation."),
-        )?;
-        load_bundle(&bundle_path)?
+
+        let report = fetch_online_trace_verification(trace_id, server_url).await?;
+        render_online_report(&report, output)?;
+
+        if !report.pass || !report.reasons.is_empty() {
+            bail!(format!(
+                "receipt verification failed: {}",
+                if report.reasons.is_empty() {
+                    "UNKNOWN".to_string()
+                } else {
+                    report.reasons.join(",")
+                }
+            ));
+        }
+
+        return Ok(());
     };
 
-    let report = verify_bundle_with_options(&bundle, &options)?;
+    let bundle_path = resolve_bundle_path(
+        bundle.expect("BUG: bundle path argument must be provided when --online-trace is not set"),
+    )?;
+    let bytes = load_bundle_bytes(&bundle_path)?;
+
+    let report = verify_bundle_bytes(&bytes, &options)?;
 
     render_report(&report, output)?;
 
@@ -1246,422 +426,4 @@ pub async fn run_with_seed_options(
     }
 
     Ok(())
-}
-
-// Exposed for tests
-#[cfg(test)]
-pub fn verify_bundle_from_path(bundle: &Path) -> Result<ReceiptVerificationReport> {
-    let bundle = load_bundle(bundle)?;
-    verify_bundle(&bundle)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use adapteros_crypto::signature::Keypair;
-    use base64::engine::general_purpose::STANDARD;
-    use rand::RngCore;
-    use tempfile::TempDir;
-
-    fn new_test_tempdir() -> TempDir {
-        TempDir::with_prefix("aos-test-").expect("create temp dir")
-    }
-
-    fn make_keypair() -> Keypair {
-        let mut seed = [0u8; 32];
-        rand::thread_rng().fill_bytes(&mut seed);
-        Keypair::from_bytes(&seed)
-    }
-
-    fn write_bundle(dir: &Path, tamper: bool) -> PathBuf {
-        let prompt_tokens = vec![11u32, 22u32, 33u32];
-        let stack_hash = B3Hash::hash(b"stack-123").to_hex();
-        let context = ReceiptContext {
-            tenant_namespace: "tenant-reference".to_string(),
-            stack_hash_hex: stack_hash,
-            prompt_tokens: prompt_tokens.clone(),
-            policy_mask_digest_hex: None,
-            context_digest_hex: None,
-        };
-
-        let context_digest = compute_context_digest(&context).expect("context digest");
-        let token0 = ReceiptToken {
-            token_index: 0,
-            adapter_ids: vec!["adapter-a".to_string()],
-            gates_q15: vec![123],
-            policy_mask_digest_hex: None,
-            backend_id: Some("coreml".to_string()),
-            kernel_version_id: Some("k1".to_string()),
-            decision_hash_hex: None,
-        };
-        let token1 = ReceiptToken {
-            token_index: 1,
-            adapter_ids: vec!["adapter-b".to_string(), "adapter-c".to_string()],
-            gates_q15: vec![321, 111],
-            policy_mask_digest_hex: None,
-            backend_id: Some("coreml".to_string()),
-            kernel_version_id: Some("k1".to_string()),
-            decision_hash_hex: None,
-        };
-
-        let mut tokens = vec![token0, token1];
-        let mut run_head = B3Hash::zero();
-        for t in tokens.iter_mut() {
-            let adapter_blob = encode_adapter_ids(&t.adapter_ids);
-            let gates_blob = encode_gates_q15(&t.gates_q15);
-            let decision = hash_decision(
-                context_digest.as_bytes(),
-                t.token_index,
-                &adapter_blob,
-                &gates_blob,
-                None,
-                t.backend_id.as_deref(),
-                t.kernel_version_id.as_deref(),
-            );
-            t.decision_hash_hex = Some(decision.to_hex());
-            run_head = update_head(&run_head, t.token_index, &decision);
-        }
-
-        let output_tokens = vec![101u32, 102u32, 103u32];
-        let output_digest = compute_output_digest(&output_tokens);
-        let logical_prompt_tokens = prompt_tokens.len() as u32;
-        let prefix_cached_token_count = 0;
-        let billed_input_tokens = logical_prompt_tokens.saturating_sub(prefix_cached_token_count);
-        let logical_output_tokens = output_tokens.len() as u32;
-        let billed_output_tokens = logical_output_tokens;
-        let receipt_digest = B3Hash::hash_multi(&[
-            context_digest.as_bytes(),
-            run_head.as_bytes(),
-            output_digest.as_bytes(),
-            &logical_prompt_tokens.to_le_bytes(),
-            &prefix_cached_token_count.to_le_bytes(),
-            &billed_input_tokens.to_le_bytes(),
-            &logical_output_tokens.to_le_bytes(),
-            &billed_output_tokens.to_le_bytes(),
-        ]);
-
-        let keypair = make_keypair();
-        let signature = keypair.sign(receipt_digest.as_bytes());
-        let signature_b64 = STANDARD.encode(signature.to_bytes());
-        let public_key_hex = hex::encode(keypair.public_key().to_bytes());
-
-        let mut bundle = ReceiptBundle {
-            version: Some("aos-receipt-v1".to_string()),
-            trace_id: "trace-reference".to_string(),
-            tenant_id: "tenant-reference".to_string(),
-            request_id: Some("req-123".to_string()),
-            context_digest_hex: Some(context_digest.to_hex()),
-            context,
-            tokens,
-            output_tokens: output_tokens.clone(),
-            receipt: ReceiptDigests {
-                run_head_hash_hex: run_head.to_hex(),
-                output_digest_hex: output_digest.to_hex(),
-                receipt_digest_hex: receipt_digest.to_hex(),
-                signature_b64: Some(signature_b64),
-                public_key_hex: Some(public_key_hex),
-                logical_prompt_tokens,
-                prefix_cached_token_count,
-                billed_input_tokens,
-                logical_output_tokens,
-                billed_output_tokens,
-                // V1 schema - no backend/seed/V4 fields
-                schema_version: RECEIPT_SCHEMA_V1,
-                backend_used: None,
-                backend_attestation_b3_hex: None,
-                root_seed_digest_hex: None,
-                seed_mode: None,
-                has_manifest_binding: None,
-                // V4 fields (default for V1 bundles)
-                stop_reason_code: None,
-                stop_reason_token_index: None,
-                stop_policy_digest_b3_hex: None,
-                tenant_kv_quota_bytes: 0,
-                tenant_kv_bytes_used: 0,
-                kv_evictions: 0,
-                kv_residency_policy_id: None,
-                kv_quota_enforced: false,
-                prefix_kv_key_b3_hex: None,
-                prefix_cache_hit: false,
-                prefix_kv_bytes: 0,
-                model_cache_identity_v2_digest_b3_hex: None,
-            },
-            expected_backend: Some("coreml".to_string()),
-            expected_kernel_version: Some("k1".to_string()),
-            backend_used: None,
-            backend_attestation_b3_hex: None,
-        };
-
-        let bundle_path = dir.join("receipt_bundle.json");
-        if tamper {
-            // Flip one gate to trigger TRACE_TAMPER
-            bundle.tokens[0].gates_q15[0] = 999;
-        }
-
-        let json = serde_json::to_string_pretty(&bundle).expect("serialize bundle");
-        fs::write(&bundle_path, json).expect("write bundle");
-        bundle_path
-    }
-
-    #[test]
-    fn golden_bundle_passes() {
-        let dir = new_test_tempdir();
-        let bundle_path = write_bundle(dir.path(), false);
-
-        let report = verify_bundle_from_path(&bundle_path).expect("verification should succeed");
-        assert!(
-            report.reasons.is_empty(),
-            "expected no reasons, got {:?}",
-            report.reasons
-        );
-        assert!(report.context_digest.matches);
-        assert!(report.run_head_hash.matches);
-        assert!(report.output_digest.matches);
-        assert!(report.receipt_digest.matches);
-        assert_eq!(report.signature_valid, Some(true));
-    }
-
-    #[test]
-    fn byte_flip_triggers_trace_tamper() {
-        let dir = new_test_tempdir();
-        let bundle_path = write_bundle(dir.path(), true);
-
-        let report = verify_bundle_from_path(&bundle_path).expect("verification should run");
-        assert!(
-            report
-                .reasons
-                .iter()
-                .any(|r| matches!(r, ReasonCode::TraceTamper)),
-            "expected TRACE_TAMPER in reasons"
-        );
-        assert!(!report.run_head_hash.matches);
-    }
-
-    // =========================================================================
-    // V3 Seed Digest Tests (PR-004)
-    // =========================================================================
-
-    #[test]
-    fn test_seed_digest_verification_passes() {
-        let seed = [42u8; 32];
-        let seed_digest = B3Hash::hash(&seed);
-
-        let bundle = ReceiptBundle {
-            version: Some("aos-receipt-v3".to_string()),
-            trace_id: "trace-seed-test".to_string(),
-            tenant_id: "tenant-test".to_string(),
-            request_id: None,
-            context_digest_hex: None,
-            context: ReceiptContext {
-                tenant_namespace: "tenant-test".to_string(),
-                stack_hash_hex: B3Hash::zero().to_hex(),
-                prompt_tokens: vec![],
-                policy_mask_digest_hex: None,
-                context_digest_hex: None,
-            },
-            tokens: vec![],
-            output_tokens: vec![],
-            receipt: ReceiptDigests {
-                run_head_hash_hex: B3Hash::zero().to_hex(),
-                output_digest_hex: B3Hash::zero().to_hex(),
-                receipt_digest_hex: B3Hash::zero().to_hex(),
-                signature_b64: None,
-                public_key_hex: None,
-                logical_prompt_tokens: 0,
-                prefix_cached_token_count: 0,
-                billed_input_tokens: 0,
-                logical_output_tokens: 0,
-                billed_output_tokens: 0,
-                schema_version: RECEIPT_SCHEMA_V3,
-                backend_used: None,
-                backend_attestation_b3_hex: None,
-                root_seed_digest_hex: Some(seed_digest.to_hex()),
-                seed_mode: Some("strict".to_string()),
-                has_manifest_binding: Some(true),
-                // V4 fields (default for V3 bundles)
-                stop_reason_code: None,
-                stop_reason_token_index: None,
-                stop_policy_digest_b3_hex: None,
-                tenant_kv_quota_bytes: 0,
-                tenant_kv_bytes_used: 0,
-                kv_evictions: 0,
-                kv_residency_policy_id: None,
-                kv_quota_enforced: false,
-                prefix_kv_key_b3_hex: None,
-                prefix_cache_hit: false,
-                prefix_kv_bytes: 0,
-                model_cache_identity_v2_digest_b3_hex: None,
-            },
-            expected_backend: None,
-            expected_kernel_version: None,
-            backend_used: None,
-            backend_attestation_b3_hex: None,
-        };
-
-        // Verify with correct seed
-        let reason = verify_seed_binding(&bundle, Some(&seed));
-        assert!(reason.is_none(), "Correct seed should pass verification");
-
-        // Verify with wrong seed
-        let wrong_seed = [0u8; 32];
-        let reason = verify_seed_binding(&bundle, Some(&wrong_seed));
-        assert!(
-            matches!(reason, Some(ReasonCode::SeedDigestMismatch)),
-            "Wrong seed should trigger SeedDigestMismatch"
-        );
-    }
-
-    #[test]
-    fn test_seed_digest_not_required_for_v1() {
-        let dir = new_test_tempdir();
-        let bundle_path = write_bundle(dir.path(), false);
-
-        // Load the V1 bundle
-        let bundle = load_bundle(&bundle_path).expect("load bundle");
-
-        // Verify with options requiring seed digest
-        let options = VerifyOptions {
-            expected_seed: None,
-            require_seed_digest: false, // V1 doesn't require it
-            expected_seed_mode: None,
-        };
-        let report = verify_bundle_with_options(&bundle, &options).expect("verify");
-
-        // V1 bundles should still pass basic verification
-        assert!(
-            report.reasons.is_empty(),
-            "V1 bundle should pass when seed_digest not required"
-        );
-    }
-
-    #[test]
-    fn test_require_seed_digest_flag() {
-        let dir = new_test_tempdir();
-        let bundle_path = write_bundle(dir.path(), false);
-
-        // Load the V1 bundle (no seed digest)
-        let bundle = load_bundle(&bundle_path).expect("load bundle");
-
-        // Verify with require_seed_digest = true
-        let options = VerifyOptions {
-            expected_seed: None,
-            require_seed_digest: true,
-            expected_seed_mode: None,
-        };
-        let report = verify_bundle_with_options(&bundle, &options).expect("verify");
-
-        // Should fail because V1 has no seed digest
-        assert!(
-            report
-                .reasons
-                .iter()
-                .any(|r| matches!(r, ReasonCode::SeedDigestMissing)),
-            "Should fail when seed digest required but missing"
-        );
-    }
-
-    #[test]
-    fn test_parse_seed_hex() {
-        // Valid 32-byte seed
-        let hex = "2a".repeat(32);
-        let seed = parse_seed_hex(&hex).expect("valid hex");
-        assert_eq!(seed, [0x2a; 32]);
-
-        // Invalid: wrong length
-        let short_hex = "2a".repeat(16);
-        assert!(parse_seed_hex(&short_hex).is_err());
-
-        // Invalid: not hex
-        let invalid_hex = "zz".repeat(32);
-        assert!(parse_seed_hex(&invalid_hex).is_err());
-    }
-
-    #[test]
-    fn test_v3_receipt_digest_includes_seed() {
-        let context_digest = B3Hash::hash(b"context");
-        let run_head = B3Hash::hash(b"run_head");
-        let output_digest = B3Hash::hash(b"output");
-
-        let seed1 = [1u8; 32];
-        let seed2 = [2u8; 32];
-
-        let make_receipt = |seed: &[u8; 32]| ReceiptDigests {
-            run_head_hash_hex: run_head.to_hex(),
-            output_digest_hex: output_digest.to_hex(),
-            receipt_digest_hex: String::new(),
-            signature_b64: None,
-            public_key_hex: None,
-            logical_prompt_tokens: 10,
-            prefix_cached_token_count: 0,
-            billed_input_tokens: 10,
-            logical_output_tokens: 5,
-            billed_output_tokens: 5,
-            schema_version: RECEIPT_SCHEMA_V3,
-            backend_used: Some("metal".to_string()),
-            backend_attestation_b3_hex: None,
-            root_seed_digest_hex: Some(B3Hash::hash(seed).to_hex()),
-            seed_mode: Some("strict".to_string()),
-            has_manifest_binding: Some(true),
-            // V4 fields (default for V3 bundles)
-            stop_reason_code: None,
-            stop_reason_token_index: None,
-            stop_policy_digest_b3_hex: None,
-            tenant_kv_quota_bytes: 0,
-            tenant_kv_bytes_used: 0,
-            kv_evictions: 0,
-            kv_residency_policy_id: None,
-            kv_quota_enforced: false,
-            prefix_kv_key_b3_hex: None,
-            prefix_cache_hit: false,
-            prefix_kv_bytes: 0,
-            model_cache_identity_v2_digest_b3_hex: None,
-        };
-
-        let bundle1 = ReceiptBundle {
-            version: Some("v3".to_string()),
-            trace_id: "t1".to_string(),
-            tenant_id: "tenant".to_string(),
-            request_id: None,
-            context_digest_hex: Some(context_digest.to_hex()),
-            context: ReceiptContext {
-                tenant_namespace: "tenant".to_string(),
-                stack_hash_hex: B3Hash::zero().to_hex(),
-                prompt_tokens: vec![],
-                policy_mask_digest_hex: None,
-                context_digest_hex: Some(context_digest.to_hex()),
-            },
-            tokens: vec![],
-            output_tokens: vec![],
-            receipt: make_receipt(&seed1),
-            expected_backend: None,
-            expected_kernel_version: None,
-            backend_used: Some("metal".to_string()),
-            backend_attestation_b3_hex: None,
-        };
-
-        let bundle2 = ReceiptBundle {
-            receipt: make_receipt(&seed2),
-            ..bundle1.clone()
-        };
-
-        let digest1 = compute_receipt_digest_from_bundle(
-            &context_digest,
-            &run_head,
-            &output_digest,
-            &bundle1.receipt,
-            &bundle1,
-        );
-        let digest2 = compute_receipt_digest_from_bundle(
-            &context_digest,
-            &run_head,
-            &output_digest,
-            &bundle2.receipt,
-            &bundle2,
-        );
-
-        assert_ne!(
-            digest1, digest2,
-            "Different seeds should produce different receipt digests"
-        );
-    }
 }

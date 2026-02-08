@@ -1,0 +1,56 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT * FROM routing_rules \n            WHERE identity_dataset_id = ?\n            ORDER BY priority DESC, created_at DESC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "identity_dataset_id",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "condition_logic",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "target_adapter_id",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "priority",
+        "ordinal": 4,
+        "type_info": "Integer"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_by",
+        "ordinal": 6,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "60ac11a9f7af82905adb49b62bb13e7aff5059fd463e3ee6dbaccdbfc22eb465"
+}

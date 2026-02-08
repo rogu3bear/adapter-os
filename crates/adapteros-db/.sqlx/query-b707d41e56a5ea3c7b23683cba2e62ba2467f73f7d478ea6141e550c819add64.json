@@ -1,0 +1,56 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            INSERT INTO routing_rules (\n                id, identity_dataset_id, condition_logic, target_adapter_id, priority, created_by\n            )\n            VALUES (?, ?, ?, ?, ?, ?)\n            RETURNING *\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "identity_dataset_id",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "condition_logic",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "target_adapter_id",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "priority",
+        "ordinal": 4,
+        "type_info": "Integer"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_by",
+        "ordinal": 6,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": [
+      true,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "b707d41e56a5ea3c7b23683cba2e62ba2467f73f7d478ea6141e550c819add64"
+}
