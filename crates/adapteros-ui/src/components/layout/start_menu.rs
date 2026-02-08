@@ -19,7 +19,6 @@ pub fn StartMenu(on_close: impl Fn() + Clone + Send + Sync + 'static) -> impl In
     let modules = Signal::derive(move || build_start_menu_modules(ui_profile.get()));
     let menu_ref = NodeRef::<html::Div>::new();
     Effect::new({
-        let menu_ref = menu_ref.clone();
         move |_| {
             if let Some(menu) = menu_ref.get() {
                 let _ = menu.focus();

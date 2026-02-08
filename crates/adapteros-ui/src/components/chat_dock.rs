@@ -1039,7 +1039,7 @@ fn ChatInput() -> impl IntoView {
                                     size=ButtonSize::Sm
                                     loading=is_loading.get()
                                     disabled=disabled
-                                    on_click=send_callback.clone()
+                                    on_click=send_callback
                                 >
                                     "Send"
                                 </Button>

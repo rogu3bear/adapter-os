@@ -111,12 +111,12 @@ pub fn ToastItem(
                                                 title_for_copy, message_for_copy, details_for_copy
                                             )
                                         };
-                                        let copy_clicked = copy_clicked.clone();
+                                        let copy_clicked = copy_clicked;
                                         wasm_bindgen_futures::spawn_local(async move {
                                             if copy_to_clipboard(&full_details).await {
                                                 copy_clicked.set(true);
                                                 // Reset after 2 seconds
-                                                let copy_clicked_reset = copy_clicked.clone();
+                                                let copy_clicked_reset = copy_clicked;
                                                 let handle = gloo_timers::callback::Timeout::new(2000, move || {
                                                     copy_clicked_reset.set(false);
                                                 });

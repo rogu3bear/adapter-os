@@ -72,7 +72,6 @@ pub fn Adapters() -> impl IntoView {
 
     // Publish selection to RouteContext for contextual actions in Command Palette
     {
-        let adapters = adapters.clone();
         Effect::new(move || {
             if let Some(route_ctx) = try_use_route_context() {
                 if let Some(id) = selected_id.get() {
@@ -449,7 +448,7 @@ pub fn AdapterDetail() -> impl IntoView {
                 <div class="flex items-center gap-2">
                     {
                         let navigate = use_navigate();
-                        let id_for_chat = adapter_id.clone();
+                        let id_for_chat = adapter_id;
                         view! {
                             <Button
                                 variant=ButtonVariant::Primary

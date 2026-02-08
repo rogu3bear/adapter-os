@@ -208,7 +208,7 @@ pub fn Combobox(
     };
 
     // Handle option click
-    let on_select_clone = on_select.clone();
+    let on_select_clone = on_select;
     let select_option = move |opt: ComboboxOption| {
         value.set(opt.value.clone());
         dropdown_open.set(false);
@@ -331,13 +331,12 @@ pub fn Combobox(
                                 each=move || filtered_options.get().into_iter().enumerate()
                                 key=|(idx, opt)| format!("{}-{}", idx, opt.value.clone())
                                 children={
-                                    let select_option = select_option.clone();
+                                    let select_option = select_option;
                                     move |(idx, opt)| {
                                         let opt_for_click = opt.clone();
                                         let opt_for_view = opt.clone();
                                         let is_selected = move || selected_index.get() == idx as i32;
                                         let option_id = input_id_store.with_value(|id| format!("{}-option-{}", id, idx));
-                                        let select_option = select_option.clone();
 
                                         view! {
                                             <li
@@ -349,7 +348,6 @@ pub fn Combobox(
                                                     if is_selected() { "bg-accent text-accent-foreground" } else { "hover:bg-muted" }
                                                 )
                                                 on:mousedown={
-                                                    let select_option = select_option.clone();
                                                     let opt = opt_for_click.clone();
                                                     move |ev: web_sys::MouseEvent| {
                                                         ev.prevent_default(); // Prevent blur

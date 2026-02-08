@@ -29,6 +29,7 @@ pub mod style_audit;
 pub mod system;
 pub mod training;
 pub mod user;
+pub mod welcome;
 pub mod workers;
 
 pub use adapters::{AdapterDetail, Adapters};
@@ -58,4 +59,5 @@ pub use style_audit::StyleAudit;
 pub use system::System;
 pub use training::Training;
 pub use user::User;
+pub use welcome::Welcome;
 pub use workers::{WorkerDetail, Workers};

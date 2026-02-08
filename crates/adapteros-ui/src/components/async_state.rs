@@ -574,7 +574,7 @@ pub fn EmptyState(
                 view! {
                     <div class="empty-state-actions">
                         {action_label_clone.map(|label| {
-                            let cb = on_action.clone();
+                            let cb = on_action;
                             view! {
                                 <button
                                     class="btn btn-primary btn-md"

@@ -187,15 +187,11 @@ pub fn WorkersList(
                         <TableBody>
                             {move || {
                                 let count = visible_count.get();
-                                let on_drain = on_drain.clone();
-                                let on_stop = on_stop.clone();
                                 let health_map = health_map.clone();
                                 workers.iter().take(count).map(|worker| {
                                     let worker_id = worker.id.clone();
                                     let worker_id_drain = worker.id.clone();
                                     let worker_id_stop = worker.id.clone();
-                                    let on_drain = on_drain.clone();
-                                    let on_stop = on_stop.clone();
                                     let is_healthy = worker.status == "healthy";
                                     let is_draining = worker.status == "draining";
                                     let health = health_map.get(&worker.id).cloned();
@@ -684,7 +680,6 @@ pub fn WorkerDetailView(
                     </Button>
                     {is_healthy.then(|| {
                         let worker_id = worker_id.clone();
-                        let on_refresh = on_refresh.clone();
                         view! {
                             <Button
                                 variant=ButtonVariant::Secondary
@@ -695,7 +690,6 @@ pub fn WorkerDetailView(
                                         action_loading.set(true);
                                         let client = ApiClient::new();
                                         let worker_id = worker_id.clone();
-                                        let on_refresh = on_refresh.clone();
                                         let alive = alive.clone();
                                         wasm_bindgen_futures::spawn_local(async move {
                                             match client.drain_worker(&worker_id).await {

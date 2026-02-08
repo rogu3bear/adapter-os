@@ -57,7 +57,6 @@ pub fn Collections() -> impl IntoView {
 
     // Create collection handler
     let on_create = {
-        let refetch = refetch.clone();
         move |_| {
             let name = new_name.get();
             let description = new_description.get();
@@ -70,7 +69,7 @@ pub fn Collections() -> impl IntoView {
             set_creating.set(true);
             create_error.set(None);
 
-            let refetch = refetch.clone();
+            let refetch = refetch;
             let client = Arc::new(ApiClient::new());
             wasm_bindgen_futures::spawn_local(async move {
                 let request = CreateCollectionRequest {
@@ -106,7 +105,7 @@ pub fn Collections() -> impl IntoView {
             <PageScaffoldActions slot>
                 <RefreshButton
                     on_click=Callback::new({
-                        let refetch = refetch.clone();
+                        let refetch = refetch;
                         move |_| refetch()
                     })
                 />
@@ -362,12 +361,10 @@ pub fn CollectionDetail() -> impl IntoView {
 
     // Remove document handler creator
     let create_remove_handler = {
-        let refetch = refetch.clone();
         let notifications = notifications.clone();
         move |doc_id: String| {
             let coll_id = collection_id.get();
             let client = Arc::new(ApiClient::new());
-            let refetch = refetch.clone();
             let notifications = notifications.clone();
 
             wasm_bindgen_futures::spawn_local(async move {
@@ -400,7 +397,7 @@ pub fn CollectionDetail() -> impl IntoView {
             <PageScaffoldActions slot>
                 <RefreshButton
                     on_click=Callback::new({
-                        let refetch = refetch.clone();
+                        let refetch = refetch;
                         move |_| refetch()
                     })
                 />
@@ -421,7 +418,7 @@ pub fn CollectionDetail() -> impl IntoView {
             // Main content
             {
                 let remove_handler = create_remove_handler.clone();
-                let refetch = refetch.clone();
+                let refetch = refetch;
                 view! {
                     <AsyncBoundary
                         state=collection
@@ -689,7 +686,6 @@ fn AddDocumentsDialog(
     });
 
     let toggle_selected = {
-        let selected_ids = selected_ids.clone();
         move |doc_id: String, checked: bool| {
             selected_ids.update(|ids| {
                 if checked {
@@ -704,9 +700,7 @@ fn AddDocumentsDialog(
     };
 
     let add_selected = Callback::new({
-        let selected_ids = selected_ids.clone();
         let collection_id = collection_id.clone();
-        let on_added = on_added.clone();
         let alive = alive.clone();
         move |_| {
             let ids = selected_ids.get();
@@ -717,9 +711,9 @@ fn AddDocumentsDialog(
             adding.set(true);
             error_msg.set(None);
             let client = Arc::new(ApiClient::new());
-            let on_added = on_added.clone();
+            let on_added = on_added;
             let open = open;
-            let selected_ids = selected_ids.clone();
+            let selected_ids = selected_ids;
             let collection_id = collection_id.clone();
             let alive = alive.clone();
             wasm_bindgen_futures::spawn_local(async move {
@@ -837,7 +831,6 @@ fn AddDocumentsDialog(
                                                 let doc_id_for_toggle = doc_id.clone();
                                                 let doc_id_for_selected = doc_id.clone();
                                                 let is_selected = Signal::derive({
-                                                    let selected_ids = selected_ids.clone();
                                                     move || selected_ids.get().contains(&doc_id_for_selected)
                                                 });
                                                 let status_variant = match doc.status.as_str() {
@@ -853,7 +846,7 @@ fn AddDocumentsDialog(
                                                             <Checkbox
                                                                 checked=is_selected
                                                                 on_change=Callback::new({
-                                                                    let toggle_selected = toggle_selected.clone();
+                                                                    let toggle_selected = toggle_selected;
                                                                     move |checked| toggle_selected(doc_id_for_toggle.clone(), checked)
                                                                 })
                                                             />

@@ -146,7 +146,7 @@ pub fn AdapterBar(
                             </span>
                         }.into_any()
                     } else {
-                        let on_pin = on_toggle_pin.clone();
+                        let on_pin = on_toggle_pin;
                         adapter_list
                             .iter()
                             .map(|adapter| {
@@ -196,7 +196,6 @@ pub fn AdapterBar(
                                 let adapter_id = adapter.adapter_id.clone();
                                 let adapter_id_toggle = adapter_id.clone();
                                 let href = format!("/adapters/{}", adapter_id);
-                                let on_pin = on_pin.clone();
 
                                 view! {
                                     <div class="flex items-center gap-0.5">
@@ -403,8 +402,8 @@ pub fn SuggestedAdaptersBar(
                                 let disabled_reason = adapter.disabled_reason.clone();
                                 let description = adapter.description.clone();
                                 let tags = adapter.tags.clone();
-                                let on_toggle = on_toggle_pin.clone();
-                                let on_select = on_select_override.clone();
+                                let on_toggle = on_toggle_pin;
+                                let on_select = on_select_override;
 
                                 let confidence_pct = (confidence * 100.0) as u32;
                                 let confidence_label = confidence_to_label(confidence);
@@ -745,7 +744,7 @@ pub fn ChatAdaptersRegion(
             // Active section
             {move || has_active.get().then(|| {
                 let magnets = active_with_pins.get();
-                let on_pin = on_toggle_pin.clone();
+                let on_pin = on_toggle_pin;
                 view! {
                     <div class="chat-adapters-section">
                         <span class="chat-adapters-section-label">"Active"</span>
@@ -773,7 +772,6 @@ pub fn ChatAdaptersRegion(
                                     let adapter_id = adapter.adapter_id.clone();
                                     let adapter_id_toggle = adapter_id.clone();
                                     let href = format!("/adapters/{}", adapter_id);
-                                    let on_pin = on_pin.clone();
                                     view! {
                                         <div class="flex items-center gap-0.5">
                                             <button
@@ -822,7 +820,7 @@ pub fn ChatAdaptersRegion(
             // Pinned-only section (pinned adapters not yet in active set)
             {move || has_pinned_only.get().then(|| {
                 let magnets = pinned_only_magnets.get();
-                let on_unpin = on_toggle_pin.clone();
+                let on_unpin = on_toggle_pin;
                 view! {
                     <div class="chat-adapters-section">
                         <span class="chat-adapters-section-label">"Pinned"</span>
@@ -832,7 +830,6 @@ pub fn ChatAdaptersRegion(
                                 .map(|adapter| {
                                     let adapter_id = adapter.adapter_id.clone();
                                     let adapter_id_toggle = adapter_id.clone();
-                                    let on_unpin = on_unpin.clone();
                                     let href = format!("/adapters/{}", adapter_id);
                                     view! {
                                         <div class="flex items-center gap-0.5">
@@ -932,20 +929,19 @@ pub fn AdapterManageDialog(
         let query = search_query.get().to_lowercase();
 
         for m in active_adapters.get() {
-            if seen.insert(m.adapter_id.clone()) {
-                if query.is_empty() || m.adapter_id.to_lowercase().contains(&query) {
-                    items.push((m.adapter_id.clone(), None::<String>));
-                }
+            if seen.insert(m.adapter_id.clone())
+                && (query.is_empty() || m.adapter_id.to_lowercase().contains(&query))
+            {
+                items.push((m.adapter_id.clone(), None::<String>));
             }
         }
         for s in suggestions.get() {
-            if seen.insert(s.adapter_id.clone()) {
-                if query.is_empty()
+            if seen.insert(s.adapter_id.clone())
+                && (query.is_empty()
                     || s.adapter_id.to_lowercase().contains(&query)
-                    || s.display_name.to_lowercase().contains(&query)
-                {
-                    items.push((s.adapter_id.clone(), Some(s.display_name.clone())));
-                }
+                    || s.display_name.to_lowercase().contains(&query))
+            {
+                items.push((s.adapter_id.clone(), Some(s.display_name.clone())));
             }
         }
         items.sort_by(|a, b| a.0.cmp(&b.0));

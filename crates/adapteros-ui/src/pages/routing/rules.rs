@@ -33,14 +33,6 @@ pub fn RoutingRules() -> impl IntoView {
         }
     });
 
-    let refetch_trigger = RwSignal::new(0usize);
-
-    // Call refetch when trigger changes
-    Effect::new(move |_| {
-        let _ = refetch_trigger.get();
-        refetch_rules.run(());
-    });
-
     view! {
         <div class="space-y-6">
             <div class="flex items-center justify-between">
@@ -50,7 +42,7 @@ pub fn RoutingRules() -> impl IntoView {
                         "Map Identity Set outcomes to target adapters"
                     </p>
                 </div>
-                <RefreshButton on_click=Callback::new(move |_| refetch_trigger.update(|n| *n = n.wrapping_add(1)))/>
+                <RefreshButton on_click=Callback::new(move |_| refetch_rules.run(()))/>
             </div>
 
             <div class="grid gap-6 md:grid-cols-4">

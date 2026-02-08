@@ -10,7 +10,7 @@ use crate::components::{
     CopyableId, ErrorDisplay, LoadingDisplay, RefreshButton,
 };
 use crate::contexts::use_in_flight;
-use crate::hooks::{use_api, use_api_resource, LoadingState};
+use crate::hooks::{use_api, use_api_resource, LoadingState, Refetch};
 use adapteros_api_types::AdapterResponse;
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
@@ -33,17 +33,6 @@ pub fn StackDetail() -> impl IntoView {
         use_api_resource(|client: Arc<ApiClient>| async move { client.list_adapters().await });
 
     let show_edit_dialog = RwSignal::new(false);
-    let refetch_trigger = RwSignal::new(0u32);
-
-    // Call refetch when trigger changes
-    Effect::new(move |_| {
-        let _ = refetch_trigger.get();
-        refetch.run(());
-    });
-
-    let trigger_refresh = move || {
-        refetch_trigger.update(|n| *n = n.wrapping_add(1));
-    };
 
     view! {
         <div class="space-y-6">
@@ -56,7 +45,7 @@ pub fn StackDetail() -> impl IntoView {
             <div class="flex items-center justify-between">
                 <h1 class="heading-1">"Stack Details"</h1>
                 <div class="flex items-center gap-2">
-                    <RefreshButton on_click=Callback::new(move |_| trigger_refresh())/>
+                    <RefreshButton on_click=Callback::new(move |_| refetch.run(()))/>
                     <Button
                         variant=ButtonVariant::Outline
                         on_click=Callback::new(move |_| show_edit_dialog.set(true))
@@ -80,12 +69,12 @@ pub fn StackDetail() -> impl IntoView {
                             <StackDetailContent
                                 stack=data.clone()
                                 all_adapters=adapter_data
-                                refetch_trigger=refetch_trigger
+                                refetch=refetch
                             />
                             <EditStackDialog
                                 open=show_edit_dialog
                                 stack=data
-                                refetch_trigger=refetch_trigger
+                                refetch=refetch
                             />
                         }.into_any()
                     }
@@ -93,7 +82,7 @@ pub fn StackDetail() -> impl IntoView {
                         view! {
                             <ErrorDisplay
                                 error=e
-                                on_retry=Callback::new(move |_| trigger_refresh())
+                                on_retry=Callback::new(move |_| refetch.run(()))
                             />
                         }.into_any()
                     }
@@ -108,17 +97,13 @@ pub fn StackDetail() -> impl IntoView {
 pub fn StackDetailContent(
     stack: StackResponse,
     all_adapters: Vec<AdapterResponse>,
-    refetch_trigger: RwSignal<u32>,
+    refetch: Refetch,
 ) -> impl IntoView {
     let client = use_api();
     let in_flight = use_in_flight();
     let stack_id = stack.id.clone();
     let stack_id_activate = stack_id.clone();
     let is_active = stack.is_active;
-
-    let trigger_refresh = move || {
-        refetch_trigger.update(|n| *n = n.wrapping_add(1));
-    };
 
     // Filter adapters that belong to this stack
     let stack_adapter_ids: std::collections::HashSet<_> =
@@ -174,7 +159,7 @@ pub fn StackDetailContent(
                                         let client = Arc::clone(&client);
                                         wasm_bindgen_futures::spawn_local(async move {
                                             if client.deactivate_stack().await.is_ok() {
-                                                trigger_refresh();
+                                                refetch.run(());
                                             }
                                         });
                                     })
@@ -194,7 +179,7 @@ pub fn StackDetailContent(
                                         let id = id.clone();
                                         wasm_bindgen_futures::spawn_local(async move {
                                             if client.activate_stack(&id).await.is_ok() {
-                                                trigger_refresh();
+                                                refetch.run(());
                                             }
                                         });
                                     })

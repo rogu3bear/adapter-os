@@ -125,12 +125,10 @@ pub fn AdapterLifecycleControls(
     let handle_confirm = {
         let client = Arc::clone(&client);
         let adapter_id = adapter_id_clone.clone();
-        let on_transition = on_transition.clone();
         let notifications = notifications.clone();
         Callback::new(move |reason: String| {
             let client = Arc::clone(&client);
             let adapter_id = adapter_id.clone();
-            let on_transition = on_transition.clone();
             let notifications = notifications.clone();
 
             // Get target state from selected transition

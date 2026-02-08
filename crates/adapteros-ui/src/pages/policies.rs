@@ -37,7 +37,6 @@ pub fn Policies() -> impl IntoView {
     };
 
     let on_policy_created = {
-        let refetch_policies = refetch_policies.clone();
         Callback::new(move |_| {
             show_create.set(false);
             new_cpid.set(String::new());
@@ -299,8 +298,8 @@ fn PolicyDetail(
                         }.into_any()
                     }
                     LoadingState::Loaded(data) => {
-                        let refetch_detail = refetch.clone();
-                        let on_updated = on_updated.clone();
+                        let refetch_detail = refetch;
+                        let on_updated = on_updated;
                         let on_applied = Callback::new(move |_| {
                             refetch_detail.run(());
                             on_updated.run(());
@@ -443,7 +442,7 @@ fn PolicyActionsCard(
         let cpid_value = cpid.get();
         let content_value = content.get();
         let description_value = description.get();
-        let on_applied = on_applied.clone();
+        let on_applied = on_applied;
         let alive = alive.clone();
         if cpid_value.trim().is_empty() {
             set_apply_result.set(Some(Err("CPID is required".to_string())));

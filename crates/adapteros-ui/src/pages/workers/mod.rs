@@ -295,7 +295,6 @@ pub fn WorkerDetail() -> impl IntoView {
 
     // Fetch worker details
     let (worker, refetch_worker) = use_api_resource({
-        let worker_id = worker_id.clone();
         move |client: Arc<ApiClient>| {
             let id = worker_id();
             async move { client.get_worker(&id).await }
@@ -304,7 +303,6 @@ pub fn WorkerDetail() -> impl IntoView {
 
     // Fetch worker metrics
     let (metrics, refetch_metrics) = use_api_resource({
-        let worker_id = worker_id.clone();
         move |client: Arc<ApiClient>| {
             let id = worker_id();
             async move { client.get_worker_metrics(&id).await }

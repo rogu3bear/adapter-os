@@ -116,7 +116,6 @@ fn ChatWorkspace(
     let navigate = use_navigate();
     let sessions = RwSignal::new(ChatSessionsManager::load_sessions());
     let refresh_sessions = {
-        let sessions = sessions.clone();
         Callback::new(move |_: ()| {
             sessions.set(ChatSessionsManager::load_sessions());
         })
@@ -651,8 +650,6 @@ fn ChatConversationPanel(
 
     // Auto-prune untouched placeholder sessions if the conversation panel unmounts.
     {
-        let current_session_id = current_session_id.clone();
-        let refresh_sessions = refresh_sessions.clone();
         on_cleanup(move || {
             let id = current_session_id.get_untracked();
             if !id.is_empty() {
@@ -1101,7 +1098,6 @@ fn ChatConversationPanel(
     let create_draft = {
         #[cfg(target_arch = "wasm32")]
         let navigate = navigate.clone();
-        let chat_state = chat_state.clone();
         Callback::new(move |_: ()| {
             attach_error.set(None);
             let mode = attach_mode.get();
@@ -1138,10 +1134,10 @@ fn ChatConversationPanel(
                     #[cfg(target_arch = "wasm32")]
                     {
                         let navigate = navigate.clone();
-                        let attach_status = attach_status.clone();
-                        let attach_error = attach_error.clone();
-                        let attach_busy = attach_busy.clone();
-                        let show_attach_dialog = show_attach_dialog.clone();
+                        let attach_status = attach_status;
+                        let attach_error = attach_error;
+                        let attach_busy = attach_busy;
+                        let show_attach_dialog = show_attach_dialog;
                         let base_model_param = base_model_param.clone();
 
                         wasm_bindgen_futures::spawn_local(async move {
@@ -1150,7 +1146,7 @@ fn ChatConversationPanel(
                                 return;
                             }
 
-                            let client = ApiClient::with_base_url(&api_base_url());
+                            let client = ApiClient::with_base_url(api_base_url());
                             match client.upload_document(&file).await {
                                 Ok(doc) => {
                                     // Check cancellation before updating UI
@@ -1290,10 +1286,10 @@ fn ChatConversationPanel(
                     #[cfg(target_arch = "wasm32")]
                     {
                         let navigate = navigate.clone();
-                        let attach_status = attach_status.clone();
-                        let attach_error = attach_error.clone();
-                        let attach_busy = attach_busy.clone();
-                        let show_attach_dialog = show_attach_dialog.clone();
+                        let attach_status = attach_status;
+                        let attach_error = attach_error;
+                        let attach_busy = attach_busy;
+                        let show_attach_dialog = show_attach_dialog;
                         let base_model_param = base_model_param.clone();
 
                         wasm_bindgen_futures::spawn_local(async move {
@@ -1302,7 +1298,7 @@ fn ChatConversationPanel(
                                 return;
                             }
 
-                            let client = ApiClient::with_base_url(&api_base_url());
+                            let client = ApiClient::with_base_url(api_base_url());
                             match client
                                 .create_dataset_from_text(
                                     text,
@@ -1386,10 +1382,10 @@ fn ChatConversationPanel(
                     #[cfg(target_arch = "wasm32")]
                     {
                         let navigate = navigate.clone();
-                        let attach_status = attach_status.clone();
-                        let attach_error = attach_error.clone();
-                        let attach_busy = attach_busy.clone();
-                        let show_attach_dialog = show_attach_dialog.clone();
+                        let attach_status = attach_status;
+                        let attach_error = attach_error;
+                        let attach_busy = attach_busy;
+                        let show_attach_dialog = show_attach_dialog;
                         let base_model_param = base_model_param.clone();
 
                         wasm_bindgen_futures::spawn_local(async move {
@@ -1398,7 +1394,7 @@ fn ChatConversationPanel(
                                 return;
                             }
 
-                            let client = ApiClient::with_base_url(&api_base_url());
+                            let client = ApiClient::with_base_url(api_base_url());
                             match client
                                 .create_dataset_from_chat(
                                     chat_messages,
@@ -1552,8 +1548,8 @@ fn ChatConversationPanel(
                 pinned_adapters=pinned_adapters
                 suggestions=suggested_adapters
                 pending=adapter_selection_pending
-                on_select_override=on_select_override.clone()
-                on_toggle_pin=on_toggle_pin.clone()
+                on_select_override=on_select_override
+                on_toggle_pin=on_toggle_pin
                 on_set_pinned=on_set_pinned
                 loading=is_streaming
             />
@@ -1941,8 +1937,8 @@ fn ChatConversationPanel(
                                                 <Button
                                                     variant=ButtonVariant::Outline
                                                     size=ButtonSize::Sm
-                                                    disabled=retry_disabled.clone()
-                                                    on_click=do_retry.clone()
+                                                    disabled=retry_disabled
+                                                    on_click=do_retry
                                                 >
                                                     "Retry"
                                                 </Button>

@@ -477,7 +477,7 @@ pub fn TokenDecisions(
                         {move || {
                             if has_more.get() {
                                 let loading = loading_more.get();
-                                let on_load_more = on_load_more.clone();
+                                let on_load_more = on_load_more;
                                 Some(view! {
                                     <div class="flex justify-center pt-2">
                                         <button
@@ -654,21 +654,22 @@ fn ReceiptVerification(
         "border border-border rounded-lg p-4"
     };
 
-    let verified_class = if receipt.verified {
-        "bg-status-success/10 border-status-success/20 text-status-success"
-    } else {
-        "bg-status-warning/10 border-status-warning/20 text-status-warning"
-    };
-
-    let verified_text = if receipt.verified {
-        "Verified"
-    } else {
-        "Unverified"
-    };
-    let verified_help = if receipt.verified {
-        "Verified: receipt digest matches recorded inputs and outputs."
-    } else {
-        "Unverified: receipt digest has not been validated for this run."
+    let (verified_class, verified_text, verified_help) = match receipt.verified {
+        Some(true) => (
+            "bg-status-success/10 border-status-success/20 text-status-success",
+            "Verified",
+            "Verified: receipt digest matches server recomputation.",
+        ),
+        Some(false) => (
+            "bg-destructive/10 border-destructive/20 text-destructive",
+            "Mismatch",
+            "Mismatch: stored receipt digest does not match server recomputation.",
+        ),
+        None => (
+            "bg-status-warning/10 border-status-warning/20 text-status-warning",
+            "Pending",
+            "Pending: receipt digest has not been recomputed/verified yet.",
+        ),
     };
     let receipt_short = format!(
         "{}...",

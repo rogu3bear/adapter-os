@@ -7,14 +7,14 @@ use crate::api::{ApiClient, CreateStackRequest, StackResponse, UpdateStackReques
 use crate::components::{
     AsyncBoundaryWithEmpty, Button, ButtonVariant, Checkbox, Dialog, Input, Select, Textarea,
 };
-use crate::hooks::{use_api, use_api_resource};
+use crate::hooks::{use_api, use_api_resource, Refetch};
 use adapteros_api_types::AdapterResponse;
 use leptos::prelude::*;
 use std::sync::Arc;
 
 /// Create stack dialog
 #[component]
-pub fn CreateStackDialog(open: RwSignal<bool>, refetch_trigger: RwSignal<u32>) -> impl IntoView {
+pub fn CreateStackDialog(open: RwSignal<bool>, refetch: Refetch) -> impl IntoView {
     let name = RwSignal::new(String::new());
     let description = RwSignal::new(String::new());
     let workflow_type = RwSignal::new("parallel".to_string());
@@ -73,7 +73,7 @@ pub fn CreateStackDialog(open: RwSignal<bool>, refetch_trigger: RwSignal<u32>) -
                         description.set(String::new());
                         selected_adapter_ids.set(vec![]);
                         open.set(false);
-                        refetch_trigger.update(|n| *n = n.wrapping_add(1));
+                        refetch.run(());
                     }
                     Err(e) => {
                         creating.set(false);
@@ -215,7 +215,7 @@ pub fn AdapterCheckboxList(
 pub fn EditStackDialog(
     open: RwSignal<bool>,
     stack: StackResponse,
-    refetch_trigger: RwSignal<u32>,
+    refetch: Refetch,
 ) -> impl IntoView {
     let name = RwSignal::new(stack.name.clone());
     let description = RwSignal::new(stack.description.clone().unwrap_or_default());
@@ -284,7 +284,7 @@ pub fn EditStackDialog(
                     Ok(_) => {
                         updating.set(false);
                         open.set(false);
-                        refetch_trigger.update(|n| *n = n.wrapping_add(1));
+                        refetch.run(());
                     }
                     Err(e) => {
                         updating.set(false);

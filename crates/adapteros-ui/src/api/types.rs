@@ -767,7 +767,8 @@ pub struct UiTraceReceiptSummary {
     pub stop_reason_code: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop_reason_token_index: Option<u32>,
-    pub verified: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verified: Option<bool>,
     /// Hardware/Equipment attestation fields
     #[serde(skip_serializing_if = "Option::is_none")]
     pub processor_id: Option<String>,

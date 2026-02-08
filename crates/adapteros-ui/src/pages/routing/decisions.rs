@@ -112,7 +112,7 @@ pub fn RoutingDecisions() -> impl IntoView {
                             />
 
                             // Summary stats
-                            <SummaryStats decisions=decisions.clone() />
+                            <SummaryStats decisions=decisions />
 
                             // Decisions list
                             {move || {

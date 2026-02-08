@@ -85,7 +85,6 @@ pub fn FormDialog(
     });
 
     let handle_cancel = {
-        let on_cancel = on_cancel.clone();
         move |_| {
             if !loading_signal.get() {
                 if let Some(ref cb) = on_cancel {
@@ -128,7 +127,7 @@ pub fn FormDialog(
                 <div class="form-dialog-actions flex justify-end gap-3 pt-4 border-t border-border">
                     <Button
                         variant=ButtonVariant::Outline
-                        on_click=Callback::new(handle_cancel.clone())
+                        on_click=Callback::new(handle_cancel)
                         disabled=loading_signal
                     >
                         {cancel_text.clone()}
@@ -197,7 +196,6 @@ pub fn StepFormDialog(
     let is_last = move || current_step.get() == total_steps - 1;
 
     let handle_cancel = {
-        let on_cancel = on_cancel.clone();
         move |_| {
             if !loading_signal.get() {
                 if let Some(ref cb) = on_cancel {
@@ -251,7 +249,7 @@ pub fn StepFormDialog(
             <div class="step-actions flex justify-between pt-4 border-t border-border mt-4">
                 <Button
                     variant=ButtonVariant::Ghost
-                    on_click=Callback::new(handle_cancel.clone())
+                    on_click=Callback::new(handle_cancel)
                     disabled=loading_signal
                 >
                     "Cancel"

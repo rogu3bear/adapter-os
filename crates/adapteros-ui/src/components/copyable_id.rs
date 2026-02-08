@@ -41,11 +41,11 @@ pub fn CopyableId(
     let id_for_title = id.clone();
     let on_copy = move |_| {
         let id = id.clone();
-        let copied = copied.clone();
+        let copied = copied;
         spawn_local(async move {
             if copy_to_clipboard(&id).await {
                 copied.set(true);
-                let copied_reset = copied.clone();
+                let copied_reset = copied;
                 leptos::task::spawn_local(async move {
                     gloo_timers::future::TimeoutFuture::new(1200).await;
                     copied_reset.set(false);

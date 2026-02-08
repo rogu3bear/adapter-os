@@ -23,18 +23,6 @@ pub fn Reviews() -> impl IntoView {
             |client: Arc<ApiClient>| async move { client.list_paused_reviews().await },
         );
 
-    let refetch_trigger = RwSignal::new(0u32);
-
-    // Call refetch when trigger changes
-    Effect::new(move |_| {
-        let _ = refetch_trigger.get();
-        refetch.run(());
-    });
-
-    let trigger_refresh = move || {
-        refetch_trigger.update(|n| *n = n.wrapping_add(1));
-    };
-
     // Selected review for detail view
     let selected_review: RwSignal<Option<PausedInferenceInfo>> = RwSignal::new(None);
 
@@ -51,22 +39,7 @@ pub fn Reviews() -> impl IntoView {
     // After submission, refresh and close
     let on_submit = Callback::new(move |_: ()| {
         selected_review.set(None);
-        trigger_refresh();
-    });
-
-    // Dialog open state derived from selected_review
-    let dialog_open = RwSignal::new(false);
-
-    // Sync dialog_open with selected_review
-    Effect::new(move || {
-        dialog_open.set(selected_review.get().is_some());
-    });
-
-    // Handle dialog close by clicking backdrop
-    Effect::new(move || {
-        if !dialog_open.get() && selected_review.get().is_some() {
-            selected_review.set(None);
-        }
+        refetch.run(());
     });
 
     view! {
@@ -75,7 +48,7 @@ pub fn Reviews() -> impl IntoView {
             subtitle="Human-in-the-loop review management".to_string()
         >
             <PageScaffoldActions slot>
-                <RefreshButton on_click=Callback::new(move |_| trigger_refresh())/>
+                <RefreshButton on_click=Callback::new(move |_| refetch.run(()))/>
             </PageScaffoldActions>
 
             {move || {
@@ -96,7 +69,7 @@ pub fn Reviews() -> impl IntoView {
                         view! {
                             <ErrorDisplay
                                 error=e
-                                on_retry=Callback::new(move |_| trigger_refresh())
+                                on_retry=Callback::new(move |_| refetch.run(()))
                             />
                         }.into_any()
                     }
@@ -322,7 +295,7 @@ fn ReviewDetailDialog(
         let pause_id = pause_id.clone();
         let assessment_value = assessment.get();
         let comment_value = comment.get();
-        let on_submit = on_submit.clone();
+        let on_submit = on_submit;
         let alive = alive_for_submit.clone();
 
         // Parse assessment
@@ -386,7 +359,7 @@ fn ReviewDetailDialog(
         submit_error.set(None);
 
         let pause_id = pause_id_approve.clone();
-        let on_submit = on_submit.clone();
+        let on_submit = on_submit;
         let alive = alive_for_approve.clone();
         let request = SubmitReviewRequest {
             pause_id,
@@ -425,7 +398,7 @@ fn ReviewDetailDialog(
         submit_error.set(None);
 
         let pause_id = pause_id_reject.clone();
-        let on_submit = on_submit.clone();
+        let on_submit = on_submit;
         let alive = alive.clone();
         let request = SubmitReviewRequest {
             pause_id,

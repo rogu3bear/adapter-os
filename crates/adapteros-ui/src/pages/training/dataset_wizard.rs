@@ -414,25 +414,6 @@ pub fn DatasetUploadWizard(
     });
 
     let refresh_preview: Callback<()> = {
-        #[cfg(target_arch = "wasm32")]
-        let mode = mode.clone();
-        #[cfg(target_arch = "wasm32")]
-        let csv_mapping = csv_mapping.clone();
-        #[cfg(target_arch = "wasm32")]
-        let csv_headers = csv_headers.clone();
-        let preview_rows = preview_rows.clone();
-        let parse_errors = parse_errors.clone();
-        let manifest_info = manifest_info.clone();
-        #[cfg(target_arch = "wasm32")]
-        let text_strategy = text_strategy.clone();
-        let status = status.clone();
-        #[cfg(target_arch = "wasm32")]
-        let name = name.clone();
-        #[cfg(target_arch = "wasm32")]
-        let manifest_preview = manifest_preview.clone();
-        #[cfg(target_arch = "wasm32")]
-        let data_preview = data_preview.clone();
-
         Callback::new(move |_| {
             parse_errors.set(Vec::new());
             preview_rows.set(Vec::new());
@@ -444,10 +425,6 @@ pub fn DatasetUploadWizard(
                 let csv_map_value = csv_mapping.get();
                 let csv_headers_value = csv_headers.get();
                 let text_strategy_value = text_strategy.get();
-                let parse_errors = parse_errors.clone();
-                let preview_rows = preview_rows.clone();
-                let manifest_info = manifest_info.clone();
-                let name = name.clone();
                 match mode_value {
                     UploadMode::ManifestJsonl => {
                         let manifest_file_value = manifest_preview.get();
@@ -542,10 +519,6 @@ pub fn DatasetUploadWizard(
 
     #[cfg(target_arch = "wasm32")]
     let handle_manifest_file = {
-        let manifest_file = manifest_file.clone();
-        let manifest_preview = manifest_preview.clone();
-        let parse_errors = parse_errors.clone();
-        let refresh_preview = refresh_preview.clone();
         move |ev: web_sys::Event| {
             if let Some(input) = ev
                 .target()
@@ -564,11 +537,7 @@ pub fn DatasetUploadWizard(
                             return;
                         }
 
-                        let parse_errors = parse_errors.clone();
-                        let refresh_preview = refresh_preview.clone();
                         let name = file.name();
-                        let manifest_file = manifest_file.clone();
-                        let manifest_preview = manifest_preview.clone();
                         spawn_local(async move {
                             match read_as_text(&Blob::from(file.clone())).await {
                                 Ok(text) => {
@@ -590,11 +559,6 @@ pub fn DatasetUploadWizard(
 
     #[cfg(target_arch = "wasm32")]
     let handle_data_file = {
-        let data_file = data_file.clone();
-        let data_preview = data_preview.clone();
-        let parse_errors = parse_errors.clone();
-        let refresh_preview = refresh_preview.clone();
-        let mode = mode.clone();
         move |ev: web_sys::Event| {
             if let Some(input) = ev
                 .target()
@@ -619,11 +583,7 @@ pub fn DatasetUploadWizard(
                             return;
                         }
 
-                        let parse_errors = parse_errors.clone();
-                        let refresh_preview = refresh_preview.clone();
                         let name = file.name();
-                        let data_file = data_file.clone();
-                        let data_preview = data_preview.clone();
                         spawn_local(async move {
                             match read_as_text(&Blob::from(file.clone())).await {
                                 Ok(text) => {
@@ -650,27 +610,6 @@ pub fn DatasetUploadWizard(
     let handle_data_file = |_ev: web_sys::Event| {};
 
     let on_upload: Callback<()> = {
-        #[cfg(target_arch = "wasm32")]
-        let manifest_file = manifest_file.clone();
-        #[cfg(target_arch = "wasm32")]
-        let data_file = data_file.clone();
-        #[cfg(target_arch = "wasm32")]
-        let name = name.clone();
-        #[cfg(target_arch = "wasm32")]
-        let description = description.clone();
-        #[cfg(target_arch = "wasm32")]
-        let idempotency_key = idempotency_key.clone();
-        #[cfg(target_arch = "wasm32")]
-        let mode = mode.clone();
-        #[cfg(target_arch = "wasm32")]
-        let csv_mapping = csv_mapping.clone();
-        let preview_rows = preview_rows.clone();
-        let parse_errors = parse_errors.clone();
-        let status = status.clone();
-        let upload_error = upload_error.clone();
-        let submitting = submitting.clone();
-        #[cfg(target_arch = "wasm32")]
-        let manifest_info = manifest_info.clone();
         Callback::new(move |_| {
             upload_error.set(None);
             status.set(String::new());
@@ -799,8 +738,8 @@ pub fn DatasetUploadWizard(
     });
 
     let dialog = move || -> AnyView {
-        let manifest_handler = handle_manifest_file.clone();
-        let data_handler = handle_data_file.clone();
+        let manifest_handler = handle_manifest_file;
+        let data_handler = handle_data_file;
         if !open.get() {
             view! {}.into_any()
         } else {
@@ -850,20 +789,18 @@ pub fn DatasetUploadWizard(
                                         (UploadMode::Csv, "CSV"),
                                         (UploadMode::Text, "Text / Markdown"),
                                     ].into_iter().map(|(value, label)| {
-                                        let mode_signal = mode.clone();
-                                        let refresh = refresh_preview.clone();
                                         view! {
                                             <button
                                                 class=move || {
-                                                    if mode_signal.get() == value {
+                                                    if mode.get() == value {
                                                         "px-3 py-2 rounded-md bg-primary text-primary-foreground text-sm"
                                                     } else {
                                                         "px-3 py-2 rounded-md border text-sm"
                                                     }
                                                 }
                                                 on:click=move |_| {
-                                                    mode_signal.set(value);
-                                                    refresh.run(());
+                                                    mode.set(value);
+                                                    refresh_preview.run(());
                                                 }
                                             >
                                                 {label}
@@ -903,11 +840,11 @@ pub fn DatasetUploadWizard(
                                     <div class="grid gap-3 md:grid-cols-2">
                                         <div>
                                             <label class="text-sm font-medium">"Manifest (.json)"</label>
-                                            <input type="file" accept=".json" class="mt-1 block w-full text-sm" on:change=manifest_handler.clone()/>
+                                            <input type="file" accept=".json" class="mt-1 block w-full text-sm" on:change=manifest_handler/>
                                         </div>
                                         <div>
                                             <label class="text-sm font-medium">"Dataset (.jsonl)"</label>
-                                            <input type="file" accept=".jsonl" class="mt-1 block w-full text-sm" on:change=data_handler.clone()/>
+                                            <input type="file" accept=".jsonl" class="mt-1 block w-full text-sm" on:change=data_handler/>
                                         </div>
                                     </div>
                                     {move || manifest_info.get().map(|m| view! {
@@ -932,7 +869,7 @@ pub fn DatasetUploadWizard(
                                         </div>
                                         <Badge variant=BadgeVariant::Secondary>"Input / Target"</Badge>
                                     </div>
-                                        <input type="file" accept=".csv" class="mt-1 block w-full text-sm" on:change=data_handler.clone()/>
+                                        <input type="file" accept=".csv" class="mt-1 block w-full text-sm" on:change=data_handler/>
                                     {move || {
                                         let headers = csv_headers.get();
                                         if headers.is_empty() {
@@ -947,8 +884,8 @@ pub fn DatasetUploadWizard(
                                             let mapping_for_target = mapping.clone();
                                             let mapping_for_weight = mapping.clone();
                                             let mapping_for_options = mapping.clone();
-                                            let set_mapping = csv_mapping.clone();
-                                            let refresh = refresh_preview.clone();
+                                            let set_mapping = csv_mapping;
+                                            let refresh = refresh_preview;
                                             view! {
                                                 <div class="grid gap-3 md:grid-cols-3">
                                                     <div class="space-y-1">
@@ -1020,14 +957,12 @@ pub fn DatasetUploadWizard(
                                         </div>
                                         <Badge variant=BadgeVariant::Secondary>"Input / Target"</Badge>
                                     </div>
-                                    <input type="file" accept=".txt,.md,.markdown" class="mt-1 block w-full text-sm" on:change=data_handler.clone()/>
+                                    <input type="file" accept=".txt,.md,.markdown" class="mt-1 block w-full text-sm" on:change=data_handler/>
                                     <div class="flex gap-2">
                                         {vec![
                                             (TextStrategy::Echo, "Echo input as target"),
                                             (TextStrategy::PairAdjacent, "Pair adjacent blocks"),
                                         ].into_iter().map(|(value, label)| {
-                                            let text_strategy = text_strategy.clone();
-                                            let refresh = refresh_preview.clone();
                                             view! {
                                                 <button
                                                     class=move || {
@@ -1039,7 +974,7 @@ pub fn DatasetUploadWizard(
                                                     }
                                                     on:click=move |_| {
                                                         text_strategy.set(value);
-                                                        refresh.run(());
+                                                        refresh_preview.run(());
                                                     }
                                                 >
                                                     {label}

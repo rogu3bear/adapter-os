@@ -455,7 +455,7 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
 
                     // Single fetch for trace detail - shared by all tabs that need it.
                     // Cache to avoid redundant fetches on tab switches or re-renders.
-                    let (trace_detail, _) = use_api_resource({
+                    let (trace_detail, refetch_trace_detail) = use_api_resource({
                         let tid = trace_id.clone();
                         let cache = trace_detail_cache;
                         let cache_id = trace_detail_cache_id;
@@ -494,11 +494,23 @@ fn RunDetailHub(run_id: String, on_close: Callback<()>) -> impl IntoView {
                         }
                     });
 
+                    // Force a fresh fetch (bypass the local cache) for actions like "Verify receipt".
+                    let refetch_trace_detail_fresh = {
+                        let cache = trace_detail_cache;
+                        let cache_id = trace_detail_cache_id;
+                        Callback::new(move |_| {
+                            let _ = cache.try_set(None);
+                            let _ = cache_id.try_set(None);
+                            refetch_trace_detail.run(());
+                        })
+                    };
+
                     view! {
                         <TabContent
                             export=export
                             active_tab=active_tab
                             trace_detail=trace_detail
+                            refetch_trace_detail=refetch_trace_detail_fresh
                             compare_trace=compare_trace.clone()
                             receipt_digest=receipt_digest.write_only()
                             trace_detail_started_at=trace_detail_started_at
@@ -518,6 +530,7 @@ fn TabContent(
     export: DiagExportResponse,
     active_tab: RwSignal<RunDetailTab>,
     trace_detail: ReadSignal<crate::hooks::LoadingState<UiInferenceTraceDetailResponse>>,
+    refetch_trace_detail: Callback<()>,
     compare_trace: Option<String>,
     receipt_digest: WriteSignal<Option<String>>,
     trace_detail_started_at: RwSignal<Option<Instant>>,
@@ -551,7 +564,7 @@ fn TabContent(
                     view! { <TraceTab trace_detail=trace_detail/> }.into_any()
                 }
                 RunDetailTab::Receipt => {
-                    view! { <ReceiptsTab export=export trace_detail=trace_detail/> }.into_any()
+                    view! { <ReceiptsTab export=export trace_detail=trace_detail refetch_trace_detail=refetch_trace_detail/> }.into_any()
                 }
                 RunDetailTab::Routing => {
                     view! { <RoutingTab export=export trace_detail=trace_detail/> }.into_any()
@@ -635,13 +648,39 @@ fn QuickActionButton(
                 copy_to_clipboard(&digest, set_copied, notifications.clone(), "Receipt hash");
             }
             QuickAction::Export(run_id) => {
-                // Navigate to export endpoint or trigger download
-                if let Some(window) = web_sys::window() {
-                    let _ = window.open_with_url_and_target(
-                        &format!("/api/diag/runs/{}/export", run_id),
-                        "_blank",
-                    );
-                }
+                // Export diagnostic run as JSON (API is mounted at root, not /api).
+                let notifs = notifications.clone();
+                spawn_local(async move {
+                    let client = ApiClient::new();
+                    match client.export_diag_run(&run_id).await {
+                        Ok(export) => match serde_json::to_string_pretty(&export) {
+                            Ok(json_content) => {
+                                let filename =
+                                    format!("diag-export-{}.json", &run_id[..16.min(run_id.len())]);
+                                if let Err(e) = trigger_download(&filename, &json_content) {
+                                    notifs.error(
+                                        "Download failed",
+                                        &format!("Could not download export: {}", e),
+                                    );
+                                } else {
+                                    notifs.success(
+                                        "Download started",
+                                        "Diagnostic export download initiated.",
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                notifs.error(
+                                    "Export failed",
+                                    &format!("Could not serialize export: {}", e),
+                                );
+                            }
+                        },
+                        Err(e) => {
+                            notifs.error("Export failed", &format!("Could not export run: {}", e));
+                        }
+                    }
+                });
             }
             QuickAction::DownloadSignature(trace_id) => {
                 // Create bundle and download signature
@@ -1066,22 +1105,28 @@ fn OverviewTab(
                     {move || match trace_detail.get() {
                         LoadingState::Loaded(detail) => {
                             if let Some(receipt) = detail.receipt.clone() {
-                                let verified = receipt.verified;
-                                let verified_label = if verified { "Verified" } else { "Unverified" };
-                                let verified_variant = if verified {
-                                    BadgeVariant::Success
-                                } else {
-                                    BadgeVariant::Warning
-                                };
+                                let (verified_label, verified_variant, verified_note) =
+                                    match receipt.verified {
+                                        Some(true) => (
+                                            "Verified",
+                                            BadgeVariant::Success,
+                                            "Server recomputation matched the stored receipt digest.",
+                                        ),
+                                        Some(false) => (
+                                            "Mismatch",
+                                            BadgeVariant::Destructive,
+                                            "Receipt digest mismatch: stored digest does not match recomputation.",
+                                        ),
+                                        None => (
+                                            "Pending",
+                                            BadgeVariant::Warning,
+                                            "Receipt has not been recomputed/verified by the server yet.",
+                                        ),
+                                    };
                                 let backend_label = detail
                                     .backend_id
                                     .clone()
                                     .unwrap_or_else(|| "Unknown".to_string());
-                                let verified_note = if verified {
-                                    "Server validated receipt parity."
-                                } else {
-                                    "Receipt parity was not validated."
-                                };
                                 view! {
                                     <div class="space-y-3">
                                         <div class="flex items-center justify-between">
@@ -1104,7 +1149,7 @@ fn OverviewTab(
                                             <ProvenanceField label="Backend attestation hash" value=receipt.backend_attestation_b3.clone()/>
                                         </div>
                                         // Training digests section
-                                        {receipt.adapter_training_digests.clone().map(|digests| {
+                                        {receipt.adapter_training_digests.clone().and_then(|digests| {
                                             if digests.is_empty() {
                                                 None
                                             } else {
@@ -1126,7 +1171,7 @@ fn OverviewTab(
                                                     </div>
                                                 })
                                             }
-                                        }).flatten()}
+                                        })}
                                     </div>
                                 }
                                 .into_any()
@@ -1285,7 +1330,20 @@ fn TraceTab(
 fn ReceiptsTab(
     export: DiagExportResponse,
     trace_detail: ReadSignal<LoadingState<UiInferenceTraceDetailResponse>>,
+    refetch_trace_detail: Callback<()>,
 ) -> impl IntoView {
+    #[derive(serde::Serialize)]
+    struct TraceVerifyRequest {
+        trace_id: String,
+    }
+
+    #[derive(Debug, Clone, serde::Deserialize)]
+    struct TraceVerifyResponse {
+        pass: bool,
+        #[serde(default)]
+        reasons: Vec<String>,
+    }
+
     #[derive(Clone, Copy, PartialEq, Eq)]
     enum ReceiptPanelTab {
         Summary,
@@ -1295,6 +1353,8 @@ fn ReceiptsTab(
 
     let active_tab = RwSignal::new(ReceiptPanelTab::Summary);
     let receipt_digest = RwSignal::new(Option::<String>::None);
+    let notifications = use_notifications();
+    let verifying = RwSignal::new(false);
 
     Effect::new(move |_| {
         if let LoadingState::Loaded(detail) = trace_detail.get() {
@@ -1397,6 +1457,7 @@ fn ReceiptsTab(
                 let manifest_hash = manifest_hash.clone();
                 let exported_at = exported_at.clone();
                 let events_str = events_str.clone();
+                let notifications = notifications.clone();
                 match active_tab.get() {
                     ReceiptPanelTab::Summary => {
                         view! {
@@ -1405,12 +1466,16 @@ fn ReceiptsTab(
                                     {move || match trace_detail.get() {
                                         LoadingState::Loaded(detail) => {
                                             if let Some(receipt) = detail.receipt.clone() {
-                                                let verified_label = if receipt.verified { "Verified" } else { "Unverified" };
-                                                let verified_variant = if receipt.verified {
-                                                    BadgeVariant::Success
-                                                } else {
-                                                    BadgeVariant::Warning
-                                                };
+                                                let (verified_label, verified_variant) =
+                                                    match receipt.verified {
+                                                        Some(true) => {
+                                                            ("Verified", BadgeVariant::Success)
+                                                        }
+                                                        Some(false) => {
+                                                            ("Mismatch", BadgeVariant::Destructive)
+                                                        }
+                                                        None => ("Pending", BadgeVariant::Warning),
+                                                    };
                                                 let cache_label = match receipt.prefix_cache_hit {
                                                     Some(true) => "Cache credit applied",
                                                     Some(false) => "No cache credit",
@@ -1428,6 +1493,74 @@ fn ReceiptsTab(
                                                                 <p class="text-sm text-muted-foreground">"Verification status"</p>
                                                                 <Badge variant=verified_variant>{verified_label}</Badge>
                                                             </div>
+                                                        </div>
+                                                        <div class="flex flex-wrap items-center gap-2">
+                                                            <Button
+                                                                variant=ButtonVariant::Outline
+                                                                on_click=Callback::new({
+                                                                    let trace_id = trace_id.clone();
+                                                                    let notifications = notifications.clone();
+                                                                    let refetch = refetch_trace_detail.clone();
+                                                                    move |_| {
+                                                                        if verifying.get_untracked() {
+                                                                            return;
+                                                                        }
+                                                                        verifying.set(true);
+                                                                        let trace_id =
+                                                                            trace_id.clone();
+                                                                        let notifications =
+                                                                            notifications.clone();
+                                                                        let refetch = refetch.clone();
+                                                                        spawn_local(async move {
+                                                                            let client = ApiClient::new();
+                                                                            let req = TraceVerifyRequest { trace_id };
+                                                                            let res: Result<TraceVerifyResponse, _> =
+                                                                                client.post("/v1/replay/verify/trace", &req).await;
+                                                                            match res {
+                                                                                Ok(report) => {
+                                                                                    if report.pass {
+                                                                                        notifications.success(
+                                                                                            "Receipt verified",
+                                                                                            "Stored receipt matches canonical recomputation.",
+                                                                                        );
+                                                                                    } else if report.reasons.is_empty() {
+                                                                                        notifications.warning(
+                                                                                            "Receipt mismatch",
+                                                                                            "Verification failed (no reasons returned).",
+                                                                                        );
+                                                                                    } else {
+                                                                                        let reason = report.reasons[0].clone();
+                                                                                        notifications.warning(
+                                                                                            "Receipt mismatch",
+                                                                                            &format!("First reason: {reason}"),
+                                                                                        );
+                                                                                    }
+                                                                                    refetch.run(());
+                                                                                }
+                                                                                Err(err) => {
+                                                                                    notifications.error(
+                                                                                        "Receipt verification failed",
+                                                                                        &format!("{err}"),
+                                                                                    );
+                                                                                }
+                                                                            }
+                                                                            verifying.set(false);
+                                                                        });
+                                                                    }
+                                                                })
+                                                                disabled=verifying
+                                                            >
+                                                                {move || if verifying.get() {
+                                                                    view! {
+                                                                        <span class="inline-flex items-center gap-2">
+                                                                            <Spinner/>
+                                                                            <span>"Verifying"</span>
+                                                                        </span>
+                                                                    }.into_any()
+                                                                } else {
+                                                                    view! { <span>"Verify on server"</span> }.into_any()
+                                                                }}
+                                                            </Button>
                                                         </div>
                                                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                                                             <div>
@@ -1918,7 +2051,7 @@ fn DiffTab(export: DiagExportResponse, compare_trace: Option<String>) -> impl In
         })
     };
 
-    let start_compare_for_effect = start_compare.clone();
+    let start_compare_for_effect = start_compare;
     Effect::new(move |_| {
         if auto_compare_done.get() || compare_trace_value.is_empty() {
             return;

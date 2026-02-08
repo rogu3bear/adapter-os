@@ -29,7 +29,7 @@ pub fn CommandPalette() -> impl IntoView {
             search_for_effect.prefetch_entities();
 
             // Focus input after a brief delay to ensure DOM is ready
-            let input_ref = input_ref.clone();
+            let input_ref = input_ref;
             set_timeout_simple(
                 move || {
                     if let Some(input) = input_ref.get() {
@@ -243,7 +243,7 @@ pub fn CommandPalette() -> impl IntoView {
                     // Results or empty state
                     {
                         let search_for_results = search.clone();
-                        let on_select_for_results = on_select.clone();
+                        let on_select_for_results = on_select;
                         move || {
                             let query = search_for_results.query.get();
                             let results = search_for_results.results.get();
@@ -257,7 +257,7 @@ pub fn CommandPalette() -> impl IntoView {
                                     view! {
                                         <RecentItemsList
                                             items=recent
-                                            on_select=on_select_for_results.clone()
+                                            on_select=on_select_for_results
                                         />
                                     }.into_any()
                                 }
@@ -273,7 +273,7 @@ pub fn CommandPalette() -> impl IntoView {
                                     <SearchResultsList
                                         results=Signal::derive(move || search.results.get())
                                         selected_index=Signal::derive(move || search.selected_index.get())
-                                        on_select=on_select_for_results.clone()
+                                        on_select=on_select_for_results
                                     />
                                 }.into_any()
                             }
@@ -329,7 +329,6 @@ fn RecentItemsList(
             </div>
             <div class="space-y-0.5">
                 {items.into_iter().map(|item| {
-                    let on_select = on_select.clone();
                     let item_clone = item.clone();
                     let item_label = item.label.clone();
                     view! {

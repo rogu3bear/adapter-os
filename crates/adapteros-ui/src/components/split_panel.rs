@@ -122,7 +122,7 @@ where
             let list_fn = list_panel.clone();
             let detail_fn = detail_panel.clone();
             let back_text = back_text.clone();
-            let on_close = on_close.clone();
+            let on_close = on_close;
 
             match current_mode {
                 SplitMode::Desktop => {

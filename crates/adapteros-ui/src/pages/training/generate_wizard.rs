@@ -378,7 +378,7 @@ pub fn GenerateDatasetWizard(
                             accept=".txt,.md,.markdown"
                             class="block w-full text-sm text-muted-foreground file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-primary file:text-primary-foreground hover:file:bg-primary/90 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                             disabled=move || generating.get()
-                            on:change=handle_file_select.clone()
+                            on:change=handle_file_select
                         />
                         <p class="text-xs text-muted-foreground">
                             "Supported: .txt, .md, .markdown"
@@ -490,7 +490,7 @@ pub fn GenerateDatasetWizard(
                     <div class="flex justify-end gap-2 pt-4 border-t">
                         <Button
                             variant=ButtonVariant::Secondary
-                            on_click=Callback::new(close.clone())
+                            on_click=Callback::new(close)
                         >
                             {move || if result.get().is_some() { "Close" } else { "Cancel" }}
                         </Button>
@@ -498,7 +498,6 @@ pub fn GenerateDatasetWizard(
                             <Button
                                 variant=ButtonVariant::Primary
                                 on_click=Callback::new({
-                                    let on_generated = on_generated.clone();
                                     move |_: ()| {
                                         if let Some(r) = result.get() {
                                             on_generated.run(GenerateDatasetOutcome {

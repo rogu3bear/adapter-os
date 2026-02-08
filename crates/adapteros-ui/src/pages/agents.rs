@@ -63,8 +63,6 @@ pub fn Agents() -> impl IntoView {
     });
 
     let refetch_all = {
-        let refetch_config = refetch_config.clone();
-        let refetch_sessions = refetch_sessions.clone();
         Callback::new(move |_| {
             refetch_config.run(());
             refetch_sessions.run(());

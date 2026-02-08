@@ -196,7 +196,7 @@ impl TimeScale {
             .max(1); // prevent division by zero
 
         // Align first tick to interval boundary (from epoch = midnight UTC)
-        let first_tick = ((time_min + interval - 1) / interval) * interval;
+        let first_tick = time_min.div_ceil(interval) * interval;
 
         let mut ticks = Vec::new();
         let mut t = first_tick;
