@@ -170,8 +170,8 @@ where
         // ensures the click handler's borrow is released before any signal mutations.
         #[cfg(target_arch = "wasm32")]
         {
-            let set_state_loading = set_state.clone();
-            let set_state_result = set_state.clone();
+            let set_state_loading = set_state;
+            let set_state_result = set_state;
             let fetch_version_check = Arc::clone(&fetch_version);
 
             // The timeout callback is a one-shot operation that runs immediately (0ms delay).
@@ -233,7 +233,7 @@ where
         });
     });
 
-    (state, Refetch::new(move || refetch()))
+    (state, Refetch::new(refetch))
 }
 
 /// Simple polling hook with automatic cleanup

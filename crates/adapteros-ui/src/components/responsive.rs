@@ -49,7 +49,6 @@ pub fn use_breakpoint() -> ReadSignal<Breakpoint> {
 
     #[cfg(target_arch = "wasm32")]
     {
-        let set_breakpoint = set_breakpoint.clone();
         let handler = Closure::wrap(Box::new(move || {
             set_breakpoint.set(current_breakpoint());
         }) as Box<dyn FnMut()>);

@@ -250,10 +250,7 @@ pub fn Documents() -> impl IntoView {
                         "Go to Training"
                     </Button>
                     <RefreshButton
-                        on_click=Callback::new({
-                            let refetch = refetch.clone();
-                            move |_| refetch()
-                        })
+                        on_click=Callback::new(move |_| refetch())
                     />
                     <Button
                         variant=ButtonVariant::Primary
@@ -289,10 +286,9 @@ pub fn Documents() -> impl IntoView {
                                                 <Button
                                                     variant=if is_active { ButtonVariant::Secondary } else { ButtonVariant::Ghost }
                                                     size=ButtonSize::Sm
-                                                    on_click=Callback::new({
-                                                        let status_filter = status_filter;
+                                                    on_click=Callback::new(
                                                         move |_| status_filter.set(value.to_string())
-                                                    })
+                                                    )
                                                 >
                                                     <span class="flex items-center gap-2">
                                                         <span class="text-sm">{label}</span>
@@ -368,12 +364,9 @@ pub fn Documents() -> impl IntoView {
 
             <DocumentUploadDialog
                 open=show_upload_dialog
-                on_success=Callback::new({
-                    let refetch = refetch.clone();
-                    move |doc_id| {
-                        refetch();
-                        navigate(&format!("/documents/{}", doc_id), Default::default());
-                    }
+                on_success=Callback::new(move |doc_id| {
+                    refetch();
+                    navigate(&format!("/documents/{}", doc_id), Default::default());
                 })
             />
         </div>
@@ -563,7 +556,6 @@ fn DocumentsList(
                                                         on_click=Callback::new({
                                                             let client = Arc::clone(&client);
                                                             let id = id_reprocess.clone();
-                                                            let is_failed = is_failed;
                                                             move |_| {
                                                                 let client = Arc::clone(&client);
                                                                 let id = id.clone();
@@ -755,7 +747,7 @@ fn DocumentUploadDialog(open: RwSignal<bool>, on_success: Callback<String>) -> i
             uploaded_status.set(None);
 
             let file = file_wrapper.take();
-            let on_success = on_success.clone();
+            let on_success = on_success;
             let open = open;
 
             wasm_bindgen_futures::spawn_local(async move {
@@ -890,7 +882,6 @@ pub fn DocumentDetail() -> impl IntoView {
 
     // Publish document selection to RouteContext for contextual actions in Command Palette
     {
-        let document = document.clone();
         Effect::new(move || {
             if let Some(route_ctx) = try_use_route_context() {
                 if let LoadingState::Loaded(doc) = document.get() {
@@ -917,10 +908,7 @@ pub fn DocumentDetail() -> impl IntoView {
                 <h1 class="heading-1">"Document Details"</h1>
                 <div class="flex items-center gap-2">
                     <RefreshButton
-                        on_click=Callback::new({
-                            let refetch = refetch.clone();
-                            move |_| refetch()
-                        })
+                        on_click=Callback::new(move |_| refetch())
                     />
                 </div>
             </div>

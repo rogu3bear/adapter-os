@@ -178,7 +178,6 @@ pub fn Training() -> impl IntoView {
 
     // Publish selection to RouteContext for contextual actions in Command Palette
     {
-        let jobs = jobs.clone();
         Effect::new(move || {
             if let Some(route_ctx) = try_use_route_context() {
                 if let Some(job_id) = selected_job_id.get() {

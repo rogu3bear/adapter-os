@@ -167,7 +167,7 @@ where
                     {items.into_iter().map(|item| {
                         let cols = columns.get_value();
                         let item_for_click = item.clone();
-                        let on_click = on_row_click.clone();
+                        let on_click = on_row_click;
                         let has_click = on_click.is_some();
 
                         view! {
@@ -213,7 +213,7 @@ where
                     table_view(items)
                 }
                 LoadingState::Error(e) => {
-                    match on_retry.clone() {
+                    match on_retry {
                         Some(retry) => view! {
                             <crate::components::ErrorDisplay error=e on_retry=retry />
                         }.into_any(),

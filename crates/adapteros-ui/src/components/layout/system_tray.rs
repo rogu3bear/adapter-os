@@ -12,6 +12,15 @@ use std::sync::Arc;
 /// System tray with health indicator, connection status, and time
 #[component]
 pub fn SystemTray() -> impl IntoView {
+    let ui_build_id_full = option_env!("AOS_BUILD_ID").unwrap_or("unknown");
+    let ui_build_id_short = ui_build_id_full
+        .split('-')
+        .next()
+        .unwrap_or(ui_build_id_full)
+        .chars()
+        .take(8)
+        .collect::<String>();
+
     let status_center = use_status_center();
     let (health, _refetch_health) =
         use_api_resource(|client: Arc<ApiClient>| async move { client.health().await });
@@ -144,10 +153,18 @@ pub fn SystemTray() -> impl IntoView {
             // Separator
             <div class="w-px h-4 bg-border/50"></div>
 
-            // Time
-            <span class="text-xs text-muted-foreground font-mono tabular-nums min-w-[4rem] text-right">
-                {move || time.get()}
-            </span>
+            // Time + UI build id
+            <div class="flex flex-col items-end leading-none">
+                <span class="text-xs text-muted-foreground font-mono tabular-nums min-w-[4rem] text-right">
+                    {move || time.get()}
+                </span>
+                <span
+                    class="text-[10px] text-muted-foreground/70 font-mono tabular-nums"
+                    title={format!("UI build id: {}", ui_build_id_full)}
+                >
+                    {ui_build_id_short}
+                </span>
+            </div>
         </div>
     }
 }

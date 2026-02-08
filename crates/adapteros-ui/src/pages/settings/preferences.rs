@@ -30,35 +30,17 @@ pub fn PreferencesSection() -> impl IntoView {
     // Save feedback
     let save_feedback = RwSignal::new(false);
 
-    // Effect to sync theme changes
+    // Sync all preference signals to settings store
     Effect::new(move || {
         let new_theme = Theme::parse(&theme.get());
+        let compact = compact_mode.get();
+        let timestamps = show_timestamps.get();
+        let new_page = DefaultPage::parse(&default_page.get());
         update_setting(settings, |s| {
             s.theme = new_theme;
             s.apply_theme();
-        });
-    });
-
-    // Effect to sync compact mode changes
-    Effect::new(move || {
-        let value = compact_mode.get();
-        update_setting(settings, |s| {
-            s.compact_mode = value;
-        });
-    });
-
-    // Effect to sync show timestamps changes
-    Effect::new(move || {
-        let value = show_timestamps.get();
-        update_setting(settings, |s| {
-            s.show_timestamps = value;
-        });
-    });
-
-    // Effect to sync default page changes
-    Effect::new(move || {
-        let new_page = DefaultPage::parse(&default_page.get());
-        update_setting(settings, |s| {
+            s.compact_mode = compact;
+            s.show_timestamps = timestamps;
             s.default_page = new_page;
         });
     });

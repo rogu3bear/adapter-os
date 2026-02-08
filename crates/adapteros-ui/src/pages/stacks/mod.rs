@@ -34,16 +34,9 @@ pub fn Stacks() -> impl IntoView {
         use_api_resource(|client: Arc<ApiClient>| async move { client.list_stacks().await });
 
     let show_create_dialog = RwSignal::new(false);
-    let refetch_trigger = RwSignal::new(0u32);
 
     // Subscribe to global stacks refetch topic (triggered on training completion)
     let stacks_refetch_counter = use_refetch_signal(RefetchTopic::Stacks);
-
-    // Call refetch when trigger changes OR global signal fires
-    Effect::new(move |_| {
-        let _ = refetch_trigger.get();
-        refetch.run(());
-    });
 
     // Respond to global refetch signal from training completion
     Effect::new(move || {
@@ -54,17 +47,13 @@ pub fn Stacks() -> impl IntoView {
         }
     });
 
-    let trigger_refresh = move || {
-        refetch_trigger.update(|n| *n = n.wrapping_add(1));
-    };
-
     view! {
         <PageScaffold
             title="Runtime Stacks"
             subtitle="Compose adapter stacks for inference"
         >
             <PageScaffoldActions slot>
-                <RefreshButton on_click=Callback::new(move |_| trigger_refresh())/>
+                <RefreshButton on_click=Callback::new(move |_| refetch.run(()))/>
                 <Button
                     variant=ButtonVariant::Primary
                     on_click=Callback::new(move |_| show_create_dialog.set(true))
@@ -79,13 +68,13 @@ pub fn Stacks() -> impl IntoView {
                         view! { <LoadingDisplay message="Loading stacks..."/> }.into_any()
                     }
                     LoadingState::Loaded(data) => {
-                        view! { <StacksList stacks=data refetch_trigger=refetch_trigger/> }.into_any()
+                        view! { <StacksList stacks=data refetch=refetch/> }.into_any()
                     }
                     LoadingState::Error(e) => {
                         view! {
                             <ErrorDisplay
                                 error=e
-                                on_retry=Callback::new(move |_| trigger_refresh())
+                                on_retry=Callback::new(move |_| refetch.run(()))
                             />
                         }.into_any()
                     }
@@ -94,7 +83,7 @@ pub fn Stacks() -> impl IntoView {
 
             <CreateStackDialog
                 open=show_create_dialog
-                refetch_trigger=refetch_trigger
+                refetch=refetch
             />
         </PageScaffold>
     }

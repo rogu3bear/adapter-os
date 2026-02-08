@@ -114,7 +114,7 @@ pub fn TimelineTab(
                         }
                     }
                     LoadingState::Error(e) => {
-                        let retry = on_retry.clone();
+                        let retry = on_retry;
                         match retry {
                             Some(callback) => {
                                 view! { <ErrorDisplay error=e on_retry=callback/> }.into_any()
@@ -346,7 +346,7 @@ pub fn HashChainTab(
                         }
                     }
                     LoadingState::Error(e) => {
-                        let retry = on_retry.clone();
+                        let retry = on_retry;
                         match retry {
                             Some(callback) => {
                                 view! { <ErrorDisplay error=e on_retry=callback/> }.into_any()
@@ -922,7 +922,7 @@ pub fn ComplianceTab(
                         .into_any()
                     }
                     LoadingState::Error(e) => {
-                        let retry = on_retry.clone();
+                        let retry = on_retry;
                         match retry {
                             Some(callback) => {
                                 view! { <ErrorDisplay error=e on_retry=callback/> }.into_any()
@@ -1066,7 +1066,7 @@ pub fn EmbeddingsTab() -> impl IntoView {
                     }
                 }
                 LoadingState::Error(e) => {
-                    let on_retry = on_retry.clone();
+                    let on_retry = on_retry;
                     view! {
                         <div class="p-4">
                             <ErrorDisplay error=e on_retry=on_retry />

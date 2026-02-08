@@ -1817,9 +1817,9 @@ impl SlowNoticeTimer {
                     }
                 });
             });
-            return Self {
+            Self {
                 handle: Some(handle),
-            };
+            }
         }
         #[cfg(not(target_arch = "wasm32"))]
         {

@@ -174,7 +174,6 @@ pub fn Dashboard() -> impl IntoView {
 
     // Fetch activity feed (permission-aware)
     let (activity, refetch_activity) = use_api_resource({
-        let can_view_activity = can_view_activity.clone();
         move |client: Arc<ApiClient>| async move {
             if !can_view_activity.get_untracked() {
                 Ok(Vec::new())

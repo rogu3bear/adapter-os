@@ -109,9 +109,6 @@ pub fn CreateJobDialog(
         err.to_string()
     };
     let on_dataset_uploaded = {
-        let dataset_id = dataset_id.clone();
-        let upload_status = upload_status.clone();
-        let dataset_upload_message = dataset_upload_message.clone();
         move |outcome: DatasetUploadOutcome| {
             dataset_id.set(outcome.dataset_id.clone());
             upload_status.set(String::new());
@@ -123,8 +120,6 @@ pub fn CreateJobDialog(
     };
 
     let on_dataset_generated = {
-        let dataset_id = dataset_id.clone();
-        let dataset_upload_message = dataset_upload_message.clone();
         move |outcome: GenerateDatasetOutcome| {
             dataset_id.set(outcome.dataset_id.clone());
             dataset_upload_message.set(Some(format!(
@@ -140,7 +135,6 @@ pub fn CreateJobDialog(
     // This handler is WASM-only since it uses web_sys APIs
     #[cfg(target_arch = "wasm32")]
     let handle_file_upload = {
-        let dataset_id = dataset_id.clone();
         move |ev: web_sys::Event| {
             use wasm_bindgen::JsCast;
 
@@ -260,18 +254,6 @@ pub fn CreateJobDialog(
     };
 
     let check_status = {
-        let dataset_id = dataset_id.clone();
-        let base_model_id = base_model_id.clone();
-        let preprocess_enabled = preprocess_enabled.clone();
-        let coreml_model_id = coreml_model_id.clone();
-        let coreml_model_path = coreml_model_path.clone();
-        let preprocess_output = preprocess_output.clone();
-        let preprocess_batch_size = preprocess_batch_size.clone();
-        let preprocess_max_seq_len = preprocess_max_seq_len.clone();
-        let preprocess_compression = preprocess_compression.clone();
-        let preprocess_status = preprocess_status.clone();
-        let status_error = status_error.clone();
-        let checking_status = checking_status.clone();
         move |_: ()| {
             status_error.set(None);
             preprocess_status.set(None);
@@ -602,7 +584,7 @@ pub fn CreateJobDialog(
                                         accept=".md,.txt,.pdf"
                                         class="block w-full text-sm text-muted-foreground file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-primary file:text-primary-foreground hover:file:bg-primary/90 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                                         disabled=move || uploading.get() || submitting.get()
-                                        on:change=handle_file_upload.clone()
+                                        on:change=handle_file_upload
                                     />
                                     <p class="text-xs text-muted-foreground mt-1">
                                         "Upload a document (.md, .txt, .pdf) to create a training dataset"
@@ -875,7 +857,7 @@ pub fn CreateJobDialog(
                                 <Button
                                     variant=ButtonVariant::Secondary
                                     loading=checking_status.get()
-                                    on_click=Callback::new(check_status.clone())
+                                    on_click=Callback::new(check_status)
                                 >
                                     "Check preprocessing cache"
                                 </Button>
@@ -961,19 +943,19 @@ pub fn CreateJobDialog(
 
                     <DatasetUploadWizard
                         open=dataset_wizard_open
-                        on_complete=Callback::new(on_dataset_uploaded.clone())
+                        on_complete=Callback::new(on_dataset_uploaded)
                     />
 
                     <GenerateDatasetWizard
                         open=generate_wizard_open
-                        on_generated=Callback::new(on_dataset_generated.clone())
+                        on_generated=Callback::new(on_dataset_generated)
                     />
 
             // Footer
             <div class="flex justify-end gap-2 mt-6">
                 <Button
                     variant=ButtonVariant::Outline
-                    on_click=Callback::new(close.clone())
+                    on_click=Callback::new(close)
                 >
                     "Cancel"
                 </Button>

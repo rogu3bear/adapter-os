@@ -158,7 +158,7 @@ pub fn TrainingJobDetail(
     let return_banner = return_to
         .as_ref()
         .filter(|p| p == &"/chat" || p.starts_with("/chat/"))
-        .map(|p| p.clone());
+        .cloned();
     let return_button = return_to.map(|path| {
         let label = if path == "/chat" || path.starts_with("/chat/") {
             "Back to Chat"

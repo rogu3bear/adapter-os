@@ -5,7 +5,7 @@
 
 use crate::api::{
     ApiClient, DatasetListResponse, DatasetPreviewResponse, DatasetSafetyCheckResult,
-    DatasetStatisticsResponse, DatasetVersionsResponse, ModelWithStatsResponse,
+    DatasetStatisticsResponse, DatasetVersionsResponse,
 };
 use crate::components::{
     Badge, BadgeVariant, BreadcrumbItem, BreadcrumbTrail, Button, ButtonVariant, Card, Checkbox,
@@ -14,7 +14,9 @@ use crate::components::{
     PageScaffoldActions, RefreshButton, Select, Spinner, TabNav, TabPanel, Table, TableBody,
     TableCell, TableHead, TableHeader, TableRow, Toggle,
 };
-use crate::hooks::{use_api, use_api_resource, use_delete_dialog, DeleteDialogState, LoadingState};
+use crate::hooks::{
+    use_api, use_api_resource, use_delete_dialog, DeleteDialogState, LoadingState, Refetch,
+};
 use crate::pages::training::dataset_wizard::{DatasetUploadOutcome, DatasetUploadWizard};
 use crate::utils::{format_bytes, format_date};
 #[cfg(target_arch = "wasm32")]
@@ -24,6 +26,7 @@ use leptos_router::hooks::{use_navigate, use_params_map, use_query_map};
 #[cfg(target_arch = "wasm32")]
 use serde_json::json;
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::Arc;
 
 // =============================================================================
@@ -209,17 +212,10 @@ pub fn Datasets() -> impl IntoView {
     let (datasets, refetch) =
         use_api_resource(|client: Arc<ApiClient>| async move { client.list_datasets(None).await });
 
-    let refetch_trigger = RwSignal::new(0u32);
     let show_upload_dialog = RwSignal::new(false);
     let query = use_query_map();
     let navigate = use_navigate();
     let view_mode = RwSignal::new(DatasetViewMode::Table);
-
-    // Call refetch when trigger changes
-    Effect::new(move |_| {
-        let _ = refetch_trigger.get();
-        refetch.run(());
-    });
 
     // Keep view mode in sync with query param (e.g. ?view=cards)
     Effect::new(move |_| {
@@ -229,10 +225,6 @@ pub fn Datasets() -> impl IntoView {
             view_mode.set(mode);
         }
     });
-
-    let trigger_refresh = move || {
-        refetch_trigger.update(|n| *n = n.wrapping_add(1));
-    };
 
     let on_upload = Callback::new(move |_| show_upload_dialog.set(true));
     let navigate_for_view = navigate.clone();
@@ -260,7 +252,7 @@ pub fn Datasets() -> impl IntoView {
     });
 
     let on_dataset_uploaded = Callback::new(move |outcome: DatasetUploadOutcome| {
-        refetch_trigger.update(|n| *n = n.wrapping_add(1));
+        refetch.run(());
         navigate(
             &format!("/datasets/{}", outcome.dataset_id),
             Default::default(),
@@ -286,7 +278,7 @@ pub fn Datasets() -> impl IntoView {
                 >
                     "View Adapters"
                 </Button>
-                <RefreshButton on_click=Callback::new(move |_| trigger_refresh())/>
+                <RefreshButton on_click=Callback::new(move |_| refetch.run(()))/>
                 <Button
                     variant=ButtonVariant::Primary
                     on_click=Callback::new(move |_| show_upload_dialog.set(true))
@@ -304,7 +296,7 @@ pub fn Datasets() -> impl IntoView {
                         view! {
                             <DatasetsList
                                 datasets=data
-                                refetch_trigger=refetch_trigger
+                                refetch=refetch
                                 on_upload=on_upload
                                 view_mode=view_mode
                                 on_set_view_mode=on_set_view_mode
@@ -315,7 +307,7 @@ pub fn Datasets() -> impl IntoView {
                         view! {
                             <ErrorDisplay
                                 error=e
-                                on_retry=Callback::new(move |_| trigger_refresh())
+                                on_retry=Callback::new(move |_| refetch.run(()))
                             />
                         }.into_any()
                     }
@@ -334,7 +326,7 @@ pub fn Datasets() -> impl IntoView {
 #[component]
 fn DatasetsList(
     datasets: DatasetListResponse,
-    refetch_trigger: RwSignal<u32>,
+    refetch: Refetch,
     on_upload: Callback<()>,
     view_mode: RwSignal<DatasetViewMode>,
     on_set_view_mode: Callback<DatasetViewMode>,
@@ -447,7 +439,7 @@ fn DatasetsList(
                 wasm_bindgen_futures::spawn_local(async move {
                     match client.delete_dataset(&id).await {
                         Ok(_) => {
-                            refetch_trigger.update(|n| *n = n.wrapping_add(1));
+                            refetch.run(());
                             delete_state.finish_delete(Ok(()));
                         }
                         Err(e) => {
@@ -721,7 +713,7 @@ fn DatasetsList(
                             <button
                                 class="text-left"
                                 on:click={
-                                    let cb = on_quick_trainable.clone();
+                                    let cb = on_quick_trainable;
                                     move |_| cb.run(())
                                 }
                                 title="Show trainable datasets"
@@ -742,7 +734,7 @@ fn DatasetsList(
                             <button
                                 class="text-left"
                                 on:click={
-                                    let cb = on_quick_needs_validation.clone();
+                                    let cb = on_quick_needs_validation;
                                     move |_| cb.run(())
                                 }
                                 title="Show datasets that need validation"
@@ -763,7 +755,7 @@ fn DatasetsList(
                             <button
                                 class="text-left"
                                 on:click={
-                                    let cb = on_quick_needs_trust.clone();
+                                    let cb = on_quick_needs_trust;
                                     move |_| cb.run(())
                                 }
                                 title="Show datasets blocked by trust/approval"
@@ -784,7 +776,7 @@ fn DatasetsList(
                             <button
                                 class="text-left"
                                 on:click={
-                                    let cb = on_quick_processing_failed.clone();
+                                    let cb = on_quick_processing_failed;
                                     move |_| cb.run(())
                                 }
                                 title="Show datasets still processing or failed"
@@ -829,7 +821,7 @@ fn DatasetsList(
                                                 }
                                             }
                                             on:click={
-                                                let cb = on_set_view_mode.clone();
+                                                let cb = on_set_view_mode;
                                                 move |_| cb.run(DatasetViewMode::Table)
                                             }
                                         >
@@ -845,7 +837,7 @@ fn DatasetsList(
                                                 }
                                             }
                                             on:click={
-                                                let cb = on_set_view_mode.clone();
+                                                let cb = on_set_view_mode;
                                                 move |_| cb.run(DatasetViewMode::Cards)
                                             }
                                         >
@@ -984,7 +976,7 @@ fn DatasetsList(
                         <Button
                             variant=ButtonVariant::Outline
                             on_click=Callback::new({
-                                let on_upload = on_upload.clone();
+                                let on_upload = on_upload;
                                 move |_| on_upload.run(())
                             })
                         >
@@ -1002,7 +994,7 @@ fn DatasetsList(
             severity=ConfirmationSeverity::Destructive
             confirm_text="Delete"
             cancel_text="Cancel"
-            on_confirm=on_confirm_delete.clone()
+            on_confirm=on_confirm_delete
             on_cancel=on_cancel_delete
             loading=Signal::derive(move || delete_state_for_loading.is_deleting())
         />
@@ -1333,9 +1325,9 @@ impl DatasetDetailTab {
     }
 }
 
-impl ToString for DatasetDetailTab {
-    fn to_string(&self) -> String {
-        self.as_str().to_string()
+impl fmt::Display for DatasetDetailTab {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 
@@ -2103,7 +2095,7 @@ pub fn DatasetDetail() -> impl IntoView {
                                         severity=ConfirmationSeverity::Destructive
                                         confirm_text="Delete"
                                         cancel_text="Cancel"
-                                        on_confirm=on_confirm_delete.clone()
+                                        on_confirm=on_confirm_delete
                                         on_cancel=on_cancel_delete
                                         loading=Signal::derive(move || deleting.get())
                                     />
@@ -2155,33 +2147,13 @@ fn DatasetDraftView(
     // Statistics state
     let stats_state = RwSignal::new(LoadingState::<DatasetStatisticsResponse>::Idle);
 
-    // Models state for combobox
-    let models_state = RwSignal::new(Vec::<ModelWithStatsResponse>::new());
-
-    // Fetch available models on mount
-    {
-        let client = Arc::clone(&client);
-        Effect::new(move |_| {
-            let client = Arc::clone(&client);
-            #[cfg(target_arch = "wasm32")]
-            wasm_bindgen_futures::spawn_local(async move {
-                match client.list_models().await {
-                    Ok(resp) => {
-                        models_state.set(resp.models);
-                    }
-                    Err(e) => {
-                        web_sys::console::warn_1(
-                            &format!("Failed to load models for combobox: {}", e).into(),
-                        );
-                    }
-                }
-            });
-            #[cfg(not(target_arch = "wasm32"))]
-            {
-                let _ = client;
-            }
-        });
-    }
+    // Fetch available models for combobox
+    let (models_resource, _) =
+        use_api_resource(|client: Arc<ApiClient>| async move { client.list_models().await });
+    let models_state = Signal::derive(move || match models_resource.get() {
+        LoadingState::Loaded(resp) => resp.models,
+        _ => vec![],
+    });
 
     // Fetch statistics when dataset_id_state changes
     {
@@ -2301,10 +2273,10 @@ fn DatasetDraftView(
                 {
                     let nonce = poll_nonce.get_untracked();
                     let client = Arc::clone(&client);
-                    let training_status = training_status.clone();
-                    let training_job_status = training_job_status.clone();
-                    let training_error = training_error.clone();
-                    let poll_nonce = poll_nonce.clone();
+                    let training_status = training_status;
+                    let training_job_status = training_job_status;
+                    let training_error = training_error;
+                    let poll_nonce = poll_nonce;
                     wasm_bindgen_futures::spawn_local(async move {
                         loop {
                             if poll_nonce.get_untracked() != nonce {
@@ -2375,13 +2347,13 @@ fn DatasetDraftView(
 
                 let client = Arc::clone(&client);
                 let name_label = name_label.clone();
-                let dataset_id_state = dataset_id_state.clone();
-                let training_status = training_status.clone();
-                let training_error = training_error.clone();
-                let training_job_id = training_job_id.clone();
-                let is_training = is_training.clone();
-                let safety_check_result = safety_check_result.clone();
-                let safety_warning_acknowledged = safety_warning_acknowledged.clone();
+                let dataset_id_state = dataset_id_state;
+                let training_status = training_status;
+                let training_error = training_error;
+                let training_job_id = training_job_id;
+                let is_training = is_training;
+                let safety_check_result = safety_check_result;
+                let safety_warning_acknowledged = safety_warning_acknowledged;
 
                 wasm_bindgen_futures::spawn_local(async move {
                     let dataset_id = if let Some(id) = existing_dataset_id {

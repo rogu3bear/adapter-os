@@ -199,9 +199,6 @@ pub fn CreateJobWizard(
 
     // Dataset callbacks
     let on_dataset_uploaded = {
-        let dataset_id = dataset_id.clone();
-        let dataset_message = dataset_message.clone();
-        let dataset_sample_count = dataset_sample_count.clone();
         move |outcome: DatasetUploadOutcome| {
             dataset_id.set(outcome.dataset_id.clone());
             dataset_sample_count.set(Some(outcome.sample_count));
@@ -213,9 +210,6 @@ pub fn CreateJobWizard(
     };
 
     let on_dataset_generated = {
-        let dataset_id = dataset_id.clone();
-        let dataset_message = dataset_message.clone();
-        let dataset_sample_count = dataset_sample_count.clone();
         move |outcome: GenerateDatasetOutcome| {
             dataset_id.set(outcome.dataset_id.clone());
             dataset_sample_count.set(Some(outcome.sample_count));
@@ -233,9 +227,6 @@ pub fn CreateJobWizard(
     };
 
     let validate_model_step = {
-        let base_model_id = base_model_id.clone();
-        let adapter_name = adapter_name.clone();
-        let form_errors = form_errors.clone();
         move || -> bool {
             form_errors.update(|e| e.clear_all());
             let mut valid = true;
@@ -258,13 +249,6 @@ pub fn CreateJobWizard(
     };
 
     let validate_config_step = {
-        let epochs = epochs.clone();
-        let learning_rate = learning_rate.clone();
-        let validation_split = validation_split.clone();
-        let batch_size = batch_size.clone();
-        let rank = rank.clone();
-        let alpha = alpha.clone();
-        let form_errors = form_errors.clone();
         move || -> bool {
             form_errors.update(|e| e.clear_all());
             let mut valid = true;
@@ -540,11 +524,11 @@ pub fn CreateJobWizard(
             // Embedded wizards (modals inside modal)
             <DatasetUploadWizard
                 open=dataset_wizard_open
-                on_complete=Callback::new(on_dataset_uploaded.clone())
+                on_complete=Callback::new(on_dataset_uploaded)
             />
             <GenerateDatasetWizard
                 open=generate_wizard_open
-                on_generated=Callback::new(on_dataset_generated.clone())
+                on_generated=Callback::new(on_dataset_generated)
             />
 
             // Footer navigation

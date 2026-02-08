@@ -77,7 +77,6 @@ pub fn StyleAudit() -> impl IntoView {
         });
 
     let (trace_detail, refetch_trace) = use_api_resource({
-        let requested_trace_id = requested_trace_id.clone();
         move |client: Arc<ApiClient>| {
             let trace_id = requested_trace_id.get_untracked();
             async move {

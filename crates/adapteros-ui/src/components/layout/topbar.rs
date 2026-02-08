@@ -61,10 +61,10 @@ pub fn TopBar() -> impl IntoView {
         }
         user_menu_listeners_set.set_value(true);
 
-        let user_menu_open = user_menu_open.clone();
-        let set_user_menu_open = set_user_menu_open.clone();
-        let user_menu_ref = user_menu_ref.clone();
-        let user_menu_button_ref = user_menu_button_ref.clone();
+        let user_menu_open = user_menu_open;
+        let set_user_menu_open = set_user_menu_open;
+        let user_menu_ref = user_menu_ref;
+        let user_menu_button_ref = user_menu_button_ref;
 
         let click_closure = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
             if !user_menu_open.get_untracked() {

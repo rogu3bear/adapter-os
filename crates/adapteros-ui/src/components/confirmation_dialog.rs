@@ -181,7 +181,6 @@ pub fn ConfirmationDialog(
 
     // Close handler that also calls on_cancel callback
     let handle_close = {
-        let on_cancel = on_cancel.clone();
         move || {
             if let Some(ref cb) = on_cancel {
                 cb.run(());
@@ -192,7 +191,6 @@ pub fn ConfirmationDialog(
     };
 
     let handle_cancel = {
-        let handle_close = handle_close.clone();
         move |_| {
             handle_close();
         }
@@ -214,7 +212,6 @@ pub fn ConfirmationDialog(
 
     // Keyboard event handler for accessibility
     let handle_keydown = {
-        let handle_close = handle_close.clone();
         move |ev: KeyboardEvent| match ev.key().as_str() {
             "Escape" => {
                 if !loading.get() {
@@ -243,10 +240,7 @@ pub fn ConfirmationDialog(
                 }
             }
             aria-hidden=move || (!open.get()).to_string()
-            on:click={
-                let handle_close = handle_close.clone();
-                move |_| if !loading.get() { handle_close() }
-            }
+            on:click=move |_| if !loading.get() { handle_close() }
         >
             // Dialog content (stop propagation to prevent closing on content click)
             <div
@@ -350,10 +344,7 @@ pub fn ConfirmationDialog(
                         class="absolute right-4 top-4 rounded-sm opacity-70 hover:opacity-100 disabled:pointer-events-none disabled:opacity-50"
                         aria-label="Close dialog"
                         disabled=move || loading.get()
-                        on:click={
-                            let handle_close = handle_close.clone();
-                            move |_| if !loading.get() { handle_close() }
-                        }
+                        on:click=move |_| if !loading.get() { handle_close() }
                     >
                         <svg
                             aria-hidden="true"

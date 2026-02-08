@@ -346,7 +346,7 @@ fn ModelDetailContent(
     // Load model handler
     let on_load = move |_| {
         let id = model_id_load.clone();
-        let on_update = on_update.clone();
+        let on_update = on_update;
         set_loading.set(true);
         wasm_bindgen_futures::spawn_local(async move {
             let client = ApiClient::new();
@@ -365,7 +365,7 @@ fn ModelDetailContent(
     // Unload model handler
     let on_unload = move |_| {
         let id = model_id_unload.clone();
-        let on_update = on_update.clone();
+        let on_update = on_update;
         set_loading.set(true);
         wasm_bindgen_futures::spawn_local(async move {
             let client = ApiClient::new();

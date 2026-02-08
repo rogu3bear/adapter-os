@@ -11,7 +11,7 @@ use js_sys::Date;
 use leptos::prelude::*;
 use send_wrapper::SendWrapper;
 use std::cell::RefCell;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 #[cfg(target_arch = "wasm32")]
 use std::sync::Arc;
 use wasm_bindgen::prelude::*;
@@ -649,45 +649,76 @@ where
         endpoint,
         CircuitBreakerConfig::default(),
     ));
+    let connection_weak: Weak<SseConnection> = Rc::downgrade(&connection);
     let state = connection.state();
-    let endpoint_name_for_handler = endpoint_name.clone();
-    let on_event_handler = on_event.clone();
     let parse_failures = Rc::new(std::cell::Cell::new(0u32));
-    let parse_failures_for_handler = Rc::clone(&parse_failures);
 
-    let handler = move |event: SseEvent| {
-        let data = event.data.trim();
-        if data.is_empty() || data == "[DONE]" {
-            return;
-        }
-
-        match serde_json::from_str::<T>(data) {
-            Ok(parsed) => {
-                parse_failures_for_handler.set(0);
-                on_event_handler(parsed);
+    fn make_parsing_handler<T, F>(
+        endpoint_name: String,
+        on_event: F,
+        parse_failures: Rc<std::cell::Cell<u32>>,
+        connection_weak: Weak<SseConnection>,
+    ) -> impl Fn(SseEvent) + Clone
+    where
+        T: for<'de> serde::Deserialize<'de> + 'static,
+        F: Fn(T) + Clone + 'static,
+    {
+        move |event: SseEvent| {
+            let data = event.data.trim();
+            if data.is_empty() || data == "[DONE]" {
+                return;
             }
-            Err(err) => {
-                let failures = parse_failures_for_handler.get().saturating_add(1);
-                parse_failures_for_handler.set(failures);
-                let preview: String = data.chars().take(200).collect();
-                tracing::warn!(
-                    "SSE JSON parse failed for {}: {} (payload: {})",
-                    endpoint_name_for_handler,
-                    err,
-                    preview
-                );
-                if failures >= 3 {
+
+            match serde_json::from_str::<T>(data) {
+                Ok(parsed) => {
+                    parse_failures.set(0);
+                    on_event(parsed);
+                }
+                Err(err) => {
+                    let failures = parse_failures.get().saturating_add(1);
+                    parse_failures.set(failures);
+                    let preview: String = data.chars().take(200).collect();
                     tracing::warn!(
-                        "SSE JSON parse failed {} times for {}; resetting connection",
-                        failures,
-                        endpoint_name_for_handler
+                        "SSE JSON parse failed for {}: {} (payload: {})",
+                        endpoint_name,
+                        err,
+                        preview
                     );
-                    // Reset the circuit to force a reconnect and reset failure counter
-                    parse_failures_for_handler.set(0);
+                    if failures >= 3 {
+                        tracing::warn!(
+                            "SSE JSON parse failed {} times for {}; reconnecting",
+                            failures,
+                            endpoint_name
+                        );
+                        parse_failures.set(0);
+                        if let Some(conn) = connection_weak.upgrade() {
+                            conn.reset_circuit();
+                            let handler = make_parsing_handler::<T, F>(
+                                endpoint_name.clone(),
+                                on_event.clone(),
+                                Rc::clone(&parse_failures),
+                                connection_weak.clone(),
+                            );
+                            if let Err(err) = conn.connect(handler) {
+                                tracing::warn!(
+                                    "SSE reconnect failed for {}: {}",
+                                    endpoint_name,
+                                    err
+                                );
+                            }
+                        }
+                    }
                 }
             }
         }
-    };
+    }
+
+    let handler = make_parsing_handler::<T, F>(
+        endpoint_name.clone(),
+        on_event,
+        Rc::clone(&parse_failures),
+        connection_weak.clone(),
+    );
 
     // Connect on mount
     let connection_for_effect = Rc::clone(&connection);

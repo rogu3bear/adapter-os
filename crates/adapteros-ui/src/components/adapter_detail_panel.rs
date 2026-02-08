@@ -427,7 +427,7 @@ fn AdapterDetailContent(
                     })}
 
                     // Load button (shown if unloaded/cold and callback provided)
-                    {on_load.clone().and_then(|callback| {
+                    {on_load.and_then(|callback| {
                         can_load.then(|| {
                             let id = adapter_id_for_load.clone();
                             view! {
@@ -447,7 +447,7 @@ fn AdapterDetailContent(
                     })}
 
                     // Unload button (shown if hot/warm/resident and callback provided)
-                    {on_unload.clone().and_then(|callback| {
+                    {on_unload.and_then(|callback| {
                         can_unload.then(|| {
                             let id = adapter_id_for_unload.clone();
                             view! {

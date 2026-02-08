@@ -59,7 +59,7 @@ pub fn SearchResultsList(
                 }
                 key=|(idx, result)| format!("{}-{}", idx, result.id)
                 children=move |(idx, result)| {
-                    let on_select = on_select.clone();
+                    let on_select = on_select;
                     let result_clone = result.clone();
                     let is_selected = Signal::derive(move || selected_index.get() == idx);
 

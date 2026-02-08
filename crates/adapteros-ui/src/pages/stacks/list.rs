@@ -8,12 +8,13 @@ use crate::components::{
     Badge, BadgeVariant, Card, ConfirmationDialog, ConfirmationSeverity, EmptyState, Table,
     TableBody, TableCell, TableHead, TableHeader, TableRow,
 };
+use crate::hooks::Refetch;
 use leptos::prelude::*;
 use std::sync::Arc;
 
 /// List of stacks component
 #[component]
-pub fn StacksList(stacks: Vec<StackResponse>, refetch_trigger: RwSignal<u32>) -> impl IntoView {
+pub fn StacksList(stacks: Vec<StackResponse>, refetch: Refetch) -> impl IntoView {
     if stacks.is_empty() {
         return view! {
             <Card>
@@ -64,7 +65,7 @@ pub fn StacksList(stacks: Vec<StackResponse>, refetch_trigger: RwSignal<u32>) ->
                 wasm_bindgen_futures::spawn_local(async move {
                     match client.delete_stack(&id).await {
                         Ok(_) => {
-                            refetch_trigger.update(|n| *n = n.wrapping_add(1));
+                            refetch.run(());
                             show_delete_confirm.set(false);
                             reset_delete_state();
                         }
@@ -99,7 +100,7 @@ pub fn StacksList(stacks: Vec<StackResponse>, refetch_trigger: RwSignal<u32>) ->
                 wasm_bindgen_futures::spawn_local(async move {
                     match client.activate_stack(&id).await {
                         Ok(_) => {
-                            refetch_trigger.update(|n| *n = n.wrapping_add(1));
+                            refetch.run(());
                             show_activate_confirm.set(false);
                             reset_activate_state();
                         }
@@ -134,7 +135,7 @@ pub fn StacksList(stacks: Vec<StackResponse>, refetch_trigger: RwSignal<u32>) ->
                                 <StackRow
                                     stack=stack
                                     client=client
-                                    refetch_trigger=refetch_trigger
+                                    refetch=refetch
                                     show_delete_confirm=show_delete_confirm
                                     pending_delete_id=pending_delete_id
                                     pending_delete_name=pending_delete_name
@@ -204,7 +205,7 @@ pub fn StacksList(stacks: Vec<StackResponse>, refetch_trigger: RwSignal<u32>) ->
 pub fn StackRow(
     stack: StackResponse,
     client: Arc<ApiClient>,
-    refetch_trigger: RwSignal<u32>,
+    refetch: Refetch,
     show_delete_confirm: RwSignal<bool>,
     pending_delete_id: RwSignal<Option<String>>,
     pending_delete_name: RwSignal<String>,
@@ -224,10 +225,6 @@ pub fn StackRow(
     let is_active = stack.is_active;
     let is_default = stack.is_default;
     let lifecycle_state = stack.lifecycle_state.clone();
-
-    let trigger_refresh = move || {
-        refetch_trigger.update(|n| *n = n.wrapping_add(1));
-    };
 
     view! {
         <TableRow>
@@ -279,7 +276,7 @@ pub fn StackRow(
                                     let client = Arc::clone(&client);
                                     wasm_bindgen_futures::spawn_local(async move {
                                         if client.deactivate_stack().await.is_ok() {
-                                            trigger_refresh();
+                                            refetch.run(());
                                         }
                                     });
                                 }
