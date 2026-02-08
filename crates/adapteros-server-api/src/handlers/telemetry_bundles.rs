@@ -43,22 +43,21 @@ pub async fn list_telemetry_bundles(
             )
         })?;
 
-    let response = bundles
-        .into_iter()
-        .map(|bundle| {
-            let size_bytes = std::fs::metadata(&bundle.path)
-                .map(|m| m.len())
-                .unwrap_or(0);
+    let mut response = Vec::with_capacity(bundles.len());
+    for bundle in bundles {
+        let size_bytes = tokio::fs::metadata(&bundle.path)
+            .await
+            .map(|m| m.len())
+            .unwrap_or(0);
 
-            TelemetryBundleResponse {
-                id: bundle.id,
-                cpid: bundle.cpid,
-                event_count: bundle.event_count as u64,
-                size_bytes,
-                created_at: bundle.created_at,
-            }
-        })
-        .collect();
+        response.push(TelemetryBundleResponse {
+            id: bundle.id,
+            cpid: bundle.cpid,
+            event_count: bundle.event_count as u64,
+            size_bytes,
+            created_at: bundle.created_at,
+        });
+    }
 
     Ok(Json(response))
 }
@@ -109,7 +108,8 @@ pub async fn export_telemetry_bundle(
         ));
     };
 
-    let size_bytes = std::fs::metadata(&bundle.path)
+    let size_bytes = tokio::fs::metadata(&bundle.path)
+        .await
         .map(|m| m.len() as i64)
         .unwrap_or(0);
 

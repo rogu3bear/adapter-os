@@ -94,11 +94,26 @@ pub async fn initialize_executor(
     // Initialize deterministic executor with manifest-derived seed
     info!("Initializing deterministic executor");
 
-    // Load manifest for deterministic seeding
+    // Load manifest for deterministic seeding.
+    // Manifests in this repo are often YAML, but some callers provide JSON.
+    // Prefer YAML parsing and fall back to JSON for compatibility.
     let manifest_hash = if manifest_path.exists() {
         match std::fs::read_to_string(&manifest_path) {
-            Ok(json) => match serde_json::from_str::<ManifestV3>(&json) {
-                Ok(manifest) => {
+            Ok(raw) => {
+                let parsed: Result<ManifestV3, anyhow::Error> =
+                    match serde_yaml::from_str::<ManifestV3>(&raw) {
+                        Ok(m) => Ok(m),
+                        Err(yaml_err) => match serde_json::from_str::<ManifestV3>(&raw) {
+                            Ok(m) => Ok(m),
+                            Err(json_err) => Err(anyhow::anyhow!(
+                                "YAML parse failed: {}; JSON parse failed: {}",
+                                yaml_err,
+                                json_err
+                            )),
+                        },
+                    };
+                match parsed {
+                    Ok(manifest) => {
                     // Validate manifest before using for seeding
                     if let Err(e) = manifest.validate() {
                         warn!(
@@ -127,16 +142,17 @@ pub async fn initialize_executor(
                             }
                         }
                     }
+                    }
+                    Err(e) => {
+                        warn!(
+                            error = %e,
+                            path = %manifest_path.display(),
+                            "Failed to parse manifest (YAML/JSON), using default seed"
+                        );
+                        None
+                    }
                 }
-                Err(e) => {
-                    warn!(
-                        error = %e,
-                        path = %manifest_path.display(),
-                        "Failed to parse manifest, using default seed"
-                    );
-                    None
-                }
-            },
+            }
             Err(e) => {
                 warn!(
                     error = %e,

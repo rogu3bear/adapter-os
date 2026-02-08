@@ -79,6 +79,27 @@ pub async fn health(State(state): State<AppState>) -> impl IntoResponse {
     )
 }
 
+#[cfg(test)]
+mod build_id_tests {
+    #[test]
+    fn build_id_is_set_and_consistent() {
+        let build_id = option_env!("AOS_BUILD_ID").expect("AOS_BUILD_ID must be set by build.rs");
+        assert!(
+            !build_id.trim().is_empty(),
+            "AOS_BUILD_ID must not be empty"
+        );
+        assert!(
+            build_id.contains('-'),
+            "AOS_BUILD_ID should be in {{prefix}}-{{YYYYMMDDHHmmss}} format: {build_id}"
+        );
+        assert_eq!(
+            build_id,
+            adapteros_core::version::BUILD_ID,
+            "server-api AOS_BUILD_ID should match adapteros-core BUILD_ID"
+        );
+    }
+}
+
 /// Readiness mode indicates how strictly checks are enforced.
 ///
 /// This helps the frontend understand the semantics of the readiness response

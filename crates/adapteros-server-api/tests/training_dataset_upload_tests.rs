@@ -13,6 +13,7 @@ use adapteros_core::{B3Hash, Result};
 use adapteros_retrieval::rag::EmbeddingModel;
 use adapteros_server_api::services::{
     DatasetFromDocumentIdsParams, DatasetFromUploadParams, DefaultTrainingDatasetService,
+    TrainingDatasetService,
 };
 use adapteros_server_api::types::ErrorResponse;
 use axum::{http::StatusCode, response::Json};

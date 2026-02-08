@@ -233,7 +233,6 @@ fn validate_settings_request(req: &UpdateSettingsRequest) -> Result<(), String> 
 
 /// Persist settings to override file
 async fn persist_settings_override(req: &UpdateSettingsRequest) -> Result<(), std::io::Error> {
-    use std::fs;
     use std::path::Path;
 
     let override_path = "var/settings_override.json";
@@ -241,12 +240,12 @@ async fn persist_settings_override(req: &UpdateSettingsRequest) -> Result<(), st
 
     // Ensure var directory exists
     if !override_dir.exists() {
-        fs::create_dir_all(override_dir)?;
+        tokio::fs::create_dir_all(override_dir).await?;
     }
 
     // Read existing overrides if present
     let mut existing: UpdateSettingsRequest = if Path::new(override_path).exists() {
-        let content = fs::read_to_string(override_path)?;
+        let content = tokio::fs::read_to_string(override_path).await?;
         serde_json::from_str(&content).unwrap_or(UpdateSettingsRequest {
             general: None,
             server: None,
@@ -280,7 +279,7 @@ async fn persist_settings_override(req: &UpdateSettingsRequest) -> Result<(), st
     let json = serde_json::to_string_pretty(&existing)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
 
-    fs::write(override_path, json)?;
+    tokio::fs::write(override_path, json).await?;
 
     tracing::info!(
         override_path = override_path,

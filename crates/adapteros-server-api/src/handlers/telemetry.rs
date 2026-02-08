@@ -739,7 +739,7 @@ pub async fn get_ui_inference_trace_detail(
         logical_output_tokens: receipt.logical_output_tokens,
         stop_reason_code: receipt.stop_reason_code,
         stop_reason_token_index: receipt.stop_reason_token_index,
-        verified: receipt.receipt_parity_verified.unwrap_or(false),
+        verified: receipt.receipt_parity_verified,
         processor_id: receipt.processor_id,
         engine_version: receipt.engine_version,
         ane_version: receipt.ane_version,

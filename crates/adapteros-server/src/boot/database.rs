@@ -373,6 +373,7 @@ pub async fn initialize_database(
                 dev_bypass: false,
                 ci_attestation_public_keys: None,
             },
+            general: adapteros_server_api::config::GeneralConfig::default(),
             auth: adapteros_server_api::config::AuthConfig {
                 dev_algo: "hs256".to_string(),
                 prod_algo: "eddsa".to_string(),

@@ -605,7 +605,7 @@ async fn test_e2e_inference_with_audit_trail() {
     // Verify routing decision was recorded
     let routing_filters =
         adapteros_server_api::handlers::routing_decisions::RoutingDecisionsQuery {
-            tenant: claims.tenant_id.clone(),
+            tenant: Some(claims.tenant_id.clone()),
             limit: Some(10),
             offset: None,
             since: None,

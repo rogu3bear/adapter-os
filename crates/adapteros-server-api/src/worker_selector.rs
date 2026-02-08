@@ -36,6 +36,8 @@ use adapteros_core::BackendKind;
 use adapteros_db::workers::WorkerWithBinding;
 use adapteros_db::Db;
 use serde::Serialize;
+#[cfg(unix)]
+use std::os::unix::fs::FileTypeExt;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 
@@ -293,16 +295,43 @@ impl<'a> WorkerSelector<'a> {
 
         // Step 2: Index workers with capabilities and health
         let health_monitor_ref = self.health_monitor.as_deref();
-        let indexed: Vec<IndexedWorker> = workers
+        let mut indexed: Vec<IndexedWorker> = workers
             .into_iter()
             .map(|w| IndexedWorker::from_binding(w, health_monitor_ref))
             .collect();
+
+        // Prefer the most recently seen worker per UDS path. This avoids selecting stale
+        // records after a restart where the old worker row may still be marked healthy.
+        indexed.sort_by(|a, b| {
+            a.binding
+                .uds_path
+                .cmp(&b.binding.uds_path)
+                .then_with(|| b.binding.last_seen_at.cmp(&a.binding.last_seen_at))
+                .then_with(|| a.binding.id.cmp(&b.binding.id))
+        });
+        indexed.dedup_by(|a, b| a.binding.uds_path == b.binding.uds_path);
 
         // Step 3: Filter by capabilities and collect exclusions
         let mut compatible: Vec<IndexedWorker> = Vec::new();
         let mut exclusions: Vec<WorkerCapabilityExclusion> = Vec::new();
 
         for worker in indexed {
+            // Guard against stale worker rows pointing at a missing socket path.
+            if !uds_socket_exists(&worker.binding.uds_path) {
+                debug!(
+                    worker_id = %worker.binding.id,
+                    uds_path = %worker.binding.uds_path,
+                    "Worker excluded: UDS socket missing or invalid"
+                );
+                exclusions.push(WorkerCapabilityExclusion {
+                    worker_id: worker.binding.id.clone(),
+                    backend: worker.binding.backend.clone(),
+                    reasons: vec!["uds_socket_missing_or_invalid".to_string()],
+                    capabilities: worker.capabilities.clone(),
+                });
+                continue;
+            }
+
             match worker.matches_capabilities(&req.capabilities) {
                 Ok(()) => {
                     // Skip crashed workers
@@ -441,6 +470,23 @@ impl<'a> WorkerSelector<'a> {
                 }
             }
         }
+    }
+}
+
+fn uds_socket_exists(path: &str) -> bool {
+    let p = std::path::Path::new(path);
+    match std::fs::metadata(p) {
+        Ok(m) => {
+            #[cfg(unix)]
+            {
+                m.file_type().is_socket()
+            }
+            #[cfg(not(unix))]
+            {
+                m.is_file()
+            }
+        }
+        Err(_) => false,
     }
 }
 

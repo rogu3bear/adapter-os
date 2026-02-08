@@ -1593,6 +1593,7 @@ mod tests {
             events_per_second: 100,
             refill_interval_ms: 100,
             burst_capacity: 100,
+            ..RateLimitConfig::default()
         };
         let bucket = TokenBucket::new(&config);
 

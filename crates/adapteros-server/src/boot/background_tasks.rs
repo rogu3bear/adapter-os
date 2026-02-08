@@ -45,6 +45,7 @@ use crate::boot::BackgroundTaskSpawner;
 use crate::logging;
 use crate::shutdown::ShutdownCoordinator;
 use crate::status_writer;
+use adapteros_deterministic_exec::run_global_executor;
 use adapteros_db::diagnostics::SqliteDiagPersister;
 use adapteros_db::kv_metrics;
 use adapteros_db::Db;
@@ -115,6 +116,35 @@ pub async fn spawn_all_background_tasks(
     server_config: Arc<std::sync::RwLock<adapteros_server_api::config::Config>>,
     diag_receiver: Option<mpsc::Receiver<DiagEnvelope>>,
 ) -> Result<ShutdownCoordinator> {
+    // Keep the deterministic executor draining tasks so spawn_deterministic work runs.
+    // This loop is intentionally lightweight and exits on shutdown.
+    {
+        let mut shutdown_rx = shutdown_coordinator.subscribe_shutdown();
+        std::thread::spawn(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("failed to build deterministic executor runtime");
+            runtime.block_on(async move {
+                let idle_delay = Duration::from_millis(50);
+                loop {
+                    tokio::select! {
+                        _ = shutdown_rx.recv() => {
+                            info!("Deterministic executor pump received shutdown signal, exiting");
+                            break;
+                        }
+                        result = run_global_executor() => {
+                            if let Err(e) = result {
+                                warn!(error = %e, "Deterministic executor run failed");
+                            }
+                        }
+                    }
+                    tokio::time::sleep(idle_delay).await;
+                }
+            });
+        });
+    }
+
     // Check if we're in dev mode - skip non-essential tasks for faster startup
     let dev_mode = adapteros_server_api::is_dev_bypass_enabled();
     if dev_mode {

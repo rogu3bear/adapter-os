@@ -48,7 +48,12 @@ pub fn build_api_config(server_config: Arc<RwLock<Config>>) -> Result<Arc<RwLock
         directory_analysis_timeout_secs: 120,
         use_session_stack_for_routing: false, // Default until routing config is added
         capacity_limits: Default::default(),
-        general: None,
+        general: Some(adapteros_server_api::state::GeneralConfig {
+            system_name: cfg.general.system_name.clone(),
+            environment: cfg.general.environment.clone(),
+            api_base_url: cfg.general.api_base_url.clone(),
+            determinism_mode: cfg.general.determinism_mode,
+        }),
         server: adapteros_server_api::state::ServerConfigApi {
             http_port: Some(cfg.server.port),
             https_port: None,

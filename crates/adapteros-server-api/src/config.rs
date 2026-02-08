@@ -1,4 +1,5 @@
 use adapteros_config::EffectiveConfig;
+use adapteros_core::determinism_mode::DeterminismMode;
 use anyhow::{bail, Result};
 use dotenvy::dotenv;
 use once_cell::sync::OnceCell;
@@ -10,6 +11,19 @@ pub use adapteros_config::{
     AlertingConfig, AuthConfig, DatabaseConfig, InvariantsConfig, MetricsConfig, PathsConfig,
     PoliciesConfig, RateLimitsConfig, SecurityConfig, ServerConfig,
 };
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GeneralConfig {
+    #[serde(default)]
+    pub system_name: Option<String>,
+    #[serde(default)]
+    pub environment: Option<String>,
+    #[serde(default)]
+    pub api_base_url: Option<String>,
+    /// Global default determinism mode (strict, besteffort, relaxed)
+    #[serde(default)]
+    pub determinism_mode: Option<DeterminismMode>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -30,6 +44,8 @@ pub struct Config {
     pub policies: PoliciesConfig,
     #[serde(default)]
     pub logging: LoggingConfig,
+    #[serde(default)]
+    pub general: GeneralConfig,
     /// OpenTelemetry distributed tracing configuration
     #[serde(default)]
     pub otel: OtelConfig,

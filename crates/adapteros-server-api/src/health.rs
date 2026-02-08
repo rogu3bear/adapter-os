@@ -306,8 +306,36 @@ pub async fn check_loader_health(State(state): State<AppState>) -> impl IntoResp
 /// - Worker available and operational
 /// - GPU memory available (via UMA monitor)
 pub async fn check_kernel_health(State(state): State<AppState>) -> impl IntoResponse {
-    // Check if worker is available
-    let worker_available = state.worker.is_some();
+    // Check if any worker is available.
+    //
+    // There are two "worker" modes:
+    // - In-process worker (`state.worker`) for single-binary deployments/tests.
+    // - External workers registered in the DB via `/v1/workers/register`.
+    //
+    // Kernel readiness for the control plane should consider either mode.
+    let in_process_worker = state.worker.is_some();
+    let (total_workers, healthy_workers) = match state.db.raw().list_all_workers().await {
+        Ok(workers) => {
+            use std::collections::HashSet;
+            let mut total_uds: HashSet<String> = HashSet::new();
+            let mut healthy_uds: HashSet<String> = HashSet::new();
+
+            for w in workers {
+                if w.status == "stopped" || w.status == "error" {
+                    continue;
+                }
+                let uds = w.uds_path.replace("/./", "/");
+                total_uds.insert(uds.clone());
+                if w.status == "healthy" {
+                    healthy_uds.insert(uds);
+                }
+            }
+
+            (total_uds.len(), healthy_uds.len())
+        }
+        Err(_) => (0, 0),
+    };
+    let worker_available = in_process_worker || healthy_workers > 0;
 
     // Check UMA memory pressure
     let uma_stats = state.uma_monitor.get_stats();
@@ -326,10 +354,17 @@ pub async fn check_kernel_health(State(state): State<AppState>) -> impl IntoResp
         ComponentHealth::new(
             "kernel",
             ComponentStatus::Degraded,
-            "Worker not initialized",
+            if total_workers == 0 && !in_process_worker {
+                "No workers registered"
+            } else {
+                "No healthy workers available"
+            },
         )
         .with_details(serde_json::json!({
             "worker_available": false,
+            "in_process_worker": in_process_worker,
+            "workers_total": total_workers,
+            "workers_healthy": healthy_workers,
             "memory_headroom_pct": uma_stats.headroom_pct,
             "memory_status": memory_status
         }))
@@ -344,6 +379,9 @@ pub async fn check_kernel_health(State(state): State<AppState>) -> impl IntoResp
         )
         .with_details(serde_json::json!({
             "worker_available": true,
+            "in_process_worker": in_process_worker,
+            "workers_total": total_workers,
+            "workers_healthy": healthy_workers,
             "memory_used_mb": uma_stats.used_mb,
             "memory_total_mb": uma_stats.total_mb,
             "memory_headroom_pct": uma_stats.headroom_pct,
@@ -360,6 +398,9 @@ pub async fn check_kernel_health(State(state): State<AppState>) -> impl IntoResp
         )
         .with_details(serde_json::json!({
             "worker_available": true,
+            "in_process_worker": in_process_worker,
+            "workers_total": total_workers,
+            "workers_healthy": healthy_workers,
             "memory_used_mb": uma_stats.used_mb,
             "memory_total_mb": uma_stats.total_mb,
             "memory_headroom_pct": uma_stats.headroom_pct,
