@@ -20,8 +20,6 @@
 // Leptos view! macro patterns that trigger clippy but are idiomatic
 #![allow(clippy::unused_unit)]
 #![allow(clippy::unit_arg)]
-// Callback<T> is Copy but .clone() is often clearer in closures
-#![allow(clippy::clone_on_copy)]
 #![allow(non_snake_case)]
 
 pub mod api;
@@ -45,7 +43,9 @@ use leptos_router::path;
 
 use crate::api::ApiClient;
 use crate::contexts::InFlightProvider;
-use components::{AuthProvider, CommandPalette, ProtectedRoute, Shell, ToastContainer};
+use components::{
+    AuthProvider, CommandPalette, ProtectedRoute, RouteErrorBoundary, Shell, ToastContainer,
+};
 use signals::{
     provide_chat_context, provide_notifications_context, provide_refetch_context,
     provide_search_context,
@@ -175,13 +175,14 @@ pub fn App() -> impl IntoView {
                         <ChatProvider>
                             <RefetchProvider>
                                 <InFlightProvider>
+                                <RouteErrorBoundary>
                                 <Router>
                             // Toast container for app-wide notifications
                             <ToastContainer/>
-                            <Routes fallback=|| view! { <pages::NotFound/> }>
+                        <Routes fallback=|| view! { <pages::NotFound/> }>
                         <Route path=path!("/login") view=pages::Login/>
                         <Route path=path!("/") view=|| view! { <ProtectedRoute><Shell><pages::Dashboard/></Shell></ProtectedRoute> }/>
-                        <Route path=path!("/dashboard") view=|| view! { <Redirect path="/"/> }/>
+                        <Route path=path!("/dashboard") view=|| view! { <ProtectedRoute><Redirect path="/"/></ProtectedRoute> }/>
                         <Route path=path!("/adapters") view=|| view! { <ProtectedRoute><Shell><pages::Adapters/></Shell></ProtectedRoute> }/>
                         <Route path=path!("/adapters/:id") view=|| view! { <ProtectedRoute><Shell><pages::AdapterDetail/></Shell></ProtectedRoute> }/>
                         <Route path=path!("/chat") view=|| view! { <ProtectedRoute><Shell><pages::Chat/></Shell></ProtectedRoute> }/>
@@ -205,8 +206,8 @@ pub fn App() -> impl IntoView {
                         <Route path=path!("/runs") view=|| view! { <ProtectedRoute><Shell><pages::FlightRecorder/></Shell></ProtectedRoute> }/>
                         <Route path=path!("/runs/:id") view=|| view! { <ProtectedRoute><Shell><pages::FlightRecorderDetail/></Shell></ProtectedRoute> }/>
                         // Backward compatibility redirects for old flight-recorder paths
-                        <Route path=path!("/flight-recorder") view=|| view! { <Redirect path="/runs"/> }/>
-                        <Route path=path!("/flight-recorder/:id") view=FlightRecorderIdRedirect/>
+                        <Route path=path!("/flight-recorder") view=|| view! { <ProtectedRoute><Redirect path="/runs"/></ProtectedRoute> }/>
+                        <Route path=path!("/flight-recorder/:id") view=|| view! { <ProtectedRoute><FlightRecorderIdRedirect/></ProtectedRoute> }/>
                         <Route path=path!("/diff") view=|| view! { <ProtectedRoute><Shell><pages::Diff/></Shell></ProtectedRoute> }/>
                         <Route path=path!("/workers") view=|| view! { <ProtectedRoute><Shell><pages::Workers/></Shell></ProtectedRoute> }/>
                         <Route path=path!("/workers/:id") view=|| view! { <ProtectedRoute><Shell><pages::WorkerDetail/></Shell></ProtectedRoute> }/>
@@ -216,6 +217,7 @@ pub fn App() -> impl IntoView {
                         <Route path=path!("/repositories") view=|| view! { <ProtectedRoute><Shell><pages::Repositories/></Shell></ProtectedRoute> }/>
                         <Route path=path!("/repositories/:id") view=|| view! { <ProtectedRoute><Shell><pages::RepositoryDetail/></Shell></ProtectedRoute> }/>
                         <Route path=path!("/reviews") view=|| view! { <ProtectedRoute><Shell><pages::Reviews/></Shell></ProtectedRoute> }/>
+                        <Route path=path!("/welcome") view=|| view! { <ProtectedRoute><Shell><pages::Welcome/></Shell></ProtectedRoute> }/>
                         <Route path=path!("/agents") view=|| view! { <ProtectedRoute><Shell><pages::Agents/></Shell></ProtectedRoute> }/>
                         // PRD-UI-000: Safe mode route (no auth required, no API calls)
                         <Route path=path!("/safe") view=pages::Safe/>
@@ -225,6 +227,7 @@ pub fn App() -> impl IntoView {
                             // Global Command Palette overlay
                             <CommandPalette/>
                                 </Router>
+                                </RouteErrorBoundary>
                                 </InFlightProvider>
                             </RefetchProvider>
                         </ChatProvider>

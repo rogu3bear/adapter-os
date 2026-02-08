@@ -1,7 +1,7 @@
-//! Build script for adapteros-server-api
+//! Build script for adapteros-client
 //!
-//! Reads the build ID from target/build_id.txt (written by adapteros-core/build.rs)
-//! and re-exports it as AOS_BUILD_ID for the health endpoint.
+//! Ensures `AOS_BUILD_ID` is set at compile time for crates that surface build
+//! identity in responses (even when the client is used standalone).
 
 #[path = "../../build_support/aos_build_id.rs"]
 mod aos_build_id;
@@ -17,11 +17,12 @@ fn main() {
 
     println!("cargo:rustc-env=AOS_BUILD_ID={}", build.build_id);
 
-    // Only rerun on branch changes
     if let Some(root) = aos_build_id::find_workspace_root() {
         println!(
             "cargo:rerun-if-changed={}",
             root.join(".git/HEAD").display()
         );
     }
+    println!("cargo:rerun-if-changed=Cargo.toml");
+    println!("cargo:rerun-if-changed=build.rs");
 }

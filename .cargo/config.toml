@@ -14,13 +14,11 @@ rustc-wrapper = "sccache"
 [target.aarch64-apple-darwin]
 rustflags = [
     "-Cdebuginfo=0",
-    "-C", "link-arg=-fmodules-cache-path=target/clang-cache",
 ]
 
 [target.x86_64-apple-darwin]
 rustflags = [
     "-Cdebuginfo=0",
-    "-C", "link-arg=-fmodules-cache-path=target/clang-cache",
 ]
 
 [target.wasm32-unknown-unknown]
