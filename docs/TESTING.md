@@ -305,7 +305,7 @@ Determinism tests ensure reproducibility of routing and inference decisions.
 ### Key Invariants
 
 1. **Seed Derivation**: Same inputs must produce same seeds
-2. **Router Sorting**: Score DESC, then index ASC for tie-breaking
+2. **Router Sorting**: Score DESC, then stable_id ASC for tie-breaking
 3. **Q15 Quantization**: Denominator is exactly 32767.0 (NOT 32768)
 4. **Replay**: Same inputs + metadata must produce identical outputs
 
@@ -328,24 +328,43 @@ bash scripts/check_fast_math_flags.sh
 ```rust
 #[test]
 fn test_router_determinism() {
-    let adapters = vec![
-        AdapterInfo { id: "a1", gate_q15: 16383 },
-        AdapterInfo { id: "a2", gate_q15: 16383 }, // Tied score
-    ];
+    use adapteros_lora_router::{policy_mask::PolicyMask, AdapterInfo, Router, RouterWeights};
 
-    let decision1 = router.route(&adapters, K_LIMIT);
-    let decision2 = router.route(&adapters, K_LIMIT);
+    let mut router = Router::new_with_weights(RouterWeights::default(), 2, 1.0, 0.02);
+    let features = vec![0.0f32; 22];
+    let priors = vec![0.5f32, 0.5];
+    let adapter_info = vec![
+        AdapterInfo {
+            id: "a1".to_string(),
+            stable_id: 100,
+            ..Default::default()
+        },
+        AdapterInfo {
+            id: "a2".to_string(),
+            stable_id: 200,
+            ..Default::default()
+        },
+    ];
+    let adapter_ids: Vec<String> = adapter_info.iter().map(|a| a.id.clone()).collect();
+    let policy_mask = PolicyMask::allow_all(&adapter_ids, None);
+
+    let decision1 = router
+        .route_with_adapter_info(&features, &priors, &adapter_info, &policy_mask)
+        .expect("routing decision");
+    let decision2 = router
+        .route_with_adapter_info(&features, &priors, &adapter_info, &policy_mask)
+        .expect("routing decision");
 
     // Must be identical
-    assert_eq!(decision1.selected_ids, decision2.selected_ids);
-    assert_eq!(decision1.router_seed, decision2.router_seed);
+    assert_eq!(decision1.indices, decision2.indices);
+    assert_eq!(decision1.gates_q15, decision2.gates_q15);
 }
 ```
 
 ### Troubleshooting Determinism Issues
 
 1. **Check seed derivation**: Same inputs → same seeds
-2. **Verify router sorting**: Score DESC, index ASC tie-break
+2. **Verify router sorting**: Score DESC, stable_id ASC tie-break
 3. **Confirm Q15 denominator**: Must be 32767.0
 4. **Validate replay metadata**: All fields stored correctly
 5. **Run**: `cargo test --test determinism_core_suite -- --test-threads=8`, `cargo test -p adapteros-lora-router --test determinism`, and `bash scripts/check_fast_math_flags.sh`

@@ -574,11 +574,10 @@ impl Router {
                 .map(|(i, &s)| (i, s))
                 .collect();
 
-        // 3. Sort: score DESC, then index ASC (deterministic tie-breaking)
+        // 3. Sort: score DESC, then stable_id ASC (deterministic tie-breaking)
         indexed_scores.sort_by(|a, b| {
-            b.1.partial_cmp(&a.1)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then(a.0.cmp(&b.0))
+            b.1.total_cmp(&a.1)
+                .then_with(|| self.adapter_info[a.0].stable_id.cmp(&self.adapter_info[b.0].stable_id))
         });
 
         // 4. Take top K

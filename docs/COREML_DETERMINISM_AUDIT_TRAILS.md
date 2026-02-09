@@ -149,7 +149,7 @@ Sampler Seed = HKDF-SHA256(global_seed, "sample:{step}")
 
 ### R4: Deterministic Router Tie-Breaking
 
-**Requirement:** Router sorting uses canonical ordering: score DESC, index ASC.
+**Requirement:** Router sorting uses canonical ordering: score DESC, stable_id ASC.
 
 **Implementation:**
 
@@ -158,7 +158,7 @@ Sampler Seed = HKDF-SHA256(global_seed, "sample:{step}")
 scores.sort_by(|a, b| {
     let cmp = b.1.total_cmp(&a.1);  // Score DESC (IEEE 754 total order)
     if cmp == Ordering::Equal {
-        a.0.cmp(&b.0)  // Index ASC (deterministic tie-break)
+        adapter_info[a.0].stable_id.cmp(&adapter_info[b.0].stable_id) // stable_id ASC tie-break
     } else {
         cmp
     }
@@ -167,7 +167,7 @@ scores.sort_by(|a, b| {
 
 **Rationale:**
 - total_cmp() handles NaN deterministically
-- Index-based secondary sort eliminates RNG dependency
+- stable_id secondary sort eliminates array-order dependency
 - Produces identical results across platforms
 
 **Acceptance Criteria:**
@@ -315,7 +315,7 @@ aosctl replay --dir <evidence_bundle> --verify --report <output_path>
 |---------------------|--------------------------------------------------|---------------------------|
 | Q15 round-trip      | crates/adapteros-lora-router/src/quantization.rs | 0.0->0, 1.0->32767        |
 | HKDF golden vector  | crates/adapteros-core/tests/determinism.rs       | Algorithm stability       |
-| Router tie-breaking | crates/adapteros-lora-router/tests/determinism.rs | Score DESC, index ASC    |
+| Router tie-breaking | crates/adapteros-lora-router/tests/determinism.rs | Score DESC, stable_id ASC |
 | Seed derivation     | crates/adapteros-core/tests/determinism.rs       | Same inputs -> same output |
 
 ### Integration Tests
@@ -382,7 +382,7 @@ compute_units = "cpu_and_neural_engine"  # ANE-only
 
 - Q15 quantization with 32767.0 denominator
 - HKDF-SHA256 seed derivation
-- Router tie-breaking (score DESC, index ASC)
+- Router tie-breaking (score DESC, stable_id ASC)
 - CoreML ANE detection and enforcement
 
 ### Phase 2: Attestation (In Progress)

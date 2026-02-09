@@ -225,7 +225,7 @@ The K-sparse router makes deterministic adapter selection decisions using quanti
 1. **Score Calculation**: Compute relevance scores for all adapters
 2. **Q15 Quantization**: Convert float32 gates to int16 fixed-point
 3. **Top-K Selection**: Select K adapters with highest scores
-4. **Deterministic Tie-Breaking**: Score DESC, then index ASC
+4. **Deterministic Tie-Breaking**: Score DESC, then stable_id ASC
 
 ```rust
 // Q15 quantization (CRITICAL: denominator is 32767.0, NOT 32768.0)
@@ -235,9 +235,8 @@ let gate_restored = gate_q15 as f32 / 32767.0;
 // Deterministic sorting
 scored_adapters.sort_by(|(idx_a, score_a), (idx_b, score_b)| {
     score_b
-        .partial_cmp(score_a)
-        .unwrap_or(std::cmp::Ordering::Equal)
-        .then_with(|| idx_a.cmp(idx_b))
+        .total_cmp(score_a)
+        .then_with(|| adapter_info[*idx_a].stable_id.cmp(&adapter_info[*idx_b].stable_id))
 });
 ```
 
@@ -392,7 +391,7 @@ flowchart TD
     subgraph "Step 3: Deterministic Routing"
         A1["Adapter scores computed"]
         A2["Quantized to Q15: ML[27751], Code[10223]"]
-        A3["Sorted: score DESC, index ASC"]
+        A3["Sorted: score DESC, stable_id ASC"]
         A4["Top-K selected: [ML-Expert, Code-Expert]"]
     end
     
@@ -963,7 +962,7 @@ ORDER BY inference_id;
 
 **Checklist:**
 1. Verify seed derivation (same manifest hash?)
-2. Check router sorting (score DESC, index ASC?)
+2. Check router sorting (score DESC, stable_id ASC?)
 3. Confirm Q15 denominator = 32767.0
 4. Ensure no `thread_rng()` or `rand::random()` usage
 5. Verify backend consistency (same backend for both runs?)

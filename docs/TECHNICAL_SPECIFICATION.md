@@ -384,7 +384,7 @@ pub struct RouterWeights {
 ```
 
 Eight weighted features produce a composite score for each candidate adapter. Tie-breaking is
-deterministic: score descending, then index ascending.
+deterministic: score descending, then stable_id ascending.
 
 #### Q15 Quantization
 
@@ -698,7 +698,7 @@ Context is injected into the prompt before routing to ensure the router sees the
 
 **Stage 5 -- RouterDecision**: The K-sparse router scores all unmasked adapters, selects up to
 K=8, quantizes gates to Q15, and packs the result into a `RouterRing`. Deterministic
-tie-breaking: score DESC, index ASC. Returns `RoutingDecision::Abstain` if no adapter meets
+tie-breaking: score DESC, stable_id ASC. Returns `RoutingDecision::Abstain` if no adapter meets
 the confidence threshold.
 
 **Stage 6 -- WorkerSelection**: Selects a worker process based on load coordination. Considers

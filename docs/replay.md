@@ -224,7 +224,7 @@ For deterministic replay, the following must match between original and replay:
 
 ### Router Parameters
 
-The router uses deterministic tie-breaking: score DESC, then index ASC. The `router_seed` is stored for audit purposes but does not affect routing decisions.
+The router uses deterministic tie-breaking: score DESC, then stable_id ASC. The `router_seed` is stored for audit purposes but does not affect routing decisions.
 
 ---
 
