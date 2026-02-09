@@ -193,7 +193,7 @@ pub fn Documents() -> impl IntoView {
                 .await;
 
             // Refresh counts/list once seeded (no-op if testkit is disabled).
-            set_refetch_trigger.update(|t| *t += 1);
+            let _ = set_refetch_trigger.try_update(|t| *t += 1);
         });
     });
 
@@ -421,6 +421,7 @@ fn DocumentsList(
                 wasm_bindgen_futures::spawn_local(async move {
                     match client.delete_document(&id).await {
                         Ok(_) => {
+                            // delete_state uses its own internal signals; these methods are safe
                             delete_state.finish_delete(Ok(()));
                             on_refetch.run(());
                         }
@@ -566,7 +567,7 @@ fn DocumentsList(
                                                                     } else {
                                                                         let _ = client.process_document(&id).await;
                                                                     }
-                                                                    reprocessing_id.set(None);
+                                                                    let _ = reprocessing_id.try_set(None);
                                                                     on_refetch.run(());
                                                                 });
                                                             }
@@ -754,16 +755,16 @@ fn DocumentUploadDialog(open: RwSignal<bool>, on_success: Callback<String>) -> i
                 let client = ApiClient::new();
                 match client.upload_document(&file).await {
                     Ok(response) => {
-                        upload_status.set(Some("Upload complete. Indexing started.".into()));
-                        uploaded_status.set(Some(response.status.clone()));
-                        uploading.set(false);
-                        open.set(false);
+                        let _ = upload_status.try_set(Some("Upload complete. Indexing started.".into()));
+                        let _ = uploaded_status.try_set(Some(response.status.clone()));
+                        let _ = uploading.try_set(false);
+                        let _ = open.try_set(false);
                         on_success.run(response.document_id);
                     }
                     Err(e) => {
-                        error_msg.set(Some(e.to_string()));
-                        upload_status.set(None);
-                        uploading.set(false);
+                        let _ = error_msg.try_set(Some(e.to_string()));
+                        let _ = upload_status.try_set(None);
+                        let _ = uploading.try_set(false);
                     }
                 }
             });
@@ -1005,13 +1006,13 @@ fn DocumentDetailContent(
             wasm_bindgen_futures::spawn_local(async move {
                 match client.delete_document(&id).await {
                     Ok(_) => {
-                        set_deleting.set(false);
-                        show_delete_dialog.set(false);
+                        let _ = set_deleting.try_set(false);
+                        let _ = show_delete_dialog.try_set(false);
                         navigate("/documents", Default::default());
                     }
                     Err(e) => {
-                        set_action_error.set(Some(format!("Delete failed: {}", e)));
-                        set_deleting.set(false);
+                        let _ = set_action_error.try_set(Some(format!("Delete failed: {}", e)));
+                        let _ = set_deleting.try_set(false);
                     }
                 }
             });
@@ -1028,12 +1029,12 @@ fn DocumentDetailContent(
         wasm_bindgen_futures::spawn_local(async move {
             match client.process_document(&id).await {
                 Ok(_) => {
-                    set_processing.set(false);
-                    refetch_trigger.update(|t| *t += 1);
+                    let _ = set_processing.try_set(false);
+                    let _ = refetch_trigger.try_update(|t| *t += 1);
                 }
                 Err(e) => {
-                    set_action_error.set(Some(format!("Process failed: {}", e)));
-                    set_processing.set(false);
+                    let _ = set_action_error.try_set(Some(format!("Process failed: {}", e)));
+                    let _ = set_processing.try_set(false);
                 }
             }
         });
@@ -1049,12 +1050,12 @@ fn DocumentDetailContent(
         wasm_bindgen_futures::spawn_local(async move {
             match client.retry_document(&id).await {
                 Ok(_) => {
-                    set_processing.set(false);
-                    refetch_trigger.update(|t| *t += 1);
+                    let _ = set_processing.try_set(false);
+                    let _ = refetch_trigger.try_update(|t| *t += 1);
                 }
                 Err(e) => {
-                    set_action_error.set(Some(format!("Retry failed: {}", e)));
-                    set_processing.set(false);
+                    let _ = set_action_error.try_set(Some(format!("Retry failed: {}", e)));
+                    let _ = set_processing.try_set(false);
                 }
             }
         });

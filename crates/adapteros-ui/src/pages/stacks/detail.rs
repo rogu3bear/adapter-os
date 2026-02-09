@@ -157,6 +157,7 @@ pub fn StackDetailContent(
                                     size=ButtonSize::Sm
                                     on_click=Callback::new(move |_| {
                                         let client = Arc::clone(&client);
+                                        let refetch = refetch;
                                         wasm_bindgen_futures::spawn_local(async move {
                                             if client.deactivate_stack().await.is_ok() {
                                                 refetch.run(());
@@ -177,6 +178,7 @@ pub fn StackDetailContent(
                                     on_click=Callback::new(move |_| {
                                         let client = Arc::clone(&client);
                                         let id = id.clone();
+                                        let refetch = refetch;
                                         wasm_bindgen_futures::spawn_local(async move {
                                             if client.activate_stack(&id).await.is_ok() {
                                                 refetch.run(());

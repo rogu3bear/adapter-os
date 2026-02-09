@@ -83,16 +83,16 @@ pub fn Collections() -> impl IntoView {
 
                 match client.create_collection(&request).await {
                     Ok(_) => {
-                        show_create_dialog.set(false);
-                        new_name.set(String::new());
-                        new_description.set(String::new());
+                        let _ = show_create_dialog.try_set(false);
+                        let _ = new_name.try_set(String::new());
+                        let _ = new_description.try_set(String::new());
                         refetch();
                     }
                     Err(e) => {
-                        create_error.set(Some(e.to_string()));
+                        let _ = create_error.try_set(Some(e.to_string()));
                     }
                 }
-                set_creating.set(false);
+                let _ = set_creating.try_set(false);
             });
         }
     };
@@ -351,8 +351,8 @@ pub fn CollectionDetail() -> impl IntoView {
                             "Delete failed",
                             &format!("Failed to delete collection: {}", e),
                         );
-                        deleting.set(false);
-                        show_delete_confirm.set(false);
+                        let _ = deleting.try_set(false);
+                        let _ = show_delete_confirm.try_set(false);
                     }
                 }
             });
@@ -728,20 +728,20 @@ fn AddDocumentsDialog(
                 }
 
                 if failures.is_empty() {
-                    selected_ids.set(Vec::new());
-                    open.set(false);
+                    let _ = selected_ids.try_set(Vec::new());
+                    let _ = open.try_set(false);
                     if alive.load(std::sync::atomic::Ordering::SeqCst) {
                         on_added.run(());
                     }
                 } else {
                     let first = failures.first().map(|(_, e)| e.clone()).unwrap_or_default();
-                    error_msg.set(Some(format!(
+                    let _ = error_msg.try_set(Some(format!(
                         "Failed to add {} document(s): {}",
                         failures.len(),
                         first
                     )));
                 }
-                adding.set(false);
+                let _ = adding.try_set(false);
             });
         }
     });

@@ -66,14 +66,14 @@ pub fn StacksList(stacks: Vec<StackResponse>, refetch: Refetch) -> impl IntoView
                     match client.delete_stack(&id).await {
                         Ok(_) => {
                             refetch.run(());
-                            show_delete_confirm.set(false);
+                            let _ = show_delete_confirm.try_set(false);
                             reset_delete_state();
                         }
                         Err(e) => {
-                            delete_error.set(Some(format!("Failed to delete: {}", e)));
+                            let _ = delete_error.try_set(Some(format!("Failed to delete: {}", e)));
                         }
                     }
-                    deleting.set(false);
+                    let _ = deleting.try_set(false);
                 });
             }
         })
@@ -101,14 +101,14 @@ pub fn StacksList(stacks: Vec<StackResponse>, refetch: Refetch) -> impl IntoView
                     match client.activate_stack(&id).await {
                         Ok(_) => {
                             refetch.run(());
-                            show_activate_confirm.set(false);
+                            let _ = show_activate_confirm.try_set(false);
                             reset_activate_state();
                         }
                         Err(e) => {
                             tracing::error!("Failed to activate stack: {}", e);
                         }
                     }
-                    activating.set(false);
+                    let _ = activating.try_set(false);
                 });
             }
         })
