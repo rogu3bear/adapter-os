@@ -6,7 +6,7 @@ Repository: AdapterOS (`/Users/star/Dev/adapter-os`)
 
 Authoritative anchor:
 - Branch: `main`
-- Commit: `46ffaecee66550630914572f371d8a506764166e`
+- Commit: `4df3dab0ea6a11c299038b4ba6b3a8480c839c2e`
 - Generation date (local): 2026-02-09
 
 Scope statement: This report reconciles and unifies the determinism substrate, token-level auditability, receipt verifiability, and cache attribution correctness into a single canonical system description. The report is falsifiable by direct code inspection at the anchor commit and by the verification commands listed below.
@@ -263,4 +263,3 @@ The canonical flow below is the unified execution-and-verification model for det
 4. No claim that all timestamps are deterministic. Determinism claims apply to canonical digests and deterministic execution paths; observational timestamps may exist and are not asserted to be stable unless explicitly derived from logical ticks.
 5. No claim that all receipts are always signed in all deployment modes. Where signature fields are optional, digest recomputation remains the primary verifiability mechanism; signature policies are configuration and deployment dependent.
 6. No claim that receipts provide confidentiality. Receipts are integrity and provenance artifacts; confidentiality and access control are separate concerns.
-
