@@ -226,6 +226,7 @@ fn create_deterministic_worker_response(
         determinism_mode_applied: Some("strict".to_string()),
         unavailable_pinned_adapters: None,
         pinned_routing_fallback: None,
+        pinned_degradation_evidence: None,
         placement_trace: None,
         stop_reason_code: None,
         stop_reason_token_index: None,
