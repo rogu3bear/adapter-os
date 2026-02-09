@@ -32,6 +32,16 @@ jobs:
       - name: Run ANCHOR contract guard
         run: ./scripts/ci/check_anchor_contract.sh
 
+  rectification-contracts:
+    name: Rectification Contract Guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run rectification contract suite
+        run: ./scripts/contracts/check_all.sh
+
   feature-matrix:
     name: Feature Matrix Tests
     runs-on: ubuntu-latest
