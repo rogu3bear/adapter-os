@@ -342,6 +342,26 @@ jobs:
           path: tests/fixtures/golden/
 
   # ==========================================================================
+  # Determinism Gate (minimal regression harness)
+  # ==========================================================================
+  determinism-gate:
+    name: Determinism Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      RUST_BACKTRACE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run minimal determinism regression harness (serial)
+        run: |
+          set -euo pipefail
+
+          cargo test -p adapteros-core --test determinism_regression_harness -- --test-threads=1
+
+          cargo test -p adapteros-db --test cache_attestation_enforcement -- --test-threads=1
+
+  # ==========================================================================
   # Determinism Suite
   # ==========================================================================
   determinism:
