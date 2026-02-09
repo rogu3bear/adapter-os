@@ -436,7 +436,7 @@ pub const TARGET_OS: &str = {
 
 /// Raw crate manifest JSON emitted by build.rs.
 ///
-/// Format: `{"format":1,"crates":{"adapteros-core":"0.14.0",...}}`
+/// Format: `{"format":1,"crates":{"adapteros-core":"0.14.1",...}}`
 pub const CRATE_MANIFEST_JSON: &str = match option_env!("AOS_CRATE_MANIFEST") {
     Some(s) => s,
     None => "{\"format\":1,\"crates\":{}}",
@@ -537,7 +537,7 @@ impl CrateVersionManifest {
         json
     }
 
-    /// Summary string for display: "core:0.14.0 crypto:0.14.0 router:0.14.0"
+    /// Summary string for display: "core:0.14.1 crypto:0.14.1 router:0.14.1"
     pub fn summary(&self) -> String {
         self.crates
             .iter()

@@ -493,7 +493,7 @@ pub fn parse_crate_versions(
 
 /// Serialize crate version entries into canonical JSON format.
 ///
-/// Format: `{"format":1,"crates":{"adapteros-core":"0.14.0",...}}`
+/// Format: `{"format":1,"crates":{"adapteros-core":"0.14.1",...}}`
 /// Keys are sorted alphabetically (guaranteed by BTreeMap input).
 pub fn serialize_crate_manifest(entries: &[(String, String)]) -> String {
     let mut json = String::from("{\"format\":1,\"crates\":{");
