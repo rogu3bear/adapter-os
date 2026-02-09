@@ -1,528 +1,200 @@
-# Execution Contract
+# Execution Contract (Audit Entry Point)
 
-This document specifies the determinism guarantees, canonicalization rules, and verification contracts for adapterOS inference. It serves as the single source of truth for auditors, integrators, and legal review.
+This document is the audit entry point for deterministic inference verification in AdapterOS.
+It defines what is receipt-bound, what is evidence-bound, and what requires a trusted build allowlist.
 
-**Version**: 1.0
-**Schema**: Receipt V5 (Patent 3535886.0002 compliant)
+**Document version:** 2026-02-09
 
----
+**Canonical artifacts (code is source of truth):**
+- `ReceiptDigest` schema: v7 (`crates/adapteros-core/src/receipt_digest.rs`)
+- `EvidenceEnvelope` schema: v6 (`crates/adapteros-core/src/evidence_envelope.rs`)
+- `CryptoReceipt` schema: v1 (`crates/adapteros-core/src/crypto_receipt.rs`)
 
-## 1. Receipt Schema Versioning Policy
+## 0. Verifier Checklist (One Page)
 
-### Version Bump Criteria
+### Receipt-Only (No Build Allowlist, No Evidence Bundle)
 
-| Change Type | Action | Example |
-|-------------|--------|---------|
-| Structural addition (new subsection) | Bump version | V4→V5 added equipment profile |
-| Required field added | Bump version | V3 added seed lineage binding |
-| Optional field added | No bump | Add `#[serde(default)]` field |
-| Hash algorithm change | Bump version | Never done (BLAKE3 locked) |
-| Field removed or redefined | Bump version | Avoid; prefer deprecation |
+- [ ] Compute the receipt digest using schema v7 and require an exact match. (`crates/adapteros-core/src/receipt_digest.rs`)
+- [ ] Enforce deterministic sentinel encoding:
+  - [ ] `stop_reason_token_index: None` MUST be encoded as `0xFFFFFFFF` (u32 max) in the digest. (`crates/adapteros-core/src/receipt_digest.rs`)
+  - [ ] `stop_eos_q15: None` MUST be encoded as `i16::MIN` in the digest. (`crates/adapteros-core/src/receipt_digest.rs`)
+- [ ] Enforce cache credit rules: if `prefix_cached_token_count > 0`, a cache attestation MUST be present and MUST verify (signature and field matches). (`crates/adapteros-db/tests/cache_attestation_enforcement.rs`)
 
-### Schema Timeline
+### Routing-Policy Compliance (Requires Allowlisted Build Hash)
 
-| Version | Status | Era | Key Additions |
-|---------|--------|-----|---------------|
-| V1 | Legacy (read-only) | 2023 | Core: context, run_head, output, billing |
-| V2 | Legacy (read-only) | 2023 | Backend identity binding |
-| V3 | Legacy (read-only) | 2024 | Seed lineage (HKDF-SHA256) |
-| V4 | Production | 2024 | Stop controller, KV quota, prefix cache, model cache |
-| V5 | Current | 2026 | Equipment profile, citation binding (Patent 3535886.0002) |
+- [ ] `model_build_hash_b3` MUST be present and allowlisted to claim routing-policy compliance (router tie-break behavior and policy constants are code-bound). (`crates/adapteros-core/src/version.rs`, `crates/adapteros-core/src/third_party_verification.rs`)
+- [ ] If adapter-policy code is in-scope, `adapter_build_hash_b3` MUST be present and allowlisted as well.
+- [ ] `-dirty` builds MUST NOT be considered compliant.
 
-**Support window**: 18-24 months after supersession.
+### Evidence Bundle (Requires EvidenceEnvelope Chain + Signature Verification)
 
-### Dual Receipt Systems
+- [ ] Verify `EvidenceEnvelope` signatures (Ed25519) over canonical bytes. (`crates/adapteros-core/src/evidence_envelope.rs`)
+- [ ] Verify per-tenant, per-scope chain linking via `previous_root` and `root`. (`crates/adapteros-core/src/evidence_envelope.rs`)
+- [ ] Verify pinned degradation outcomes from evidence (not receipt). (Section 3)
+- [ ] If `determinism_mode == "strict"`, strict completeness (EP-5) MUST hold for inference evidence export and replay (fail closed on incomplete receipts). (Section 5)
 
-| System | Location | Current Version | Purpose |
-|--------|----------|-----------------|---------|
-| ReceiptDigest | `receipt_digest.rs` | V5 | Production billing, audit trail |
-| CryptoReceipt | `crypto_receipt.rs` | V2 | Third-party verification, scientific reproducibility |
+## 1. Artifact Boundary (Receipt vs Evidence)
 
-CryptoReceipt is a cryptographic subset of ReceiptDigest. Contract C (V2) adds cached routing decisions to receipts.
+### 1.1 ReceiptDigest (v7)
 
-**Code reference**: `crates/adapteros-core/src/receipt_digest.rs:25-34`
+`ReceiptDigest` is the canonical BLAKE3 digest for an inference execution.
+It is used to bind determinism-critical identity and execution parameters into a single value.
 
----
+Current schema version is v7. (`crates/adapteros-core/src/receipt_digest.rs`)
 
-## 2. Canonicalization Rules
+### 1.2 EvidenceEnvelope (v6)
 
-### Endianness
+`EvidenceEnvelope` is the canonical, signed, chain-linked container for evidence in three scopes:
+`telemetry`, `policy`, and `inference`.
 
-**Rule**: All numeric digest inputs use **little-endian** byte ordering.
+Evidence properties:
+- Digest-only payload references (hashes, counts, and small metadata).
+- Chain linking per tenant and scope via `previous_root`.
+- Ed25519 signature over canonical bytes (signature fields are excluded from the digest). (`crates/adapteros-core/src/evidence_envelope.rs`)
 
-```rust
-// Canonical pattern throughout codebase
-value.to_le_bytes()      // Encoding
-u32::from_le_bytes(...)  // Decoding
+### 1.3 Boundary Rule
+
+Receipts bind what was executed and what must not be malleable.
+Evidence binds outcomes and diagnostics that must be signed and chain-linked but are not part of the receipt digest.
+
+## 2. Canonical Routing Spec (Deterministic Ordering + Q15 Gates)
+
+### 2.1 Deterministic Tie-Break (Selection)
+
+When the router ranks adapters, it MUST produce a total ordering with this tie-break:
+- Primary: score DESC (higher score wins), compared with `f32::total_cmp()` for IEEE total ordering.
+- Secondary: `stable_id` ASC (lower stable_id wins ties).
+
+**Code reference:** `crates/adapteros-lora-router/src/router.rs` (`sort_scores_deterministic`).
+
+### 2.2 Q15 Gate Quantization (Deterministic Gate Encoding)
+
+Router gates are recorded and compared in Q15 fixed-point form.
+
+Requirements:
+- Denominator MUST be exactly `32767.0`.
+- Encode (router gates are non-negative): `gate_q15 = round(gate_f32 * 32767.0)`, then clamp to `[0, 32767]`.
+- Decode: `gate_f32 = gate_q15 as f32 / 32767.0`.
+
+**Code reference:** `crates/adapteros-lora-router/src/quantization.rs` (`ROUTER_GATE_Q15_DENOM`).
+
+### 2.3 Canonical Candidate Ordering (Emission/Storage)
+
+When a candidate list is emitted/stored for verification, it MUST be ordered:
+`(gate_q15 DESC, raw_score DESC, stable_id ASC, adapter_idx ASC)`.
+
+**Code reference:** `crates/adapteros-lora-router/src/router.rs` (`sort_candidates_by_quantized_gate_canonical`).
+
+## 3. Pins and Degradation: Evidence-Only (Not Receipt-Bound)
+
+**Pins are preference, degradation is evidence-only.**
+
+Pinned degradation records *outcomes* when pinned adapters are unavailable at execution time.
+It intentionally stores no raw adapter IDs.
+
+### 3.1 Evidence Fields (No Raw IDs)
+
+Fields (`crates/adapteros-core/src/evidence_envelope.rs`):
+- `pinned_total_count: u32`
+- `unavailable_pinned_count: u32`
+- `unavailable_pinned_set_digest_b3: Option<[u8; 32]>`
+- `pinned_fallback_mode: Option<String>` (expected values: `"partial"` or `"stack_only"`)
+
+Deterministic sentinels:
+- If pins are absent entirely: counts MUST be 0 and optional fields MUST be `None`.
+
+### 3.2 Digest Algorithm (BLAKE3 over Sorted Unavailable Pin IDs)
+
+`unavailable_pinned_set_digest_b3` is computed as:
+
+```text
+ids = sort_lex(unavailable_pin_ids)
+H = blake3()
+H.update("adapteros:pinned_unavailable_set_digest:v1\0")
+for id in ids:
+  H.update(u32_be(len(id_bytes)))
+  H.update(id_bytes)
+  H.update("\0")
+digest = H.finalize()
 ```
 
-**Code reference**: `crates/adapteros-core/src/receipt_digest.rs:284-285`
+**Code reference:** `crates/adapteros-core/src/evidence_envelope.rs` (`compute_unavailable_pinned_set_digest_b3`).
 
-### String Encoding
+### 3.3 Computation, Scope, Storage, Export
 
-| Context | Format | Example |
-|---------|--------|---------|
-| Adapter IDs | Length-prefixed UTF-8 | `[count:u32 LE][len:u32 LE][bytes]...` |
-| JSON fields | Raw UTF-8 bytes | `policy_overrides_json.as_bytes()` |
-| Empty strings | Length 0 | `""` → `[0u32 LE]` |
+Requirements:
+- Computation MUST occur on the worker (availability is known there). (`crates/adapteros-lora-worker/src/lib.rs`)
+- Persistence MUST be via `EvidenceEnvelope` in `telemetry` scope:
+  - Telemetry is the canonical scope because pinned degradation is a runtime outcome (availability and fallback), not a policy decision.
+  - Evidence MUST be chain-linked (`previous_root`) and signed (Ed25519) under existing envelope rules. (`crates/adapteros-core/src/evidence_envelope.rs`)
+- Evidence export MUST include these fields (as values or deterministic sentinels) without exposing raw adapter IDs. (`crates/adapteros-server-api/src/handlers/run_evidence.rs`)
 
-**Code reference**: `crates/adapteros-core/src/receipt_digest.rs:663-671` (`encode_adapter_ids`)
+## 4. Build Provenance Requirement (Routing-Policy Compliance)
 
-### Float Handling
+Routing-policy compliance includes code-bound constants and tie-break behavior that are not individually receipt-bound.
+To claim routing-policy compliance, a verifier MUST validate build provenance against an allowlist.
 
-**Rule**: Floating-point values are **excluded** from canonical hashing.
+Requirements:
+- `model_build_hash_b3` MUST be present and allowlisted for routing-policy compliance claims.
+- If adapter-policy code is in-scope, `adapter_build_hash_b3` MUST be present and allowlisted as well.
+- `-dirty` builds MUST NOT be considered compliant.
 
-- Router gates use Q15 quantized integers (i16)
-- Entropy fields are recorded but not hashed
-- EOS probability thresholds use Q15 (denominator 32767.0)
+**Code references:**
+- Build provenance definition and caching: `crates/adapteros-core/src/version.rs`
+- Build ID derivation and dirty markers: `build_support/aos_build_id.rs`
+- Verifier guidance and semantics: `crates/adapteros-core/src/third_party_verification.rs`
 
-**Rationale**: Float arithmetic is non-deterministic across platforms/compilers.
+## 5. Strict Completeness Enforcement (EP-5, Fail Closed)
 
-### Sentinel Values
+When determinism mode is recorded as strict, incomplete inference receipts are a determinism violation.
 
-| Type | None/Missing Value | Example |
-|------|-------------------|---------|
-| String | Empty string `""` | `stop_reason_code.unwrap_or("")` |
-| u32 | `0xFFFFFFFF` | `stop_token_index.unwrap_or(0xFFFFFFFF)` |
-| B3Hash | 32 zero bytes | `unwrap_or_else(\|\| vec![0u8; 32])` |
-| bool | 0 (false) or 1 (true) | `if kv_quota_enforced { 1u8 } else { 0u8 }` |
+Rule:
+- In strict mode, `InferenceReceiptRef::validate_for_strict_mode()` MUST succeed.
+- Missing any of these fields is a hard failure: `backend_used`, `backend_attestation_b3`, `seed_lineage_hash`, `output_digest`, `receipt_digest`.
 
-**Code reference**: `crates/adapteros-core/src/receipt_digest.rs:16-20`
+Enforcement call sites:
+- Evidence export: `crates/adapteros-server-api/src/handlers/run_evidence.rs`
+- Replay: `crates/adapteros-server-api/src/handlers/replay.rs`
 
-### Token Serialization
+**Code reference:** `crates/adapteros-core/src/evidence_envelope.rs` (`InferenceReceiptRef::validate_for_strict_mode`).
 
-```
-Format: [token_count: u32 LE] [token_0: u32 LE] ... [token_n: u32 LE]
-```
+## 6. Canonical Encoding (Deterministic Bytes)
 
-Each token is exactly 4 bytes (u32). Length prefix prevents count ambiguity.
+### 6.1 ReceiptDigest (v7) Canonicalization
 
-**Code reference**: `crates/adapteros-core/src/receipt_digest.rs:556-604`
+Rules (`crates/adapteros-core/src/receipt_digest.rs`):
+- Integer encoding: little-endian (`to_le_bytes()`).
+- Strings: length-prefixed UTF-8 (u32 LE length, followed by bytes).
+- Optional/sentinel encoding MUST be stable:
+  - `Option<u32>`: `None` encodes as `0xFFFFFFFF`.
+  - `Option<i16>`: `None` encodes as `i16::MIN`.
+  - `Option<[u8; 32]>`: `None` encodes as 32 zero bytes.
 
----
+### 6.2 EvidenceEnvelope (v6) Canonicalization
 
-## 3. EquipmentProfile Spec
+Rules (`crates/adapteros-core/src/evidence_envelope.rs`):
+- Integer encoding: big-endian (`to_be_bytes()`).
+- Strings: length-prefixed UTF-8 (u32 BE length, followed by bytes).
+- Optional/sentinel encoding MUST be stable (empty string or 32 zero bytes as applicable).
 
-### Field Definitions
+## 7. Tests, Vectors, and CI Gate
 
-| Field | Type | Required | Fallback | Example |
-|-------|------|----------|----------|---------|
-| `processor_id` | String | Yes | `"unknown"` | `"Apple M4 Max"` |
-| `engine_version` | String | Yes | `"unknown"` | `"mlx-0.21.0"` |
-| `ane_version` | Option<String> | No | None | `"ANEv4-38core"` |
-| `digest` | B3Hash | Auto | Computed | BLAKE3 of fields |
+Primary regression harness (CPU-only, deterministic, no wall-clock):
+- `crates/adapteros-core/tests/determinism_regression_harness.rs`
+  - stable_id order-independence (context_id)
+  - Q15 denominator invariant
+  - V7 receipt digest golden vector
+  - stop sentinel encoding determinism
+- `crates/adapteros-db/tests/cache_attestation_enforcement.rs`
+  - cache attestation hard-fail on missing/bad proofs when cached tokens are credited
 
-### Detection Priority
+Additional coverage:
+- Router determinism and Q15 invariants: `crates/adapteros-lora-router/tests/determinism.rs`, `crates/adapteros-lora-router/tests/q15_denominator_invariants.rs`
+- Evidence export bundle shape (includes pinned degradation evidence JSON): `crates/adapteros-server-api/tests/run_evidence_tests.rs`
 
-1. **Processor ID**: `sysctl machdep.cpu.brand_string` (macOS) → `"unknown"`
-2. **Engine Version**: `MLX_VERSION` env → compile-time constant → `"unknown"`
-3. **ANE Version**: Chip detection (M4→ANEv4, M3→ANEv3, M2→ANEv2, M1→ANEv1) → None
+Commands:
+- `docs/DETERMINISM_REGRESSION.md`
 
-### Digest Computation
+CI:
+- Minimal determinism gate job: `.github/workflows/ci.yml` (`determinism-gate`)
 
-```rust
-// BLAKE3 of concatenated fields
-hasher.update(processor_id.as_bytes());
-hasher.update(engine_version.as_bytes());
-hasher.update(ane_version.unwrap_or("none").as_bytes());
-```
-
-**Code reference**: `crates/adapteros-core/src/crypto_receipt.rs:114-154`
-
----
-
-## 4. Hydration State Machine
-
-### Runtime Loading States
-
-```
-Unloaded → Cold → Warm → Hot → Resident
-```
-
-| State | Definition | Eviction Priority |
-|-------|------------|-------------------|
-| Unloaded | Not in memory | N/A |
-| Cold | Weights loaded, not in rotation | Low |
-| Warm | In rotation pool, occasionally selected | Medium |
-| Hot | Frequently selected, prioritized | High |
-| Resident | Always active (pinned) | Never |
-
-**Code reference**: `crates/adapteros-lora-lifecycle/src/state.rs:73-80`
-
-### Adapter Lifecycle States
-
-```
-Draft → Training → Ready → Active → Deprecated → Retired
-                ↘            ↘              ↗
-                 └────→ Failed (ephemeral: Active → Retired)
-```
-
-| State | Determinism Support | Notes |
-|-------|---------------------|-------|
-| Draft | No | Work in progress |
-| Training | No | Weights unstable |
-| Ready | **Yes** | Artifact validated |
-| Active | **Yes** | In production |
-| Deprecated | No | Pending retirement |
-| Retired | No | Terminal |
-| Failed | No | Terminal |
-
-**Invariant**: Only `Ready` and `Active` states guarantee deterministic inference.
-
-**Code reference**: `crates/adapteros-core/src/lifecycle.rs:141-142`
-
-### Loading Sequence
-
-1. Load adapter weights (from .sealed, .aos, or .safetensors)
-2. Verify hash against expected (BLAKE3)
-3. Load tokenizer (AOS_TOKENIZER_PATH or model directory)
-4. Initialize prefix KV cache (if configured)
-5. Compile Metal kernels (if not cached)
-6. Initialize router state
-
----
-
-## 5. Backend Cache Invalidation
-
-### Cache Key Computation
-
-| Cache Type | Key Components | Hash Algorithm |
-|------------|----------------|----------------|
-| Metal kernels | Compiled metallib binary | BLAKE3 |
-| MLX headers | Header file content | BLAKE3 |
-| Model cache | model_id + adapter_hashes + config | BLAKE3 (`model_cache_identity_v2`) |
-| Prefix KV | context_digest + tokenizer_hash | BLAKE3 |
-
-**Code reference**: `crates/adapteros-lora-kernel-mtl/build.rs:342-351`
-
-### GC Policy
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| TTL | 1 hour | Entries expire after idle timeout |
-| Eviction | LRU | Least-recently-used evicted first |
-| Max entries | Configurable | Oldest deleted when exceeded |
-| Coherence | Generation-based | Stack generation change resets cache |
-
-**Code reference**: `crates/adapteros-lora-mlx-ffi/src/adapter_cache.rs:87-103`
-
-### Corruption Detection
-
-- **Build-time**: Manifest signature verification (Ed25519)
-- **Build-time**: Kernel hash comparison against manifest
-- **Runtime**: Generation counter invalidates stale cache entries
-
-**Invariant**: Cache must not change outputs. Same inputs with cache hit must produce identical results as cache miss.
-
----
-
-## 6. Adapter Sealing Chain
-
-### Cryptographic Primitives
-
-| Component | Algorithm | Size |
-|-----------|-----------|------|
-| Content hash | BLAKE3 | 32 bytes |
-| Signature | Ed25519 | 64 bytes |
-| Container magic | "SEAL" | 4 bytes |
-
-### Sealing Format
-
-```
-Header (144 bytes, aligned):
-├─ Magic: "SEAL" (4 bytes)
-├─ Version: 1 (4 bytes)
-├─ Integrity hash: BLAKE3(version || manifest || payload) (32 bytes)
-├─ Payload offset/size (16 bytes)
-├─ Manifest offset/size (16 bytes)
-├─ Ed25519 signature (64 bytes)
-└─ Reserved (8 bytes)
-```
-
-**Code reference**: `crates/adapteros-aos/src/sealed.rs`
-
-### Key Rotation Policy
-
-| Mode | Trigger | Default Interval |
-|------|---------|------------------|
-| Scheduled | Automatic timer | 90 days |
-| Manual | Admin command | On demand |
-| Emergency | Suspected compromise | Immediate |
-
-**Code reference**: `crates/adapteros-crypto/src/rotation_daemon.rs`
-
-### Tenant Binding
-
-- `AdapterScope` enum: Global, Tenant, Repo, Commit
-- Scope checked at load time via `AdapterIntegrityVerifier`
-- Manifest includes scope declaration
-
-**Code reference**: `crates/adapteros-lora-worker/src/adapter_integrity.rs:137`
-
----
-
-## 7. Routing Digest + Caching (Contract C)
-
-### Per-Token Decision Hash
-
-```rust
-// hash_token_decision() components
-├─ context_digest: [u8; 32]
-├─ token_index: u32
-├─ adapter_ids_blob: length-prefixed encoding
-├─ gates_blob: Q15 quantized gates (i16 array)
-├─ policy_mask_digest: Optional[u8; 32]
-├─ allowed_mask_blob: Optional bool array
-├─ policy_overrides_json: raw bytes
-├─ backend_id: String
-└─ kernel_version_id: String
-```
-
-**Code reference**: `crates/adapteros-core/src/receipt_digest.rs:610-647`
-
-### Run-Head Chain
-
-```rust
-run_head[i] = BLAKE3(prev_run_head || decision_hash[i] || token_index[i])
-```
-
-**Code reference**: `crates/adapteros-core/src/receipt_digest.rs:652-658`
-
-### Contract C: Cached Routing
-
-When prefix cache hit occurs:
-1. Load routing decisions from `PrefixKvEntry::routing_decisions`
-2. Convert to `CommittedDecision` format
-3. Prepend to generated decisions
-4. Compute `run_head_hash` over full chain (cached + generated)
-
-**Invariant**: Cache hit must produce identical `run_head_hash` as if routing was computed fresh.
-
-**Code reference**: `crates/adapteros-lora-worker/src/prefix_kv_cache.rs:32-92`
-
----
-
-## 8. Stop Controller Determinism
-
-### Stop Reason Codes
-
-| Code | Priority | Trigger |
-|------|----------|---------|
-| `BUDGET_MAX` | 1 (highest) | Hard token limit exceeded |
-| `COMPLETION_CONFIDENT` | 2 | EOS probability > Q15 threshold |
-| `REPETITION_GUARD` | 3 | N-gram repetition detected |
-| `STOP_SEQUENCE` | 4 | Explicit stop sequence matched |
-| `LENGTH` | 5 (lowest) | EOS token encountered |
-
-**Invariant**: Priority order is deterministic. Same token sequence always stops at same reason/index.
-
-### Q15 Threshold Quantization
-
-```rust
-let eos_prob_q15 = (eos_prob * 32767.0).round() as i16;
-```
-
-Denominator `32767.0` matches router Q15 pattern.
-
-**Code reference**: `crates/adapteros-lora-worker/src/stop_controller.rs`
-
-### Cross-Backend Guarantee
-
-Stop controller runs **post-inference** in Rust, independent of backend. Logits computed by backend are fed to deterministic stop logic.
-
----
-
-## 9. Ready Endpoint Truth Table
-
-### /healthz (Liveness)
-
-| Boot State | HTTP Status | Response |
-|------------|-------------|----------|
-| Failed | 503 | `"failed: [code] message"` |
-| Booting (any) | 503 | `"booting: {state}"` |
-| Ready | 200 | `"healthy"` |
-| FullyReady | 200 | `"healthy"` |
-| Degraded | 200 | `"degraded"` |
-| Maintenance | 200 | `"maintenance"` |
-| Draining/Stopping | 200 | `"draining: {state}"` |
-
-### /readyz (Readiness)
-
-| Mode | DB Check | Worker Check | Models Check | Result |
-|------|----------|--------------|--------------|--------|
-| Strict | Required | Required | Required | All must pass |
-| Relaxed | Required | Skippable | Skippable | DB + configured checks |
-| DevBypass | Ignored | Ignored | Ignored | Always 200 |
-
-### Check Cascade
-
-If DB check fails, worker and models checks are **skipped** (not failed). This is intentional: downstream checks depend on DB connectivity.
-
-**Code reference**: `crates/adapteros-server-api/src/handlers/health.rs:168-528`
-
-### UI Contract
-
-- UI hydration waits for `/readyz = 200`
-- UI shows loading state when `/readyz = 503`
-- `Degraded` state: Server ready, UI may show warning banner
-
----
-
-## 10. Replay Parity Contract
-
-### Identical Conditions Definition
-
-| Dimension | Enforcement | Verification |
-|-----------|-------------|--------------|
-| Model hash | Required | `ModelAvailabilityChecker` |
-| Adapter hashes | Required | `AdapterAvailabilityChecker` |
-| Backend tier | Required | `BackendKind::determinism_tier()` |
-| Request seed | Required | Stored in `ReproducibleReplaySpec` |
-| Router seed | Required | Stored as hex string |
-| HKDF version | Required | Const guard (version 2) |
-
-### Seed Derivation
-
-```rust
-// HKDF-SHA256 with BLAKE3 global seed as IKM
-HKDF_ALGORITHM_VERSION = 2
-HKDF_OUTPUT_LENGTH = 32 bytes
-
-// Domain separation via labels
-"router", "sampling", "adapter_0", ...
-```
-
-**Code reference**: `crates/adapteros-core/src/seed.rs:1021-1072`
-
-### Guarantee Levels
-
-| Level | Backend | Seeds | Guarantee |
-|-------|---------|-------|-----------|
-| `exact` | MLX + Strict | Manifest-bound | Bitwise identical |
-| `approximate` | CoreML/Metal + BestEffort | Tenant-scoped | Functionally equivalent |
-| `none` | Fallback | Relaxed | No guarantee |
-
-### Strict Receipt Completeness (EP-5)
-
-Strict determinism mode requires receipts to include identity bindings that allow replay and offline
-verification to fail closed:
-
-- `backend_used` must be non-empty.
-- `backend_attestation_b3` must be present.
-- `seed_lineage_hash` must be present (`SeedLineage::to_binding_hash()`).
-
-Enforcement points:
-
-- Evidence export (`GET /v1/runs/{run_id}/evidence`) refuses strict-mode export when the receipt is
-  incomplete.
-- Replay verification (`POST /v1/replay/verify/trace`) fails strict-mode verification when the
-  receipt is incomplete.
-- Third-party verifiers should call `InferenceReceiptRef::validate_for_strict_mode()` when the
-  run's `determinism_mode` is `strict`.
-
-**Error contract**: `DETERMINISM_VIOLATION` with message prefix `EP-5`.
-
----
-
-## 11. Air-Gapped Security Posture
-
-### Network Binding
-
-| Mode | Binding | Notes |
-|------|---------|-------|
-| Development | TCP (localhost) | `--insecure-skip-egress-check` |
-| Production | UDS only | No TCP/UDP binding |
-
-### Egress Policy
-
-| Rule | Enforcement |
-|------|-------------|
-| No outbound TCP/UDP | PF rules + socket validation |
-| No DNS in serving | Policy layer blocks |
-| UDS-only IPC | Hard-coded in production mode |
-| Verified media import | Signature + SBOM required |
-
-### PF Validation (macOS)
-
-```bash
-# Required rules
-sudo pfctl -e                    # Enable PF
-echo 'block out all' | sudo pfctl -f -  # Deny all egress
-```
-
-**Code reference**: `crates/adapteros-policy/src/egress.rs`
-
-### Security Preflight Checklist
-
-- [ ] PID file lock (single-writer guarantee)
-- [ ] PF enabled with deny-all rules
-- [ ] No dev bypass env vars (`AOS_DEV_NO_AUTH`, etc.)
-- [ ] JWT secret not placeholder
-- [ ] Fingerprint baseline matches (drift detection)
-
----
-
-## 12. Future Work
-
-The following items are acknowledged gaps, not yet implemented:
-
-| Item | Priority | Notes |
-|------|----------|-------|
-| Linux PF equivalent | Medium | macOS only; needs iptables/netfilter |
-
-**Completed in v0.12.2**:
-- Compile cache key enforcement (backend_compile_flags_hash in manifests/metadata)
-
-**Completed in v0.13.1**:
-- Key revocation mechanism (RevokedKey rejection in SealedAdapterLoader)
-- Cross-backend stop tests (simulated backend parity tests)
-
----
-
-## Appendix A: Critical Test Matrix
-
-| # | Test | Status | Location | Proves |
-|---|------|--------|----------|--------|
-| 1 | Receipt round-trip verify | **EXISTS** | `determinism_core_suite.rs:136-246` | Digest chain stable |
-| 2 | Deterministic tie-break | **EXISTS** | `router_stability.rs:12-41` | Same scores → same pick |
-| 3 | Q15 gate encode/decode | **EXISTS** | `determinism_core_suite.rs:50-133` | 32767 denom invariant |
-| 4 | Backend selection policy | **EXISTS** | `determinism_hardening_tests.rs:318-370` | Strict→no best-effort |
-| 5 | Cached-span routing digest | **EXISTS** | `prefix_kv_cache_integration.rs:1343-1483` | Cache reuse parity (Contract C) |
-| 6 | Stop reason determinism | **EXISTS** | `stop_controller_inference_integration.rs:1001-1169` | Cross-backend parity |
-| 7 | Hydration gating | **EXISTS** | `tests/hydration_gating_test.rs:1-222` | UI Ready → Server Ready |
-| 8 | Adapter seal verify | **EXISTS** | `sealed_adapter_receipt_binding.rs:316-349` | Revoked key blocks load |
-| 9 | ContextId stability | **EXISTS** | `prefix_kv_cache_integration.rs:441-516` | Same inputs → same id |
-| 10 | Replay parity | **EXISTS** | `replay_identical.rs:80-202` | run A == replay(A) |
-
-**Coverage**: 10/10 fully exist
-
----
-
-## References
-
-- `crates/adapteros-core/src/receipt_digest.rs` - Receipt schema and digest computation
-- `crates/adapteros-core/src/seed.rs` - HKDF seed derivation
-- `crates/adapteros-core/src/crypto_receipt.rs` - CryptoReceipt and EquipmentProfile
-- `crates/adapteros-lora-worker/src/stop_controller.rs` - Stop reason logic
-- `crates/adapteros-server-api/src/handlers/health.rs` - Ready endpoints
-- `crates/adapteros-policy/src/egress.rs` - Air-gapped security
-- `crates/adapteros-aos/src/sealed.rs` - Adapter sealing
-
----
-
-## Appendix B: V7 Rectification (2026-02-04)
-
-**Scope:** Receipt schema V7 hardens determinism and verifiability by binding runtime identity, decoding parameters, cache proof, and retrieval/tool provenance into the digest.
-
-**Contract additions (V7):**
-- Tokenizer identity bound via `tokenizer_hash_b3`, `tokenizer_version`, `tokenizer_normalization`
-- Model/adapters provenance bound via `model_build_hash_b3`, `adapter_build_hash_b3`
-- Routing policy **code constants** (e.g. `PINNED_BOOST`, router scoring weights) are not individually receipt-bound; they are anchored via `model_build_hash_b3` (build provenance) and a trusted allowlist of builds.
-- Pins are preference; pinned degradation (unavailable pins + fallback) is **evidence-only** and is not receipt-bound.
-- Decoder determinism bound via `decode_algo`, `temperature_q15`, `top_p_q15`, `top_k`, `seed_digest_b3`, `sampling_backend`
-- Concurrency determinism bound via `thread_count`, `reduction_strategy`
-- Stop controller bound via `stop_eos_q15`, `stop_window_digest_b3`
-- Cache proof bound via `cache_scope`, `cached_prefix_digest_b3`, `cached_prefix_len`, `cache_key_b3`
-- Retrieval/tool binding via `retrieval_merkle_root_b3`, `retrieval_order_digest_b3`, `tool_call_inputs_digest_b3`, `tool_call_outputs_digest_b3`
-- Disclosure level bound via `disclosure_level="full"`
-- Receipt signing metadata recorded via `receipt_signing_kid`, `receipt_signed_at`
