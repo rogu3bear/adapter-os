@@ -4,9 +4,9 @@ Artifact ID: `adapteros.reconciliation.deterministic_system.v1`
 
 Repository: AdapterOS (`/Users/star/Dev/adapter-os`)
 
-Authoritative anchor:
-- Branch: `main`
-- Commit: `6859fd95f0efb75f59c7d705fe59e2a9c9e632bb`
+Authoritative anchors:
+- Codebase anchor (reconciled behavior): `46ffaecee66550630914572f371d8a506764166e`
+- Report anchor (this artifact): tracked at `docs/reconciliation/STRUCTURED_RECONCILIATION.md` in git history
 - Generation date (local): 2026-02-09
 
 Scope statement: This report reconciles and unifies the determinism substrate, token-level auditability, receipt verifiability, and cache attribution correctness into a single canonical system description. The report is falsifiable by direct code inspection at the anchor commit and by the verification commands listed below.
