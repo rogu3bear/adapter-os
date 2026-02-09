@@ -36,6 +36,12 @@ var/
 └── bundles/                # Packaged adapter bundles
 ```
 
+## Logging Surfaces (Dev)
+
+- `var/logs/*`: runtime/process logs from `./start` and `scripts/service-manager.sh`
+- `var/aos-cp.sqlite3` table `client_errors`: structured UI/client errors (including UI panics)
+- `/errors` page: reads from `client_errors` (not from flat files in `var/logs`)
+
 ## Forbidden Paths
 
 The system **rejects** these paths for persistent storage (enforced in `path_security.rs`):
@@ -64,8 +70,12 @@ rm -f var/*-test.sqlite3* var/*_test.sqlite3*
 # Clean var/tmp if present
 rm -rf var/tmp
 
-# Clean old logs (keep last 3 days)
-find var/logs -name "aos-cp.*" -mtime +3 -delete
+# Clean old runtime logs (keep last 7 days)
+find var/logs -maxdepth 1 -type f -mtime +7 -delete
+
+# Clean old UI/client error rows (keep last 30 days)
+sqlite3 var/aos-cp.sqlite3 \
+  "DELETE FROM client_errors WHERE created_at < datetime('now', '-30 days');"
 ```
 
 ## Size Budget
