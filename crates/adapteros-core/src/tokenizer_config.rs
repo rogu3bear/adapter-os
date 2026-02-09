@@ -405,12 +405,16 @@ mod tests {
         }"#;
         std::fs::write(&path, json).unwrap();
 
-        // Expected vocab size mismatch should error
-        let err = SpecialTokenMap::validate_tokenizer(&path, Some(3)).unwrap_err();
-        assert!(format!("{}", err).contains("vocab_size"));
+        // Tokenizer smaller than expected is allowed (reserved/unused IDs in embedding space).
+        let meta = SpecialTokenMap::validate_tokenizer(&path, Some(3)).unwrap();
+        assert_eq!(meta.vocab_size, 2);
 
         // Matching vocab size succeeds
         let meta = SpecialTokenMap::validate_tokenizer(&path, Some(2)).unwrap();
         assert_eq!(meta.vocab_size, 2);
+
+        // Dangerous direction should error (tokenizer > expected)
+        let err = SpecialTokenMap::validate_tokenizer(&path, Some(1)).unwrap_err();
+        assert!(format!("{}", err).contains("vocab_size"));
     }
 }
