@@ -19,8 +19,10 @@ Cargo.lock
 # IDE
 .vscode/
 .idea/
-.cursor/   # Exclude Cursor IDE files
-!.cursor/rules/  # Include Cursor rules (enforce AGENTS.md consultation)
+# Cursor IDE (ignore everything except project rules)
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/**
 *.swp
 *.swo
 *~
@@ -139,9 +141,6 @@ installer/*.xcodeproj/*.mode1v3
 installer/*.xcodeproj/*.mode2v3
 installer/*.xcodeproj/*.perspectivev3
 *.dSYM
-
-# Cursor IDE
-.cursor/
 
 # SQLx offline cache (only adapteros-db has compile-time checked queries)
 /.sqlx

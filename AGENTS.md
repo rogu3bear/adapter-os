@@ -222,7 +222,7 @@ This section is a **verified snapshot** of backend behavior. **Update it only af
 1. **NEVER create `var/` or `tmp/` directories inside crates** - These pollute the repo
 2. **NEVER write to `/tmp`, `/private/tmp`, `/var/tmp`** - System rejects these paths
 3. **NEVER leave test databases behind** - Clean up `*-test.sqlite3`, UUID dirs
-4. **NEVER create arbitrary files in repo root** - Runtime data goes in `./var/` (gitignored); the `./aosctl` symlink is OK
+4. **NEVER create arbitrary files in repo root** - Runtime data goes in `./var/` (gitignored). Exceptions: the `./aosctl` symlink and `.env` (gitignored).
 
 ### Why This Matters
 

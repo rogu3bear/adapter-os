@@ -31,7 +31,8 @@ RUST_LOG=debug ./aosctl serve --plan default
 ## Diagnostics Bundle
 
 ```bash
-./aosctl diag bundle --output diag_bundle.tar.gz
+mkdir -p var/diag
+./aosctl diag bundle --output var/diag/diag_bundle.tar.gz
 ```
 
 ## Free Blocked Ports
