@@ -193,47 +193,51 @@ Invariant enforced:
 
 Commands to reproduce:
 
+Note: SQLx macros will attempt to connect to `DATABASE_URL` if it is set. If your `DATABASE_URL`
+points to a missing SQLite file, compilation can fail. For deterministic, DB-free verification,
+run these with `env -u DATABASE_URL` (or set `SQLX_OFFLINE=1`).
+
 ```bash
 # Router determinism (crate-level)
-cargo test -p adapteros-lora-router --test determinism
+env -u DATABASE_URL cargo test -p adapteros-lora-router --test determinism
 
 # Router determinism (repo-level integration tests)
-cargo test --test router_stability
+env -u DATABASE_URL cargo test --test router_stability
 
 # Compile-check the updated control-plane/worker boundary
-cargo check -p adapteros-server-api
-cargo check -p adapteros-lora-worker
+env -u DATABASE_URL cargo check -p adapteros-server-api
+env -u DATABASE_URL cargo check -p adapteros-lora-worker
 
 # Migration numbering policy
-cargo test -p adapteros-db --test migration_conflicts
+env -u DATABASE_URL cargo test -p adapteros-db --test migration_conflicts
 
 # Canonical context_digest serializer (producer/verifier parity)
-cargo test -p adapteros-core golden_context_digest_worker_layout
-cargo test -p adapteros-core third_party_verification
-cargo test -p adapteros-crypto --test receipt_payload_vectors
-cargo test -p adapteros-cli --test verify_receipt_tests
+env -u DATABASE_URL cargo test -p adapteros-core golden_context_digest_worker_layout
+env -u DATABASE_URL cargo test -p adapteros-core third_party_verification
+env -u DATABASE_URL cargo test -p adapteros-crypto --test receipt_payload_vectors
+env -u DATABASE_URL cargo test -p adapteros-cli --test verify_receipt_tests
 
 # Determinism regression gates
-cargo test -p adapteros-core --test determinism_regression_harness
-cargo test -p adapteros-db --test cache_attestation_enforcement
+env -u DATABASE_URL cargo test -p adapteros-core --test determinism_regression_harness
+env -u DATABASE_URL cargo test -p adapteros-db --test cache_attestation_enforcement
 
 # Strict completeness (EP-5)
-cargo test -p adapteros-core test_strict_mode_validation_fails_on_missing_fields
-cargo test -p adapteros-server-api --test run_evidence_tests
+env -u DATABASE_URL cargo test -p adapteros-core test_strict_mode_validation_fails_on_missing_fields
+env -u DATABASE_URL cargo test -p adapteros-server-api --test run_evidence_tests
 ```
 
 Tests run:
 
-- `cargo test -p adapteros-lora-router --test determinism`
-- `cargo test --test router_stability`
-- `cargo check -p adapteros-server-api`
-- `cargo check -p adapteros-lora-worker`
-- `cargo test -p adapteros-db --test migration_conflicts`
-- `cargo test -p adapteros-core golden_context_digest_worker_layout`
-- `cargo test -p adapteros-core third_party_verification`
-- `cargo test -p adapteros-crypto --test receipt_payload_vectors`
-- `cargo test -p adapteros-cli --test verify_receipt_tests`
-- `cargo test -p adapteros-core --test determinism_regression_harness`
-- `cargo test -p adapteros-db --test cache_attestation_enforcement`
-- `cargo test -p adapteros-core test_strict_mode_validation_fails_on_missing_fields`
-- `cargo test -p adapteros-server-api --test run_evidence_tests`
+- `env -u DATABASE_URL cargo test -p adapteros-lora-router --test determinism`
+- `env -u DATABASE_URL cargo test --test router_stability`
+- `env -u DATABASE_URL cargo check -p adapteros-server-api`
+- `env -u DATABASE_URL cargo check -p adapteros-lora-worker`
+- `env -u DATABASE_URL cargo test -p adapteros-db --test migration_conflicts`
+- `env -u DATABASE_URL cargo test -p adapteros-core golden_context_digest_worker_layout`
+- `env -u DATABASE_URL cargo test -p adapteros-core third_party_verification`
+- `env -u DATABASE_URL cargo test -p adapteros-crypto --test receipt_payload_vectors`
+- `env -u DATABASE_URL cargo test -p adapteros-cli --test verify_receipt_tests`
+- `env -u DATABASE_URL cargo test -p adapteros-core --test determinism_regression_harness`
+- `env -u DATABASE_URL cargo test -p adapteros-db --test cache_attestation_enforcement`
+- `env -u DATABASE_URL cargo test -p adapteros-core test_strict_mode_validation_fails_on_missing_fields`
+- `env -u DATABASE_URL cargo test -p adapteros-server-api --test run_evidence_tests`
