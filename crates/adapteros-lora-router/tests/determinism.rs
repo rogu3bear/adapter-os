@@ -2,7 +2,7 @@
 //!
 //! Tests verify:
 //! - Deterministic top-K selection (deterministic via score sorting, not seed)
-//! - Stable ordering on ties (by index for reproducibility)
+//! - Stable ordering on ties (by stable_id for reproducibility)
 //! - Q15 gate quantization (non-negative, proper scaling)
 //! - K=0 path returns empty indices/gates
 //! - Q15 denominator locked at 32767.0
@@ -12,7 +12,7 @@
 //! - Cross-instance determinism
 //!
 //! Note: Router seed is used for telemetry sampling determinism, not routing decisions.
-//! Routing determinism comes from stable sorting (score desc, then index asc).
+//! Routing determinism comes from stable sorting (score desc, then stable_id asc).
 #![allow(clippy::absurd_extreme_comparisons)]
 #![allow(clippy::needless_range_loop)]
 #![allow(clippy::redundant_pattern_matching)]
@@ -45,9 +45,11 @@ fn test_deterministic_top_k_ordering() {
 
     // Create priors with ties
     let priors = vec![0.5, 0.5, 0.5, 0.3, 0.2]; // First three tied
+    let stable_ids = vec![300_u64, 100, 200, 400, 500];
     let adapter_info: Vec<AdapterInfo> = (0..priors.len())
         .map(|i| AdapterInfo {
             id: format!("test_adapter_{}", i),
+            stable_id: stable_ids[i],
             framework: None,
             languages: vec![],
             tier: "warm".to_string(),
@@ -69,10 +71,10 @@ fn test_deterministic_top_k_ordering() {
     assert_eq!(decision1.indices, decision2.indices);
     assert_eq!(decision1.gates_q15, decision2.gates_q15);
 
-    // On ties, should sort by index (lower index wins for stable ordering)
-    assert_eq!(decision1.indices[0], 0);
-    assert_eq!(decision1.indices[1], 1);
-    assert_eq!(decision1.indices[2], 2);
+    // On ties, should sort by stable_id (lower stable_id wins for stable ordering)
+    assert_eq!(decision1.indices[0], 1);
+    assert_eq!(decision1.indices[1], 2);
+    assert_eq!(decision1.indices[2], 0);
 
     // New router instance should also produce same results (determinism)
     let mut router2 = Router::new(weights_vec, 3, 1.0, 0.01, seed).expect("router creation");
@@ -531,18 +533,20 @@ fn test_q15_denominator_never_32768() {
 }
 
 #[test]
-fn test_score_sorting_descending_with_index_tiebreak() {
-    // Test that scores are sorted descending, with index ascending on ties
+fn test_score_sorting_descending_with_stable_id_tiebreak() {
+    // Test that scores are sorted descending, with stable_id ascending on ties
     let seed = [42u8; 32];
     let weights_vec = vec![1.0; 5];
     let mut router = Router::new(weights_vec, 3, 1.0, 0.01, seed).expect("router creation");
 
     // Create priors with known order: [0.9, 0.5, 0.5, 0.5, 0.1]
-    // Expected top-3: indices [0, 1, 2] (0.9, then ties at 0.5 broken by index)
+    // Expected top-3: indices [0, 2, 1] (0.9, then ties at 0.5 broken by stable_id)
     let priors = vec![0.9, 0.5, 0.5, 0.5, 0.1];
+    let stable_ids = vec![10_u64, 200, 100, 300, 400];
     let adapter_info: Vec<AdapterInfo> = (0..priors.len())
         .map(|i| AdapterInfo {
             id: format!("test_adapter_{}", i),
+            stable_id: stable_ids[i],
             framework: None,
             languages: vec![],
             tier: "warm".to_string(),
@@ -563,11 +567,9 @@ fn test_score_sorting_descending_with_index_tiebreak() {
         "Highest score should be selected first"
     );
 
-    // For tied scores, index ascending should win
-    assert!(
-        decision.indices[1] < decision.indices[2],
-        "Tied scores should be broken by index ascending"
-    );
+    // For tied scores, stable_id ascending should win (adapter_2 stable_id=100 before adapter_1 stable_id=200)
+    assert_eq!(decision.indices[1], 2);
+    assert_eq!(decision.indices[2], 1);
 }
 
 #[test]

@@ -10,16 +10,27 @@ fn allow_all_mask(adapters: &[AdapterInfo]) -> PolicyMask {
 }
 
 #[test]
-fn tie_breaks_use_adapter_index_for_identical_scores() {
+fn tie_breaks_use_stable_id_for_identical_scores() {
     let mut router = Router::new_with_weights(RouterWeights::default(), 3, 1.0, 0.02);
     let features = vec![0.0f32; 22];
     let priors = vec![0.5f32, 0.5, 0.5];
-    let adapter_info: Vec<AdapterInfo> = (0..priors.len())
-        .map(|i| AdapterInfo {
-            id: format!("adapter_{i}"),
+    let adapter_info = vec![
+        AdapterInfo {
+            id: "adapter_0".to_string(),
+            stable_id: 300,
             ..Default::default()
-        })
-        .collect();
+        },
+        AdapterInfo {
+            id: "adapter_1".to_string(),
+            stable_id: 100,
+            ..Default::default()
+        },
+        AdapterInfo {
+            id: "adapter_2".to_string(),
+            stable_id: 200,
+            ..Default::default()
+        },
+    ];
     let mask = allow_all_mask(&adapter_info);
 
     let decision = router
@@ -31,8 +42,8 @@ fn tie_breaks_use_adapter_index_for_identical_scores() {
 
     assert_eq!(
         decision.indices.as_slice(),
-        &[0, 1, 2],
-        "Tie-breaking should preserve adapter index order"
+        &[1, 2, 0],
+        "Tie-breaking should prefer lower stable_id (score DESC, stable_id ASC)"
     );
     assert_eq!(
         decision.indices, decision_again.indices,
