@@ -182,7 +182,7 @@ mod tests {
         assert_eq!(
             ctx_from_request.request_seed(),
             ctx_from_replay.request_seed(),
-            "Master seeds must round-trip"
+            "Request seeds must round-trip"
         );
         assert_eq!(
             ctx_from_request.router_seed_hex(),

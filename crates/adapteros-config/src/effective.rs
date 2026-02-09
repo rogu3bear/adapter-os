@@ -403,7 +403,7 @@ impl FromStr for DiagLevel {
 /// Diagnostics section configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiagnosticsSection {
-    /// Master enable/disable for diagnostics collection
+    /// Global enable/disable for diagnostics collection
     pub enabled: bool,
     /// Verbosity level (controls which events are emitted)
     pub level: DiagLevel,

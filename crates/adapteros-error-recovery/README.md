@@ -81,7 +81,7 @@ println!("Success rate: {:.1}%", stats.success_rate * 100.0);
 
 ```rust
 ErrorRecoveryConfig {
-    enabled: true,                          // Master enable
+    enabled: true,                          // Global enable
     enable_corruption_detection: true,      // Check files for corruption
     enable_automatic_retry: true,           // Auto-retry transient errors
     max_retry_attempts: 3,                  // Retry count limit
