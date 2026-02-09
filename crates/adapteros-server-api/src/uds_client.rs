@@ -2091,6 +2091,7 @@ mod tests {
             pinned_adapter_ids: Some(vec!["adapter-a".to_string(), "adapter-b".to_string()]),
             strict_mode: Some(true),
             effective_adapter_ids: Some(vec!["eff-1".to_string(), "eff-2".to_string()]),
+            adapter_stable_ids: None,
             routing_policy: None,
             placement: None,
             adapter_strength_overrides: Some(

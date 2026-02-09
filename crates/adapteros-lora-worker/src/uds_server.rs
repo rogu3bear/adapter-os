@@ -810,6 +810,7 @@ impl<K: adapteros_lora_kernel_api::FusedKernels + StrictnessControl + 'static> U
                     determinism_mode: "strict".to_string(), // Patch proposals use strict mode
                     routing_determinism_mode: None,
                     effective_adapter_ids: None,
+                    adapter_stable_ids: None,
                     placement: None,
                     routing_policy: None,
                     stop_policy: None,

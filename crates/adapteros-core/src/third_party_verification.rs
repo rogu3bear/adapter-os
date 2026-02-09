@@ -26,11 +26,28 @@
 //!   the system (or a full bundle) has. This is an intentional design boundary—
 //!   the third party trusts the system recorded decisions honestly.
 //!
+//! - **Routing policy constants (e.g. `PINNED_BOOST`)**: Receipt-only verification
+//!   does **not** prove which routing constants/weights were compiled into the
+//!   running binaries. If a verifier cares about these values, it must treat
+//!   them as a *software supply chain* concern and anchor them via
+//!   build provenance (`model_build_hash_b3`) and a trusted allowlist of builds.
+//!   Receipts that omit `model_build_hash_b3` (or come from `-dirty` builds)
+//!   should be treated as **not policy-verifiable**.
+//!
 //! - **Model behavior**: This doesn't prove the model "should have" produced this
 //!   output—only that the system claims it did and the receipt is internally consistent.
 //!
 //! - **Signature validity**: Use [`EvidenceVerifier`] for signature verification.
 //!   This module verifies digest computation, not cryptographic signatures.
+//!
+//! ## Why Constants Are Not Receipt-Bound
+//!
+//! Binding individual routing constants into the receipt would bloat the schema
+//! while still not enabling policy compliance checks without the full routing
+//! trace. Instead, adapterOS treats routing constants as *code*, and relies on:
+//!
+//! - **Build provenance** (`model_build_hash_b3`) to identify the exact binary build.
+//! - **Full-bundle verification** when recomputation/audit of routing decisions is required.
 //!
 //! # Verification Hierarchy
 //!

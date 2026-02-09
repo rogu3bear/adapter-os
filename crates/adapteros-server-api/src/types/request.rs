@@ -295,7 +295,7 @@ pub struct WorkerInferRequest {
     /// Router seed for audit purposes
     ///
     /// **Note:** The router uses a deterministic algorithm (sorted by score,
-    /// then by index for tie-breaking). This seed is stored for audit trail
+    /// then by stable_id for tie-breaking). This seed is stored for audit trail
     /// purposes but does NOT currently affect routing decisions. Replays
     /// produce identical routing given identical inputs.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -338,6 +338,14 @@ pub struct WorkerInferRequest {
     /// if adapters outside the set are requested.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub effective_adapter_ids: Option<Vec<String>>,
+
+    /// Per-adapter stable IDs for deterministic tie-breaking (score DESC, stable_id ASC).
+    ///
+    /// Keys may be either internal adapter UUIDs (`id`) or external adapter IDs (`adapter_id`).
+    /// Values are DB-issued, per-tenant monotonic sequences. A value of `0` indicates a
+    /// legacy adapter that predates stable_id assignment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adapter_stable_ids: Option<std::collections::HashMap<String, u64>>,
 
     /// Routing policy resolved for this tenant/request.
     #[serde(skip_serializing_if = "Option::is_none")]

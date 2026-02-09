@@ -15,7 +15,7 @@ pub struct ReplayKey {
     /// Router seed for audit purposes (stored but currently unused)
     ///
     /// The router uses a deterministic algorithm (sorted by score, then by
-    /// index for tie-breaking). This seed is stored for audit trail purposes
+    /// stable_id for tie-breaking). This seed is stored for audit trail purposes
     /// but does NOT currently affect routing decisions.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub router_seed: Option<String>,
