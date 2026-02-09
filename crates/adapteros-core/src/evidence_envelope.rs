@@ -992,6 +992,25 @@ mod tests {
     }
 
     #[test]
+    fn test_strict_mode_validation_fails_on_missing_fields() {
+        let mut receipt = InferenceReceiptRef::default();
+        // Set digests so the failure focuses on strict identity bindings.
+        receipt.trace_id = "trace-ep5-missing".to_string();
+        receipt.output_digest = B3Hash::hash(b"output");
+        receipt.receipt_digest = B3Hash::hash(b"receipt");
+
+        let err = receipt.validate_for_strict_mode().expect_err("should fail");
+        match err {
+            AosError::DeterminismViolation(msg) => {
+                assert!(msg.contains("backend_used"));
+                assert!(msg.contains("backend_attestation_b3"));
+                assert!(msg.contains("seed_lineage_hash"));
+            }
+            other => panic!("expected DeterminismViolation, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn test_telemetry_envelope_creation() {
         let env =
             EvidenceEnvelope::new_telemetry("tenant-1".to_string(), sample_bundle_ref(), None);

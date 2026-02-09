@@ -1,4 +1,4 @@
-use adapteros_core::B3Hash;
+use adapteros_core::{B3Hash, SeedMode};
 use adapteros_db::replay_metadata::CreateReplayMetadataParams;
 use adapteros_db::{SqlTraceSink, TraceFinalization, TraceSink, TraceStart, TraceTokenInput};
 use adapteros_server_api::handlers::run_evidence::{download_run_evidence, EvidenceExportParams};
@@ -32,7 +32,12 @@ async fn evidence_bundle_contains_required_files() -> anyhow::Result<()> {
         .await?;
 
     // Create replay metadata for the run
-    let sampling_params_json = serde_json::to_string(&SamplingParams::default()).unwrap();
+    let sampling_params_json = serde_json::to_string(&SamplingParams {
+        request_seed_hex: Some(hex::encode([42u8; 32])),
+        seed_mode: Some(SeedMode::Strict),
+        ..SamplingParams::default()
+    })
+    .unwrap();
     let replay_params = CreateReplayMetadataParams {
         inference_id: run_id.clone(),
         tenant_id: tenant_id.clone(),
@@ -117,7 +122,7 @@ async fn evidence_bundle_contains_required_files() -> anyhow::Result<()> {
         prefix_cache_hit: false,
         prefix_kv_bytes: 0,
         model_cache_identity_v2_digest_b3: None,
-        attestation: None,
+        attestation: Some(b"test-attestation".to_vec()),
         equipment_profile: None,
         // Phase 3: Crypto Receipt Dual-Write
         crypto_receipt_digest_b3: None,

@@ -402,6 +402,26 @@ HKDF_OUTPUT_LENGTH = 32 bytes
 | `approximate` | CoreML/Metal + BestEffort | Tenant-scoped | Functionally equivalent |
 | `none` | Fallback | Relaxed | No guarantee |
 
+### Strict Receipt Completeness (EP-5)
+
+Strict determinism mode requires receipts to include identity bindings that allow replay and offline
+verification to fail closed:
+
+- `backend_used` must be non-empty.
+- `backend_attestation_b3` must be present.
+- `seed_lineage_hash` must be present (`SeedLineage::to_binding_hash()`).
+
+Enforcement points:
+
+- Evidence export (`GET /v1/runs/{run_id}/evidence`) refuses strict-mode export when the receipt is
+  incomplete.
+- Replay verification (`POST /v1/replay/verify/trace`) fails strict-mode verification when the
+  receipt is incomplete.
+- Third-party verifiers should call `InferenceReceiptRef::validate_for_strict_mode()` when the
+  run's `determinism_mode` is `strict`.
+
+**Error contract**: `DETERMINISM_VIOLATION` with message prefix `EP-5`.
+
 ---
 
 ## 11. Air-Gapped Security Posture

@@ -3,6 +3,10 @@
 //! Provides endpoints for creating, listing, and verifying deterministic replay sessions.
 
 use adapteros_core::{AosError, B3Hash};
+use adapteros_core::determinism::expand_u64_seed;
+use adapteros_core::evidence_envelope::InferenceReceiptRef;
+use adapteros_core::seed::SeedLineage;
+use adapteros_core::SeedMode;
 use adapteros_crypto::signature::Signature;
 use adapteros_db::replay_sessions::ReplaySession;
 use anyhow::{anyhow, bail, Context, Result};
@@ -24,7 +28,8 @@ use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
 use crate::types::{
-    new_run_envelope_no_tick, ErrorResponse, InferenceRequestInternal, MAX_TOKENS_LIMIT,
+    new_run_envelope_no_tick, ErrorResponse, InferenceRequestInternal, SamplingParams,
+    MAX_TOKENS_LIMIT,
 };
 
 /// Replay verification response
@@ -1053,6 +1058,47 @@ pub struct TraceVerifyRequest {
     pub trace_id: String,
 }
 
+fn is_strict_determinism_mode(mode: Option<&str>) -> bool {
+    mode.is_some_and(|m| m.eq_ignore_ascii_case("strict"))
+}
+
+fn compute_seed_lineage_hash(
+    metadata: &adapteros_db::InferenceReplayMetadata,
+) -> std::result::Result<B3Hash, AosError> {
+    let sampling_params: SamplingParams = serde_json::from_str(&metadata.sampling_params_json)
+        .map_err(|e| {
+            AosError::DeterminismViolation(format!(
+                "EP-5: Failed to parse sampling_params_json for seed lineage binding: {e}"
+            ))
+        })?;
+
+    let request_seed: [u8; 32] = if let Some(hex_seed) = sampling_params.request_seed_hex.as_deref()
+    {
+        let bytes = hex::decode(hex_seed).map_err(|e| {
+            AosError::DeterminismViolation(format!(
+                "EP-5: Invalid request_seed_hex for seed lineage binding: {e}"
+            ))
+        })?;
+        bytes.try_into().map_err(|_| {
+            AosError::DeterminismViolation(
+                "EP-5: request_seed_hex must decode to exactly 32 bytes".to_string(),
+            )
+        })?
+    } else if let Some(seed64) = sampling_params.seed {
+        expand_u64_seed(seed64)
+    } else {
+        return Err(AosError::DeterminismViolation(
+            "EP-5: Missing request_seed_hex/seed in replay metadata sampling params".to_string(),
+        ));
+    };
+
+    let seed_mode = sampling_params.seed_mode.unwrap_or(SeedMode::BestEffort);
+    let has_manifest_binding = B3Hash::from_hex(&metadata.manifest_hash).is_ok();
+    let lineage = SeedLineage::from_raw_seed(&request_seed, seed_mode, has_manifest_binding);
+
+    Ok(lineage.to_binding_hash())
+}
+
 #[utoipa::path(
     post,
     path = "/v1/replay/verify/trace",
@@ -1082,6 +1128,45 @@ pub async fn verify_trace_receipt(
             })?;
 
     validate_tenant_isolation(&claims, &verification.tenant_id)?;
+
+    // Strict completeness enforcement: if the run was executed in strict determinism mode,
+    // verification must fail closed when receipt identity bindings are missing.
+    let request_id: Option<String> = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT request_id FROM inference_traces WHERE trace_id = ? AND tenant_id = ? LIMIT 1",
+    )
+    .bind(&req.trace_id)
+    .bind(&verification.tenant_id)
+    .fetch_optional(&state.db_pool)
+    .await
+    .map_err(ApiError::db_error)?
+    .flatten();
+
+    if let Some(request_id) = request_id {
+        let replay_metadata = state
+            .db
+            .get_replay_metadata_by_inference(&request_id)
+            .await
+            .map_err(ApiError::db_error)?;
+
+        if let Some(replay_metadata) = replay_metadata {
+            if is_strict_determinism_mode(replay_metadata.determinism_mode.as_deref()) {
+                let receipt = verification.stored.as_ref().unwrap_or(&verification.recomputed);
+
+                let mut receipt_ref = InferenceReceiptRef::default();
+                receipt_ref.trace_id = req.trace_id.clone();
+                receipt_ref.output_digest = receipt.output_digest;
+                receipt_ref.receipt_digest = receipt.receipt_digest;
+                receipt_ref.backend_used = replay_metadata.backend.clone();
+                receipt_ref.backend_attestation_b3 =
+                    receipt.attestation.as_ref().map(|a| B3Hash::hash(a));
+                receipt_ref.seed_lineage_hash =
+                    Some(compute_seed_lineage_hash(&replay_metadata).map_err(ApiError::from)?);
+                receipt_ref
+                    .validate_for_strict_mode()
+                    .map_err(ApiError::from)?;
+            }
+        }
+    }
 
     let report = build_receipt_verification_result(req.trace_id.clone(), verification, "trace");
 
