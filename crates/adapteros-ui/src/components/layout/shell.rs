@@ -20,13 +20,15 @@ use crate::signals::{
     use_ui_profile, DockState,
 };
 use leptos::prelude::*;
+use leptos_router::components::Outlet;
 use leptos_router::hooks::{use_location, use_navigate};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 
-/// Application shell with top bar, bottom taskbar, and main workspace
+/// Application shell with top bar, bottom taskbar, and main workspace.
+/// Uses Outlet to render the matched child route from ParentRoute.
 #[component]
-pub fn Shell(children: Children) -> impl IntoView {
+pub fn Shell() -> impl IntoView {
     web_sys::console::log_1(&"[Shell] Rendering...".into());
     provide_ui_profile_context();
     provide_route_context();
@@ -64,6 +66,8 @@ pub fn Shell(children: Children) -> impl IntoView {
         }
         keyboard_handler_set.set_value(true);
 
+        // Leaked keyboard handler - uses try_ variants for signals that may be
+        // disposed when Shell is recreated during SPA navigation
         let search = search.clone();
         let navigate = navigate.clone();
         let closure = Closure::wrap(Box::new(move |event: web_sys::KeyboardEvent| {
@@ -98,7 +102,7 @@ pub fn Shell(children: Children) -> impl IntoView {
             }
 
             // "/" opens command palette when not in input
-            if key == "/" && !search.command_palette_open.get_untracked() {
+            if key == "/" && !search.command_palette_open.try_get_untracked().unwrap_or(false) {
                 event.prevent_default();
                 search.open();
                 return;
@@ -109,10 +113,11 @@ pub fn Shell(children: Children) -> impl IntoView {
             if alt_key && !ctrl_or_cmd {
                 if let Some(digit) = key.chars().next().and_then(|c| c.to_digit(10)) {
                     if (1..=8).contains(&digit) {
-                        let profile = ui_profile.get_untracked();
-                        if let Some(route) = route_for_alt_shortcut(profile, digit as u8) {
-                            event.prevent_default();
-                            navigate(route, Default::default());
+                        if let Some(profile) = ui_profile.try_get_untracked() {
+                            if let Some(route) = route_for_alt_shortcut(profile, digit as u8) {
+                                event.prevent_default();
+                                navigate(route, Default::default());
+                            }
                         }
                     }
                 }
@@ -151,7 +156,7 @@ pub fn Shell(children: Children) -> impl IntoView {
                     // Main workspace wrapper
                     <Workspace class="shell-workspace">
                         <main id="main-content" class="shell-main" tabindex="-1">
-                            {children()}
+                            <Outlet/>
                         </main>
                     </Workspace>
 

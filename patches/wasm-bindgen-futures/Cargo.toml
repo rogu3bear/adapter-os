@@ -1,0 +1,38 @@
+[package]
+name = "wasm-bindgen-futures"
+version = "0.4.58"
+edition = "2021"
+rust-version = "1.71"
+description = "Vendored wasm-bindgen-futures with re-entrancy protection patch (AOS)"
+license = "MIT OR Apache-2.0"
+
+[lib]
+name = "wasm_bindgen_futures"
+path = "src/lib.rs"
+
+[dependencies]
+cfg-if = "1.0.0"
+js-sys = { version = "=0.3.85", default-features = false }
+once_cell = { version = "1.12", default-features = false }
+wasm-bindgen = { version = "=0.2.108", default-features = false }
+
+[dependencies.futures-core]
+version = "0.3.8"
+optional = true
+default-features = false
+
+[dependencies.futures-util]
+version = "0.3.31"
+optional = true
+default-features = false
+features = ["std"]
+
+[target.'cfg(target_feature = "atomics")'.dependencies.web-sys]
+version = "=0.3.85"
+default-features = false
+features = ["MessageEvent", "Worker"]
+
+[features]
+default = ["std"]
+std = ["wasm-bindgen/std", "js-sys/std", "web-sys/std", "futures-util"]
+futures-core-03-stream = ["futures-core"]

@@ -34,13 +34,14 @@ pub fn SystemTray() -> impl IntoView {
     let interval_created = StoredValue::new(false);
 
     // Update time every second - Effect runs once on mount
-    // The interval is intentionally leaked (mem::forget) since this component
-    // lives for the lifetime of the app and Interval doesn't implement Send+Sync
+    // The interval is intentionally leaked (mem::forget) since Interval doesn't
+    // implement Send+Sync. Uses try_set to handle signal disposal gracefully
+    // during SPA navigation (Shell is recreated per-route).
     Effect::new(move || {
         if !interval_created.get_value() {
             interval_created.set_value(true);
             let interval = gloo_timers::callback::Interval::new(1000, move || {
-                set_time.set(get_current_time());
+                let _ = set_time.try_set(get_current_time());
             });
             // Leak the interval - it lives for app lifetime anyway
             std::mem::forget(interval);

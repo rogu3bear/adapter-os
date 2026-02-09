@@ -43,6 +43,39 @@ fn main() {
         );
     }
 
+    // --- Crate version manifest ---
+    let cargo_lock = workspace_root.join("Cargo.lock");
+    println!("cargo:rerun-if-changed={}", cargo_lock.display());
+
+    const INFERENCE_CRATES: &[&str] = &[
+        "adapteros-core",
+        "adapteros-crypto",
+        "adapteros-config",
+        "adapteros-db",
+        "adapteros-lora-router",
+        "adapteros-lora-worker",
+        "adapteros-lora-mlx-ffi",
+        "adapteros-lora-kernel-mtl",
+        "adapteros-policy",
+        "adapteros-server-api",
+        "adapteros-server",
+        "adapteros-telemetry",
+    ];
+
+    match aos_build_id::parse_crate_versions(&workspace_root, INFERENCE_CRATES) {
+        Ok(entries) => {
+            let manifest_json = aos_build_id::serialize_crate_manifest(&entries);
+            println!("cargo:rustc-env=AOS_CRATE_MANIFEST={}", manifest_json);
+        }
+        Err(e) => {
+            println!("cargo:warning=Failed to parse crate versions from Cargo.lock: {e}");
+            // Emit empty manifest so the build doesn't break
+            println!(
+                "cargo:rustc-env=AOS_CRATE_MANIFEST={{\"format\":1,\"crates\":{{}}}}"
+            );
+        }
+    }
+
     // --- Build metadata ---
     let build = aos_build_id::resolve_workspace_build_id().unwrap_or_else(|e| {
         // Build scripts should never silently produce an unknown build id.

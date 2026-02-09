@@ -41,7 +41,7 @@ use leptos_meta::*;
 use leptos_router::components::*;
 use leptos_router::path;
 
-use crate::api::ApiClient;
+use crate::api::{report_ui_panic, ApiClient};
 use crate::contexts::InFlightProvider;
 use components::{
     AuthProvider, CommandPalette, ProtectedRoute, RouteErrorBoundary, Shell, ToastContainer,
@@ -180,49 +180,56 @@ pub fn App() -> impl IntoView {
                             // Toast container for app-wide notifications
                             <ToastContainer/>
                         <Routes fallback=|| view! { <pages::NotFound/> }>
+                        // Non-shell routes (no auth, no Shell wrapper)
                         <Route path=path!("/login") view=pages::Login/>
-                        <Route path=path!("/") view=|| view! { <ProtectedRoute><Shell><pages::Dashboard/></Shell></ProtectedRoute> }/>
-                        <Route path=path!("/dashboard") view=|| view! { <ProtectedRoute><Redirect path="/"/></ProtectedRoute> }/>
-                        <Route path=path!("/adapters") view=|| view! { <ProtectedRoute><Shell><pages::Adapters/></Shell></ProtectedRoute> }/>
-                        <Route path=path!("/adapters/:id") view=|| view! { <ProtectedRoute><Shell><pages::AdapterDetail/></Shell></ProtectedRoute> }/>
-                        <Route path=path!("/chat") view=|| view! { <ProtectedRoute><Shell><pages::Chat/></Shell></ProtectedRoute> }/>
-                        <Route path=path!("/chat/:session_id") view=|| view! { <ProtectedRoute><Shell><pages::ChatSession/></Shell></ProtectedRoute> }/>
-                        <Route path=path!("/system") view=|| view! { <ProtectedRoute><Shell><pages::System/></Shell></ProtectedRoute> }/>
-                        <Route path=path!("/settings") view=|| view! { <ProtectedRoute><Shell><pages::Settings/></Shell></ProtectedRoute> }/>
-                        <Route path=path!("/user") view=|| view! { <ProtectedRoute><Shell><pages::User/></Shell></ProtectedRoute> }/>
-                        <Route path=path!("/models") view=|| view! { <ProtectedRoute><Shell><pages::Models/></Shell></ProtectedRoute> }/>
-                        <Route path=path!("/policies") view=|| view! { <ProtectedRoute><Shell><pages::Policies/></Shell></ProtectedRoute> }/>
-                        <Route path=path!("/training") view=|| view! { <ProtectedRoute><Shell><pages::Training/></Shell></ProtectedRoute> }/>
-                        <Route path=path!("/stacks") view=|| view! { <ProtectedRoute><Shell><pages::Stacks/></Shell></ProtectedRoute> }/>
-                        <Route path=path!("/stacks/:id") view=|| view! { <ProtectedRoute><Shell><pages::StackDetail/></Shell></ProtectedRoute> }/>
-                        <Route path=path!("/collections") view=|| view! { <ProtectedRoute><Shell><pages::Collections/></Shell></ProtectedRoute> }/>
-                        <Route path=path!("/collections/:id") view=|| view! { <ProtectedRoute><Shell><pages::CollectionDetail/></Shell></ProtectedRoute> }/>
-                        <Route path=path!("/documents") view=|| view! { <ProtectedRoute><Shell><pages::Documents/></Shell></ProtectedRoute> }/>
-                        <Route path=path!("/documents/:id") view=|| view! { <ProtectedRoute><Shell><pages::DocumentDetail/></Shell></ProtectedRoute> }/>
-                        <Route path=path!("/datasets") view=|| view! { <ProtectedRoute><Shell><pages::Datasets/></Shell></ProtectedRoute> }/>
-                        <Route path=path!("/datasets/:id") view=|| view! { <ProtectedRoute><Shell><pages::DatasetDetail/></Shell></ProtectedRoute> }/>
-                        <Route path=path!("/admin") view=|| view! { <ProtectedRoute><Shell><pages::Admin/></Shell></ProtectedRoute> }/>
-                        <Route path=path!("/audit") view=|| view! { <ProtectedRoute><Shell><pages::Audit/></Shell></ProtectedRoute> }/>
-                        <Route path=path!("/runs") view=|| view! { <ProtectedRoute><Shell><pages::FlightRecorder/></Shell></ProtectedRoute> }/>
-                        <Route path=path!("/runs/:id") view=|| view! { <ProtectedRoute><Shell><pages::FlightRecorderDetail/></Shell></ProtectedRoute> }/>
-                        // Backward compatibility redirects for old flight-recorder paths
-                        <Route path=path!("/flight-recorder") view=|| view! { <ProtectedRoute><Redirect path="/runs"/></ProtectedRoute> }/>
-                        <Route path=path!("/flight-recorder/:id") view=|| view! { <ProtectedRoute><FlightRecorderIdRedirect/></ProtectedRoute> }/>
-                        <Route path=path!("/diff") view=|| view! { <ProtectedRoute><Shell><pages::Diff/></Shell></ProtectedRoute> }/>
-                        <Route path=path!("/workers") view=|| view! { <ProtectedRoute><Shell><pages::Workers/></Shell></ProtectedRoute> }/>
-                        <Route path=path!("/workers/:id") view=|| view! { <ProtectedRoute><Shell><pages::WorkerDetail/></Shell></ProtectedRoute> }/>
-                        <Route path=path!("/monitoring") view=|| view! { <ProtectedRoute><Shell><pages::Monitoring/></Shell></ProtectedRoute> }/>
-                        <Route path=path!("/errors") view=|| view! { <ProtectedRoute><Shell><pages::Errors/></Shell></ProtectedRoute> }/>
-                        <Route path=path!("/routing") view=|| view! { <ProtectedRoute><Shell><pages::Routing/></Shell></ProtectedRoute> }/>
-                        <Route path=path!("/repositories") view=|| view! { <ProtectedRoute><Shell><pages::Repositories/></Shell></ProtectedRoute> }/>
-                        <Route path=path!("/repositories/:id") view=|| view! { <ProtectedRoute><Shell><pages::RepositoryDetail/></Shell></ProtectedRoute> }/>
-                        <Route path=path!("/reviews") view=|| view! { <ProtectedRoute><Shell><pages::Reviews/></Shell></ProtectedRoute> }/>
-                        <Route path=path!("/welcome") view=|| view! { <ProtectedRoute><Shell><pages::Welcome/></Shell></ProtectedRoute> }/>
-                        <Route path=path!("/agents") view=|| view! { <ProtectedRoute><Shell><pages::Agents/></Shell></ProtectedRoute> }/>
                         // PRD-UI-000: Safe mode route (no auth required, no API calls)
                         <Route path=path!("/safe") view=pages::Safe/>
                         // PRD-UI-003: Style audit (dev tool, no sensitive data)
                         <Route path=path!("/style-audit") view=pages::StyleAudit/>
+                        // Backward compatibility redirects
+                        <Route path=path!("/dashboard") view=|| view! { <ProtectedRoute><Redirect path="/"/></ProtectedRoute> }/>
+                        <Route path=path!("/flight-recorder") view=|| view! { <ProtectedRoute><Redirect path="/runs"/></ProtectedRoute> }/>
+                        <Route path=path!("/flight-recorder/:id") view=|| view! { <ProtectedRoute><FlightRecorderIdRedirect/></ProtectedRoute> }/>
+
+                        // All protected routes share a single Shell instance via ParentRoute.
+                        // This prevents Shell (TopBar, Taskbar, SystemTray) from being
+                        // disposed and recreated on every SPA navigation.
+                        <ParentRoute path=path!("") view=|| view! { <ProtectedRoute><Shell/></ProtectedRoute> }>
+                            <Route path=path!("/") view=pages::Dashboard/>
+                            <Route path=path!("/adapters") view=pages::Adapters/>
+                            <Route path=path!("/adapters/:id") view=pages::AdapterDetail/>
+                            <Route path=path!("/chat") view=pages::Chat/>
+                            <Route path=path!("/chat/:session_id") view=pages::ChatSession/>
+                            <Route path=path!("/system") view=pages::System/>
+                            <Route path=path!("/settings") view=pages::Settings/>
+                            <Route path=path!("/user") view=pages::User/>
+                            <Route path=path!("/models") view=pages::Models/>
+                            <Route path=path!("/policies") view=pages::Policies/>
+                            <Route path=path!("/training") view=pages::Training/>
+                            <Route path=path!("/stacks") view=pages::Stacks/>
+                            <Route path=path!("/stacks/:id") view=pages::StackDetail/>
+                            <Route path=path!("/collections") view=pages::Collections/>
+                            <Route path=path!("/collections/:id") view=pages::CollectionDetail/>
+                            <Route path=path!("/documents") view=pages::Documents/>
+                            <Route path=path!("/documents/:id") view=pages::DocumentDetail/>
+                            <Route path=path!("/datasets") view=pages::Datasets/>
+                            <Route path=path!("/datasets/:id") view=pages::DatasetDetail/>
+                            <Route path=path!("/admin") view=pages::Admin/>
+                            <Route path=path!("/audit") view=pages::Audit/>
+                            <Route path=path!("/runs") view=pages::FlightRecorder/>
+                            <Route path=path!("/runs/:id") view=pages::FlightRecorderDetail/>
+                            <Route path=path!("/diff") view=pages::Diff/>
+                            <Route path=path!("/workers") view=pages::Workers/>
+                            <Route path=path!("/workers/:id") view=pages::WorkerDetail/>
+                            <Route path=path!("/monitoring") view=pages::Monitoring/>
+                            <Route path=path!("/errors") view=pages::Errors/>
+                            <Route path=path!("/routing") view=pages::Routing/>
+                            <Route path=path!("/repositories") view=pages::Repositories/>
+                            <Route path=path!("/repositories/:id") view=pages::RepositoryDetail/>
+                            <Route path=path!("/reviews") view=pages::Reviews/>
+                            <Route path=path!("/welcome") view=pages::Welcome/>
+                            <Route path=path!("/agents") view=pages::Agents/>
+                        </ParentRoute>
                     </Routes>
                             // Global Command Palette overlay
                             <CommandPalette/>
@@ -383,8 +390,16 @@ fn set_dom_panic_hook() {
 
             // Redact the stack trace as well (in case it contains sensitive paths)
             let redacted_stack = redact_sensitive_info(&stack_trace);
+            let panic_message = format!("{}{}", message, location);
 
-            show_panic(&format!("{}{}", message, location), &redacted_stack);
+            // Persist panic to client error telemetry; ignore reporter failures.
+            let _ = std::panic::catch_unwind({
+                let panic_message = panic_message.clone();
+                let redacted_stack = redacted_stack.clone();
+                move || report_ui_panic(&panic_message, None, Some(&redacted_stack))
+            });
+
+            show_panic(&panic_message, &redacted_stack);
         }));
     });
 }

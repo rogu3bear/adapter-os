@@ -33,8 +33,11 @@
 //!
 //! See [`AlgorithmVersionBundle`] for bundled version tracking.
 
+use crate::B3Hash;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::fmt;
+use std::sync::LazyLock;
 
 // =============================================================================
 // Compile-Time Parsing Utilities
@@ -427,6 +430,223 @@ pub const TARGET_OS: &str = {
     }
 };
 
+// =============================================================================
+// Crate Version Manifest (Build Provenance)
+// =============================================================================
+
+/// Raw crate manifest JSON emitted by build.rs.
+///
+/// Format: `{"format":1,"crates":{"adapteros-core":"0.14.0",...}}`
+pub const CRATE_MANIFEST_JSON: &str = match option_env!("AOS_CRATE_MANIFEST") {
+    Some(s) => s,
+    None => "{\"format\":1,\"crates\":{}}",
+};
+
+/// Per-crate version manifest for build provenance tracking.
+///
+/// Captures the exact versions of inference-critical crates compiled into
+/// the binary. The digest is computed at runtime using BLAKE3 over the
+/// canonical JSON representation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CrateVersionManifest {
+    /// Manifest schema version (starts at 1).
+    pub format: u32,
+    /// Crate name -> version, sorted alphabetically.
+    pub crates: BTreeMap<String, String>,
+    /// BLAKE3 digest of the canonical JSON (computed at runtime).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub digest: Option<B3Hash>,
+}
+
+impl CrateVersionManifest {
+    /// Parse the manifest from the compile-time `AOS_CRATE_MANIFEST` env var.
+    pub fn current() -> Self {
+        Self::from_json(CRATE_MANIFEST_JSON)
+    }
+
+    /// Parse a manifest from canonical JSON and compute its digest.
+    pub fn from_json(json: &str) -> Self {
+        let mut crates = BTreeMap::new();
+        let mut format = 1u32;
+
+        // Minimal JSON parser — no serde_json dependency needed in this path.
+        // The format is well-defined: {"format":1,"crates":{"name":"ver",...}}
+        if let Some(crates_start) = json.find("\"crates\":{") {
+            // Parse format field
+            if let Some(fmt_start) = json.find("\"format\":") {
+                let after = &json[fmt_start + 9..];
+                if let Some(end) = after.find(|c: char| !c.is_ascii_digit()) {
+                    if let Ok(f) = after[..end].parse::<u32>() {
+                        format = f;
+                    }
+                }
+            }
+
+            // Parse crates object
+            let inner_start = crates_start + 10; // skip `"crates":{`
+            if let Some(inner_end) = json[inner_start..].find('}') {
+                let inner = &json[inner_start..inner_start + inner_end];
+                // Parse key-value pairs: "name":"version"
+                let mut chars = inner.chars().peekable();
+                loop {
+                    // Skip to next quote
+                    while chars.peek().is_some_and(|&c| c != '"') {
+                        chars.next();
+                    }
+                    if chars.peek().is_none() {
+                        break;
+                    }
+                    if let (Some(key), Some(val)) = (parse_json_string(&mut chars), {
+                        // Skip colon
+                        while chars.peek().is_some_and(|&c| c != '"') {
+                            chars.next();
+                        }
+                        parse_json_string(&mut chars)
+                    }) {
+                        crates.insert(key, val);
+                    }
+                }
+            }
+        }
+
+        // Compute digest over the canonical JSON representation
+        let canonical = Self::canonical_json(format, &crates);
+        let digest = B3Hash::hash(canonical.as_bytes());
+
+        Self {
+            format,
+            crates,
+            digest: Some(digest),
+        }
+    }
+
+    /// Produce the canonical JSON representation (deterministic key order).
+    fn canonical_json(format: u32, crates: &BTreeMap<String, String>) -> String {
+        let mut json = format!("{{\"format\":{},\"crates\":{{", format);
+        for (i, (name, version)) in crates.iter().enumerate() {
+            if i > 0 {
+                json.push(',');
+            }
+            json.push('"');
+            json.push_str(name);
+            json.push_str("\":\"");
+            json.push_str(version);
+            json.push('"');
+        }
+        json.push_str("}}");
+        json
+    }
+
+    /// Summary string for display: "core:0.14.0 crypto:0.14.0 router:0.14.0"
+    pub fn summary(&self) -> String {
+        self.crates
+            .iter()
+            .map(|(name, ver)| {
+                let short = name.strip_prefix("adapteros-").unwrap_or(name);
+                format!("{}:{}", short, ver)
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+}
+
+/// Parse a JSON string value from a char iterator.
+/// Expects the iterator to be positioned at the opening quote.
+fn parse_json_string(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> Option<String> {
+    if chars.next() != Some('"') {
+        return None;
+    }
+    let mut s = String::new();
+    for c in chars.by_ref() {
+        if c == '"' {
+            return Some(s);
+        }
+        s.push(c);
+    }
+    None
+}
+
+/// Build provenance — binds build identity to crate versions, compiler, and profile.
+///
+/// The digest covers all fields to produce a single hash that identifies the
+/// exact build. This digest is bound into cryptographic receipts via
+/// `model_build_hash_b3`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuildProvenance {
+    /// Combined build identifier (git_sha-timestamp).
+    pub build_id: String,
+    /// Per-crate version manifest.
+    pub crate_manifest: CrateVersionManifest,
+    /// Rust compiler version.
+    pub rustc_version: String,
+    /// Build profile (debug/release).
+    pub build_profile: String,
+    /// Target triple (e.g., "aarch64-macos").
+    pub target: String,
+    /// BLAKE3 digest: H(build_id || manifest_digest || rustc || profile || target).
+    pub digest: B3Hash,
+}
+
+impl BuildProvenance {
+    /// Compute provenance from current build-time constants.
+    pub fn current() -> Self {
+        let manifest = CrateVersionManifest::current();
+        let build_id = BUILD_ID.to_string();
+        let rustc = RUSTC_VERSION.to_string();
+        let profile = BUILD_PROFILE.to_string();
+        let target = format!("{}-{}", TARGET_ARCH, TARGET_OS);
+
+        let manifest_digest_bytes = manifest
+            .digest
+            .as_ref()
+            .map(|d| d.to_hex())
+            .unwrap_or_default();
+
+        let digest = B3Hash::hash_multi(&[
+            build_id.as_bytes(),
+            manifest_digest_bytes.as_bytes(),
+            rustc.as_bytes(),
+            profile.as_bytes(),
+            target.as_bytes(),
+        ]);
+
+        Self {
+            build_id,
+            crate_manifest: manifest,
+            rustc_version: rustc,
+            build_profile: profile,
+            target,
+            digest,
+        }
+    }
+
+    /// Get cached provenance (computed once per process).
+    pub fn cached() -> &'static Self {
+        static INSTANCE: LazyLock<BuildProvenance> = LazyLock::new(BuildProvenance::current);
+        &INSTANCE
+    }
+
+    /// Verify the digest is internally consistent.
+    pub fn verify(&self) -> bool {
+        let manifest_digest_bytes = self
+            .crate_manifest
+            .digest
+            .as_ref()
+            .map(|d| d.to_hex())
+            .unwrap_or_default();
+
+        let expected = B3Hash::hash_multi(&[
+            self.build_id.as_bytes(),
+            manifest_digest_bytes.as_bytes(),
+            self.rustc_version.as_bytes(),
+            self.build_profile.as_bytes(),
+            self.target.as_bytes(),
+        ]);
+
+        self.digest == expected
+    }
+}
+
 /// Comprehensive version information
 ///
 /// Contains all version-related metadata for diagnostics and auditing.
@@ -454,6 +674,8 @@ pub struct VersionInfo {
     pub target_arch: String,
     /// Target OS
     pub target_os: String,
+    /// Build provenance (per-crate versions, compiler, profile, combined digest)
+    pub build_provenance: BuildProvenance,
 }
 
 impl VersionInfo {
@@ -482,6 +704,7 @@ impl VersionInfo {
             build_profile: BUILD_PROFILE.to_string(),
             target_arch: TARGET_ARCH.to_string(),
             target_os: TARGET_OS.to_string(),
+            build_provenance: BuildProvenance::cached().clone(),
         }
     }
 
@@ -555,6 +778,10 @@ impl fmt::Display for VersionInfo {
             "Target:          {}-{}",
             self.target_os, self.target_arch
         )?;
+        writeln!(f, "Crate Manifest:  {}", self.build_provenance.crate_manifest.summary())?;
+        if let Some(ref d) = self.build_provenance.crate_manifest.digest {
+            writeln!(f, "Manifest Digest: {}", d.to_short_hex())?;
+        }
         Ok(())
     }
 }
@@ -845,5 +1072,97 @@ mod tests {
         assert_eq!(const_parse_u32("4294967296"), None);
         // Much larger number
         assert_eq!(const_parse_u32("999999999999999"), None);
+    }
+
+    // =========================================================================
+    // Crate Version Manifest & Build Provenance Tests
+    // =========================================================================
+
+    #[test]
+    fn test_crate_manifest_populated() {
+        let manifest = CrateVersionManifest::current();
+        assert_eq!(manifest.format, 1);
+        assert!(
+            manifest.crates.contains_key("adapteros-core"),
+            "manifest should contain adapteros-core, got: {:?}",
+            manifest.crates.keys().collect::<Vec<_>>()
+        );
+        assert!(manifest.crates.contains_key("adapteros-crypto"));
+        assert!(manifest.crates.contains_key("adapteros-lora-router"));
+        assert!(manifest.digest.is_some());
+    }
+
+    #[test]
+    fn test_crate_manifest_deterministic() {
+        let m1 = CrateVersionManifest::current();
+        let m2 = CrateVersionManifest::current();
+        assert_eq!(
+            m1.digest, m2.digest,
+            "Two calls to CrateVersionManifest::current() should produce the same digest"
+        );
+        assert_eq!(m1.crates, m2.crates);
+    }
+
+    #[test]
+    fn test_build_provenance_verify() {
+        let prov = BuildProvenance::current();
+        assert!(
+            prov.verify(),
+            "BuildProvenance::current() should self-verify"
+        );
+        assert!(!prov.build_id.is_empty());
+        assert!(!prov.rustc_version.is_empty());
+    }
+
+    #[test]
+    fn test_build_provenance_tamper_detection() {
+        let mut prov = BuildProvenance::current();
+        // Modify a crate version
+        prov.crate_manifest
+            .crates
+            .insert("adapteros-core".to_string(), "0.0.0-tampered".to_string());
+        // Recompute manifest digest to simulate partial tampering
+        let canonical = CrateVersionManifest::canonical_json(
+            prov.crate_manifest.format,
+            &prov.crate_manifest.crates,
+        );
+        prov.crate_manifest.digest = Some(B3Hash::hash(canonical.as_bytes()));
+        // The top-level provenance digest should no longer verify
+        assert!(
+            !prov.verify(),
+            "Modifying crate versions should break provenance verification"
+        );
+    }
+
+    #[test]
+    fn test_crate_manifest_summary() {
+        let manifest = CrateVersionManifest::current();
+        let summary = manifest.summary();
+        assert!(
+            summary.contains("core:"),
+            "summary should contain 'core:', got: {}",
+            summary
+        );
+    }
+
+    #[test]
+    fn test_build_provenance_cached() {
+        let p1 = BuildProvenance::cached();
+        let p2 = BuildProvenance::cached();
+        assert_eq!(
+            p1.digest, p2.digest,
+            "Cached provenance should be the same instance"
+        );
+    }
+
+    #[test]
+    fn test_crate_manifest_from_json_roundtrip() {
+        let json = r#"{"format":1,"crates":{"a-crate":"1.2.3","b-crate":"4.5.6"}}"#;
+        let manifest = CrateVersionManifest::from_json(json);
+        assert_eq!(manifest.format, 1);
+        assert_eq!(manifest.crates.len(), 2);
+        assert_eq!(manifest.crates["a-crate"], "1.2.3");
+        assert_eq!(manifest.crates["b-crate"], "4.5.6");
+        assert!(manifest.digest.is_some());
     }
 }

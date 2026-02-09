@@ -21,7 +21,7 @@
 //! - WAL checkpoint (database health)
 //! - TTL cleanup (prevents DB bloat)
 //!
-//! ## Production Mode Tasks (14 tasks)
+//! ## Production Mode Tasks (15 tasks)
 //!
 //! 1. Status writer task (5s interval)
 //! 2. KV metrics alert monitor task (5s interval)
@@ -32,11 +32,12 @@
 //! 7. Security cleanup task (1h interval)
 //! 8. Telemetry bundle GC task (6h interval)
 //! 9. Orphaned training job cleanup task (1h interval)
-//! 10. Rate limiter eviction task (60s interval)
-//! 11. Inference cache cleanup task (5m interval)
-//! 12. Idempotency store cleanup task (5m interval)
-//! 13. Inference state tracker cleanup task (5m interval)
-//! 14. Telemetry rate limiter cleanup task (60s interval)
+//! 10. Stale worker reaper task (60s interval)
+//! 11. Rate limiter eviction task (60s interval)
+//! 12. Inference cache cleanup task (5m interval)
+//! 13. Idempotency store cleanup task (5m interval)
+//! 14. Inference state tracker cleanup task (5m interval)
+//! 15. Telemetry rate limiter cleanup task (60s interval)
 //!
 //! Each task uses the `BackgroundTaskSpawner` to integrate with the shutdown coordinator
 //! and task tracking system.
@@ -1074,6 +1075,143 @@ pub async fn spawn_all_background_tasks(
             shutdown_coordinator = spawner.into_coordinator();
         } else {
             info!("Orphaned training job cleanup disabled via AOS_ORPHANED_JOB_CLEANUP_SECS=0");
+        }
+    }
+
+    // Spawn stale worker reaper task (60s interval)
+    // SKIPPED in dev mode - production maintenance only
+    // ANCHOR: Workers with non-terminal status whose PID is no longer alive are reaped
+    if !dev_mode {
+        let db_clone = db.clone();
+        let state_clone_for_reaper = state.clone();
+        let interval_secs = std::env::var("AOS_STALE_WORKER_REAPER_SECS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(60);
+
+        if interval_secs > 0 {
+            let mut spawner = BackgroundTaskSpawner::new(shutdown_coordinator)
+                .with_task_tracker(Arc::clone(&background_tasks));
+            let mut shutdown_rx = spawner.coordinator().subscribe_shutdown();
+            if spawner
+                .spawn_optional(
+                    "Stale worker reaper",
+                    async move {
+                        let mut interval =
+                            tokio::time::interval(Duration::from_secs(interval_secs));
+                        interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+                        loop {
+                            tokio::select! {
+                                biased;
+                                _ = shutdown_rx.recv() => {
+                                    info!("Stale worker reaper received shutdown signal, exiting gracefully");
+                                    break;
+                                }
+                                _ = interval.tick() => {
+                                    // ANCHOR: Query workers in non-terminal status with a PID
+                                    match db_clone.list_all_workers().await {
+                                        Ok(workers) => {
+                                            let non_terminal: Vec<_> = workers.into_iter()
+                                                .filter(|w| {
+                                                    w.pid.is_some()
+                                                        && w.status != "stopped"
+                                                        && w.status != "error"
+                                                })
+                                                .collect();
+
+                                            for worker in &non_terminal {
+                                                let pid = match worker.pid {
+                                                    Some(p) => p,
+                                                    None => continue,
+                                                };
+
+                                                // Check PID liveness via signal 0
+                                                let alive = unsafe {
+                                                    libc::kill(pid, 0) == 0
+                                                };
+
+                                                if alive {
+                                                    continue;
+                                                }
+
+                                                // Cross-reference UDS socket existence for safety
+                                                let socket_exists = std::path::Path::new(&worker.uds_path).exists();
+                                                if socket_exists {
+                                                    debug!(
+                                                        worker_id = %worker.id,
+                                                        pid = pid,
+                                                        uds_path = %worker.uds_path,
+                                                        "Worker PID dead but UDS socket still exists, reaping anyway"
+                                                    );
+                                                }
+
+                                                // RECTIFY: Transition dead workers to error
+                                                if let Err(e) = db_clone.transition_worker_status(
+                                                    &worker.id,
+                                                    "error",
+                                                    "stale_pid_dead",
+                                                    None,
+                                                ).await {
+                                                    warn!(
+                                                        worker_id = %worker.id,
+                                                        pid = pid,
+                                                        error = %e,
+                                                        "Failed to transition stale worker to error"
+                                                    );
+                                                    continue;
+                                                }
+
+                                                // Remove from worker_runtime DashMap (fixes memory leak)
+                                                state_clone_for_reaper.worker_runtime.remove(&worker.id);
+
+                                                // AUDIT: Record incident for each reaped worker
+                                                if let Err(e) = db_clone.insert_worker_incident(
+                                                    &worker.id,
+                                                    &worker.tenant_id,
+                                                    adapteros_db::workers::WorkerIncidentType::Crash,
+                                                    "stale_pid_dead: process no longer running",
+                                                    None,
+                                                    None,
+                                                ).await {
+                                                    warn!(
+                                                        worker_id = %worker.id,
+                                                        error = %e,
+                                                        "Failed to record incident for stale worker"
+                                                    );
+                                                }
+
+                                                info!(
+                                                    worker_id = %worker.id,
+                                                    pid = pid,
+                                                    previous_status = %worker.status,
+                                                    "Reaped stale worker: PID no longer alive"
+                                                );
+                                            }
+                                        }
+                                        Err(e) => {
+                                            warn!(
+                                                error = %e,
+                                                "Failed to query workers for stale reaper"
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "Stale workers may accumulate in database",
+                )
+                .is_ok()
+            {
+                info!(
+                    interval_secs = interval_secs,
+                    "Stale worker reaper task started"
+                );
+            }
+            shutdown_coordinator = spawner.into_coordinator();
+        } else {
+            info!("Stale worker reaper disabled via AOS_STALE_WORKER_REAPER_SECS=0");
         }
     }
 

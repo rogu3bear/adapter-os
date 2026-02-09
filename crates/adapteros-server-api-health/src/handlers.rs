@@ -71,12 +71,18 @@ pub async fn health(State(state): State<AppState>) -> impl IntoResponse {
 
     (
         status_code,
-        Json(HealthResponse {
-            schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
-            status: status_str,
-            version: env!("CARGO_PKG_VERSION").to_string(),
-            build_id: option_env!("AOS_BUILD_ID").map(|s| s.to_string()),
-            models: None,
+        Json({
+            let provenance = adapteros_core::version::BuildProvenance::cached();
+            let manifest = &provenance.crate_manifest;
+            HealthResponse {
+                schema_version: adapteros_api_types::API_SCHEMA_VERSION.to_string(),
+                status: status_str,
+                version: env!("CARGO_PKG_VERSION").to_string(),
+                build_id: option_env!("AOS_BUILD_ID").map(|s| s.to_string()),
+                models: None,
+                crate_manifest: Some(manifest.crates.clone()),
+                crate_manifest_digest: manifest.digest.as_ref().map(|d| d.to_hex()),
+            }
         }),
     )
 }

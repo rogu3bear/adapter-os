@@ -641,18 +641,19 @@ fn MessageList() -> impl IntoView {
     let container_ref = leptos::prelude::NodeRef::<leptos::html::Div>::new();
 
     // Auto-scroll to bottom when messages change
+    // Uses Timeout instead of spawn_local to avoid RefCell re-entrancy panic
+    // in wasm-bindgen-futures when called from within an Effect body
     Effect::new(move |_| {
         let msg_count = chat_state.get().messages.len();
         // Scroll to bottom when message count changes
         if msg_count > 0 {
             if let Some(el) = container_ref.get() {
-                // Use requestAnimationFrame to ensure DOM is updated
                 let el_clone = el.clone();
-                wasm_bindgen_futures::spawn_local(async move {
-                    // Small delay to let content render
-                    gloo_timers::future::TimeoutFuture::new(10).await;
+                // Small delay to let content render, then scroll
+                gloo_timers::callback::Timeout::new(10, move || {
                     el_clone.set_scroll_top(el_clone.scroll_height());
-                });
+                })
+                .forget();
             }
         }
     });

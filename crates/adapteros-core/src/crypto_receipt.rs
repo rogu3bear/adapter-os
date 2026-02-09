@@ -861,7 +861,9 @@ impl CryptographicReceipt {
             tokenizer_hash_b3: None,
             tokenizer_version: None,
             tokenizer_normalization: None,
-            model_build_hash_b3: None,
+            model_build_hash_b3: Some(
+                *crate::version::BuildProvenance::cached().digest.as_bytes(),
+            ),
             adapter_build_hash_b3: None,
             decode_algo: None,
             temperature_q15: None,

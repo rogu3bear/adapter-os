@@ -346,6 +346,9 @@ pub fn provide_auth_context() {
             let action = action_check.clone();
             let state_timeout = state;
             let client = Arc::clone(&client);
+            // Defer spawn_local via Timeout to avoid RefCell re-entrancy panic
+            // in wasm-bindgen-futures when called from within a reactive Effect body.
+            gloo_timers::callback::Timeout::new(0, move || {
             wasm_bindgen_futures::spawn_local(async move {
                 // On localhost, check dev bypass with a short timeout so we never hang
                 // if the backend is down (GET /v1/auth/config can hang otherwise).
@@ -393,6 +396,7 @@ pub fn provide_auth_context() {
                     }
                 }
             });
+            }).forget();
         }
     });
 

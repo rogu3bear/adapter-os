@@ -66,8 +66,10 @@ pub fn TopBar() -> impl IntoView {
         let user_menu_ref = user_menu_ref;
         let user_menu_button_ref = user_menu_button_ref;
 
+        // Use try_get/try_set to avoid panic when signals are disposed
+        // during SPA navigation (these closures are leaked via .forget())
         let click_closure = Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
-            if !user_menu_open.get_untracked() {
+            if !user_menu_open.try_get_untracked().unwrap_or(false) {
                 return;
             }
             let target = match event.target() {
@@ -88,15 +90,15 @@ pub fn TopBar() -> impl IntoView {
                     return;
                 }
             }
-            set_user_menu_open.set(false);
+            let _ = set_user_menu_open.try_set(false);
         }) as Box<dyn FnMut(_)>);
 
         let key_closure = Closure::wrap(Box::new(move |event: web_sys::KeyboardEvent| {
-            if !user_menu_open.get_untracked() {
+            if !user_menu_open.try_get_untracked().unwrap_or(false) {
                 return;
             }
             if event.key() == "Escape" {
-                set_user_menu_open.set(false);
+                let _ = set_user_menu_open.try_set(false);
             }
         }) as Box<dyn FnMut(_)>);
 
@@ -293,7 +295,7 @@ pub fn TopBar() -> impl IntoView {
                                                 class="flex items-center gap-2 w-full text-left px-3 py-2 text-sm rounded hover:bg-muted/50 transition-colors text-destructive"
                                                 on:click=move |_| {
                                                     set_user_menu_open.set(false);
-                                                    auth_action_signal.with_value(|action| {
+                                                    auth_action_signal.try_with_value(|action| {
                                                         let action = action.clone();
                                                         wasm_bindgen_futures::spawn_local(async move {
                                                             action.logout().await;
