@@ -64,7 +64,20 @@ Invariant enforced:
 - Only canonical, maintained debug/trace surfaces remain; the removed entrypoints are not part of
   determinism guarantees and were explicitly approved for deletion.
 
-### 4) Docs Updates (tie-break + provenance)
+### 4) `streaming: include adapter_stable_ids field`
+
+Files changed:
+
+- `crates/adapteros-api/src/streaming.rs`
+- `crates/adapteros-server-api/src/http/streaming.rs`
+
+Invariant enforced:
+
+- All direct `InferenceRequest` builders remain schema-compatible with the worker request type
+  after adding `adapter_stable_ids` (even when the caller cannot resolve stable IDs and passes
+  `None`).
+
+### 5) Docs Updates (tie-break + provenance)
 
 Files changed:
 
@@ -101,5 +114,7 @@ cargo check -p adapteros-lora-worker
 
 Tests run:
 
-- Pending (run the commands above).
-
+- `cargo test -p adapteros-lora-router --test determinism`
+- `cargo test --test router_stability`
+- `cargo check -p adapteros-server-api`
+- `cargo check -p adapteros-lora-worker`
