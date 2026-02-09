@@ -18,6 +18,11 @@ pub struct ServerConfig {
     pub production_mode: bool,
     #[serde(default)]
     pub uds_socket: Option<String>,
+    /// Optional webhook URL invoked after a review is successfully submitted.
+    ///
+    /// This is a best-effort notification mechanism (fire-and-forget).
+    #[serde(default)]
+    pub review_webhook_url: Option<String>,
     /// Timeout in seconds for draining in-flight requests during shutdown (default: 30)
     #[serde(default = "default_drain_timeout")]
     pub drain_timeout_secs: u64,
