@@ -60,11 +60,12 @@ run_batch() {
     $paths 2>/dev/null; then
 
     # Extract stats from batch report
-    if [[ -f "$batch_out/report.json" ]]; then
+    json_report="$(ls -1 "$batch_out"/*report.json 2>/dev/null | head -n1 || true)"
+    if [[ -n "$json_report" ]]; then
       local clones dupLines files
-      clones=$(node -e 'const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); console.log((r.clones&&r.clones.length)||0)' "$batch_out/report.json" 2>/dev/null || echo "0")
-      dupLines=$(node -e 'const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); console.log((r.statistics&&r.statistics.duplicated&&r.statistics.duplicated.lines)||0)' "$batch_out/report.json" 2>/dev/null || echo "0")
-      files=$(node -e 'const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); console.log((r.statistics&&r.statistics.sources&&r.statistics.sources.length)||0)' "$batch_out/report.json" 2>/dev/null || echo "0")
+      clones=$(node -e 'const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); const t=(r.statistics&&r.statistics.total)||{}; console.log(t.clones ?? ((r.clones&&r.clones.length)||0))' "$json_report" 2>/dev/null || echo "0")
+      dupLines=$(node -e 'const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); const t=(r.statistics&&r.statistics.total)||{}; console.log(t.duplicatedLines ?? 0)' "$json_report" 2>/dev/null || echo "0")
+      files=$(node -e 'const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); const t=(r.statistics&&r.statistics.total)||{}; console.log(t.sources ?? 0)' "$json_report" 2>/dev/null || echo "0")
 
       TOTAL_CLONES=$((TOTAL_CLONES + clones))
       TOTAL_DUP_LINES=$((TOTAL_DUP_LINES + dupLines))
