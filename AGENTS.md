@@ -1,34 +1,47 @@
 # AGENTS.md
 
 Minimal guidance for deterministic builds and tests in AdapterOS.
+See `CLAUDE.md` for the extended developer guide (CLI workflows, feature flags, UI build/serve).
 
 ## Default: Existing Code First
 
 Agents should assume the code already exists; new code is only appropriate when you have proof it does not.
 
+## Operating Contract (Pre-Prompt)
+
+- Start by restating: goal, non-goals, constraints, acceptance criteria, and the smallest relevant verification command(s). If any are missing, ask.
+- Prefer minimal diffs and existing patterns; avoid refactors unless explicitly requested.
+- Before running expensive/slow actions (full-workspace tests, `cargo clean`, starting services, downloading models), ask or clearly justify why it's necessary.
+
+## Local Overrides
+
+- Put machine- or branch-specific agent guidance in `AGENTS.override.md` (gitignored) rather than editing committed instructions.
+- For component-specific guidance, prefer adding a scoped `AGENTS.md` inside that directory over growing the root file.
+
 ## Build And Test Commands
 
 ```bash
 # Development
+./scripts/dev-up.sh
 ./start
 AOS_DEV_NO_AUTH=1 ./start
 ./start backend
 ./start worker
 ./start secd
 ./start node
-scripts/service-manager.sh start <backend|worker|secd|node|ui>
+scripts/service-manager.sh start <backend|worker|secd|node|ui>  # ui is a no-op (backend serves static/)
 
 # Build
 cargo build --release --workspace
 ln -sf target/release/aosctl ./aosctl
 cargo check -p <crate>
+./scripts/build-ui.sh  # Build Leptos UI to crates/adapteros-server/static/
 
 # Testing
 cargo test -p <crate>
 cargo test --workspace
 cargo test -- --test-threads=1
 cargo test -- --nocapture
-cargo test --workspace
 cargo test --workspace --tests
 cd crates/adapteros-ui && trunk test
 cargo test --workspace -- --ignored
@@ -55,6 +68,7 @@ cargo clippy --workspace -- -D warnings
 
 - Goal: get the Leptos UI visible and iterate on visuals; avoid backend/CI edits unless explicitly requested.
 - Dev mode for full access: use `AOS_DEV_NO_AUTH=1 ./start` to view all pages without RBAC gates.
+- If the backend warns `ui:assets missing` or the UI is blank, run `./scripts/build-ui.sh` (or `./scripts/dev-up.sh` from a fresh clone).
 - Do not change role/RBAC logic to unblock UI; treat auth as non-blocking for visual work.
 - Prefer one-off commands or throwaway local scripts instead of committing new tooling.
 
@@ -66,23 +80,29 @@ cargo clippy --workspace -- -D warnings
 - **CodeGraph Viewer (Tauri + React):** `crates/adapteros-codegraph-viewer/frontend/index.html` mounts `App` from `crates/adapteros-codegraph-viewer/frontend/src/main.tsx`.
 - **Static minimal UI:** `crates/adapteros-server/static-minimal/index-minimal.html` (prebuilt bundle) and `crates/adapteros-server/static-minimal/api-test.html` (standalone API test harness).
 
-### UI Responsibility Boundary (per UI_CONTRACT.md)
+### UI Responsibility Boundary (per `crates/adapteros-ui/UI_CONTRACT.md`)
 
 - **Frontend:** rendering/layout, user input, API calls and SSE streaming, client-side filtering/pagination for display.
 - **Backend (never in UI):** cryptography, policy evaluation, receipt generation, determinism enforcement, core business logic.
 
 ### Leptos Route Map (single source: `crates/adapteros-ui/src/lib.rs`)
 
+To refresh this list:
+`rg -o 'path!\\(\"[^\"]+\"\\)' crates/adapteros-ui/src/lib.rs | sed -E 's/^path!\\(\"(.*)\"\\)$/\\1/' | awk '!seen[$0]++'`
+
 ```text
 /login
 /
 /dashboard
+/flight-recorder
+/flight-recorder/:id
 /adapters
 /adapters/:id
 /chat
 /chat/:session_id
 /system
 /settings
+/user
 /models
 /policies
 /training
@@ -107,7 +127,9 @@ cargo clippy --workspace -- -D warnings
 /repositories
 /repositories/:id
 /reviews
+/reviews/:pause_id
 /agents
+/welcome
 /safe
 /style-audit
 ```
@@ -128,7 +150,7 @@ cargo clippy --workspace -- -D warnings
 - No `-ffast-math` compiler flags (CI scans build artifacts and `Cargo.toml` via `scripts/check_fast_math_flags.sh`; keep the flag absent).
 - Set `AOS_DEBUG_DETERMINISM=1` to log seed inputs and router tie-break details.
 - CI determinism gate runs determinism tests and scans build artifacts for `-ffast-math`.
-- OpenAPI/TypeScript clients must stay in sync; CI regenerates and diffs `docs/api/openapi.json` and `ui/src/api/generated.ts`.
+- OpenAPI spec must stay in sync; CI checks `docs/api/openapi.json` (see `scripts/ci/check_openapi_drift.sh`).
 
 ## Troubleshooting
 
@@ -200,7 +222,7 @@ This section is a **verified snapshot** of backend behavior. **Update it only af
 1. **NEVER create `var/` or `tmp/` directories inside crates** - These pollute the repo
 2. **NEVER write to `/tmp`, `/private/tmp`, `/var/tmp`** - System rejects these paths
 3. **NEVER leave test databases behind** - Clean up `*-test.sqlite3`, UUID dirs
-4. **NEVER create files in repo root** - Use `./var/` for all runtime data
+4. **NEVER create arbitrary files in repo root** - Runtime data goes in `./var/` (gitignored); the `./aosctl` symlink is OK
 
 ### Why This Matters
 
@@ -244,3 +266,67 @@ rm -rf ./var/tmp
 - Rejects `/tmp`, `/private/tmp`, `/var/tmp` for persistent paths
 - Validates symlinks don't resolve to forbidden paths
 - Guard test in `crates/adapteros-config/tests/tmp_usage_guard.rs` scans runtime code
+
+## Canonical Anchors (Compatibility)
+
+Some code/docs link directly to `AGENTS.md#...` anchors. Keep these headings stable; if content moves, leave a stub with a pointer.
+
+### Core Standards
+
+- Determinism: no unseeded randomness; use HKDF-derived seeds (see `crates/adapteros-core/src/seed.rs` and `docs/DETERMINISM.md`).
+- Errors: use `Result<T, AosError>` and follow error message standards (see `crates/adapteros-core/src/error.rs` and `docs/ERRORS.md`).
+- Logging: prefer `tracing` macros over `println!` (see `docs/ERRORS.md`).
+- Runtime paths: persistent/runtime state belongs under `./var/` (see `docs/VAR_STRUCTURE.md` and `crates/adapteros-core/src/path_security.rs`).
+
+### Policy Engine
+
+Canonical references: `docs/POLICIES.md`, `crates/adapteros-policy/src/registry.rs`, and `crates/adapteros-server-api/src/middleware/policy_enforcement.rs`.
+
+### Policy Hooks
+
+Canonical references: `docs/POLICIES.md` and `crates/adapteros-policy/src/hooks.rs` (hooks: `OnRequestBeforeRouting`, `OnBeforeInference`, `OnAfterInference`).
+
+### Error Handling
+
+Canonical reference: `docs/ERRORS.md` and `crates/adapteros-core/src/error.rs`.
+
+### K-Sparse Routing
+
+Canonical reference: `docs/DETERMINISM.md` and `crates/adapteros-lora-router/` (tie-break: score DESC, index ASC; Q15 denom 32767.0).
+
+<a id="uma-backpressure--eviction"></a>
+### UMA Backpressure And Eviction
+
+Canonical reference: `crates/adapteros-memory/src/pressure_manager.rs` and `docs/runbooks/MEMORY_PRESSURE.md` (headroom policy and eviction coordination).
+
+### Telemetry Event Catalog
+
+Canonical reference: `crates/adapteros-telemetry/src/unified_events.rs` and `crates/adapteros-telemetry/src/lib.rs` (see `TelemetryWriter`).
+
+### Deterministic Executor Seeding
+
+Canonical reference: `crates/adapteros-server/src/boot/executor.rs` and `crates/adapteros-core/src/seed.rs`.
+
+```rust
+use adapteros_core::{seed::derive_seed, B3Hash};
+
+let base_seed = B3Hash::hash(b"default-seed-non-production");
+let global_seed = derive_seed(&base_seed, "executor");
+```
+
+### Global Tick Ledger (Issue C-6 Fix)
+
+Canonical reference: `crates/adapteros-deterministic-exec/src/global_ledger.rs` and `crates/adapteros-deterministic-exec/tests/tick_ledger_concurrency.rs`.
+
+```rust
+let entry_hash = ledger.record_tick(task_id, &event).await?;
+```
+
+### Multi-Agent Coordination: Dead Agent Handling (Issue C-8)
+
+Canonical reference: `crates/adapteros-deterministic-exec/src/multi_agent.rs`.
+
+```rust
+barrier.wait("agent_a", tick).await?;
+barrier.mark_agent_dead("agent_b")?;
+```

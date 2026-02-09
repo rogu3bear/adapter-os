@@ -13,7 +13,7 @@
 //! 6. Return HTTP 403 for policy violations
 //!
 //! # Citations
-//! - AGENTS.md L142: "Policy Engine: Enforces 20 policy packs"
+//! - AGENTS.md#policy-engine: Policy engine enforcement expectations
 //! - Policy Packs: Egress, Determinism, Router, Evidence, Refusal, etc.
 //!
 //! [source: crates/adapteros-server-api/src/middleware/policy_enforcement.rs]

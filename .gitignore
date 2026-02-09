@@ -26,6 +26,9 @@ Cargo.lock
 *~
 .DS_Store
 
+# Local agent instruction overrides (keep repo instructions deterministic)
+**/AGENTS.override.md
+
 # Environment
 .env
 .env.local

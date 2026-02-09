@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+`AGENTS.md` is the canonical minimal guide for repo invariants (determinism, path hygiene, contract anchors). If guidance conflicts, follow `AGENTS.md`.
+
 ## Default: Existing Code First
 
 Agents should assume the code already exists; new code is only appropriate when you have proof it does not.

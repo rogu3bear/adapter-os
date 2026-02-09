@@ -5,7 +5,7 @@
 //!
 //! # Citations
 //! - Policy Pack #1-20: Complete integration testing of all policy packs
-//! - AGENTS.md L142: Policy Engine enforcement expectations
+//! - AGENTS.md#policy-engine: Policy Engine enforcement expectations
 //! - .cursor/rules/global.mdc: Policy pack definitions and enforcement rules
 
 #![allow(clippy::single_component_path_imports)]

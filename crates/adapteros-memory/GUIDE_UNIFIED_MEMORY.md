@@ -549,7 +549,7 @@ candidates.sort_by(|a, b| {
 - [source: crates/adapteros-memory/src/buffer_pool.rs]
 - [source: crates/adapteros-memory/src/pressure_manager.rs]
 - [source: crates/adapteros-memory/src/telemetry.rs]
-- [AGENTS.md L140: "Memory management: Adapter eviction with headroom maintenance"]
+- [AGENTS.md#uma-backpressure--eviction](../../AGENTS.md#uma-backpressure--eviction) - Memory pressure, headroom, and eviction coordination
 - [Policy Pack #12: "Memory - MUST maintain ≥ 15 percent unified memory headroom"]
 
 ---

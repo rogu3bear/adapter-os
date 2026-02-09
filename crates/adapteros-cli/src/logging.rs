@@ -5,7 +5,7 @@
 //!
 //! # Citations
 //! - CONTRIBUTING.md L123: "Use `tracing` for logging (not `println!`)"
-//! - AGENTS.md L130: "Use `tracing` for logging (not `println!`)"
+//! - AGENTS.md#core-standards: Logging uses `tracing` macros (not `println!`)
 //! - Policy Pack #9 (Telemetry): "MUST log events with canonical JSON"
 //!
 //! # Examples

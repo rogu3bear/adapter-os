@@ -5,7 +5,7 @@
 //!
 //! # Citations
 //! - Policy Pack #1-20: Legacy pack manager list (see `PolicyPackId`)
-//! - AGENTS.md L142: Policy engine enforcement expectations
+//! - AGENTS.md#policy-engine: Policy engine enforcement expectations
 //! - .cursor/rules/global.mdc: Policy pack definitions and enforcement rules
 
 use adapteros_core::Result;

@@ -6,7 +6,7 @@
 //!
 //! # Citations
 //! - CONTRIBUTING.md L118-122: "Follow Rust naming conventions", "Use `cargo clippy` for linting"
-//! - AGENTS.md L50-55: "Database access patterns with SQLite"
+//! - docs/DATABASE.md: Database access patterns and schema
 
 use adapteros_core::{AosError, HealthCheckResult, HealthStatus, Result};
 use async_trait::async_trait;
