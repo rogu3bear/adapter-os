@@ -23,6 +23,10 @@ pub struct ServerConfig {
     /// This is a best-effort notification mechanism (fire-and-forget).
     #[serde(default)]
     pub review_webhook_url: Option<String>,
+    /// Enable SSRF protection on outbound HTTP requests (default: true).
+    /// Set to false for air-gapped deployments where webhook targets are on a private network.
+    #[serde(default)]
+    pub ssrf_protection: Option<bool>,
     /// Timeout in seconds for draining in-flight requests during shutdown (default: 30)
     #[serde(default = "default_drain_timeout")]
     pub drain_timeout_secs: u64,

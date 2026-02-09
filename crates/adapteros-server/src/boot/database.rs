@@ -334,6 +334,7 @@ pub async fn initialize_database(
                 production_mode,
                 uds_socket: None,
                 review_webhook_url: None,
+                ssrf_protection: None,
                 drain_timeout_secs: 30,
                 boot_timeout_secs: 300,
                 health_check_db_timeout_ms: 2000,
