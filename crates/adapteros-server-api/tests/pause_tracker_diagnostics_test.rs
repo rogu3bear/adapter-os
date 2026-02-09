@@ -43,7 +43,11 @@ async fn test_pause_registration_emits_diagnostic() {
         token_count: 42,
     };
 
-    tracker.register_pause(pause_event, PathBuf::from("/tmp/worker.sock"));
+    tracker.register_pause(
+        "tenant-1".to_string(),
+        pause_event,
+        PathBuf::from("var/run/worker.sock"),
+    );
 
     // Verify InferencePaused event was emitted
     let envelope = receiver
@@ -109,7 +113,11 @@ async fn test_pause_trigger_kind_mapping() {
             token_count: 0,
         };
 
-        tracker.register_pause(pause_event, PathBuf::from("/tmp/worker.sock"));
+        tracker.register_pause(
+            "tenant-1".to_string(),
+            pause_event,
+            PathBuf::from("var/run/worker.sock"),
+        );
 
         let envelope = receiver.recv().await.expect("should receive event");
         match envelope.payload {
@@ -143,7 +151,11 @@ async fn test_pause_listing() {
             text_so_far: Some(format!("Code fragment {}", i)),
             token_count: i * 10,
         };
-        tracker.register_pause(pause_event, PathBuf::from("/tmp/worker.sock"));
+        tracker.register_pause(
+            "tenant-1".to_string(),
+            pause_event,
+            PathBuf::from("var/run/worker.sock"),
+        );
     }
 
     // Verify listing
@@ -180,7 +192,11 @@ async fn test_query_by_inference_id() {
         token_count: 25,
     };
 
-    tracker.register_pause(pause_event, PathBuf::from("/tmp/worker.sock"));
+    tracker.register_pause(
+        "tenant-1".to_string(),
+        pause_event,
+        PathBuf::from("var/run/worker.sock"),
+    );
 
     // Query by inference ID
     let state = tracker.get_state_by_inference("unique-infer-id-12345");
@@ -215,7 +231,11 @@ async fn test_pause_removal() {
         token_count: 0,
     };
 
-    tracker.register_pause(pause_event, PathBuf::from("/tmp/worker.sock"));
+    tracker.register_pause(
+        "tenant-1".to_string(),
+        pause_event,
+        PathBuf::from("var/run/worker.sock"),
+    );
     assert_eq!(tracker.count(), 1);
 
     // Remove the pause
@@ -292,7 +312,11 @@ async fn test_context_hash_determinism() {
             text_so_far: None,
             token_count: 0,
         };
-        tracker.register_pause(pause_event, PathBuf::from("/tmp/worker.sock"));
+        tracker.register_pause(
+            "tenant-1".to_string(),
+            pause_event,
+            PathBuf::from("var/run/worker.sock"),
+        );
     }
 
     // Get both events
@@ -340,7 +364,11 @@ async fn test_empty_context_hash() {
         token_count: 0,
     };
 
-    tracker.register_pause(pause_event, PathBuf::from("/tmp/worker.sock"));
+    tracker.register_pause(
+        "tenant-1".to_string(),
+        pause_event,
+        PathBuf::from("var/run/worker.sock"),
+    );
 
     let envelope = receiver.recv().await.expect("should receive event");
     match envelope.payload {

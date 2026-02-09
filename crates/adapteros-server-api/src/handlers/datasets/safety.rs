@@ -1423,6 +1423,10 @@ pub async fn check_dataset_safety(
     // Escalate to review if dataset is not safe
     if !result.is_safe {
         if let Some(ref pause_tracker) = state.pause_tracker {
+            let pause_tenant_id = dataset
+                .tenant_id
+                .clone()
+                .unwrap_or_else(|| claims.tenant_id.clone());
             let pause_id = format!(
                 "dataset-safety-{}-{}",
                 dataset_id,
@@ -1452,6 +1456,7 @@ pub async fn check_dataset_safety(
             });
 
             pause_tracker.register_server_pause(
+                pause_tenant_id,
                 pause_id.clone(),
                 format!("dataset:{}", dataset_id),
                 "policy_approval",
@@ -1564,6 +1569,11 @@ pub async fn check_dataset_version_safety(
     // Escalate to review if dataset version is not safe
     if !result.is_safe {
         if let Some(ref pause_tracker) = state.pause_tracker {
+            let pause_tenant_id = version
+                .tenant_id
+                .clone()
+                .or_else(|| dataset.tenant_id.clone())
+                .unwrap_or_else(|| claims.tenant_id.clone());
             let pause_id = format!(
                 "dataset-safety-{}-{}-{}",
                 dataset_id,
@@ -1594,6 +1604,7 @@ pub async fn check_dataset_version_safety(
             });
 
             pause_tracker.register_server_pause(
+                pause_tenant_id,
                 pause_id.clone(),
                 format!("dataset:{}:{}", dataset_id, version_id),
                 "policy_approval",

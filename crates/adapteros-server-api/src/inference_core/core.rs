@@ -141,7 +141,7 @@ use crate::types::{
     RouterDecisionRecord, SamplingParams, TokenUsage, WorkerInferRequest, MAX_REPLAY_TEXT_SIZE,
     SAMPLING_ALGORITHM_VERSION,
 };
-use crate::uds_client::{UdsClient, WorkerStreamEvent, WorkerStreamToken};
+use crate::uds_client::{UdsClient, WorkerStreamEvent, WorkerStreamPaused, WorkerStreamToken};
 use crate::uds_metrics::record_uds_timings;
 use crate::worker_capabilities::{
     capability_reasons, parse_worker_capabilities, RequiredModes, WorkerCapabilityExclusion,
@@ -211,6 +211,7 @@ impl<'a> InferenceCore<'a> {
         replay_context: Option<ReplayContext>,
         cancellation_token: Option<CancellationToken>,
         stream_tx: Option<mpsc::Sender<WorkerStreamToken>>,
+        pause_tx: Option<mpsc::Sender<WorkerStreamPaused>>,
     ) -> Result<InferenceResult, InferenceError> {
         let start_time = std::time::Instant::now();
         let is_replay = replay_context.is_some();
@@ -942,6 +943,7 @@ impl<'a> InferenceCore<'a> {
         };
 
         let worker_response = if let Some(stream_tx) = stream_tx.clone() {
+            let pause_tx = pause_tx.clone();
             // Wrap the UDS call in routing context to ensure task-local guard is set
             let worker_call = crate::uds_client::run_with_routing_context(async {
                 uds_client
@@ -975,9 +977,15 @@ impl<'a> InferenceCore<'a> {
                         return Err(InferenceError::WorkerError(message));
                     }
                     WorkerStreamEvent::Paused(paused) => {
+                        // Best-effort: forward pause info to the streaming client so it can
+                        // navigate to the review UI. If the client is gone, ignore.
+                        if let Some(ref pause_tx) = pause_tx {
+                            let _ = pause_tx.send(paused.clone()).await;
+                        }
+
                         // Register pause with server's pause tracker for human review
                         if let Some(ref tracker) = self.state.pause_tracker {
-                            tracker.register_pause(paused.clone(), uds_path.clone());
+                            tracker.register_pause(request.cpid.clone(), paused.clone(), uds_path.clone());
                             info!(
                                 pause_id = %paused.pause_id,
                                 inference_id = %paused.inference_id,
@@ -1715,8 +1723,15 @@ impl<'a> InferenceCore<'a> {
         replay_context: Option<ReplayContext>,
         cancellation_token: Option<CancellationToken>,
         stream_tx: mpsc::Sender<WorkerStreamToken>,
+        pause_tx: Option<mpsc::Sender<WorkerStreamPaused>>,
     ) -> Result<InferenceResult, InferenceError> {
-        self.route_and_infer(request, replay_context, cancellation_token, Some(stream_tx))
+        self.route_and_infer(
+            request,
+            replay_context,
+            cancellation_token,
+            Some(stream_tx),
+            pause_tx,
+        )
             .await
     }
 
@@ -1741,7 +1756,13 @@ impl<'a> InferenceCore<'a> {
         replay_context: ReplayContext,
         cancellation_token: Option<CancellationToken>,
     ) -> Result<InferenceResult, InferenceError> {
-        self.route_and_infer(request, Some(replay_context), cancellation_token, None)
+        self.route_and_infer(
+            request,
+            Some(replay_context),
+            cancellation_token,
+            None,
+            None,
+        )
             .await
     }
 

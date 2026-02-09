@@ -1203,7 +1203,7 @@ fn spawn_streaming_inference(
     tokio::spawn(async move {
         let core = InferenceCore::new(&state);
         let result = core
-            .route_and_infer_stream(request, None, Some(cancellation_token), token_tx)
+            .route_and_infer_stream(request, None, Some(cancellation_token), token_tx, None)
             .await;
         let _ = done_tx.send(result);
     });

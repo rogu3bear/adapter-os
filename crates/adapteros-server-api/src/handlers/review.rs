@@ -6,21 +6,30 @@
 //! - GET /v1/infer/paused - List all paused inferences
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
+    Extension,
     Json,
 };
+use serde::Deserialize;
 use std::sync::Arc;
 use tracing::{info, warn};
+use utoipa::IntoParams;
 
 use adapteros_api_types::review::{
-    InferenceState, InferenceStateResponse, ListPausedResponse,
+    InferenceState, InferenceStateResponse, ListPausedResponse, PauseKind,
     PausedInferenceInfo as ApiPausedInfo, ReviewContextExport, SubmitReviewRequest,
     SubmitReviewResponse,
 };
 use adapteros_api_types::{schema_version, ErrorResponse};
 
+use crate::auth::Claims;
+use crate::net::http_client::{
+    build_reqwest_client, truncate_body_chars, DEFAULT_CONNECT_TIMEOUT, DEFAULT_TOTAL_TIMEOUT,
+    MAX_ERROR_BODY_CHARS,
+};
 use crate::pause_tracker::ServerPauseTracker;
+use crate::security::{check_tenant_access, validate_tenant_isolation};
 use crate::state::AppState;
 use adapteros_core::AosError;
 
@@ -47,6 +56,23 @@ fn map_aos_error(e: AosError, default_code: &str) -> (StatusCode, Json<ErrorResp
 }
 
 // =============================================================================
+// Query Types
+// =============================================================================
+
+/// Optional filtering for listing paused reviews.
+#[derive(Debug, Clone, Deserialize, IntoParams)]
+pub struct ListPausedQuery {
+    /// Filter by pause kind. Accepted values include:
+    /// - ReviewNeeded / review_needed / review-needed
+    /// - PolicyApproval / policy_approval / policy-approval
+    /// - ResourceWait / resource_wait / resource-wait
+    /// - UserRequested / user_requested / user-requested
+    /// - ThreatEscalation / threat_escalation / threat-escalation
+    #[serde(default)]
+    pub kind: Option<String>,
+}
+
+// =============================================================================
 // GET /v1/infer/{id}/state
 // =============================================================================
 
@@ -65,6 +91,7 @@ fn map_aos_error(e: AosError, default_code: &str) -> (StatusCode, Json<ErrorResp
 )]
 pub async fn get_inference_state(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Path(inference_id): Path<String>,
 ) -> Result<Json<InferenceStateResponse>, (StatusCode, Json<ErrorResponse>)> {
     let inference_id = crate::id_resolver::resolve_any_id(&state.db, &inference_id)
@@ -75,6 +102,7 @@ pub async fn get_inference_state(
 
     // Check if this inference is paused
     if let Some(info) = tracker.get_state_by_inference(&inference_id) {
+        validate_tenant_isolation(&claims, &info.tenant_id)?;
         let paused_at_str = info.created_at.to_rfc3339();
         let response = InferenceStateResponse {
             schema_version: schema_version(),
@@ -93,7 +121,9 @@ pub async fn get_inference_state(
 
     // Not paused - check inference state tracker for more accurate state
     if let Some(ref state_tracker) = state.inference_state_tracker {
-        if let Some(tracked_state) = state_tracker.get_state(&inference_id) {
+        if let Some(entry) = state_tracker.get_entry(&inference_id) {
+            validate_tenant_isolation(&claims, &entry.tenant_id)?;
+            let tracked_state = entry.state.to_api_state();
             return Ok(Json(InferenceStateResponse {
                 schema_version: schema_version(),
                 inference_id,
@@ -135,6 +165,7 @@ pub async fn get_inference_state(
 )]
 pub async fn submit_review(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Path(inference_id): Path<String>,
     Json(request): Json<SubmitReviewRequest>,
 ) -> Result<Json<SubmitReviewResponse>, (StatusCode, Json<ErrorResponse>)> {
@@ -144,6 +175,31 @@ pub async fn submit_review(
 
     let tracker = get_pause_tracker(&state)?;
 
+    // Validate pause exists and belongs to the inference_id in the path.
+    let pause_info = tracker.get_state_by_pause_id(&request.pause_id).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(
+                ErrorResponse::new(format!("Pause ID not found: {}", request.pause_id))
+                    .with_code("PAUSE_NOT_FOUND"),
+            ),
+        )
+    })?;
+    validate_tenant_isolation(&claims, &pause_info.tenant_id)?;
+    if pause_info.inference_id != inference_id {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                ErrorResponse::new("pause_id does not match inference_id")
+                    .with_code("PAUSE_INFERENCE_MISMATCH")
+                    .with_string_details(format!(
+                        "pause_id {} is associated with inference_id {} (path inference_id = {})",
+                        request.pause_id, pause_info.inference_id, inference_id
+                    )),
+            ),
+        ));
+    }
+
     info!(
         inference_id = %inference_id,
         pause_id = %request.pause_id,
@@ -152,6 +208,7 @@ pub async fn submit_review(
         "Submitting review for paused inference"
     );
 
+    let request_for_webhook = request.clone();
     match tracker.submit_review(request).await {
         Ok(new_state) => {
             info!(inference_id = %inference_id, "Inference resumed with review");
@@ -160,6 +217,14 @@ pub async fn submit_review(
             if let Some(ref state_tracker) = state.inference_state_tracker {
                 state_tracker.mark_resumed(&inference_id);
             }
+
+            spawn_review_webhook_if_configured(
+                &state,
+                &claims,
+                pause_info.tenant_id,
+                pause_info.inference_id,
+                request_for_webhook,
+            );
 
             Ok(Json(SubmitReviewResponse {
                 schema_version: schema_version(),
@@ -184,16 +249,26 @@ pub async fn submit_review(
     tag = "inference",
     get,
     path = "/v1/infer/paused",
+    params(ListPausedQuery),
     responses(
         (status = 200, description = "List of paused inferences", body = ListPausedResponse)
     )
 )]
 pub async fn list_paused(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(query): Query<ListPausedQuery>,
 ) -> Result<Json<ListPausedResponse>, (StatusCode, Json<ErrorResponse>)> {
     let tracker = get_pause_tracker(&state)?;
 
-    let paused_list = tracker.list_paused();
+    let kind_filter = query.kind.as_deref().and_then(parse_pause_kind_filter);
+
+    let paused_list: Vec<_> = tracker
+        .list_paused()
+        .into_iter()
+        .filter(|info| check_tenant_access(&claims, &info.tenant_id))
+        .filter(|info| kind_filter.as_ref().map(|k| &info.kind == k).unwrap_or(true))
+        .collect();
     let total = paused_list.len();
 
     let paused: Vec<ApiPausedInfo> = paused_list
@@ -230,15 +305,18 @@ pub async fn list_paused(
     tag = "reviews",
     get,
     path = "/v1/reviews/paused",
+    params(ListPausedQuery),
     responses(
         (status = 200, description = "List of paused inferences", body = ListPausedResponse)
     )
 )]
 pub async fn list_paused_reviews(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Query(query): Query<ListPausedQuery>,
 ) -> Result<Json<ListPausedResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Delegate to existing handler
-    list_paused(State(state)).await
+    list_paused(State(state), Extension(claims), Query(query)).await
 }
 
 // =============================================================================
@@ -260,6 +338,7 @@ pub async fn list_paused_reviews(
 )]
 pub async fn get_pause_details(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Path(pause_id): Path<String>,
 ) -> Result<Json<InferenceStateResponse>, (StatusCode, Json<ErrorResponse>)> {
     let pause_id = crate::id_resolver::resolve_any_id(&state.db, &pause_id)
@@ -269,6 +348,7 @@ pub async fn get_pause_details(
     let tracker = get_pause_tracker(&state)?;
 
     if let Some(info) = tracker.get_state_by_pause_id(&pause_id) {
+        validate_tenant_isolation(&claims, &info.tenant_id)?;
         let paused_at_str = info.created_at.to_rfc3339();
         let response = InferenceStateResponse {
             schema_version: schema_version(),
@@ -313,6 +393,7 @@ pub async fn get_pause_details(
 )]
 pub async fn export_review_context(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Path(pause_id): Path<String>,
 ) -> Result<Json<ReviewContextExport>, (StatusCode, Json<ErrorResponse>)> {
     let pause_id = crate::id_resolver::resolve_any_id(&state.db, &pause_id)
@@ -322,6 +403,7 @@ pub async fn export_review_context(
     let tracker = get_pause_tracker(&state)?;
 
     if let Some(info) = tracker.get_state_by_pause_id(&pause_id) {
+        validate_tenant_isolation(&claims, &info.tenant_id)?;
         let response = ReviewContextExport {
             pause_id: pause_id.clone(),
             inference_id: info.inference_id,
@@ -377,6 +459,7 @@ pub async fn export_review_context(
 )]
 pub async fn submit_review_response(
     State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
     Json(request): Json<SubmitReviewRequest>,
 ) -> Result<Json<SubmitReviewResponse>, (StatusCode, Json<ErrorResponse>)> {
     let tracker = get_pause_tracker(&state)?;
@@ -389,10 +472,19 @@ pub async fn submit_review_response(
     );
 
     // Get inference_id before submit (for state tracker update)
-    let inference_id = tracker
-        .get_state_by_pause_id(&request.pause_id)
-        .map(|info| info.inference_id.clone());
+    let pause_info = tracker.get_state_by_pause_id(&request.pause_id).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(
+                ErrorResponse::new(format!("Pause ID not found: {}", request.pause_id))
+                    .with_code("PAUSE_NOT_FOUND"),
+            ),
+        )
+    })?;
+    validate_tenant_isolation(&claims, &pause_info.tenant_id)?;
+    let inference_id = Some(pause_info.inference_id.clone());
 
+    let request_for_webhook = request.clone();
     match tracker.submit_review(request).await {
         Ok(new_state) => {
             info!("Review submitted successfully");
@@ -403,6 +495,14 @@ pub async fn submit_review_response(
             {
                 state_tracker.mark_resumed(infer_id);
             }
+
+            spawn_review_webhook_if_configured(
+                &state,
+                &claims,
+                pause_info.tenant_id,
+                pause_info.inference_id,
+                request_for_webhook,
+            );
 
             Ok(Json(SubmitReviewResponse {
                 schema_version: schema_version(),
@@ -435,4 +535,86 @@ fn get_pause_tracker(
             ),
         )
     })
+}
+
+// =============================================================================
+// Local Helpers
+// =============================================================================
+
+fn parse_pause_kind_filter(kind: &str) -> Option<PauseKind> {
+    match kind.to_lowercase().as_str() {
+        "reviewneeded" | "review_needed" | "review-needed" => Some(PauseKind::ReviewNeeded),
+        "policyapproval" | "policy_approval" | "policy-approval" => Some(PauseKind::PolicyApproval),
+        "resourcewait" | "resource_wait" | "resource-wait" => Some(PauseKind::ResourceWait),
+        "userrequested" | "user_requested" | "user-requested" => Some(PauseKind::UserRequested),
+        "threatescalation" | "threat_escalation" | "threat-escalation" => {
+            Some(PauseKind::ThreatEscalation)
+        }
+        _ => None,
+    }
+}
+
+fn spawn_review_webhook_if_configured(
+    state: &AppState,
+    claims: &Claims,
+    tenant_id: String,
+    inference_id: String,
+    request: SubmitReviewRequest,
+) {
+    let webhook_url = state
+        .config
+        .read()
+        .ok()
+        .and_then(|cfg| cfg.server.review_webhook_url.clone())
+        .filter(|url| !url.trim().is_empty());
+
+    let Some(webhook_url) = webhook_url else {
+        return;
+    };
+
+    let payload = serde_json::json!({
+        "schema_version": schema_version(),
+        "event": "review_submitted",
+        "pause_id": request.pause_id,
+        "inference_id": inference_id,
+        "tenant_id": tenant_id,
+        "reviewer": request.reviewer,
+        "review": request.review,
+        "submitted_by": {
+            "sub": claims.sub,
+            "email": claims.email,
+            "role": claims.role,
+        },
+        "submitted_at": chrono::Utc::now().to_rfc3339(),
+    });
+
+    tokio::spawn(async move {
+        let client = match build_reqwest_client(DEFAULT_CONNECT_TIMEOUT, DEFAULT_TOTAL_TIMEOUT) {
+            Ok(client) => client,
+            Err(e) => {
+                warn!(error = %e, "Failed to build reqwest client for review webhook");
+                return;
+            }
+        };
+
+        let resp = client.post(&webhook_url).json(&payload).send().await;
+        match resp {
+            Ok(response) if response.status().is_success() => {
+                info!(url = %webhook_url, status = %response.status(), "Review webhook delivered");
+            }
+            Ok(response) => {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                warn!(
+                    url = %webhook_url,
+                    status = %status,
+                    body = %truncate_body_chars(&body, MAX_ERROR_BODY_CHARS),
+                    "Review webhook failed"
+                );
+            }
+            Err(e) => {
+                warn!(url = %webhook_url, error = %e, "Review webhook request error");
+            }
+        }
+    });
 }

@@ -517,7 +517,7 @@ pub async fn test_domain_adapter(
         inference_req.max_tokens = 256;
         inference_req.stack_determinism_mode = Some("strict".to_string());
 
-        match core.route_and_infer(inference_req, None, None, None).await {
+        match core.route_and_infer(inference_req, None, None, None, None).await {
             Ok(response) => {
                 let output_text = response.text;
                 outputs.push(output_text.clone());
@@ -715,7 +715,7 @@ pub async fn execute_domain_adapter(
     inference_req.max_tokens = 512;
     inference_req.stack_determinism_mode = Some("strict".to_string());
 
-    match core.route_and_infer(inference_req, None, None, None).await {
+    match core.route_and_infer(inference_req, None, None, None, None).await {
         Ok(response) => {
             output_hash = blake3::hash(response.text.as_bytes()).to_hex().to_string();
             trace_events.push("inference_complete".to_string());

@@ -32,6 +32,8 @@ use adapteros_telemetry::tracing::TraceContext;
 /// Entry tracking a paused inference
 #[derive(Debug, Clone)]
 struct PausedEntry {
+    /// Tenant ID that owns this inference/pause
+    tenant_id: String,
     /// Inference request ID
     inference_id: String,
     /// Pause ID
@@ -55,6 +57,7 @@ struct PausedEntry {
 /// Info about a paused inference (for API responses)
 #[derive(Debug, Clone)]
 pub struct PausedInferenceInfo {
+    pub tenant_id: String,
     pub inference_id: String,
     pub pause_id: String,
     pub kind: PauseKind,
@@ -108,10 +111,11 @@ impl ServerPauseTracker {
     }
 
     /// Register a paused inference received from a worker
-    pub fn register_pause(&self, event: WorkerStreamPaused, worker_uds_path: PathBuf) {
+    pub fn register_pause(&self, tenant_id: String, event: WorkerStreamPaused, worker_uds_path: PathBuf) {
         let now = Utc::now();
 
         info!(
+            tenant_id = %tenant_id,
             pause_id = %event.pause_id,
             inference_id = %event.inference_id,
             "Registered paused inference from worker"
@@ -124,7 +128,7 @@ impl ServerPauseTracker {
             let run_id = DiagRunId::from_trace_context(&trace_ctx);
             let envelope = DiagEnvelope::new(
                 &trace_ctx,
-                "default", // tenant_id
+                &tenant_id,
                 run_id,
                 DiagSeverity::Info,
                 0, // mono_us - relative to run start
@@ -143,6 +147,7 @@ impl ServerPauseTracker {
         }
 
         let entry = PausedEntry {
+            tenant_id,
             inference_id: event.inference_id.clone(),
             pause_id: event.pause_id.clone(),
             trigger_kind: event.trigger_kind.clone(),
@@ -165,6 +170,37 @@ impl ServerPauseTracker {
             .map(|entry| {
                 let kind = parse_trigger_kind(&entry.trigger_kind);
                 PausedInferenceInfo {
+                    tenant_id: entry.tenant_id.clone(),
+                    inference_id: entry.inference_id.clone(),
+                    pause_id: entry.pause_id.clone(),
+                    kind,
+                    context: ReviewContext {
+                        code: entry.text_so_far.clone(),
+                        question: entry.context.clone(),
+                        scope: vec![],
+                        metadata: Some(serde_json::json!({
+                            "token_count": entry.token_count,
+                        })),
+                    },
+                    duration_secs: entry.paused_at.elapsed().as_secs(),
+                    text_so_far: entry.text_so_far.clone(),
+                    token_count: entry.token_count,
+                    created_at: entry.created_at,
+                }
+            })
+            .collect()
+    }
+
+    /// List paused inferences for a specific tenant.
+    pub fn list_paused_for_tenant(&self, tenant_id: &str) -> Vec<PausedInferenceInfo> {
+        self.paused
+            .read()
+            .values()
+            .filter(|entry| entry.tenant_id == tenant_id)
+            .map(|entry| {
+                let kind = parse_trigger_kind(&entry.trigger_kind);
+                PausedInferenceInfo {
+                    tenant_id: entry.tenant_id.clone(),
                     inference_id: entry.inference_id.clone(),
                     pause_id: entry.pause_id.clone(),
                     kind,
@@ -191,6 +227,40 @@ impl ServerPauseTracker {
             if entry.inference_id == inference_id {
                 let kind = parse_trigger_kind(&entry.trigger_kind);
                 Some(PausedInferenceInfo {
+                    tenant_id: entry.tenant_id.clone(),
+                    inference_id: entry.inference_id.clone(),
+                    pause_id: entry.pause_id.clone(),
+                    kind,
+                    context: ReviewContext {
+                        code: entry.text_so_far.clone(),
+                        question: entry.context.clone(),
+                        scope: vec![],
+                        metadata: Some(serde_json::json!({
+                            "token_count": entry.token_count,
+                        })),
+                    },
+                    duration_secs: entry.paused_at.elapsed().as_secs(),
+                    text_so_far: entry.text_so_far.clone(),
+                    token_count: entry.token_count,
+                    created_at: entry.created_at,
+                })
+            } else {
+                None
+            }
+        })
+    }
+
+    /// Get state for a specific inference scoped to a tenant.
+    pub fn get_state_by_inference_for_tenant(
+        &self,
+        tenant_id: &str,
+        inference_id: &str,
+    ) -> Option<PausedInferenceInfo> {
+        self.paused.read().values().find_map(|entry| {
+            if entry.tenant_id == tenant_id && entry.inference_id == inference_id {
+                let kind = parse_trigger_kind(&entry.trigger_kind);
+                Some(PausedInferenceInfo {
+                    tenant_id: entry.tenant_id.clone(),
                     inference_id: entry.inference_id.clone(),
                     pause_id: entry.pause_id.clone(),
                     kind,
@@ -218,6 +288,7 @@ impl ServerPauseTracker {
         self.paused.read().get(pause_id).map(|entry| {
             let kind = parse_trigger_kind(&entry.trigger_kind);
             PausedInferenceInfo {
+                tenant_id: entry.tenant_id.clone(),
                 inference_id: entry.inference_id.clone(),
                 pause_id: entry.pause_id.clone(),
                 kind,
@@ -234,6 +305,38 @@ impl ServerPauseTracker {
                 token_count: entry.token_count,
                 created_at: entry.created_at,
             }
+        })
+    }
+
+    /// Get state by pause ID scoped to a tenant.
+    pub fn get_state_by_pause_id_for_tenant(
+        &self,
+        tenant_id: &str,
+        pause_id: &str,
+    ) -> Option<PausedInferenceInfo> {
+        self.paused.read().get(pause_id).and_then(|entry| {
+            if entry.tenant_id != tenant_id {
+                return None;
+            }
+            let kind = parse_trigger_kind(&entry.trigger_kind);
+            Some(PausedInferenceInfo {
+                tenant_id: entry.tenant_id.clone(),
+                inference_id: entry.inference_id.clone(),
+                pause_id: entry.pause_id.clone(),
+                kind,
+                context: ReviewContext {
+                    code: entry.text_so_far.clone(),
+                    question: entry.context.clone(),
+                    scope: vec![],
+                    metadata: Some(serde_json::json!({
+                        "token_count": entry.token_count,
+                    })),
+                },
+                duration_secs: entry.paused_at.elapsed().as_secs(),
+                text_so_far: entry.text_so_far.clone(),
+                token_count: entry.token_count,
+                created_at: entry.created_at,
+            })
         })
     }
 
@@ -310,7 +413,7 @@ impl ServerPauseTracker {
                         let run_id = DiagRunId::from_trace_context(&trace_ctx);
                         let envelope = DiagEnvelope::new(
                             &trace_ctx,
-                            "default", // tenant_id
+                            &entry.tenant_id,
                             run_id,
                             DiagSeverity::Info,
                             pause_duration_us,
@@ -374,6 +477,7 @@ impl ServerPauseTracker {
     /// since the pause originates from the control plane itself.
     pub fn register_server_pause(
         &self,
+        tenant_id: String,
         pause_id: String,
         resource_id: String,
         trigger_kind: &str,
@@ -383,6 +487,7 @@ impl ServerPauseTracker {
         let now = Utc::now();
 
         info!(
+            tenant_id = %tenant_id,
             pause_id = %pause_id,
             resource_id = %resource_id,
             trigger_kind = %trigger_kind,
@@ -396,7 +501,7 @@ impl ServerPauseTracker {
             let run_id = DiagRunId::from_trace_context(&trace_ctx);
             let envelope = DiagEnvelope::new(
                 &trace_ctx,
-                "default", // tenant_id
+                &tenant_id,
                 run_id,
                 DiagSeverity::Info,
                 0, // mono_us - relative to run start
@@ -415,6 +520,7 @@ impl ServerPauseTracker {
         }
 
         let entry = PausedEntry {
+            tenant_id,
             inference_id: resource_id,
             pause_id: pause_id.clone(),
             trigger_kind: trigger_kind.to_string(),
@@ -446,9 +552,10 @@ fn parse_trigger_kind(kind: &str) -> PauseKind {
     match kind.to_lowercase().as_str() {
         // Map review trigger kinds to API PauseKind variants
         "explicittag" | "explicit_tag" | "review" => PauseKind::ReviewNeeded,
-        "uncertaintysignal" | "uncertainty_signal" => PauseKind::ReviewNeeded,
+        "uncertaintysignal" | "uncertainty_signal" | "uncertainty" => PauseKind::ReviewNeeded,
         "complexitythreshold" | "complexity_threshold" => PauseKind::ReviewNeeded,
-        "policy" | "policy_approval" => PauseKind::PolicyApproval,
+        "policy" | "policy_approval" | "policy_violation" => PauseKind::PolicyApproval,
+        "safety_gate" | "threat" | "threat_escalation" => PauseKind::ThreatEscalation,
         "resource" | "resource_wait" => PauseKind::ResourceWait,
         "manual" | "user_requested" => PauseKind::UserRequested,
         _ => PauseKind::ReviewNeeded, // Default fallback
@@ -472,7 +579,7 @@ mod tests {
             token_count: 10,
         };
 
-        tracker.register_pause(event, PathBuf::from("/var/run/worker.sock"));
+        tracker.register_pause("tenant-1".to_string(), event, PathBuf::from("/var/run/worker.sock"));
 
         let paused = tracker.list_paused();
         assert_eq!(paused.len(), 1);
@@ -493,7 +600,7 @@ mod tests {
             token_count: 5,
         };
 
-        tracker.register_pause(event, PathBuf::from("/var/run/worker.sock"));
+        tracker.register_pause("tenant-1".to_string(), event, PathBuf::from("/var/run/worker.sock"));
 
         let info = tracker.get_state_by_inference("infer-2");
         assert!(info.is_some());

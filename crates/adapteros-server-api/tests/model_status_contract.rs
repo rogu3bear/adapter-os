@@ -338,7 +338,7 @@ async fn router_gates_on_model_status() -> anyhow::Result<()> {
             .update_base_model_status("tenant-1", &model_id, status.as_str(), None, None)
             .await?;
         let err = core
-            .route_and_infer(request.clone(), None, None, None)
+            .route_and_infer(request.clone(), None, None, None, None)
             .await
             .expect_err("non-ready should fail");
         match err {
@@ -360,7 +360,7 @@ async fn router_gates_on_model_status() -> anyhow::Result<()> {
         )
         .await?;
     request.model = Some(model_id.to_string());
-    let ready_result = core.route_and_infer(request, None, None, None).await;
+    let ready_result = core.route_and_infer(request, None, None, None, None).await;
     assert!(
         !matches!(ready_result, Err(InferenceError::ModelNotReady(_))),
         "ready status should pass model gate"

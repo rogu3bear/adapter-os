@@ -36,7 +36,7 @@ use crate::session_tokens::{
 use crate::state::AppState;
 use crate::types::run_envelope::set_policy_mask;
 use crate::types::*;
-use crate::uds_client::{UdsClient, WorkerStreamToken};
+use crate::uds_client::{UdsClient, WorkerStreamPaused, WorkerStreamToken};
 use adapteros_core::identity::IdentityEnvelope;
 use adapteros_id::{IdPrefix, TypedId};
 use adapteros_policy::hooks::PolicyHook;
@@ -273,6 +273,8 @@ enum StreamEvent {
     Start,
     /// Token generated
     Token(String),
+    /// Inference paused for human-in-the-loop review
+    Paused(WorkerStreamPaused),
     /// Generation complete
     Done { finish_reason: String },
     /// Stream lifecycle finished - sent as final event with summary
@@ -324,6 +326,23 @@ pub enum InferenceEvent {
     Ready { warmup_latency_ms: u64 },
     /// Inference token
     Token { text: String, token_id: Option<u32> },
+    /// Inference paused for human review
+    Paused {
+        /// Unique pause ID for resume correlation.
+        pause_id: String,
+        /// Inference request ID.
+        inference_id: String,
+        /// Why the pause was triggered.
+        trigger_kind: String,
+        /// Context for the reviewer.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        context: Option<String>,
+        /// Generated text so far.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        text_so_far: Option<String>,
+        /// Token count at pause point.
+        token_count: usize,
+    },
     /// Inference complete
     Done {
         total_tokens: usize,
@@ -1272,7 +1291,7 @@ pub async fn streaming_infer(
         request_id: request_id.clone(),
     };
 
-    let (token_rx, done_rx) = spawn_streaming_inference(
+    let (token_rx, pause_rx, done_rx) = spawn_streaming_inference(
         state.clone(),
         internal_request,
         cancellation_token.clone(),
@@ -1288,6 +1307,7 @@ pub async fn streaming_infer(
                 run_envelope.clone(),
                 model_name_clone,
                 token_rx,
+                pause_rx,
                 done_rx,
                 session_id,
                 adapters,
@@ -1375,21 +1395,30 @@ fn spawn_streaming_inference(
     token_buffer_capacity: usize,
 ) -> (
     mpsc::Receiver<WorkerStreamToken>,
+    mpsc::Receiver<WorkerStreamPaused>,
     oneshot::Receiver<Result<InferenceResult, InferenceError>>,
 ) {
     // Bounded channel to apply backpressure when clients read slowly.
     let (token_tx, token_rx) = mpsc::channel(token_buffer_capacity);
+    // Pause events are rare and should never create memory pressure.
+    let (pause_tx, pause_rx) = mpsc::channel(8);
     let (done_tx, done_rx) = oneshot::channel();
 
     tokio::spawn(async move {
         let core = InferenceCore::new(&state);
         let result = core
-            .route_and_infer_stream(request, None, Some(cancellation_token), token_tx)
+            .route_and_infer_stream(
+                request,
+                None,
+                Some(cancellation_token),
+                token_tx,
+                Some(pause_tx),
+            )
             .await;
         let _ = done_tx.send(result);
     });
 
-    (token_rx, done_rx)
+    (token_rx, pause_rx, done_rx)
 }
 
 /// State machine for loading progress streaming
@@ -1916,7 +1945,7 @@ impl LoadingStreamState {
             })
             .streaming
             .clone();
-        let (token_rx, done_rx) = spawn_streaming_inference(
+        let (token_rx, _pause_rx, done_rx) = spawn_streaming_inference(
             self.state.clone(),
             internal_request,
             self.cancellation_token.clone(),
@@ -1955,6 +1984,10 @@ struct StreamState {
     phase: StreamPhase,
     // Worker token stream
     token_rx: mpsc::Receiver<WorkerStreamToken>,
+    /// Worker pause events (human-in-the-loop review)
+    pause_rx: mpsc::Receiver<WorkerStreamPaused>,
+    pause_rx_closed: bool,
+    pause_active: bool,
     done_rx: Option<oneshot::Receiver<Result<InferenceResult, InferenceError>>>,
     // Idle timeout tracking
     last_token_at: Instant,
@@ -2034,6 +2067,7 @@ impl StreamState {
         run_envelope: adapteros_api_types::RunEnvelope,
         model_name: String,
         token_rx: mpsc::Receiver<WorkerStreamToken>,
+        pause_rx: mpsc::Receiver<WorkerStreamPaused>,
         done_rx: oneshot::Receiver<Result<InferenceResult, InferenceError>>,
         session_id: Option<String>,
         adapters: Option<Vec<String>>,
@@ -2068,6 +2102,9 @@ impl StreamState {
             user_id,
             after_hook_fired: false,
             token_rx,
+            pause_rx,
+            pause_rx_closed: false,
+            pause_active: false,
             done_rx: Some(done_rx),
             last_token_at: Instant::now(),
             idle_timeout,
@@ -2091,6 +2128,11 @@ impl StreamState {
 
     /// Check if stream has been idle for too long
     fn is_idle(&self) -> bool {
+        // When the worker pauses inference for review, the stream must remain open
+        // indefinitely to allow resume on the same UDS stream.
+        if self.pause_active {
+            return false;
+        }
         self.last_token_at.elapsed() > self.idle_timeout
     }
 
@@ -2185,10 +2227,24 @@ impl StreamState {
                 let heartbeat_in = heartbeat_interval.saturating_sub(self.last_token_at.elapsed());
 
                 tokio::select! {
+                    paused = self.pause_rx.recv(), if !self.pause_rx_closed => {
+                        match paused {
+                            Some(paused) => {
+                                self.pause_active = true;
+                                return Some(StreamEvent::Paused(paused));
+                            }
+                            None => {
+                                // Sender dropped after completion; stop selecting on this receiver
+                                // to avoid a tight loop.
+                                self.pause_rx_closed = true;
+                            }
+                        }
+                    }
                     token = self.token_rx.recv() => {
                         match token {
                             Some(token) => {
                                 self.mark_token_activity();
+                                self.pause_active = false;
                                 self.token_count += 1;
                                 return Some(StreamEvent::Token(token.text));
                             }
@@ -2205,6 +2261,7 @@ impl StreamState {
                                         self.stop_reason_code = result.stop_reason_code;
                                         self.stop_reason_token_index = result.stop_reason_token_index;
                                         self.stop_policy_digest_b3 = result.stop_policy_digest_b3.clone();
+                                        self.pause_active = false;
                                         // Capture finish_reason for stream_finished event
                                         self.captured_finish_reason = Some(result.finish_reason.clone());
                                         // Transition to lifecycle finish phase instead of Done
@@ -2239,10 +2296,12 @@ impl StreamState {
                                             ));
                                         }
                                         self.phase = StreamPhase::Done;
+                                        self.pause_active = false;
                                         return Some(self.map_inference_error(err));
                                     }
                                     None => {
                                         self.phase = StreamPhase::Done;
+                                        self.pause_active = false;
                                         return Some(self.error_event(
                                             "STREAM_ENDED",
                                             "Stream ended without completion",
@@ -2355,6 +2414,19 @@ impl StreamState {
                     }],
                 };
                 Event::default().data(serialize_safe(&chunk, "stream_token"))
+            }
+            StreamEvent::Paused(paused) => {
+                let payload = InferenceEvent::Paused {
+                    pause_id: paused.pause_id,
+                    inference_id: paused.inference_id,
+                    trigger_kind: paused.trigger_kind,
+                    context: paused.context,
+                    text_so_far: paused.text_so_far,
+                    token_count: paused.token_count,
+                };
+                Event::default()
+                    .event("paused")
+                    .data(serialize_safe(&payload, "paused_inference"))
             }
             StreamEvent::Heartbeat => Event::default().comment("heartbeat"),
             StreamEvent::Done { finish_reason } => {
@@ -2833,6 +2905,7 @@ mod tests {
     async fn stream_emits_heartbeat_then_resumes_with_tokens() {
         let state = build_test_state().await;
         let (token_tx, token_rx) = mpsc::channel(4);
+        let (_pause_tx, pause_rx) = mpsc::channel(1);
         let (done_tx, done_rx) = oneshot::channel();
         let cancellation = CancellationToken::new();
         let run_id = "chatcmpl-heartbeat";
@@ -2843,6 +2916,7 @@ mod tests {
             test_run_envelope(run_id, "tenant-1"),
             "test-model".to_string(),
             token_rx,
+            pause_rx,
             done_rx,
             None,
             None,
@@ -2895,9 +2969,71 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn stream_pause_disables_idle_timeout() {
+        let state = build_test_state().await;
+        let (_token_tx, token_rx) = mpsc::channel(1);
+        let (pause_tx, pause_rx) = mpsc::channel(1);
+        let (_done_tx, done_rx) = oneshot::channel();
+        let cancellation = CancellationToken::new();
+        let run_id = "chatcmpl-paused-idle";
+
+        let mut stream = StreamState::new(
+            state,
+            run_id.to_string(),
+            test_run_envelope(run_id, "tenant-1"),
+            "test-model".to_string(),
+            token_rx,
+            pause_rx,
+            done_rx,
+            None,
+            None,
+            "tenant-1".to_string(),
+            "user-1".to_string(),
+            None,
+            cancellation,
+            Duration::from_millis(10), // very small idle timeout
+            Duration::from_secs(0),    // disable StreamEvent heartbeats
+            Vec::new(),
+            None,
+        );
+
+        assert!(matches!(
+            stream.next_event().await,
+            Some(StreamEvent::StreamStarted { .. })
+        ));
+        assert!(matches!(stream.next_event().await, Some(StreamEvent::Start)));
+
+        pause_tx
+            .send(WorkerStreamPaused {
+                pause_id: "pause-1".to_string(),
+                inference_id: run_id.to_string(),
+                trigger_kind: "uncertainty".to_string(),
+                context: Some("needs review".to_string()),
+                text_so_far: Some("partial".to_string()),
+                token_count: 3,
+            })
+            .await
+            .unwrap();
+
+        assert!(matches!(
+            stream.next_event().await,
+            Some(StreamEvent::Paused(_))
+        ));
+
+        // After a pause, the stream must not emit STREAM_IDLE_TIMEOUT regardless of idle_timeout.
+        tokio::time::sleep(Duration::from_millis(25)).await;
+        let res = tokio::time::timeout(Duration::from_millis(5), stream.next_event()).await;
+        assert!(
+            res.is_err(),
+            "expected next_event() to block while paused (no idle timeout), got: {res:?}"
+        );
+    }
+
+    #[tokio::test]
     async fn backpressure_keeps_stream_responsive() {
         let state = build_test_state().await;
         let (token_tx, token_rx) = mpsc::channel(1);
+        let (_pause_tx, pause_rx) = mpsc::channel(1);
         let (done_tx, done_rx) = oneshot::channel();
         let cancellation = CancellationToken::new();
 
@@ -2907,6 +3043,7 @@ mod tests {
             test_run_envelope("chatcmpl-backpressure", "tenant-1"),
             "test-model".to_string(),
             token_rx,
+            pause_rx,
             done_rx,
             None,
             None,
@@ -2956,6 +3093,7 @@ mod tests {
                     StreamEvent::Done { .. } | StreamEvent::Error { .. } => break,
                     StreamEvent::Heartbeat
                     | StreamEvent::Start
+                    | StreamEvent::Paused(_)
                     | StreamEvent::StreamStarted { .. }
                     | StreamEvent::StreamFinished { .. } => {}
                 }
@@ -2978,6 +3116,7 @@ mod tests {
     async fn stream_error_event_carries_structured_fields() {
         let state = build_test_state().await;
         let (token_tx, token_rx) = mpsc::channel(1);
+        let (_pause_tx, pause_rx) = mpsc::channel(1);
         drop(token_tx);
         let (done_tx, done_rx) = oneshot::channel();
         drop(done_tx);
@@ -2990,6 +3129,7 @@ mod tests {
             test_run_envelope(request_id, "tenant-err"),
             "test-model".to_string(),
             token_rx,
+            pause_rx,
             done_rx,
             Some("session-1".to_string()),
             None,
@@ -3035,6 +3175,7 @@ mod tests {
     async fn stream_error_emitted_once_then_closes() {
         let state = build_test_state().await;
         let (token_tx, token_rx) = mpsc::channel(1);
+        let (_pause_tx, pause_rx) = mpsc::channel(1);
         drop(token_tx);
         let (done_tx, done_rx) = oneshot::channel();
         drop(done_tx);
@@ -3047,6 +3188,7 @@ mod tests {
             test_run_envelope(request_id, "tenant-err"),
             "test-model".to_string(),
             token_rx,
+            pause_rx,
             done_rx,
             None,
             None,

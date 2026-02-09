@@ -298,7 +298,7 @@ async fn pinned_adapter_cross_tenant_is_indistinguishable_from_not_found() -> Re
 
     let core = InferenceCore::new(&state);
     let err = core
-        .route_and_infer(request, None, None, None)
+        .route_and_infer(request, None, None, None, None)
         .await
         .unwrap_err();
 
