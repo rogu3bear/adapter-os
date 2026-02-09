@@ -1677,7 +1677,7 @@ tail -f /var/log/adapteros/telemetry.jsonl
 ### Determinism Issues
 
 1. Check seed derivation (same inputs → same seeds)
-2. Verify router sorting (score DESC, index ASC tie-break)
+2. Verify router sorting (score DESC, stable_id ASC tie-break)
 3. Confirm Q15 denominator = 32767.0
 4. Run `cargo test --test determinism_core_suite -- --test-threads=8`, `cargo test -p adapteros-lora-router --test determinism`, and `bash scripts/check_fast_math_flags.sh`
 

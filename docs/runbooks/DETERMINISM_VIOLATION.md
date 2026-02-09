@@ -168,7 +168,7 @@ grep -r "rand::" crates/adapteros-lora-router/ crates/adapteros-lora-worker/
 # Verify router sorting is deterministic
 grep -A 20 "sort_by\|sort_unstable" crates/adapteros-lora-router/src/lib.rs
 
-# Expected: sort_by with (score DESC, index ASC) tie-breaking
+# Expected: sort_by with (score DESC, stable_id ASC) tie-breaking
 # If sort_unstable_by without tie-breaker: NON-DETERMINISTIC
 ```
 
@@ -348,7 +348,7 @@ WHERE inference_id IN (
 grep -A 10 "router_seed\|derive_seed" crates/adapteros-lora-router/src/lib.rs
 
 # 3. Verify sorting logic
-# Router MUST sort by: (score DESC, index ASC) for tie-breaking
+# Router MUST sort by: (score DESC, stable_id ASC) for tie-breaking
 grep -A 20 "sort_by.*score" crates/adapteros-lora-router/src/lib.rs
 
 # 4. If sorting logic incorrect, this is a CODE BUG
