@@ -2082,6 +2082,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "adapteros-telemetry-verifier"
+version = "0.14.1"
+dependencies = [
+ "adapteros-telemetry",
+ "anyhow",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "adapteros-testing"
 version = "0.14.1"
 dependencies = [
