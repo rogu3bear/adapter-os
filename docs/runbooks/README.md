@@ -33,6 +33,10 @@ This directory contains actionable runbooks for adapterOS production operations.
 
 5. **[Disk Full](DISK_FULL.md)** - Database write failures, log rotation issues, WAL growth
 
+### Readiness Issues
+
+6. **[Inference Not Ready (Active Model Mismatch)](INFERENCE_NOT_READY_ACTIVE_MODEL_MISMATCH.md)** - Active base model recorded but not loaded/ready on any worker
+
 ---
 
 ## Quick Reference
