@@ -1001,7 +1001,7 @@ mod tests {
 
         let err = receipt.validate_for_strict_mode().expect_err("should fail");
         match err {
-            AosError::DeterminismViolation(msg) => {
+            crate::AosError::DeterminismViolation(msg) => {
                 assert!(msg.contains("backend_used"));
                 assert!(msg.contains("backend_attestation_b3"));
                 assert!(msg.contains("seed_lineage_hash"));
