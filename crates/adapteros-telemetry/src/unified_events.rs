@@ -5,7 +5,7 @@
 //!
 //! # Citations
 //! - Policy Pack #9 (Telemetry): "MUST log events with canonical JSON"
-//! - AGENTS.md L132: "Telemetry via `TelemetryWriter::log(event_type, data)`"
+//! - AGENTS.md#telemetry-event-catalog: Telemetry via `TelemetryWriter::log_event(event)`
 
 use adapteros_core::{identity::IdentityEnvelope, AosError, B3Hash};
 use chrono::{DateTime, Utc};

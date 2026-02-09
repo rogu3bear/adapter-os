@@ -5,7 +5,7 @@
 //!
 //! # Citations
 //! - Policy Pack #12 (Memory): "MUST maintain ≥ 15 percent unified memory headroom"
-//! - AGENTS.md L140: "Memory management: Adapter eviction with headroom maintenance"
+//! - AGENTS.md#uma-backpressure--eviction: Memory pressure, headroom, and eviction coordination
 
 use adapteros_core::{constants::BYTES_PER_GB, constants::BYTES_PER_MB, AosError, Result};
 use serde::{Deserialize, Serialize};

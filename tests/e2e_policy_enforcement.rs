@@ -1,14 +1,14 @@
 //! E2E-4: Policy Enforcement Integration Test
 //!
-//! Comprehensive test of all 23 canonical policies:
+//! Comprehensive test of canonical policy enforcement:
 //! - Load adapter with policy violations
 //! - Verify rejection
 //! - Fix violations
 //! - Verify acceptance
-//! - Test all 23 canonical policies
+//! - Test policy packs
 //!
 //! Citations:
-//! - Policy packs: [source: AGENTS.md L215-L248]
+//! - Policy engine: [source: AGENTS.md#policy-engine]
 //! - Policy implementations: [source: crates/adapteros-policy/src/packs/]
 //! - ApiTestHarness: [source: tests/common/test_harness.rs]
 

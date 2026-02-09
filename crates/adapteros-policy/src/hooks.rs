@@ -12,7 +12,7 @@
 //!
 //! # Citations
 //! - Multi-hook policy architecture for request lifecycle enforcement
-//! - AGENTS.md L96-142: Policy Engine implementation standards
+//! - AGENTS.md#policy-hooks: Policy Engine implementation standards
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

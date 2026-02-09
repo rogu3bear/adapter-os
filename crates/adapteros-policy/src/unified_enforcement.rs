@@ -5,7 +5,7 @@
 //!
 //! # Citations
 //! - Policy Pack #1-20: All policy packs enforced through unified interface
-//! - AGENTS.md L142: Policy engine enforcement expectations
+//! - AGENTS.md#policy-engine: Policy engine enforcement expectations
 
 use adapteros_core::Result;
 use serde::{Deserialize, Serialize};
