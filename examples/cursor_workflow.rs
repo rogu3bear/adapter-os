@@ -19,7 +19,7 @@ async fn main() -> Result<()> {
         .json(&serde_json::json!({
             "tenant_id": "default",
             "repo_id": "example-project",
-            "path": "/Users/dev/example-project",
+            "path": "/path/to/example-project",
             "languages": ["Rust", "Python"],
             "default_branch": "main"
         }))
