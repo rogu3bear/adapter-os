@@ -590,6 +590,8 @@ pub struct ChatState {
     pub verified_mode: bool,
     /// Streaming status notice for the UI
     pub stream_notice: Option<StreamNotice>,
+    /// If the current stream is paused awaiting human review, store correlation info
+    pub paused_inference: Option<PauseInfo>,
     /// Stream recovery metadata (idempotency + last request linkage)
     pub stream_recovery: Option<StreamRecovery>,
     /// Assistant message IDs that were cancelled/partial (exclude from prompt + persistence)
@@ -759,6 +761,7 @@ impl Default for ChatState {
             session_pinned_adapters: Vec::new(),
             verified_mode: false,
             stream_notice: None,
+            paused_inference: None,
             stream_recovery: None,
             partial_assistant_ids: Vec::new(),
             adapter_selection_pending: false,
@@ -987,6 +990,7 @@ impl ChatAction {
             s.streaming = true;
             s.error = None;
             s.stream_notice = Some(notice);
+            s.paused_inference = None;
         });
 
         // Build the prompt with context and history
@@ -2258,7 +2262,10 @@ async fn stream_inference_to_state(
                     }
                     // No longer loading once we have first token
                     s.loading = false;
+                    // Tokens mean the stream is active (including after a pause/resume cycle).
+                    s.streaming = true;
                     s.stream_notice = None;
+                    s.paused_inference = None;
                 }) {
                     // Signal disposed, bail out early
                     return Ok(trace_info);
@@ -2338,6 +2345,7 @@ async fn stream_inference_to_state(
                     s.loading = false;
                     s.streaming = false;
                     s.stream_notice = Some(StreamNotice::paused(pause_message));
+                    s.paused_inference = Some(pause_info.clone());
                     // If we have text so far, update the assistant message
                     if let Some(text) = &pause_info.text_so_far {
                         if let Some(last) = s.messages.last_mut() {
@@ -2458,12 +2466,19 @@ pub struct StoredMessage {
 pub struct ChatSessionsManager;
 
 impl ChatSessionsManager {
-    /// Validate that a session id is safe to create eagerly.
+    /// Validate that a session id is safe to use.
     ///
-    /// - Must start with `ses_`
-    /// - After prefix, only `[A-Za-z0-9_-]` is allowed
+    /// Accepted prefixes:
+    /// - `ses_`      — current format from `adapteros_id::TypedId`
+    /// - `session-`  — legacy format from earlier generate_readable_id
+    ///
+    /// After prefix, only `[A-Za-z0-9_-]` is allowed.
     pub fn is_valid_session_id(id: &str) -> bool {
-        let Some(rest) = id.strip_prefix("ses_") else {
+        let rest = if let Some(r) = id.strip_prefix("ses_") {
+            r
+        } else if let Some(r) = id.strip_prefix("session-") {
+            r
+        } else {
             return false;
         };
         if rest.is_empty() {
@@ -2762,10 +2777,18 @@ mod tests {
 
     #[test]
     fn validates_session_id_format() {
+        // Current format (ses_ prefix)
         assert!(ChatSessionsManager::is_valid_session_id("ses_abc123"));
         assert!(ChatSessionsManager::is_valid_session_id("ses_ABC_123-xyz"));
+        // Legacy format (session- prefix)
+        assert!(ChatSessionsManager::is_valid_session_id(
+            "session-8d88cf1c-2654-4dcb-91ce-7ac7f2035975"
+        ));
+        assert!(ChatSessionsManager::is_valid_session_id("session-chat-abc"));
+        // Invalid
         assert!(!ChatSessionsManager::is_valid_session_id(""));
         assert!(!ChatSessionsManager::is_valid_session_id("ses_"));
+        assert!(!ChatSessionsManager::is_valid_session_id("session-"));
         assert!(!ChatSessionsManager::is_valid_session_id("foo"));
         assert!(!ChatSessionsManager::is_valid_session_id("ses_../evil"));
         assert!(!ChatSessionsManager::is_valid_session_id("ses_abc 123"));

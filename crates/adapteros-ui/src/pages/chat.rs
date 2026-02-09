@@ -51,6 +51,12 @@ enum AttachMode {
     Chat,
 }
 
+impl Default for AttachMode {
+    fn default() -> Self {
+        Self::Upload
+    }
+}
+
 /// Chat landing page - redirects to the most recent session or shows empty state.
 /// Route: /chat
 #[component]
@@ -93,7 +99,7 @@ pub fn Chat() -> impl IntoView {
     .forget();
 
     view! {
-        <Show when=move || mounted.get() fallback=|| view! {
+        <Show when=move || mounted.try_get().unwrap_or(false) fallback=|| view! {
             <div class="chat-loading-placeholder" style="display:flex;align-items:center;justify-content:center;height:100%;opacity:0.5;">
                 <Spinner />
             </div>
@@ -132,7 +138,7 @@ pub fn ChatSession() -> impl IntoView {
     .forget();
 
     view! {
-        <Show when=move || mounted.get() fallback=|| view! {
+        <Show when=move || mounted.try_get().unwrap_or(false) fallback=|| view! {
             <div class="chat-loading-placeholder" style="display:flex;align-items:center;justify-content:center;height:100%;opacity:0.5;">
                 <Spinner />
             </div>
@@ -168,7 +174,7 @@ fn ChatWorkspace(
 
     // Derive a non-optional session ID for the conversation panel
     let session_id_for_panel =
-        Signal::derive(move || selected_session_id.get().unwrap_or_default());
+        Signal::derive(move || selected_session_id.try_get().flatten().unwrap_or_default());
     let has_selection = Signal::derive(move || {
         selected_session_id
             .get()
@@ -179,7 +185,7 @@ fn ChatWorkspace(
     // Refresh sessions list when selection changes (picks up auto-saved sessions)
     {
         Effect::new(move |_| {
-            let _ = selected_session_id.get();
+            let _ = selected_session_id.try_get().flatten();
             sessions.set(ChatSessionsManager::load_sessions());
         });
     }
@@ -200,7 +206,7 @@ fn ChatWorkspace(
     // Close mobile overlay when a session is clicked (navigates via <a> href)
     {
         Effect::new(move |_| {
-            let _ = selected_session_id.get();
+            let _ = selected_session_id.try_get().flatten();
             show_mobile_sessions.set(false);
         });
     }
@@ -209,7 +215,7 @@ fn ChatWorkspace(
         <div class="flex h-full min-h-0">
             // Desktop: persistent session list sidebar
             {move || {
-                if !is_compact.get() {
+                if !is_compact.try_get().unwrap_or(false) {
                     Some(view! {
                         <div class="w-72 xl:w-80 border-r border-border flex-shrink-0 flex flex-col h-full overflow-hidden">
                             <SessionListPanel
@@ -228,7 +234,7 @@ fn ChatWorkspace(
             <div class="flex-1 min-w-0 flex flex-col h-full">
                 // Mobile: sessions toggle button
                 {move || {
-                    if is_compact.get() {
+                    if is_compact.try_get().unwrap_or(false) {
                         Some(view! {
                             <div class="flex items-center gap-2 px-4 py-2 border-b border-border bg-background/80 shrink-0">
                                 <button
@@ -255,7 +261,7 @@ fn ChatWorkspace(
                 // branch is unchanged.  Show caches and only swaps on actual changes.
                 <div class="flex-1 min-h-0">
                     <Show
-                        when=move || has_selection.get()
+                        when=move || has_selection.try_get().unwrap_or(false)
                         fallback=|| view! { <ChatEmptyWorkspace/> }
                     >
                         <ChatConversationPanel
@@ -269,7 +275,7 @@ fn ChatWorkspace(
 
             // Mobile: session list overlay (slide-in from left)
             {move || {
-                if is_compact.get() && show_mobile_sessions.get() {
+                if is_compact.try_get().unwrap_or(false) && show_mobile_sessions.try_get().unwrap_or(false) {
                     Some(view! {
                         <div
                             class="fixed inset-0 z-40 bg-background/80 backdrop-blur-sm"
@@ -390,8 +396,8 @@ fn SessionListPanel(
 
     // Filtered sessions based on search
     let filtered_sessions = Memo::new(move |_| {
-        let query = search_query.get().to_lowercase();
-        let all = sessions.get();
+        let query = search_query.try_get().unwrap_or_default().to_lowercase();
+        let all = sessions.try_get().unwrap_or_default();
         if query.is_empty() {
             all
         } else {
@@ -405,8 +411,8 @@ fn SessionListPanel(
     });
 
     // Check if dock has unsaved messages
-    let dock_has_messages = Memo::new(move |_| !chat_state.get().messages.is_empty());
-    let dock_message_count = Memo::new(move |_| chat_state.get().messages.len());
+    let dock_has_messages = Memo::new(move |_| !chat_state.try_get().unwrap_or_default().messages.is_empty());
+    let dock_message_count = Memo::new(move |_| chat_state.try_get().unwrap_or_default().messages.len());
 
     // Create new session
     let create_session = {
@@ -443,7 +449,7 @@ fn SessionListPanel(
     };
 
     let confirm_delete = move |_| {
-        if let Some(id) = pending_delete_id.get() {
+        if let Some(id) = pending_delete_id.try_get().flatten() {
             on_delete.run(id);
         }
         pending_delete_id.set(None);
@@ -480,14 +486,14 @@ fn SessionListPanel(
 
             // Continue from dock banner
             {move || {
-                if dock_has_messages.get() {
+                if dock_has_messages.try_get().unwrap_or(false) {
                     Some(view! {
                         <div class="px-3 py-2 border-b border-primary/20 bg-primary/5 shrink-0">
                             <div class="flex items-center justify-between gap-2">
                                 <div class="min-w-0">
                                     <p class="text-xs font-medium truncate">"Continue conversation"</p>
                                     <p class="text-2xs text-muted-foreground">
-                                        {move || format!("{} messages", dock_message_count.get())}
+                                        {move || format!("{} messages", dock_message_count.try_get().unwrap_or(0))}
                                     </p>
                                 </div>
                                 <button
@@ -507,12 +513,12 @@ fn SessionListPanel(
             // Session list (scrollable)
             <div class="flex-1 overflow-y-auto">
                 {move || {
-                    let list = filtered_sessions.get();
+                    let list = filtered_sessions.try_get().unwrap_or_default();
                     if list.is_empty() {
                         view! {
                             <div class="p-6 text-center">
                                 <p class="text-xs text-muted-foreground">
-                                    {move || if search_query.get().is_empty() {
+                                    {move || if search_query.try_get().unwrap_or_default().is_empty() {
                                         "No sessions yet"
                                     } else {
                                         "No matching sessions"
@@ -527,7 +533,7 @@ fn SessionListPanel(
                                     let id = session.id.clone();
                                     let is_selected = {
                                         let id = id.clone();
-                                        Signal::derive(move || selected_id.get().as_deref() == Some(id.as_str()))
+                                        Signal::derive(move || selected_id.try_get().flatten().as_deref() == Some(id.as_str()))
                                     };
                                     let delete_id = id.clone();
                                     view! {
@@ -577,7 +583,7 @@ fn SessionListItem(
             href=href
             class=move || format!(
                 "block group p-3 transition-colors {}",
-                if selected.get() {
+                if selected.try_get().unwrap_or(false) {
                     "bg-primary/10 border-l-2 border-l-primary"
                 } else {
                     "hover:bg-muted/50 border-l-2 border-l-transparent"
@@ -668,7 +674,7 @@ fn ChatConversationPanel(
     /// Callback to refresh the session list sidebar.
     refresh_sessions: Callback<()>,
 ) -> impl IntoView {
-    let session_id = move || session_id_signal.get();
+    let session_id = move || session_id_signal.try_get().unwrap_or_default();
     let session_label = move || {
         let id = session_id();
         if id.is_empty() {
@@ -704,7 +710,7 @@ fn ChatConversationPanel(
             }
         });
     }
-    let verified_mode = Signal::derive(move || chat_state.get().verified_mode);
+    let verified_mode = Signal::derive(move || chat_state.try_get().unwrap_or_default().verified_mode);
     let show_attach_dialog = RwSignal::new(false);
     let attach_mode = RwSignal::new(AttachMode::Upload);
     let selected_file_name = RwSignal::new(Option::<String>::None);
@@ -883,11 +889,11 @@ fn ChatConversationPanel(
     }
 
     // Auto-save session when messages change
-    // Uses chat_state.get() to create reactive dependency, then compares with previous state
+    // Uses chat_state.try_get().unwrap_or_default() to create reactive dependency, then compares with previous state
     {
         Effect::new(move |prev_state: Option<(usize, bool, bool)>| {
             // Get state reactively to trigger effect when it changes
-            let state = chat_state.get();
+            let state = chat_state.try_get().unwrap_or_default();
             let msg_count = state.messages.len();
             let is_streaming = state.streaming;
             let verified_mode = state.verified_mode;
@@ -925,7 +931,7 @@ fn ChatConversationPanel(
     // Reset attach dialog state when closed
     {
         Effect::new(move || {
-            if !show_attach_dialog.get() {
+            if !show_attach_dialog.try_get().unwrap_or(false) {
                 // Signal cancellation to abort any in-flight uploads
                 upload_cancelled.set(true);
                 attach_mode.set(AttachMode::Upload);
@@ -953,7 +959,7 @@ fn ChatConversationPanel(
 
     // Derived signals from global state - consolidated into single snapshot to avoid redundant subscriptions
     let chat_snapshot = Memo::new(move |_| {
-        let state = chat_state.get();
+        let state = chat_state.try_get().unwrap_or_default();
         (
             state.loading,
             state.streaming,
@@ -962,27 +968,27 @@ fn ChatConversationPanel(
         )
     });
 
-    let is_loading = Signal::derive(move || chat_snapshot.get().0);
-    let is_streaming = Signal::derive(move || chat_snapshot.get().1);
+    let is_loading = Signal::derive(move || chat_snapshot.try_get().unwrap_or_default().0);
+    let is_streaming = Signal::derive(move || chat_snapshot.try_get().unwrap_or_default().1);
     let is_busy = Signal::derive(move || {
-        let (loading, streaming, _, _) = chat_snapshot.get();
+        let (loading, streaming, _, _) = chat_snapshot.try_get().unwrap_or_default();
         loading || streaming
     });
-    let can_send = Memo::new(move |_| !message.get().trim().is_empty() && !is_busy.get());
-    let error = Signal::derive(move || chat_snapshot.get().2);
+    let can_send = Memo::new(move |_| !message.try_get().unwrap_or_default().trim().is_empty() && !is_busy.try_get().unwrap_or(false));
+    let error = Signal::derive(move || chat_snapshot.try_get().unwrap_or_default().2);
     let can_retry = Signal::derive(move || {
-        let (loading, streaming, _, has_recovery) = chat_snapshot.get();
+        let (loading, streaming, _, has_recovery) = chat_snapshot.try_get().unwrap_or_default();
         !loading && !streaming && has_recovery
     });
-    let retry_disabled = Signal::derive(move || !can_retry.get());
-    let base_model_label = Signal::derive(move || match chat_state.get().target.clone() {
+    let retry_disabled = Signal::derive(move || !can_retry.try_get().unwrap_or(false));
+    let base_model_label = Signal::derive(move || match chat_state.try_get().unwrap_or_default().target.clone() {
         ChatTarget::Model(name) => name,
         _ => "Default".to_string(),
     });
 
     // Convert active_adapters to AdapterMagnets for the AdapterBar
     let adapter_magnets = Memo::new(move |_| {
-        let state = chat_state.get();
+        let state = chat_state.try_get().unwrap_or_default();
         let pinned = {
             let mut out = state.pinned_adapters.clone();
             for id in &state.session_pinned_adapters {
@@ -1013,7 +1019,7 @@ fn ChatConversationPanel(
 
     // Pinned adapter IDs signal for ChatAdaptersRegion
     let pinned_adapters = Signal::derive(move || {
-        let state = chat_state.get();
+        let state = chat_state.try_get().unwrap_or_default();
         let mut out = state.pinned_adapters.clone();
         for id in &state.session_pinned_adapters {
             if !out.contains(id) {
@@ -1025,14 +1031,15 @@ fn ChatConversationPanel(
 
     // Adapter selection pending flag (set on pin toggle, cleared on SSE update)
     let adapter_selection_pending =
-        Signal::derive(move || chat_state.get().adapter_selection_pending);
+        Signal::derive(move || chat_state.try_get().unwrap_or_default().adapter_selection_pending);
 
     // Convert suggested_adapters for the SuggestedAdaptersBar
     // Name/purpose are populated from topology; other fields remain optional
     let suggested_adapters = Memo::new(move |_| {
-        let selected = chat_state.get().selected_adapter;
+        let selected = chat_state.try_get().unwrap_or_default().selected_adapter;
         chat_state
-            .get()
+            .try_get()
+            .unwrap_or_default()
             .suggested_adapters
             .iter()
             .map(|s| SuggestedAdapterView {
@@ -1056,7 +1063,7 @@ fn ChatConversationPanel(
     {
         let action = chat_action.clone();
         Effect::new(move |_| {
-            let text = message.get();
+            let text = message.try_get().unwrap_or_default();
             // Update version to invalidate pending previews
             preview_version.update(|v| *v += 1);
             let current_version = preview_version.try_get_untracked().unwrap_or(0);
@@ -1106,7 +1113,7 @@ fn ChatConversationPanel(
     let do_send = {
         let action = chat_action.clone();
         move || {
-            let msg = message.get();
+            let msg = message.try_get().unwrap_or_default();
             if !msg.trim().is_empty() {
                 message.set(String::new());
                 action.send_message_streaming(msg);
@@ -1119,7 +1126,7 @@ fn ChatConversationPanel(
         let do_send = do_send.clone();
         Callback::new(move |ev: web_sys::KeyboardEvent| {
             // Enter without Shift submits; Enter with Shift allows newline
-            if ev.key() == "Enter" && !ev.shift_key() && can_send.get() {
+            if ev.key() == "Enter" && !ev.shift_key() && can_send.try_get().unwrap_or(false) {
                 ev.prevent_default();
                 do_send();
             }
@@ -1148,10 +1155,10 @@ fn ChatConversationPanel(
         let navigate = navigate.clone();
         Callback::new(move |_: ()| {
             attach_error.set(None);
-            let mode = attach_mode.get();
+            let mode = attach_mode.try_get().unwrap_or(AttachMode::Upload);
             #[cfg(target_arch = "wasm32")]
             let base_model_param = {
-                let base_model_id = match chat_state.get().target.clone() {
+                let base_model_id = match chat_state.try_get().unwrap_or_default().target.clone() {
                     ChatTarget::Model(name) => Some(name),
                     _ => None,
                 };
@@ -1320,7 +1327,7 @@ fn ChatConversationPanel(
                     }
                 }
                 AttachMode::Paste => {
-                    let text = pasted_text.get();
+                    let text = pasted_text.try_get().unwrap_or_default();
                     if text.trim().is_empty() {
                         attach_error.set(Some("Paste some text content first.".to_string()));
                         return;
@@ -1392,14 +1399,14 @@ fn ChatConversationPanel(
                     }
                 }
                 AttachMode::Chat => {
-                    let indices = selected_msg_indices.get();
+                    let indices = selected_msg_indices.try_get().unwrap_or_default();
                     if indices.is_empty() {
                         attach_error.set(Some("Select at least one message.".to_string()));
                         return;
                     }
 
-                    let messages = chat_state.get().messages;
-                    let session_id = chat_state.get().session_id.clone();
+                    let messages = chat_state.try_get().unwrap_or_default().messages;
+                    let session_id = chat_state.try_get().unwrap_or_default().session_id.clone();
 
                     // Convert selected messages to ChatMessageInput format
                     let mut selected: Vec<(usize, ChatMessageInput)> = indices
@@ -1515,7 +1522,7 @@ fn ChatConversationPanel(
                             view! {
                                 <button
                                     class=move || {
-                                        if verified_mode.get() {
+                                        if verified_mode.try_get().unwrap_or(false) {
                                             "px-2 py-1 rounded-full text-muted-foreground".to_string()
                                         } else {
                                             "px-2 py-1 rounded-full bg-background text-foreground shadow-sm".to_string()
@@ -1533,7 +1540,7 @@ fn ChatConversationPanel(
                             view! {
                                 <button
                                     class=move || {
-                                        if verified_mode.get() {
+                                        if verified_mode.try_get().unwrap_or(false) {
                                             "px-2 py-1 rounded-full bg-background text-foreground shadow-sm".to_string()
                                         } else {
                                             "px-2 py-1 rounded-full text-muted-foreground".to_string()
@@ -1549,20 +1556,29 @@ fn ChatConversationPanel(
                     </div>
                     // Status badge
                     {move || {
-                        let err = error.get();
+                        let err = error.try_get().flatten();
                         if err.is_some() {
                             view! {
                                 <Badge variant=BadgeVariant::Destructive>"Error"</Badge>
                             }.into_any()
-                        } else if is_loading.get() {
+                        } else if is_loading.try_get().unwrap_or(false) {
                             // Waiting for first token
                             view! {
                                 <Badge variant=BadgeVariant::Warning>"Connecting"</Badge>
                             }.into_any()
-                        } else if is_streaming.get() {
+                        } else if is_streaming.try_get().unwrap_or(false) {
                             // Actively receiving tokens
                             view! {
                                 <Badge variant=BadgeVariant::Success>"Streaming"</Badge>
+                            }.into_any()
+                        } else if chat_state
+                            .try_get()
+                            .unwrap_or_default()
+                            .paused_inference
+                            .is_some()
+                        {
+                            view! {
+                                <Badge variant=BadgeVariant::Warning>"Paused"</Badge>
                             }.into_any()
                         } else {
                             view! {
@@ -1576,7 +1592,7 @@ fn ChatConversationPanel(
             // Stream status notice (transient info like "Waiting for server...", "Retrying...")
             // Warning/Error notices are shown in the error banner below for better UX
             {move || {
-                chat_state.get().stream_notice.clone().and_then(|notice| {
+                chat_state.try_get().unwrap_or_default().stream_notice.clone().and_then(|notice| {
                     // Only show Info notices in header; Warning/Error go to error banner
                     if notice.tone != StreamNoticeTone::Info {
                         return None;
@@ -1587,6 +1603,35 @@ fn ChatConversationPanel(
                             <Badge variant=BadgeVariant::Secondary>{message}</Badge>
                         </div>
                     })
+                })
+            }}
+
+            // Pause notice + navigation to review flow
+            {move || {
+                let state = chat_state.try_get().unwrap_or_default();
+                let pause = state.paused_inference.clone()?;
+                let message = state
+                    .stream_notice
+                    .clone()
+                    .map(|n| n.message)
+                    .unwrap_or_else(|| "Paused: Awaiting review".to_string());
+                let href_detail = format!("/reviews/{}", pause.pause_id);
+
+                Some(view! {
+                    <div class="flex items-center justify-between gap-3 text-xs" data-testid="chat-paused-notice">
+                        <div class="flex items-center gap-2 min-w-0">
+                            <Badge variant=BadgeVariant::Warning>"Paused"</Badge>
+                            <span class="text-muted-foreground truncate">{message}</span>
+                        </div>
+                        <div class="flex items-center gap-3 flex-shrink-0">
+                            <a href=href_detail class="text-xs font-medium text-primary hover:underline">
+                                "Open Review"
+                            </a>
+                            <a href="/reviews" class="text-xs text-muted-foreground hover:text-primary">
+                                "Queue"
+                            </a>
+                        </div>
+                    </div>
                 })
             }}
 
@@ -1611,7 +1656,7 @@ fn ChatConversationPanel(
             >
                 <div class="p-5">
                     {move || {
-                        let msgs = chat_state.get().messages;
+                        let msgs = chat_state.try_get().unwrap_or_default().messages;
                         if msgs.is_empty() {
                             view! {
                                 <div class="flex h-full min-h-[200px] items-center justify-center py-12">
@@ -1788,7 +1833,7 @@ fn ChatConversationPanel(
 
                                     // Inline error indicator after messages (provides context)
                                     {move || {
-                                        let state = chat_state.get();
+                                        let state = chat_state.try_get().unwrap_or_default();
                                         let has_error = state.error.is_some();
                                         let notice = state.stream_notice.clone();
                                         let has_recovery = state.stream_recovery.is_some();
@@ -1885,7 +1930,7 @@ fn ChatConversationPanel(
 
             // Trace panel (modal overlay)
             {move || {
-                active_trace.get().map(|tid| {
+                active_trace.try_get().flatten().map(|tid| {
                     view! {
                         <TracePanel
                             trace_id=tid.clone()
@@ -1899,7 +1944,7 @@ fn ChatConversationPanel(
 
             // Session error display (stale/missing session)
             {move || {
-                session_error.get().map(|e| view! {
+                session_error.try_get().flatten().map(|e| view! {
                     <div class="rounded-md bg-warning/10 border border-warning p-3 mb-4">
                         <div class="flex items-center justify-between gap-2">
                             <p class="text-sm text-warning-foreground">{e}</p>
@@ -1919,7 +1964,7 @@ fn ChatConversationPanel(
             // Retry button only appears when error is retryable AND recovery state exists
             {move || {
                 let action = chat_action.clone();
-                let state = chat_state.get();
+                let state = chat_state.try_get().unwrap_or_default();
                 let notice = state.stream_notice.clone();
                 let raw_error = state.error.clone();
                 let has_recovery = state.stream_recovery.is_some();
@@ -2011,7 +2056,7 @@ fn ChatConversationPanel(
 
             // Inference readiness banner
             {move || {
-                match system_status.get() {
+                match system_status.try_get().unwrap_or(LoadingState::Idle) {
                     LoadingState::Loaded(status) => {
                         if matches!(status.inference_ready, InferenceReadyState::True) {
                             view! {}.into_any()
@@ -2058,7 +2103,7 @@ fn ChatConversationPanel(
                     class="flex items-end gap-3"
                     on:submit=move |ev: web_sys::SubmitEvent| {
                         ev.prevent_default();
-                        if can_send.get() {
+                        if can_send.try_get().unwrap_or(false) {
                             do_send();
                         }
                     }
@@ -2080,7 +2125,7 @@ fn ChatConversationPanel(
                         on_keydown=handle_keydown
                     />
                     {move || {
-                        if is_streaming.get() {
+                        if is_streaming.try_get().unwrap_or(false) {
                             view! {
                                 <Button
                                     on_click=do_cancel
@@ -2091,10 +2136,10 @@ fn ChatConversationPanel(
                                 </Button>
                             }.into_any()
                         } else {
-                            let disabled = !can_send.get();
+                            let disabled = !can_send.try_get().unwrap_or(false);
                             view! {
                                 <Button
-                                    loading=is_loading.get()
+                                    loading=is_loading.try_get().unwrap_or(false)
                                     disabled=disabled
                                     aria_label=if disabled { "Send message (disabled)".to_string() } else { "Send message".to_string() }
                                     data_testid="chat-send".to_string()
@@ -2117,7 +2162,7 @@ fn ChatConversationPanel(
                         <button
                             type="button"
                             class=move || {
-                                if attach_mode.get() == AttachMode::Upload {
+                                if attach_mode.try_get().unwrap_or(AttachMode::Upload) == AttachMode::Upload {
                                     "rounded-md border border-border bg-muted px-3 py-2 text-foreground"
                                 } else {
                                     "rounded-md border border-border/60 px-3 py-2 text-muted-foreground hover:text-foreground hover:bg-muted/40"
@@ -2130,7 +2175,7 @@ fn ChatConversationPanel(
                         <button
                             type="button"
                             class=move || {
-                                if attach_mode.get() == AttachMode::Paste {
+                                if attach_mode.try_get().unwrap_or(AttachMode::Upload) == AttachMode::Paste {
                                     "rounded-md border border-border bg-muted px-3 py-2 text-foreground"
                                 } else {
                                     "rounded-md border border-border/60 px-3 py-2 text-muted-foreground hover:text-foreground hover:bg-muted/40"
@@ -2143,7 +2188,7 @@ fn ChatConversationPanel(
                         <button
                             type="button"
                             class=move || {
-                                if attach_mode.get() == AttachMode::Chat {
+                                if attach_mode.try_get().unwrap_or(AttachMode::Upload) == AttachMode::Chat {
                                     "rounded-md border border-border bg-muted px-3 py-2 text-foreground"
                                 } else {
                                     "rounded-md border border-border/60 px-3 py-2 text-muted-foreground hover:text-foreground hover:bg-muted/40"
@@ -2155,7 +2200,7 @@ fn ChatConversationPanel(
                         </button>
                     </div>
 
-                    {move || match attach_mode.get() {
+                    {move || match attach_mode.try_get().unwrap_or(AttachMode::Upload) {
                         AttachMode::Upload => view! {
                             <div class="space-y-2">
                                 <label class="text-xs text-muted-foreground">"Select a file"</label>
@@ -2170,7 +2215,7 @@ fn ChatConversationPanel(
                                         selected_file.set_value(file);
                                     }
                                 />
-                                {move || selected_file_name.get().map(|name| view! {
+                                {move || selected_file_name.try_get().flatten().map(|name| view! {
                                     <div class="text-xs text-muted-foreground">
                                         {format!("Selected: {}", name)}
                                     </div>
@@ -2190,13 +2235,13 @@ fn ChatConversationPanel(
                             </div>
                         }.into_any(),
                         AttachMode::Chat => {
-                            let messages = chat_state.get().messages;
+                            let messages = chat_state.try_get().unwrap_or_default().messages;
                             let msg_count = messages.len();
-                            let selected_count = Memo::new(move |_| selected_msg_indices.get().len());
+                            let selected_count = Memo::new(move |_| selected_msg_indices.try_get().unwrap_or_default().len());
 
                             // Quick select: last N messages
                             let select_last_n = move |n: usize| {
-                                let msgs = chat_state.get().messages;
+                                let msgs = chat_state.try_get().unwrap_or_default().messages;
                                 let total = msgs.len();
                                 let start = total.saturating_sub(n);
                                 let indices: std::collections::HashSet<usize> = (start..total).collect();
@@ -2205,8 +2250,8 @@ fn ChatConversationPanel(
 
                             // Toggle all
                             let toggle_all = move |_| {
-                                let current = selected_msg_indices.get();
-                                let total = chat_state.get().messages.len();
+                                let current = selected_msg_indices.try_get().unwrap_or_default();
+                                let total = chat_state.try_get().unwrap_or_default().messages.len();
                                 if current.len() == total {
                                     selected_msg_indices.set(std::collections::HashSet::new());
                                 } else {
@@ -2219,7 +2264,7 @@ fn ChatConversationPanel(
                                     <div class="flex items-center justify-between">
                                         <label class="text-xs text-muted-foreground">"Select messages"</label>
                                         <span class="text-xs text-muted-foreground">
-                                            {move || format!("{} of {} selected", selected_count.get(), chat_state.get().messages.len())}
+                                            {move || format!("{} of {} selected", selected_count.try_get().unwrap_or(0), chat_state.try_get().unwrap_or_default().messages.len())}
                                         </span>
                                     </div>
 
@@ -2230,7 +2275,7 @@ fn ChatConversationPanel(
                                             class="px-2 py-1 text-xs rounded border border-border hover:bg-muted/50"
                                             on:click=toggle_all
                                         >
-                                            {move || if selected_msg_indices.get().len() == chat_state.get().messages.len() && !chat_state.get().messages.is_empty() {
+                                            {move || if selected_msg_indices.try_get().unwrap_or_default().len() == chat_state.try_get().unwrap_or_default().messages.len() && !chat_state.try_get().unwrap_or_default().messages.is_empty() {
                                                 "Deselect all"
                                             } else {
                                                 "Select all"
@@ -2270,7 +2315,7 @@ fn ChatConversationPanel(
                                         view! {
                                             <div class="max-h-48 overflow-y-auto border border-border rounded-md">
                                                 {messages.into_iter().enumerate().map(|(idx, msg)| {
-                                                    let is_checked = Memo::new(move |_| selected_msg_indices.get().contains(&idx));
+                                                    let is_checked = Memo::new(move |_| selected_msg_indices.try_get().unwrap_or_default().contains(&idx));
                                                     let role_badge = if msg.role == "user" { "U" } else { "A" };
                                                     let content_preview: String = msg.content.chars().take(60).collect::<String>()
                                                         + if msg.content.len() > 60 { "..." } else { "" };
@@ -2286,7 +2331,7 @@ fn ChatConversationPanel(
                                                     view! {
                                                         <div class="flex items-start gap-2 px-3 py-2 border-b border-border/50 last:border-b-0 hover:bg-muted/30">
                                                             <Checkbox
-                                                                checked=Signal::derive(move || is_checked.get())
+                                                                checked=Signal::derive(move || is_checked.try_get().unwrap_or(false))
                                                                 on_change=Callback::new(toggle_msg)
                                                                 aria_label=format!("Select message {}", idx + 1)
                                                             />
@@ -2310,25 +2355,25 @@ fn ChatConversationPanel(
                         },
                     }}
 
-                    {move || attach_error.get().map(|msg| view! {
+                    {move || attach_error.try_get().flatten().map(|msg| view! {
                         <div class="text-xs text-destructive">{msg}</div>
                     })}
-                    {move || attach_status.get().map(|msg| view! {
+                    {move || attach_status.try_get().flatten().map(|msg| view! {
                         <div class="text-xs text-muted-foreground">{msg}</div>
                     })}
 
                     <div class="flex justify-end gap-2 pt-2 border-t border-border">
                         <Button
                             variant=ButtonVariant::Outline
-                            disabled=Signal::derive(move || attach_busy.get())
+                            disabled=Signal::derive(move || attach_busy.try_get().unwrap_or(false))
                             on_click=Callback::new(move |_| show_attach_dialog.set(false))
                         >
                             "Cancel"
                         </Button>
                         <Button
                             variant=ButtonVariant::Primary
-                            loading=Signal::derive(move || attach_busy.get())
-                            disabled=Signal::derive(move || attach_busy.get())
+                            loading=Signal::derive(move || attach_busy.try_get().unwrap_or(false))
+                            disabled=Signal::derive(move || attach_busy.try_get().unwrap_or(false))
                             on_click=create_draft
                         >
                             "Create draft"
@@ -2397,7 +2442,7 @@ fn ChatTargetSelector() -> impl IntoView {
 
     // Reset has_loaded when dropdown closes to allow refresh on next open
     Effect::new(move |prev_open: Option<bool>| {
-        let is_open = show_dropdown.get();
+        let is_open = show_dropdown.try_get().unwrap_or(false);
         if let Some(was_open) = prev_open {
             if was_open && !is_open {
                 has_loaded.set(false);
@@ -2408,7 +2453,7 @@ fn ChatTargetSelector() -> impl IntoView {
 
     // Fetch options when dropdown is first opened
     Effect::new(move || {
-        if show_dropdown.get() && !has_loaded.get() {
+        if show_dropdown.try_get().unwrap_or(false) && !has_loaded.try_get().unwrap_or(false) {
             has_loaded.set(true);
             options.update(|o| {
                 o.loading = true;
@@ -2511,7 +2556,7 @@ fn ChatTargetSelector() -> impl IntoView {
                 data-testid="chat-target-selector"
             >
                 <span class="text-muted-foreground text-xs">"Target:"</span>
-                <span class="font-medium truncate max-w-[150px]">{move || chat_state.get().target.display_name()}</span>
+                <span class="font-medium truncate max-w-[150px]">{move || chat_state.try_get().unwrap_or_default().target.display_name()}</span>
                 <svg
                     xmlns="http://www.w3.org/2000/svg"
                     class="h-4 w-4 text-muted-foreground flex-shrink-0"
@@ -2526,9 +2571,9 @@ fn ChatTargetSelector() -> impl IntoView {
 
             // Dropdown menu
             {move || {
-                if show_dropdown.get() {
+                if show_dropdown.try_get().unwrap_or(false) {
                     let select = select_target.clone();
-                    let opts = options.get();
+                    let opts = options.try_get().unwrap_or_default();
 
                     view! {
                         <div

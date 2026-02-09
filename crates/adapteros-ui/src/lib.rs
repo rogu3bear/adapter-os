@@ -226,6 +226,7 @@ pub fn App() -> impl IntoView {
                             <Route path=path!("/routing") view=pages::Routing/>
                             <Route path=path!("/repositories") view=pages::Repositories/>
                             <Route path=path!("/repositories/:id") view=pages::RepositoryDetail/>
+                            <Route path=path!("/reviews/:pause_id") view=pages::ReviewDetail/>
                             <Route path=path!("/reviews") view=pages::Reviews/>
                             <Route path=path!("/welcome") view=pages::Welcome/>
                             <Route path=path!("/agents") view=pages::Agents/>

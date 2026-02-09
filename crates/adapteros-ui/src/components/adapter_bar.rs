@@ -138,7 +138,7 @@ pub fn AdapterBar(
 
             <div class="flex gap-2 flex-wrap items-center flex-1">
                 {move || {
-                    let adapter_list = adapters.get();
+                    let adapter_list = adapters.try_get().unwrap_or_default();
                     if adapter_list.is_empty() {
                         view! {
                             <span class="text-xs text-muted-foreground italic">
@@ -370,9 +370,9 @@ pub fn SuggestedAdaptersBar(
 
             <div class="adapter-magnet-chips" role="listbox" aria-label="Adapter suggestions">
                 {move || {
-                    let mut suggestion_list = suggestions.get();
+                    let mut suggestion_list = suggestions.try_get().unwrap_or_default();
                     if suggestion_list.is_empty() {
-                        let is_loading = loading.get();
+                        let is_loading = loading.try_get().unwrap_or(false);
                         view! {
                             <span class="adapter-magnet-empty">
                                 {if is_loading { "Routing adapters..." } else { "No suggestions yet" }}
@@ -507,7 +507,7 @@ pub fn SuggestedAdaptersBar(
 
                                         // Expanded tooltip on hover (only for non-disabled)
                                         {move || {
-                                            let is_expanded = expanded_adapter.get() == Some(adapter_id.clone());
+                                            let is_expanded = expanded_adapter.try_get().flatten() == Some(adapter_id.clone());
                                             let desc = description.clone();
                                             let tag_list = tags.clone();
 
@@ -662,8 +662,8 @@ pub fn ChatAdaptersRegion(
 
     // Derive pinned-only magnets (pinned but not in active set)
     let pinned_only_magnets = Memo::new(move |_| {
-        let active = active_adapters.get();
-        let pinned = pinned_adapters.get();
+        let active = active_adapters.try_get().unwrap_or_default();
+        let pinned = pinned_adapters.try_get().unwrap_or_default();
         let active_ids: std::collections::HashSet<_> =
             active.iter().map(|a| a.adapter_id.as_str()).collect();
         pinned
@@ -680,8 +680,8 @@ pub fn ChatAdaptersRegion(
 
     // Mark active magnets that are also pinned
     let active_with_pins = Memo::new(move |_| {
-        let active = active_adapters.get();
-        let pinned = pinned_adapters.get();
+        let active = active_adapters.try_get().unwrap_or_default();
+        let pinned = pinned_adapters.try_get().unwrap_or_default();
         active
             .into_iter()
             .map(|mut m| {
@@ -691,8 +691,8 @@ pub fn ChatAdaptersRegion(
             .collect::<Vec<_>>()
     });
 
-    let has_active = Memo::new(move |_| !active_with_pins.get().is_empty());
-    let has_pinned_only = Memo::new(move |_| !pinned_only_magnets.get().is_empty());
+    let has_active = Memo::new(move |_| !active_with_pins.try_get().unwrap_or_default().is_empty());
+    let has_pinned_only = Memo::new(move |_| !pinned_only_magnets.try_get().unwrap_or_default().is_empty());
 
     view! {
         <div
@@ -721,7 +721,7 @@ pub fn ChatAdaptersRegion(
                     "Adapters"
                 </div>
                 <div class="flex items-center gap-2">
-                    {move || pending.get().then(|| view! {
+                    {move || pending.try_get().unwrap_or(false).then(|| view! {
                         <span
                             class="chat-adapters-pending-badge"
                             role="status"
@@ -742,8 +742,8 @@ pub fn ChatAdaptersRegion(
             </div>
 
             // Active section
-            {move || has_active.get().then(|| {
-                let magnets = active_with_pins.get();
+            {move || has_active.try_get().unwrap_or(false).then(|| {
+                let magnets = active_with_pins.try_get().unwrap_or_default();
                 let on_pin = on_toggle_pin;
                 view! {
                     <div class="chat-adapters-section">
@@ -818,8 +818,8 @@ pub fn ChatAdaptersRegion(
             })}
 
             // Pinned-only section (pinned adapters not yet in active set)
-            {move || has_pinned_only.get().then(|| {
-                let magnets = pinned_only_magnets.get();
+            {move || has_pinned_only.try_get().unwrap_or(false).then(|| {
+                let magnets = pinned_only_magnets.try_get().unwrap_or_default();
                 let on_unpin = on_toggle_pin;
                 view! {
                     <div class="chat-adapters-section">
@@ -917,7 +917,7 @@ pub fn AdapterManageDialog(
 
     // Sync draft from pinned when dialog opens
     Effect::new(move |_| {
-        if open.get() {
+        if open.try_get().unwrap_or(false) {
             draft_selection.set(pinned_adapters.get_untracked());
         }
     });
@@ -926,16 +926,16 @@ pub fn AdapterManageDialog(
     let all_adapters = Memo::new(move |_| {
         let mut seen = std::collections::HashSet::new();
         let mut items = Vec::new();
-        let query = search_query.get().to_lowercase();
+        let query = search_query.try_get().unwrap_or_default().to_lowercase();
 
-        for m in active_adapters.get() {
+        for m in active_adapters.try_get().unwrap_or_default() {
             if seen.insert(m.adapter_id.clone())
                 && (query.is_empty() || m.adapter_id.to_lowercase().contains(&query))
             {
                 items.push((m.adapter_id.clone(), None::<String>));
             }
         }
-        for s in suggestions.get() {
+        for s in suggestions.try_get().unwrap_or_default() {
             if seen.insert(s.adapter_id.clone())
                 && (query.is_empty()
                     || s.adapter_id.to_lowercase().contains(&query)
@@ -972,13 +972,13 @@ pub fn AdapterManageDialog(
                             use leptos::prelude::*;
                             search_query.set(event_target_value(&ev));
                         }
-                        prop:value=move || search_query.get()
+                        prop:value=move || search_query.try_get().unwrap_or_default()
                     />
                 </div>
                 <div class="space-y-1 max-h-64 overflow-y-auto">
                     {move || {
-                        let items = all_adapters.get();
-                        let draft = draft_selection.get();
+                        let items = all_adapters.try_get().unwrap_or_default();
+                        let draft = draft_selection.try_get().unwrap_or_default();
                         if items.is_empty() {
                             view! {
                                 <p class="text-xs text-muted-foreground italic py-2">

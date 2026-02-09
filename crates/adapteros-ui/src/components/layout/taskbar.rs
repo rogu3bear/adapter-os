@@ -58,7 +58,7 @@ pub fn Taskbar() -> impl IntoView {
             </div>
 
             // Center: Module shortcuts
-            <div class="flex items-center gap-1">
+            <div class="flex items-center gap-1 flex-1 min-w-0 overflow-auto">
                 {move || {
                     modules
                         .get()
@@ -108,7 +108,7 @@ pub fn Taskbar() -> impl IntoView {
                     view! {
                         <button
                             class=move || format!(
-                                "taskbar-btn relative flex items-center gap-2 px-3 py-1.5 rounded-md transition-colors {}",
+                                "taskbar-btn shrink-0 relative flex items-center gap-2 px-3 py-1.5 rounded-md transition-colors {}",
                                 if chat_state.get().dock_state == DockState::Docked {
                                     "bg-primary/20 text-primary"
                                 } else {
@@ -175,7 +175,7 @@ fn ModuleButton(
         <a
             href=href
             class=move || format!(
-                "module-btn group flex items-center gap-2 px-3 py-1.5 rounded-md transition-colors relative {}",
+                "module-btn group shrink-0 flex items-center gap-2 px-3 py-1.5 rounded-md transition-colors relative {}",
                 if is_active() {
                     "bg-muted text-foreground"
                 } else {

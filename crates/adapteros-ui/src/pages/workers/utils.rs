@@ -4,6 +4,7 @@
 
 use crate::components::{BadgeVariant, StatusVariant};
 use serde::Deserialize;
+use wasm_bindgen::JsValue;
 
 /// Page size for client-side pagination (reduces initial DOM nodes)
 pub const WORKERS_PAGE_SIZE: usize = 25;
@@ -185,4 +186,38 @@ pub struct WorkerHealthRecord {
 /// Map worker health status to badge variant via StatusVariant
 pub fn health_badge_variant(status: &str) -> BadgeVariant {
     StatusVariant::from_worker_status(status).to_badge_variant()
+}
+
+/// Returns true for terminal worker states that are useful as history,
+/// but noisy for QA when you only care about currently-running workers.
+pub fn is_terminal_worker_status(status: &str) -> bool {
+    // `WorkerStatus` is lowercase, but keep a couple of legacy strings too.
+    matches!(status, "stopped" | "error" | "crashed" | "failed")
+}
+
+/// Best-effort recency check for worker timestamps.
+///
+/// Accepts either ISO-8601 (contains `T`) or SQLite-style (`YYYY-MM-DD HH:MM:SS`)
+/// timestamps and treats them as UTC when timezone is missing.
+pub fn is_recent_timestamp(ts: &str, max_age_secs: u64) -> bool {
+    if ts.is_empty() || ts == "-" {
+        return false;
+    }
+
+    let normalized = if ts.contains('T') {
+        ts.to_string()
+    } else {
+        // SQLite datetime('now') format: "YYYY-MM-DD HH:MM:SS" (UTC).
+        format!("{}Z", ts.replace(' ', "T"))
+    };
+
+    let parsed = js_sys::Date::new(&JsValue::from_str(&normalized));
+    let ms = parsed.get_time();
+    if ms.is_nan() {
+        return false;
+    }
+
+    let now = js_sys::Date::new_0().get_time();
+    let age_ms = now - ms;
+    age_ms >= 0.0 && age_ms <= (max_age_secs as f64) * 1000.0
 }

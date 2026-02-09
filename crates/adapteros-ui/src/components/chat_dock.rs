@@ -1069,7 +1069,7 @@ pub fn MobileChatOverlay() -> impl IntoView {
 
     view! {
         // Floating button for mobile
-        <div class="fixed bottom-4 right-4 lg:hidden z-40">
+        <div class="fixed bottom-14 right-4 lg:hidden z-40">
             <button
                 class="relative flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg hover:bg-primary/90 transition-colors"
                 on:click=toggle_overlay
