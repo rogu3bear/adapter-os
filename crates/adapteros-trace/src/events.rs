@@ -505,9 +505,15 @@ mod tests {
 
         assert_eq!(event.tick_id, 1);
         assert_eq!(event.event_type, "router.decision");
-        assert!(event.outputs.contains_key("selected_adapters"));
-        assert!(event.outputs.contains_key("gate_values"));
-        assert!(event.outputs.contains_key("entropy"));
+        let payload = event
+            .outputs
+            .get("router_decision")
+            .expect("router_decision payload should be present");
+        let obj = payload
+            .as_object()
+            .expect("router_decision payload should be a JSON object");
+        assert!(obj.contains_key("candidate_adapters"));
+        assert!(obj.contains_key("entropy"));
     }
 
     #[test]

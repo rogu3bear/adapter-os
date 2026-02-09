@@ -209,7 +209,7 @@ cargo test -p adapteros-telemetry --test telemetry_export_tests -- --test-thread
 
 ### `new_test_tempdir()`
 
-Helper function to create temporary directories using the OS temp directory with a prefix. Uses `TempDir::with_prefix("aos-test-")` for proper test isolation.
+Helper function to create temporary directories under `var/tmp` (via `adapteros_core::tempdir_in_var("aos-test-")`) for proper test isolation and to avoid `/tmp`-style paths.
 
 ## Coverage Summary
 

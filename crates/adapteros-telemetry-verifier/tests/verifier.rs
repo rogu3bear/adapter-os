@@ -10,7 +10,7 @@ fn write(path: &std::path::Path, content: &str) {
 }
 
 fn fixture_dir() -> TempDir {
-    TempDir::with_prefix("aos-test-").expect("tempdir")
+    adapteros_core::tempdir_in_var("aos-test-").expect("tempdir")
 }
 
 #[test]

@@ -2085,6 +2085,7 @@ dependencies = [
 name = "adapteros-telemetry-verifier"
 version = "0.14.1"
 dependencies = [
+ "adapteros-core",
  "adapteros-telemetry",
  "anyhow",
  "serde_json",
