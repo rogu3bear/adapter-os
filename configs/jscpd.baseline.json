@@ -1,0 +1,10 @@
+{
+  "statistics": {
+    "total": {
+      "clones": 3822,
+      "duplicatedLines": 67631,
+      "percentage": 6.96,
+      "sources": 3623
+    }
+  }
+}
