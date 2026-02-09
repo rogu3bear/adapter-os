@@ -116,10 +116,12 @@ pub struct BundleMetadata {
 ```rust
 use adapteros_telemetry::{BundleStore, RetentionPolicy};
 use std::path::PathBuf;
-use tempfile::TempDir;
+use tempfile::{Builder, TempDir};
 
 // Create store with default policy
-let temp_dir = TempDir::with_prefix("aos-")?;
+let tmp_root = adapteros_core::resolve_var_dir().join("tmp");
+std::fs::create_dir_all(&tmp_root)?;
+let temp_dir = Builder::new().prefix("aos-").tempdir_in(&tmp_root)?;
 let policy = RetentionPolicy::default();
 let mut store = BundleStore::new(temp_dir.path(), policy)?;
 
@@ -319,4 +321,3 @@ If migrating from in-memory telemetry:
 - ✅ Bundle chain verification
 - ✅ GC with safety checks
 - ✅ Storage statistics
-

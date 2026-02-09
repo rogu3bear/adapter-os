@@ -113,8 +113,6 @@ impl ObjectStore for FsObjectStore {
         bytes: &[u8],
     ) -> Result<StoredObject, StorageError> {
         let path = self.resolve_path(key);
-        let parent = path.parent().unwrap_or(Path::new("."));
-        ensure_free_space(parent, "object store write")?;
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).await.map_err(|e| {
                 StorageError::IoError(io::Error::new(
@@ -123,6 +121,8 @@ impl ObjectStore for FsObjectStore {
                 ))
             })?;
         }
+        let parent = path.parent().unwrap_or(Path::new("."));
+        ensure_free_space(parent, "object store write")?;
 
         let mut file = fs::File::create(&path).await.map_err(|e| {
             StorageError::IoError(io::Error::new(
@@ -192,13 +192,25 @@ fn absolutize(path: &Path) -> PathBuf {
 mod tests {
     use super::*;
     use std::path::PathBuf;
-    use tempfile::tempdir;
+    use crate::platform::common::PlatformUtils;
+    use tempfile::{Builder, TempDir};
+
+    fn new_test_tempdir() -> TempDir {
+        let root = PlatformUtils::temp_dir();
+        std::fs::create_dir_all(&root).expect("create var tmp");
+        Builder::new()
+            .prefix("aos-test-")
+            .tempdir_in(&root)
+            .expect("tempdir")
+    }
 
     #[tokio::test]
     async fn fs_object_store_roundtrip() {
-        let dir = tempdir().unwrap();
+        let dir = new_test_tempdir();
         let dataset_root = dir.path().join("datasets");
         let adapter_root = dir.path().join("adapters");
+        std::fs::create_dir_all(&dataset_root).unwrap();
+        std::fs::create_dir_all(&adapter_root).unwrap();
         let store = FsObjectStore::new(&dataset_root, &adapter_root);
 
         let key = StorageKey {

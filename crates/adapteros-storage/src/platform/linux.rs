@@ -425,6 +425,9 @@ mod tests {
 
     #[test]
     fn test_linux_handler() -> Result<()> {
+        if !cfg!(target_os = "linux") {
+            return Ok(());
+        }
         let handler = LinuxHandler::new(None)?;
 
         assert_eq!(handler.platform_name(), "Linux");
@@ -442,6 +445,9 @@ mod tests {
 
     #[test]
     fn test_linux_path_normalization() -> Result<()> {
+        if !cfg!(target_os = "linux") {
+            return Ok(());
+        }
         let handler = LinuxHandler::new(None)?;
         let temp_dir = new_test_tempdir()?;
         let test_path = temp_dir.path().join("test.txt");
@@ -454,6 +460,9 @@ mod tests {
 
     #[test]
     fn test_linux_file_metadata() -> Result<()> {
+        if !cfg!(target_os = "linux") {
+            return Ok(());
+        }
         let handler = LinuxHandler::new(None)?;
         let temp_dir = new_test_tempdir()?;
         let test_file = temp_dir.path().join("test.txt");

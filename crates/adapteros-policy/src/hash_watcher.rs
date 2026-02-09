@@ -547,10 +547,15 @@ impl PolicyHashWatcher {
 mod tests {
     use super::*;
     use adapteros_id::{IdPrefix, TypedId};
-    use tempfile::TempDir;
+    use tempfile::{Builder, TempDir};
 
     fn new_test_tempdir() -> TempDir {
-        TempDir::with_prefix("aos-test-").expect("tempdir")
+        let root = adapteros_core::resolve_var_dir().join("tmp");
+        std::fs::create_dir_all(&root).expect("create var tmp");
+        Builder::new()
+            .prefix("aos-test-")
+            .tempdir_in(&root)
+            .expect("tempdir")
     }
 
     async fn setup_test_watcher() -> (PolicyHashWatcher, TempDir) {

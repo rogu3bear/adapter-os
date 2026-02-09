@@ -9,6 +9,7 @@ use adapteros_core::{AosError, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 use tokio::sync::RwLock;
@@ -22,6 +23,7 @@ pub struct QuotaManager {
     reservations: Arc<RwLock<HashMap<String, SpaceReservation>>>,
     usage_cache: Arc<Mutex<Option<StorageUsage>>>,
     cache_ttl: Duration,
+    reservation_seq: Arc<AtomicU64>,
 }
 
 /// Space reservation for a file operation
@@ -48,6 +50,7 @@ impl QuotaManager {
             reservations: Arc::new(RwLock::new(HashMap::new())),
             usage_cache: Arc::new(Mutex::new(None)),
             cache_ttl: Duration::from_secs(60), // 1 minute cache
+            reservation_seq: Arc::new(AtomicU64::new(0)),
         })
     }
 
@@ -76,7 +79,9 @@ impl QuotaManager {
             .duration_since(SystemTime::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        let reservation_id = format!("reservation_{}", timestamp_nanos);
+        // Ensure uniqueness even when multiple reservations are created within the same nanosecond.
+        let seq = self.reservation_seq.fetch_add(1, Ordering::Relaxed);
+        let reservation_id = format!("reservation_{}_{}", timestamp_nanos, seq);
         let now = SystemTime::now();
         let expires_at = now + Duration::from_secs(3600); // 1 hour expiration
 
@@ -138,6 +143,12 @@ impl QuotaManager {
         }
 
         Ok(usage)
+    }
+
+    pub(crate) fn invalidate_usage_cache(&self) {
+        if let Ok(mut cache) = self.usage_cache.lock() {
+            *cache = None;
+        }
     }
 
     /// Calculate current storage usage
