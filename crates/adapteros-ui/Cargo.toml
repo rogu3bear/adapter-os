@@ -12,14 +12,13 @@ default = []
 # Hydration for client-side interactivity
 hydrate = ["leptos/hydrate"]
 # Server-side rendering (for future SSR support)
-ssr = ["leptos/ssr", "leptos_router/ssr", "leptos_meta/ssr"]
+ssr = ["leptos/ssr", "leptos_router/ssr"]
 # Dev routes (style-audit, etc.) - DO NOT enable in production
 dev-routes = []
 [dependencies]
 # Leptos ecosystem - CSR mode for client-side rendering
 leptos = { version = "0.7", features = ["csr"] }
 leptos_router = { version = "0.7" }
-leptos_meta = { version = "0.7" }
 # Shared types (WASM-compatible)
 adapteros-api-types = { path = "../adapteros-api-types", default-features = false, features = ["wasm"] }
 # ID system (WASM-compatible)

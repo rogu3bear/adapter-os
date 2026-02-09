@@ -37,7 +37,6 @@ pub mod validation;
 
 use leptos::prelude::*;
 use leptos::tachys::view::any_view::IntoAny;
-use leptos_meta::*;
 use leptos_router::components::*;
 use leptos_router::path;
 
@@ -155,8 +154,6 @@ pub fn redact_sensitive_info(message: &str) -> String {
 #[component]
 pub fn App() -> impl IntoView {
     web_sys::console::log_1(&"[App] Rendering App component...".into());
-    provide_meta_context();
-    web_sys::console::log_1(&"[App] Meta context provided, creating view...".into());
 
     // Ensure API base URL is configured; fail fast with a clear banner instead of a blank screen
     if let Err(err) = crate::api::api_base_url_checked() {
@@ -165,10 +162,6 @@ pub fn App() -> impl IntoView {
 
     view! {
         <>
-            <Title text="adapterOS"/>
-            <Meta charset="utf-8"/>
-            <Meta name="viewport" content="width=device-width, initial-scale=1"/>
-
             <AuthProvider>
                 <NotificationsProvider>
                     <SearchProvider>
