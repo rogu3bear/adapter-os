@@ -3,10 +3,13 @@ use crate::auth::Claims;
 use crate::permissions::{require_permission, Permission};
 use crate::security::validate_tenant_isolation;
 use crate::state::AppState;
-use crate::types::ErrorResponse;
+use crate::types::{ErrorResponse, SamplingParams};
+use adapteros_core::determinism::expand_u64_seed;
 use adapteros_core::evidence_envelope::{EvidenceEnvelope, InferenceReceiptRef};
+use adapteros_core::seed::SeedLineage;
 use adapteros_core::{
-    pinned_degradation_telemetry_ref_ids, B3Hash, EvidenceScope, PinnedDegradationEvidence,
+    pinned_degradation_telemetry_ref_ids, AosError, B3Hash, EvidenceScope, PinnedDegradationEvidence,
+    SeedMode,
 };
 use adapteros_db::inference_trace::{recompute_receipt, TraceReceipt};
 // UmaStats import removed - live runtime metrics excluded for deterministic exports
@@ -115,6 +118,47 @@ pub struct EvidenceExportParams {
     /// By default, export is blocked for degraded runs to prevent misleading evidence.
     #[serde(default)]
     pub force_incomplete: bool,
+}
+
+fn is_strict_determinism_mode(mode: Option<&str>) -> bool {
+    mode.is_some_and(|m| m.eq_ignore_ascii_case("strict"))
+}
+
+fn compute_seed_lineage_hash(
+    metadata: &adapteros_db::InferenceReplayMetadata,
+) -> std::result::Result<B3Hash, AosError> {
+    let sampling_params: SamplingParams = serde_json::from_str(&metadata.sampling_params_json)
+        .map_err(|e| {
+            AosError::DeterminismViolation(format!(
+                "EP-5: Failed to parse sampling_params_json for seed lineage binding: {e}"
+            ))
+        })?;
+
+    let request_seed: [u8; 32] = if let Some(hex_seed) = sampling_params.request_seed_hex.as_deref()
+    {
+        let bytes = hex::decode(hex_seed).map_err(|e| {
+            AosError::DeterminismViolation(format!(
+                "EP-5: Invalid request_seed_hex for seed lineage binding: {e}"
+            ))
+        })?;
+        bytes.try_into().map_err(|_| {
+            AosError::DeterminismViolation(
+                "EP-5: request_seed_hex must decode to exactly 32 bytes".to_string(),
+            )
+        })?
+    } else if let Some(seed64) = sampling_params.seed {
+        expand_u64_seed(seed64)
+    } else {
+        return Err(AosError::DeterminismViolation(
+            "EP-5: Missing request_seed_hex/seed in replay metadata sampling params".to_string(),
+        ));
+    };
+
+    let seed_mode = sampling_params.seed_mode.unwrap_or(SeedMode::BestEffort);
+    let has_manifest_binding = B3Hash::from_hex(&metadata.manifest_hash).is_ok();
+    let lineage = SeedLineage::from_raw_seed(&request_seed, seed_mode, has_manifest_binding);
+
+    Ok(lineage.to_binding_hash())
 }
 
 fn trace_receipt_to_ref(receipt: &TraceReceipt) -> InferenceReceiptRef {
@@ -252,6 +296,7 @@ pub async fn download_run_evidence(
 
     // Defense in depth: also validate at handler level
     validate_tenant_isolation(&claims, &metadata.tenant_id)?;
+    let is_strict = is_strict_determinism_mode(metadata.determinism_mode.as_deref());
 
     // Note: RAG fidelity checks removed - field no longer exists on InferenceReplayMetadata
     // The force_incomplete param is kept for API compatibility but currently unused
@@ -387,7 +432,17 @@ pub async fn download_run_evidence(
                     .stored
                     .as_ref()
                     .unwrap_or(&verification.recomputed);
-                let receipt_ref = trace_receipt_to_ref(receipt);
+                let mut receipt_ref = trace_receipt_to_ref(receipt);
+                if is_strict {
+                    // Strict mode completeness is enforced at evidence export. When strict mode is
+                    // recorded but the receipt lacks identity bindings, export must fail closed.
+                    receipt_ref.backend_used = metadata.backend.clone();
+                    receipt_ref.backend_attestation_b3 =
+                        receipt.attestation.as_ref().map(|a| B3Hash::hash(a));
+                    receipt_ref.seed_lineage_hash =
+                        Some(compute_seed_lineage_hash(&metadata).map_err(ApiError::from)?);
+                    receipt_ref.validate_for_strict_mode().map_err(ApiError::from)?;
+                }
                 // Keep evidence export deterministic by omitting mutable chain linkage and timestamps.
                 let mut envelope =
                     EvidenceEnvelope::new_inference(metadata.tenant_id.clone(), receipt_ref, None);
@@ -399,12 +454,24 @@ pub async fn download_run_evidence(
                 );
             }
             Err(e) => {
+                if is_strict {
+                    // Strict exports must fail closed: missing receipts are incomplete evidence.
+                    return Err(ApiError::from(e).into());
+                }
                 envelope_warnings.push(format!(
                     "failed to recompute trace receipt for {}: {}",
                     trace_id, e
                 ));
             }
         }
+    } else if is_strict {
+        // Strict exports must fail closed: missing receipts are incomplete evidence.
+        return Err(
+            ApiError::from(AosError::DeterminismViolation(
+                "EP-5: Strict evidence export requires an inference trace receipt".to_string(),
+            ))
+            .into(),
+        );
     } else {
         envelope_warnings.push("no inference trace found for run_id; envelope omitted".to_string());
     }

@@ -12,6 +12,8 @@ binding, and associated documentation updates.
   (`model_build_hash_b3`).
 - Receipt `context_digest` serialization is shared and canonicalized (worker + verifiers compute
   identical digests), with a golden test locking the output.
+- Strict-mode receipt completeness (EP-5) is enforced at evidence export and replay verification;
+  incomplete receipts fail closed with a deterministic `DETERMINISM_VIOLATION`.
 - DB migration policy is consistent with shipped migrations: legacy sequential migrations are
   capped at `0301` and `adapters.stable_id` semantics/backfill ordering are preserved.
 - Only the explicitly intended deletions are present: `crates/adapteros-cli/src/commands/trace.rs`
@@ -129,6 +131,22 @@ Invariant enforced:
 - The exact `context_digest` byte layout is defined in a single canonical function, and reused by
   the worker and verifier paths. A golden test locks the digest output for fixed inputs.
 
+### 8) `core/server: enforce strict receipt completeness (EP-5)`
+
+Files changed:
+
+- `crates/adapteros-core/src/evidence_envelope.rs`
+- `crates/adapteros-server-api/src/handlers/run_evidence.rs`
+- `crates/adapteros-server-api/src/handlers/replay.rs`
+- `crates/adapteros-server-api/tests/run_evidence_tests.rs`
+- `docs/EXECUTION_CONTRACT.md`
+
+Invariant enforced:
+
+- When `determinism_mode=strict`, evidence export and replay verification fail closed if the
+  receipt is missing determinism-critical identity bindings (`backend_used`,
+  `backend_attestation_b3`, `seed_lineage_hash`).
+
 ## Verification
 
 Commands to reproduce:
@@ -152,6 +170,10 @@ cargo test -p adapteros-core golden_context_digest_worker_layout
 cargo test -p adapteros-core third_party_verification
 cargo test -p adapteros-crypto --test receipt_payload_vectors
 cargo test -p adapteros-cli --test verify_receipt_tests
+
+# Strict completeness (EP-5)
+cargo test -p adapteros-core test_strict_mode_validation_fails_on_missing_fields
+cargo test -p adapteros-server-api --test run_evidence_tests
 ```
 
 Tests run:
@@ -165,3 +187,5 @@ Tests run:
 - `cargo test -p adapteros-core third_party_verification`
 - `cargo test -p adapteros-crypto --test receipt_payload_vectors`
 - `cargo test -p adapteros-cli --test verify_receipt_tests`
+- `cargo test -p adapteros-core test_strict_mode_validation_fails_on_missing_fields`
+- `cargo test -p adapteros-server-api --test run_evidence_tests`
