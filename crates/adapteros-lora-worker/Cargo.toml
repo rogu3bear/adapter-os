@@ -125,7 +125,7 @@ chrono = "0.4"
 smallvec = "1.13"
 sysinfo = { workspace = true, optional = true }  # Telemetry + residency harness
 reqwest = { version = "0.12", features = ["json"], optional = true }
-ureq = "3.0"  # PRD-09: Blocking HTTP client for panic hook
+ureq = "3.2"  # PRD-09: Blocking HTTP client for panic hook
 libc = "0.2"
 clap = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
