@@ -1,10 +1,10 @@
 {
   "statistics": {
     "total": {
-      "clones": 3822,
-      "duplicatedLines": 67631,
-      "percentage": 6.96,
-      "sources": 3623
+      "clones": 3756,
+      "duplicatedLines": 55589,
+      "percentage": 5.81,
+      "sources": 3585
     }
   }
 }
