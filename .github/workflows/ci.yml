@@ -350,6 +350,8 @@ jobs:
     timeout-minutes: 10
     env:
       RUST_BACKTRACE: "1"
+      # Force SQLx offline mode so CI doesn't depend on an external/host database.
+      SQLX_OFFLINE: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
