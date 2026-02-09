@@ -12,6 +12,24 @@ pub fn absolutize_path<P: AsRef<Path>>(path: P) -> PathBuf {
         .join(path)
 }
 
+/// Canonical adapterOS temp directory (under runtime var tree).
+///
+/// This avoids OS temp locations like `/tmp` which are forbidden for persistent/runtime state
+/// on some systems. It is safe for tests and ephemeral staging.
+pub fn resolve_var_tmp_dir() -> PathBuf {
+    resolve_var_dir().join("tmp")
+}
+
+/// Create a temporary directory under `resolve_var_tmp_dir()`.
+///
+/// Use this instead of `tempfile::tempdir()` / `TempDir::new()` / `TempDir::with_prefix()` in
+/// tests to avoid writing under OS temp directories.
+pub fn tempdir_in_var(prefix: &str) -> std::io::Result<tempfile::TempDir> {
+    let root = resolve_var_tmp_dir();
+    std::fs::create_dir_all(&root)?;
+    tempfile::Builder::new().prefix(prefix).tempdir_in(&root)
+}
+
 fn var_dir_override_raw() -> Option<String> {
     std::env::var("AOS_VAR_DIR")
         .ok()

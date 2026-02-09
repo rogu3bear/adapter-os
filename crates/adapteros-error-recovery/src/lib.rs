@@ -414,7 +414,7 @@ mod tests {
     use tempfile::TempDir;
 
     fn new_test_tempdir() -> Result<TempDir> {
-        Ok(TempDir::with_prefix("aos-test-")?)
+        Ok(adapteros_core::tempdir_in_var("aos-test-")?)
     }
 
     #[tokio::test]

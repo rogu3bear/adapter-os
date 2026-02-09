@@ -2,11 +2,10 @@
 
 use adapteros_model_hub::state::{DownloadState, FileDownloadState, StateManager};
 use std::time::Duration;
-use tempfile::TempDir;
 
 #[tokio::test]
 async fn test_state_persistence() {
-    let temp_dir = TempDir::with_prefix("aos-test-").unwrap();
+    let temp_dir = adapteros_core::tempdir_in_var("aos-test-").unwrap();
     let manager = StateManager::new(temp_dir.path().to_path_buf());
 
     let mut state = DownloadState::new(
@@ -41,7 +40,7 @@ async fn test_state_persistence() {
 
 #[tokio::test]
 async fn test_crash_recovery() {
-    let temp_dir = TempDir::with_prefix("aos-test-").unwrap();
+    let temp_dir = adapteros_core::tempdir_in_var("aos-test-").unwrap();
     let manager = StateManager::new(temp_dir.path().to_path_buf());
 
     // Simulate incomplete download
@@ -93,7 +92,7 @@ async fn test_crash_recovery() {
 
 #[tokio::test]
 async fn test_stale_cleanup() {
-    let temp_dir = TempDir::with_prefix("aos-test-").unwrap();
+    let temp_dir = adapteros_core::tempdir_in_var("aos-test-").unwrap();
     let manager = StateManager::new(temp_dir.path().to_path_buf());
 
     // Create old state

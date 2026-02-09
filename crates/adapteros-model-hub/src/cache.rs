@@ -612,7 +612,7 @@ mod tests {
     use tempfile::TempDir;
 
     fn new_test_tempdir() -> TempDir {
-        TempDir::with_prefix("aos-test-").expect("tempdir")
+        adapteros_core::tempdir_in_var("aos-test-").expect("tempdir")
     }
 
     fn create_test_cache() -> (ModelCache, TempDir) {
