@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use adapteros_api_types::workers::WorkerCapabilities;
+use adapteros_api_types::workers::{WorkerCapabilities, WorkerHeartbeatRequest};
 use tracing::{error, info, warn};
 
 // Schema and API versions for worker registration
@@ -380,7 +380,6 @@ pub fn spawn_heartbeat_loop(
         .name("worker-heartbeat".into())
         .spawn(move || {
             let url = format!("{}/v1/workers/heartbeat", cp_url);
-            let body = serde_json::json!({ "worker_id": worker_id }).to_string();
             let interval = std::time::Duration::from_secs(heartbeat_interval_secs as u64);
 
             info!(
@@ -396,6 +395,34 @@ pub fn spawn_heartbeat_loop(
                     info!(worker_id = %worker_id, "Heartbeat loop exiting: drain flag set");
                     break;
                 }
+
+                // Server requires `status` and `timestamp` (see WorkerHeartbeatRequest).
+                let req = WorkerHeartbeatRequest {
+                    worker_id: worker_id.clone(),
+                    status: "healthy".to_string(),
+                    memory_usage_pct: None,
+                    adapters_loaded: None,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                    cache_used_mb: None,
+                    cache_max_mb: None,
+                    cache_pinned_entries: None,
+                    cache_active_entries: None,
+                    tokenizer_hash_b3: None,
+                    tokenizer_vocab_size: None,
+                    coreml_failure_stage: None,
+                    coreml_failure_reason: None,
+                };
+                let body = match serde_json::to_string(&req) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        warn!(
+                            worker_id = %worker_id,
+                            error = %e,
+                            "Failed to serialize heartbeat request (will retry next interval)"
+                        );
+                        continue;
+                    }
+                };
 
                 let agent = ureq::Agent::config_builder()
                     .timeout_global(Some(std::time::Duration::from_secs(5)))
