@@ -1,11 +1,11 @@
 //! Owner CLI Runner Endpoint
 //!
-//! Provides a secure API endpoint for executing whitelisted aosctl commands
+//! Provides a secure API endpoint for executing allowlisted aosctl commands
 //! from the Admin-role UI. Commands are validated, executed in a controlled
 //! environment, and audited.
 //!
 //! **Security Features:**
-//! - Command whitelist validation
+//! - Command allowlist validation
 //! - Injection attack prevention (pipes, redirects, shell metacharacters)
 //! - Audit logging for all executions
 //! - Admin role requirement
@@ -55,7 +55,7 @@ pub struct CliRunResponse {
     pub duration_ms: u64,
 }
 
-/// Whitelist of allowed commands
+/// Allowlist of allowed commands
 const ALLOWED_COMMANDS: &[&str] = &[
     "aosctl status",
     "aosctl adapters list",
@@ -69,12 +69,12 @@ const ALLOWED_COMMANDS: &[&str] = &[
     "help",
 ];
 
-/// Execute a whitelisted CLI command
+/// Execute an allowlisted CLI command
 ///
 /// **Permissions:** Requires `admin` role (highest privilege level).
 ///
 /// **Security:**
-/// - Commands are validated against a strict whitelist
+/// - Commands are validated against a strict allowlist
 /// - Shell metacharacters are rejected (pipes, redirects, semicolons, etc.)
 /// - All executions are audit logged
 ///
@@ -149,7 +149,7 @@ pub async fn run_owner_cli_command(
         ));
     }
 
-    // Validate command against whitelist and security rules
+    // Validate command against allowlist and security rules
     if let Err(e) = validate_command(&req.command) {
         warn!(
             user_id = %claims.sub,
@@ -245,7 +245,7 @@ pub async fn run_owner_cli_command(
     }
 }
 
-/// Validate command against whitelist and security rules
+/// Validate command against allowlist and security rules
 fn validate_command(command: &str) -> Result<(), AosError> {
     let command_trimmed = command.trim();
 
@@ -278,16 +278,16 @@ fn validate_command(command: &str) -> Result<(), AosError> {
         ));
     }
 
-    // Check against whitelist
-    let is_whitelisted = ALLOWED_COMMANDS.iter().any(|allowed| {
+    // Check against allowlist
+    let is_allowlisted = ALLOWED_COMMANDS.iter().any(|allowed| {
         // Allow exact match or match with additional arguments
         // e.g., "aosctl adapters describe" allows "aosctl adapters describe my-adapter"
         command_trimmed == *allowed || command_trimmed.starts_with(&format!("{} ", allowed))
     });
 
-    if !is_whitelisted {
+    if !is_allowlisted {
         return Err(AosError::Validation(format!(
-            "Command '{}' is not in the allowed whitelist. Allowed commands: {}",
+            "Command '{}' is not in the allowlist. Allowed commands: {}",
             command_trimmed,
             ALLOWED_COMMANDS.join(", ")
         )));
@@ -302,7 +302,7 @@ const COMMAND_TIMEOUT_SECS: u64 = 30;
 /// Execute the validated command using real aosctl process
 ///
 /// **Security:**
-/// - Commands are pre-validated against whitelist
+/// - Commands are pre-validated against allowlist
 /// - Uses tokio::process::Command for async execution
 /// - 30-second timeout to prevent hanging processes
 /// - Captures stdout/stderr separately

@@ -228,7 +228,7 @@ mod access_control_tests {
         // 1. Webhook payload signed with secret
         // 2. Signature verification before processing
         // 3. Timestamp included to prevent replay
-        // 4. Only whitelisted URLs allowed
+        // 4. Only allowlisted URLs allowed
     }
 
     // @security: Verify audit log integrity

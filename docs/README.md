@@ -390,7 +390,7 @@ Upload → Validation → Storage (BLAKE3) → Registry → Loading
 
 1. [getting-started.md](getting-started.md) — Get running in 5 minutes (backend only)
 2. [QUICKSTART.md](QUICKSTART.md) — Complete setup with UI (10 minutes)
-2. [CLI_GUIDE.md](CLI_GUIDE.md) — Master the `aosctl` CLI
+2. [CLI_GUIDE.md](CLI_GUIDE.md) — Learn the `aosctl` CLI
 3. [API_REFERENCE.md](API_REFERENCE.md) — Browse all 225 API endpoints
 4. [ARCHITECTURE.md](ARCHITECTURE.md) — Understand system architecture
 5. [GLOSSARY.md](GLOSSARY.md) — Core concepts and terminology

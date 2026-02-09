@@ -265,7 +265,7 @@ Current responses include (see middleware + `auth_enhanced` handlers):
 
 1. **OAuth2/OIDC Support**: External identity providers
 2. **Multi-Factor Authentication**: Enhanced security
-3. **Token Revocation List**: Centralized token blacklist with database persistence
+3. **Token Revocation List**: Centralized revoked-token list with database persistence
 4. **Advanced Session Management**: Cross-device session tracking with geolocation
 5. **API Key Management**: Long-lived service tokens with granular permissions
 6. **Enhanced Audit Logging**: Comprehensive security event tracking with alerting

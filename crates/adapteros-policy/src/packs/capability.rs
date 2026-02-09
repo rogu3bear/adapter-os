@@ -49,7 +49,7 @@ fn is_inside_quotes(position: usize, regions: &[(usize, usize)]) -> bool {
         .any(|(start, end)| position > *start && position < *end)
 }
 
-/// System capabilities whitelist
+/// System capabilities allowlist
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SystemCapabilities {
     /// Can generate text responses

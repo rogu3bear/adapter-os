@@ -6,14 +6,14 @@ AdapterOS implements a comprehensive authentication system with JWT tokens, sess
 
 ## Key Files
 
-- `/Users/star/Dev/adapter-os/crates/adapteros-server-api/src/auth.rs` - Core JWT token generation and validation
-- `/Users/star/Dev/adapter-os/crates/adapteros-server-api/src/auth_common.rs` - Shared auth utilities, cookie management
-- `/Users/star/Dev/adapter-os/crates/adapteros-auth/src/lib.rs` - Centralized auth configuration crate
-- `/Users/star/Dev/adapter-os/crates/adapteros-server-api/src/handlers/auth.rs` - `/v1/auth/me` endpoint
-- `/Users/star/Dev/adapter-os/crates/adapteros-server-api/src/handlers/auth_enhanced/` - Full auth handlers
-- `/Users/star/Dev/adapter-os/crates/adapteros-server-api/src/handlers/api_keys.rs` - API key management
-- `/Users/star/Dev/adapter-os/crates/adapteros-server-api/src/security/token_revocation.rs` - Token blacklist
-- `/Users/star/Dev/adapter-os/crates/adapteros-db/src/auth_sessions.rs` - Session storage
+- `crates/adapteros-server-api/src/auth.rs` - Core JWT token generation and validation
+- `crates/adapteros-server-api/src/auth_common.rs` - Shared auth utilities, cookie management
+- `crates/adapteros-auth/src/lib.rs` - Centralized auth configuration crate
+- `crates/adapteros-server-api/src/handlers/auth.rs` - `/v1/auth/me` endpoint
+- `crates/adapteros-server-api/src/handlers/auth_enhanced/` - Full auth handlers
+- `crates/adapteros-server-api/src/handlers/api_keys.rs` - API key management
+- `crates/adapteros-server-api/src/security/token_revocation.rs` - Token revocation list
+- `crates/adapteros-db/src/auth_sessions.rs` - Session storage
 
 ## Authentication Modes
 
@@ -150,7 +150,7 @@ fn generate_token() -> (String, String) {
 
 ## Token Revocation
 
-### Revocation Blacklist (`revoked_tokens` table)
+### Revocation List (`revoked_tokens` table)
 
 ```rust
 pub struct RevokedToken {
@@ -166,8 +166,8 @@ pub struct RevokedToken {
 
 ### Revocation Functions
 
-- `is_token_revoked(db, jti)` - Check if token is blacklisted
-- `revoke_token(db, jti, user_id, tenant_id, expires_at, revoked_by, reason)` - Add to blacklist
+- `is_token_revoked(db, jti)` - Check if token is revoked
+- `revoke_token(db, jti, user_id, tenant_id, expires_at, revoked_by, reason)` - Add to revocation list
 - `revoke_all_user_tokens(db, user_id, tenant_id, revoked_by, reason)` - Mass revocation
 - `cleanup_expired_revocations(db)` - Remove expired entries
 
@@ -256,7 +256,7 @@ const PUBLIC_PATHS: &[&str] = &[
 
 1. Extract session_id from claims
 2. Delete session from database
-3. Add JTI to revoked tokens blacklist
+3. Add JTI to revocation list (revoked tokens)
 4. Clear auth cookies (set Max-Age=0)
 
 ## Security Invariants (Boot-Time Validation)
