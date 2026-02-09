@@ -643,19 +643,8 @@ dependencies = [
 name = "adapteros-diagnostics"
 version = "0.14.1"
 dependencies = [
- "adapteros-core",
  "adapteros-telemetry",
- "async-trait",
- "blake3",
- "dashmap 5.5.3",
  "proptest",
- "serde",
- "serde_jcs",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "uuid",
 ]
 
 [[package]]
@@ -1087,20 +1076,8 @@ dependencies = [
 name = "adapteros-lora-rag"
 version = "0.14.1"
 dependencies = [
- "adapteros-core",
  "adapteros-retrieval",
- "anyhow",
- "chrono",
- "hnsw_rs",
- "serde",
- "serde_json",
- "sqlx",
- "tantivy",
  "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "walkdir",
 ]
 
 [[package]]
@@ -1501,11 +1478,7 @@ dependencies = [
 name = "adapteros-profiler"
 version = "0.14.1"
 dependencies = [
- "adapteros-core",
  "adapteros-telemetry",
- "parking_lot",
- "serde",
- "serde_json",
 ]
 
 [[package]]
