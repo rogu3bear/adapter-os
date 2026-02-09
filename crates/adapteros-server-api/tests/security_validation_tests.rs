@@ -515,12 +515,12 @@ mod cors_security {
         println!("  Headers: CORS allow headers");
     }
 
-    /// Test: CORS origin whitelist
+    /// Test: CORS origin allowlist
     ///
     /// Only allowed origins can access API
     #[test]
-    fn test_cors_origin_whitelist() {
-        println!("CORS Origin Whitelist:");
+    fn test_cors_origin_allowlist() {
+        println!("CORS Origin Allowlist:");
         println!("  - http://localhost:* (dev)");
         println!("  - https://app.domain.com (prod)");
     }

@@ -307,9 +307,10 @@ Pattern: `{action}_{condition_or_scenario}` or `{subject}_{expected_behavior}`
 4. **Missing domain prefix on errors** - Use `Aos*Error` pattern
 5. **Vague type suffixes** - Use specific suffixes like `Config`, `Context`, `Result`
 
-### Grandfathered Exceptions
+<a id="grandfathered-exceptions"></a>
+### Legacy Exceptions
 
-The following patterns are grandfathered but should not be used in new code:
+The following patterns are legacy exceptions but should not be used in new code:
 
 - `initialize_*` in `adapteros-server/src/boot/` (boot phase convention - returns rich Context objects)
 

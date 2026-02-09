@@ -132,7 +132,7 @@ assert_eq!(response.components.len(), 6);
 2. Create JSON file with canonical format
 3. Update category README with file description
 4. Add test cases in corresponding test file
-5. Update this master README
+5. Update this root README
 
 ### Schema Evolution
 

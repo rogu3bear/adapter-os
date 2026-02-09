@@ -1006,7 +1006,9 @@ ORDER BY tbl_name;"
 
 ## Decision Trees
 
-### Master Diagnostic Decision Tree
+<a id="primary-diagnostic-decision-tree"></a>
+<a id="master-diagnostic-decision-tree"></a>
+### Primary Diagnostic Decision Tree
 
 ```
 Problem Detected

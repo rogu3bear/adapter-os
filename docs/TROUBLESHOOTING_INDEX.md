@@ -106,7 +106,7 @@ This generates a comprehensive report covering:
 
 ### Step 2: Identify Problem Category
 
-Use the decision tree from [TROUBLESHOOTING_ENHANCED.md](./TROUBLESHOOTING_ENHANCED.md#master-diagnostic-decision-tree):
+Use the decision tree from [TROUBLESHOOTING_ENHANCED.md](./TROUBLESHOOTING_ENHANCED.md#primary-diagnostic-decision-tree):
 
 1. **Service not responding?** → Check health endpoints
 2. **Requests failing?** → Check authentication and resources
@@ -232,7 +232,7 @@ After resolving the issue:
 
 ### Available Decision Trees
 
-1. **Master Diagnostic Decision Tree** - [TROUBLESHOOTING_ENHANCED.md](./TROUBLESHOOTING_ENHANCED.md#master-diagnostic-decision-tree)
+1. **Primary Diagnostic Decision Tree** - [TROUBLESHOOTING_ENHANCED.md](./TROUBLESHOOTING_ENHANCED.md#primary-diagnostic-decision-tree)
    - Overall problem triage
    - Routes to specific problem areas
 
@@ -315,7 +315,7 @@ Each runbook follows this structure:
 4. Read [BOOT_TROUBLESHOOTING.md](./BOOT_TROUBLESHOOTING.md) for startup issues
 
 ### SREs/Operators
-1. Master [Production Runbooks](./runbooks/)
+1. Study [Production Runbooks](./runbooks/)
 2. Study [OPERATIONS.md](./OPERATIONS.md)
 3. Review [DEPLOYMENT.md](./DEPLOYMENT.md)
 4. Understand [ARCHITECTURE.md](./ARCHITECTURE.md)

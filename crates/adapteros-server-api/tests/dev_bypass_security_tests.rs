@@ -58,7 +58,7 @@ mod compile_time_guards {
 
     /// Test: CORS layer has different configs for debug/release
     ///
-    /// Debug mode allows all origins; release restricts to whitelist.
+    /// Debug mode allows all origins; release restricts to allowlist.
     /// Location: crates/adapteros-server-api/src/middleware_security.rs:263-307
     #[test]
     fn test_cors_has_conditional_config() {

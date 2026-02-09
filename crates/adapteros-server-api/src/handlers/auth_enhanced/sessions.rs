@@ -110,7 +110,7 @@ pub async fn revoke_session_handler(
             )
         })?;
 
-    // Add to revoked tokens blacklist for defense-in-depth
+    // Add to revocation list (revoked tokens) for defense-in-depth
     // Use 8 hours as default token expiry if we don't have the actual value
     let expires_at = (Utc::now() + Duration::hours(8)).to_rfc3339();
     if let Err(e) = revoke_token(
@@ -125,7 +125,7 @@ pub async fn revoke_session_handler(
     .await
     {
         // Log but don't fail the operation
-        warn!(error = %e, session_id = %session_id, "Failed to add session to revocation blacklist");
+        warn!(error = %e, session_id = %session_id, "Failed to add session to revocation list");
     }
 
     log_auth_event(
@@ -168,7 +168,7 @@ pub async fn logout_handler(
         warn!(error = %e, session_id = %sid, "Failed to revoke session on logout");
     }
 
-    // 2. Add token to revoked tokens blacklist for defense-in-depth
+    // 2. Add token to revocation list (revoked tokens) for defense-in-depth
     // This prevents token replay even if session deletion fails
     let expires_at = chrono::DateTime::from_timestamp(claims.exp, 0)
         .map(|dt| dt.with_timezone(&Utc))
@@ -187,7 +187,7 @@ pub async fn logout_handler(
     .await
     {
         // Log but don't fail logout
-        warn!(error = %e, jti = %claims.jti, "Failed to add token to revocation blacklist");
+        warn!(error = %e, jti = %claims.jti, "Failed to add token to revocation list");
     }
 
     // Clear httpOnly cookies to fully log out browser clients

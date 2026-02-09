@@ -35,7 +35,7 @@ pub fn derive_tenant_key(tenant_id: &str) -> Result<[u8; 32]> {
     //
     // Implementation notes:
     // 1. The Secure Enclave provides hardware-bound key material
-    // 2. We use HKDF to derive tenant-specific keys from a master key
+    // 2. We use HKDF to derive tenant-specific keys from a root key (KEK)
     // 3. Keys never leave the Secure Enclave in plaintext
     //
     // Current implementation:

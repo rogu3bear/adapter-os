@@ -1,6 +1,6 @@
 //! Token revocation management for JWT security
 //!
-//! Provides blacklist functionality for revoked tokens to prevent reuse.
+//! Provides a revocation list for revoked tokens to prevent reuse.
 use adapteros_core::Result;
 use adapteros_db::Db;
 use chrono::Utc;
