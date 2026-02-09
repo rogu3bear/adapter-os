@@ -36,7 +36,7 @@ This document provides a decision-tree approach to diagnosing and resolving comm
 
 **Symptom:**
 ```
-ERROR Port 8080 already in use. Kill existing process: lsof -ti:8080 | xargs kill
+ERROR Port 8080 already in use. Stop existing process: lsof -ti:8080 | xargs kill
 ```
 
 **Exit code:** 10
@@ -45,7 +45,7 @@ ERROR Port 8080 already in use. Kill existing process: lsof -ti:8080 | xargs kil
 
 **Solutions:**
 ```bash
-# Option 1: Kill existing process
+# Option 1: Stop existing process
 lsof -ti:8080 | xargs kill
 
 # Option 2: Use a different port

@@ -1,13 +1,14 @@
 #!/bin/bash
 # adapterOS Freeze Guard
-# Port conflict detection that reports but NEVER kills.
-# Prompts for adapterOS resources, pure freeze for external processes.
+# Port conflict detection and resource management (never touches external processes).
+# Prompts for adapterOS resources; purely diagnostic for external processes.
 #
 # Usage: source scripts/lib/freeze-guard.sh
 #
 # Environment Variables:
-#   FG_AUTO_KILL - Set to "1" or "true" to auto-kill adapterOS processes without prompting
+#   FG_AUTO_STOP - Set to "1" or "true" to auto-stop adapterOS processes without prompting
 #                  (useful for automated/agent environments)
+#   FG_AUTO_KILL - Deprecated alias for FG_AUTO_STOP (still works)
 
 # Colors for output
 FG_RED='\033[0;31m'
@@ -17,6 +18,9 @@ FG_BLUE='\033[0;34m'
 FG_CYAN='\033[0;36m'
 FG_BOLD='\033[1m'
 FG_RESET='\033[0m'
+
+# Prefer FG_AUTO_STOP; FG_AUTO_KILL kept for backward compatibility
+: "${FG_AUTO_STOP:=${FG_AUTO_KILL}}"
 
 fg_status() { printf "${FG_BLUE}[freeze-guard]${FG_RESET} %s\n" "$1"; }
 fg_warn() { printf "${FG_YELLOW}[freeze-guard]${FG_RESET} %s\n" "$1"; }
@@ -82,12 +86,12 @@ freeze_check_port() {
             echo "  Command: $cmd_info"
             echo ""
 
-            # Interactive prompt (default: No, unless FG_AUTO_KILL is set)
-            if [[ "${FG_AUTO_KILL}" == "1" || "${FG_AUTO_KILL}" == "true" ]]; then
-                fg_status "Auto-kill mode: stopping adapterOS process (PID $pid)..."
+            # Interactive prompt (default: No, unless FG_AUTO_STOP is set)
+            if [[ "${FG_AUTO_STOP}" == "1" || "${FG_AUTO_STOP}" == "true" ]]; then
+                fg_status "Auto-stop mode: stopping adapterOS process (PID $pid)..."
                 REPLY="y"
             else
-                read -p "  Kill this adapterOS process? [y/N] " -n 1 -r
+                read -p "  Stop this adapterOS process? [y/N] " -n 1 -r
                 echo ""
             fi
 
@@ -130,7 +134,7 @@ freeze_check_port() {
             echo "  PID: $pid"
             echo "  Command: $cmd_info"
             echo ""
-            echo "  adapterOS will NOT kill external processes."
+            echo "  adapterOS will NOT stop external processes."
             echo "  Required action:"
             echo "    Stop the external process and retry on the same port."
             echo ""
@@ -157,8 +161,8 @@ freeze_check_pid_file() {
     if [ -z "$pid" ]; then
         # Empty PID file - offer to remove
         fg_warn "Empty PID file found: $pid_file"
-        if [[ "${FG_AUTO_KILL}" == "1" || "${FG_AUTO_KILL}" == "true" ]]; then
-            fg_status "Auto-kill mode: removing empty PID file..."
+        if [[ "${FG_AUTO_STOP}" == "1" || "${FG_AUTO_STOP}" == "true" ]]; then
+            fg_status "Auto-stop mode: removing empty PID file..."
             REPLY="y"
         else
             read -p "  Remove empty PID file? [y/N] " -n 1 -r
@@ -180,8 +184,8 @@ freeze_check_pid_file() {
             echo ""
             echo "  Command: $(fg_get_process_info "$pid")"
             echo ""
-            if [[ "${FG_AUTO_KILL}" == "1" || "${FG_AUTO_KILL}" == "true" ]]; then
-                fg_status "Auto-kill mode: stopping existing $service_name..."
+            if [[ "${FG_AUTO_STOP}" == "1" || "${FG_AUTO_STOP}" == "true" ]]; then
+                fg_status "Auto-stop mode: stopping existing $service_name..."
                 REPLY="y"
             else
                 read -p "  Stop existing $service_name? [y/N] " -n 1 -r
@@ -207,8 +211,8 @@ freeze_check_pid_file() {
             echo "  Command: $(fg_get_process_info "$pid")"
             echo ""
             echo "  This is unexpected. The PID file may be stale."
-            if [[ "${FG_AUTO_KILL}" == "1" || "${FG_AUTO_KILL}" == "true" ]]; then
-                fg_status "Auto-kill mode: removing stale PID file..."
+            if [[ "${FG_AUTO_STOP}" == "1" || "${FG_AUTO_STOP}" == "true" ]]; then
+                fg_status "Auto-stop mode: removing stale PID file..."
                 REPLY="y"
             else
                 read -p "  Remove stale PID file? [y/N] " -n 1 -r
@@ -224,8 +228,8 @@ freeze_check_pid_file() {
     else
         # Process not running - stale PID file
         fg_warn "Stale PID file found: $pid_file (process $pid not running)"
-        if [[ "${FG_AUTO_KILL}" == "1" || "${FG_AUTO_KILL}" == "true" ]]; then
-            fg_status "Auto-kill mode: removing stale PID file..."
+        if [[ "${FG_AUTO_STOP}" == "1" || "${FG_AUTO_STOP}" == "true" ]]; then
+            fg_status "Auto-stop mode: removing stale PID file..."
             REPLY="y"
         else
             read -p "  Remove stale PID file? [y/N] " -n 1 -r
@@ -258,8 +262,8 @@ freeze_check_socket() {
         if [ -n "$listener_pid" ]; then
             if fg_is_adapteros_process "$listener_pid"; then
                 fg_warn "Socket in use by adapterOS (PID $listener_pid)"
-                if [[ "${FG_AUTO_KILL}" == "1" || "${FG_AUTO_KILL}" == "true" ]]; then
-                    fg_status "Auto-kill mode: stopping process using socket..."
+                if [[ "${FG_AUTO_STOP}" == "1" || "${FG_AUTO_STOP}" == "true" ]]; then
+                    fg_status "Auto-stop mode: stopping process using socket..."
                     REPLY="y"
                 else
                     read -p "  Stop the process using this socket? [y/N] " -n 1 -r
@@ -284,8 +288,8 @@ freeze_check_socket() {
 
     # Socket exists but nothing listening - stale
     fg_warn "Stale socket found: $socket_path"
-    if [[ "${FG_AUTO_KILL}" == "1" || "${FG_AUTO_KILL}" == "true" ]]; then
-        fg_status "Auto-kill mode: removing stale socket..."
+    if [[ "${FG_AUTO_STOP}" == "1" || "${FG_AUTO_STOP}" == "true" ]]; then
+        fg_status "Auto-stop mode: removing stale socket..."
         REPLY="y"
     else
         read -p "  Remove stale socket? [y/N] " -n 1 -r

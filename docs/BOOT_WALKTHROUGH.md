@@ -471,7 +471,7 @@ ERROR [boot] code=E_MIG_INVALID: Database migrations failed
 
 **Port in use:**
 ```
-ERROR Port 8080 already in use. Kill existing process: lsof -ti:8080 | xargs kill
+ERROR Port 8080 already in use. Stop existing process: lsof -ti:8080 | xargs kill
 ```
 
 **Boot timeout:**

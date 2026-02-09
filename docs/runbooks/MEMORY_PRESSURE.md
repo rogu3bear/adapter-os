@@ -291,7 +291,7 @@ pkill -TERM -f aos-worker
 # 3. Wait for graceful shutdown (max 30 seconds)
 sleep 30
 
-# 4. Force kill if still running
+# 4. Force stop if still running
 pkill -9 -f aos-worker
 
 # 5. Clear any stuck state

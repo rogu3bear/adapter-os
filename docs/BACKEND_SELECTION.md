@@ -1193,6 +1193,7 @@ cargo build --features multi-backend,mlx
 
 ### Codebase Adapter Workflows
 
+<a id="codebase-adapter-backend-override"></a>
 Codebase adapters require different backends depending on their state:
 
 | Codebase Adapter State          | Recommended Backend | Rationale                                       |

@@ -13,7 +13,7 @@ UI_PID_FILE="$PROJECT_ROOT/var/ui.pid"
 
 # Timeouts (in seconds)
 GRACEFUL_TIMEOUT=120  # 2 minutes for graceful shutdown
-FORCE_TIMEOUT=10      # 10 seconds before force kill
+FORCE_TIMEOUT=10      # 10 seconds before forced shutdown
 UI_TIMEOUT=15         # UI should stop quickly
 
 # Colors
@@ -110,18 +110,18 @@ graceful_stop() {
         return 0
     fi
     
-    # Force kill if still running
+    # Force stop if still running
     if kill -0 "$pid" 2>/dev/null; then
         if kill -KILL "$pid" 2>/dev/null; then
             if wait_for_stop "$pid" "$service_name" "$force_timeout"; then
                 warning_msg "$service_name force stopped"
                 return 0
             else
-                error_msg "$service_name failed to stop even after force kill"
+                error_msg "$service_name failed to stop even after forced shutdown"
                 return 1
             fi
         else
-            error_msg "Failed to force kill $service_name"
+            error_msg "Failed to force stop $service_name"
             return 1
         fi
     fi
@@ -328,5 +328,4 @@ case "${SHUTDOWN_MODE}" in
         exit 1
         ;;
 esac
-
 

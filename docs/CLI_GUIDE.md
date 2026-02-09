@@ -10,7 +10,6 @@
 
 - [Overview](#overview)
 - [Architectural Layers](#architectural-layers)
-- [Command Mapping](#command-mapping)
 - [When to Use Which Layer](#when-to-use-which-layer)
 - [Common Workflows](#common-workflows)
 - [Quick Reference](#quick-reference)

@@ -176,7 +176,7 @@ On failure:
 
 ### Use Cases
 
-- Quick sanity check after deployment
+- Quick verification after deployment
 - Verify inference pipeline is working
 - Generate a test run for inspection
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# adapterOS database sanity checker
+# adapterOS database quick checker
 #
 # Checks:
 # - Required tables exist
@@ -124,7 +124,7 @@ normalize_path() {
   return 0
 }
 
-echo "adapterOS DB sanity check"
+echo "adapterOS DB quick check"
 echo "Repo: $ROOT_DIR"
 echo ""
 

@@ -122,7 +122,7 @@ impl std::fmt::Display for IngestionError {
 /// 2. Root hash recomputation and verification
 /// 3. Signature validation (if feature enabled)
 /// 4. Payload presence and scope matching
-/// 5. Timestamp sanity check
+/// 5. Timestamp validity check
 /// 6. Key ID verification
 ///
 /// Does NOT check chain linkage (requires DB state).

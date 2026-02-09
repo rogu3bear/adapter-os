@@ -120,7 +120,7 @@ impl std::fmt::Display for BindError {
             Self::PortInUse { port, addr } => {
                 write!(
                     f,
-                    "Port {} already in use at {}. Kill existing process: lsof -ti:{} | xargs kill",
+                    "Port {} already in use at {}. Stop existing process: lsof -ti:{} | xargs kill",
                     port, addr, port
                 )
             }

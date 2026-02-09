@@ -753,7 +753,7 @@ while lsof var/run/aos/*/worker.sock 2>/dev/null; do
   sleep 1
   timeout=$((timeout - 1))
   if [ $timeout -le 0 ]; then
-    echo "Timeout - forcing kill"
+    echo "Timeout - forcing stop"
     pkill -9 aos-worker
     break
   fi
@@ -1023,7 +1023,7 @@ Problem Detected
 │  │     └─ Check readyz → Boot phase issue
 │  │
 │  └─ Port conflict
-│     └─ Kill process: lsof -ti:8080 | xargs kill
+│     └─ Stop process: lsof -ti:8080 | xargs kill
 │
 ├─ Requests failing?
 │  ├─ Authentication?

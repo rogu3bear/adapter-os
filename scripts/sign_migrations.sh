@@ -131,7 +131,7 @@ echo "  3. Integrate into Db::migrate() method"
 echo "  4. Test tamper detection with modified migration"
 echo
 
-# Verify signatures (sanity check)
+# Verify signatures (quick check)
 echo "Verifying signatures..."
 verify_count=0
 
