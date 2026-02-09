@@ -33,19 +33,19 @@ adapterOS is an ML inference platform that enables **deterministic multi-adapter
 
 ## Table of Contents
 
-- [🚀 Quick Start](#-quick-start)
-- [🏗️ Architecture](#️-architecture)
-- [📦 Components](#-components)
-- [🎛️ Key Features](#️-key-features)
-- [📊 Current Status](#-current-status)
-- [🖼️ Visual Diagrams](#️-visual-diagrams)
-- [🧪 Development](#-development)
-- [📈 Performance](#-performance)
-- [⚙️ Configuration](#️-configuration)
-- [📚 Documentation](#-documentation)
-- [🤝 Contributing](#-contributing)
-- [📄 License](#-license)
-- [🙏 Acknowledgments](#-acknowledgments)
+- [🚀 Quick Start](#quick-start)
+- [🏗️ Architecture](#architecture)
+- [📦 Components](#components)
+- [🎛️ Key Features](#key-features)
+- [📊 Current Status](#current-status)
+- [🖼️ Visual Diagrams](#visual-diagrams)
+- [🧪 Development](#development)
+- [📈 Performance](#performance)
+- [⚙️ Configuration](#configuration)
+- [📚 Documentation](#documentation)
+- [🤝 Contributing](#contributing)
+- [📄 License](#license)
+- [🙏 Acknowledgments](#acknowledgments)
 
 ## Architecture
 
@@ -249,6 +249,7 @@ export AOS_MLX_FFI_MODEL=/var/models/Llama-3.2-3B-Instruct-4bit
 ```
 ---
 
+<a id="components"></a>
 ## 📦 Components
 
 ### Core Crates
@@ -283,6 +284,7 @@ export AOS_MLX_FFI_MODEL=/var/models/Llama-3.2-3B-Instruct-4bit
 
 ---
 
+<a id="key-features"></a>
 ## 🎛️ Key Features
 
 ### 1. **K-Sparse LoRA Routing**
@@ -367,6 +369,7 @@ Unloaded -> Cold -> Warm -> Hot -> Resident
 
 See [docs/LIFECYCLE.md](docs/LIFECYCLE.md) for detailed state machine documentation.
 
+<a id="current-status"></a>
 ## 📊 Current Status (0.12.0)
 
 ### ✅ **Implemented Features**
@@ -395,6 +398,7 @@ See [docs/LIFECYCLE.md](docs/LIFECYCLE.md) for detailed state machine documentat
 - **Content Addressing**: BLAKE3 hashing for all artifacts and configurations
 - **Hot-Swap**: Live adapter replacement without service interruption
 
+<a id="visual-diagrams"></a>
 ## 🖼️ Visual Diagrams
 
 adapterOS includes comprehensive visual documentation. Here are key diagrams:
@@ -436,6 +440,7 @@ adapterOS includes comprehensive visual documentation. Here are key diagrams:
 
 ---
 
+<a id="development"></a>
 ## 🧪 Development
 
 ### Run Tests
@@ -537,6 +542,7 @@ adapterOS 0.12.0 includes:
 
 ---
 
+<a id="documentation"></a>
 ## 📚 Documentation
 
 ### Quick Links
@@ -568,6 +574,7 @@ adapterOS 0.12.0 includes:
 
 ---
 
+<a id="contributing"></a>
 ## 🤝 Contributing
 
 Contributions welcome! Please see `CONTRIBUTING.md` for guidelines.
@@ -618,6 +625,7 @@ cargo bench
 
 ---
 
+<a id="license"></a>
 ## 📄 License
 
 Dual-licensed under Apache 2.0 or MIT at your option.
@@ -626,6 +634,7 @@ See [LICENSE](LICENSE) for the complete license text.
 
 ---
 
+<a id="acknowledgments"></a>
 ## 🙏 Acknowledgments
 
 - **Apple Metal Team** for the excellent GPU compute framework

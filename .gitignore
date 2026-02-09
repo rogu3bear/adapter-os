@@ -353,6 +353,7 @@ build/
 .worktrees/
 target-codex/
 target-codex-check/
+target-codex-check*/
 target-codex-openapi/
 
 # Accidental output files (from mistyped CLI flags)

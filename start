@@ -802,7 +802,7 @@ show_status() {
         if [ -n "$worker_pid" ] && kill -0 "$worker_pid" 2>/dev/null; then
             print_step "success" "Worker          ${FG_GREEN}RUNNING${FG_RESET}  (PID $worker_pid, socket)"
         else
-            print_step "error" "Worker          ${FG_RED}STALE${FG_RESET}    (socket exists but process dead)"
+            print_step "error" "Worker          ${FG_RED}STALE${FG_RESET}    (socket exists but process not running)"
         fi
     elif [ -f "$worker_pid_file" ]; then
         local worker_pid

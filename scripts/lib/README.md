@@ -116,14 +116,15 @@ fi
 
 **Port conflict detection and resource management.**
 
-Provides preflight checks for port conflicts, stale PID files, Unix sockets, and database locks. By default, prompts for user confirmation before killing adapterOS processes or removing stale resources. External (non-adapterOS) processes are never touched.
+Provides preflight checks for port conflicts, stale PID files, Unix sockets, and database locks. By default, prompts for user confirmation before stopping adapterOS processes or removing stale resources. External (non-adapterOS) processes are never touched.
 
 ### Environment Variables
 
-- **`FG_AUTO_KILL`**: Set to `1` or `true` to enable non-interactive mode
-  - Automatically kills adapterOS processes and cleans up stale resources without prompting
+- **`FG_AUTO_STOP`**: Set to `1` or `true` to enable non-interactive mode
+  - Automatically stops adapterOS processes and cleans up stale resources without prompting
   - **Use case**: Automated environments, CI/CD, agent-driven shells
   - **Default**: Interactive prompts (requires user confirmation)
+  - **Note**: `FG_AUTO_KILL` is a deprecated alias and still works
 
 ### Usage
 
@@ -134,8 +135,8 @@ source scripts/lib/freeze-guard.sh
 # Interactive mode (default) - prompts before acting
 freeze_check_port 8080 "Backend API"
 
-# Non-interactive mode - auto-kill adapterOS processes
-export FG_AUTO_KILL=1
+# Non-interactive mode - auto-stop adapterOS processes
+export FG_AUTO_STOP=1
 freeze_preflight  # Checks all resources, auto-cleans if needed
 ```
 
@@ -143,15 +144,15 @@ freeze_preflight  # Checks all resources, auto-cleans if needed
 
 #### `freeze_check_port <port> [service_name]`
 
-Checks if a port is free. If occupied by an adapterOS process, offers to kill it (or auto-kills if `FG_AUTO_KILL=1`). Never touches external processes.
+Checks if a port is free. If occupied by an adapterOS process, offers to stop it (or auto-stops if `FG_AUTO_STOP=1`). Never touches external processes.
 
 #### `freeze_check_pid_file <pid_file> [service_name]`
 
-Checks for stale PID files and offers to clean them (or auto-cleans if `FG_AUTO_KILL=1`).
+Checks for stale PID files and offers to clean them (or auto-cleans if `FG_AUTO_STOP=1`).
 
 #### `freeze_check_socket <socket_path> [service_name]`
 
-Checks for stale Unix sockets and offers to clean them (or auto-cleans if `FG_AUTO_KILL=1`).
+Checks for stale Unix sockets and offers to clean them (or auto-cleans if `FG_AUTO_STOP=1`).
 
 #### `freeze_check_db_lock <db_path>`
 
@@ -182,9 +183,9 @@ fi
 
 ```bash
 #!/bin/bash
-export FG_AUTO_KILL=1  # Enable auto-kill mode
+export FG_AUTO_STOP=1  # Enable auto-stop mode
 source scripts/lib/freeze-guard.sh
 
-# Will automatically kill adapterOS processes without prompting
+# Will automatically stop adapterOS processes without prompting
 freeze_preflight 8080 3200 var
 ```

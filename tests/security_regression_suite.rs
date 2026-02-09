@@ -159,7 +159,7 @@ fn test_no_panics_in_crypto() {
                 }
 
                 // Check for dangerous panic operations
-                // Whitelist: unwrap() in test code and cfg(test) blocks
+                // Allowlist: unwrap() in test code and cfg(test) blocks
                 let dangerous_patterns = ["unwrap()", "expect(", "panic!", ".unwrap_or_else(panic"];
 
                 for pattern in &dangerous_patterns {

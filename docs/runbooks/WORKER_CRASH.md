@@ -348,14 +348,14 @@ pkill -f aos-worker
 
 **If Worker Hung (Not Crashed):**
 ```bash
-# 1. Collect diagnostics before killing
+# 1. Collect diagnostics before stopping
 WORKER_PID=$(pgrep -f aos-worker)
 kill -QUIT $WORKER_PID  # Trigger core dump (if enabled)
 
 # Or get thread backtrace
 lldb -p $WORKER_PID -batch -o "thread backtrace all" > worker-deadlock.txt
 
-# 2. Force kill and restart
+# 2. Force stop and restart
 kill -9 $WORKER_PID
 sleep 5
 
