@@ -176,16 +176,14 @@ fn compute_output_digest(output_tokens: &[u32]) -> B3Hash {
 
 fn compute_context_digest(ctx: &ReceiptContext) -> Result<B3Hash> {
     let stack_bytes = hex::decode(&ctx.stack_hash_hex)?;
-    let mut buf = Vec::with_capacity(
-        ctx.tenant_namespace.len() + stack_bytes.len() + 4 + (ctx.prompt_tokens.len() * 4),
-    );
-    buf.extend_from_slice(ctx.tenant_namespace.as_bytes());
-    buf.extend_from_slice(&stack_bytes);
-    buf.extend_from_slice(&(ctx.prompt_tokens.len() as u32).to_le_bytes());
-    for t in &ctx.prompt_tokens {
-        buf.extend_from_slice(&t.to_le_bytes());
-    }
-    Ok(B3Hash::hash(&buf))
+    Ok(adapteros_core::context_digest::compute_context_digest(
+        &ctx.tenant_namespace,
+        &stack_bytes,
+        None,
+        None,
+        None,
+        &ctx.prompt_tokens,
+    ))
 }
 
 fn make_keypair() -> Keypair {

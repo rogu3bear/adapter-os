@@ -483,35 +483,17 @@ impl VerificationResult {
 
 /// Compute context digest from claimed configuration.
 ///
-/// This is the canonical algorithm for context digest computation:
-/// BLAKE3(tenant_namespace || stack_hash || prompt_token_count || prompt_tokens...)
+/// Delegates to `adapteros_core::context_digest` (single source of truth for byte layout).
 fn compute_context_digest(config: &ClaimedConfig) -> B3Hash {
-    let mut buf = Vec::with_capacity(
-        config.tenant_namespace.len() + 32 + 4 + (config.prompt_tokens.len() * 4) + 96,
-    );
-
-    buf.extend_from_slice(config.tenant_namespace.as_bytes());
-    buf.extend_from_slice(config.stack_hash.as_bytes());
-
-    if let Some(tokenizer_hash) = config.tokenizer_hash_b3 {
-        buf.extend_from_slice(&tokenizer_hash);
-        if let Some(ref version) = config.tokenizer_version {
-            buf.extend_from_slice(&(version.len() as u32).to_le_bytes());
-            buf.extend_from_slice(version.as_bytes());
-        }
-        if let Some(ref norm) = config.tokenizer_normalization {
-            buf.extend_from_slice(&(norm.len() as u32).to_le_bytes());
-            buf.extend_from_slice(norm.as_bytes());
-        }
-    }
-
-    buf.extend_from_slice(&(config.prompt_tokens.len() as u32).to_le_bytes());
-
-    for token in &config.prompt_tokens {
-        buf.extend_from_slice(&token.to_le_bytes());
-    }
-
-    B3Hash::hash(&buf)
+    let tokenizer_hash_bytes = config.tokenizer_hash_b3.as_ref().map(|h| h.as_ref());
+    crate::context_digest::compute_context_digest(
+        &config.tenant_namespace,
+        config.stack_hash.as_bytes(),
+        tokenizer_hash_bytes,
+        config.tokenizer_version.as_deref(),
+        config.tokenizer_normalization.as_deref(),
+        &config.prompt_tokens,
+    )
 }
 
 /// Build ReceiptDigestInput from claimed values.
