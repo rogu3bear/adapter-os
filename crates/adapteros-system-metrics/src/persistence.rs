@@ -502,7 +502,6 @@ impl Clone for MetricsPersistenceService {
 mod tests {
     use super::*;
     use adapteros_telemetry::TelemetryWriter;
-    use tempfile::TempDir;
 
     #[tokio::test]
     async fn test_persistence_service_creation() {
@@ -512,7 +511,7 @@ mod tests {
                 .expect("Failed to create test database"),
         );
 
-        let temp_dir = TempDir::with_prefix("aos-test-").unwrap();
+        let temp_dir = adapteros_core::tempdir_in_var("aos-test-").unwrap();
         let telemetry_writer = Arc::new(
             TelemetryWriter::new(temp_dir.path(), 1000, 1024 * 1024)
                 .expect("Failed to create telemetry writer"),
