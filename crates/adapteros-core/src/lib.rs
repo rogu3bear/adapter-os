@@ -58,6 +58,7 @@ pub mod identity;
 pub mod ids;
 pub mod index_snapshot;
 pub mod io_utils;
+pub mod archive;
 pub mod jitter;
 pub mod json;
 pub mod lifecycle;
