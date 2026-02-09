@@ -111,7 +111,7 @@ ls -lh var/aos-cp.sqlite3-wal
 lsof var/aos-cp.sqlite3-wal
 
 # Check recent checkpoints in logs
-grep -i "wal.*checkpoint" var/aos-cp.log | tail -10
+grep -i "wal.*checkpoint" var/logs/backend.log | tail -10
 ```
 
 **If WAL > 1GB:** Database not checkpointing properly (see Resolution)
@@ -140,7 +140,7 @@ find var/telemetry/ -name "*.jsonl" | wc -l
 find var/telemetry/ -name "*.jsonl" | head -1 | xargs ls -lh
 
 # Check if cleanup job is running
-grep -i "telemetry.*cleanup" var/aos-cp.log | tail -10
+grep -i "telemetry.*cleanup" var/logs/backend.log | tail -10
 ```
 
 ---
@@ -417,8 +417,8 @@ sqlite3 var/aos-cp.sqlite3 "CREATE TABLE test_write (id INT); DROP TABLE test_wr
 echo "Database write test: $?"
 
 # 5. Test log writes
-echo "Test log entry: $(date)" >> var/aos-cp.log
-tail -1 var/aos-cp.log
+echo "Test log entry: $(date)" >> var/logs/backend.log
+tail -1 var/logs/backend.log
 
 # 6. Monitor disk usage trend
 watch -n 300 'df -h var/'

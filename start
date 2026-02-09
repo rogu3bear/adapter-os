@@ -748,6 +748,8 @@ UI: Backend serves Leptos WASM from static/. For dev hot-reload,
 Environment:
   AOS_SERVER_PORT   Backend API port (default: 8080)
   AOS_VAR_DIR       Runtime data directory (default: var)
+  AOS_DEV_LOG_RETENTION_DAYS            Runtime log retention in days (default: 7)
+  AOS_DEV_CLIENT_ERROR_RETENTION_DAYS   client_errors retention in days (default: 30)
 
 Worker options:
   --worker-backend <mlx|metal|coreml>   (or AOS_MODEL_BACKEND)

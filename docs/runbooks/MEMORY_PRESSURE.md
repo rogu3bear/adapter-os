@@ -118,7 +118,7 @@ WHERE event_type='adapter.evicted'
   AND created_at > datetime('now', '-5 minutes');"
 
 # Check failed evictions
-grep -i "eviction.*fail\|eviction.*error" var/aos-cp.log | tail -20
+grep -i "eviction.*fail\|eviction.*error" var/logs/backend.log | tail -20
 
 # Check pinned adapters (cannot be evicted)
 sqlite3 var/aos-cp.sqlite3 "
@@ -201,7 +201,7 @@ aosctl lifecycle evict --strategy=lowest_activation_pct --count=5
 aosctl metrics show --json | jq '.memory.pressure_level, .adapters.loaded_count'
 
 # 3. Check logs for eviction confirmation
-grep "adapter.*evicted" var/aos-cp.log | tail -10
+grep "adapter.*evicted" var/logs/backend.log | tail -10
 
 # 4. If still critical, evict more aggressively
 curl -X POST http://localhost:8080/api/v1/lifecycle/evict \
@@ -381,7 +381,7 @@ WHERE event_type IN ('adapter.evicted', 'adapter.loaded')
 GROUP BY event_type;"
 
 # 6. Check for OOM warnings (should be none)
-grep -i "out of memory\|oom" var/aos-cp.log | tail -10
+grep -i "out of memory\|oom" var/logs/backend.log | tail -10
 grep -i "out of memory\|oom" var/aos-worker.log | tail -10
 ```
 

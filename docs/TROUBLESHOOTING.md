@@ -78,7 +78,7 @@ curl -f http://localhost:8080/healthz && echo "✓ Health OK" || echo "✗ Healt
 curl -f http://localhost:8080/readyz && echo "✓ Ready OK" || echo "✗ Ready FAIL"
 
 # Check recent logs (macOS/Linux)
-tail -20 var/aos-cp.log 2>/dev/null || journalctl -u adapteros-server -n 20
+tail -20 var/logs/backend.log 2>/dev/null || journalctl -u adapteros-server -n 20
 
 # Check system resources
 df -h var/
@@ -86,26 +86,32 @@ free -h 2>/dev/null || vm_stat  # macOS uses vm_stat
 
 # Check database connectivity (SQLite)
 sqlite3 var/aos-cp.sqlite3 "SELECT 1;" && echo "✓ DB OK" || echo "✗ DB FAIL"
+
+# Check latest UI/client-side errors (includes UI panics)
+sqlite3 var/aos-cp.sqlite3 \
+  "SELECT created_at,error_type,code,page,message FROM client_errors ORDER BY created_at DESC LIMIT 10;"
 ```
 
 ### Log Analysis Commands
 
 ```bash
 # Show last 50 lines with timestamps
-tail -50 var/aos-cp.log | grep -E '^\d{4}-\d{2}-\d{2}'
+tail -50 var/logs/backend.log | grep -E '^\d{4}-\d{2}-\d{2}'
 
 # Search for errors in last hour
-grep "ERROR" var/aos-cp.log | tail -20
+grep "ERROR" var/logs/backend.log | tail -20
 
 # Count errors by type
-grep "ERROR" var/aos-cp.log | cut -d' ' -f4- | sort | uniq -c | sort -nr
+grep "ERROR" var/logs/backend.log | cut -d' ' -f4- | sort | uniq -c | sort -nr
 
 # Show memory-related warnings
-grep -i "memory\|eviction\|headroom" var/aos-cp.log | tail -10
+grep -i "memory\|eviction\|headroom" var/logs/backend.log | tail -10
 
 # Check for stub warnings (indicating missing features)
-grep -i "stub\|fallback\|mock" var/aos-cp.log | tail -10
+grep -i "stub\|fallback\|mock" var/logs/backend.log | tail -10
 ```
+
+Structured UI/client errors are not in flat log files; they are stored in `var/aos-cp.sqlite3` (`client_errors`) and surfaced in the UI at `/errors`.
 
 ---
 
@@ -152,7 +158,7 @@ top -l 1 | grep CPU  # macOS
 top -bn1 | grep Cpu  # Linux
 
 # Check if stub backend is active
-grep "stub\|fallback" var/aos-cp.log | grep -i "mlx\|metal\|coreml"
+grep "stub\|fallback" var/logs/backend.log | grep -i "mlx\|metal\|coreml"
 ```
 
 **Solutions:**
@@ -262,7 +268,7 @@ curl -s http://localhost:8080/api/v1/metrics/system | jq '.adapters.loaded_count
 curl -v http://localhost:8080/api/v1/adapters
 
 # Verify dev bypass is active
-grep "Dev bypass" var/aos-cp.log | tail -5
+grep "Dev bypass" var/logs/backend.log | tail -5
 ```
 
 **Solutions:**
@@ -519,7 +525,7 @@ ls -la var/adapters/
 ./aosctl adapter inspect var/adapters/*.aos
 
 # Check loading logs
-grep "adapter.*load\|adapter.*error" var/aos-cp.log | tail -20
+grep "adapter.*load\|adapter.*error" var/logs/backend.log | tail -20
 ```
 
 **Solutions:**
@@ -610,7 +616,7 @@ curl -s http://localhost:8080/api/v1/metrics/system | jq '.inference.avg_latency
 curl -s http://localhost:8080/api/v1/metrics/system | jq '.inference.queue_depth'
 
 # Monitor requests
-tail -f var/aos-cp.log | grep "inference_request"
+tail -f var/logs/backend.log | grep "inference_request"
 
 # Check system load
 uptime
@@ -622,7 +628,7 @@ top -l 1  # macOS
 1. **Check for stub backends:**
    ```bash
    # Stub backends are much slower
-   grep -i "stub\|fallback" var/aos-cp.log | tail -10
+   grep -i "stub\|fallback" var/logs/backend.log | tail -10
 
    # Enable real backend (macOS)
    cargo build --release --features mlx-backend
@@ -719,7 +725,7 @@ sqlite3 var/aos-cp.sqlite3 "SELECT * FROM _sqlx_migrations ORDER BY version DESC
 ls migrations/*.sql | tail -5
 
 # Check for migration errors in logs
-grep "migration" var/aos-cp.log | tail -20
+grep "migration" var/logs/backend.log | tail -20
 ```
 
 **Solutions:**
@@ -892,7 +898,7 @@ system_profiler SPiBridgeDataType 2>/dev/null | grep "Model Name"
 cargo tree -p adapteros-lora-kernel-coreml -f "{p} {f}"
 
 # Look for CoreML logs
-grep -i "coreml" var/aos-cp.log | tail -10
+grep -i "coreml" var/logs/backend.log | tail -10
 ```
 
 **Solutions:**
@@ -928,7 +934,7 @@ grep -i "coreml" var/aos-cp.log | tail -10
 cargo tree -p adapteros-lora-worker -f "{p} {f}" | grep mlx
 
 # Check for stub warnings in logs
-grep -i "stub" var/aos-cp.log | grep -i "mlx"
+grep -i "stub" var/logs/backend.log | grep -i "mlx"
 
 # Check if MLX library is installed
 brew list | grep mlx
@@ -967,7 +973,7 @@ uname -m  # Should show "arm64"
    cargo run --bin adapteros-server 2>&1 | grep -i "mlx.*version"
 
    # Should see "MLX GPU backend initialized"
-   grep "MLX.*initialized" var/aos-cp.log
+   grep "MLX.*initialized" var/logs/backend.log
    ```
 
 ### Metal Backend Issues (macOS Only)
@@ -1022,7 +1028,7 @@ cd metal && bash build.sh
 
 ```bash
 # Method 1: Check logs for stub warnings
-grep -i "stub\|fallback\|mock" var/aos-cp.log | tail -20
+grep -i "stub\|fallback\|mock" var/logs/backend.log | tail -20
 
 # Method 2: Check feature flags
 cargo tree --workspace -f "{p} {f}" | grep -E "mlx|metal|coreml"
@@ -1046,7 +1052,7 @@ Before deploying to production, verify NO stubs are active:
 
 ```bash
 # Should return empty (no stub warnings)
-grep -i "stub\|fallback" var/aos-cp.log | grep -v "development\|test"
+grep -i "stub\|fallback" var/logs/backend.log | grep -v "development\|test"
 
 # All features should show "enabled"
 cargo tree --workspace -f "{p} {f}" | grep -E "mlx|metal|coreml"
@@ -1128,7 +1134,7 @@ df -h var/
 ps aux | grep adapteros-server
 
 # Recent logs (last 100 lines)
-tail -100 var/aos-cp.log
+tail -100 var/logs/backend.log
 
 # Configuration (redact secrets)
 grep -v "password\|secret\|key" configs/aos.toml
@@ -1142,7 +1148,7 @@ sqlite3 var/aos-cp.sqlite3 "SELECT COUNT(*) FROM adapters;"
 
 # Backend status
 cargo tree --workspace -f "{p} {f}" | grep -E "mlx|metal|coreml"
-grep -i "stub\|fallback" var/aos-cp.log | tail -20
+grep -i "stub\|fallback" var/logs/backend.log | tail -20
 ```
 
 ### Quick Reference Commands
@@ -1155,7 +1161,7 @@ grep -i "stub\|fallback" var/aos-cp.log | tail -20
 curl http://localhost:8080/healthz && echo OK
 
 # View real-time logs
-tail -f var/aos-cp.log
+tail -f var/logs/backend.log
 
 # Check what's using ports
 lsof -i:8080 -i:3200

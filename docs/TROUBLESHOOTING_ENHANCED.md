@@ -127,7 +127,7 @@ LEFT JOIN tenants t ON a.tenant_id = t.id
 WHERE t.id IS NULL;"
 
 # Check constraint violations in logs
-grep "FOREIGN KEY constraint failed" var/aos-cp.log
+grep "FOREIGN KEY constraint failed" var/logs/backend.log
 ```
 
 **Solutions:**
@@ -165,7 +165,7 @@ ps aux | grep aos-worker
 ls -la var/run/aos/*/worker.sock
 
 # Verify path not in /tmp
-grep -i "socket.*tmp" configs/aos.toml var/aos-cp.log
+grep -i "socket.*tmp" configs/aos.toml var/logs/backend.log
 
 # Check socket permissions
 stat var/run/aos/*/worker.sock
@@ -338,7 +338,7 @@ FROM adapters
 WHERE id = 'adapter-123';"
 
 # Check security logs
-grep "isolation.*violation" var/aos-cp.log | tail -20
+grep "isolation.*violation" var/logs/backend.log | tail -20
 ```
 
 **Solutions:**
@@ -377,10 +377,10 @@ curl -s http://localhost:8080/api/v1/adapters/adapter-123 | jq '.status'
 curl -s http://localhost:8080/api/v1/metrics/system | jq '.memory.headroom_pct'
 
 # Check eviction logs
-grep -i "evict.*adapter-123" var/aos-cp.log
+grep -i "evict.*adapter-123" var/logs/backend.log
 
 # Check load failures
-grep -i "load.*adapter-123.*fail" var/aos-cp.log
+grep -i "load.*adapter-123.*fail" var/logs/backend.log
 ```
 
 **Solutions:**
@@ -420,7 +420,7 @@ df -h var/
 fsck (on unmounted volume)
 
 # Check upload logs
-grep -i "upload.*adapter-123" var/aos-cp.log
+grep -i "upload.*adapter-123" var/logs/backend.log
 
 # Verify manifest hash
 ./aosctl adapter inspect var/adapters/adapter-123.aos | jq '.manifest_hash'
@@ -440,7 +440,7 @@ rm var/adapters/adapter-123.aos
 ./aosctl adapter update adapter-123 --recompute-hash
 
 # Check for security breach
-grep -i "tamper\|unauthorized" var/aos-cp.log
+grep -i "tamper\|unauthorized" var/logs/backend.log
 ```
 
 #### Performance Errors
@@ -504,10 +504,10 @@ curl -X POST http://localhost:8080/api/v1/adapters/evict?tier=cold
 curl -s http://localhost:8080/api/v1/metrics/system | jq '.inference'
 
 # Check backend type
-grep -i "backend.*initialized" var/aos-cp.log | tail -1
+grep -i "backend.*initialized" var/logs/backend.log | tail -1
 
 # Check for stub warnings
-grep -i "stub.*active" var/aos-cp.log
+grep -i "stub.*active" var/logs/backend.log
 
 # Check GPU
 system_profiler SPDisplaysDataType | grep Metal
@@ -1133,8 +1133,8 @@ lsof var/run/aos/*/worker.sock && \
 echo "Worker healthy"
 
 # Backend
-grep -i "backend.*initialized" var/aos-cp.log | tail -1
-grep -i "stub" var/aos-cp.log | tail -1
+grep -i "backend.*initialized" var/logs/backend.log | tail -1
+grep -i "stub" var/logs/backend.log | tail -1
 
 # Disk space
 df -h var/ | tail -1
@@ -1145,21 +1145,21 @@ du -sh var/{logs,adapters,aos-cp.sqlite3*}
 
 ```bash
 # Error summary (last hour)
-grep ERROR var/aos-cp.log | \
+grep ERROR var/logs/backend.log | \
   awk -F'ERROR' '{print $2}' | \
   cut -d':' -f1 | \
   sort | uniq -c | sort -nr
 
 # Recent errors
-tail -100 var/aos-cp.log | grep ERROR
+tail -100 var/logs/backend.log | grep ERROR
 
 # Specific error types
-grep -i "database.*error" var/aos-cp.log | tail -10
-grep -i "worker.*timeout" var/aos-cp.log | tail -10
-grep -i "memory.*pressure" var/aos-cp.log | tail -10
+grep -i "database.*error" var/logs/backend.log | tail -10
+grep -i "worker.*timeout" var/logs/backend.log | tail -10
+grep -i "memory.*pressure" var/logs/backend.log | tail -10
 
 # Error timeline
-grep ERROR var/aos-cp.log | \
+grep ERROR var/logs/backend.log | \
   awk '{print $1, $2}' | \
   cut -d'T' -f1,2 | \
   cut -d'+' -f1 | \
@@ -1243,7 +1243,7 @@ du -sh var/*
 echo
 
 echo "=== Recent Errors ==="
-tail -50 var/aos-cp.log | grep ERROR
+tail -50 var/logs/backend.log | grep ERROR
 echo
 
 echo "=== End of Report ==="
@@ -1290,7 +1290,7 @@ lsof var/run/aos/*/worker.sock
 #### Slow Inference
 ```bash
 # Check backend
-grep -i "backend.*initialized" var/aos-cp.log | tail -1
+grep -i "backend.*initialized" var/logs/backend.log | tail -1
 
 # Check GPU
 system_profiler SPDisplaysDataType | grep Metal

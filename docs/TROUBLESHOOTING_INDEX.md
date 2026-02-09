@@ -143,7 +143,7 @@ curl -s http://localhost:8080/api/v1/metrics/system | jq .
 
 #### Recent Errors
 ```bash
-tail -50 var/aos-cp.log | grep ERROR
+tail -50 var/logs/backend.log | grep ERROR
 ```
 
 #### Database Integrity
@@ -202,9 +202,9 @@ After resolving the issue:
 
 | Command | Purpose |
 |---------|---------|
-| `tail -100 var/aos-cp.log \| grep ERROR` | Recent errors |
-| `grep -i "memory\|eviction" var/aos-cp.log` | Memory issues |
-| `grep -i "determinism\|hash.*mismatch" var/aos-cp.log` | Determinism violations |
+| `tail -100 var/logs/backend.log \| grep ERROR` | Recent errors |
+| `grep -i "memory\|eviction" var/logs/backend.log` | Memory issues |
+| `grep -i "determinism\|hash.*mismatch" var/logs/backend.log` | Determinism violations |
 | `grep -i "panic\|fatal" var/logs/worker.log` | Worker crashes |
 
 ---
